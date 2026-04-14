@@ -972,6 +972,21 @@ export function getManaAbilitiesForPermanent(
   // Pattern: "{T}, Pay N life: Add {X} or {Y}"
   // ========================================================================
   if (isLand && landOracleText) {
+    const payLifeAnyColorMatch = landOracleText.match(/\{t\},\s*pay\s+(\d+)\s+life:\s*add\s+one\s+mana\s+of\s+any\s+color/i);
+    if (payLifeAnyColorMatch) {
+      const lifeAmount = parseInt(payLifeAnyColorMatch[1], 10);
+      abilities.push({
+        id: 'native_pay_life_any',
+        cost: `{T}, Pay ${lifeAmount} life`,
+        produces: ['W', 'U', 'B', 'R', 'G'],
+        producesAllAtOnce: false,
+        additionalCosts: [{
+          type: 'pay_life',
+          amount: lifeAmount,
+        }],
+      });
+    }
+
     const payLifeMatch = landOracleText.match(/\{t\},\s*pay\s+(\d+)\s+life:\s*add\s+\{([wubrgc])\}\s+or\s+\{([wubrgc])\}/i);
     if (payLifeMatch) {
       const lifeAmount = parseInt(payLifeMatch[1], 10);

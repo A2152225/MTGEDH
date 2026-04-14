@@ -4,6 +4,8 @@ import { createGameIfNotExists, getEvents, initDb } from '../src/db/index.js';
 import { ensureGame } from '../src/socket/util.js';
 import { games } from '../src/socket/socket.js';
 import { handleAIPriority, registerAIPlayer, unregisterAIPlayer } from '../src/socket/ai.js';
+import { ResolutionQueueManager } from '../src/state/resolution/index.js';
+import { initializeAIResolutionHandler } from '../src/socket/resolution.js';
 import { AIEngine, AIDecisionType } from '../../rules-engine/src/AIEngine.js';
 
 function createNoopIo() {
@@ -16,6 +18,9 @@ function createNoopIo() {
     emit: (_event: string, _payload: any) => {
       // no-op
     },
+    sockets: {
+      sockets: new Map(),
+    },
   } as any;
 }
 
@@ -25,6 +30,8 @@ describe('AI mana ability integration', () => {
 
   beforeAll(async () => {
     await initDb();
+    initializeAIResolutionHandler(createNoopIo() as any);
+    await new Promise((resolve) => setTimeout(resolve, 0));
   });
 
   beforeEach(() => {
@@ -49,7 +56,7 @@ describe('AI mana ability integration', () => {
   }
 
   function setupTestGame(suffix: string) {
-    const localGameId = `${gameId}_${suffix}`;
+    const localGameId = `${gameId}_${suffix}_${Math.random().toString(36).slice(2, 10)}`;
     games.delete(localGameId as any);
     unregisterAIPlayer(localGameId, playerId as any);
     createGameIfNotExists(localGameId, 'commander', 40);
@@ -121,6 +128,10 @@ describe('AI mana ability integration', () => {
     const setTimeoutSpy = vi.spyOn(globalThis, 'setTimeout').mockImplementation(() => 0 as any);
     try {
       await handleAIPriority(createNoopIo(), localGameId, playerId as any);
+      await vi.waitFor(() => {
+        const totalMana = Object.values((game.state as any).manaPool?.[playerId] || {}).reduce((sum: number, amount: any) => sum + Number(amount || 0), 0);
+        expect(totalMana).toBe(1);
+      });
     } finally {
       setTimeoutSpy.mockRestore();
     }
@@ -130,8 +141,9 @@ describe('AI mana ability integration', () => {
     expect(totalMana).toBe(1);
 
     const manaEvent = [...getEvents(localGameId)].reverse().find((event: any) => event?.type === 'activateManaAbility') as any;
-    expect(manaEvent?.payload?.manaColor).toMatch(/^[WUBRG]$/);
+  expect(['white', 'blue', 'black', 'red', 'green', 'colorless', 'W', 'U', 'B', 'R', 'G', 'C']).toContain(String(manaEvent?.payload?.manaColor || ''));
     expect(Object.values(manaEvent?.payload?.addedMana || {}).reduce((sum: number, amount: any) => sum + Number(amount || 0), 0)).toBe(1);
+    expect(getEvents(localGameId).some((event: any) => event?.type === 'activateAbility')).toBe(false);
 
     const costEvent = [...getEvents(localGameId)].reverse().find((event: any) => event?.type === 'activateBattlefieldAbility') as any;
     expect((costEvent?.payload?.sacrificedPermanents || []).map(String)).toContain('treasure_1');
@@ -199,6 +211,9 @@ describe('AI mana ability integration', () => {
     const setTimeoutSpy = vi.spyOn(globalThis, 'setTimeout').mockImplementation(() => 0 as any);
     try {
       await handleAIPriority(createNoopIo(), localGameId, playerId as any);
+      await vi.waitFor(() => {
+        expect((game.state as any).life?.[playerId]).toBe(39);
+      });
     } finally {
       setTimeoutSpy.mockRestore();
     }
@@ -211,6 +226,7 @@ describe('AI mana ability integration', () => {
     const manaEvent = [...getEvents(localGameId)].reverse().find((event: any) => event?.type === 'activateManaAbility') as any;
     expect(manaEvent?.payload?.lifeLost).toBe(1);
     expect(Object.values(manaEvent?.payload?.addedMana || {}).reduce((sum: number, amount: any) => sum + Number(amount || 0), 0)).toBe(1);
+    expect(getEvents(localGameId).some((event: any) => event?.type === 'activateAbility')).toBe(false);
   });
 
   it('treats pay-life mana abilities as life loss without damage tracking', async () => {
@@ -275,6 +291,9 @@ describe('AI mana ability integration', () => {
     const setTimeoutSpy = vi.spyOn(globalThis, 'setTimeout').mockImplementation(() => 0 as any);
     try {
       await handleAIPriority(createNoopIo(), localGameId, playerId as any);
+      await vi.waitFor(() => {
+        expect(Number((game.state as any).lifeLostThisTurn?.[playerId] || 0)).toBe(1);
+      });
     } finally {
       setTimeoutSpy.mockRestore();
     }
@@ -285,6 +304,7 @@ describe('AI mana ability integration', () => {
 
     const manaEvent = [...getEvents(localGameId)].reverse().find((event: any) => event?.type === 'activateManaAbility') as any;
     expect(Object.values(manaEvent?.payload?.addedMana || {}).reduce((sum: number, amount: any) => sum + Number(amount || 0), 0)).toBe(1);
+    expect(getEvents(localGameId).some((event: any) => event?.type === 'activateAbility')).toBe(false);
 
     const costEvent = [...getEvents(localGameId)].reverse().find((event: any) => event?.type === 'activateBattlefieldAbility') as any;
     expect(costEvent?.payload?.lifePaidForCost).toBe(1);

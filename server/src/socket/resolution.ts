@@ -47,6 +47,7 @@ import {
   handleBounceLandETB,
   chooseAILibrarySearchCards,
   chooseAIGraveyardSelectionIds,
+  chooseAIManaColorForActivation,
   chooseAIXValueSelection,
   chooseAISpellPaymentSelections,
   chooseAITargetSelectionsForChoiceStep,
@@ -1720,6 +1721,43 @@ async function handleAIResolutionStep(
           timestamp: Date.now(),
         };
         debug(2, `[Resolution] AI X_VALUE_SELECTION: chose X=${xValue}`);
+        break;
+      }
+
+      case ResolutionStepType.MANA_COLOR_SELECTION: {
+        const stepData = step as any;
+        const selectionKind = String(stepData.selectionKind || 'any_color');
+        const allowedCodes = Array.isArray(stepData.allowedColors)
+          ? stepData.allowedColors
+              .map((color: any) => String(color || '').toUpperCase())
+              .filter((color: string) => ['W', 'U', 'B', 'R', 'G', 'C'].includes(color))
+          : ['W', 'U', 'B', 'R', 'G'];
+        const chosenCode = chooseAIManaColorForActivation(
+          game,
+          step.playerId as any,
+          allowedCodes.length > 0 ? allowedCodes : ['W', 'U', 'B', 'R', 'G'],
+        );
+        const codeToPoolKey: Record<string, string> = {
+          W: 'white',
+          U: 'blue',
+          B: 'black',
+          R: 'red',
+          G: 'green',
+          C: 'colorless',
+        };
+
+        const manaSelections: any = selectionKind === 'distribution'
+          ? { [chosenCode]: Math.max(0, Number(stepData.totalAmount ?? stepData.amount ?? 0)) }
+          : (codeToPoolKey[chosenCode] || 'colorless');
+
+        response = {
+          stepId: step.id,
+          playerId: step.playerId,
+          selections: manaSelections,
+          cancelled: false,
+          timestamp: Date.now(),
+        };
+        debug(2, `[Resolution] AI MANA_COLOR_SELECTION: chose ${selectionKind === 'distribution' ? chosenCode : (codeToPoolKey[chosenCode] || 'colorless')}`);
         break;
       }
 
@@ -9344,6 +9382,23 @@ async function handleStepResponse(
                 break;
               }
               (game.state as any).life[pid] = Math.max(0, cur - lifeToPay);
+
+              (game.state as any).lifeLostThisTurn = (game.state as any).lifeLostThisTurn || {};
+              (game.state as any).lifeLostThisTurn[String(pid)] =
+                Number((game.state as any).lifeLostThisTurn[String(pid)] || 0) + lifeToPay;
+
+              const player = (game.state.players || []).find((entry: any) => entry?.id === pid);
+              if (player) {
+                player.life = (game.state as any).life[pid];
+              }
+
+              io.to(gameId).emit('chat', {
+                id: `m_${Date.now()}`,
+                gameId,
+                from: 'system',
+                message: `${getPlayerName(game, pid)} pays ${lifeToPay} life for ${cardName || 'an ability'} (${cur} → ${(game.state as any).life[pid]}).`,
+                ts: Date.now(),
+              });
             } catch {
               // best-effort only
             }
@@ -9378,6 +9433,11 @@ async function handleStepResponse(
             (game.state as any).lifeLostThisTurn = (game.state as any).lifeLostThisTurn || {};
             (game.state as any).lifeLostThisTurn[String(pid)] =
               Number((game.state as any).lifeLostThisTurn[String(pid)] || 0) + manaLifeLossAmount;
+
+            const player = (game.state.players || []).find((entry: any) => entry?.id === pid);
+            if (player) {
+              player.life = (game.state as any).life[pid];
+            }
 
             io.to(gameId).emit('chat', {
               id: `m_${Date.now()}`,

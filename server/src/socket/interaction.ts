@@ -1659,6 +1659,161 @@ function getCyclingDefinitionForActivation(oracleTextRaw: string, normalizedAbil
   return undefined;
 }
 
+function normalizeManaAbilitySelectionText(text: string): string {
+  return String(text || '')
+    .toLowerCase()
+    .replace(/[’‘]/g, "'")
+    .replace(/\s+/g, ' ')
+    .replace(/\s*\.\s*$/g, '')
+    .trim();
+}
+
+function selectManaAbilityForActivation(
+  manaAbilities: any[],
+  abilityIdRaw: string,
+  selectedAbilityFullTextRaw: string,
+  selectedAbilityTextRaw: string,
+  selectedCostTextRaw: string,
+): any {
+  if (!Array.isArray(manaAbilities) || manaAbilities.length === 0) {
+    return undefined;
+  }
+
+  const explicitAbilityId = String(abilityIdRaw || '').trim();
+  if (explicitAbilityId) {
+    const exactAbility = manaAbilities.find((entry: any) => String(entry?.id || '').trim() === explicitAbilityId);
+    if (exactAbility) {
+      return exactAbility;
+    }
+  }
+
+  if (manaAbilities.length === 1) {
+    return manaAbilities[0];
+  }
+
+  const selectedAbilityFullText = normalizeManaAbilitySelectionText(selectedAbilityFullTextRaw);
+  const selectedAbilityText = normalizeManaAbilitySelectionText(
+    selectedAbilityTextRaw || (selectedAbilityFullText.includes(':') ? selectedAbilityFullText.split(':').slice(1).join(':') : selectedAbilityFullText),
+  );
+  const selectedCostText = normalizeManaAbilitySelectionText(
+    selectedCostTextRaw || (selectedAbilityFullText.includes(':') ? selectedAbilityFullText.split(':')[0] : ''),
+  );
+  const selectedManaSymbols = selectedAbilityText.match(/\{([wubrgc])\}/gi) || [];
+  const requestedColors = [...new Set(selectedManaSymbols.map((token) => token.replace(/[{}]/g, '').toUpperCase()))];
+  const requestedColorKey = requestedColors.slice().sort().join(',');
+  const requestedSymbolCount = selectedManaSymbols.length;
+  const requestedAnyColor = /one mana of any color|any color of mana|mana of any one color|one mana of any type/i.test(selectedAbilityText);
+  const commanderRestricted = /commander'?s?\s+color\s+identity/i.test(selectedAbilityFullText);
+  const requestedChoice = requestedAnyColor || /\bor\b/i.test(selectedAbilityText);
+  const payLifeMatch = selectedCostText.match(/\bpay\s+(\d+)\s+life\b/i);
+  const requestedPayLifeAmount = payLifeMatch ? parseInt(payLifeMatch[1], 10) : 0;
+
+  let bestAbility = manaAbilities[0];
+  let bestScore = Number.NEGATIVE_INFINITY;
+
+  for (const ability of manaAbilities) {
+    const abilityColors = Array.isArray(ability?.produces)
+      ? ability.produces.map((color: any) => String(color || '').toUpperCase())
+      : [];
+    const abilityColorKey = abilityColors.slice().sort().join(',');
+    const abilityCost = normalizeManaAbilitySelectionText(String(ability?.cost || ''));
+    const abilityPayLifeAmount = Math.max(
+      0,
+      Number(
+        (Array.isArray(ability?.additionalCosts)
+          ? ability.additionalCosts.find((cost: any) => cost?.type === 'pay_life')?.amount
+          : 0) || 0,
+      ),
+    );
+    const abilityAmount = Math.max(1, Number(ability?.amount || 1));
+
+    let score = 0;
+
+    if (selectedCostText && abilityCost === selectedCostText) {
+      score += 40;
+    } else if (selectedCostText.includes('{t}') && abilityCost.includes('{t}')) {
+      score += 12;
+    }
+
+    if (requestedPayLifeAmount > 0) {
+      if (abilityPayLifeAmount === requestedPayLifeAmount) {
+        score += 25;
+      } else {
+        score -= 25;
+      }
+    } else if (abilityPayLifeAmount > 0) {
+      score -= 10;
+    }
+
+    if (requestedAnyColor) {
+      if (abilityColors.length > 0) {
+        score += 15;
+      }
+      if (abilityColors.length > 1) {
+        score += 8;
+      }
+      if (commanderRestricted && String(ability?.id || '').includes('commander')) {
+        score += 12;
+      }
+      if (!commanderRestricted && !String(ability?.id || '').includes('commander')) {
+        score += 4;
+      }
+    } else if (requestedColors.length > 0) {
+      if (abilityColorKey === requestedColorKey) {
+        score += 25;
+      } else if (requestedColors.every((color) => abilityColors.includes(color))) {
+        score += 12;
+      } else if (abilityColors.length === 1 && requestedColors.includes(abilityColors[0])) {
+        score += 6;
+      }
+    }
+
+    let requestedAmount = 1;
+    if (requestedColors.length === 1 && requestedSymbolCount > 1) {
+      requestedAmount = requestedSymbolCount;
+    } else if (!requestedChoice && requestedColors.length > 1) {
+      requestedAmount = requestedColors.length;
+    }
+
+    if (abilityAmount === requestedAmount) {
+      score += 8;
+    } else if (requestedAmount === 1 && abilityAmount === 1) {
+      score += 4;
+    }
+
+    if (requestedChoice && abilityColors.length > 1) {
+      score += ability?.producesAllAtOnce === true ? -6 : 10;
+    } else if (!requestedChoice && requestedColors.length > 1 && abilityColors.length > 1) {
+      score += ability?.producesAllAtOnce === true ? 10 : -6;
+    }
+
+    if (
+      !requestedAnyColor &&
+      requestedColors.length === 1 &&
+      requestedColors[0] !== 'C' &&
+      abilityColors.length === 1 &&
+      abilityColors[0] === 'C'
+    ) {
+      score -= 20;
+    }
+
+    if (
+      requestedColors.length === 1 &&
+      requestedColors[0] === 'C' &&
+      !(abilityColors.length === 1 && abilityColors[0] === 'C')
+    ) {
+      score -= 20;
+    }
+
+    if (score > bestScore) {
+      bestScore = score;
+      bestAbility = ability;
+    }
+  }
+
+  return bestAbility;
+}
+
 export function registerInteractionHandlers(io: Server, socket: Socket) {
   // Scry: Peek and reorder library cards
   // Legacy scry handlers removed - now using resolution queue system
@@ -5568,6 +5723,8 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       
       // Convert word numbers to actual count using module-level constant
       const drawCount = drawCards ? (WORD_TO_NUMBER[drawCards.toLowerCase()] || 0) : 0;
+      let manaPoolBeforePayment: Record<string, number> | undefined;
+      let poolAfterPayment: any;
       
       debug(2, `[activateBattlefieldAbility] Control change ability on ${cardName}: drawCards=${drawCards}, drawCount=${drawCount}`);
       
@@ -5596,6 +5753,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         // Validate and consume mana
         const parsedCost = parseManaCost(manaCost);
         const pool = getOrInitManaPool(game.state, pid);
+        manaPoolBeforePayment = snapshotInteractionManaPool(pool);
         const totalAvailable = calculateTotalAvailableMana(pool, []);
         
         const validationError = validateManaPayment(totalAvailable, parsedCost.colors, parsedCost.generic);
@@ -5605,6 +5763,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         }
         
         consumeManaFromPool(pool, parsedCost.colors, parsedCost.generic, '[activateBattlefieldAbility:control-change]');
+        poolAfterPayment = pool;
       }
       
       // Tap the permanent if required
@@ -5612,27 +5771,58 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         (permanent as any).tapped = true;
       }
 
+      const playerSelectionEffectData = {
+        type: 'control_change' as const,
+        permanentId,
+        drawCards: drawCount,
+      };
+
       // Queue opponent selection via Resolution Queue (ResolutionStepType.PLAYER_CHOICE)
       // The queued step carries effectData so the response can apply the control change.
-      requestPlayerSelection(
+      const playerSelectionStepId = requestPlayerSelection(
         io,
         gameId,
         pid as any,
         cardName,
         controlChangeAbilityText,
-        {
-          type: 'control_change',
-          permanentId,
-          drawCards: drawCount,
-        },
+        playerSelectionEffectData,
         true,
         false
       );
+
+      const playerChoiceQueue = ResolutionQueueManager.getQueue(gameId);
+      const playerChoiceStep = Array.isArray(playerChoiceQueue?.steps)
+        ? playerChoiceQueue.steps.find((step: any) => String(step?.id || '') === String(playerSelectionStepId || ''))
+        : undefined;
       
       debug(2, `[activateBattlefieldAbility] Control change ability on ${cardName}: ${manaCost ? `paid ${manaCost}, ` : ''}${requiresTap ? 'tapped, ' : ''}prompting for opponent selection`);
       if (typeof game.bumpSeq === 'function') {
         game.bumpSeq();
       }
+      persistQueuedBattlefieldAbilityStepActivation({
+        gameId,
+        game,
+        playerId: String(pid),
+        permanentId: String(permanentId),
+        abilityId: String(abilityId),
+        cardName,
+        activatedAbilityText: String(controlChangeAbilityText || '').trim(),
+        tappedPermanents: requiresTap ? [String(permanentId)] : undefined,
+        paymentManaDelta: manaPoolBeforePayment && poolAfterPayment ? calculateInteractionManaPoolDelta(manaPoolBeforePayment, poolAfterPayment) : undefined,
+        queuedStep: playerChoiceStep ? { ...(playerChoiceStep as any) } : {
+          id: String(playerSelectionStepId || ''),
+          type: ResolutionStepType.PLAYER_CHOICE,
+          playerId: pid,
+          description: controlChangeAbilityText,
+          mandatory: true,
+          sourceId: permanentId,
+          sourceName: cardName,
+          permanentId,
+          opponentOnly: true,
+          isOptional: false,
+          effectData: playerSelectionEffectData,
+        },
+      });
       broadcastGame(io, game, gameId);
       return;
     }
@@ -8810,6 +9000,12 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     // Persisted into activateBattlefieldAbility for deterministic replay.
     let pendingLifePaymentForCost = 0;
 
+    // Track non-cost life loss tied to mana production itself (for example,
+    // Mana Confluence or City of Brass style effects) so shared AI/player
+    // activations apply the same side effects.
+    let pendingManaLifeLossAmount = 0;
+    let pendingManaLifeLossIsDamage = false;
+
     // Track any counters removed as part of paying this activation's costs.
     // Persisted into activateBattlefieldAbility for deterministic replay.
     const removedCountersForCost: Array<{ permanentId: string; counterType: string; count: number }> = [];
@@ -10679,8 +10875,27 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         const manaAbilities = getManaAbilitiesForPermanent(game.state, permanent, pid);
         
         if (manaAbilities.length > 0) {
-          const ability = manaAbilities[0];
+          const ability = selectManaAbilityForActivation(
+            manaAbilities,
+            String(abilityId || ''),
+            selectedAbilityFullText,
+            abilityText,
+            manaCost,
+          ) || manaAbilities[0];
           const produces = ability.produces || [];
+          const producesColoredMana = produces.some((color: any) => String(color || '').toUpperCase() !== 'C');
+          const rawFallbackManaLifeEffect = getManaAbilityLifeEffect(permanent.card, producesColoredMana);
+          const fallbackManaLifeEffect = rawFallbackManaLifeEffect.isDamage || pendingLifePaymentForCost <= 0
+            ? rawFallbackManaLifeEffect
+            : { amount: 0, isDamage: false };
+          const manaLifeEffect = ability?.damageEffect?.type === 'damage_self'
+            ? {
+                amount: Math.max(0, Number(ability?.damageEffect?.amount || 0)),
+                isDamage: true,
+              }
+            : fallbackManaLifeEffect;
+          pendingManaLifeLossAmount = Math.max(0, Number(manaLifeEffect.amount || 0));
+          pendingManaLifeLossIsDamage = pendingManaLifeLossAmount > 0 && manaLifeEffect.isDamage === true;
           
           if (produces.length > 0) {
             // ========================================================================
@@ -10745,6 +10960,8 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
                 lifeToPayForCost: pendingLifePaymentForCost || undefined,
                 tappedPermanentsForCost: tappedPermanentsForCost,
                 sacrificedPermanentsForCost: sacrificedPermanentsForCost,
+                manaLifeLossAmount: pendingManaLifeLossAmount > 0 ? pendingManaLifeLossAmount : undefined,
+                manaLifeLossIsDamage: pendingManaLifeLossAmount > 0 ? pendingManaLifeLossIsDamage : undefined,
               } as any);
               
               io.to(gameId).emit("chat", {
@@ -10875,7 +11092,52 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       try {
         (game.state as any).life = (game.state as any).life || {};
         const cur = Number((game.state as any).life?.[pid] ?? 40);
-        (game.state as any).life[pid] = Math.max(0, cur - Number(pendingLifePaymentForCost || 0));
+        const paidLife = Math.max(0, Number(pendingLifePaymentForCost || 0));
+        (game.state as any).life[pid] = Math.max(0, cur - paidLife);
+
+        (game.state as any).lifeLostThisTurn = (game.state as any).lifeLostThisTurn || {};
+        (game.state as any).lifeLostThisTurn[String(pid)] =
+          Number((game.state as any).lifeLostThisTurn[String(pid)] || 0) + paidLife;
+
+        const player = (game.state.players || []).find((entry: any) => entry?.id === pid);
+        if (player) {
+          player.life = (game.state as any).life[pid];
+        }
+      } catch {
+        // best-effort only
+      }
+    }
+
+    if (pendingManaLifeLossAmount > 0) {
+      try {
+        (game.state as any).life = (game.state as any).life || {};
+        const cur = Number((game.state as any).life?.[pid] ?? 40);
+        (game.state as any).life[pid] = Math.max(0, cur - pendingManaLifeLossAmount);
+
+        if (pendingManaLifeLossIsDamage) {
+          (game.state as any).damageTakenThisTurnByPlayer = (game.state as any).damageTakenThisTurnByPlayer || {};
+          (game.state as any).damageTakenThisTurnByPlayer[String(pid)] =
+            Number((game.state as any).damageTakenThisTurnByPlayer[String(pid)] || 0) + pendingManaLifeLossAmount;
+        }
+
+        (game.state as any).lifeLostThisTurn = (game.state as any).lifeLostThisTurn || {};
+        (game.state as any).lifeLostThisTurn[String(pid)] =
+          Number((game.state as any).lifeLostThisTurn[String(pid)] || 0) + pendingManaLifeLossAmount;
+
+        const player = (game.state.players || []).find((entry: any) => entry?.id === pid);
+        if (player) {
+          player.life = (game.state as any).life[pid];
+        }
+
+        io.to(gameId).emit("chat", {
+          id: `m_${Date.now()}`,
+          gameId,
+          from: "system",
+          message: pendingManaLifeLossIsDamage
+            ? `${cardName} dealt ${pendingManaLifeLossAmount} damage to ${getPlayerName(game, pid)} (${cur} → ${(game.state as any).life[pid]}).`
+            : `${getPlayerName(game, pid)} pays ${pendingManaLifeLossAmount} life for ${cardName} (${cur} → ${(game.state as any).life[pid]}).`,
+          ts: Date.now(),
+        });
       } catch {
         // best-effort only
       }

@@ -2,6 +2,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
 
 import { initDb } from '../src/db/index.js';
 import { createInitialGameState } from '../src/state/gameState.js';
+import { ResolutionQueueManager, ResolutionStepType } from '../src/state/resolution/index.js';
 import type { PlayerID } from '../../shared/src';
 
 function addPlayer(game: any, id: PlayerID, name: string) {
@@ -13,8 +14,10 @@ describe('AI activated ability replay semantics', () => {
     await initDb();
   });
 
-  it('replays persisted AI Humble Defector activations deterministically', () => {
-    const game = createInitialGameState('t_ai_humble_defector_replay');
+  it('replays shared AI Humble Defector activations deterministically', () => {
+    const gameId = 't_ai_humble_defector_replay';
+    ResolutionQueueManager.removeQueue(gameId);
+    const game = createInitialGameState(gameId);
     const p1 = 'p1' as PlayerID;
     const p2 = 'p2' as PlayerID;
     addPlayer(game, p1, 'P1');
@@ -53,28 +56,75 @@ describe('AI activated ability replay semantics', () => {
     ];
 
     game.applyEvent({
-      type: 'activateAbility',
+      type: 'activateBattlefieldAbility',
       playerId: p1,
       permanentId: 'humble_1',
+      abilityId: 'humble_1-ability-0',
       cardName: 'Humble Defector',
-      abilityType: 'humble-defector',
       abilityText: '{T}: Draw two cards. Target opponent gains control of Humble Defector. Activate only during your turn.',
       activatedAbilityText: '{T}: Draw two cards. Target opponent gains control of Humble Defector. Activate only during your turn.',
       tappedPermanents: ['humble_1'],
-      targetOpponentId: p2,
-      usesStack: false,
-      isAI: true,
+      queuedResolutionStep: {
+        id: 'queued_humble_1',
+        type: ResolutionStepType.PLAYER_CHOICE,
+        playerId: p1,
+        description: '{T}: Draw two cards. Target opponent gains control of Humble Defector. Activate only during your turn.',
+        mandatory: true,
+        sourceId: 'humble_1',
+        sourceName: 'Humble Defector',
+        permanentId: 'humble_1',
+        opponentOnly: true,
+        isOptional: false,
+        effectData: {
+          type: 'control_change',
+          permanentId: 'humble_1',
+          drawCards: 2,
+        },
+        players: [
+          {
+            id: p2,
+            name: 'P2',
+            life: 40,
+            libraryCount: 0,
+            isOpponent: true,
+            isSelf: false,
+          },
+        ],
+      },
+    } as any);
+
+    const queue = ResolutionQueueManager.getQueue(gameId);
+    expect(queue.steps).toHaveLength(1);
+    expect(queue.steps[0]?.type).toBe(ResolutionStepType.PLAYER_CHOICE);
+    expect(String((queue.steps[0] as any)?.sourceId || '')).toBe('humble_1');
+
+    let humbleDefector = (game.state as any).battlefield.find((entry: any) => entry.id === 'humble_1');
+    expect(humbleDefector?.tapped).toBe(true);
+    expect(humbleDefector?.controller).toBe(p1);
+
+    game.applyEvent({
+      type: 'playerSelection',
+      choosingPlayerId: p1,
+      selectedPlayerId: p2,
+      cardName: 'Humble Defector',
+      permanentId: 'humble_1',
+      effectType: 'control_change',
+      effectData: {
+        type: 'control_change',
+        permanentId: 'humble_1',
+        drawCards: 2,
+      },
     } as any);
 
     expect((game.state as any).zones[p1].hand).toHaveLength(2);
 
-    const humbleDefector = (game.state as any).battlefield.find((entry: any) => entry.id === 'humble_1');
+    humbleDefector = (game.state as any).battlefield.find((entry: any) => entry.id === 'humble_1');
     expect(humbleDefector?.tapped).toBe(true);
     expect(humbleDefector?.controller).toBe(p2);
     expect(humbleDefector?.summoningSickness).toBe(true);
   });
 
-  it('replays persisted AI fetch-land activations by paying costs and rebuilding the unresolved stack item', () => {
+  it('replays shared AI fetch-land activations by paying costs and rebuilding the unresolved stack item', () => {
     const game = createInitialGameState('t_ai_fetchland_replay');
     const p1 = 'p1' as PlayerID;
     addPlayer(game, p1, 'P1');
@@ -109,23 +159,21 @@ describe('AI activated ability replay semantics', () => {
     ];
 
     game.applyEvent({
-      type: 'activateAbility',
+      type: 'activateFetchland',
       playerId: p1,
       permanentId: 'delta_1',
+      abilityId: 'delta_1-ability-0',
       cardName: 'Polluted Delta',
-      abilityType: 'fetch-land',
-      abilityText: '{T}, Pay 1 life, Sacrifice Polluted Delta: Search your library for an Island or Swamp card, put it onto the battlefield, then shuffle.',
+      stackId: 'stack_fetch_delta_1',
       activatedAbilityText: '{T}, Pay 1 life, Sacrifice Polluted Delta: Search your library for an Island or Swamp card, put it onto the battlefield, then shuffle.',
-      tappedPermanents: ['delta_1'],
-      sacrificedPermanents: ['delta_1'],
-      lifePaidForCost: 1,
-      usesStack: true,
       searchParams: {
-        searchDescription: 'an Island or Swamp card',
         filter: { types: ['land'], subtypes: ['Island', 'Swamp'] },
+        searchDescription: 'an Island or Swamp card',
+        isTrueFetch: true,
         maxSelections: 1,
+        entersTapped: false,
       },
-      isAI: true,
+      lifePaidForCost: 1,
     } as any);
 
     expect((game.state as any).life[p1]).toBe(39);
@@ -137,8 +185,9 @@ describe('AI activated ability replay semantics', () => {
 
     const stack = (game.state as any).stack || [];
     expect(stack).toHaveLength(1);
+    expect(String(stack[0]?.id || '')).toBe('stack_fetch_delta_1');
     expect(String(stack[0]?.abilityType || '')).toBe('fetch-land');
-    expect(String(stack[0]?.description || '')).toContain('Search your library for an Island or Swamp card');
+    expect(String(stack[0]?.description || '')).toContain('an Island or Swamp card');
     expect(String(stack[0]?.searchParams?.searchDescription || '')).toBe('an Island or Swamp card');
   });
 

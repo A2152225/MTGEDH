@@ -272,6 +272,11 @@ export function applyPlayerSelectionEffect(
         if (permanent) {
           permanent.controller = selectedPlayerId;
           delete (permanent as any).pendingPlayerSelection;
+
+          const typeLine = String(permanent?.card?.type_line || '').toLowerCase();
+          if (typeLine.includes('creature')) {
+            (permanent as any).summoningSickness = true;
+          }
           
           // Apply goad if specified
           if (effectData.goadsOnChange) {

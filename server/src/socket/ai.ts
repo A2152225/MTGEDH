@@ -3195,8 +3195,17 @@ async function tryAIResponseActions(
   for (const candidate of responseCandidates) {
     if (candidate.kind === 'activate_ability') {
       debug(1, '[AI] Taking response-window activated ability:', candidate.ability.action.cardName);
-      await executeAIActivateAbility(io, gameId, playerId, candidate.ability.action);
-      return true;
+      if (await executeAIActivateAbility(io, gameId, playerId, candidate.ability.action)) {
+        return true;
+      }
+
+      debugWarn(1, '[AI] Response-window ability candidate produced no state change; continuing to next response option', {
+        gameId,
+        playerId,
+        permanentId: candidate.ability.action?.permanentId,
+        cardName: candidate.ability.action?.cardName,
+      });
+      continue;
     }
 
     if (candidate.kind === 'cast_spell') {
@@ -3367,7 +3376,7 @@ function getAIManaProductionOptions(game: any, playerId: PlayerID, permanent: an
   return [...new Set(producedColors.filter((color) => ['W', 'U', 'B', 'R', 'G', 'C'].includes(String(color).toUpperCase())))];
 }
 
-function chooseAIManaColorForActivation(game: any, playerId: PlayerID, producedColors: string[]): string {
+export function chooseAIManaColorForActivation(game: any, playerId: PlayerID, producedColors: string[]): string {
   if (producedColors.length === 0) return 'C';
 
   const manaPool = (game.state?.manaPool || {})[playerId] || {
@@ -4057,6 +4066,513 @@ async function requestAISharedLandPlay(
     return didPlayLand;
   } catch (error) {
     debugError(1, '[AI] Error playing land via shared request flow:', error);
+    return false;
+  }
+}
+
+type AIActivatedAbilityResolverCandidate = {
+  id: string;
+  text: string;
+  effect?: string;
+};
+
+type AIAbilityActivationSnapshot = {
+  stackLength: number;
+  pendingSteps: number;
+  manaPoolKey: string;
+  lifeTotal: number;
+  battlefieldCount: number;
+  graveyardCount: number;
+  handCount: number;
+  exileCount: number;
+  permanentExists: boolean;
+  permanentTapped: boolean;
+};
+
+function normalizeAIActivatedAbilityText(text: string): string {
+  return String(text || '')
+    .toLowerCase()
+    .replace(/[’‘]/g, "'")
+    .replace(/[−–—]/g, '-')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function getAIActivatedAbilityKeywordMatchScore(requestedText: string, candidateText: string): number {
+  if (!requestedText || !candidateText) {
+    return 0;
+  }
+
+  const trackedKeywords = [
+    'sacrifice',
+    'draw',
+    'search your library',
+    'add',
+    'mana',
+    'damage',
+    'destroy',
+    'exile',
+    'counter',
+    'token',
+    'target',
+    'crew',
+    'station',
+    'level up',
+    'outlast',
+    'boast',
+    'monstrosity',
+    'adapt',
+    'fortify',
+    'reconfigure',
+    'attach',
+    'unattach',
+  ];
+
+  let score = 0;
+  for (const keyword of trackedKeywords) {
+    if (requestedText.includes(keyword) && candidateText.includes(keyword)) {
+      score += 15;
+    }
+  }
+
+  return score;
+}
+
+function buildAIActivatedAbilityResolverCandidates(permanent: any): AIActivatedAbilityResolverCandidate[] {
+  const card = permanent?.card || {};
+  const cardId = String(card?.id || permanent?.id || '').trim();
+  const nativeOracleText = String(card?.oracle_text || '').trim();
+  const lowerOracleText = nativeOracleText.toLowerCase();
+  const typeLine = String(card?.type_line || '').toLowerCase();
+  const candidates: AIActivatedAbilityResolverCandidate[] = [];
+
+  if (!cardId || !nativeOracleText) {
+    return candidates;
+  }
+
+  let genericAbilityIndex = 0;
+
+  if (typeLine.includes('planeswalker')) {
+    const loyaltyAbilityPattern = /^([+−–—-]?\d+):\s*(.+)/gm;
+    let loyaltyMatch: RegExpExecArray | null;
+    let loyaltyIndex = 0;
+    while ((loyaltyMatch = loyaltyAbilityPattern.exec(nativeOracleText)) !== null) {
+      const loyaltyCost = String(loyaltyMatch[1] || '').replace(/[−–—]/g, '-').trim();
+      const effectText = String(loyaltyMatch[2] || '').trim();
+      if (!effectText) continue;
+      candidates.push({
+        id: `pw-ability-${loyaltyIndex++}`,
+        text: `${loyaltyCost}: ${effectText}`,
+        effect: effectText,
+      });
+    }
+    return candidates;
+  }
+
+  const lines = nativeOracleText
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  const activatedAbilityPattern = /^(\{[^}]+\}(?:,?\s*\{[^}]+\})*(?:,?\s*(?:Sacrifice[^:]*|Pay[^:]*|Discard[^:]*|Exile[^:]*|Remove[^:]*|Tap[^:]*|Untap[^:]*))?)\s*:\s*(.+)$/i;
+  const textOnlyActivatedAbilityPattern = /^((?:Sacrifice|Discard|Pay|Exile|Remove|Tap|Untap)[^:]*?)\s*:\s*(.+)$/i;
+
+  for (const line of lines) {
+    const activatedMatch = line.match(activatedAbilityPattern);
+    if (activatedMatch) {
+      const costText = String(activatedMatch[1] || '').trim();
+      const effectText = String(activatedMatch[2] || '').trim();
+      if (!costText || !effectText) continue;
+      candidates.push({
+        id: `${cardId}-ability-${genericAbilityIndex++}`,
+        text: `${costText}: ${effectText}`,
+        effect: effectText,
+      });
+      continue;
+    }
+
+    const textOnlyMatch = line.match(textOnlyActivatedAbilityPattern);
+    if (textOnlyMatch) {
+      const costText = String(textOnlyMatch[1] || '').trim();
+      const effectText = String(textOnlyMatch[2] || '').trim();
+      if (!costText || !effectText) continue;
+      candidates.push({
+        id: `${cardId}-ability-${genericAbilityIndex++}`,
+        text: `${costText}: ${effectText}`,
+        effect: effectText,
+      });
+    }
+  }
+
+  const reconfigureMatch = nativeOracleText.match(/reconfigure\s*(\{[^}]+\}|\d+)/i);
+  if (reconfigureMatch && typeLine.includes('equipment')) {
+    const reconfigureCost = reconfigureMatch[1].startsWith('{') ? reconfigureMatch[1] : `{${reconfigureMatch[1]}}`;
+    candidates.push({
+      id: `${cardId}-reconfigure-attach-0`,
+      text: `Reconfigure ${reconfigureCost} attach`,
+      effect: 'attach to target creature you control',
+    });
+    candidates.push({
+      id: `${cardId}-reconfigure-unattach-1`,
+      text: `Reconfigure ${reconfigureCost} unattach`,
+      effect: 'unattach this equipment',
+    });
+  }
+
+  const crewMatch = nativeOracleText.match(/crew\s*(\d+)/i);
+  if (crewMatch && typeLine.includes('vehicle')) {
+    candidates.push({
+      id: `${cardId}-crew-0`,
+      text: `Crew ${crewMatch[1]}`,
+      effect: `crew ${crewMatch[1]}`,
+    });
+  }
+
+  const stationMatch = nativeOracleText.match(/station\s*(\d+)/i);
+  if (stationMatch && (typeLine.includes('spacecraft') || lowerOracleText.includes('station'))) {
+    candidates.push({
+      id: `${cardId}-station-0`,
+      text: `Station ${stationMatch[1]}`,
+      effect: `station ${stationMatch[1]}`,
+    });
+  }
+
+  const levelUpMatch = nativeOracleText.match(/level\s+up\s+(\{[^}]+\}(?:\{[^}]+\})*)/i);
+  if (levelUpMatch) {
+    candidates.push({
+      id: `${cardId}-level-up-0`,
+      text: `Level up ${levelUpMatch[1]}`,
+      effect: 'put a level counter on this permanent',
+    });
+  }
+
+  const outlastMatch = nativeOracleText.match(/outlast\s+(\{[^}]+\}(?:\{[^}]+\})*)/i);
+  if (outlastMatch) {
+    candidates.push({
+      id: `${cardId}-outlast-0`,
+      text: `Outlast ${outlastMatch[1]}`,
+      effect: 'put a +1/+1 counter on this creature',
+    });
+  }
+
+  const boastMatch = nativeOracleText.match(/boast\s*[—-]\s*(\{[^}]+\}(?:\{[^}]+\})*)\s*:\s*([^.]+)/i);
+  if (boastMatch) {
+    candidates.push({
+      id: `${cardId}-boast-0`,
+      text: `Boast ${boastMatch[1]}: ${String(boastMatch[2] || '').trim()}`,
+      effect: String(boastMatch[2] || '').trim(),
+    });
+  }
+
+  const monstrosityMatch = nativeOracleText.match(/(\{[^}]+\}(?:\{[^}]+\})*)\s*:\s*monstrosity\s+(\d+)/i);
+  if (monstrosityMatch) {
+    candidates.push({
+      id: `${cardId}-monstrosity-0`,
+      text: `${monstrosityMatch[1]}: Monstrosity ${monstrosityMatch[2]}`,
+      effect: `monstrosity ${monstrosityMatch[2]}`,
+    });
+  }
+
+  const adaptMatch = nativeOracleText.match(/(\{[^}]+\}(?:\{[^}]+\})*)\s*:\s*adapt\s+(\d+)/i);
+  if (adaptMatch) {
+    candidates.push({
+      id: `${cardId}-adapt-0`,
+      text: `${adaptMatch[1]}: Adapt ${adaptMatch[2]}`,
+      effect: `adapt ${adaptMatch[2]}`,
+    });
+  }
+
+  const fortifyMatch = nativeOracleText.match(/fortify\s+(\{[^}]+\}(?:\{[^}]+\})*)/i);
+  if (fortifyMatch && typeLine.includes('fortification')) {
+    candidates.push({
+      id: `${cardId}-fortify-0`,
+      text: `Fortify ${fortifyMatch[1]}`,
+      effect: 'attach this fortification to target land you control',
+    });
+  }
+
+  return candidates;
+}
+
+function resolveAIActivatedAbilityId(action: any, permanent: any): string | undefined {
+  const explicitAbilityId = String(action?.abilityId || '').trim();
+  if (explicitAbilityId) {
+    return explicitAbilityId;
+  }
+
+  const typeLine = String(permanent?.card?.type_line || '').toLowerCase();
+  if (typeLine.includes('planeswalker')) {
+    return undefined;
+  }
+
+  const candidates = buildAIActivatedAbilityResolverCandidates(permanent);
+  if (candidates.length === 0) {
+    return undefined;
+  }
+
+  if (candidates.length === 1) {
+    return candidates[0].id;
+  }
+
+  const requestedText = normalizeAIActivatedAbilityText(String(action?.abilityText || ''));
+  if (!requestedText) {
+    return candidates[0].id;
+  }
+
+  let bestCandidate: AIActivatedAbilityResolverCandidate | null = null;
+  let bestScore = -1;
+
+  for (const candidate of candidates) {
+    const candidateText = normalizeAIActivatedAbilityText(candidate.text);
+    const candidateEffect = normalizeAIActivatedAbilityText(String(candidate.effect || ''));
+    let score = 0;
+
+    if (requestedText === candidateText) {
+      score += 1000;
+    }
+    if (candidateEffect && requestedText === candidateEffect) {
+      score += 900;
+    }
+    if (requestedText.includes(candidateText)) {
+      score += 400 + candidateText.length;
+    }
+    if (candidateText.includes(requestedText)) {
+      score += 250 + requestedText.length;
+    }
+    if (candidateEffect && requestedText.includes(candidateEffect)) {
+      score += 200 + candidateEffect.length;
+    }
+
+    score += getAIActivatedAbilityKeywordMatchScore(requestedText, candidateText);
+
+    if (/reconfigure/i.test(candidateText)) {
+      const attachedTo = String((permanent as any)?.attachedTo || '').trim();
+      if (attachedTo && candidateText.includes('unattach')) {
+        score += 50;
+      }
+      if (!attachedTo && candidateText.includes('attach')) {
+        score += 50;
+      }
+    }
+
+    if (score > bestScore) {
+      bestScore = score;
+      bestCandidate = candidate;
+    }
+  }
+
+  return bestCandidate?.id || candidates[0].id;
+}
+
+function snapshotAIAbilityActivationState(
+  game: any,
+  gameId: string,
+  playerId: PlayerID,
+  permanentId: string,
+): AIAbilityActivationSnapshot {
+  const battlefield = Array.isArray(game.state?.battlefield) ? game.state.battlefield : [];
+  const permanent = battlefield.find((entry: any) => String(entry?.id || '') === permanentId);
+  const zones = game.state?.zones?.[playerId] || {};
+  const manaPool = getOrInitManaPool(game.state, String(playerId));
+
+  return {
+    stackLength: Array.isArray(game.state?.stack) ? game.state.stack.length : 0,
+    pendingSteps: ResolutionQueueManager.getStepsForPlayer(gameId, playerId as any).length,
+    manaPoolKey: JSON.stringify(manaPool || {}),
+    lifeTotal: Number((game.state as any)?.life?.[playerId] ?? game.state?.startingLife ?? 40),
+    battlefieldCount: battlefield.length,
+    graveyardCount: Array.isArray(zones?.graveyard) ? zones.graveyard.length : 0,
+    handCount: Array.isArray(zones?.hand) ? zones.hand.length : 0,
+    exileCount: Array.isArray(zones?.exile) ? zones.exile.length : 0,
+    permanentExists: Boolean(permanent),
+    permanentTapped: Boolean(permanent?.tapped),
+  };
+}
+
+
+  function isAIManaAbilityResolverCandidate(candidate: AIActivatedAbilityResolverCandidate): boolean {
+    const effectText = String(candidate?.effect || candidate?.text || '');
+    return /add\s+(\{[wubrgc]\}(?:\s+or\s+\{[wubrgc]\})?|\{[wubrgc]\}\{[wubrgc]\}|one mana|two mana|three mana|mana of any|any color|[xX] mana|an amount of|mana in any combination)/i.test(effectText) &&
+      !/target/i.test(effectText);
+  }
+
+  function getAIManaAbilityCandidateColors(candidate: AIActivatedAbilityResolverCandidate): string[] {
+    const effectText = String(candidate?.effect || candidate?.text || '');
+    if (/one mana of any color|any color of mana|mana of any one color|one mana of any type/i.test(effectText)) {
+      return ['W', 'U', 'B', 'R', 'G'];
+    }
+
+    const manaSymbols = effectText.match(/\{([wubrgc])\}/gi) || [];
+    return [...new Set(manaSymbols
+      .map((token) => token.replace(/[{}]/g, '').toUpperCase())
+      .filter((color) => ['W', 'U', 'B', 'R', 'G', 'C'].includes(color)))];
+  }
+
+  function selectAIManaRetentionActivationAction(
+    permanent: any,
+    retainedColors: Set<string>,
+    hasAllRetention: boolean,
+    hasColorlessConversion: boolean,
+  ): { permanentId: string; cardName: string; abilityText: string } | null {
+    const candidates = buildAIActivatedAbilityResolverCandidates(permanent).filter(isAIManaAbilityResolverCandidate);
+    if (candidates.length === 0) {
+      return null;
+    }
+
+    const retainedColorList = Array.from(retainedColors);
+    let bestCandidate: AIActivatedAbilityResolverCandidate | null = null;
+    let bestScore = Number.NEGATIVE_INFINITY;
+
+    for (const candidate of candidates) {
+      const candidateColors = getAIManaAbilityCandidateColors(candidate);
+      if (candidateColors.length === 0) {
+        continue;
+      }
+
+      const normalizedText = String(candidate?.text || '').toLowerCase();
+      const normalizedEffect = String(candidate?.effect || '').toLowerCase();
+      const canProduceRetainedColor = retainedColorList.some((color) => candidateColors.includes(color));
+      const isAnyColorCandidate = /one mana of any color|any color of mana|mana of any one color|one mana of any type/i.test(normalizedEffect);
+
+      let score = 0;
+
+      if (retainedColorList.length > 0) {
+        score += canProduceRetainedColor || isAnyColorCandidate ? 40 : -25;
+      }
+
+      if (hasAllRetention) {
+        score += 10;
+        if (candidateColors.length === 1 && candidateColors[0] === 'C') {
+          score += 20;
+        }
+      }
+
+      if (hasColorlessConversion && candidateColors.includes('C')) {
+        score += 20;
+      }
+
+      if (candidateColors.length === 1) {
+        score += 8;
+      }
+
+      if (!/pay\s+\d+\s+life/i.test(normalizedText)) {
+        score += 4;
+      } else {
+        score -= 8;
+      }
+
+      if (!/\bor\b/i.test(normalizedEffect)) {
+        score += 3;
+      }
+
+      if (score > bestScore) {
+        bestScore = score;
+        bestCandidate = candidate;
+      }
+    }
+
+    if (!bestCandidate) {
+      bestCandidate = candidates[0];
+    }
+
+    return {
+      permanentId: String(permanent?.id || ''),
+      cardName: String(permanent?.card?.name || ''),
+      abilityText: String(bestCandidate?.text || ''),
+    };
+  }
+function didAIAbilityActivationProgress(
+  before: AIAbilityActivationSnapshot,
+  after: AIAbilityActivationSnapshot,
+): boolean {
+  return (
+    after.stackLength > before.stackLength ||
+    after.pendingSteps > before.pendingSteps ||
+    after.manaPoolKey !== before.manaPoolKey ||
+    after.lifeTotal !== before.lifeTotal ||
+    after.battlefieldCount !== before.battlefieldCount ||
+    after.graveyardCount !== before.graveyardCount ||
+    after.handCount !== before.handCount ||
+    after.exileCount !== before.exileCount ||
+    after.permanentExists !== before.permanentExists ||
+    after.permanentTapped !== before.permanentTapped
+  );
+}
+
+async function requestAISharedBattlefieldAbilityActivation(
+  io: Server,
+  gameId: string,
+  playerId: PlayerID,
+  request: {
+    permanentId: string;
+    abilityId: string;
+    xValue?: unknown;
+  },
+): Promise<boolean> {
+  const game = ensureGame(gameId);
+  if (!game) return false;
+
+  const permanentId = String(request.permanentId || '').trim();
+  const abilityId = String(request.abilityId || '').trim();
+  if (!permanentId || !abilityId) {
+    return false;
+  }
+
+  const before = snapshotAIAbilityActivationState(game, gameId, playerId, permanentId);
+
+  try {
+    const { registerInteractionHandlers } = await import('./interaction.js');
+    const handlers: Record<string, (payload?: any) => any> = {};
+    const aiSocket = {
+      data: { playerId, gameId, spectator: false, isSpectator: false },
+      rooms: new Set([gameId]),
+      on: (event: string, handler: (payload?: any) => any) => {
+        handlers[event] = handler;
+      },
+      emit: (event: string, payload: any) => {
+        if (event === 'error') {
+          debugWarn(1, '[AI] Shared battlefield activation rejected ability:', {
+            gameId,
+            playerId,
+            permanentId,
+            abilityId,
+            payload,
+          });
+        }
+      },
+    } as any;
+
+    registerInteractionHandlers(io, aiSocket);
+
+    const handler = handlers.activateBattlefieldAbility;
+    if (typeof handler !== 'function') {
+      debugWarn(1, '[AI] Failed to locate shared activateBattlefieldAbility handler');
+      return false;
+    }
+
+    await handler({
+      gameId,
+      permanentId,
+      abilityId,
+      ...(request.xValue !== undefined ? { xValue: request.xValue } : {}),
+    });
+
+    await Promise.resolve();
+
+    const after = snapshotAIAbilityActivationState(game, gameId, playerId, permanentId);
+    const progressed = didAIAbilityActivationProgress(before, after);
+    if (!progressed) {
+      debugWarn(1, '[AI] Shared battlefield activation produced no state change:', {
+        gameId,
+        playerId,
+        permanentId,
+        abilityId,
+      });
+    }
+
+    return progressed;
+  } catch (error) {
+    debugError(1, '[AI] Error activating ability via shared battlefield handler:', error);
     return false;
   }
 }
@@ -5095,9 +5611,18 @@ export async function handleAIPriority(
           } else {
             debug(1, '[AI] Activating ability:', candidate.ability.action.cardName, '-', candidate.ability.reasoning);
           }
-          await executeAIActivateAbility(io, gameId, playerId, candidate.ability.action);
-          scheduleAIPriority(io, gameId, playerId, AI_THINK_TIME_MS);
-          return;
+          if (await executeAIActivateAbility(io, gameId, playerId, candidate.ability.action)) {
+            scheduleAIPriority(io, gameId, playerId, AI_THINK_TIME_MS);
+            return;
+          }
+
+          debugWarn(1, '[AI] Main-phase ability candidate produced no state change; continuing to next action', {
+            gameId,
+            playerId,
+            permanentId: candidate.ability.action?.permanentId,
+            cardName: candidate.ability.action?.cardName,
+          });
+          continue;
         }
 
         if (candidate.kind === 'cast_commander') {
@@ -5151,9 +5676,17 @@ export async function handleAIPriority(
           if (candidate.kind !== 'activate_ability') continue;
 
           debug(1, '[AI] Activating ability (after spell-priority ordering):', candidate.ability.action.cardName);
-          await executeAIActivateAbility(io, gameId, playerId, candidate.ability.action);
-          scheduleAIPriority(io, gameId, playerId, AI_THINK_TIME_MS);
-          return;
+          if (await executeAIActivateAbility(io, gameId, playerId, candidate.ability.action)) {
+            scheduleAIPriority(io, gameId, playerId, AI_THINK_TIME_MS);
+            return;
+          }
+
+          debugWarn(1, '[AI] Fallback ability candidate produced no state change; continuing to next option', {
+            gameId,
+            playerId,
+            permanentId: candidate.ability.action?.permanentId,
+            cardName: candidate.ability.action?.cardName,
+          });
         }
       }
 
@@ -5713,52 +6246,38 @@ async function executeAITapLandsForMana(
   
   debug(2, `[AI] Mana retention: ${totalTappable} tappable lands, will tap ${landsToTap.length}, keep ${totalTappable - landsToTap.length} untapped for flexibility`);
   
-  const manaPool = game.state.manaPool[playerId] || {
-    white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0
-  };
-  
   let tappedCount = 0;
   
-  for (const { perm, producedColors } of landsToTap) {
-    // Tap the land/permanent
-    perm.tapped = true;
-    tappedCount++;
-    
-    // Add mana to pool based on what it produces
-    // Simplification: Add the first color it produces, or any color if it can produce any
-    const colorMap: Record<string, string> = {
-      'W': 'white', 'U': 'blue', 'B': 'black', 'R': 'red', 'G': 'green', 'C': 'colorless'
-    };
-    
-    if (producedColors.includes('W') && producedColors.includes('U') && 
-        producedColors.includes('B') && producedColors.includes('R') && producedColors.includes('G')) {
-      // Can produce any color - choose based on retention
-      if (retainedColors.has('G')) {
-        manaPool.green++;
-      } else if (retainedColors.has('R')) {
-        manaPool.red++;
-      } else {
-        // Use first produced color
-        const poolColor = colorMap[producedColors[0]] || 'colorless';
-        (manaPool as any)[poolColor]++;
-      }
-    } else {
-      // Add the first color it produces
-      const poolColor = colorMap[producedColors[0]] || 'colorless';
-      (manaPool as any)[poolColor]++;
+  for (const { perm } of landsToTap) {
+    const action = selectAIManaRetentionActivationAction(
+      perm,
+      retainedColors,
+      hasAllRetention,
+      hasColorlessConversion,
+    );
+    if (!action) {
+      debugWarn(2, '[AI] Mana retention could not resolve a shared activation candidate:', {
+        gameId,
+        playerId,
+        permanentId: String(perm?.id || ''),
+        cardName: String(perm?.card?.name || ''),
+      });
+      continue;
+    }
+
+    if (await executeAIActivateAbility(io, gameId, playerId, action, false)) {
+      tappedCount++;
     }
   }
   
   if (tappedCount > 0) {
-    game.state.manaPool[playerId] = manaPool;
     
     // Track that we tapped lands for mana retention this turn to prevent infinite loops
     if (!game.state.aiManaRetentionTaps) {
       game.state.aiManaRetentionTaps = {};
     }
     game.state.aiManaRetentionTaps[playerId] = turnNumber;
-    
-    broadcastGame(io, game, gameId);
+
     debug(1, `[AI] Tapped ${tappedCount} lands for mana retention`);
     return true;
   }
@@ -6022,6 +6541,68 @@ async function executeAICastCommander(
  * Handles tapping permanents and putting abilities on the stack
  */
 async function executeAIActivateAbility(
+  io: Server,
+  gameId: string,
+  playerId: PlayerID,
+  action: any,
+  continueAfterResolution: boolean = true,
+): Promise<boolean> {
+  const game = ensureGame(gameId);
+  if (!game) return false;
+
+  debug(1, '[AI] Activating ability:', {
+    gameId,
+    playerId,
+    cardName: action.cardName,
+    permanentId: action.permanentId,
+  });
+
+  const battlefield = Array.isArray(game.state?.battlefield) ? game.state.battlefield : [];
+  const permanent = battlefield.find((entry: any) => String(entry?.id || '') === String(action?.permanentId || ''));
+  if (!permanent) {
+    debugWarn(2, '[AI] Permanent not found for ability activation:', action?.permanentId);
+    return false;
+  }
+
+  const resolvedAbilityId = resolveAIActivatedAbilityId(action, permanent);
+  if (resolvedAbilityId) {
+    const progressed = await requestAISharedBattlefieldAbilityActivation(io, gameId, playerId, {
+      permanentId: String(action.permanentId || ''),
+      abilityId: resolvedAbilityId,
+      xValue: action?.xValue,
+    });
+    if (progressed) {
+      if (continueAfterResolution) {
+        scheduleAIPriority(io, gameId, playerId, AI_REACTION_DELAY_MS);
+      }
+      return true;
+    }
+
+    debugWarn(1, '[AI] Shared battlefield activation did not progress; falling back to legacy AI handler', {
+      gameId,
+      playerId,
+      permanentId: action?.permanentId,
+      abilityId: resolvedAbilityId,
+      cardName: action?.cardName,
+    });
+  } else {
+    debugWarn(1, '[AI] Could not resolve battlefield ability id for AI action; falling back to legacy AI handler', {
+      gameId,
+      playerId,
+      permanentId: action?.permanentId,
+      cardName: action?.cardName,
+      abilityText: action?.abilityText,
+    });
+  }
+
+  const before = snapshotAIAbilityActivationState(game, gameId, playerId, String(action?.permanentId || ''));
+  await executeAILegacyActivateAbility(io, gameId, playerId, action, continueAfterResolution);
+  await Promise.resolve();
+  const after = snapshotAIAbilityActivationState(game, gameId, playerId, String(action?.permanentId || ''));
+  return didAIAbilityActivationProgress(before, after);
+}
+
+async function executeAILegacyActivateAbility(
   io: Server,
   gameId: string,
   playerId: PlayerID,
@@ -6791,6 +7372,46 @@ async function handleAIResolutionStep(
         const xValue = chooseAIXValueSelection(game, playerId, step);
         ResolutionQueueManager.completeStep(gameId, step.id, createResponse(xValue));
         debug(1, `[AI] x_value_selection: chose X=${xValue}`);
+        break;
+      }
+
+      case 'mana_color_selection': {
+        const stepAny = step as any;
+        const selectionKind = String(stepAny.selectionKind || 'any_color');
+        const allowedCodes = Array.isArray(stepAny.allowedColors)
+          ? stepAny.allowedColors
+              .map((color: any) => String(color || '').toUpperCase())
+              .filter((color: string) => ['W', 'U', 'B', 'R', 'G', 'C'].includes(color))
+          : ['W', 'U', 'B', 'R', 'G'];
+
+        const chosenCode = chooseAIManaColorForActivation(
+          game,
+          playerId,
+          allowedCodes.length > 0 ? allowedCodes : ['W', 'U', 'B', 'R', 'G'],
+        );
+        const codeToPoolKey: Record<string, string> = {
+          W: 'white',
+          U: 'blue',
+          B: 'black',
+          R: 'red',
+          G: 'green',
+          C: 'colorless',
+        };
+
+        if (selectionKind === 'distribution') {
+          const totalAmount = Math.max(0, Number(stepAny.totalAmount ?? stepAny.amount ?? 0));
+          const distribution: Record<string, number> = {};
+          if (totalAmount > 0) {
+            distribution[chosenCode] = totalAmount;
+          }
+          ResolutionQueueManager.completeStep(gameId, step.id, createResponse(distribution));
+          debug(1, `[AI] mana_color_selection: distributed ${totalAmount} mana as ${chosenCode}`);
+          break;
+        }
+
+        const chosenPoolKey = codeToPoolKey[chosenCode] || 'colorless';
+        ResolutionQueueManager.completeStep(gameId, step.id, createResponse(chosenPoolKey));
+        debug(1, `[AI] mana_color_selection: chose ${chosenPoolKey}`);
         break;
       }
 

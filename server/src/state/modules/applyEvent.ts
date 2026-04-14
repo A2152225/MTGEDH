@@ -10010,6 +10010,11 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
               permanent.controller = selectedPlayerId;
               delete (permanent as any).pendingPlayerSelection;
 
+              const typeLine = String(permanent?.card?.type_line || '').toLowerCase();
+              if (typeLine.includes('creature')) {
+                (permanent as any).summoningSickness = true;
+              }
+
               if (effectData.goadsOnChange === true && choosingPlayerId) {
                 const goadedBy = (permanent as any).goadedBy || [];
                 const goadedUntil = (permanent as any).goadedUntil || {};
