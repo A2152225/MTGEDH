@@ -123,24 +123,11 @@ function getTopLibraryCard(ctx: GameContext, playerId: PlayerID): any | null {
 }
 
 function hasGenericTopLibraryLandPermission(ctx: GameContext, playerId: PlayerID): boolean {
-  const battlefield = ctx.state?.battlefield || [];
-  return battlefield.some((perm: any) => {
-    if (perm?.controller !== playerId) return false;
-    const oracleText = String(perm?.card?.oracle_text || '').toLowerCase();
-    return oracleText.includes('play lands from the top of your library')
-      || oracleText.includes('you may play the top card of your library');
-  });
+  return canPlayLandsFromTop(ctx, playerId).canPlay;
 }
 
-function hasGenericTopLibrarySpellPermission(ctx: GameContext, playerId: PlayerID): boolean {
-  const battlefield = ctx.state?.battlefield || [];
-  return battlefield.some((perm: any) => {
-    if (perm?.controller !== playerId) return false;
-    const oracleText = String(perm?.card?.oracle_text || '').toLowerCase();
-    return oracleText.includes('you may cast the top card of your library')
-      || oracleText.includes('you may cast spells from the top of your library')
-      || oracleText.includes('you may play the top card of your library');
-  });
+function getTopLibrarySpellPermission(ctx: GameContext, playerId: PlayerID, card: any) {
+  return canCastFromTop(ctx, playerId, card);
 }
 
 function canPlayTopLibraryLand(ctx: GameContext, playerId: PlayerID, card: any): boolean {
@@ -154,15 +141,13 @@ function canPlayTopLibraryLand(ctx: GameContext, playerId: PlayerID, card: any):
 function canCastTopLibrarySpell(ctx: GameContext, playerId: PlayerID, card: any): boolean {
   if (!card || typeof card === 'string') return false;
 
-  const typeLine = String(card?.type_line || card?.typeLine || '');
-  const topSpellPermission = canCastFromTop(ctx, playerId, typeLine);
-  return topSpellPermission.canCast || hasGenericTopLibrarySpellPermission(ctx, playerId);
+  return getTopLibrarySpellPermission(ctx, playerId, card).canCast;
 }
 
 /**
  * Check if a card has flash or is an instant
  */
-function hasFlashOrInstant(card: any): boolean {
+export function hasFlashOrInstant(card: any): boolean {
   if (!card) return false;
   
   const typeLine = (card.type_line || "").toLowerCase();
@@ -185,7 +170,7 @@ function hasFlashOrInstant(card: any): boolean {
  * Check if a card has flashback ability
  * Flashback allows casting from graveyard for an alternate cost
  */
-function hasFlashback(card: any): { hasIt: boolean; cost?: string } {
+export function hasFlashback(card: any): { hasIt: boolean; cost?: string } {
   if (!card) return { hasIt: false };
   
   const oracleText = (card.oracle_text || "").toLowerCase();
@@ -211,7 +196,7 @@ function hasFlashback(card: any): { hasIt: boolean; cost?: string } {
  * Check if a card has foretell ability or can be cast from exile
  * Foretell allows casting from exile for an alternate cost after being foretold
  */
-function hasForetellOrCanCastFromExile(card: any): { hasIt: boolean; cost?: string } {
+export function hasForetellOrCanCastFromExile(card: any): { hasIt: boolean; cost?: string } {
   if (!card) return { hasIt: false };
   
   const oracleText = (card.oracle_text || "").toLowerCase();
@@ -258,7 +243,7 @@ function assumeCanPayUnknownCost(cardName: string, mechanicName: string): boolea
  * Handles both legacy array format and object entries that may store
  * boolean flags or numeric "playable until turn" expirations.
  */
-function isCardPlayableFromExile(playableCards: any, cardId: string, currentTurn: number): boolean {
+export function isCardPlayableFromExile(playableCards: any, cardId: string, currentTurn: number): boolean {
   if (!playableCards) return false;
   
   // Handle array format: ['card1', 'card2']
@@ -819,8 +804,9 @@ export function canCastAnySpell(ctx: GameContext, playerId: PlayerID): boolean {
             continue;
           }
 
-          if (!hasFlashOrInstant(castCard)) continue;
-          if (!canCastTopLibrarySpell(ctx, playerId, castCard)) continue;
+          const topSpellPermission = getTopLibrarySpellPermission(ctx, playerId, castCard);
+          if (!topSpellPermission.canCast) continue;
+          if (!hasFlashOrInstant(castCard) && !topSpellPermission.grantsFlash) continue;
 
           const manaCost = castCard.mana_cost || '';
           const parsedCost = parseManaCost(manaCost);
@@ -2431,7 +2417,9 @@ function canCastAnySorcerySpeed(ctx: GameContext, playerId: PlayerID): boolean {
           }
 
           if (!isSorcerySpeed) continue;
-          if (!canCastTopLibrarySpell(ctx, playerId, castCard)) continue;
+          const topSpellPermission = getTopLibrarySpellPermission(ctx, playerId, castCard);
+          if (!topSpellPermission.canCast) continue;
+          if (topSpellPermission.grantsFlash) continue;
 
           const manaCost = castCard.mana_cost || '';
           const parsedCost = parseManaCost(manaCost);

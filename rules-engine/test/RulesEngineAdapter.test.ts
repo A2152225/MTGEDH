@@ -423,7 +423,17 @@ describe('RulesEngineAdapter', () => {
       expect(deniedNotTop.legal).toBe(false);
       expect(String(deniedNotTop.reason || '').toLowerCase()).toContain('top card');
 
-      stateWithLibrarySpell.topOfLibraryEffects = { player1: { canCast: true } };
+      stateWithLibrarySpell.battlefield = [
+        {
+          id: 'future-sight',
+          controller: 'player1',
+          card: {
+            name: 'Future Sight',
+            type_line: 'Enchantment',
+            oracle_text: 'Play with the top card of your library revealed. You may play the top card of your library.',
+          },
+        },
+      ];
       adapter.initializeGame('test-game', stateWithLibrarySpell);
       const allowed = adapter.validateAction('test-game', {
         type: 'castSpell',
@@ -432,6 +442,88 @@ describe('RulesEngineAdapter', () => {
         cardId: 'spell-top',
         card: { name: 'Opt', type_line: 'Instant' },
       });
+      expect(allowed.legal).toBe(true);
+    });
+
+    it('should reject a top-library card that does not match a typed permission source', () => {
+      const stateWithMelekCreatureTop: any = {
+        ...testGameState,
+        phase: 'precombatMain' as any,
+        step: 'main1' as any,
+        players: testGameState.players.map(p =>
+          p.id === 'player1'
+            ? {
+                ...(p as any),
+                library: [
+                  { id: 'bear-top', name: 'Grizzly Bears', type_line: 'Creature — Bear', mana_cost: '{1}{G}', colors: ['G'] },
+                ],
+              }
+            : p
+        ),
+        battlefield: [
+          {
+            id: 'melek',
+            controller: 'player1',
+            card: {
+              name: 'Melek, Izzet Paragon',
+              type_line: 'Legendary Creature — Weird Wizard',
+              oracle_text: 'Play with the top card of your library revealed. You may cast instant and sorcery spells from the top of your library.',
+            },
+          },
+        ],
+      };
+
+      adapter.initializeGame('test-game', stateWithMelekCreatureTop);
+      const denied = adapter.validateAction('test-game', {
+        type: 'castSpell',
+        playerId: 'player1',
+        fromZone: 'library',
+        cardId: 'bear-top',
+        card: { name: 'Grizzly Bears', type_line: 'Creature — Bear', mana_cost: '{1}{G}', colors: ['G'] },
+      });
+
+      expect(denied.legal).toBe(false);
+      expect(denied.reason).toBe('No permission to cast from the top of library');
+    });
+
+    it('should allow Mystic Forge to cast a colorless nonland card from the top of the library', () => {
+      const stateWithMysticForgeTop: any = {
+        ...testGameState,
+        phase: 'precombatMain' as any,
+        step: 'main1' as any,
+        players: testGameState.players.map(p =>
+          p.id === 'player1'
+            ? {
+                ...(p as any),
+                library: [
+                  { id: 'ugin-top', name: 'Ugin, the Ineffable', type_line: 'Legendary Planeswalker — Ugin', mana_cost: '{6}', colors: [] },
+                ],
+                manaPool: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 6 },
+              }
+            : p
+        ),
+        battlefield: [
+          {
+            id: 'mystic-forge',
+            controller: 'player1',
+            card: {
+              name: 'Mystic Forge',
+              type_line: 'Artifact',
+              oracle_text: 'You may look at the top card of your library any time. You may cast the top card of your library if it\'s an artifact card or a colorless nonland card.',
+            },
+          },
+        ],
+      };
+
+      adapter.initializeGame('test-game', stateWithMysticForgeTop);
+      const allowed = adapter.validateAction('test-game', {
+        type: 'castSpell',
+        playerId: 'player1',
+        fromZone: 'library',
+        cardId: 'ugin-top',
+        card: { name: 'Ugin, the Ineffable', type_line: 'Legendary Planeswalker — Ugin', mana_cost: '{6}', colors: [] },
+      });
+
       expect(allowed.legal).toBe(true);
     });
 
@@ -1844,7 +1936,17 @@ describe('RulesEngineAdapter', () => {
               }
             : p
         ),
-        topOfLibraryEffects: { player1: { canCast: true } },
+        battlefield: [
+          {
+            id: 'future-sight',
+            controller: 'player1',
+            card: {
+              name: 'Future Sight',
+              type_line: 'Enchantment',
+              oracle_text: 'Play with the top card of your library revealed. You may play the top card of your library.',
+            },
+          },
+        ],
         turn: 1,
       };
 

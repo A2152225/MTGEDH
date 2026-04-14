@@ -200,6 +200,56 @@ describe('canCastAnySpell', () => {
     expect(canCastAnySpell(ctx, 'p1' as PlayerID)).toBe(true);
   });
 
+  it('should return true when Elsha grants flash timing to a noncreature top card', () => {
+    const ctx = createTestContext({
+      zones: {
+        p1: {
+          hand: [],
+          graveyard: [],
+          exile: [],
+          handCount: 0,
+          graveyardCount: 0,
+          exileCount: 0,
+          libraryCount: 1,
+        },
+      },
+      battlefield: [
+        {
+          id: 'elsha',
+          controller: 'p1',
+          tapped: false,
+          card: {
+            name: 'Elsha of the Infinite',
+            type_line: 'Legendary Creature — Djinn Monk',
+            oracle_text: 'You may look at the top card of your library any time. You may cast noncreature spells from the top of your library as though they had flash.',
+          },
+        },
+      ],
+      manaPool: {
+        p1: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 2 },
+      },
+      stack: [],
+      step: 'DECLARE_ATTACKERS',
+      turnPlayer: 'p2',
+      priority: 'p1',
+    });
+
+    (ctx as any).libraries = new Map([
+      ['p1', [
+        {
+          id: 'signet_top',
+          name: 'Mind Stone',
+          type_line: 'Artifact',
+          mana_cost: '{2}',
+          oracle_text: '{T}: Add {C}.',
+          colors: [],
+        },
+      ]],
+    ]);
+
+    expect(canCastAnySpell(ctx, 'p1' as PlayerID)).toBe(true);
+  });
+
   it('should return false when spell requires a creature target but no creatures exist', () => {
     const ctx = createTestContext({
       players: [{ id: 'p1' }, { id: 'p2' }],
@@ -1670,6 +1720,56 @@ describe('canAct', () => {
         ]);
 
         expect(canAct(ctx, 'p1' as PlayerID)).toBe(false);
+      });
+
+      it('should return true when Mystic Forge allows a colorless nonland card from the top of the library', () => {
+        const ctx = createTestContext({
+          zones: {
+            p1: {
+              hand: [],
+              graveyard: [],
+              exile: [],
+              handCount: 0,
+              graveyardCount: 0,
+              exileCount: 0,
+              libraryCount: 1,
+            },
+          },
+          battlefield: [
+            {
+              id: 'mystic_forge',
+              controller: 'p1',
+              tapped: false,
+              card: {
+                name: 'Mystic Forge',
+                type_line: 'Artifact',
+                oracle_text: 'You may look at the top card of your library any time. You may cast the top card of your library if it\'s an artifact card or a colorless nonland card.',
+              },
+            },
+          ],
+          manaPool: {
+            p1: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 6 },
+          },
+          step: 'MAIN1',
+          stack: [],
+          turnPlayer: 'p1',
+          priority: 'p1',
+        });
+
+        (ctx as any).libraries = new Map([
+          ['p1', [
+            {
+              id: 'ugin_top',
+              name: 'Ugin, the Ineffable',
+              type_line: 'Legendary Planeswalker — Ugin',
+              mana_cost: '{6}',
+              oracle_text: 'Colorless spells you cast cost {2} less to cast.',
+              colors: [],
+            },
+          ]],
+        ]);
+
+        expect(canAct(ctx, 'p1' as PlayerID)).toBe(true);
       });
 
   it('should honor numeric playable-from-exile entries in main phase', () => {

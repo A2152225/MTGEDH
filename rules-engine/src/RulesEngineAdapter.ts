@@ -610,7 +610,7 @@ export class RulesEngineAdapter {
       if (typeLineLower.includes('land')) {
         return { legal: false, reason: 'Cannot cast a land from library' };
       }
-      if (!this.canCastTopLibrarySpell(state, action.playerId)) {
+      if (!this.canCastTopLibrarySpell(state, action.playerId, topCard)) {
         return { legal: false, reason: 'No permission to cast from the top of library' };
       }
     }
@@ -761,16 +761,49 @@ export class RulesEngineAdapter {
     });
   }
 
-  private canCastTopLibrarySpell(state: GameState, playerId: string): boolean {
+  private canCastTopLibrarySpell(state: GameState, playerId: string, card?: any): boolean {
     const stateAny: any = state as any;
-    if (stateAny.topOfLibraryEffects?.[playerId]?.canCast === true) {
+    if (!card && stateAny.topOfLibraryEffects?.[playerId]?.canCast === true) {
       return true;
     }
 
     const battlefield = Array.isArray(state.battlefield) ? state.battlefield : [];
+    const typeLine = String(card?.type_line || card?.typeLine || '').toLowerCase();
+    const colors = Array.isArray(card?.colors)
+      ? card.colors
+      : (Array.isArray(card?.color_identity) ? card.color_identity : []);
+    const isColorlessNonland = Boolean(card) && !typeLine.includes('land') && colors.length === 0;
+
     return battlefield.some((perm: any) => {
       if (perm?.controller !== playerId) return false;
+      const name = String(perm?.card?.name || perm?.name || '').toLowerCase();
       const oracleText = String(perm?.card?.oracle_text || perm?.oracle_text || '').toLowerCase();
+
+      if (!card) {
+        return oracleText.includes('you may cast the top card of your library')
+          || oracleText.includes('you may cast spells from the top of your library')
+          || oracleText.includes('you may play the top card of your library');
+      }
+
+      if (name.includes('mystic forge')) {
+        return typeLine.includes('artifact') || isColorlessNonland;
+      }
+      if (name.includes('elsha of the infinite')) {
+        return !typeLine.includes('creature') && !typeLine.includes('land');
+      }
+      if (name.includes('melek, izzet paragon')) {
+        return typeLine.includes('instant') || typeLine.includes('sorcery');
+      }
+      if (name.includes('augur of autumn')) {
+        return typeLine.includes('creature') && !typeLine.includes('land');
+      }
+      if (name.includes('conspicuous snoop')) {
+        return typeLine.includes('creature') && typeLine.includes('goblin');
+      }
+      if (name.includes('eladamri, korvecdal') || name.includes('vizier of the menagerie') || name.includes("garruk's horde")) {
+        return typeLine.includes('creature') && !typeLine.includes('land');
+      }
+
       return oracleText.includes('you may cast the top card of your library')
         || oracleText.includes('you may cast spells from the top of your library')
         || oracleText.includes('you may play the top card of your library');

@@ -794,19 +794,12 @@ function getPlayableCardIds(game: InMemoryGame, playerId: PlayerID): string[] {
         const topCard = library[0];
         if (topCard && typeof topCard !== "string") {
           const typeLine = (topCard.type_line || "").toLowerCase();
-          const oracleText = (topCard.oracle_text || "").toLowerCase();
           const topCtx = { state } as any;
-          const genericTopLandPermission = (state.battlefield || []).some((perm: any) => {
-            if (perm.controller !== playerId) return false;
-            const oracle = String(perm.card?.oracle_text || '').toLowerCase();
-            return oracle.includes('play lands from the top of your library')
-              || oracle.includes('you may play the top card of your library');
-          });
           
           // For lands from top of library
           if (typeLine.includes("land")) {
             const topLandPermission = canPlayLandsFromTop(topCtx, playerId);
-            if ((topLandPermission.canPlay || genericTopLandPermission) && isMainPhase && stackIsEmpty && isMyTurn) {
+            if (topLandPermission.canPlay && isMainPhase && stackIsEmpty && isMyTurn) {
               const landsPlayedThisTurn = (state.landsPlayedThisTurn as any)?.[playerId] ?? 0;
               const maxLandsPerTurn = calculateMaxLandsPerTurn(ctx as any, playerId);
               if (landsPlayedThisTurn < maxLandsPerTurn) {
@@ -815,23 +808,29 @@ function getPlayableCardIds(game: InMemoryGame, playerId: PlayerID): string[] {
               }
             }
           } else {
-            // For spells from top of library - check timing and cost
-            const manaCost = topCard.mana_cost || "";
-            const parsedCost = parseManaFromString(manaCost);
-            const topSpellPermission = canCastFromTop(topCtx, playerId, typeLine);
-            const genericTopSpellPermission = (state.battlefield || []).some((perm: any) => {
-              if (perm.controller !== playerId) return false;
-              const oracle = String(perm.card?.oracle_text || '').toLowerCase();
-              return oracle.includes('you may cast the top card of your library')
-                || oracle.includes('you may cast spells from the top of your library')
-                || oracle.includes('you may play the top card of your library');
+            const hasCastableTopFace = getHandCastEvaluationCards(topCard).some((castCard: any) => {
+              if (!castCard || typeof castCard === 'string') return false;
+
+              const castTypeLine = String(castCard.type_line || castCard.typeLine || '').toLowerCase();
+              if (castTypeLine.includes('land')) return false;
+
+              const topSpellPermission = canCastFromTop(topCtx, playerId, castCard);
+              if (!topSpellPermission.canCast) return false;
+
+              const castOracleText = String(castCard.oracle_text || castCard.oracleText || '').toLowerCase();
+              const manaCost = castCard.mana_cost || castCard.manaCost || "";
+              const parsedCost = parseManaFromString(manaCost);
+              const isInstantSpeed = castTypeLine.includes("instant") || castOracleText.includes("flash") || topSpellPermission.grantsFlash;
+              const canCastNow = isInstantSpeed || (isMainPhase && stackIsEmpty && isMyTurn);
+
+              if (!canCastNow) return false;
+              if (!hasValidTargetsForSpell(state as any, playerId, castCard)) return false;
+
+              return canPayManaCostWithAvailableSources(state, playerId, parsedCost)
+                || hasPayableAlternateCost(game as any, playerId, castCard);
             });
-            
-            // Check timing (example: creature with flash from top of library)
-            const isInstantSpeed = typeLine.includes("instant") || oracleText.includes("flash");
-            const canCastNow = isInstantSpeed || (isMainPhase && stackIsEmpty && isMyTurn);
-            
-            if ((topSpellPermission.canCast || genericTopSpellPermission) && canCastNow && (canPayManaCostWithAvailableSources(state, playerId, parsedCost) || hasPayableAlternateCost(game as any, playerId, topCard))) {
+
+            if (hasCastableTopFace) {
               // Highlight the library zone instead of the individual card
               playableIds.push(`library-${playerId}`);
             }

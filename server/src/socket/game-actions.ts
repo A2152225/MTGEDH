@@ -86,27 +86,6 @@ function getTopLibraryCard(game: any, playerId: string): any | null {
   return library.length > 0 ? library[0] : null;
 }
 
-function hasGenericTopLibraryLandPermission(game: any, playerId: string): boolean {
-  const battlefield = Array.isArray(game.state?.battlefield) ? game.state.battlefield : [];
-  return battlefield.some((perm: any) => {
-    if (perm?.controller !== playerId) return false;
-    const oracleText = String(perm?.card?.oracle_text || '').toLowerCase();
-    return oracleText.includes('play lands from the top of your library')
-      || oracleText.includes('you may play the top card of your library');
-  });
-}
-
-function hasGenericTopLibrarySpellPermission(game: any, playerId: string): boolean {
-  const battlefield = Array.isArray(game.state?.battlefield) ? game.state.battlefield : [];
-  return battlefield.some((perm: any) => {
-    if (perm?.controller !== playerId) return false;
-    const oracleText = String(perm?.card?.oracle_text || '').toLowerCase();
-    return oracleText.includes('you may cast the top card of your library')
-      || oracleText.includes('you may cast spells from the top of your library')
-      || oracleText.includes('you may play the top card of your library');
-  });
-}
-
 function validateTopOfLibraryLandAccess(
   game: any,
   playerId: string,
@@ -130,7 +109,7 @@ function validateTopOfLibraryLandAccess(
   }
 
   const topLandPermission = canPlayLandsFromTop({ state: game.state } as any, playerId);
-  if (!topLandPermission.canPlay && !hasGenericTopLibraryLandPermission(game, playerId)) {
+  if (!topLandPermission.canPlay) {
     return {
       ok: false,
       code: 'NO_PERMISSION',
@@ -145,7 +124,7 @@ function validateLibrarySpellCastAccess(
   game: any,
   playerId: string,
   cardId: string,
-  spellTypeLine: string,
+  spellCard: any,
   allowLibrarySearchCast: boolean,
 ): { ok: true } | { ok: false; code: string; message: string } {
   const library = getPlayerLibraryCards(game, playerId);
@@ -171,8 +150,8 @@ function validateLibrarySpellCastAccess(
     };
   }
 
-  const topSpellPermission = canCastFromTop({ state: game.state } as any, playerId, spellTypeLine);
-  if (!topSpellPermission.canCast && !hasGenericTopLibrarySpellPermission(game, playerId)) {
+  const topSpellPermission = canCastFromTop({ state: game.state } as any, playerId, spellCard);
+  if (!topSpellPermission.canCast) {
     return {
       ok: false,
       code: 'NO_PERMISSION',
@@ -5064,7 +5043,7 @@ export function registerGameActions(io: Server, socket: Socket) {
           game,
           String(playerId),
           String(cardId),
-          typeLine,
+          cardInHand,
           allowLibrarySearchCast,
         );
         if (validation.ok === false) {
@@ -5220,6 +5199,13 @@ export function registerGameActions(io: Server, socket: Socket) {
       let hasFlash = oracleText.includes("flash");
       const isInstant = typeLine.includes("instant");
       const isInstantOrSorcery = isInstant || typeLine.includes("sorcery");
+
+      if (!hasFlash && castSourceZone === 'library') {
+        const topLibraryPermission = canCastFromTop({ state: game.state } as any, playerId, cardInHand);
+        if (topLibraryPermission.grantsFlash) {
+          hasFlash = true;
+        }
+      }
 
       // Check for "flash grant" effects from battlefield permanents
       // Yeva, Nature's Herald: "You may cast green creature cards as though they had flash."

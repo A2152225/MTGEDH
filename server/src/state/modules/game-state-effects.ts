@@ -1340,8 +1340,11 @@ interface TopOfLibraryEffect {
   playLandsFromTop?: boolean;   // Can play lands from top of library
   castFromTop?: boolean;        // Can cast spells from top of library
   castTypes?: string[];         // Only these types can be cast (e.g., ['creature'])
+  noncreatureOnly?: boolean;    // Only noncreature spells can be cast
+  allowColorlessNonland?: boolean; // Can also cast colorless nonland cards
   creatureTypeFilter?: string;  // Only creatures of this type (e.g., 'Goblin')
   conditionCheck?: string;      // Condition to cast (e.g., 'coven' for Augur of Autumn)
+  grantsFlash?: boolean;        // Matching spells can be cast as though they had flash
 }
 
 /**
@@ -1435,6 +1438,7 @@ const TOP_OF_LIBRARY_CARDS: Record<string, TopOfLibraryEffect> = {
     lookAtTop: true,
     castFromTop: true,
     castTypes: ['artifact'],
+    allowColorlessNonland: true,
   },
   // Magus of the Future - Same as Future Sight
   "magus of the future": {
@@ -1453,9 +1457,41 @@ const TOP_OF_LIBRARY_CARDS: Record<string, TopOfLibraryEffect> = {
   "elsha of the infinite": {
     lookAtTop: true,
     castFromTop: true,
-    castTypes: ['instant', 'sorcery', 'artifact', 'enchantment', 'planeswalker'],
+    noncreatureOnly: true,
+    grantsFlash: true,
   },
 };
+
+type TopOfLibraryCardInput = string | {
+  type_line?: string;
+  typeLine?: string;
+  colors?: string[];
+  color_identity?: string[];
+};
+
+function getTopLibraryTypeLine(card: TopOfLibraryCardInput | undefined): string {
+  if (typeof card === 'string') return card.toLowerCase();
+  return String(card?.type_line || card?.typeLine || '').toLowerCase();
+}
+
+function isTopLibraryCardColorless(card: TopOfLibraryCardInput | undefined): boolean {
+  if (!card || typeof card === 'string') return false;
+  const colors = Array.isArray(card.colors)
+    ? card.colors
+    : (Array.isArray(card.color_identity) ? card.color_identity : []);
+  return colors.length === 0;
+}
+
+function hasGenericTopLibraryLandPermissionText(oracleText: string): boolean {
+  return oracleText.includes('play lands from the top of your library')
+    || oracleText.includes('you may play the top card of your library');
+}
+
+function hasGenericTopLibrarySpellPermissionText(oracleText: string): boolean {
+  return oracleText.includes('you may cast the top card of your library')
+    || oracleText.includes('you may cast spells from the top of your library')
+    || oracleText.includes('you may play the top card of your library');
+}
 
 /**
  * Check if a player can look at the top card of their library
@@ -1492,12 +1528,19 @@ export function canPlayLandsFromTop(ctx: GameContext, playerId: string): { canPl
     if (perm.controller !== playerId) continue;
     
     const cardName = (perm.card?.name || "").toLowerCase();
+    const oracleText = String(perm.card?.oracle_text || '').toLowerCase();
+    let matched = false;
     
     for (const [knownName, effect] of Object.entries(TOP_OF_LIBRARY_CARDS)) {
       if (cardName.includes(knownName) && effect.playLandsFromTop) {
         sources.push(perm.card?.name || knownName);
+        matched = true;
         break;
       }
+    }
+
+    if (!matched && hasGenericTopLibraryLandPermissionText(oracleText)) {
+      sources.push(perm.card?.name || 'Top-of-library effect');
     }
   }
   
@@ -1510,28 +1553,66 @@ export function canPlayLandsFromTop(ctx: GameContext, playerId: string): { canPl
 export function canCastFromTop(
   ctx: GameContext, 
   playerId: string, 
-  cardTypeLine?: string
-): { canCast: boolean; sources: string[]; restrictions: string[] } {
+  card?: TopOfLibraryCardInput
+): { canCast: boolean; sources: string[]; restrictions: string[]; grantsFlash: boolean; flashSources: string[] } {
   const sources: string[] = [];
   const restrictions: string[] = [];
+  const flashSources: string[] = [];
   const battlefield = getActivePermanents(ctx);
   
-  const typeLine = (cardTypeLine || '').toLowerCase();
+  const typeLine = getTopLibraryTypeLine(card);
+  const hasCardContext = Boolean(card);
+  const isColorlessNonland = hasCardContext && !typeLine.includes('land') && isTopLibraryCardColorless(card);
   
   for (const perm of battlefield) {
     if (perm.controller !== playerId) continue;
     
     const cardName = (perm.card?.name || "").toLowerCase();
+    const oracleText = String(perm.card?.oracle_text || '').toLowerCase();
+    let matched = false;
     
     for (const [knownName, effect] of Object.entries(TOP_OF_LIBRARY_CARDS)) {
       if (cardName.includes(knownName) && effect.castFromTop) {
+        if (!hasCardContext) {
+          sources.push(perm.card?.name || knownName);
+          if (effect.grantsFlash) {
+            flashSources.push(perm.card?.name || knownName);
+          }
+          matched = true;
+          break;
+        }
+
+        let matchedRestriction = false;
+
         // Check type restrictions
         if (effect.castTypes && effect.castTypes.length > 0) {
           const typeMatches = effect.castTypes.some(t => typeLine.includes(t));
-          if (!typeMatches) {
+          if (typeMatches) {
+            matchedRestriction = true;
+          } else if (!(effect.allowColorlessNonland && isColorlessNonland)) {
             restrictions.push(`${perm.card?.name || knownName} only allows: ${effect.castTypes.join(', ')}`);
             continue;
           }
+        }
+
+        if (effect.allowColorlessNonland && isColorlessNonland) {
+          matchedRestriction = true;
+        }
+
+        if (effect.noncreatureOnly) {
+          if (typeLine.includes('creature')) {
+            restrictions.push(`${perm.card?.name || knownName} only allows noncreature spells`);
+            continue;
+          }
+          matchedRestriction = true;
+        }
+
+        if (!effect.castTypes?.length && !effect.noncreatureOnly && !effect.allowColorlessNonland) {
+          matchedRestriction = true;
+        }
+
+        if (!matchedRestriction) {
+          continue;
         }
         
         // Check creature type filter (e.g., Conspicuous Snoop for Goblins)
@@ -1551,12 +1632,26 @@ export function canCastFromTop(
         }
         
         sources.push(perm.card?.name || knownName);
+        if (effect.grantsFlash) {
+          flashSources.push(perm.card?.name || knownName);
+        }
+        matched = true;
         break;
       }
     }
+
+    if (!matched && hasGenericTopLibrarySpellPermissionText(oracleText)) {
+      sources.push(perm.card?.name || 'Top-of-library effect');
+    }
   }
   
-  return { canCast: sources.length > 0, sources, restrictions };
+  return {
+    canCast: sources.length > 0,
+    sources,
+    restrictions,
+    grantsFlash: flashSources.length > 0,
+    flashSources,
+  };
 }
 
 /**
