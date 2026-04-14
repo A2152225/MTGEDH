@@ -72,12 +72,42 @@ function buildSignetBaseline(playerId: string) {
   };
 }
 
+function buildAzureDynamoBaseline(playerId: string) {
+  return {
+    players: [{ id: playerId, name: 'P1', spectator: false, life: 40 }],
+    startingLife: 40,
+    life: { [playerId]: 40 },
+    phase: 'precombatMain',
+    turnPlayer: playerId,
+    priority: playerId,
+    stack: [],
+    manaPool: {
+      [playerId]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+    },
+    battlefield: [
+      {
+        id: 'azure_dynamo_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        card: {
+          id: 'azure_dynamo_card_1',
+          name: 'Azure Dynamo',
+          type_line: 'Artifact',
+          oracle_text: 'Sacrifice this artifact: Add {U}.\n{T}: Add {U}{U}.',
+        },
+      },
+    ],
+  };
+}
+
 describe('mana payment choice selection flow', () => {
   const signetGameId = 'test_mana_payment_choice_signet';
   const spellGameId = 'test_mana_payment_choice_spell';
   const altarSpellGameId = 'test_mana_payment_choice_spell_altar';
   const reflectedSpellGameId = 'test_mana_payment_choice_spell_reflection';
   const mikokoroGameId = 'test_mana_payment_choice_mikokoro';
+  const azureDynamoGameId = 'test_mana_payment_choice_azure_dynamo';
   const playerId = 'p1';
 
   beforeAll(async () => {
@@ -92,11 +122,13 @@ describe('mana payment choice selection flow', () => {
     ResolutionQueueManager.removeQueue(altarSpellGameId);
     ResolutionQueueManager.removeQueue(reflectedSpellGameId);
     ResolutionQueueManager.removeQueue(mikokoroGameId);
+    ResolutionQueueManager.removeQueue(azureDynamoGameId);
     games.delete(signetGameId as any);
     games.delete(spellGameId as any);
     games.delete(altarSpellGameId as any);
     games.delete(reflectedSpellGameId as any);
     games.delete(mikokoroGameId as any);
+    games.delete(azureDynamoGameId as any);
   });
 
   it('lets a signet activation spend chosen floating mana and keep the rest', async () => {
@@ -169,6 +201,43 @@ describe('mana payment choice selection flow', () => {
       green: 0,
       colorless: 0,
     });
+  });
+
+  it('uses the selected generic mana line amount for direct live activations', async () => {
+    createGameIfNotExists(azureDynamoGameId, 'commander', 40);
+    const game = ensureGame(azureDynamoGameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    Object.assign((game.state as any), buildAzureDynamoBaseline(playerId));
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(playerId, emitted, azureDynamoGameId);
+    const io = createMockIo(emitted, [socket]);
+
+    registerResolutionHandlers(io as any, socket as any);
+    registerInteractionHandlers(io as any, socket as any);
+
+    await handlers['activateBattlefieldAbility']({
+      gameId: azureDynamoGameId,
+      permanentId: 'azure_dynamo_1',
+      abilityId: 'azure_dynamo_card_1-ability-1',
+    });
+
+    expect((game.state as any).manaPool[playerId]).toEqual({
+      white: 0,
+      blue: 2,
+      black: 0,
+      red: 0,
+      green: 0,
+      colorless: 0,
+    });
+
+    const permanent = ((game.state as any).battlefield || []).find((entry: any) => entry?.id === 'azure_dynamo_1');
+    expect(permanent?.tapped).toBe(true);
+
+    const manaEvent = [...getEvents(azureDynamoGameId)].reverse().find((event: any) => String(event?.type) === 'activateManaAbility') as any;
+    expect(manaEvent?.payload?.addedMana).toEqual({ blue: 2 });
+
   });
 
   it('lets spell payment spend chosen floating mana and preserve colorless mana', async () => {

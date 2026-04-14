@@ -72,6 +72,7 @@ function ptBadgeColors(baseP?: number, baseT?: number, p?: number, t?: number): 
 
 export function LandRow(props: {
   lands: BattlefieldPermanent[];
+  allBattlefieldPerms?: BattlefieldPermanent[];
   imagePref: ImagePref;
   tileWidth?: number;     // default 110
   overlapRatio?: number;  // consecutive same-type overlap (0..1), default 0.33 (33%)
@@ -96,9 +97,11 @@ export function LandRow(props: {
   isOwnTurn?: boolean;
   isMainPhase?: boolean;
   stackEmpty?: boolean;
+  hasThousandYearElixirEffect?: boolean;
 }) {
   const {
     lands,
+    allBattlefieldPerms,
     imagePref,
     tileWidth = 110,
     overlapRatio = 0.33,
@@ -114,6 +117,7 @@ export function LandRow(props: {
     isOwnTurn = false,
     isMainPhase = false,
     stackEmpty = true,
+    hasThousandYearElixirEffect = false,
   } = props;
 
   const items = useMemo(() => lands.map(p => {
@@ -355,6 +359,7 @@ export function LandRow(props: {
     {contextMenu && (
       <CardContextMenu
         permanent={contextMenu.permanent}
+        battlefield={allBattlefieldPerms || lands}
         x={contextMenu.x}
         y={contextMenu.y}
         onClose={() => setContextMenu(null)}
@@ -369,6 +374,11 @@ export function LandRow(props: {
         isIgnoredForAutoPass={ignoredForAutoPassIds?.has(contextMenu.permanent.id) || false}
         canActivate={canActivate}
         playerId={playerId}
+        hasPriority={hasPriority}
+        isOwnTurn={isOwnTurn}
+        isMainPhase={isMainPhase}
+        stackEmpty={stackEmpty}
+        hasThousandYearElixirEffect={hasThousandYearElixirEffect}
       />
     )}
 

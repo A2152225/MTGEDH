@@ -627,12 +627,14 @@ export function parseActivatedAbilities(card: KnownCardRef, grantedAbilities?: r
     .replace(/(?:other\s+)?lands you control have\s+["“”][^"“”]*\{t\}:[^"“”]*["“”]/gi, '')
     .replace(/(?:other\s+)?permanents you control have\s+["“”][^"“”]*\{t\}:[^"“”]*["“”]/gi, '');
   const lowerNativeOracle = nativeOracleText.toLowerCase();
+  const hasExplicitTapManaAbility = /\{t\}\s*:\s*add\b/i.test(nativeOracleText);
   
   let abilityIndex = 0;
   
   // ======== BASIC LAND MANA ABILITIES ========
-  // Basic lands have intrinsic mana abilities based on type
-  if (typeLine.includes('plains')) {
+  // Lands with basic land types have intrinsic mana abilities, but prefer
+  // the printed tap-mana line when the oracle text already provides one.
+  if (!hasExplicitTapManaAbility && typeLine.includes('plains')) {
     abilities.push({
       id: `${card.id}-mana-w-${abilityIndex++}`,
       label: 'Tap for {W}',
@@ -647,7 +649,7 @@ export function parseActivatedAbilities(card: KnownCardRef, grantedAbilities?: r
       isFetchAbility: false,
     });
   }
-  if (typeLine.includes('island')) {
+  if (!hasExplicitTapManaAbility && typeLine.includes('island')) {
     abilities.push({
       id: `${card.id}-mana-u-${abilityIndex++}`,
       label: 'Tap for {U}',
@@ -662,7 +664,7 @@ export function parseActivatedAbilities(card: KnownCardRef, grantedAbilities?: r
       isFetchAbility: false,
     });
   }
-  if (typeLine.includes('swamp')) {
+  if (!hasExplicitTapManaAbility && typeLine.includes('swamp')) {
     abilities.push({
       id: `${card.id}-mana-b-${abilityIndex++}`,
       label: 'Tap for {B}',
@@ -677,7 +679,7 @@ export function parseActivatedAbilities(card: KnownCardRef, grantedAbilities?: r
       isFetchAbility: false,
     });
   }
-  if (typeLine.includes('mountain')) {
+  if (!hasExplicitTapManaAbility && typeLine.includes('mountain')) {
     abilities.push({
       id: `${card.id}-mana-r-${abilityIndex++}`,
       label: 'Tap for {R}',
@@ -692,7 +694,7 @@ export function parseActivatedAbilities(card: KnownCardRef, grantedAbilities?: r
       isFetchAbility: false,
     });
   }
-  if (typeLine.includes('forest')) {
+  if (!hasExplicitTapManaAbility && typeLine.includes('forest')) {
     abilities.push({
       id: `${card.id}-mana-g-${abilityIndex++}`,
       label: 'Tap for {G}',

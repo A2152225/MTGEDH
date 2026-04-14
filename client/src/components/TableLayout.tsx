@@ -1578,6 +1578,7 @@ export function TableLayout(props: {
                             </div>
                             <LandRow
                               lands={manaSources}
+                              allBattlefieldPerms={allBattlefieldPerms}
                               imagePref={imagePref || 'small'}
                               tileWidth={Math.round(TILE_W * 0.85)}
                               overlapRatio={0.4}
@@ -1599,6 +1600,7 @@ export function TableLayout(props: {
                               isOwnTurn={!!isOwnTurn}
                               isMainPhase={!!isMainPhase}
                               stackEmpty={stackEmpty}
+                              hasThousandYearElixirEffect={hasThousandYearElixirEffect}
                             />
                           </div>
                         )}
@@ -1617,6 +1619,7 @@ export function TableLayout(props: {
                             </div>
                             <LandRow
                               lands={lands}
+                              allBattlefieldPerms={allBattlefieldPerms}
                               imagePref={imagePref || 'small'}
                               tileWidth={TILE_W}
                               overlapRatio={0.33}
@@ -1638,6 +1641,7 @@ export function TableLayout(props: {
                               isOwnTurn={!!isOwnTurn}
                               isMainPhase={!!isMainPhase}
                               stackEmpty={stackEmpty}
+                              hasThousandYearElixirEffect={hasThousandYearElixirEffect}
                             />
                           </div>
                         )}

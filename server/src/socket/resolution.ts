@@ -89,9 +89,9 @@ import {
   getCreatureCountManaAmount,
   getDevotionManaAmount,
   getExtraManaProduction,
-  getManaAbilitiesForPermanent,
   getManaMultiplier,
 } from "../state/modules/mana-abilities.js";
+import { resolveManaAbilityActivationShape } from "./interaction.js";
 import {
   advanceDungeonProgress,
   createDungeonProgress,
@@ -9927,21 +9927,34 @@ async function handleStepResponse(
             recordAddedMana(poolKey, totalAmount);
             broadcastManaPoolUpdate(io, gameId, pid, game.state.manaPool[pid] as any, `Activated ${cardName}`, game);
           } else {
-            const manaAbilities = getManaAbilitiesForPermanent(game.state, permanent, pid);
-            const manaAbility = manaAbilities[0];
-            const produces = Array.isArray(manaAbility?.produces) ? manaAbility.produces : [];
+            const {
+              produces,
+              baseAmount,
+              producesAllAtOnce,
+            } = resolveManaAbilityActivationShape(
+              game.state,
+              permanent,
+              pid,
+              String(abilityId || ''),
+              String(activatedAbilityText || ''),
+              String(abilityText || ''),
+              '',
+            );
 
-            if (manaAbility && manaAbility.producesAllAtOnce && produces.length > 1) {
+            if (producesAllAtOnce && produces.length > 1) {
+              const amountPerColor = produces.length > 0
+                ? Math.max(1, Math.floor(baseAmount / produces.length))
+                : 1;
               for (const manaColor of produces) {
                 const poolKey = colorToPoolKey[manaColor] || 'colorless';
-                (game.state.manaPool[pid] as any)[poolKey] += effectiveMultiplier;
-                recordAddedMana(poolKey, effectiveMultiplier);
+                (game.state.manaPool[pid] as any)[poolKey] += amountPerColor * effectiveMultiplier;
+                recordAddedMana(poolKey, amountPerColor * effectiveMultiplier);
               }
               broadcastManaPoolUpdate(io, gameId, pid, game.state.manaPool[pid] as any, `Activated ${cardName}`, game);
-            } else if (manaAbility && produces.length > 1) {
+            } else if (produces.length > 1) {
               const extraMana = getExtraManaProduction(game.state, permanent, pid, produces[0]);
               const totalExtra = extraMana.reduce((acc, entry) => acc + Number(entry.amount || 0), 0);
-              const finalTotal = (1 * effectiveMultiplier) + totalExtra;
+              const finalTotal = (baseAmount * effectiveMultiplier) + totalExtra;
               ResolutionQueueManager.addStep(gameId, {
                 type: ResolutionStepType.MANA_COLOR_SELECTION,
                 playerId: pid as PlayerID,
@@ -9959,10 +9972,9 @@ async function handleStepResponse(
               } as any);
               broadcastGame(io, game, gameId);
               break;
-            } else if (manaAbility && produces.length === 1) {
+            } else if (produces.length === 1) {
               const manaColor = produces[0];
               const poolKey = colorToPoolKey[manaColor] || 'colorless';
-              const baseAmount = 1;
               const extraMana = getExtraManaProduction(game.state, permanent, pid, manaColor);
               for (const extra of extraMana) {
                 const extraPoolKey = colorToPoolKey[extra.color] || poolKey;

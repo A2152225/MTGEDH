@@ -1668,6 +1668,25 @@ function normalizeManaAbilitySelectionText(text: string): string {
     .trim();
 }
 
+function normalizeManaAbilityProducedColors(rawColors: unknown): string[] {
+  if (!Array.isArray(rawColors)) {
+    return [];
+  }
+
+  const colors: string[] = [];
+  for (const rawColor of rawColors) {
+    const normalizedColor = String(rawColor || '').trim().toUpperCase();
+    if (!['W', 'U', 'B', 'R', 'G', 'C'].includes(normalizedColor)) {
+      continue;
+    }
+    if (!colors.includes(normalizedColor)) {
+      colors.push(normalizedColor);
+    }
+  }
+
+  return colors;
+}
+
 function selectManaAbilityForActivation(
   manaAbilities: any[],
   abilityIdRaw: string,
@@ -1812,6 +1831,56 @@ function selectManaAbilityForActivation(
   }
 
   return bestAbility;
+}
+
+export function resolveManaAbilityActivationShape(
+  gameState: any,
+  permanent: any,
+  playerId: string,
+  abilityIdRaw: string,
+  selectedAbilityFullTextRaw: string,
+  selectedAbilityTextRaw: string,
+  selectedCostTextRaw: string,
+): {
+  ability: any;
+  produces: string[];
+  baseAmount: number;
+  producesAllAtOnce: boolean;
+} {
+  const manaAbilities = getManaAbilitiesForPermanent(gameState, permanent, playerId);
+  const ability = selectManaAbilityForActivation(
+    manaAbilities,
+    abilityIdRaw,
+    selectedAbilityFullTextRaw,
+    selectedAbilityTextRaw,
+    selectedCostTextRaw,
+  ) || manaAbilities[0];
+  const manaProduction = calculateManaProduction(gameState, permanent, playerId, undefined, abilityIdRaw || undefined);
+  const calculatedProduces = normalizeManaAbilityProducedColors(manaProduction?.colors);
+  const abilityProduces = normalizeManaAbilityProducedColors(ability?.produces);
+  const normalizedSelectedAbilityText = normalizeManaAbilitySelectionText(selectedAbilityTextRaw || selectedAbilityFullTextRaw);
+  const shouldPreferAbilityProduces = abilityProduces.length > 1 && (
+    ability?.producesAllAtOnce === true ||
+    manaProduction?.requiresColorChoice === true ||
+    /\bor\b/i.test(normalizedSelectedAbilityText) ||
+    abilityProduces.length > calculatedProduces.length
+  );
+  const produces = shouldPreferAbilityProduces
+    ? abilityProduces
+    : (calculatedProduces.length > 0 ? calculatedProduces : abilityProduces);
+  const rawBaseAmount = Number(manaProduction?.baseAmount || ability?.amount || 1);
+  const baseAmount = Number.isFinite(rawBaseAmount) && rawBaseAmount > 0 ? rawBaseAmount : 1;
+  const producesAllAtOnce = (
+    ability?.producesAllAtOnce === true ||
+    (!ability && manaProduction?.requiresColorChoice !== true && produces.length > 1 && baseAmount === produces.length)
+  ) && produces.length > 1;
+
+  return {
+    ability,
+    produces,
+    baseAmount,
+    producesAllAtOnce,
+  };
 }
 
 export function registerInteractionHandlers(io: Server, socket: Socket) {
@@ -3299,6 +3368,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     const recordedAddedMana: Record<string, number> = {};
     let recordedManaCost: string | undefined;
     let recordedLifeLost = 0;
+    let recordedLifeLossIsDamage: boolean | undefined;
 
     const recordAddedMana = (poolKey: string, amount: number) => {
       if (!poolKey) return;
@@ -3500,24 +3570,20 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       // Handle standard mana abilities (lands, mana dorks, rocks)
       // ========================================================================
       else if (manaAbilities.length > 0) {
-        // ========================================================================
-        // Select which ability to use:
-        // If there are multiple abilities, prefer colored mana over colorless
-        // This handles pain lands like Adarkar Wastes where you have {C} and {W}/{U}
-        // ========================================================================
-        let ability = manaAbilities[0];
-        
-        if (manaAbilities.length > 1) {
-          // Prefer non-colorless abilities
-          const coloredAbility = manaAbilities.find(a => 
-            a.produces.length > 0 && !a.produces.every(c => c === 'C')
-          );
-          if (coloredAbility) {
-            ability = coloredAbility;
-          }
-        }
-        
-        const produces = ability.produces || [];
+        const {
+          ability,
+          produces,
+          baseAmount,
+          producesAllAtOnce,
+        } = resolveManaAbilityActivationShape(
+          game.state,
+          permanent,
+          pid,
+          '',
+          '',
+          '',
+          '',
+        );
         
         if (produces.length > 0) {
           // ========================================================================
@@ -3540,6 +3606,9 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
                 if (!game.state.life) game.state.life = {};
                 game.state.life[pid] = currentLife - cost.amount;
                 recordedLifeLost += Number(cost.amount) || 0;
+                if (recordedLifeLossIsDamage !== true) {
+                  recordedLifeLossIsDamage = false;
+                }
 
                 // Track life lost this turn.
                 try {
@@ -3568,6 +3637,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
             if (!game.state.life) game.state.life = {};
             game.state.life[pid] = currentLife - damageAmount;
             recordedLifeLost += Number(damageAmount) || 0;
+            recordedLifeLossIsDamage = true;
 
             // Track per-turn damage and life lost.
             try {
@@ -3593,17 +3663,20 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
           // Check if this ability produces ALL colors at once (like bounce lands)
           // If producesAllAtOnce is true, add all mana at once without prompting
           // ========================================================================
-          if (ability.producesAllAtOnce && produces.length > 1) {
+          if (producesAllAtOnce && produces.length > 1) {
             // Multi-mana producer like Rakdos Carnarium - add ALL colors at once
             const manaAdded: string[] = [];
+            const amountPerColor = produces.length > 0
+              ? Math.max(1, Math.floor(baseAmount / produces.length))
+              : 1;
             
             for (const manaColor of produces) {
               const poolKey = colorToPoolKey[manaColor] || 'colorless';
-              (game.state.manaPool[pid] as any)[poolKey] += effectiveMultiplier;
-              recordAddedMana(poolKey, effectiveMultiplier);
+              (game.state.manaPool[pid] as any)[poolKey] += amountPerColor * effectiveMultiplier;
+              recordAddedMana(poolKey, amountPerColor * effectiveMultiplier);
               if (isTreasureSource) {
                 try {
-                  recordTreasureManaProduced(game.state, String(pid), String(poolKey) as any, effectiveMultiplier);
+                  recordTreasureManaProduced(game.state, String(pid), String(poolKey) as any, amountPerColor * effectiveMultiplier);
                 } catch {}
               }
               manaAdded.push(`{${manaColor}}`);
@@ -3629,8 +3702,6 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
           }
           // If produces multiple colors but NOT all at once (like "any color"), prompt user for choice
           else if (produces.length > 1) {
-            // Calculate total mana for the prompt
-            const baseAmount = 1;
             const totalAmount = baseAmount * effectiveMultiplier;
             
             // Get extra mana from effects like Caged Sun, Nissa, Crypt Ghast
@@ -3651,7 +3722,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
               permanentId,
               cardName,
               amount: finalTotal,
-              allowedColors: produces,
+              allowedColors: produces.filter((color) => ['W', 'U', 'B', 'R', 'G'].includes(String(color || '').toUpperCase())),
             } as any);
             
             io.to(gameId).emit("chat", {
@@ -3743,6 +3814,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
           addedMana: Object.keys(recordedAddedMana).length > 0 ? { ...recordedAddedMana } : undefined,
           manaCost: recordedManaCost || undefined,
           lifeLost: recordedLifeLost > 0 ? recordedLifeLost : undefined,
+          lifeLossIsDamage: recordedLifeLost > 0 ? recordedLifeLossIsDamage : undefined,
         });
     
     broadcastGame(io, game, gameId);
@@ -8991,6 +9063,13 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     // activations apply the same side effects.
     let pendingManaLifeLossAmount = 0;
     let pendingManaLifeLossIsDamage = false;
+    const recordedAddedMana: Record<string, number> = {};
+    const recordAddedMana = (poolKey: string, amount: number) => {
+      if (!poolKey) return;
+      const numericAmount = Number(amount || 0);
+      if (!Number.isFinite(numericAmount) || numericAmount === 0) return;
+      recordedAddedMana[poolKey] = Number(recordedAddedMana[poolKey] || 0) + numericAmount;
+    };
 
     // Track any counters removed as part of paying this activation's costs.
     // Persisted into activateBattlefieldAbility for deterministic replay.
@@ -10781,6 +10860,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         const totalAmount = devotionMana.amount * effectiveMultiplier;
         const poolKey = colorToPoolKey[devotionMana.color] || 'green';
         (game.state.manaPool[pid] as any)[poolKey] += totalAmount;
+        recordAddedMana(poolKey, totalAmount);
         
         io.to(gameId).emit("chat", {
           id: `m_${Date.now()}`,
@@ -10841,6 +10921,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         } else {
           const poolKey = colorToPoolKey[creatureCountMana.color] || 'green';
           (game.state.manaPool[pid] as any)[poolKey] += totalAmount;
+          recordAddedMana(poolKey, totalAmount);
           
           io.to(gameId).emit("chat", {
             id: `m_${Date.now()}`,
@@ -10857,18 +10938,22 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       }
       // Handle standard mana abilities
       else {
-        // Get mana abilities for this permanent
-        const manaAbilities = getManaAbilitiesForPermanent(game.state, permanent, pid);
-        
-        if (manaAbilities.length > 0) {
-          const ability = selectManaAbilityForActivation(
-            manaAbilities,
-            String(abilityId || ''),
-            selectedAbilityFullText,
-            abilityText,
-            manaCost,
-          ) || manaAbilities[0];
-          const produces = ability.produces || [];
+        const {
+          ability,
+          produces,
+          baseAmount,
+          producesAllAtOnce,
+        } = resolveManaAbilityActivationShape(
+          game.state,
+          permanent,
+          pid,
+          String(abilityId || ''),
+          selectedAbilityFullText,
+          abilityText,
+          manaCost,
+        );
+
+        if (produces.length > 0) {
           const producesColoredMana = produces.some((color: any) => String(color || '').toUpperCase() !== 'C');
           const rawFallbackManaLifeEffect = getManaAbilityLifeEffect(permanent.card, producesColoredMana);
           const fallbackManaLifeEffect = rawFallbackManaLifeEffect.isDamage || pendingLifePaymentForCost <= 0
@@ -10882,137 +10967,111 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
             : fallbackManaLifeEffect;
           pendingManaLifeLossAmount = Math.max(0, Number(manaLifeEffect.amount || 0));
           pendingManaLifeLossIsDamage = pendingManaLifeLossAmount > 0 && manaLifeEffect.isDamage === true;
-          
-          if (produces.length > 0) {
-            // ========================================================================
-            // Check if this ability produces ALL colors at once (like bounce lands)
-            // If producesAllAtOnce is true, add all mana at once without prompting
-            // ========================================================================
-            if (ability.producesAllAtOnce && produces.length > 1) {
-              // Multi-mana producer like Rakdos Carnarium - add ALL colors at once
-              const manaAdded: string[] = [];
-              
-              for (const manaColor of produces) {
-                const poolKey = colorToPoolKey[manaColor] || 'colorless';
-                (game.state.manaPool[pid] as any)[poolKey] += effectiveMultiplier;
-                manaAdded.push(`{${manaColor}}`);
-              }
-              
-              const manaStr = manaAdded.join('');
-              let message = `${getPlayerName(game, pid)} tapped ${cardName} for ${manaStr}`;
-              if (effectiveMultiplier > 1) {
-                message += ` (×${effectiveMultiplier})`;
-              }
-              message += '.';
-              
-              io.to(gameId).emit("chat", {
-                id: `m_${Date.now()}`,
-                gameId,
-                from: "system",
-                message,
-                ts: Date.now(),
-              });
-              
-              // Broadcast mana pool update
-              broadcastManaPoolUpdate(io, gameId, pid, game.state.manaPool[pid] as any, `Tapped ${cardName}`, game);
-            }
-            // If produces multiple colors but NOT all at once (like "any color"), prompt user for choice
-            else if (produces.length > 1) {
-              // Multi-color production - emit choice to player
-              const baseAmount = 1;
-              const totalAmount = baseAmount * effectiveMultiplier;
-              
-              // Get extra mana from effects
-              const extraMana = getExtraManaProduction(game.state, permanent, pid, produces[0]);
-              const totalExtra = extraMana.reduce((acc, e) => acc + e.amount, 0);
-              const finalTotal = totalAmount + totalExtra;
-              
-              // Resolution Queue: request a color choice from player
-              ResolutionQueueManager.addStep(gameId, {
-                type: ResolutionStepType.MANA_COLOR_SELECTION,
-                playerId: pid as PlayerID,
-                sourceId: permanentId,
-                sourceName: cardName,
-                sourceImage: (permanent.card as any)?.image_uris?.small || (permanent.card as any)?.image_uris?.normal,
-                description: `Choose a color for ${cardName}'s mana.`,
-                mandatory: true,
-                selectionKind: 'any_color',
-                permanentId,
-                abilityId,
-                cardName,
-                amount: finalTotal,
-                allowedColors: produces.filter((color) => ['W', 'U', 'B', 'R', 'G'].includes(String(color || '').toUpperCase())),
-                // Activation-cost evidence (for deterministic replay) and deferred costs
-                lifeToPayForCost: pendingLifePaymentForCost || undefined,
-                tappedPermanentsForCost: tappedPermanentsForCost,
-                sacrificedPermanentsForCost: sacrificedPermanentsForCost,
-                manaLifeLossAmount: pendingManaLifeLossAmount > 0 ? pendingManaLifeLossAmount : undefined,
-                manaLifeLossIsDamage: pendingManaLifeLossAmount > 0 ? pendingManaLifeLossIsDamage : undefined,
-              } as any);
-              
-              io.to(gameId).emit("chat", {
-                id: `m_${Date.now()}`,
-                gameId,
-                from: "system",
-                message: `${getPlayerName(game, pid)} tapped ${cardName} for mana (choose color).`,
-                ts: Date.now(),
-              });
-              
-              broadcastGame(io, game, gameId);
-              return; // Exit early - wait for color choice
-            } else {
-              // Single color production
-              const manaColor = produces[0];
+
+          if (producesAllAtOnce && produces.length > 1) {
+            const manaAdded: string[] = [];
+            const amountPerColor = produces.length > 0
+              ? Math.max(1, Math.floor(baseAmount / produces.length))
+              : 1;
+
+            for (const manaColor of produces) {
               const poolKey = colorToPoolKey[manaColor] || 'colorless';
-              
-              const baseAmount = 1;
-              let totalAmount = baseAmount * effectiveMultiplier;
-              
-              // Apply extra mana from effects
-              const extraMana = getExtraManaProduction(game.state, permanent, pid, manaColor);
-              for (const extra of extraMana) {
-                const extraPoolKey = colorToPoolKey[extra.color] || poolKey;
-                (game.state.manaPool[pid] as any)[extraPoolKey] += extra.amount;
-                totalAmount += extra.amount;
-              }
-              
-              // Add the base mana (after multiplier)
-              (game.state.manaPool[pid] as any)[poolKey] += baseAmount * effectiveMultiplier;
-              
-              // Generate descriptive message
-              let message = `${getPlayerName(game, pid)} tapped ${cardName}`;
-              if (effectiveMultiplier > 1 && extraMana.length > 0) {
-                message += ` for ${totalAmount} {${manaColor}} mana (×${effectiveMultiplier} + ${extraMana.length} extra).`;
-              } else if (effectiveMultiplier > 1) {
-                message += ` for ${totalAmount} {${manaColor}} mana (×${effectiveMultiplier}).`;
-              } else if (extraMana.length > 0) {
-                message += ` for ${totalAmount} {${manaColor}} mana (+${extraMana.reduce((a, e) => a + e.amount, 0)} extra).`;
-              } else {
-                message += ` for {${manaColor}} mana.`;
-              }
-              
-              io.to(gameId).emit("chat", {
-                id: `m_${Date.now()}`,
-                gameId,
-                from: "system",
-                message,
-                ts: Date.now(),
-              });
-              
-              broadcastManaPoolUpdate(io, gameId, pid, game.state.manaPool[pid] as any, `Tapped ${cardName}`, game);
+              (game.state.manaPool[pid] as any)[poolKey] += amountPerColor * effectiveMultiplier;
+              recordAddedMana(poolKey, amountPerColor * effectiveMultiplier);
+              manaAdded.push(`{${manaColor}}`);
             }
-          } else {
-            // No mana production detected - just emit message
+
+            const manaStr = manaAdded.join('');
+            let message = `${getPlayerName(game, pid)} tapped ${cardName} for ${manaStr}`;
+            if (effectiveMultiplier > 1) {
+              message += ` (×${effectiveMultiplier})`;
+            }
+            message += '.';
+
             io.to(gameId).emit("chat", {
               id: `m_${Date.now()}`,
               gameId,
               from: "system",
-              message: `${getPlayerName(game, pid)} activated ${cardName}'s mana ability.`,
+              message,
               ts: Date.now(),
             });
+
+            broadcastManaPoolUpdate(io, gameId, pid, game.state.manaPool[pid] as any, `Tapped ${cardName}`, game);
+          } else if (produces.length > 1) {
+            const totalAmount = baseAmount * effectiveMultiplier;
+            const extraMana = getExtraManaProduction(game.state, permanent, pid, produces[0]);
+            const totalExtra = extraMana.reduce((acc, e) => acc + e.amount, 0);
+            const finalTotal = totalAmount + totalExtra;
+
+            ResolutionQueueManager.addStep(gameId, {
+              type: ResolutionStepType.MANA_COLOR_SELECTION,
+              playerId: pid as PlayerID,
+              sourceId: permanentId,
+              sourceName: cardName,
+              sourceImage: (permanent.card as any)?.image_uris?.small || (permanent.card as any)?.image_uris?.normal,
+              description: `Choose a color for ${cardName}'s mana.`,
+              mandatory: true,
+              selectionKind: 'any_color',
+              permanentId,
+              abilityId,
+              cardName,
+              amount: finalTotal,
+              allowedColors: produces.filter((color) => ['W', 'U', 'B', 'R', 'G'].includes(String(color || '').toUpperCase())),
+              lifeToPayForCost: pendingLifePaymentForCost || undefined,
+              tappedPermanentsForCost: tappedPermanentsForCost,
+              sacrificedPermanentsForCost: sacrificedPermanentsForCost,
+              manaLifeLossAmount: pendingManaLifeLossAmount > 0 ? pendingManaLifeLossAmount : undefined,
+              manaLifeLossIsDamage: pendingManaLifeLossAmount > 0 ? pendingManaLifeLossIsDamage : undefined,
+            } as any);
+
+            io.to(gameId).emit("chat", {
+              id: `m_${Date.now()}`,
+              gameId,
+              from: "system",
+              message: `${getPlayerName(game, pid)} tapped ${cardName} for mana (choose color).`,
+              ts: Date.now(),
+            });
+
+            broadcastGame(io, game, gameId);
+            return;
+          } else {
+            const manaColor = produces[0];
+            const poolKey = colorToPoolKey[manaColor] || 'colorless';
+            let totalAmount = baseAmount * effectiveMultiplier;
+
+            const extraMana = getExtraManaProduction(game.state, permanent, pid, manaColor);
+            for (const extra of extraMana) {
+              const extraPoolKey = colorToPoolKey[extra.color] || poolKey;
+              (game.state.manaPool[pid] as any)[extraPoolKey] += extra.amount;
+              recordAddedMana(extraPoolKey, extra.amount);
+              totalAmount += extra.amount;
+            }
+
+            (game.state.manaPool[pid] as any)[poolKey] += baseAmount * effectiveMultiplier;
+            recordAddedMana(poolKey, baseAmount * effectiveMultiplier);
+
+            let message = `${getPlayerName(game, pid)} tapped ${cardName}`;
+            if (effectiveMultiplier > 1 && extraMana.length > 0) {
+              message += ` for ${totalAmount} {${manaColor}} mana (×${effectiveMultiplier} + ${extraMana.length} extra).`;
+            } else if (effectiveMultiplier > 1) {
+              message += ` for ${totalAmount} {${manaColor}} mana (×${effectiveMultiplier}).`;
+            } else if (extraMana.length > 0) {
+              message += ` for ${totalAmount} {${manaColor}} mana (+${extraMana.reduce((a, e) => a + e.amount, 0)} extra).`;
+            } else {
+              message += ` for {${manaColor}} mana.`;
+            }
+
+            io.to(gameId).emit("chat", {
+              id: `m_${Date.now()}`,
+              gameId,
+              from: "system",
+              message,
+              ts: Date.now(),
+            });
+
+            broadcastManaPoolUpdate(io, gameId, pid, game.state.manaPool[pid] as any, `Tapped ${cardName}`, game);
           }
         } else {
-          // Fallback - mana ability detected but couldn't parse production
           io.to(gameId).emit("chat", {
             id: `m_${Date.now()}`,
             gameId,
@@ -11147,6 +11206,29 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       removedCountersForCost,
       lifePaidForCost: pendingLifePaymentForCost,
     });
+
+    if (Object.keys(recordedAddedMana).length > 0) {
+      const poolKeyToManaColor: Record<string, string> = {
+        white: 'W',
+        blue: 'U',
+        black: 'B',
+        red: 'R',
+        green: 'G',
+        colorless: 'C',
+      };
+      const manaEntries = Object.entries(recordedAddedMana).filter(([, amount]) => Number(amount || 0) > 0);
+      const manaColor = manaEntries.length === 1
+        ? (poolKeyToManaColor[String(manaEntries[0][0])] || String(manaEntries[0][0]).toUpperCase())
+        : 'MULTI';
+      appendEvent(gameId, (game as any).seq ?? 0, "activateManaAbility", {
+        playerId: pid,
+        permanentId,
+        abilityId,
+        manaColor,
+        addedMana: { ...recordedAddedMana },
+        lifeLost: pendingManaLifeLossAmount > 0 ? pendingManaLifeLossAmount : undefined,
+      });
+    }
     
     broadcastGame(io, game, gameId);
   });

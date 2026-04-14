@@ -153,6 +153,40 @@ describe('activateManaAbility replay semantics', () => {
     expect((game.state as any).lifeLostThisTurn?.[p1]).toBe(1);
   });
 
+  it('replays thin exact-line mana events using the persisted selected amount', () => {
+    const game = createInitialGameState('t_activate_mana_ability_exact_line_amount_replay');
+    const p1 = 'p1' as PlayerID;
+    addPlayer(game, p1, 'P1');
+
+    (game.state as any).battlefield = [
+      {
+        id: 'azure_dynamo_1',
+        controller: p1,
+        owner: p1,
+        tapped: false,
+        counters: {},
+        card: {
+          id: 'azure_dynamo_card_1',
+          name: 'Azure Dynamo',
+          type_line: 'Artifact',
+          oracle_text: 'Sacrifice this artifact: Add {U}.\n{T}: Add {U}{U}.',
+          zone: 'battlefield',
+        },
+      },
+    ];
+
+    game.applyEvent({
+      type: 'activateManaAbility',
+      playerId: p1,
+      permanentId: 'azure_dynamo_1',
+      abilityId: 'azure_dynamo_card_1-ability-1',
+      manaColor: 'U',
+    } as any);
+
+    expect((game.state as any).battlefield[0]?.tapped).toBe(true);
+    expect((game.state as any).manaPool?.[p1]).toEqual({ white: 0, blue: 2, black: 0, red: 0, green: 0, colorless: 0 });
+  });
+
   it('replays a multi-ability land mana activation without sacrificing the land', () => {
     const game = createInitialGameState('t_activate_mana_ability_myriad_landscape_replay');
     const p1 = 'p1' as PlayerID;

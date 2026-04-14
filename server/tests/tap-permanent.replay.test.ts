@@ -162,4 +162,55 @@ describe('tapPermanent replay semantics', () => {
     expect(tapEvent?.payload?.manaCost).toBeUndefined();
     expect(tapEvent?.payload?.lifeLost).toBeUndefined();
   });
+
+  it('uses the derived tap-line amount for legacy quick-tap mana production', async () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const playerId = 'p1';
+    (game.state as any).players = [{ id: playerId, name: 'P1', spectator: false, life: 40 }];
+    (game.state as any).manaPool = {
+      [playerId]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+    };
+    (game.state as any).battlefield = [
+      {
+        id: 'azure_dynamo_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        counters: {},
+        card: {
+          id: 'azure_dynamo_card_1',
+          name: 'Azure Dynamo',
+          type_line: 'Artifact',
+          oracle_text: 'Sacrifice this artifact: Add {U}.\n{T}: Add {U}{U}.',
+          zone: 'battlefield',
+        },
+      },
+    ];
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const io = createMockIo(emitted);
+    const { socket, handlers } = createMockSocket(playerId, gameId, emitted);
+
+    registerInteractionHandlers(io as any, socket as any);
+
+    await handlers['tapPermanent']({ gameId, permanentId: 'azure_dynamo_1' });
+
+    expect((game.state as any).manaPool?.[playerId]).toEqual({
+      white: 0,
+      blue: 2,
+      black: 0,
+      red: 0,
+      green: 0,
+      colorless: 0,
+    });
+
+    const tapEvent = [...getEvents(gameId)].reverse().find((event: any) => event?.type === 'tapPermanent') as any;
+    expect(tapEvent?.payload?.permanentId).toBe('azure_dynamo_1');
+    expect(tapEvent?.payload?.addedMana).toEqual({ blue: 2 });
+    expect(tapEvent?.payload?.manaCost).toBeUndefined();
+    expect(tapEvent?.payload?.lifeLost).toBeUndefined();
+  });
 });

@@ -1174,6 +1174,7 @@ export function FreeField(props: {
       {contextMenu && (
         <CardContextMenu
           permanent={contextMenu.permanent}
+          battlefield={allBattlefieldPerms || perms}
           x={contextMenu.x}
           y={contextMenu.y}
           onClose={() => setContextMenu(null)}
@@ -1189,6 +1190,11 @@ export function FreeField(props: {
           isIgnoredForAutoPass={ignoredForAutoPassIds?.has(contextMenu.permanent.id) || false}
           canActivate={canActivate}
           playerId={playerId}
+          hasPriority={hasPriority}
+          isOwnTurn={isOwnTurn}
+          isMainPhase={isMainPhase}
+          stackEmpty={stackEmpty}
+          hasThousandYearElixirEffect={hasThousandYearElixirEffect}
         />
       )}
 

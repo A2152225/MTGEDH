@@ -385,11 +385,11 @@ function normalizeRecordedManaMap(raw: unknown): Record<string, number> {
   return normalized;
 }
 
-function inferLegacyManaReplay(rawState: any, permanent: any, playerId: string, manaColor: unknown): Record<string, number> {
+function inferLegacyManaReplay(rawState: any, permanent: any, playerId: string, manaColor: unknown, abilityId?: unknown): Record<string, number> {
   const chosenColor = normalizeManaColorCode(manaColor);
   if (String(manaColor || '').toUpperCase() === 'MULTI') return {};
 
-  const manaProduction = calculateManaProduction(rawState, permanent, playerId, chosenColor);
+  const manaProduction = calculateManaProduction(rawState, permanent, playerId, chosenColor, abilityId != null ? String(abilityId) : undefined);
   const producedColor = chosenColor || normalizeManaColorCode(manaProduction.colors?.[0]);
   const poolKey = producedColor ? MANA_CODE_TO_POOL_KEY[producedColor] : undefined;
   if (!poolKey) return {};
@@ -411,9 +411,9 @@ function applyRecordedManaToPool(ctx: any, playerId: string, rawMana: unknown): 
 
 function inferLegacyManaLifeEffect(permanent: any, manaColor: unknown): { amount: number; isDamage: boolean } {
   const chosenColor = normalizeManaColorCode(manaColor);
-  if (!chosenColor || chosenColor === 'C') return { amount: 0, isDamage: false };
-
   const oracleText = String(permanent?.card?.oracle_text || '').toLowerCase();
+  if (chosenColor === 'C') return { amount: 0, isDamage: false };
+
   const isDamage = oracleText.includes('deals 1 damage to you');
   const isLifePayment = !isDamage && oracleText.includes('{t},') && oracleText.includes('pay 1 life');
 
@@ -4224,8 +4224,16 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
 
             const explicitLifeLost = Number((e as any).lifeLost || 0);
             const inferredLifeEffect = perm ? inferLegacyManaLifeEffect(perm, (e as any).manaColor) : { amount: 0, isDamage: false };
+            const explicitLifeLossIsDamage = typeof (e as any).lifeLossIsDamage === 'boolean'
+              ? Boolean((e as any).lifeLossIsDamage)
+              : undefined;
             if (Number.isFinite(explicitLifeLost) && explicitLifeLost > 0) {
-              applyManaAbilityLifeLoss(ctx, playerId, explicitLifeLost, inferredLifeEffect.isDamage);
+              applyManaAbilityLifeLoss(
+                ctx,
+                playerId,
+                explicitLifeLost,
+                explicitLifeLossIsDamage ?? inferredLifeEffect.isDamage,
+              );
             }
           }
           if (perm) {
@@ -5278,7 +5286,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
               const recordedMana = normalizeRecordedManaMap((e as any).addedMana);
               const manaToApply = Object.keys(recordedMana).length > 0
                 ? recordedMana
-                : (perm ? inferLegacyManaReplay(ctx.state, perm, playerId, manaColor) : {});
+                : (perm ? inferLegacyManaReplay(ctx.state, perm, playerId, manaColor, (e as any).abilityId) : {});
               applyRecordedManaToPool(ctx, playerId, manaToApply);
 
               const explicitLifeLost = Number((e as any).lifeLost || 0);

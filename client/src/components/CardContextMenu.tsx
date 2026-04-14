@@ -13,6 +13,7 @@ import React, { useEffect, useRef, useState, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import type { BattlefieldPermanent, KnownCardRef } from '../../../shared/src';
 import { getThresholdActivationStatus, parseActivatedAbilities as parseAbilitiesFull, type ParsedActivatedAbility } from '../utils/activatedAbilityParser';
+import { getBattlefieldTapActionDecision } from '../utils/battlefieldTapAction';
 
 export interface ActivatedAbilityOption {
   id: string;
@@ -31,6 +32,7 @@ export interface ActivatedAbilityOption {
 
 export interface CardContextMenuProps {
   permanent: BattlefieldPermanent;
+  battlefield?: readonly BattlefieldPermanent[];
   x: number;
   y: number;
   onClose: () => void;
@@ -46,6 +48,11 @@ export interface CardContextMenuProps {
   isIgnoredForAutoPass?: boolean;
   canActivate?: boolean;
   playerId?: string;
+  hasPriority?: boolean;
+  isOwnTurn?: boolean;
+  isMainPhase?: boolean;
+  stackEmpty?: boolean;
+  hasThousandYearElixirEffect?: boolean;
 }
 
 /**
@@ -90,6 +97,7 @@ function getAbilityIcon(ability: ActivatedAbilityOption): string {
 
 export function CardContextMenu({
   permanent,
+  battlefield,
   x,
   y,
   onClose,
@@ -105,6 +113,11 @@ export function CardContextMenu({
   isIgnoredForAutoPass = false,
   canActivate = true,
   playerId,
+  hasPriority = false,
+  isOwnTurn = false,
+  isMainPhase = false,
+  stackEmpty = true,
+  hasThousandYearElixirEffect = false,
 }: CardContextMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null);
   const [position, setPosition] = useState({ x, y });
@@ -115,6 +128,28 @@ export function CardContextMenu({
   
   // Parse activated abilities from card
   const abilities = card ? parseActivatedAbilities(card, permanent.grantedAbilities) : [];
+  const tapActionDecision = useMemo(() => {
+    if (isTapped) {
+      return { kind: 'tap' } as const;
+    }
+
+    return getBattlefieldTapActionDecision(permanent, battlefield || [permanent], {
+      hasThousandYearElixirEffect,
+      controllerHasPriority: hasPriority,
+      isMainPhase,
+      isOwnTurn,
+      stackEmpty,
+    });
+  }, [battlefield, hasPriority, hasThousandYearElixirEffect, isMainPhase, isOwnTurn, isTapped, permanent, stackEmpty]);
+  const tapMenuDisabled = !canActivate || (!isTapped && tapActionDecision.kind === 'disabled');
+  const tapMenuLabel = isTapped
+    ? 'Untap'
+    : tapActionDecision.kind === 'disabled'
+      ? 'Tap (choose ability below)'
+      : 'Tap';
+  const tapMenuTitle = !isTapped && tapActionDecision.kind === 'disabled'
+    ? tapActionDecision.reason
+    : undefined;
   
   // Adjust position to keep menu on screen
   useEffect(() => {
@@ -216,27 +251,30 @@ export function CardContextMenu({
       
       {/* Tap/Untap */}
       <div
-        style={canActivate ? menuItemStyle : disabledStyle}
+        style={tapMenuDisabled ? disabledStyle : menuItemStyle}
         onClick={() => {
-          if (!canActivate) return;
+          if (tapMenuDisabled) return;
           if (isTapped) {
             onUntap?.(permanent.id);
+          } else if (tapActionDecision.kind === 'activate') {
+            onActivateAbility?.(permanent.id, tapActionDecision.ability.id);
           } else {
             onTap?.(permanent.id);
           }
           onClose();
         }}
         onMouseEnter={(e) => {
-          if (canActivate) {
+          if (!tapMenuDisabled) {
             (e.currentTarget as HTMLElement).style.backgroundColor = 'rgba(255,255,255,0.1)';
           }
         }}
         onMouseLeave={(e) => {
           (e.currentTarget as HTMLElement).style.backgroundColor = 'transparent';
         }}
+        title={tapMenuTitle}
       >
         <span style={{ width: 20, textAlign: 'center' }}>{isTapped ? '🔄' : '↪️'}</span>
-        <span>{isTapped ? 'Untap' : 'Tap'}</span>
+        <span>{tapMenuLabel}</span>
       </div>
 
       {onExchangeTextBoxes && (

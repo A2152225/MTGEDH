@@ -210,6 +210,23 @@ describe('parseActivatedAbilities station parsing', () => {
     expect(abilities[0]?.isManaAbility).toBe(true);
   });
 
+  it('prefers explicit basic-land mana text over a synthetic type-based entry', () => {
+    const card: KnownCardRef = {
+      id: 'forest-card-1',
+      name: 'Forest',
+      type_line: 'Basic Land — Forest',
+      oracle_text: '{T}: Add {G}.',
+    };
+
+    const abilities = parseActivatedAbilities(card);
+
+    expect(abilities).toHaveLength(1);
+    expect(abilities[0]?.id).toBe('forest-card-1-ability-0');
+    expect(abilities[0]?.cost).toBe('{T}');
+    expect(abilities[0]?.effect).toBe('Add {G}.');
+    expect(abilities[0]?.isManaAbility).toBe(true);
+  });
+
   it('keeps Myriad Landscape abilities aligned with server scoped ability indexes', () => {
     const card: KnownCardRef = {
       id: 'myriad-card-1',

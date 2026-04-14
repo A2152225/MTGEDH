@@ -6763,6 +6763,8 @@ async function executeAILegacyActivateAbility(
     // Find the permanent on the battlefield
     const battlefield = game.state?.battlefield || [];
     const permanent = battlefield.find((p: any) => p.id === action.permanentId);
+    const persistedAbilityId = resolveAIActivatedAbilityId(action, permanent)
+      || (typeof action?.abilityId === 'string' && action.abilityId.trim() ? action.abilityId.trim() : undefined);
     
     if (!permanent) {
       debugWarn(2, '[AI] Permanent not found for ability activation:', action.permanentId);
@@ -6886,7 +6888,7 @@ async function executeAILegacyActivateAbility(
 
         const producedColors = getAIManaProductionOptions(game, playerId, permanent);
         const chosenManaColor = chooseAIManaColorForActivation(game, playerId, producedColors);
-        const manaProduction = calculateManaProduction(game.state, permanent, String(playerId), chosenManaColor);
+        const manaProduction = calculateManaProduction(game.state, permanent, String(playerId), chosenManaColor, persistedAbilityId);
         const resolvedManaColor = String(manaProduction.colors?.[0] || chosenManaColor || 'C').toUpperCase();
         const manaPoolKey = COLOR_IDENTITY_MAP[resolvedManaColor] || 'colorless';
         const manaAmount = Math.max(0, Number(manaProduction.totalAmount || 0));
@@ -6955,7 +6957,7 @@ async function executeAILegacyActivateAbility(
             await appendEvent(gameId, (game as any).seq || 0, 'activateBattlefieldAbility', {
               playerId,
               permanentId: action.permanentId,
-              abilityId: typeof action?.abilityId === 'string' && action.abilityId.trim() ? action.abilityId : undefined,
+              abilityId: persistedAbilityId,
               cardName: action.cardName,
               abilityText: activatedAbilityText,
               activatedAbilityText,
@@ -6969,7 +6971,7 @@ async function executeAILegacyActivateAbility(
           await appendEvent(gameId, (game as any).seq || 0, 'activateManaAbility', {
             playerId,
             permanentId: action.permanentId,
-            abilityId: typeof action?.abilityId === 'string' && action.abilityId.trim() ? action.abilityId : undefined,
+            abilityId: persistedAbilityId,
             manaColor: resolvedManaColor,
             addedMana,
             lifeLost: manaLifeEffect.amount || undefined,
@@ -7149,7 +7151,7 @@ async function executeAILegacyActivateAbility(
       await appendEvent(gameId, (game as any).seq || 0, 'activateBattlefieldAbility', {
         playerId,
         permanentId: action.permanentId,
-        abilityId: typeof action?.abilityId === 'string' && action.abilityId.trim() ? action.abilityId : undefined,
+        abilityId: persistedAbilityId,
         cardName: action.cardName,
         abilityType: persistedAbilityType,
         abilityText: activatedAbilityText,
