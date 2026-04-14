@@ -387,9 +387,21 @@ function normalizeRecordedManaMap(raw: unknown): Record<string, number> {
 
 function inferLegacyManaReplay(rawState: any, permanent: any, playerId: string, manaColor: unknown, abilityId?: unknown): Record<string, number> {
   const chosenColor = normalizeManaColorCode(manaColor);
-  if (String(manaColor || '').toUpperCase() === 'MULTI') return {};
-
   const manaProduction = calculateManaProduction(rawState, permanent, playerId, chosenColor, abilityId != null ? String(abilityId) : undefined);
+  const addsAllColorsAtOnce = Array.isArray(manaProduction.colors)
+    && manaProduction.requiresColorChoice !== true
+    && manaProduction.colors.length > 1;
+  if (addsAllColorsAtOnce) {
+    const amountPerColor = Math.max(1, Math.floor(Number(manaProduction.totalAmount || 0) / manaProduction.colors.length));
+    const replayAddedMana: Record<string, number> = {};
+    for (const manaSymbol of manaProduction.colors) {
+      const poolKey = MANA_CODE_TO_POOL_KEY[String(manaSymbol || '').toUpperCase()];
+      if (!poolKey) continue;
+      replayAddedMana[poolKey] = Number(replayAddedMana[poolKey] || 0) + amountPerColor;
+    }
+    return replayAddedMana;
+  }
+
   const producedColor = chosenColor || normalizeManaColorCode(manaProduction.colors?.[0]);
   const poolKey = producedColor ? MANA_CODE_TO_POOL_KEY[producedColor] : undefined;
   if (!poolKey) return {};
@@ -422,6 +434,52 @@ function inferLegacyManaLifeEffect(permanent: any, manaColor: unknown): { amount
   }
 
   return { amount: 1, isDamage };
+}
+
+function getReplayManaActivationCostKey(playerId: string, permanentId: unknown, abilityId?: unknown): string {
+  const normalizedPlayerId = String(playerId || '').trim();
+  const normalizedPermanentId = String(permanentId || '').trim();
+  const normalizedAbilityId = String(abilityId || '').trim();
+  if (!normalizedPlayerId || !normalizedPermanentId) {
+    return '';
+  }
+
+  return normalizedAbilityId
+    ? `${normalizedPlayerId}:${normalizedPermanentId}:${normalizedAbilityId}`
+    : `${normalizedPlayerId}:${normalizedPermanentId}`;
+}
+
+function rememberReplayManaActivationLifeCost(rawState: any, playerId: string, permanentId: unknown, abilityId: unknown, paidLife: number): void {
+  const key = getReplayManaActivationCostKey(playerId, permanentId, abilityId);
+  const finalPaidLife = Number(paidLife || 0);
+  if (!key || !Number.isFinite(finalPaidLife) || finalPaidLife <= 0) {
+    return;
+  }
+
+  const stateAny = rawState as any;
+  stateAny._replayManaActivationLifeCosts = stateAny._replayManaActivationLifeCosts || {};
+  stateAny._replayManaActivationLifeCosts[key] = finalPaidLife;
+}
+
+function consumeReplayManaActivationLifeCost(rawState: any, playerId: string, permanentId: unknown, abilityId: unknown): number {
+  const key = getReplayManaActivationCostKey(playerId, permanentId, abilityId);
+  if (!key) {
+    return 0;
+  }
+
+  const stateAny = rawState as any;
+  const markerMap = stateAny._replayManaActivationLifeCosts;
+  if (!markerMap || typeof markerMap !== 'object') {
+    return 0;
+  }
+
+  const paidLife = Number(markerMap[key] || 0);
+  delete markerMap[key];
+  if (Object.keys(markerMap).length === 0) {
+    delete stateAny._replayManaActivationLifeCosts;
+  }
+
+  return Number.isFinite(paidLife) && paidLife > 0 ? paidLife : 0;
 }
 
 function applyManaAbilityLifeLoss(ctx: any, playerId: string, amount: number, tracksDamage: boolean): void {
@@ -5290,11 +5348,21 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
               applyRecordedManaToPool(ctx, playerId, manaToApply);
 
               const explicitLifeLost = Number((e as any).lifeLost || 0);
+              const explicitLifeLossIsDamage = typeof (e as any).lifeLossIsDamage === 'boolean'
+                ? Boolean((e as any).lifeLossIsDamage)
+                : undefined;
+              const replayActivationCostLifePaid = consumeReplayManaActivationLifeCost(ctx.state, playerId, permId, (e as any).abilityId);
               const inferredLifeEffect = perm ? inferLegacyManaLifeEffect(perm, manaColor) : { amount: 0, isDamage: false };
+              const suppressLegacyLifeInference = replayActivationCostLifePaid > 0 && inferredLifeEffect.isDamage !== true;
               const replayLifeLost = explicitLifeLost > 0
                 ? explicitLifeLost
-                : inferredLifeEffect.amount;
-              applyManaAbilityLifeLoss(ctx, playerId, replayLifeLost, inferredLifeEffect.isDamage);
+                : (suppressLegacyLifeInference ? 0 : inferredLifeEffect.amount);
+              applyManaAbilityLifeLoss(
+                ctx,
+                playerId,
+                replayLifeLost,
+                explicitLifeLossIsDamage ?? inferredLifeEffect.isDamage,
+              );
             }
 
             if (perm) {
@@ -5675,6 +5743,8 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
               if (player) {
                 player.life = (ctx.state as any).life[pid];
               }
+
+              rememberReplayManaActivationLifeCost(ctx.state, pid, permId, (e as any).abilityId, paid);
             }
           } catch {
             // best-effort only

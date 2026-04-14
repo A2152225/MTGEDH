@@ -38,6 +38,7 @@ describe('activateManaAbility replay semantics', () => {
       manaColor: 'U',
       addedMana: { blue: 1 },
       lifeLost: 1,
+      lifeLossIsDamage: true,
     } as any);
 
     expect((game.state as any).battlefield[0].tapped).toBe(true);
@@ -145,12 +146,97 @@ describe('activateManaAbility replay semantics', () => {
       permanentId: 'confluence_1',
       abilityId: 'confluence_1-ability-0',
       manaColor: 'W',
+      lifeLossIsDamage: false,
     } as any);
 
     expect((game.state as any).manaPool?.[p1]).toEqual({ white: 1, blue: 0, black: 0, red: 0, green: 0, colorless: 0 });
     expect((game.state as any).life?.[p1]).toBe(39);
     expect((game.state as any).damageTakenThisTurnByPlayer?.[p1] ?? 0).toBe(0);
     expect((game.state as any).lifeLostThisTurn?.[p1]).toBe(1);
+  });
+
+  it('replays activation-cost life separately from legacy pay-life mana results', () => {
+    const game = createInitialGameState('t_activate_mana_ability_pay_life_activation_cost_replay');
+    const p1 = 'p1' as PlayerID;
+    addPlayer(game, p1, 'P1');
+
+    (game.state as any).battlefield = [
+      {
+        id: 'caves_1',
+        controller: p1,
+        owner: p1,
+        tapped: false,
+        counters: {},
+        card: {
+          id: 'caves_card_1',
+          name: 'Caves of Koilos',
+          type_line: 'Land',
+          oracle_text: '{T}: Add {C}.\n{T}, Pay 1 life: Add {W} or {B}.',
+          zone: 'battlefield',
+        },
+      },
+    ];
+
+    game.applyEvent({
+      type: 'activateBattlefieldAbility',
+      playerId: p1,
+      permanentId: 'caves_1',
+      abilityId: 'native_pay_life',
+      abilityText: '',
+      activatedAbilityText: '',
+      tappedPermanents: ['caves_1'],
+      lifePaidForCost: 1,
+    } as any);
+
+    game.applyEvent({
+      type: 'activateManaAbility',
+      playerId: p1,
+      permanentId: 'caves_1',
+      abilityId: 'native_pay_life',
+      manaColor: 'B',
+      addedMana: { black: 1 },
+    } as any);
+
+    expect((game.state as any).battlefield[0]?.tapped).toBe(true);
+    expect((game.state as any).manaPool?.[p1]).toEqual({ white: 0, blue: 0, black: 1, red: 0, green: 0, colorless: 0 });
+    expect((game.state as any).life?.[p1]).toBe(39);
+    expect((game.state as any).players?.find((player: any) => player.id === p1)?.life).toBe(39);
+    expect((game.state as any).damageTakenThisTurnByPlayer?.[p1] ?? 0).toBe(0);
+    expect((game.state as any).lifeLostThisTurn?.[p1]).toBe(1);
+  });
+
+  it('replays thin legacy multi-color mana events without collapsing to the first color', () => {
+    const game = createInitialGameState('t_activate_mana_ability_legacy_multi_replay');
+    const p1 = 'p1' as PlayerID;
+    addPlayer(game, p1, 'P1');
+
+    (game.state as any).battlefield = [
+      {
+        id: 'rakdos_carnarium_1',
+        controller: p1,
+        owner: p1,
+        tapped: false,
+        counters: {},
+        card: {
+          id: 'rakdos_carnarium_card_1',
+          name: 'Rakdos Carnarium',
+          type_line: 'Land',
+          oracle_text: 'Rakdos Carnarium enters tapped.\nWhen Rakdos Carnarium enters, return a land you control to its owner\'s hand.\n{T}: Add {B}{R}.',
+          zone: 'battlefield',
+        },
+      },
+    ];
+
+    game.applyEvent({
+      type: 'activateManaAbility',
+      playerId: p1,
+      permanentId: 'rakdos_carnarium_1',
+      abilityId: 'native_multi',
+      manaColor: 'MULTI',
+    } as any);
+
+    expect((game.state as any).battlefield[0]?.tapped).toBe(true);
+    expect((game.state as any).manaPool?.[p1]).toEqual({ white: 0, blue: 0, black: 1, red: 1, green: 0, colorless: 0 });
   });
 
   it('replays thin exact-line mana events using the persisted selected amount', () => {

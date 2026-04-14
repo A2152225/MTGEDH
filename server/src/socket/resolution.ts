@@ -9504,6 +9504,9 @@ async function handleStepResponse(
           lifeLost: Number.isFinite(Number(stepData.manaLifeLossAmount || 0)) && Number(stepData.manaLifeLossAmount || 0) > 0
             ? Number(stepData.manaLifeLossAmount || 0)
             : undefined,
+          lifeLossIsDamage: Number.isFinite(Number(stepData.manaLifeLossAmount || 0)) && Number(stepData.manaLifeLossAmount || 0) > 0
+            ? (typeof stepData.manaLifeLossIsDamage === 'boolean' ? stepData.manaLifeLossIsDamage : undefined)
+            : undefined,
           queuedResolutionStep: orchardQueuedResolutionStep,
         });
       } catch (e) {

@@ -225,6 +225,7 @@ describe('AI mana ability integration', () => {
 
     const manaEvent = [...getEvents(localGameId)].reverse().find((event: any) => event?.type === 'activateManaAbility') as any;
     expect(manaEvent?.payload?.lifeLost).toBe(1);
+    expect(manaEvent?.payload?.lifeLossIsDamage).toBe(true);
     expect(Object.values(manaEvent?.payload?.addedMana || {}).reduce((sum: number, amount: any) => sum + Number(amount || 0), 0)).toBe(1);
     expect(getEvents(localGameId).some((event: any) => event?.type === 'activateAbility')).toBe(false);
   });
@@ -303,6 +304,8 @@ describe('AI mana ability integration', () => {
     expect((game.state as any).damageTakenThisTurnByPlayer?.[playerId] ?? 0).toBe(0);
 
     const manaEvent = [...getEvents(localGameId)].reverse().find((event: any) => event?.type === 'activateManaAbility') as any;
+    expect(manaEvent?.payload?.lifeLost).toBeUndefined();
+    expect(manaEvent?.payload?.lifeLossIsDamage).toBeUndefined();
     expect(Object.values(manaEvent?.payload?.addedMana || {}).reduce((sum: number, amount: any) => sum + Number(amount || 0), 0)).toBe(1);
     expect(getEvents(localGameId).some((event: any) => event?.type === 'activateAbility')).toBe(false);
 

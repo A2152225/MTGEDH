@@ -229,6 +229,23 @@ const WORD_TO_NUMBER: Record<string, number> = {
   'ten': 10, '10': 10,
 };
 
+function getLifePaymentForActivationCost(activationCost: unknown): number {
+  const match = String(activationCost || '').trim().match(
+    /\bpay\s+(a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+life\b/i
+  );
+  if (!match) {
+    return 0;
+  }
+
+  const rawAmount = String(match[1] || '').trim().toLowerCase();
+  const numericAmount = Number.parseInt(rawAmount, 10);
+  if (Number.isFinite(numericAmount)) {
+    return Math.max(0, numericAmount);
+  }
+
+  return Math.max(0, Number(WORD_TO_NUMBER[rawAmount] || 0));
+}
+
 function parseStationThreshold(oracleText: string): number {
   const inlineMatch = oracleText.match(/station\s*(\d+)/i);
   if (inlineMatch) {
@@ -7061,9 +7078,6 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         }
       }
       
-      // Tap the permanent
-      (permanent as any).tapped = true;
-      
       // Determine mana color from ability ID
       let manaColor = "colorless";
       const manaColorMap: Record<string, string> = {
@@ -7085,7 +7099,22 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       manaColor = manaColorMap[abilityId] || "C";
       
       // Calculate actual mana production (handles multipliers, enchantments, etc.)
-      const manaProduction = calculateManaProduction(game.state, permanent, pid, manaColor);
+      const manaProduction = calculateManaProduction(game.state, permanent, pid, manaColor, abilityId);
+      const lifePaymentForCost = getLifePaymentForActivationCost(manaProduction.activationCost);
+
+      if (lifePaymentForCost > 0) {
+        const currentLife = Number((game.state as any)?.life?.[pid] ?? game.state.startingLife ?? 40);
+        if (!Number.isFinite(currentLife) || currentLife < lifePaymentForCost) {
+          socket.emit('error', {
+            code: 'INSUFFICIENT_LIFE',
+            message: `Need to pay ${lifePaymentForCost} life to activate ${cardName}.`,
+          });
+          return;
+        }
+      }
+
+      // Tap the permanent
+      (permanent as any).tapped = true;
       
       // Add mana to pool
       game.state.manaPool = game.state.manaPool || {};
@@ -7099,7 +7128,10 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       
       // If producing "any" color mana, prompt user for color choice
       if (manaColor === 'any' || manaProduction.requiresColorChoice === true || actualColor === 'any') {
-        const manaLifeEffect = getManaAbilityLifeEffect(permanent.card, true);
+        const rawManaLifeEffect = getManaAbilityLifeEffect(permanent.card, true);
+        const manaLifeEffect = rawManaLifeEffect.isDamage || lifePaymentForCost <= 0
+          ? rawManaLifeEffect
+          : { amount: 0, isDamage: false };
         const allowedColors = Array.isArray(manaProduction.colors)
           ? manaProduction.colors.filter((color) => ['W', 'U', 'B', 'R', 'G'].includes(String(color || '').toUpperCase()))
           : [];
@@ -7117,6 +7149,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
           amount: manaAmount,
           allowedColors: allowedColors.length > 0 ? allowedColors : undefined,
           abilityId,
+          lifeToPayForCost: lifePaymentForCost > 0 ? lifePaymentForCost : undefined,
           tappedPermanentsForCost: [permanentId],
           manaLifeLossAmount: manaLifeEffect.amount > 0 ? manaLifeEffect.amount : undefined,
           manaLifeLossIsDamage: manaLifeEffect.amount > 0 ? manaLifeEffect.isDamage : undefined,
@@ -7141,7 +7174,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         return;
       }
       
-      const colorToPoolKey: Record<string, keyof typeof game.state.manaPool[typeof pid]> = {
+      const colorToPoolKey: Record<string, string> = {
         'W': 'white',
         'U': 'blue',
         'B': 'black',
@@ -7150,15 +7183,35 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         'C': 'colorless',
         // Note: 'any' color is now handled above by prompting for color choice
       };
-      
-      const poolKey = colorToPoolKey[actualColor] || 'colorless';
-      (game.state.manaPool[pid] as any)[poolKey] = ((game.state.manaPool[pid] as any)[poolKey] || 0) + manaAmount;
-      const addedMana = { [poolKey]: manaAmount };
-      
-      // Create chat message with correct amount
-      const manaDescription = manaAmount > 1 
-        ? `${manaAmount} ${actualColor === 'C' ? 'colorless' : actualColor} mana`
-        : `${actualColor === 'C' ? 'colorless' : actualColor} mana`;
+
+      const addsAllColorsAtOnce = Array.isArray(manaProduction.colors)
+        && !manaProduction.requiresColorChoice
+        && manaProduction.colors.length > 1;
+      const addedMana: Record<string, number> = {};
+      let persistedManaColor = actualColor;
+      let manaDescription = '';
+
+      if (addsAllColorsAtOnce) {
+        const amountPerColor = Math.max(1, Math.floor(manaAmount / manaProduction.colors.length));
+        for (const manaSymbol of manaProduction.colors) {
+          const normalizedManaSymbol = String(manaSymbol || '').toUpperCase();
+          const poolKey = String(colorToPoolKey[normalizedManaSymbol] || 'colorless');
+          (game.state.manaPool[pid] as any)[poolKey] = ((game.state.manaPool[pid] as any)[poolKey] || 0) + amountPerColor;
+          addedMana[poolKey] = Number(addedMana[poolKey] || 0) + amountPerColor;
+        }
+
+        persistedManaColor = 'MULTI';
+        manaDescription = manaProduction.colors
+          .map((manaSymbol) => `{${String(manaSymbol || '').toUpperCase()}}`.repeat(amountPerColor))
+          .join('');
+      } else {
+        const poolKey = String(colorToPoolKey[actualColor] || 'colorless');
+        (game.state.manaPool[pid] as any)[poolKey] = ((game.state.manaPool[pid] as any)[poolKey] || 0) + manaAmount;
+        addedMana[poolKey] = manaAmount;
+        manaDescription = manaAmount > 1 
+          ? `${manaAmount} ${actualColor === 'C' ? 'colorless' : actualColor} mana`
+          : `${actualColor === 'C' ? 'colorless' : actualColor} mana`;
+      }
       
       io.to(gameId).emit("chat", {
         id: `m_${Date.now()}`,
@@ -7168,7 +7221,28 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         ts: Date.now(),
       });
       
-      const manaLifeEffect = getManaAbilityLifeEffect(permanent.card, actualColor !== 'C');
+      const rawManaLifeEffect = getManaAbilityLifeEffect(permanent.card, actualColor !== 'C');
+      const manaLifeEffect = rawManaLifeEffect.isDamage || lifePaymentForCost <= 0
+        ? rawManaLifeEffect
+        : { amount: 0, isDamage: false };
+      if (lifePaymentForCost > 0) {
+        game.state.life = game.state.life || {};
+        const startingLife = game.state.startingLife || 40;
+        const currentLife = game.state.life[pid] ?? startingLife;
+        game.state.life[pid] = currentLife - lifePaymentForCost;
+
+        try {
+          (game.state as any).lifeLostThisTurn = (game.state as any).lifeLostThisTurn || {};
+          (game.state as any).lifeLostThisTurn[String(pid)] =
+            ((game.state as any).lifeLostThisTurn[String(pid)] || 0) + lifePaymentForCost;
+        } catch {}
+
+        const player = (game.state.players || []).find((p: any) => p.id === pid);
+        if (player) {
+          player.life = game.state.life[pid];
+        }
+      }
+
       if (manaLifeEffect.amount > 0) {
         game.state.life = game.state.life || {};
         const startingLife = game.state.startingLife || 40;
@@ -7254,14 +7328,29 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         const k = abilityKeyRaw ? `${permKey}:${abilityKeyRaw}` : permKey;
         (stateAny.addedManaWithThisAbilityThisTurn[String(pid)] as any)[k] = true;
       } catch {}
+
+      if (lifePaymentForCost > 0) {
+        appendEvent(gameId, (game as any).seq ?? 0, "activateBattlefieldAbility", {
+          playerId: pid,
+          permanentId,
+          abilityId,
+          cardName,
+          abilityText: '',
+          activatedAbilityText: '',
+          usesStack: false,
+          tappedPermanents: [permanentId],
+          lifePaidForCost: lifePaymentForCost,
+        });
+      }
       
       appendEvent(gameId, (game as any).seq ?? 0, "activateManaAbility", {
         playerId: pid,
         permanentId,
         abilityId,
-        manaColor,
+        manaColor: persistedManaColor,
         addedMana,
         lifeLost: manaLifeEffect.amount || undefined,
+        lifeLossIsDamage: manaLifeEffect.amount ? manaLifeEffect.isDamage === true : undefined,
       });
       
       broadcastGame(io, game, gameId);
@@ -10096,32 +10185,61 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         if (oracleText.includes('pay ')) continue;
 
         const prod = calculateManaProduction(game.state, perm, pid);
-        const amt = Number(prod?.totalAmount || 0);
+        const amt = Number(prod?.totalAmount || prod?.baseAmount || 0);
         if (!Number.isFinite(amt) || amt <= 0) continue;
 
         candidates.push({ perm, prod, amount: amt });
       }
 
+      const normalizeProducedColors = (prodColors: string[]): string[] => {
+        if (!Array.isArray(prodColors)) return [];
+        const normalized: string[] = [];
+        for (const color of prodColors) {
+          const sym = String(color || '').toUpperCase();
+          if (!sym) continue;
+          if (!normalized.includes(sym)) normalized.push(sym);
+        }
+        return normalized;
+      };
+
       const chooseColorForProd = (prodColors: string[]): string => {
-        const colors = Array.isArray(prodColors) ? prodColors.map(c => String(c).toUpperCase()) : [];
+        const colors = normalizeProducedColors(prodColors);
         // Prioritize a missing required color.
         for (const sym of Object.keys(remainingColors)) {
-          if ((remainingColors[sym] || 0) > 0 && colors.includes(sym)) return sym;
+          if ((remainingColors[sym] || 0) > 0 && (colors.includes(sym) || colors.includes('ANY'))) return sym;
         }
-        // Otherwise, if it produces exactly one fixed color, use it.
-        if (colors.length === 1) return colors[0];
-        // Otherwise prefer colorless, else default to W.
+        // Otherwise prefer colorless, then the first fixed color.
         if (colors.includes('C')) return 'C';
+        const firstFixedColor = colors.find((sym) => sym !== 'ANY');
+        if (firstFixedColor) return firstFixedColor;
         return 'W';
       };
 
-      const tapAndAdd = (perm: any, prod: any, chosenSym: string, amount: number) => {
+      const tapAndAdd = (perm: any, prod: any, chosenSym: string, amount: number): Record<string, number> => {
         (perm as any).tapped = true;
         tappedPermanentsForCost.push(String((perm as any).id));
 
+        const totalAmount = Math.max(1, Number(amount || 0));
+        const producedColors = normalizeProducedColors(prod?.colors || []);
+        const addsAllColorsAtOnce = prod?.requiresColorChoice !== true && producedColors.length > 1 && !producedColors.includes('ANY');
+        const addedManaBySymbol: Record<string, number> = {};
+
+        if (addsAllColorsAtOnce) {
+          const amountPerColor = Math.max(1, Math.floor(totalAmount / producedColors.length));
+          for (const sym of producedColors) {
+            const key = colorKeyBySymbol[sym] || 'colorless';
+            (manaPool as any)[key] = Number((manaPool as any)[key] || 0) + amountPerColor;
+            addedManaBySymbol[sym] = Number(addedManaBySymbol[sym] || 0) + amountPerColor;
+          }
+          return addedManaBySymbol;
+        }
+
         const sym = String(chosenSym || '').toUpperCase();
-        const key = colorKeyBySymbol[sym] || 'colorless';
-        (manaPool as any)[key] = Number((manaPool as any)[key] || 0) + Math.max(1, amount);
+        const resolvedSym = sym === 'ANY' ? chooseColorForProd(producedColors) : sym;
+        const key = colorKeyBySymbol[resolvedSym] || 'colorless';
+        (manaPool as any)[key] = Number((manaPool as any)[key] || 0) + totalAmount;
+        addedManaBySymbol[resolvedSym] = Number(addedManaBySymbol[resolvedSym] || 0) + totalAmount;
+        return addedManaBySymbol;
       };
 
       // 1) Cover colored requirements first.
@@ -10150,8 +10268,12 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         const chosen = candidates.splice(bestIdx, 1)[0];
         try {
           const amount = Number(chosen.amount || 1);
-          tapAndAdd(chosen.perm, chosen.prod, bestColor, Math.min(amount, remainingColors[bestColor] || 1));
-          remainingColors[bestColor] = Math.max(0, (remainingColors[bestColor] || 0) - 1);
+          const addedManaBySymbol = tapAndAdd(chosen.perm, chosen.prod, bestColor, amount);
+          for (const [sym, addedAmountRaw] of Object.entries(addedManaBySymbol)) {
+            const addedAmount = Math.max(0, Number(addedAmountRaw || 0));
+            if (!remainingColors[sym]) continue;
+            remainingColors[sym] = Math.max(0, (remainingColors[sym] || 0) - addedAmount);
+          }
         } catch {
           // best-effort only
         }
@@ -10173,8 +10295,10 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         try {
           const colors = Array.isArray(cand.prod?.colors) ? cand.prod.colors.map((x: any) => String(x).toUpperCase()) : [];
           const chosenColor = chooseColorForProd(colors);
-          tapAndAdd(cand.perm, cand.prod, chosenColor, 1);
-          remainingGeneric -= 1;
+          const addedManaBySymbol = tapAndAdd(cand.perm, cand.prod, chosenColor, Number(cand.amount || 1));
+          const totalAdded = Object.values(addedManaBySymbol)
+            .reduce((sum, value) => sum + Math.max(0, Number(value || 0)), 0);
+          remainingGeneric -= Math.max(1, totalAdded);
         } catch {
           // best-effort only
         }
@@ -11227,6 +11351,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         manaColor,
         addedMana: { ...recordedAddedMana },
         lifeLost: pendingManaLifeLossAmount > 0 ? pendingManaLifeLossAmount : undefined,
+        lifeLossIsDamage: pendingManaLifeLossAmount > 0 ? pendingManaLifeLossIsDamage === true : undefined,
       });
     }
     

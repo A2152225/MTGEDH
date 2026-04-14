@@ -6975,6 +6975,7 @@ async function executeAILegacyActivateAbility(
             manaColor: resolvedManaColor,
             addedMana,
             lifeLost: manaLifeEffect.amount || undefined,
+            lifeLossIsDamage: manaLifeEffect.amount ? manaLifeEffect.isDamage === true : undefined,
             isAI: true,
           });
 

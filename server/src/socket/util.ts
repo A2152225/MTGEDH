@@ -17,7 +17,7 @@ import type { InMemoryGame } from "../state/types.js";
 import { GameManager } from "../GameManager.js";
 import type { GameID, PlayerID, ManaPool, RestrictedManaEntry, ManaRestrictionType } from "../../../shared/src/index.js";
 import { getActualPowerToughness, uid, cardManaValue } from "../state/utils.js";
-import { getDevotionManaAmount, getCreatureCountManaAmount, getMoxAmberAvailableColors, isMoxAmberConditionalManaSource } from "../state/modules/mana-abilities.js";
+import { getDevotionManaAmount, getCreatureCountManaAmount, getManaAbilitiesForPermanent, getMoxAmberAvailableColors, isMoxAmberConditionalManaSource } from "../state/modules/mana-abilities.js";
 import { canRespond, canAct, getCastableCommanderCandidates, getCostAdjustmentInfo, getHandCastEvaluationCards, getPlayableLandCandidates, isTransformBackFace } from "../state/modules/can-respond.js";
 import { parseManaCost as parseManaFromString, canPayManaCostWithAvailableSources, getManaPoolFromState, getAvailableMana, getTotalManaFromPool } from "../state/modules/mana-check.js";
 import { hasPayableAlternateCost } from "../state/modules/alternate-costs.js";
@@ -2902,6 +2902,123 @@ export function consumeManaFromPool(
     return false;
   }
 
+  function isPureSelfSacrificeActivationCost(permanent: any, activationCost: unknown): boolean {
+    const costText = String(activationCost || '').trim();
+    if (!costText) return false;
+
+    const cardName = String(permanent?.card?.name || '').trim();
+    let normalized = costText;
+    for (const pattern of [
+      /\bsacrifice\s+(?:this|~|it)\b[^,]*/gi,
+      cardName ? new RegExp(`\\bsacrifice\\s+${escapeRegExp(cardName)}\\b[^,]*`, 'gi') : null,
+    ]) {
+      if (!pattern) continue;
+      normalized = normalized.replace(pattern, ' ');
+    }
+
+    return normalized.replace(/[\s,]+/g, ' ').trim().length === 0;
+  }
+
+  function supportsGenericAutoPaymentActivationCost(permanent: any, activationCost: unknown): boolean {
+    const costText = String(activationCost || '').trim();
+    if (!costText) return true;
+    if (isPureSelfSacrificeActivationCost(permanent, costText)) return true;
+
+    const manaSymbols = costText.match(/\{[^}]+\}/g) || [];
+    if (manaSymbols.some((symbol) => !/^\{t\}$/i.test(symbol))) {
+      return false;
+    }
+
+    const stripped = costText
+      .replace(/\{t\}/gi, ' ')
+      .replace(/[\s,]+/g, ' ')
+      .trim()
+      .toLowerCase();
+
+    return stripped.length === 0;
+  }
+
+  function getBestGenericAutoPaymentOption(
+    gameState: any,
+    permanent: any,
+    playerId: string,
+  ): { amount: number; sacrificesSelf: boolean } | null {
+    let bestOption: { amount: number; sacrificesSelf: boolean } | null = null;
+    const genericAbilityPrefix = String(permanent?.id || 'permanent');
+    let sawExplicitManaAbility = false;
+    for (let index = 0; index < 50; index += 1) {
+      const resolvedLine = resolveActivatedAbilityLineById(permanent, `${genericAbilityPrefix}-ability-${index}`);
+      if (!resolvedLine) break;
+
+      if (!/\badd\b/i.test(String(resolvedLine.effectText || ''))) continue;
+      sawExplicitManaAbility = true;
+      if (!supportsGenericAutoPaymentActivationCost(permanent, resolvedLine.costText)) continue;
+
+      const production = calculateManaProduction(
+        gameState,
+        permanent,
+        playerId,
+        undefined,
+        `${genericAbilityPrefix}-ability-${index}`,
+      );
+      const amount = Number(production?.totalAmount || production?.baseAmount || 0);
+      if (!Number.isFinite(amount) || amount <= 0) continue;
+      if (!Array.isArray(production?.colors) || production.colors.length === 0) continue;
+
+      const candidate = {
+        amount: Math.max(1, amount),
+        sacrificesSelf: isPureSelfSacrificeActivationCost(permanent, resolvedLine.costText),
+      };
+
+      if (!bestOption || candidate.amount > bestOption.amount) {
+        bestOption = candidate;
+      }
+    }
+
+    if (sawExplicitManaAbility) return bestOption;
+
+    let manaAbilities: any[] = [];
+    try {
+      manaAbilities = getManaAbilitiesForPermanent(gameState, permanent, playerId);
+    } catch {
+      manaAbilities = [];
+    }
+
+    for (const ability of manaAbilities) {
+      if (!supportsGenericAutoPaymentActivationCost(permanent, ability?.cost)) continue;
+
+      const production = calculateManaProduction(gameState, permanent, playerId, undefined, ability?.id);
+      const amount = Number(production?.totalAmount || production?.baseAmount || 0);
+      if (!Number.isFinite(amount) || amount <= 0) continue;
+      if (!Array.isArray(production?.colors) || production.colors.length === 0) continue;
+
+      const candidate = {
+        amount: Math.max(1, amount),
+        sacrificesSelf: isPureSelfSacrificeActivationCost(permanent, ability?.cost)
+          || (!ability?.cost && isSelfSacrificeManaSource(permanent)),
+      };
+
+      if (!bestOption || candidate.amount > bestOption.amount) {
+        bestOption = candidate;
+      }
+    }
+
+    if (bestOption) return bestOption;
+    if (manaAbilities.length > 0) return null;
+
+    const production = calculateManaProduction(gameState, permanent, playerId);
+    const amount = Number(production?.totalAmount || production?.baseAmount || 0);
+    if (!Number.isFinite(amount) || amount <= 0) return null;
+    if (!supportsGenericAutoPaymentActivationCost(permanent, production?.activationCost)) return null;
+    if (!Array.isArray(production?.colors) || production.colors.length === 0) return null;
+
+    return {
+      amount: Math.max(1, amount),
+      sacrificesSelf: isPureSelfSacrificeActivationCost(permanent, production?.activationCost)
+        || (!production?.activationCost && isSelfSacrificeManaSource(permanent)),
+    };
+  }
+
   function getGenericAutoPaymentCandidates(
     gameState: any,
     playerId: string,
@@ -2930,20 +3047,14 @@ export function consumeManaFromPool(
           typeLine.includes('forest');
         if (!hasExplicitManaAbility) return false;
 
-        const production = calculateManaProduction(gameState, permanent, playerId);
-        const amount = Number(production?.totalAmount || production?.baseAmount || 0);
-        if (!Number.isFinite(amount) || amount <= 0) return false;
-        if (Number(production?.activationCost || 0) > 0) return false;
-        if (!Array.isArray(production?.colors) || production.colors.length === 0) return false;
-
-        return true;
+        return !!getBestGenericAutoPaymentOption(gameState, permanent, playerId);
       })
       .map((permanent: any) => {
-        const production = calculateManaProduction(gameState, permanent, playerId);
+        const option = getBestGenericAutoPaymentOption(gameState, permanent, playerId);
         return {
           permanent,
-          amount: Math.max(1, Number(production?.totalAmount || production?.baseAmount || 0)),
-          sacrificesSelf: isSelfSacrificeManaSource(permanent),
+          amount: Math.max(1, Number(option?.amount || 0)),
+          sacrificesSelf: option?.sacrificesSelf === true,
         };
       })
       .sort((left, right) => {
@@ -3760,6 +3871,25 @@ function resolveActivatedAbilityLineById(permanent: any, abilityId?: string | nu
   return undefined;
 }
 
+function resolveLegacyManaAbilityById(
+  gameState: any,
+  permanent: any,
+  playerId: string,
+  abilityId?: string | null,
+): any | undefined {
+  const normalizedAbilityId = String(abilityId || '').trim();
+  if (!normalizedAbilityId || /-ability-\d+$/i.test(normalizedAbilityId)) {
+    return undefined;
+  }
+
+  try {
+    const abilities = getManaAbilitiesForPermanent(gameState, permanent, playerId);
+    return abilities.find((ability: any) => String(ability?.id || '').trim() === normalizedAbilityId);
+  } catch {
+    return undefined;
+  }
+}
+
 /**
  * Calculate the actual mana produced when a permanent is tapped.
  * 
@@ -3785,6 +3915,7 @@ export function calculateManaProduction(
   const card = permanent?.card || {};
   const oracleText = (card.oracle_text || '').toLowerCase();
   const selectedAbilityLine = resolveActivatedAbilityLineById(permanent, abilityId);
+  const selectedLegacyManaAbility = resolveLegacyManaAbilityById(gameState, permanent, playerId, abilityId);
   const selectedAbilityLineText = String(selectedAbilityLine?.lineText || '').toLowerCase();
   const selectedAbilityEffectText = String(selectedAbilityLine?.effectText || '').toLowerCase();
   const selectedAbilityCostText = String(selectedAbilityLine?.costText || '').trim();
@@ -3798,6 +3929,14 @@ export function calculateManaProduction(
   const normalizedChosenColor = ['W', 'U', 'B', 'R', 'G', 'C'].includes(String(chosenColor || '').toUpperCase())
     ? String(chosenColor).toUpperCase()
     : undefined;
+  const selectedLegacyManaColors: string[] = Array.isArray(selectedLegacyManaAbility?.produces)
+    ? Array.from(new Set(
+      selectedLegacyManaAbility.produces
+        .map((color: any) => String(color || '').trim().toUpperCase())
+        .filter((color: string): color is string => ['W', 'U', 'B', 'R', 'G', 'C'].includes(color))
+    ))
+    : [];
+  const hasSelectedLegacyManaAbility = !!selectedLegacyManaAbility;
   
   const result: ManaProductionInfo = {
     colors: [],
@@ -3810,6 +3949,8 @@ export function calculateManaProduction(
 
   if (selectedAbilityCostText) {
     result.activationCost = selectedAbilityCostText;
+  } else if (selectedLegacyManaAbility?.cost) {
+    result.activationCost = String(selectedLegacyManaAbility.cost);
   }
   
   // ===== STEP 1: Determine base mana production from the card itself =====
@@ -3903,7 +4044,7 @@ export function calculateManaProduction(
     }
   }
   // Check for "any color" patterns
-  else if (manaOracleText.includes('any color') || manaOracleText.includes('mana of any color')) {
+  else if (!hasSelectedLegacyManaAbility && (manaOracleText.includes('any color') || manaOracleText.includes('mana of any color'))) {
     if (normalizedChosenColor && ['W', 'U', 'B', 'R', 'G'].includes(normalizedChosenColor)) {
       result.colors = [normalizedChosenColor];
       result.requiresColorChoice = false;
@@ -3914,11 +4055,36 @@ export function calculateManaProduction(
   }
   
   // Handle basic land types
-  if (typeLine.includes('plains') && !result.colors.includes('W')) result.colors.push('W');
-  if (typeLine.includes('island') && !result.colors.includes('U')) result.colors.push('U');
-  if (typeLine.includes('swamp') && !result.colors.includes('B')) result.colors.push('B');
-  if (typeLine.includes('mountain') && !result.colors.includes('R')) result.colors.push('R');
-  if (typeLine.includes('forest') && !result.colors.includes('G')) result.colors.push('G');
+  if (!hasSelectedLegacyManaAbility) {
+    if (typeLine.includes('plains') && !result.colors.includes('W')) result.colors.push('W');
+    if (typeLine.includes('island') && !result.colors.includes('U')) result.colors.push('U');
+    if (typeLine.includes('swamp') && !result.colors.includes('B')) result.colors.push('B');
+    if (typeLine.includes('mountain') && !result.colors.includes('R')) result.colors.push('R');
+    if (typeLine.includes('forest') && !result.colors.includes('G')) result.colors.push('G');
+  }
+
+  if (hasSelectedLegacyManaAbility) {
+    const explicitAmount = Number(selectedLegacyManaAbility?.amount || 0);
+    if (Number.isFinite(explicitAmount) && explicitAmount > 0) {
+      result.baseAmount = explicitAmount;
+    }
+
+    if (selectedLegacyManaAbility?.producesAllAtOnce === true && selectedLegacyManaColors.length > 0) {
+      result.colors = selectedLegacyManaColors;
+      result.requiresColorChoice = false;
+    } else if (selectedLegacyManaColors.length > 1) {
+      if (normalizedChosenColor && selectedLegacyManaColors.includes(normalizedChosenColor)) {
+        result.colors = [normalizedChosenColor];
+        result.requiresColorChoice = false;
+      } else {
+        result.colors = selectedLegacyManaColors;
+        result.requiresColorChoice = true;
+      }
+    } else if (selectedLegacyManaColors.length === 1) {
+      result.colors = selectedLegacyManaColors;
+      result.requiresColorChoice = false;
+    }
+  }
   
   // ===== STEP 2: Check for dynamic mana production =====
   

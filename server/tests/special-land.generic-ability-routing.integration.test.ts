@@ -178,6 +178,157 @@ describe('special land generic ability routing (integration)', () => {
     expect(Number((queue.steps[0] as any)?.totalAmount || 0)).toBe(2);
   });
 
+  it('persists damage metadata for queued any-color mana activations', async () => {
+    const damageChoiceGameId = `${gameId}_mana_confluence_damage`;
+    ResolutionQueueManager.removeQueue(damageChoiceGameId);
+    games.delete(damageChoiceGameId as any);
+
+    createGameIfNotExists(damageChoiceGameId, 'commander', 40);
+    const game = ensureGame(damageChoiceGameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const playerId = 'p1';
+    (game.state as any).players = [{ id: playerId, name: 'P1', spectator: false, life: 40 }];
+    (game.state as any).startingLife = 40;
+    (game.state as any).life = { [playerId]: 40 };
+    (game.state as any).lifeLostThisTurn = { [playerId]: 0 };
+    (game.state as any).damageTakenThisTurnByPlayer = { [playerId]: 0 };
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).manaPool = {
+      [playerId]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+    };
+    (game.state as any).zones = {
+      [playerId]: { hand: [], handCount: 0, graveyard: [], graveyardCount: 0 },
+    };
+    (game.state as any).battlefield = [
+      {
+        id: 'confluence_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        card: {
+          id: 'confluence_card_1',
+          name: 'Mana Confluence',
+          type_line: 'Land',
+          oracle_text: '{T}: Add one mana of any color. Whenever Mana Confluence is tapped for mana, it deals 1 damage to you.',
+        },
+      },
+    ];
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(playerId, emitted);
+    socket.rooms.add(damageChoiceGameId);
+    const io = createMockIo(emitted, [socket]);
+
+    registerResolutionHandlers(io as any, socket as any);
+    registerInteractionHandlers(io as any, socket as any);
+
+    await handlers['activateBattlefieldAbility']({
+      gameId: damageChoiceGameId,
+      permanentId: 'confluence_1',
+      abilityId: 'confluence_card_1-ability-0',
+    });
+
+    let queue = ResolutionQueueManager.getQueue(damageChoiceGameId);
+    expect(queue.steps).toHaveLength(1);
+    expect(String(queue.steps[0]?.type || '')).toBe('mana_color_selection');
+    expect((game.state as any).life?.[playerId]).toBe(40);
+
+    await handlers['submitResolutionResponse']({
+      gameId: damageChoiceGameId,
+      stepId: String(queue.steps[0]?.id || ''),
+      selections: 'green',
+    });
+
+    expect((game.state as any).manaPool?.[playerId]).toEqual({ white: 0, blue: 0, black: 0, red: 0, green: 1, colorless: 0 });
+    expect((game.state as any).life?.[playerId]).toBe(39);
+    expect((game.state as any).damageTakenThisTurnByPlayer?.[playerId]).toBe(1);
+    expect((game.state as any).lifeLostThisTurn?.[playerId]).toBe(1);
+
+    queue = ResolutionQueueManager.getQueue(damageChoiceGameId);
+    expect(queue.steps).toHaveLength(0);
+
+    const events = getEvents(damageChoiceGameId);
+    const manaEvents = events.filter((event) => String(event?.type) === 'activateManaAbility');
+    expect(manaEvents.length).toBeGreaterThan(0);
+    const lastManaEvent = manaEvents[manaEvents.length - 1] as any;
+    expect(lastManaEvent?.payload?.addedMana).toEqual({ green: 1 });
+    expect(lastManaEvent?.payload?.lifeLost).toBe(1);
+    expect(lastManaEvent?.payload?.lifeLossIsDamage).toBe(true);
+  });
+
+  it('persists damage metadata for direct single-color mana activations', async () => {
+    const directDamageGameId = `${gameId}_direct_pain_mana`;
+    ResolutionQueueManager.removeQueue(directDamageGameId);
+    games.delete(directDamageGameId as any);
+
+    createGameIfNotExists(directDamageGameId, 'commander', 40);
+    const game = ensureGame(directDamageGameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const playerId = 'p1';
+    (game.state as any).players = [{ id: playerId, name: 'P1', spectator: false, life: 40 }];
+    (game.state as any).startingLife = 40;
+    (game.state as any).life = { [playerId]: 40 };
+    (game.state as any).lifeLostThisTurn = { [playerId]: 0 };
+    (game.state as any).damageTakenThisTurnByPlayer = { [playerId]: 0 };
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).manaPool = {
+      [playerId]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+    };
+    (game.state as any).zones = {
+      [playerId]: { hand: [], handCount: 0, graveyard: [], graveyardCount: 0 },
+    };
+    (game.state as any).battlefield = [
+      {
+        id: 'pain_grove_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        card: {
+          id: 'pain_grove_card_1',
+          name: 'Pain Grove',
+          type_line: 'Land',
+          oracle_text: '{T}: Add {G}. Pain Grove deals 1 damage to you.',
+        },
+      },
+    ];
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(playerId, emitted);
+    socket.rooms.add(directDamageGameId);
+    const io = createMockIo(emitted, [socket]);
+
+    registerResolutionHandlers(io as any, socket as any);
+    registerInteractionHandlers(io as any, socket as any);
+
+    await handlers['activateBattlefieldAbility']({
+      gameId: directDamageGameId,
+      permanentId: 'pain_grove_1',
+      abilityId: 'pain_grove_card_1-ability-0',
+    });
+
+    const permanent = (game.state as any).battlefield.find((entry: any) => entry.id === 'pain_grove_1');
+    expect(Boolean(permanent?.tapped)).toBe(true);
+    expect((game.state as any).manaPool?.[playerId]).toEqual({ white: 0, blue: 0, black: 0, red: 0, green: 1, colorless: 0 });
+    expect((game.state as any).life?.[playerId]).toBe(39);
+    expect((game.state as any).damageTakenThisTurnByPlayer?.[playerId]).toBe(1);
+    expect((game.state as any).lifeLostThisTurn?.[playerId]).toBe(1);
+
+    const queue = ResolutionQueueManager.getQueue(directDamageGameId);
+    expect(queue.steps).toHaveLength(0);
+
+    const events = getEvents(directDamageGameId);
+    const manaEvents = events.filter((event) => String(event?.type) === 'activateManaAbility');
+    expect(manaEvents.length).toBeGreaterThan(0);
+    const lastManaEvent = manaEvents[manaEvents.length - 1] as any;
+    expect(lastManaEvent?.payload?.addedMana).toEqual({ green: 1 });
+    expect(lastManaEvent?.payload?.lifeLost).toBe(1);
+    expect(lastManaEvent?.payload?.lifeLossIsDamage).toBe(true);
+  });
+
   it('routes Calciform Pools storage-counter addition through the generic parsed ability id', async () => {
     const storageAddGameId = `${gameId}_storage_add`;
     ResolutionQueueManager.removeQueue(storageAddGameId);
