@@ -65,6 +65,8 @@ describe('AI Activated Abilities', () => {
       expect(decision.type).toBe(AIDecisionType.ACTIVATE_ABILITY);
       expect(decision.action?.activate).toBe(true);
       expect(decision.action?.cardName).toBe('Humble Defector');
+      expect(decision.action?.abilityId).toBe('perm1-ability-0');
+      expect(decision.action?.abilityText).toBe('{T}: Draw two cards. Target opponent gains control of Humble Defector. Activate only during your turn.');
     });
     
     it('should not activate tapped permanents', async () => {
@@ -208,6 +210,50 @@ describe('AI Activated Abilities', () => {
       // AI should prefer card draw over mana generation
       expect(decision.action?.activate).toBe(true);
       expect(decision.action?.cardName).toBe('Archmage Emeritus');
+    });
+
+    it('should emit the exact ability id and line for multi-ability permanents', async () => {
+      const sphere: BattlefieldPermanent = {
+        id: 'perm_multi_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        summoningSickness: false,
+        counters: {},
+        card: {
+          id: 'sphere_card',
+          name: "Commander's Sphere",
+          type_line: 'Artifact',
+          oracle_text: "{T}: Add one mana of any color in your commander's color identity.\nSacrifice Commander's Sphere: Draw a card.",
+        },
+      };
+
+      const gameState: Partial<GameState> = {
+        phase: 'MAIN',
+        step: 'precombat_main',
+        turnPlayer: playerId,
+        priority: playerId,
+        battlefield: [sphere],
+        stack: [],
+        players: [
+          { id: playerId, name: 'AI', life: 40, hand: [], battlefield: [] } as any,
+          { id: opponentId, name: 'Opponent', life: 40, hand: [], battlefield: [] } as any,
+        ],
+      };
+
+      const context: AIDecisionContext = {
+        gameState: gameState as GameState,
+        playerId,
+        decisionType: AIDecisionType.ACTIVATE_ABILITY,
+        options: [],
+      };
+
+      const decision = await aiEngine.makeDecision(context);
+
+      expect(decision.action?.activate).toBe(true);
+      expect(decision.action?.cardName).toBe("Commander's Sphere");
+      expect(decision.action?.abilityId).toBe('sphere_card-ability-1');
+      expect(decision.action?.abilityText).toBe("Sacrifice Commander's Sphere: Draw a card.");
     });
     
     it('should value tutoring abilities', async () => {

@@ -10,11 +10,180 @@ type GetProcessedBattlefield = (gameState: GameState) => BattlefieldPermanent[];
 
 export interface ActivatedAbilityChoice {
   readonly permanent: BattlefieldPermanent;
+  readonly abilityId?: string;
   readonly abilityText: string;
   readonly value: number;
 }
 
+interface AIActivatedAbilityCandidate {
+  readonly abilityId: string;
+  readonly abilityText: string;
+  readonly effectText: string;
+}
+
+function getAIActivatedAbilityCandidates(perm: BattlefieldPermanent): AIActivatedAbilityCandidate[] {
+  const card = perm.card as KnownCardRef;
+  const cardId = String((card as any)?.id || perm?.id || '').trim();
+  const nativeOracleText = String(card?.oracle_text || '').trim();
+  const lowerOracleText = nativeOracleText.toLowerCase();
+  const typeLine = String(card?.type_line || '').toLowerCase();
+  const candidates: AIActivatedAbilityCandidate[] = [];
+
+  if (!cardId || !nativeOracleText) {
+    return candidates;
+  }
+
+  let genericAbilityIndex = 0;
+
+  if (typeLine.includes('planeswalker')) {
+    const loyaltyAbilityPattern = /^([+−–—-]?\d+):\s*(.+)/gm;
+    let loyaltyMatch: RegExpExecArray | null;
+    let loyaltyIndex = 0;
+    while ((loyaltyMatch = loyaltyAbilityPattern.exec(nativeOracleText)) !== null) {
+      const loyaltyCost = String(loyaltyMatch[1] || '').replace(/[−–—]/g, '-').trim();
+      const effectText = String(loyaltyMatch[2] || '').trim();
+      if (!effectText) continue;
+      candidates.push({
+        abilityId: `pw-ability-${loyaltyIndex++}`,
+        abilityText: `${loyaltyCost}: ${effectText}`,
+        effectText,
+      });
+    }
+    return candidates;
+  }
+
+  const lines = nativeOracleText
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  const activatedAbilityPattern = /^(\{[^}]+\}(?:,?\s*\{[^}]+\})*(?:,?\s*(?:Sacrifice[^:]*|Pay[^:]*|Discard[^:]*|Exile[^:]*|Remove[^:]*|Tap[^:]*|Untap[^:]*))?)\s*:\s*(.+)$/i;
+  const textOnlyActivatedAbilityPattern = /^((?:Sacrifice|Discard|Pay|Exile|Remove|Tap|Untap)[^:]*?)\s*:\s*(.+)$/i;
+
+  for (const line of lines) {
+    const activatedMatch = line.match(activatedAbilityPattern);
+    if (activatedMatch) {
+      const costText = String(activatedMatch[1] || '').trim();
+      const effectText = String(activatedMatch[2] || '').trim();
+      if (!costText || !effectText) continue;
+      candidates.push({
+        abilityId: `${cardId}-ability-${genericAbilityIndex++}`,
+        abilityText: `${costText}: ${effectText}`,
+        effectText,
+      });
+      continue;
+    }
+
+    const textOnlyMatch = line.match(textOnlyActivatedAbilityPattern);
+    if (textOnlyMatch) {
+      const costText = String(textOnlyMatch[1] || '').trim();
+      const effectText = String(textOnlyMatch[2] || '').trim();
+      if (!costText || !effectText) continue;
+      candidates.push({
+        abilityId: `${cardId}-ability-${genericAbilityIndex++}`,
+        abilityText: `${costText}: ${effectText}`,
+        effectText,
+      });
+    }
+  }
+
+  const reconfigureMatch = nativeOracleText.match(/reconfigure\s*(\{[^}]+\}|\d+)/i);
+  if (reconfigureMatch && typeLine.includes('equipment')) {
+    const reconfigureCost = reconfigureMatch[1].startsWith('{') ? reconfigureMatch[1] : `{${reconfigureMatch[1]}}`;
+    candidates.push({
+      abilityId: `${cardId}-reconfigure-attach-0`,
+      abilityText: `Reconfigure ${reconfigureCost} attach`,
+      effectText: 'attach to target creature you control',
+    });
+    candidates.push({
+      abilityId: `${cardId}-reconfigure-unattach-1`,
+      abilityText: `Reconfigure ${reconfigureCost} unattach`,
+      effectText: 'unattach this equipment',
+    });
+  }
+
+  const crewMatch = nativeOracleText.match(/crew\s*(\d+)/i);
+  if (crewMatch && typeLine.includes('vehicle')) {
+    candidates.push({
+      abilityId: `${cardId}-crew-0`,
+      abilityText: `Crew ${crewMatch[1]}`,
+      effectText: `crew ${crewMatch[1]}`,
+    });
+  }
+
+  const stationMatch = nativeOracleText.match(/station\s*(\d+)/i);
+  if (stationMatch && (typeLine.includes('spacecraft') || lowerOracleText.includes('station'))) {
+    candidates.push({
+      abilityId: `${cardId}-station-0`,
+      abilityText: `Station ${stationMatch[1]}`,
+      effectText: `station ${stationMatch[1]}`,
+    });
+  }
+
+  const levelUpMatch = nativeOracleText.match(/level\s+up\s+(\{[^}]+\}(?:\{[^}]+\})*)/i);
+  if (levelUpMatch) {
+    candidates.push({
+      abilityId: `${cardId}-level-up-0`,
+      abilityText: `Level up ${levelUpMatch[1]}`,
+      effectText: 'put a level counter on this permanent',
+    });
+  }
+
+  const outlastMatch = nativeOracleText.match(/outlast\s+(\{[^}]+\}(?:\{[^}]+\})*)/i);
+  if (outlastMatch) {
+    candidates.push({
+      abilityId: `${cardId}-outlast-0`,
+      abilityText: `Outlast ${outlastMatch[1]}`,
+      effectText: 'put a +1/+1 counter on this creature',
+    });
+  }
+
+  const boastMatch = nativeOracleText.match(/boast\s*[—-]\s*(\{[^}]+\}(?:\{[^}]+\})*)\s*:\s*([^.]+)/i);
+  if (boastMatch) {
+    const effectText = String(boastMatch[2] || '').trim();
+    candidates.push({
+      abilityId: `${cardId}-boast-0`,
+      abilityText: `Boast ${boastMatch[1]}: ${effectText}`,
+      effectText,
+    });
+  }
+
+  const monstrosityMatch = nativeOracleText.match(/(\{[^}]+\}(?:\{[^}]+\})*)\s*:\s*monstrosity\s+(\d+)/i);
+  if (monstrosityMatch) {
+    candidates.push({
+      abilityId: `${cardId}-monstrosity-0`,
+      abilityText: `${monstrosityMatch[1]}: Monstrosity ${monstrosityMatch[2]}`,
+      effectText: `monstrosity ${monstrosityMatch[2]}`,
+    });
+  }
+
+  const adaptMatch = nativeOracleText.match(/(\{[^}]+\}(?:\{[^}]+\})*)\s*:\s*adapt\s+(\d+)/i);
+  if (adaptMatch) {
+    candidates.push({
+      abilityId: `${cardId}-adapt-0`,
+      abilityText: `${adaptMatch[1]}: Adapt ${adaptMatch[2]}`,
+      effectText: `adapt ${adaptMatch[2]}`,
+    });
+  }
+
+  const fortifyMatch = nativeOracleText.match(/fortify\s+(\{[^}]+\}(?:\{[^}]+\})*)/i);
+  if (fortifyMatch && typeLine.includes('fortification')) {
+    candidates.push({
+      abilityId: `${cardId}-fortify-0`,
+      abilityText: `Fortify ${fortifyMatch[1]}`,
+      effectText: 'attach this fortification to target land you control',
+    });
+  }
+
+  return candidates;
+}
+
 export function detectActivatedAbility(perm: BattlefieldPermanent): string | null {
+  const parsedCandidates = getAIActivatedAbilityCandidates(perm);
+  if (parsedCandidates.length > 0) {
+    return parsedCandidates[0].abilityText;
+  }
+
   const card = perm.card as KnownCardRef;
   const oracleText = (card?.oracle_text || '').toLowerCase();
 
@@ -263,19 +432,33 @@ export function findBestActivatedAbility(
   let bestValue = 0;
 
   for (const perm of myPermanents) {
-    const abilityText = detectActivatedAbility(perm);
-    if (!abilityText) continue;
-
     if (!canActivateAbilityNow(perm, gameState, playerId, { hasPermanentType: deps.hasPermanentType })) continue;
 
-    const value = evaluateActivatedAbilityValue(perm, abilityText, gameState, playerId, config, {
-      getPrimaryArchetypes: deps.getPrimaryArchetypes,
-      hasPotentialManaSink: deps.hasPotentialManaSink,
-    });
+    const abilityCandidates = getAIActivatedAbilityCandidates(perm);
+    const scoredCandidates = abilityCandidates.length > 0
+      ? abilityCandidates
+      : (() => {
+          const fallbackAbilityText = detectActivatedAbility(perm);
+          return fallbackAbilityText
+            ? [{ abilityId: '', abilityText: fallbackAbilityText, effectText: fallbackAbilityText }]
+            : [];
+        })();
 
-    if (value > bestValue) {
-      bestValue = value;
-      bestAbility = { permanent: perm, abilityText, value };
+    for (const candidate of scoredCandidates) {
+      const value = evaluateActivatedAbilityValue(perm, candidate.abilityText, gameState, playerId, config, {
+        getPrimaryArchetypes: deps.getPrimaryArchetypes,
+        hasPotentialManaSink: deps.hasPotentialManaSink,
+      });
+
+      if (value > bestValue) {
+        bestValue = value;
+        bestAbility = {
+          permanent: perm,
+          ...(candidate.abilityId ? { abilityId: candidate.abilityId } : {}),
+          abilityText: candidate.abilityText,
+          value,
+        };
+      }
     }
   }
 

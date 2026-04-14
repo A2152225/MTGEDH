@@ -3697,6 +3697,69 @@ export interface ManaProductionInfo {
   requiresColorChoice?: boolean;
 }
 
+type ResolvedActivatedAbilityLine = {
+  lineText: string;
+  costText: string;
+  effectText: string;
+};
+
+function normalizeActivatedAbilityOracleLine(line: string): string {
+  const trimmed = String(line || '').trim();
+  const wrappedMatch = trimmed.match(/^\((.*)\)\.?$/);
+  return String(wrappedMatch?.[1] || trimmed).trim();
+}
+
+function resolveActivatedAbilityLineById(permanent: any, abilityId?: string | null): ResolvedActivatedAbilityLine | undefined {
+  const normalizedAbilityId = String(abilityId || '').trim();
+  if (!normalizedAbilityId) return undefined;
+
+  const genericAbilityMatch = normalizedAbilityId.match(/-ability-(\d+)$/i);
+  if (!genericAbilityMatch) return undefined;
+
+  const targetIndex = Number(genericAbilityMatch[1]);
+  if (!Number.isInteger(targetIndex) || targetIndex < 0) return undefined;
+
+  const oracleText = String(permanent?.card?.oracle_text || '').trim();
+  if (!oracleText) return undefined;
+
+  const activatedAbilityPattern = /^(\{[^}]+\}(?:,?\s*\{[^}]+\})*(?:,?\s*(?:Sacrifice[^:]*|Pay[^:]*|Discard[^:]*|Exile[^:]*|Remove[^:]*|Tap[^:]*|Untap[^:]*))?)\s*:\s*(.+)$/i;
+  const textOnlyActivatedAbilityPattern = /^((?:Sacrifice|Discard|Pay|Exile|Remove|Tap|Untap)[^:]*?)\s*:\s*(.+)$/i;
+  const lines = oracleText
+    .split(/\r?\n/)
+    .map(normalizeActivatedAbilityOracleLine)
+    .filter(Boolean);
+
+  let genericAbilityIndex = 0;
+  for (const line of lines) {
+    const activatedMatch = line.match(activatedAbilityPattern);
+    if (activatedMatch) {
+      if (genericAbilityIndex === targetIndex) {
+        return {
+          lineText: line,
+          costText: String(activatedMatch[1] || '').trim(),
+          effectText: String(activatedMatch[2] || '').trim(),
+        };
+      }
+      genericAbilityIndex += 1;
+      continue;
+    }
+
+    const textOnlyMatch = line.match(textOnlyActivatedAbilityPattern);
+    if (textOnlyMatch) {
+      if (genericAbilityIndex === targetIndex) {
+        return {
+          lineText: line,
+          costText: String(textOnlyMatch[1] || '').trim(),
+          effectText: String(textOnlyMatch[2] || '').trim(),
+        };
+      }
+      genericAbilityIndex += 1;
+    }
+  }
+
+  return undefined;
+}
+
 /**
  * Calculate the actual mana produced when a permanent is tapped.
  * 
@@ -3716,10 +3779,16 @@ export function calculateManaProduction(
   gameState: any,
   permanent: any,
   playerId: string,
-  chosenColor?: string
+  chosenColor?: string,
+  abilityId?: string | null,
 ): ManaProductionInfo {
   const card = permanent?.card || {};
   const oracleText = (card.oracle_text || '').toLowerCase();
+  const selectedAbilityLine = resolveActivatedAbilityLineById(permanent, abilityId);
+  const selectedAbilityLineText = String(selectedAbilityLine?.lineText || '').toLowerCase();
+  const selectedAbilityEffectText = String(selectedAbilityLine?.effectText || '').toLowerCase();
+  const selectedAbilityCostText = String(selectedAbilityLine?.costText || '').trim();
+  const manaOracleText = selectedAbilityLineText || oracleText;
   const typeLine = (card.type_line || '').toLowerCase();
   const cardName = (card.name || '').toLowerCase();
   const battlefield = gameState?.battlefield || [];
@@ -3738,6 +3807,10 @@ export function calculateManaProduction(
     multiplier: 1,
     totalAmount: 1,
   };
+
+  if (selectedAbilityCostText) {
+    result.activationCost = selectedAbilityCostText;
+  }
   
   // ===== STEP 1: Determine base mana production from the card itself =====
   
@@ -3746,7 +3819,7 @@ export function calculateManaProduction(
   // This avoids matching triggered abilities or reminder text like "firebending" which mentions adding mana
   // Pattern: \{t\}(?:[,\s]*[^:]*)?:\s*add\s+((?:\{[wubrgc]\})+)
   // This matches: {T}: Add {R}, or {1}, {T}: Add {R}{R}, etc.
-  const manaAbilityMatch = oracleText.match(/\{t\}(?:[,\s]*[^:]*)?:\s*add\s+((?:\{[wubrgc]\})+)/gi);
+  const manaAbilityMatch = manaOracleText.match(/\{t\}(?:[,\s]*[^:]*)?:\s*add\s+((?:\{[wubrgc]\})+)/gi);
   
   if (manaAbilityMatch && manaAbilityMatch.length > 0) {
     // Use ONLY the first mana ability found (the basic tap-for-mana ability)
@@ -3765,7 +3838,7 @@ export function calculateManaProduction(
   } else {
     // Fallback: Check for simpler fixed mana patterns without tap requirement
     // (for special cases like artifacts that have different activation patterns)
-    const fixedManaMatch = oracleText.match(/add\s+((?:\{[wubrgc]\})+)/gi);
+    const fixedManaMatch = manaOracleText.match(/add\s+((?:\{[wubrgc]\})+)/gi);
     if (fixedManaMatch && result.colors.length === 0) {
       // Only use first match to avoid picking up reminder text
       const firstMatch = fixedManaMatch[0];
@@ -3830,7 +3903,7 @@ export function calculateManaProduction(
     }
   }
   // Check for "any color" patterns
-  else if (oracleText.includes('any color') || oracleText.includes('mana of any color')) {
+  else if (manaOracleText.includes('any color') || manaOracleText.includes('mana of any color')) {
     if (normalizedChosenColor && ['W', 'U', 'B', 'R', 'G'].includes(normalizedChosenColor)) {
       result.colors = [normalizedChosenColor];
       result.requiresColorChoice = false;
@@ -3893,10 +3966,22 @@ export function calculateManaProduction(
   // 2. {2}, {T}: Choose a color. Add an amount of mana of that color equal to creatures of the chosen type.
   // The chosen creature type is stored on the permanent
   if (cardName.includes("three tree city")) {
+    const selectedThreeTreeIsDynamicLine = !selectedAbilityLine ||
+      (selectedAbilityEffectText.includes('choose a color') && selectedAbilityEffectText.includes('creatures of the chosen type'));
+    const selectedThreeTreeIsColorlessLine = selectedAbilityLine && /\badd\s+\{c\}/i.test(selectedAbilityEffectText);
+
+    if (selectedThreeTreeIsColorlessLine) {
+      result.baseAmount = 1;
+      result.colors = ['C'];
+      result.isDynamic = false;
+      result.dynamicDescription = undefined;
+      result.requiresColorChoice = false;
+    }
+
     // Get the chosen creature type from the permanent
     const chosenCreatureType = (permanent?.chosenCreatureType || '').toLowerCase();
-    
-    if (chosenCreatureType) {
+
+    if (selectedThreeTreeIsDynamicLine && chosenCreatureType) {
       // Count creatures of the chosen type
       const creatureCount = battlefield.filter((p: any) => {
         if (!p || p.controller !== playerId) return false;
@@ -3915,7 +4000,7 @@ export function calculateManaProduction(
       // Mark that this ability requires paying {2}
       result.activationCost = '{2}';
       result.requiresColorChoice = true;
-    } else {
+    } else if (!selectedAbilityLine) {
       // No creature type chosen yet, just produces {C}
       result.baseAmount = 1;
       result.colors = ['C'];
@@ -3924,8 +4009,8 @@ export function calculateManaProduction(
   
   // Karametra's Acolyte - "Add an amount of {G} equal to your devotion to green"
   // This is a key devotion-based mana ability that needs proper support
-  if (cardName.includes("karametra's acolyte") || 
-      (oracleText.includes('devotion to green') && oracleText.includes('add'))) {
+    if (cardName.includes("karametra's acolyte") || 
+      (manaOracleText.includes('devotion to green') && manaOracleText.includes('add'))) {
     let devotion = 0;
     
     for (const perm of battlefield) {
@@ -4008,7 +4093,7 @@ export function calculateManaProduction(
   
   // Generic leveler card support - check for level-dependent mana abilities
   // Pattern: "LEVEL N1-N2" ... "{T}: Add {X}" or "LEVEL N3+" ... "{T}: Add {X}"
-  if (oracleText.includes('level up') || oracleText.includes('level ')) {
+  if (manaOracleText.includes('level up') || manaOracleText.includes('level ')) {
     const levelCounters = permanent?.counters?.level || 0;
     
     // Look for level ability patterns with mana production
@@ -4020,7 +4105,7 @@ export function calculateManaProduction(
     let foundLevelAbility = false;
     
     // Check range patterns first (LEVEL N-M)
-    for (const match of oracleText.matchAll(levelRangePattern)) {
+    for (const match of manaOracleText.matchAll(levelRangePattern)) {
       const minLevel = parseInt(match[1], 10);
       const maxLevel = parseInt(match[2], 10);
       const manaSymbols = match[3].match(/\{[wubrgc]\}/gi) || [];
@@ -4036,7 +4121,7 @@ export function calculateManaProduction(
     
     // If no range matched, check plus patterns (LEVEL N+)
     if (!foundLevelAbility) {
-      for (const match of oracleText.matchAll(levelPlusPattern)) {
+      for (const match of manaOracleText.matchAll(levelPlusPattern)) {
         const minLevel = parseInt(match[1], 10);
         const manaSymbols = match[2].match(/\{[wubrgc]\}/gi) || [];
         
@@ -4052,7 +4137,7 @@ export function calculateManaProduction(
   }
   
   // Wirewood Channeler, Priest of Titania style - "Add {G} for each Elf"
-  if (oracleText.includes('for each elf') || 
+  if (manaOracleText.includes('for each elf') || 
       (cardName.includes('priest of titania')) ||
       (cardName.includes('wirewood channeler'))) {
     const elfCount = battlefield.filter((p: any) =>
@@ -4245,9 +4330,9 @@ export function calculateManaProduction(
   
   // Generic pattern: "Add {G} equal to [this creature's / ~'s] power"
   // Catches: Marwyn, Viridian Joiner, Cradle Clearcutter, Gyre Sage, etc.
-  if (oracleText.includes("equal to") && oracleText.includes("power") && 
-      (oracleText.includes("{g}") || oracleText.includes("green")) &&
-      !oracleText.includes("greatest") && !oracleText.includes("among")) {
+    if (manaOracleText.includes("equal to") && manaOracleText.includes("power") && 
+      (manaOracleText.includes("{g}") || manaOracleText.includes("green")) &&
+      !manaOracleText.includes("greatest") && !manaOracleText.includes("among")) {
     const { power } = getActualPowerToughness(permanent, gameState);
     result.isDynamic = true;
     result.baseAmount = Math.max(0, power);

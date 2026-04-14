@@ -328,6 +328,49 @@ function paymentSacrificeCandidateMatches(candidate: any, sourcePermanentId: str
   }
 }
 
+function getActivatedAbilityCostFromResolverId(permanent: any, abilityId?: string | null): string | undefined {
+  const normalizedAbilityId = String(abilityId || '').trim();
+  if (!normalizedAbilityId) return undefined;
+
+  const genericAbilityMatch = normalizedAbilityId.match(/-ability-(\d+)$/i);
+  if (!genericAbilityMatch) return undefined;
+
+  const targetIndex = Number(genericAbilityMatch[1]);
+  if (!Number.isInteger(targetIndex) || targetIndex < 0) return undefined;
+
+  const oracleText = String(permanent?.card?.oracle_text || '').trim();
+  if (!oracleText) return undefined;
+
+  const lines = oracleText
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const activatedAbilityPattern = /^(\{[^}]+\}(?:,?\s*\{[^}]+\})*(?:,?\s*(?:Sacrifice[^:]*|Pay[^:]*|Discard[^:]*|Exile[^:]*|Remove[^:]*|Tap[^:]*|Untap[^:]*))?)\s*:\s*(.+)$/i;
+  const textOnlyActivatedAbilityPattern = /^((?:Sacrifice|Discard|Pay|Exile|Remove|Tap|Untap)[^:]*?)\s*:\s*(.+)$/i;
+
+  let genericAbilityIndex = 0;
+  for (const line of lines) {
+    const activatedMatch = line.match(activatedAbilityPattern);
+    if (activatedMatch) {
+      if (genericAbilityIndex === targetIndex) {
+        return String(activatedMatch[1] || '').trim();
+      }
+      genericAbilityIndex += 1;
+      continue;
+    }
+
+    const textOnlyMatch = line.match(textOnlyActivatedAbilityPattern);
+    if (textOnlyMatch) {
+      if (genericAbilityIndex === targetIndex) {
+        return String(textOnlyMatch[1] || '').trim();
+      }
+      genericAbilityIndex += 1;
+    }
+  }
+
+  return undefined;
+}
+
 function inferManaAbilityActivationCost(permanent: any, selectedMana: string): string {
   const oracleText = String(permanent?.card?.oracle_text || '');
   const lines = oracleText
@@ -351,6 +394,15 @@ function inferManaAbilityActivationCost(permanent: any, selectedMana: string): s
 
   const firstMatch = oracleText.match(/([^:\n]+):\s*add\s+([^\n]+)/i);
   return firstMatch ? String(firstMatch[1] || '').trim() : '';
+}
+
+function resolvePaymentManaAbilityActivationCost(permanent: any, selectedMana: string, abilityId?: string | null): string {
+  const resolvedCost = getActivatedAbilityCostFromResolverId(permanent, abilityId);
+  if (resolvedCost !== undefined) {
+    return resolvedCost;
+  }
+
+  return inferManaAbilityActivationCost(permanent, selectedMana);
 }
 
 export function finalizePlayedLand(
@@ -6847,7 +6899,7 @@ export function registerGameActions(io: Server, socket: Socket) {
       
       // Add mana from payment sources, using calculateManaProduction for accurate amounts
       if (payment && payment.length > 0) {
-        for (const { permanentId, mana, count } of payment) {
+        for (const { permanentId, mana, count, abilityId } of payment) {
           const floatingPoolKey = getFloatingPaymentPoolKey(String(permanentId || ''), String(mana || ''));
           if (floatingPoolKey) {
             const amount = Math.max(1, Number(count || 1));
@@ -6857,16 +6909,23 @@ export function registerGameActions(io: Server, socket: Socket) {
           }
 
           const permanent = globalBattlefield.find((p: any) => p?.id === permanentId && p?.controller === playerId);
-          if (permanent && !(permanent as any).tapped) {
+          if (permanent) {
+            const activationCostInfo = getPaymentActivationCostInfo(
+              resolvePaymentManaAbilityActivationCost(permanent, String(mana || ''), abilityId)
+            );
+            if ((permanent as any).tapped && activationCostInfo.taps) {
+              continue;
+            }
+
             // Calculate actual mana production with effects
             let manaAmount: number;
             if (count !== undefined && count !== null) {
               // Client provided explicit count, but we should still check for effects
-              const manaInfo = calculateManaProduction(game.state, permanent, playerId, mana);
+              const manaInfo = calculateManaProduction(game.state, permanent, playerId, mana, abilityId);
               // Use the larger of client count or calculated production (effects may increase)
               manaAmount = Math.max(count, manaInfo.totalAmount);
             } else {
-              const manaInfo = calculateManaProduction(game.state, permanent, playerId, mana);
+              const manaInfo = calculateManaProduction(game.state, permanent, playerId, mana, abilityId);
               manaAmount = manaInfo.totalAmount;
             }
             
@@ -7031,7 +7090,7 @@ export function registerGameActions(io: Server, socket: Socket) {
         }
         
         // Process each payment item: apply the mana ability cost, then add mana to pool
-        for (const { permanentId, mana, count, sacrificedPermanentIds } of payment) {
+        for (const { permanentId, mana, count, abilityId, sacrificedPermanentIds } of payment) {
           const floatingPoolKey = getFloatingPaymentPoolKey(String(permanentId || ''), String(mana || ''));
           if (floatingPoolKey) {
             const amount = Math.max(1, Number(count || 1));
@@ -7052,9 +7111,9 @@ export function registerGameActions(io: Server, socket: Socket) {
           const permCard = (permanent as any).card || {};
           const permTypeLine = (permCard.type_line || "").toLowerCase();
           const permIsCreature = /\bcreature\b/.test(permTypeLine);
-          const manaInfo = calculateManaProduction(game.state, permanent, playerId, mana);
+          const manaInfo = calculateManaProduction(game.state, permanent, playerId, mana, abilityId);
           const activationCostInfo = getPaymentActivationCostInfo(
-            manaInfo.activationCost || inferManaAbilityActivationCost(permanent, String(mana || ''))
+            manaInfo.activationCost || resolvePaymentManaAbilityActivationCost(permanent, String(mana || ''), abilityId)
           );
 
           if (activationCostInfo.taps && (permanent as any).tapped) {

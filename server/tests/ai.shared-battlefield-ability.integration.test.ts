@@ -7,7 +7,7 @@ import { ensureGame } from '../src/socket/util.js';
 import { games } from '../src/socket/socket.js';
 import { handleAIPriority, registerAIPlayer, unregisterAIPlayer } from '../src/socket/ai.js';
 import { ResolutionQueueManager } from '../src/state/resolution/index.js';
-import { AIEngine, AIDecisionType } from '../../rules-engine/src/AIEngine.js';
+import { AIEngine, AIDecisionType, AIStrategy } from '../../rules-engine/src/AIEngine.js';
 
 function createNoopIo() {
   return {
@@ -186,6 +186,114 @@ describe('AI shared battlefield ability surface', () => {
   expect(hand.some((card: any) => String(card?.name || '') === 'Drawn Card')).toBe(true);
 
     expect(getEvents(localGameId).some((event: any) => event?.type === 'activateAbility')).toBe(false);
+  });
+
+  it('uses the AI engine\'s exact ability id for multi-ability shared activations', async () => {
+    const localGameId = `${gameId}_${Math.random().toString(36).slice(2, 10)}`;
+    games.delete(localGameId as any);
+    unregisterAIPlayer(localGameId, playerId as any);
+
+    createGameIfNotExists(localGameId, 'commander', 40);
+    const game = ensureGame(localGameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [
+      { id: playerId, name: 'AI', spectator: false, isAI: true, life: 40 },
+    ];
+    (game.state as any).startingLife = 40;
+    (game.state as any).life = { [playerId]: 40 };
+    (game.state as any).activePlayer = playerId;
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).phase = 'main';
+    (game.state as any).step = 'precombat_main';
+    (game.state as any).stack = [];
+    (game.state as any).manaPool = {
+      [playerId]: { white: 0, blue: 1, black: 0, red: 0, green: 0, colorless: 0 },
+    };
+    (game.state as any).zones = {
+      [playerId]: {
+        hand: [
+          {
+            id: 'opt_1',
+            name: 'Opt',
+            type_line: 'Instant',
+            oracle_text: 'Scry 1. Draw a card.',
+            mana_cost: '{U}',
+            cmc: 1,
+            zone: 'hand',
+          },
+        ],
+        handCount: 1,
+        graveyard: [],
+        graveyardCount: 0,
+        library: [
+          {
+            id: 'drawn_exact_1',
+            name: 'Drawn Card',
+            type_line: 'Artifact',
+            oracle_text: '',
+            zone: 'library',
+          },
+        ],
+        libraryCount: 1,
+        exile: [],
+      },
+    };
+    (game.state as any).battlefield = [
+      {
+        id: 'sphere_exact_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        summoningSickness: false,
+        counters: {},
+        card: {
+          id: 'sphere_exact_card',
+          name: "Commander's Sphere",
+          type_line: 'Artifact',
+          oracle_text: "{T}: Add one mana of any color in your commander's color identity.\nSacrifice Commander's Sphere: Draw a card.",
+        },
+      },
+    ];
+
+    registerAIPlayer(localGameId, playerId as any);
+
+    const exactDecisionEngine = new AIEngine();
+    exactDecisionEngine.registerAI({
+      playerId: playerId as any,
+      strategy: AIStrategy.BASIC,
+      difficulty: 0.5,
+    });
+    const exactDecision = await exactDecisionEngine.makeDecision({
+      gameState: game.state as any,
+      playerId: playerId as any,
+      decisionType: AIDecisionType.ACTIVATE_ABILITY,
+      options: [],
+    });
+    expect(exactDecision.type).toBe(AIDecisionType.ACTIVATE_ABILITY);
+    expect(exactDecision.action?.activate).toBe(true);
+    expect(String(exactDecision.action?.abilityId || '')).toBe('sphere_exact_card-ability-1');
+    expect(String(exactDecision.action?.abilityText || '')).toBe("Sacrifice Commander's Sphere: Draw a card.");
+    vi.spyOn(AIEngine.prototype, 'makeDecision').mockResolvedValue(exactDecision as any);
+
+    const setTimeoutSpy = vi.spyOn(globalThis, 'setTimeout').mockImplementation(() => 0 as any);
+    try {
+      await handleAIPriority(createNoopIo(), localGameId, playerId as any);
+    } finally {
+      setTimeoutSpy.mockRestore();
+    }
+
+    const persistedEvents = getEvents(localGameId);
+    const persisted = [...persistedEvents].reverse().find((event: any) =>
+      event?.type === 'activateSacrificeDrawAbility'
+      && event?.payload?.permanentId === 'sphere_exact_1'
+    ) as any;
+
+    expect(persistedEvents.some((event: any) => event?.type === 'activateAbility')).toBe(false);
+    expect(persisted).toBeTruthy();
+    expect(String(persisted?.payload?.abilityId || '')).toBe('sphere_exact_card-ability-1');
+    expect(String(persisted?.payload?.cardName || '')).toBe("Commander's Sphere");
   });
 
   it('routes a generic stack-based draw activation through the shared battlefield handler', async () => {

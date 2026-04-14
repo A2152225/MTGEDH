@@ -111,6 +111,7 @@ import {
 type ResolutionPaymentItem = {
   permanentId: string;
   mana: string;
+  abilityId?: string;
   count?: number;
 };
 
@@ -841,6 +842,9 @@ function extractResolutionPaymentItems(rawSelections: any): ResolutionPaymentIte
     .map((entry: any) => ({
       permanentId: String(entry?.permanentId || '').trim(),
       mana: String(entry?.mana || '').trim().toUpperCase(),
+      abilityId: typeof entry?.abilityId === 'string' && entry.abilityId.trim()
+        ? String(entry.abilityId).trim()
+        : undefined,
       count: entry?.count != null ? Number(entry.count) : undefined,
     }))
     .filter((entry) => entry.permanentId && /^[WUBRGC]$/.test(entry.mana));
@@ -1046,7 +1050,7 @@ function validateWardManaPaymentSelection(
   const selectedFloatingMana: Record<string, number> = { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 };
 
   if (payment && payment.length > 0) {
-    for (const { permanentId, mana, count } of payment) {
+    for (const { permanentId, mana, count, abilityId } of payment) {
       const floatingPoolKey = getFloatingPaymentPoolKey(permanentId, mana);
       if (floatingPoolKey) {
         const amount = Math.max(1, Number(count || 1));
@@ -1080,7 +1084,7 @@ function validateWardManaPaymentSelection(
         };
       }
 
-      const manaInfo = calculateManaProduction(game.state, permanent, playerId, mana);
+      const manaInfo = calculateManaProduction(game.state, permanent, playerId, mana, abilityId);
       const manaAmount = count != null ? Math.max(Number(count) || 0, Number(manaInfo.totalAmount || 0)) : Number(manaInfo.totalAmount || 0);
       const poolKey = MANA_POOL_KEY_BY_SYMBOL[mana];
       if (!poolKey || manaAmount <= 0) {
@@ -1126,7 +1130,7 @@ function applyWardManaPaymentSelection(
   const selectedPaymentTotals: Record<string, number> = { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 };
 
   if (payment && payment.length > 0) {
-    for (const { permanentId, mana, count } of payment) {
+    for (const { permanentId, mana, count, abilityId } of payment) {
       const floatingPoolKey = getFloatingPaymentPoolKey(permanentId, mana);
       if (floatingPoolKey) {
         const amount = Math.max(1, Number(count || 1));
@@ -1140,7 +1144,7 @@ function applyWardManaPaymentSelection(
       }
 
       (permanent as any).tapped = true;
-      const manaInfo = calculateManaProduction(game.state, permanent, playerId, mana);
+      const manaInfo = calculateManaProduction(game.state, permanent, playerId, mana, abilityId);
       const producedAmount = count != null
         ? Math.max(Number(count) || 0, Number(manaInfo.totalAmount || 0))
         : Number(manaInfo.totalAmount || 0);
@@ -1224,7 +1228,7 @@ function applySelectedManaPaymentForResolutionCost(
   const sacrificedPermanents: string[] = [];
 
   if (payment && payment.length > 0) {
-    for (const { permanentId, mana, count } of payment) {
+    for (const { permanentId, mana, count, abilityId } of payment) {
       const floatingPoolKey = getFloatingPaymentPoolKey(permanentId, mana);
       if (floatingPoolKey) {
         const amount = Math.max(1, Number(count || 1));
@@ -1265,7 +1269,7 @@ function applySelectedManaPaymentForResolutionCost(
         };
       }
 
-      const manaInfo = calculateManaProduction(game.state, permanent, playerId, mana);
+      const manaInfo = calculateManaProduction(game.state, permanent, playerId, mana, abilityId);
       const producedAmount = count != null
         ? Math.max(Number(count) || 0, Number(manaInfo.totalAmount || 0))
         : Number(manaInfo.totalAmount || 0);
@@ -1297,7 +1301,7 @@ function applySelectedManaPaymentForResolutionCost(
   }
 
   if (payment && payment.length > 0) {
-    for (const { permanentId, mana, count } of payment) {
+    for (const { permanentId, mana, count, abilityId } of payment) {
       const floatingPoolKey = getFloatingPaymentPoolKey(permanentId, mana);
       if (floatingPoolKey) {
         const amount = Math.max(1, Number(count || 1));
@@ -1317,7 +1321,7 @@ function applySelectedManaPaymentForResolutionCost(
         tappedPermanents.push(String(permanentId));
       }
 
-      const manaInfo = calculateManaProduction(game.state, permanent, playerId, mana);
+      const manaInfo = calculateManaProduction(game.state, permanent, playerId, mana, abilityId);
       const producedAmount = count != null
         ? Math.max(Number(count) || 0, Number(manaInfo.totalAmount || 0))
         : Number(manaInfo.totalAmount || 0);

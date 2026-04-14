@@ -106,7 +106,7 @@ describe('AI shared mana-retention integration', () => {
           id: `battlefield_forge_card_${index + 1}`,
           name: 'Battlefield Forge',
           type_line: 'Land',
-          oracle_text: '{T}: Add {C}. {T}: Add {R} or {W}. Battlefield Forge deals 1 damage to you.',
+          oracle_text: '{T}: Add {C}.\n{T}: Add {R} or {W}. Battlefield Forge deals 1 damage to you.',
         },
       })),
     ];
@@ -130,6 +130,10 @@ describe('AI shared mana-retention integration', () => {
 
     const activateBattlefieldEvents = getEvents(gameId).filter((event: any) => event?.type === 'activateBattlefieldAbility');
     expect(activateBattlefieldEvents).toHaveLength(2);
+    expect(activateBattlefieldEvents.map((event: any) => String(event?.payload?.abilityId || ''))).toEqual([
+      'battlefield_forge_card_1-ability-0',
+      'battlefield_forge_card_2-ability-0',
+    ]);
     expect(getEvents(gameId).some((event: any) => event?.type === 'activateAbility')).toBe(false);
   });
 });

@@ -929,6 +929,7 @@ export interface PaymentItem {
   permanentId: string;
   paymentSourceId?: string;
   mana: ManaColor;
+  abilityId?: string;
   /** Number of mana produced by this tap (default 1, e.g., Sol Ring produces 2) */
   count?: number;
   /** Permanents sacrificed to pay a mana ability activation cost. */

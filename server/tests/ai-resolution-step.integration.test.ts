@@ -1318,7 +1318,227 @@ describe('AI resolution-step integration', () => {
     const completed = queue.completedSteps.find((entry: any) => String(entry?.sourceId || '') === 'effect_sol_ring');
     expect(completed?.response?.cancelled).toBe(false);
     expect(completed?.response?.selections).toEqual({
-      payment: [{ permanentId: 'forest_1', mana: 'G' }],
+      payment: [{ permanentId: 'forest_1', mana: 'G', abilityId: 'forest_card_1-ability-0' }],
+    });
+  });
+
+  it('uses the selected payment abilityId when duplicate-color mana abilities have different costs', async () => {
+    const io = createNoopIo();
+    initializeAIResolutionHandler(io as any);
+
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const ponderCard = {
+      id: 'ponder_1',
+      name: 'Ponder',
+      type_line: 'Sorcery',
+      oracle_text: 'Look at the top three cards of your library, then put them back in any order. You may shuffle your library. Draw a card.',
+      mana_cost: '{U}',
+      cmc: 1,
+      zone: 'hand',
+    };
+
+    (game.state as any).players = [
+      { id: playerId, name: 'AI', spectator: false, life: 40, isAI: true },
+      { id: 'opp1', name: 'Opponent', spectator: false, life: 40 },
+    ];
+    (game.state as any).life = { [playerId]: 40, opp1: 40 };
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).activePlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).phase = 'main';
+    (game.state as any).step = 'precombat_main';
+    (game.state as any).stack = [];
+    (game.state as any).manaPool = {
+      [playerId]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+    };
+    (game.state as any).battlefield = [
+      {
+        id: 'prism_cache_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        summoningSickness: false,
+        counters: {},
+        card: {
+          id: 'prism_cache_card_1',
+          name: 'Prism Cache',
+          type_line: 'Artifact',
+          oracle_text: 'Sacrifice Prism Cache: Add {U} or {B}.\n{T}: Add {U}.',
+        },
+      },
+    ];
+    (game.state as any).zones = {
+      [playerId]: {
+        hand: [{ ...ponderCard }],
+        handCount: 1,
+        library: [],
+        graveyard: [],
+        exile: [],
+      },
+      opp1: { hand: [], handCount: 0, library: [], graveyard: [], exile: [] },
+    };
+    (game.state as any).pendingSpellCasts = {
+      effect_ponder: {
+        cardId: 'ponder_1',
+        cardName: 'Ponder',
+        manaCost: '{U}',
+        playerId,
+        validTargetIds: [],
+        targets: [],
+        card: { ...ponderCard },
+      },
+    };
+
+    ResolutionQueueManager.addStep(gameId, {
+      type: ResolutionStepType.MANA_PAYMENT_CHOICE,
+      playerId: playerId as any,
+      description: 'Pay mana for Ponder.',
+      mandatory: true,
+      sourceId: 'effect_ponder',
+      sourceName: 'Ponder',
+      cardId: 'ponder_1',
+      cardName: 'Ponder',
+      effectId: 'effect_ponder',
+      spellPaymentRequired: true,
+      manaCost: '{U}',
+      totalManaCost: '{U}',
+      targets: [],
+    } as any);
+
+    await vi.waitFor(() => {
+      const hand = (game.state as any).zones?.[playerId]?.hand || [];
+      const stack = (game.state as any).stack || [];
+      const battlefield = (game.state as any).battlefield || [];
+      const graveyard = (game.state as any).zones?.[playerId]?.graveyard || [];
+      const prismCache = battlefield.find((entry: any) => String(entry.id) === 'prism_cache_1');
+
+      expect(hand.some((card: any) => String(card?.id || '') === 'ponder_1')).toBe(false);
+      expect(stack.some((entry: any) => String(entry?.card?.name || '') === 'Ponder')).toBe(true);
+      expect(prismCache).toBeTruthy();
+      expect(prismCache?.tapped).toBe(true);
+      expect(graveyard.some((card: any) => String(card?.name || '') === 'Prism Cache')).toBe(false);
+      expect((game.state as any).life?.[playerId]).toBe(40);
+      expect((game.state as any).pendingSpellCasts?.effect_ponder).toBeUndefined();
+    });
+
+    const queue = ResolutionQueueManager.getQueue(gameId);
+    const completed = queue.completedSteps.find((entry: any) => String(entry?.sourceId || '') === 'effect_ponder');
+    expect(completed?.response?.cancelled).toBe(false);
+    expect(completed?.response?.selections).toEqual({
+      payment: [{ permanentId: 'prism_cache_1', mana: 'U', abilityId: 'prism_cache_card_1-ability-1' }],
+    });
+  });
+
+  it('preserves excess mana when the selected payment ability line produces more than the spell spends', async () => {
+    const io = createNoopIo();
+    initializeAIResolutionHandler(io as any);
+
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const ponderCard = {
+      id: 'ponder_1',
+      name: 'Ponder',
+      type_line: 'Sorcery',
+      oracle_text: 'Look at the top three cards of your library, then put them back in any order. You may shuffle your library. Draw a card.',
+      mana_cost: '{U}',
+      cmc: 1,
+      zone: 'hand',
+    };
+
+    (game.state as any).players = [
+      { id: playerId, name: 'AI', spectator: false, life: 40, isAI: true },
+      { id: 'opp1', name: 'Opponent', spectator: false, life: 40 },
+    ];
+    (game.state as any).life = { [playerId]: 40, opp1: 40 };
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).activePlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).phase = 'main';
+    (game.state as any).step = 'precombat_main';
+    (game.state as any).stack = [];
+    (game.state as any).manaPool = {
+      [playerId]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+    };
+    (game.state as any).battlefield = [
+      {
+        id: 'azure_dynamo_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        summoningSickness: false,
+        counters: {},
+        card: {
+          id: 'azure_dynamo_card_1',
+          name: 'Azure Dynamo',
+          type_line: 'Artifact',
+          oracle_text: 'Sacrifice this artifact: Add {U}.\n{T}: Add {U}{U}.',
+        },
+      },
+    ];
+    (game.state as any).zones = {
+      [playerId]: {
+        hand: [{ ...ponderCard }],
+        handCount: 1,
+        library: [],
+        graveyard: [],
+        exile: [],
+      },
+      opp1: { hand: [], handCount: 0, library: [], graveyard: [], exile: [] },
+    };
+    (game.state as any).pendingSpellCasts = {
+      effect_ponder: {
+        cardId: 'ponder_1',
+        cardName: 'Ponder',
+        manaCost: '{U}',
+        playerId,
+        validTargetIds: [],
+        targets: [],
+        card: { ...ponderCard },
+      },
+    };
+
+    ResolutionQueueManager.addStep(gameId, {
+      type: ResolutionStepType.MANA_PAYMENT_CHOICE,
+      playerId: playerId as any,
+      description: 'Pay mana for Ponder.',
+      mandatory: true,
+      sourceId: 'effect_ponder',
+      sourceName: 'Ponder',
+      cardId: 'ponder_1',
+      cardName: 'Ponder',
+      effectId: 'effect_ponder',
+      spellPaymentRequired: true,
+      manaCost: '{U}',
+      totalManaCost: '{U}',
+      targets: [],
+    } as any);
+
+    await vi.waitFor(() => {
+      const hand = (game.state as any).zones?.[playerId]?.hand || [];
+      const stack = (game.state as any).stack || [];
+      const battlefield = (game.state as any).battlefield || [];
+      const graveyard = (game.state as any).zones?.[playerId]?.graveyard || [];
+      const azureDynamo = battlefield.find((entry: any) => String(entry.id) === 'azure_dynamo_1');
+
+      expect(hand.some((card: any) => String(card?.id || '') === 'ponder_1')).toBe(false);
+      expect(stack.some((entry: any) => String(entry?.card?.name || '') === 'Ponder')).toBe(true);
+      expect(azureDynamo).toBeTruthy();
+      expect(azureDynamo?.tapped).toBe(true);
+      expect(graveyard.some((card: any) => String(card?.name || '') === 'Azure Dynamo')).toBe(false);
+      expect((game.state as any).manaPool?.[playerId]?.blue).toBe(1);
+      expect((game.state as any).pendingSpellCasts?.effect_ponder).toBeUndefined();
+    });
+
+    const queue = ResolutionQueueManager.getQueue(gameId);
+    const completed = queue.completedSteps.find((entry: any) => String(entry?.sourceId || '') === 'effect_ponder');
+    expect(completed?.response?.cancelled).toBe(false);
+    expect(completed?.response?.selections).toEqual({
+      payment: [{ permanentId: 'azure_dynamo_1', mana: 'U', count: 1, abilityId: 'azure_dynamo_card_1-ability-1' }],
     });
   });
 });

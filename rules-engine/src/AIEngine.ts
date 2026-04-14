@@ -1065,7 +1065,7 @@ export class AIEngine {
     gameState: GameState,
       playerId: PlayerID,
       config: AIPlayerConfig
-  ): { permanent: BattlefieldPermanent; abilityText: string; value: number } | null {
+  ): { permanent: BattlefieldPermanent; abilityId?: string; abilityText: string; value: number } | null {
     return findBestActivatedAbility(gameState, playerId, config, {
       getProcessedBattlefield: this.getProcessedBattlefield.bind(this),
       hasPermanentType: this.hasPermanentType.bind(this),
@@ -1106,6 +1106,7 @@ export class AIEngine {
         activate: true,
         permanentId: bestAbility.permanent.id,
         cardName: card.name || 'Unknown',
+        ...(bestAbility.abilityId ? { abilityId: bestAbility.abilityId } : {}),
         abilityText: bestAbility.abilityText,
       },
       reasoning: `Activating ${card.name || 'ability'} (value: ${bestAbility.value})`,
