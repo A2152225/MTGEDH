@@ -1,6 +1,6 @@
 import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
-import { appendEvent, createGameIfNotExists, getEvents, initDb } from '../src/db/index.js';
+import { appendEvent, createGameIfNotExists, deleteGame, getEvents, initDb } from '../src/db/index.js';
 import { createInitialGameState } from '../src/state/gameState.js';
 import { resolveTopOfStack } from '../src/state/modules/stack.js';
 import { ensureGame, transformDbEventsForReplay } from '../src/socket/util.js';
@@ -54,6 +54,12 @@ function createMockSocket(playerId: string, emitted: Array<{ room?: string; even
   return { socket, handlers };
 }
 
+function resetGame(gameId: string) {
+  ResolutionQueueManager.removeQueue(gameId);
+  games.delete(gameId as any);
+  deleteGame(gameId);
+}
+
 describe('activateFetchland persistence (integration)', () => {
   const gameId = 'test_activate_fetchland_integration';
 
@@ -64,8 +70,7 @@ describe('activateFetchland persistence (integration)', () => {
   });
 
   beforeEach(() => {
-    ResolutionQueueManager.removeQueue(gameId);
-    games.delete(gameId as any);
+    resetGame(gameId);
   });
 
   it('persists true-fetch activation evidence and tracks life lost this turn', async () => {
@@ -113,6 +118,7 @@ describe('activateFetchland persistence (integration)', () => {
     const io = createMockIo(emitted, [socket]);
     registerInteractionHandlers(io as any, socket as any);
 
+    const activationEventStart = getEvents(gameId).length;
     await handlers['activateBattlefieldAbility']({ gameId, permanentId: 'delta_1', abilityId: 'fetch-land' });
 
     expect((game.state as any).life[p1]).toBe(39);
@@ -122,7 +128,8 @@ describe('activateFetchland persistence (integration)', () => {
     expect((game.state as any).battlefield).toHaveLength(0);
     expect((game.state as any).zones[p1].graveyard).toHaveLength(1);
 
-    const persisted = [...getEvents(gameId)].reverse().find((event: any) => event?.type === 'activateFetchland') as any;
+    const activationEvents = getEvents(gameId).slice(activationEventStart);
+    const persisted = [...activationEvents].reverse().find((event: any) => event?.type === 'activateFetchland') as any;
     expect(persisted).toBeDefined();
     expect(persisted?.payload?.stackId).toMatch(/^ability_fetch_/);
     expect(String(persisted?.payload?.activatedAbilityText || '').toLowerCase()).toContain('pay 1 life');
@@ -179,6 +186,7 @@ describe('activateFetchland persistence (integration)', () => {
     const io = createMockIo(emitted, [socket]);
     registerInteractionHandlers(io as any, socket as any);
 
+    const activationEventStart = getEvents(gameId).length;
     await handlers['activateBattlefieldAbility']({ gameId, permanentId: 'myriad_1', abilityId: 'fetch-land' });
 
     expect((game.state as any).manaPool[p1].colorless).toBe(0);
@@ -186,7 +194,8 @@ describe('activateFetchland persistence (integration)', () => {
     expect((game.state as any).battlefield).toHaveLength(0);
     expect((game.state as any).zones[p1].graveyard).toHaveLength(1);
 
-    const persisted = [...getEvents(gameId)].reverse().find((event: any) => event?.type === 'activateFetchland') as any;
+    const activationEvents = getEvents(gameId).slice(activationEventStart);
+    const persisted = [...activationEvents].reverse().find((event: any) => event?.type === 'activateFetchland') as any;
     expect(persisted).toBeDefined();
     expect(persisted?.payload?.activatedAbilityText).toContain('up to two basic land cards');
     expect(persisted?.payload?.manaCost).toBe('{2}');
@@ -199,8 +208,7 @@ describe('activateFetchland persistence (integration)', () => {
 
   it('does not recreate a Misty Rainforest prompt after restart once the search resolved event was persisted', async () => {
     const persistentGameId = `${gameId}_${Math.random().toString(36).slice(2, 10)}`;
-    ResolutionQueueManager.removeQueue(persistentGameId);
-    games.delete(persistentGameId as any);
+    resetGame(persistentGameId);
 
     createGameIfNotExists(persistentGameId, 'commander', 40, undefined, 'p1');
     const game = ensureGame(persistentGameId);

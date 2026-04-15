@@ -1,9 +1,14 @@
 import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
-import { createGameIfNotExists, getEvents, initDb } from '../src/db/index.js';
+import { createGameIfNotExists, deleteGame, getEvents, initDb } from '../src/db/index.js';
 import { chooseAISpellPaymentSelections } from '../src/socket/ai.js';
 import { games } from '../src/socket/socket.js';
 import { ensureGame } from '../src/socket/util.js';
+
+function cleanupTrackedGame(gameId: string) {
+  games.delete(gameId as any);
+  deleteGame(gameId);
+}
 
 function createNoopIo() {
   return {
@@ -33,7 +38,7 @@ describe('AI shared spell-payment integration', () => {
 
   beforeEach(() => {
     for (const gameId of trackedGameIds.splice(0, trackedGameIds.length)) {
-      games.delete(gameId as any);
+      cleanupTrackedGame(gameId);
     }
   });
 

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
-import { initDb, createGameIfNotExists, getEvents } from '../src/db/index.js';
+import { initDb, createGameIfNotExists, deleteGame, getEvents } from '../src/db/index.js';
 import { ensureGame } from '../src/socket/util.js';
 import '../src/state/modules/priority.js';
 import { registerResolutionHandlers, initializePriorityResolutionHandler } from '../src/socket/resolution.js';
@@ -41,6 +41,12 @@ function createMockSocket(playerId: string, emitted: Array<{ room?: string; even
   return { socket, handlers };
 }
 
+function resetGame(gameId: string) {
+  ResolutionQueueManager.removeQueue(gameId);
+  games.delete(gameId as any);
+  deleteGame(gameId);
+}
+
 describe('attach equipment to permanent (integration)', () => {
   const gameId = 'test_attach_equipment_to_permanent';
 
@@ -51,8 +57,7 @@ describe('attach equipment to permanent (integration)', () => {
   });
 
   beforeEach(() => {
-    ResolutionQueueManager.removeQueue(gameId);
-    games.delete(gameId as any);
+    resetGame(gameId);
   });
 
   it('reattaches the chosen equipment from a previous creature to the target permanent', async () => {
@@ -112,13 +117,15 @@ describe('attach equipment to permanent (integration)', () => {
     const io = createMockIo(emitted, [socket]);
     registerResolutionHandlers(io as any, socket as any);
 
+    const promptEventStart = getEvents(gameId).length;
     await handlers['submitResolutionResponse']({ gameId, stepId: step.id, selections: 'attach' });
 
     const queue = ResolutionQueueManager.getQueue(gameId);
     expect(queue.steps).toHaveLength(1);
     expect((queue.steps[0] as any).attachEquipmentToPermanentSelectEquipment).toBe(true);
 
-    const promptEvent = [...getEvents(gameId)].reverse().find((event: any) =>
+    const promptEvents = getEvents(gameId).slice(promptEventStart);
+    const promptEvent = [...promptEvents].reverse().find((event: any) =>
       event.type === 'resolveTopOfStackPrompt' &&
       event.payload?.queuedResolutionStep?.attachEquipmentToPermanentSelectEquipment === true
     ) as any;
@@ -129,6 +136,7 @@ describe('attach equipment to permanent (integration)', () => {
       attachEquipmentToPermanentTargetPermanentId: 'new_target',
     });
 
+    const equipEventStart = getEvents(gameId).length;
     await handlers['submitResolutionResponse']({ gameId, stepId: (queue.steps[0] as any).id, selections: ['equip_1'] });
 
     const battlefield = (game.state as any).battlefield || [];
@@ -142,7 +150,8 @@ describe('attach equipment to permanent (integration)', () => {
     expect(newTarget.attachedEquipment || []).toEqual(['equip_1']);
     expect(newTarget.isEquipped).toBe(true);
 
-    const equipEvent = [...getEvents(gameId)].reverse().find((event: any) => event.type === 'equipPermanent') as any;
+    const equipEvents = getEvents(gameId).slice(equipEventStart);
+    const equipEvent = [...equipEvents].reverse().find((event: any) => event.type === 'equipPermanent') as any;
     expect(equipEvent).toBeDefined();
     expect(equipEvent.payload).toEqual({
       playerId: p1,
@@ -151,6 +160,7 @@ describe('attach equipment to permanent (integration)', () => {
     });
 
     const replayGameId = `${gameId}_replay`;
+    resetGame(replayGameId);
     createGameIfNotExists(replayGameId, 'commander', 40);
     const replayGame = ensureGame(replayGameId);
     if (!replayGame) throw new Error('ensureGame returned undefined');

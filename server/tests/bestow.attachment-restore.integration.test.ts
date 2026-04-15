@@ -1,10 +1,16 @@
 import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
-import { createGameIfNotExists, getEvents, initDb } from '../src/db/index.js';
+import { createGameIfNotExists, deleteGame, getEvents, initDb } from '../src/db/index.js';
 import { ensureGame } from '../src/socket/util.js';
 import { games } from '../src/socket/socket.js';
 import { ResolutionQueueManager } from '../src/state/resolution/index.js';
 import { createInitialGameState } from '../src/state/gameState.js';
+
+function resetGame(gameId: string) {
+  ResolutionQueueManager.removeQueue(gameId);
+  games.delete(gameId as any);
+  deleteGame(gameId);
+}
 
 describe('Bestow attachment restore (integration)', () => {
   const gameId = 'test_bestow_attachment_restore';
@@ -14,14 +20,12 @@ describe('Bestow attachment restore (integration)', () => {
   });
 
   beforeEach(() => {
-    ResolutionQueueManager.removeQueue(gameId);
-    games.delete(gameId as any);
+    resetGame(gameId);
   });
 
   it('persists bestowed attachment state so restore rebuilds attachedTo and target attachments', () => {
     const persistentGameId = `${gameId}_${Math.random().toString(36).slice(2, 10)}`;
-    ResolutionQueueManager.removeQueue(persistentGameId);
-    games.delete(persistentGameId as any);
+    resetGame(persistentGameId);
 
     createGameIfNotExists(persistentGameId, 'commander', 40);
     const game = ensureGame(persistentGameId);

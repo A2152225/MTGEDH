@@ -1,12 +1,19 @@
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { createGameIfNotExists, getEvents, initDb } from '../src/db/index.js';
+import { createGameIfNotExists, deleteGame, getEvents, initDb } from '../src/db/index.js';
 import { ensureGame } from '../src/socket/util.js';
 import { games } from '../src/socket/socket.js';
 import { handleAIPriority, registerAIPlayer, unregisterAIPlayer } from '../src/socket/ai.js';
 import { ResolutionQueueManager } from '../src/state/resolution/index.js';
 import { initializeAIResolutionHandler } from '../src/socket/resolution.js';
 import { AIEngine, AIDecisionType } from '../../rules-engine/src/AIEngine.js';
+
+function resetTestGame(gameId: string, playerId: string) {
+  ResolutionQueueManager.removeQueue(gameId);
+  games.delete(gameId as any);
+  unregisterAIPlayer(gameId, playerId as any);
+  deleteGame(gameId);
+}
 
 function createNoopIo() {
   return {
@@ -36,8 +43,7 @@ describe('AI mana ability integration', () => {
 
   beforeEach(() => {
     vi.restoreAllMocks();
-    games.delete(gameId as any);
-    unregisterAIPlayer(gameId, playerId as any);
+    resetTestGame(gameId, playerId);
   });
 
   function mockAIActivatedAbilityDecision(permanentId: string, cardName: string, abilityText: string) {
@@ -57,8 +63,7 @@ describe('AI mana ability integration', () => {
 
   function setupTestGame(suffix: string) {
     const localGameId = `${gameId}_${suffix}_${Math.random().toString(36).slice(2, 10)}`;
-    games.delete(localGameId as any);
-    unregisterAIPlayer(localGameId, playerId as any);
+    resetTestGame(localGameId, playerId);
     createGameIfNotExists(localGameId, 'commander', 40);
     const game = ensureGame(localGameId);
     if (!game) throw new Error('ensureGame returned undefined');

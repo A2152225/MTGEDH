@@ -1,11 +1,17 @@
 import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
-import { createGameIfNotExists, getEvents, initDb } from '../src/db/index.js';
+import { createGameIfNotExists, deleteGame, getEvents, initDb } from '../src/db/index.js';
 import { registerGameActions } from '../src/socket/game-actions.js';
 import { ensureGame } from '../src/socket/util.js';
 import { ResolutionQueueManager } from '../src/state/resolution/index.js';
 import { games } from '../src/socket/socket.js';
 import '../src/state/modules/priority.js';
+
+function resetGame(gameId: string) {
+  ResolutionQueueManager.removeQueue(gameId);
+  games.delete(gameId as any);
+  deleteGame(gameId);
+}
 
 function createNoopIo() {
   return {
@@ -31,6 +37,7 @@ function createMockSocket(playerId: string, gameId: string, emitted: Array<{ roo
 }
 
 function setupBaseGame(testGameId: string, playerId = 'p1', opponentId = 'p2') {
+  resetGame(testGameId);
   createGameIfNotExists(testGameId, 'commander', 40, undefined, playerId);
   const game = ensureGame(testGameId);
   if (!game) throw new Error('ensureGame returned undefined');
@@ -59,8 +66,7 @@ describe('castSpellFromHand prompt persistence (integration)', () => {
   });
 
   beforeEach(() => {
-    ResolutionQueueManager.removeQueue(gameId);
-    games.delete(gameId as any);
+    resetGame(gameId);
   });
 
   it('persists direct Force of Will alternate-cost prompts', async () => {

@@ -1,6 +1,6 @@
 import { afterEach, beforeAll, describe, expect, it } from 'vitest';
 
-import { createGameIfNotExists, initDb } from '../src/db/index.js';
+import { createGameIfNotExists, deleteGame, initDb } from '../src/db/index.js';
 import { registerCommanderHandlers } from '../src/socket/commander.js';
 import { registerGameActions } from '../src/socket/game-actions.js';
 import { games } from '../src/socket/socket.js';
@@ -40,6 +40,11 @@ function createMockSocket(
 
 const trackedGameIds: string[] = [];
 
+function cleanupTrackedGame(gameId: string) {
+  games.delete(gameId as any);
+  deleteGame(gameId);
+}
+
 function createTestGameId(label: string): string {
   const gameId = `test_commander_shared_surface_${label}_${Math.random().toString(36).slice(2, 10)}`;
   trackedGameIds.push(gameId);
@@ -57,7 +62,7 @@ describe('commander shared-surface integration', () => {
 
   afterEach(() => {
     for (const gameId of trackedGameIds.splice(0)) {
-      games.delete(gameId as any);
+      cleanupTrackedGame(gameId);
     }
   });
 

@@ -1,6 +1,6 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { createGameIfNotExists, getEvents, initDb } from '../src/db/index.js';
+import { createGameIfNotExists, deleteGame, getEvents, initDb } from '../src/db/index.js';
 import { cleanupGameAI, handleAIPriority, registerAIPlayer, unregisterAIPlayer } from '../src/socket/ai.js';
 import { games } from '../src/socket/socket.js';
 import { ensureGame } from '../src/socket/util.js';
@@ -20,6 +20,13 @@ function createNoopIo() {
 const trackedGameIds: string[] = [];
 const playerId = 'ai1';
 
+function cleanupTrackedGame(gameId: string) {
+  cleanupGameAI(gameId);
+  unregisterAIPlayer(gameId, playerId as any);
+  games.delete(gameId as any);
+  deleteGame(gameId);
+}
+
 function createTestGameId(label: string): string {
   const gameId = `test_ai_shared_mana_retention_${label}_${Math.random().toString(36).slice(2, 10)}`;
   trackedGameIds.push(gameId);
@@ -38,9 +45,7 @@ describe('AI shared mana-retention integration', () => {
 
   afterEach(() => {
     for (const gameId of trackedGameIds) {
-      cleanupGameAI(gameId);
-      unregisterAIPlayer(gameId, playerId as any);
-      games.delete(gameId as any);
+      cleanupTrackedGame(gameId);
     }
   });
 

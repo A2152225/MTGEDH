@@ -1,11 +1,18 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { AIEngine, AIDecisionType } from '../../rules-engine/src/AIEngine.js';
-import { createGameIfNotExists, initDb } from '../src/db/index.js';
+import { createGameIfNotExists, deleteGame, initDb } from '../src/db/index.js';
 import { canAct, getCastableCommanderCandidates, getCastableSpellCandidates } from '../src/state/modules/can-respond.js';
 import { cleanupGameAI, handleAIPriority, registerAIPlayer, unregisterAIPlayer } from '../src/socket/ai.js';
 import { games } from '../src/socket/socket.js';
 import { ensureGame } from '../src/socket/util.js';
+
+function cleanupTrackedGame(gameId: string) {
+  cleanupGameAI(gameId);
+  unregisterAIPlayer(gameId, playerId as any);
+  games.delete(gameId as any);
+  deleteGame(gameId);
+}
 
 function createNoopIo() {
   return {
@@ -37,9 +44,7 @@ describe('AI shared spell-surface integration', () => {
 
   afterEach(() => {
     for (const gameId of trackedGameIds) {
-      cleanupGameAI(gameId);
-      unregisterAIPlayer(gameId, playerId as any);
-      games.delete(gameId as any);
+      cleanupTrackedGame(gameId);
     }
   });
 

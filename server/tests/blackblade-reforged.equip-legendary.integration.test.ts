@@ -1,6 +1,6 @@
 import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
-import { createGameIfNotExists, getEvents, initDb } from '../src/db/index.js';
+import { createGameIfNotExists, deleteGame, getEvents, initDb } from '../src/db/index.js';
 import { ensureGame } from '../src/socket/util.js';
 import { registerInteractionHandlers } from '../src/socket/interaction.js';
 import { initializePriorityResolutionHandler, registerResolutionHandlers } from '../src/socket/resolution.js';
@@ -40,6 +40,12 @@ function createMockSocket(playerId: string, emitted: Array<{ room?: string; even
   return { socket, handlers };
 }
 
+function resetGame(gameId: string) {
+  ResolutionQueueManager.removeQueue(gameId);
+  games.delete(gameId as any);
+  deleteGame(gameId);
+}
+
 describe('Blackblade Reforged legendary equip (integration)', () => {
   const gameId = 'test_blackblade_reforged_legendary_equip';
 
@@ -50,8 +56,7 @@ describe('Blackblade Reforged legendary equip (integration)', () => {
   });
 
   beforeEach(() => {
-    ResolutionQueueManager.removeQueue(gameId);
-    games.delete(gameId as any);
+    resetGame(gameId);
   });
 
   it('queues equip payment after targeting and preserves unselected floating mana', async () => {
@@ -116,6 +121,7 @@ describe('Blackblade Reforged legendary equip (integration)', () => {
     registerResolutionHandlers(io as any, socket as any);
     registerInteractionHandlers(io as any, socket as any);
 
+    const activationEventStart = getEvents(gameId).length;
     await handlers['activateBattlefieldAbility']({
       gameId,
       permanentId: 'blackblade_1',
@@ -129,12 +135,14 @@ describe('Blackblade Reforged legendary equip (integration)', () => {
     expect(step.equipCost).toBe('{3}');
     expect(step.validTargets.map((target: any) => target.id)).toEqual(['commander_1']);
 
-    const queuedEquipActivation = [...getEvents(gameId)].reverse().find((event: any) => event.type === 'activateBattlefieldAbility') as any;
+    const activationEvents = getEvents(gameId).slice(activationEventStart);
+    const queuedEquipActivation = [...activationEvents].reverse().find((event: any) => event.type === 'activateBattlefieldAbility') as any;
     expect(queuedEquipActivation?.payload?.permanentId).toBe('blackblade_1');
     expect(queuedEquipActivation?.payload?.queuedResolutionStep?.type).toBe('target_selection');
     expect(queuedEquipActivation?.payload?.queuedResolutionStep?.abilityType).toBe('equip');
     expect(queuedEquipActivation?.payload?.queuedResolutionStep?.validTargets?.[0]?.id).toBe('commander_1');
 
+    const paymentEventStart = getEvents(gameId).length;
     await handlers['submitResolutionResponse']({
       gameId,
       stepId: step.id,
@@ -160,7 +168,8 @@ describe('Blackblade Reforged legendary equip (integration)', () => {
     expect(paymentStep.activationPaymentContext).toBe('battlefield_targeted');
     expect(paymentStep.manaCost).toBe('{3}');
 
-    const queuedPaymentActivation = [...getEvents(gameId)].reverse().find((event: any) =>
+    const paymentEvents = getEvents(gameId).slice(paymentEventStart);
+    const queuedPaymentActivation = [...paymentEvents].reverse().find((event: any) =>
       event.type === 'activateBattlefieldAbility' &&
       String(event.payload?.queuedResolutionStep?.id || '') === String(paymentStep.id)
     ) as any;
@@ -186,8 +195,7 @@ describe('Blackblade Reforged legendary equip (integration)', () => {
 
   it('persists resolved equip attachments so restore rebuilds attached and equipped state', async () => {
     const persistentGameId = `${gameId}_persisted_attach_${Math.random().toString(36).slice(2, 10)}`;
-    ResolutionQueueManager.removeQueue(persistentGameId);
-    games.delete(persistentGameId as any);
+    resetGame(persistentGameId);
 
     createGameIfNotExists(persistentGameId, 'commander', 40);
     const game = ensureGame(persistentGameId);
@@ -326,8 +334,7 @@ describe('Blackblade Reforged legendary equip (integration)', () => {
 
   it('persists tapped payment sources for equip activations so replay restores mana-source taps', async () => {
     const persistentGameId = `${gameId}_persisted_payment_taps_${Math.random().toString(36).slice(2, 10)}`;
-    ResolutionQueueManager.removeQueue(persistentGameId);
-    games.delete(persistentGameId as any);
+    resetGame(persistentGameId);
 
     createGameIfNotExists(persistentGameId, 'commander', 40);
     const game = ensureGame(persistentGameId);

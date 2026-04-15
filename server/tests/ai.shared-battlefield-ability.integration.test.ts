@@ -1,6 +1,6 @@
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { createGameIfNotExists, getEvents, initDb } from '../src/db/index.js';
+import { createGameIfNotExists, deleteGame, getEvents, initDb } from '../src/db/index.js';
 import * as interactionModule from '../src/socket/interaction.js';
 import { initializeAIResolutionHandler } from '../src/socket/resolution.js';
 import { ensureGame } from '../src/socket/util.js';
@@ -8,6 +8,13 @@ import { games } from '../src/socket/socket.js';
 import { handleAIPriority, registerAIPlayer, unregisterAIPlayer } from '../src/socket/ai.js';
 import { ResolutionQueueManager } from '../src/state/resolution/index.js';
 import { AIEngine, AIDecisionType, AIStrategy } from '../../rules-engine/src/AIEngine.js';
+
+function resetTestGame(gameId: string, playerId: string) {
+  ResolutionQueueManager.removeQueue(gameId);
+  games.delete(gameId as any);
+  unregisterAIPlayer(gameId, playerId as any);
+  deleteGame(gameId);
+}
 
 function createNoopIo() {
   return {
@@ -37,9 +44,17 @@ describe('AI shared battlefield ability surface', () => {
 
   beforeEach(() => {
     vi.restoreAllMocks();
-    games.delete(gameId as any);
-    unregisterAIPlayer(gameId, playerId as any);
+    resetTestGame(gameId, playerId);
   });
+
+  function setupTestGame() {
+    const localGameId = `${gameId}_${Math.random().toString(36).slice(2, 10)}`;
+    resetTestGame(localGameId, playerId);
+    createGameIfNotExists(localGameId, 'commander', 40);
+    const game = ensureGame(localGameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+    return { localGameId, game };
+  }
 
   function mockAIActivatedAbilityDecision(
     permanentId: string,
@@ -96,13 +111,7 @@ describe('AI shared battlefield ability surface', () => {
   }
 
   it('routes a non-mana choice on a multi-ability permanent through the shared battlefield handler', async () => {
-    const localGameId = `${gameId}_${Math.random().toString(36).slice(2, 10)}`;
-    games.delete(localGameId as any);
-    unregisterAIPlayer(localGameId, playerId as any);
-
-    createGameIfNotExists(localGameId, 'commander', 40);
-    const game = ensureGame(localGameId);
-    if (!game) throw new Error('ensureGame returned undefined');
+    const { localGameId, game } = setupTestGame();
 
     (game.state as any).players = [
       { id: playerId, name: 'AI', spectator: false, isAI: true, life: 40 },
@@ -189,13 +198,7 @@ describe('AI shared battlefield ability surface', () => {
   });
 
   it('uses the AI engine\'s exact ability id for multi-ability shared activations', async () => {
-    const localGameId = `${gameId}_${Math.random().toString(36).slice(2, 10)}`;
-    games.delete(localGameId as any);
-    unregisterAIPlayer(localGameId, playerId as any);
-
-    createGameIfNotExists(localGameId, 'commander', 40);
-    const game = ensureGame(localGameId);
-    if (!game) throw new Error('ensureGame returned undefined');
+    const { localGameId, game } = setupTestGame();
 
     (game.state as any).players = [
       { id: playerId, name: 'AI', spectator: false, isAI: true, life: 40 },
@@ -297,13 +300,7 @@ describe('AI shared battlefield ability surface', () => {
   });
 
   it('routes a generic stack-based draw activation through the shared battlefield handler', async () => {
-    const localGameId = `${gameId}_${Math.random().toString(36).slice(2, 10)}`;
-    games.delete(localGameId as any);
-    unregisterAIPlayer(localGameId, playerId as any);
-
-    createGameIfNotExists(localGameId, 'commander', 40);
-    const game = ensureGame(localGameId);
-    if (!game) throw new Error('ensureGame returned undefined');
+    const { localGameId, game } = setupTestGame();
 
     (game.state as any).players = [
       { id: playerId, name: 'AI', spectator: false, isAI: true, life: 40 },
@@ -385,13 +382,7 @@ describe('AI shared battlefield ability surface', () => {
   });
 
   it('persists legacy fallback activations through activateBattlefieldAbility when shared activation does not progress', async () => {
-    const localGameId = `${gameId}_${Math.random().toString(36).slice(2, 10)}`;
-    games.delete(localGameId as any);
-    unregisterAIPlayer(localGameId, playerId as any);
-
-    createGameIfNotExists(localGameId, 'commander', 40);
-    const game = ensureGame(localGameId);
-    if (!game) throw new Error('ensureGame returned undefined');
+    const { localGameId, game } = setupTestGame();
 
     (game.state as any).players = [
       { id: playerId, name: 'AI', spectator: false, isAI: true, life: 40 },
@@ -470,13 +461,7 @@ describe('AI shared battlefield ability surface', () => {
   });
 
   it('routes untargeted planeswalker loyalty activations through the shared battlefield handler', async () => {
-    const localGameId = `${gameId}_${Math.random().toString(36).slice(2, 10)}`;
-    games.delete(localGameId as any);
-    unregisterAIPlayer(localGameId, playerId as any);
-
-    createGameIfNotExists(localGameId, 'commander', 40);
-    const game = ensureGame(localGameId);
-    if (!game) throw new Error('ensureGame returned undefined');
+    const { localGameId, game } = setupTestGame();
 
     (game.state as any).players = [
       { id: playerId, name: 'AI', spectator: false, isAI: true, life: 40 },
@@ -544,14 +529,7 @@ describe('AI shared battlefield ability surface', () => {
   });
 
   it('routes targeted planeswalker loyalty activations through shared target selection and resolution', async () => {
-    const localGameId = `${gameId}_${Math.random().toString(36).slice(2, 10)}`;
-    games.delete(localGameId as any);
-    unregisterAIPlayer(localGameId, playerId as any);
-    ResolutionQueueManager.removeQueue(localGameId);
-
-    createGameIfNotExists(localGameId, 'commander', 40);
-    const game = ensureGame(localGameId);
-    if (!game) throw new Error('ensureGame returned undefined');
+    const { localGameId, game } = setupTestGame();
 
     (game.state as any).players = [
       { id: playerId, name: 'AI', spectator: false, isAI: true, life: 40 },

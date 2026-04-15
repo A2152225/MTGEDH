@@ -1,11 +1,17 @@
 import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
-import { createGameIfNotExists, getEvents, initDb } from '../src/db/index.js';
+import { createGameIfNotExists, deleteGame, getEvents, initDb } from '../src/db/index.js';
 import { registerInteractionHandlers } from '../src/socket/interaction.js';
 import { registerResolutionHandlers } from '../src/socket/resolution.js';
 import { games } from '../src/socket/socket.js';
 import { ensureGame } from '../src/socket/util.js';
 import { ResolutionQueueManager, ResolutionStepType } from '../src/state/resolution/index.js';
+
+function resetGame(gameId: string) {
+  ResolutionQueueManager.removeQueue(gameId);
+  games.delete(gameId as any);
+  deleteGame(gameId);
+}
 
 function createMockIo(emitted: Array<{ room?: string; event: string; payload: any }>) {
   return {
@@ -31,6 +37,7 @@ function createMockSocket(playerId: string, gameId: string, emitted: Array<{ roo
 }
 
 function seedGame(gameId: string, cardId: string, oracleText: string, options?: { manaCost?: string; manaPool?: any; life?: number; hand?: any[]; extraGraveyard?: any[] }) {
+  resetGame(gameId);
   createGameIfNotExists(gameId, 'commander', 40);
   const game = ensureGame(gameId);
   if (!game) throw new Error('ensureGame returned undefined');
@@ -76,7 +83,7 @@ describe('cast-from-graveyard replay semantics (integration)', () => {
   });
 
   beforeEach(() => {
-    games.delete(gameId as any);
+    resetGame(gameId);
   });
 
   it('live jump-start activation spends mana and moves the card from graveyard to stack', async () => {
