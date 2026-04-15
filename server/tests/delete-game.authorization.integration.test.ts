@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
-import { initDb, createGameIfNotExists } from '../src/db/index.js';
+import { initDb, createGameIfNotExists, deleteGame } from '../src/db/index.js';
 import { ensureGame } from '../src/socket/util.js';
 import { registerGameManagementHandlers } from '../src/socket/game-management.js';
 import { games } from '../src/socket/socket.js';
@@ -35,12 +35,17 @@ function createMockSocket(data: any, emitted: Array<{ room?: string; event: stri
 describe('deleteGame authorization (integration)', () => {
   const gameId = 'test_delete_game_auth';
 
+  async function resetGame(gameId: string) {
+    games.delete(gameId as any);
+    await deleteGame(gameId);
+  }
+
   beforeAll(async () => {
     await initDb();
   });
 
-  beforeEach(() => {
-    games.delete(gameId as any);
+  beforeEach(async () => {
+    await resetGame(gameId);
   });
 
   it('blocks deleteGame when caller is not the creator (even if no players are connected)', async () => {

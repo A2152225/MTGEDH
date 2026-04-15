@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
-import { initDb, createGameIfNotExists } from '../src/db/index.js';
+import { initDb, createGameIfNotExists, deleteGame } from '../src/db/index.js';
 import { ensureGame } from '../src/socket/util.js';
 import { registerCombatHandlers } from '../src/socket/combat.js';
 import { games } from '../src/socket/socket.js';
@@ -34,12 +34,17 @@ function createMockSocket(data: any, emitted: Array<{ room?: string; event: stri
 describe('combat in-room authorization (integration)', () => {
   const gameId = 'test_combat_inroom_auth';
 
+  async function resetGame(gameId: string) {
+    games.delete(gameId as any);
+    await deleteGame(gameId);
+  }
+
   beforeAll(async () => {
     await initDb();
   });
 
-  beforeEach(() => {
-    games.delete(gameId as any);
+  beforeEach(async () => {
+    await resetGame(gameId);
   });
 
   it('blocks declareAttackers when socket is not in the game room', async () => {

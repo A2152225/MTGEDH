@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
-import { initDb, createGameIfNotExists } from '../src/db/index.js';
+import { initDb, createGameIfNotExists, deleteGame } from '../src/db/index.js';
 import { ensureGame } from '../src/socket/util.js';
 import '../src/state/modules/priority.js';
 import { registerResolutionHandlers, initializePriorityResolutionHandler } from '../src/socket/resolution.js';
@@ -46,6 +46,12 @@ function createMockSocket(playerId: string, emitted: Array<{ room?: string; even
   return { socket, handlers };
 }
 
+async function resetGame(gameId: string) {
+  ResolutionQueueManager.removeQueue(gameId);
+  games.delete(gameId as any);
+  await deleteGame(gameId);
+}
+
 describe('PONDER_EFFECT validate-before-complete (integration)', () => {
   const gameId = 'test_ponder_effect_validate_before_complete';
 
@@ -55,9 +61,8 @@ describe('PONDER_EFFECT validate-before-complete (integration)', () => {
     await new Promise(resolve => setTimeout(resolve, 0));
   });
 
-  beforeEach(() => {
-    ResolutionQueueManager.removeQueue(gameId);
-    games.delete(gameId as any);
+  beforeEach(async () => {
+    await resetGame(gameId);
   });
 
   it('does not consume the step on malformed ponder selection', async () => {
@@ -86,6 +91,7 @@ describe('PONDER_EFFECT validate-before-complete (integration)', () => {
         exileCount: 0,
       },
     };
+    (game as any).libraries?.set?.(p1, [c1, c2, c3]);
 
     ResolutionQueueManager.addStep(gameId, {
       type: ResolutionStepType.PONDER_EFFECT,
@@ -132,7 +138,7 @@ describe('PONDER_EFFECT validate-before-complete (integration)', () => {
     const queueAfterOk = ResolutionQueueManager.getQueue(gameId);
     expect(queueAfterOk.steps.some((s: any) => String(s.id) === stepId)).toBe(false);
 
-    const lib = (game.state as any).zones?.[p1]?.library || [];
+    const lib = (game as any).libraries?.get?.(p1) || (game.state as any).zones?.[p1]?.library || [];
     expect(lib.length).toBe(3);
     expect(String(lib[0]?.id)).toBe(c1.id);
   });

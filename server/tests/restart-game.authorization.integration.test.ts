@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
-import { initDb, createGameIfNotExists } from '../src/db/index.js';
+import { initDb, createGameIfNotExists, deleteGame } from '../src/db/index.js';
 import { ensureGame } from '../src/socket/util.js';
 import { registerGameActions } from '../src/socket/game-actions.js';
 import { ResolutionQueueManager, ResolutionStepType } from '../src/state/resolution/index.js';
@@ -35,6 +35,12 @@ function createMockSocket(playerId: string, emitted: Array<{ room?: string; even
 describe('restartGame authorization (integration)', () => {
   const gameId = 'test_restart_game_authorization';
 
+  async function resetGame(gameId: string) {
+    ResolutionQueueManager.removeQueue(gameId);
+    games.delete(gameId as any);
+    await deleteGame(gameId);
+  }
+
   beforeAll(async () => {
     await initDb();
   });
@@ -66,9 +72,8 @@ describe('restartGame authorization (integration)', () => {
     expect((game.state as any).phase).toBe('main1');
   });
 
-  beforeEach(() => {
-    ResolutionQueueManager.removeQueue(gameId);
-    games.delete(gameId as any);
+  beforeEach(async () => {
+    await resetGame(gameId);
   });
 
   it('does not allow a non-creator to restart (does not wipe resolution queue)', async () => {

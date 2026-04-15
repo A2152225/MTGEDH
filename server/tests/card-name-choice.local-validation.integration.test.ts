@@ -4,7 +4,7 @@ import path from 'node:path';
 
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
-import { initDb, createGameIfNotExists } from '../src/db/index.js';
+import { initDb, createGameIfNotExists, deleteGame } from '../src/db/index.js';
 import { ensureGame } from '../src/socket/util.js';
 import '../src/state/modules/priority.js';
 import { registerResolutionHandlers, initializePriorityResolutionHandler } from '../src/socket/resolution.js';
@@ -66,15 +66,20 @@ function writeLookupSources(payload: { oracleCards: any[]; atomicData?: Record<s
 describe('CARD_NAME_CHOICE local validation fallback (integration)', () => {
   const gameId = 'test_card_name_choice_local_validation';
 
+  async function resetGame(gameId: string) {
+    ResolutionQueueManager.removeQueue(gameId);
+    games.delete(gameId as any);
+    await deleteGame(gameId);
+  }
+
   beforeAll(async () => {
     await initDb();
     initializePriorityResolutionHandler(createNoopIo() as any);
     await new Promise(resolve => setTimeout(resolve, 0));
   });
 
-  beforeEach(() => {
-    ResolutionQueueManager.removeQueue(gameId);
-    games.delete(gameId as any);
+  beforeEach(async () => {
+    await resetGame(gameId);
   });
 
   afterEach(async () => {

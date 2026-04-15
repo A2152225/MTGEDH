@@ -1,6 +1,6 @@
 import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
-import { initDb, createGameIfNotExists } from '../src/db/index.js';
+import { initDb, createGameIfNotExists, deleteGame } from '../src/db/index.js';
 import { ensureGame } from '../src/socket/util.js';
 import '../src/state/modules/priority.js';
 import { registerInteractionHandlers } from '../src/socket/interaction.js';
@@ -52,6 +52,12 @@ function createMockSocket(playerId: string, emitted: Array<{ room?: string; even
   return { socket, handlers };
 }
 
+async function resetGame(gameId: string) {
+  ResolutionQueueManager.removeQueue(gameId);
+  games.delete(gameId as any);
+  await deleteGame(gameId);
+}
+
 describe('Commander\'s Sphere generic sacrifice-draw routing (integration)', () => {
   const gameId = 'test_commander_sphere_generic_sacrifice_draw';
 
@@ -61,9 +67,8 @@ describe('Commander\'s Sphere generic sacrifice-draw routing (integration)', () 
     await new Promise(resolve => setTimeout(resolve, 0));
   });
 
-  beforeEach(() => {
-    ResolutionQueueManager.removeQueue(gameId);
-    games.delete(gameId as any);
+  beforeEach(async () => {
+    await resetGame(gameId);
   });
 
   it('activates the sacrifice-to-draw mode through a generic parsed ability id', async () => {

@@ -1,6 +1,6 @@
-import { beforeAll, describe, expect, it } from 'vitest';
+import { afterEach, beforeAll, describe, expect, it } from 'vitest';
 
-import { createGameIfNotExists, getEvents, initDb } from '../src/db/index.js';
+import { createGameIfNotExists, deleteGame, getEvents, initDb } from '../src/db/index.js';
 import { createInitialGameState } from '../src/state/gameState.js';
 import '../src/state/modules/priority.js';
 import { ResolutionQueueManager } from '../src/state/resolution/index.js';
@@ -85,14 +85,30 @@ function seedOpponentPayTrigger(game: any, decidingPlayer: string, sourceControl
 }
 
 describe('opponent-pay trigger resolution integration', () => {
+  const trackedGameIds = new Set<string>();
+
+  async function resetGame(gameId: string) {
+    ResolutionQueueManager.removeQueue(gameId);
+    games.delete(gameId as any);
+    await deleteGame(gameId);
+  }
+
   beforeAll(async () => {
     await initDb();
     initializePriorityResolutionHandler(createNoopIo() as any);
     await new Promise(resolve => setTimeout(resolve, 0));
   });
 
+  afterEach(async () => {
+    for (const gameId of trackedGameIds) {
+      await resetGame(gameId);
+    }
+    trackedGameIds.clear();
+  });
+
   it('queues an opponent-pay prompt from resolveTopOfStack and resolves the declined draw effect', async () => {
     const gameId = `test_opponent_pay_live_decline_${Date.now()}`;
+    trackedGameIds.add(gameId);
     createGameIfNotExists(gameId, 'commander', 40);
     const game = ensureGame(gameId);
 
@@ -141,11 +157,11 @@ describe('opponent-pay trigger resolution integration', () => {
       willPay: false,
     });
 
-    games.delete(gameId as any);
   });
 
   it('pushes a Smothering Tithe trigger from drawCards and resolves the declined Treasure outcome', async () => {
     const gameId = `test_smothering_tithe_live_decline_${Date.now()}`;
+    trackedGameIds.add(gameId);
     createGameIfNotExists(gameId, 'commander', 40);
     const game = ensureGame(gameId);
 
@@ -214,7 +230,6 @@ describe('opponent-pay trigger resolution integration', () => {
     );
     expect(treasures).toHaveLength(1);
 
-    games.delete(gameId as any);
   });
 
   it('replays resolveTopOfStack without applying the effect until opponentMayPayResolve arrives', () => {

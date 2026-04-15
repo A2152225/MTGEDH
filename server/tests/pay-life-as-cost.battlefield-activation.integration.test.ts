@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
-import { initDb, createGameIfNotExists } from '../src/db/index.js';
+import { initDb, createGameIfNotExists, deleteGame } from '../src/db/index.js';
 import { ensureGame } from '../src/socket/util.js';
 import '../src/state/modules/priority.js';
 import { registerResolutionHandlers, initializePriorityResolutionHandler } from '../src/socket/resolution.js';
@@ -47,6 +47,12 @@ function createMockSocket(playerId: string, emitted: Array<{ room?: string; even
   return { socket, handlers };
 }
 
+async function resetGame(gameId: string) {
+  ResolutionQueueManager.removeQueue(gameId);
+  games.delete(gameId as any);
+  await deleteGame(gameId);
+}
+
 describe('Pay-life-as-activation-cost (integration)', () => {
   const gameId = 'test_pay_life_activation_cost';
 
@@ -56,9 +62,8 @@ describe('Pay-life-as-activation-cost (integration)', () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
   });
 
-  beforeEach(() => {
-    ResolutionQueueManager.removeQueue(gameId);
-    games.delete(gameId as any);
+  beforeEach(async () => {
+    await resetGame(gameId);
   });
 
   it('pays life as a cost and puts the ability on the stack', async () => {

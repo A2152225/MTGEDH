@@ -1,6 +1,6 @@
 import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
-import { initDb, createGameIfNotExists, getEvents } from '../src/db/index.js';
+import { initDb, createGameIfNotExists, deleteGame, getEvents } from '../src/db/index.js';
 import { ensureGame } from '../src/socket/util.js';
 import '../src/state/modules/priority.js';
 import { registerInteractionHandlers } from '../src/socket/interaction.js';
@@ -52,8 +52,28 @@ function createMockSocket(playerId: string, emitted: Array<{ room?: string; even
   return { socket, handlers };
 }
 
+async function resetGame(gameId: string) {
+  ResolutionQueueManager.removeQueue(gameId);
+  games.delete(gameId as any);
+  await deleteGame(gameId);
+}
+
 describe('special land generic ability routing (integration)', () => {
   const gameId = 'test_special_land_generic_ability_routing';
+  const resetGameIds = [
+    gameId,
+    `${gameId}_mutavault`,
+    `${gameId}_hybrid_land`,
+    `${gameId}_mana_confluence_damage`,
+    `${gameId}_direct_pain_mana`,
+    `${gameId}_storage_add`,
+    `${gameId}_storage_remove`,
+    `${gameId}_hideaway`,
+    `${gameId}_mosswort`,
+    `${gameId}_howltooth`,
+    `${gameId}_shelldock`,
+    `${gameId}_spinerock`,
+  ];
 
   beforeAll(async () => {
     await initDb();
@@ -61,15 +81,14 @@ describe('special land generic ability routing (integration)', () => {
     await new Promise(resolve => setTimeout(resolve, 0));
   });
 
-  beforeEach(() => {
-    ResolutionQueueManager.removeQueue(gameId);
-    games.delete(gameId as any);
+  beforeEach(async () => {
+    for (const currentGameId of resetGameIds) {
+      await resetGame(currentGameId);
+    }
   });
 
   it('routes Mutavault animation through the generic parsed ability id', async () => {
     const mutateGameId = `${gameId}_mutavault`;
-    ResolutionQueueManager.removeQueue(mutateGameId);
-    games.delete(mutateGameId as any);
 
     createGameIfNotExists(mutateGameId, 'commander', 40);
     const game = ensureGame(mutateGameId);
@@ -124,8 +143,6 @@ describe('special land generic ability routing (integration)', () => {
 
   it('routes Graven Cairns hybrid production through the generic parsed ability id', async () => {
     const hybridGameId = `${gameId}_hybrid_land`;
-    ResolutionQueueManager.removeQueue(hybridGameId);
-    games.delete(hybridGameId as any);
 
     createGameIfNotExists(hybridGameId, 'commander', 40);
     const game = ensureGame(hybridGameId);
@@ -180,8 +197,6 @@ describe('special land generic ability routing (integration)', () => {
 
   it('persists damage metadata for queued any-color mana activations', async () => {
     const damageChoiceGameId = `${gameId}_mana_confluence_damage`;
-    ResolutionQueueManager.removeQueue(damageChoiceGameId);
-    games.delete(damageChoiceGameId as any);
 
     createGameIfNotExists(damageChoiceGameId, 'commander', 40);
     const game = ensureGame(damageChoiceGameId);
@@ -260,8 +275,6 @@ describe('special land generic ability routing (integration)', () => {
 
   it('persists damage metadata for direct single-color mana activations', async () => {
     const directDamageGameId = `${gameId}_direct_pain_mana`;
-    ResolutionQueueManager.removeQueue(directDamageGameId);
-    games.delete(directDamageGameId as any);
 
     createGameIfNotExists(directDamageGameId, 'commander', 40);
     const game = ensureGame(directDamageGameId);
@@ -331,8 +344,6 @@ describe('special land generic ability routing (integration)', () => {
 
   it('routes Calciform Pools storage-counter addition through the generic parsed ability id', async () => {
     const storageAddGameId = `${gameId}_storage_add`;
-    ResolutionQueueManager.removeQueue(storageAddGameId);
-    games.delete(storageAddGameId as any);
 
     createGameIfNotExists(storageAddGameId, 'commander', 40);
     const game = ensureGame(storageAddGameId);
@@ -387,8 +398,6 @@ describe('special land generic ability routing (integration)', () => {
 
   it('routes Calciform Pools storage-counter removal through the generic parsed ability id', async () => {
     const storageRemoveGameId = `${gameId}_storage_remove`;
-    ResolutionQueueManager.removeQueue(storageRemoveGameId);
-    games.delete(storageRemoveGameId as any);
 
     createGameIfNotExists(storageRemoveGameId, 'commander', 40);
     const game = ensureGame(storageRemoveGameId);
@@ -467,8 +476,6 @@ describe('special land generic ability routing (integration)', () => {
 
   it('routes Windbrisk Heights hideaway play through the generic parsed ability id', async () => {
     const hideawayGameId = `${gameId}_hideaway`;
-    ResolutionQueueManager.removeQueue(hideawayGameId);
-    games.delete(hideawayGameId as any);
 
     createGameIfNotExists(hideawayGameId, 'commander', 40);
     const game = ensureGame(hideawayGameId);
@@ -543,8 +550,6 @@ describe('special land generic ability routing (integration)', () => {
 
   it('requires total creature power for Mosswort Bridge hideaway play', async () => {
     const hideawayGameId = `${gameId}_mosswort`;
-    ResolutionQueueManager.removeQueue(hideawayGameId);
-    games.delete(hideawayGameId as any);
 
     createGameIfNotExists(hideawayGameId, 'commander', 40);
     const game = ensureGame(hideawayGameId);
@@ -649,8 +654,6 @@ describe('special land generic ability routing (integration)', () => {
 
   it('requires empty hands for Howltooth Hollow hideaway play', async () => {
     const hideawayGameId = `${gameId}_howltooth`;
-    ResolutionQueueManager.removeQueue(hideawayGameId);
-    games.delete(hideawayGameId as any);
 
     createGameIfNotExists(hideawayGameId, 'commander', 40);
     const game = ensureGame(hideawayGameId);
@@ -717,8 +720,6 @@ describe('special land generic ability routing (integration)', () => {
 
   it('requires a library with 20 or fewer cards for Shelldock Isle hideaway play', async () => {
     const hideawayGameId = `${gameId}_shelldock`;
-    ResolutionQueueManager.removeQueue(hideawayGameId);
-    games.delete(hideawayGameId as any);
 
     createGameIfNotExists(hideawayGameId, 'commander', 40);
     const game = ensureGame(hideawayGameId);
@@ -790,8 +791,6 @@ describe('special land generic ability routing (integration)', () => {
 
   it('requires actual damage, not just life loss, for Spinerock Knoll hideaway play', async () => {
     const hideawayGameId = `${gameId}_spinerock`;
-    ResolutionQueueManager.removeQueue(hideawayGameId);
-    games.delete(hideawayGameId as any);
 
     createGameIfNotExists(hideawayGameId, 'commander', 40);
     const game = ensureGame(hideawayGameId);

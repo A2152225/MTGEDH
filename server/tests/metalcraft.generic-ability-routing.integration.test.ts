@@ -1,6 +1,6 @@
 import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
-import { createGameIfNotExists, initDb } from '../src/db/index.js';
+import { createGameIfNotExists, deleteGame, initDb } from '../src/db/index.js';
 import { registerInteractionHandlers } from '../src/socket/interaction.js';
 import { games } from '../src/socket/socket.js';
 import { ensureGame } from '../src/socket/util.js';
@@ -55,16 +55,27 @@ function createBaseGame(gameId: string, playerId: string) {
 describe('metalcraft generic battlefield activation routing (integration)', () => {
   const gameId = 'test_metalcraft_generic_activation';
 
+  const fixedGameIds = [
+    gameId,
+    'test_ferocious_generic_activation',
+    'test_threshold_generic_activation',
+    'test_coven_generic_activation',
+  ];
+
+  async function resetGame(gameId: string) {
+    games.delete(gameId as any);
+    await deleteGame(gameId);
+  }
+
   beforeAll(async () => {
     await initDb();
     await new Promise(resolve => setTimeout(resolve, 0));
   });
 
-  beforeEach(() => {
-    games.delete(gameId as any);
-    games.delete('test_ferocious_generic_activation' as any);
-    games.delete('test_threshold_generic_activation' as any);
-    games.delete('test_coven_generic_activation' as any);
+  beforeEach(async () => {
+    for (const fixedGameId of fixedGameIds) {
+      await resetGame(fixedGameId);
+    }
   });
 
   it('rejects generic activated abilities that require metalcraft before costs are paid', async () => {

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
-import { initDb, createGameIfNotExists } from '../src/db/index.js';
+import { initDb, createGameIfNotExists, deleteGame } from '../src/db/index.js';
 import { ensureGame } from '../src/socket/util.js';
 import '../src/state/modules/priority.js';
 import { registerResolutionHandlers, initializePriorityResolutionHandler } from '../src/socket/resolution.js';
@@ -44,15 +44,20 @@ function createMockSocket(playerId: string, emitted: Array<{ room?: string; even
 describe('choose player for looked-at cards (integration)', () => {
   const gameId = 'test_choose_player_for_looked_at_cards';
 
+  async function resetGame(gameId: string) {
+    ResolutionQueueManager.removeQueue(gameId);
+    games.delete(gameId as any);
+    await deleteGame(gameId);
+  }
+
   beforeAll(async () => {
     await initDb();
     initializePriorityResolutionHandler(createNoopIo() as any);
     await new Promise(resolve => setTimeout(resolve, 0));
   });
 
-  beforeEach(() => {
-    ResolutionQueueManager.removeQueue(gameId);
-    games.delete(gameId as any);
+  beforeEach(async () => {
+    await resetGame(gameId);
   });
 
   it('lets the chosen player pick a revealed card for another player and exiles the other', async () => {

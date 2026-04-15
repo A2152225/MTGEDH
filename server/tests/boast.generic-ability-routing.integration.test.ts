@@ -1,6 +1,6 @@
 import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
-import { createGameIfNotExists, initDb } from '../src/db/index.js';
+import { createGameIfNotExists, deleteGame, initDb } from '../src/db/index.js';
 import { ensureGame } from '../src/socket/util.js';
 import { registerInteractionHandlers } from '../src/socket/interaction.js';
 import { ResolutionQueueManager } from '../src/state/resolution/index.js';
@@ -44,19 +44,28 @@ function createMockSocket(playerId: string, emitted: Array<{ room?: string; even
 }
 
 describe('Boast generic ability routing (integration)', () => {
+  const fixedGameIds = [
+    'test_boast_generic_activation',
+    'test_boast_requires_attack',
+    'test_boast_once_per_turn',
+  ];
+
+  async function resetGame(gameId: string) {
+    ResolutionQueueManager.removeQueue(gameId);
+    games.delete(gameId as any);
+    await deleteGame(gameId);
+  }
+
   beforeAll(async () => {
     await initDb();
     await new Promise(resolve => setTimeout(resolve, 0));
     createNoopIo();
   });
 
-  beforeEach(() => {
-    ResolutionQueueManager.removeQueue('test_boast_generic_activation');
-    ResolutionQueueManager.removeQueue('test_boast_requires_attack');
-    ResolutionQueueManager.removeQueue('test_boast_once_per_turn');
-    games.delete('test_boast_generic_activation' as any);
-    games.delete('test_boast_requires_attack' as any);
-    games.delete('test_boast_once_per_turn' as any);
+  beforeEach(async () => {
+    for (const fixedGameId of fixedGameIds) {
+      await resetGame(fixedGameId);
+    }
   });
 
   it('activates boast through the parser-emitted id after the creature attacked this turn', async () => {

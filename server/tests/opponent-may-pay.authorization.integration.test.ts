@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
-import { initDb, createGameIfNotExists } from '../src/db/index.js';
+import { initDb, createGameIfNotExists, deleteGame } from '../src/db/index.js';
 import { ensureGame } from '../src/socket/util.js';
 import { registerOpponentMayPayHandlers } from '../src/socket/opponent-may-pay.js';
 import { ResolutionQueueManager } from '../src/state/resolution/index.js';
@@ -35,13 +35,18 @@ function createMockSocket(data: any, emitted: Array<{ room?: string; event: stri
 describe('opponent-may-pay authorization (integration)', () => {
   const gameId = 'test_opponent_may_pay_auth';
 
+  async function resetGame(gameId: string) {
+    ResolutionQueueManager.removeQueue(gameId);
+    games.delete(gameId as any);
+    await deleteGame(gameId);
+  }
+
   beforeAll(async () => {
     await initDb();
   });
 
-  beforeEach(() => {
-    ResolutionQueueManager.removeQueue(gameId);
-    games.delete(gameId as any);
+  beforeEach(async () => {
+    await resetGame(gameId);
   });
 
   it('does not allow a non-judge to emitOpponentMayPayPrompt', async () => {

@@ -1,6 +1,6 @@
 import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
-import { createGameIfNotExists, getEvents, initDb } from '../src/db/index.js';
+import { createGameIfNotExists, deleteGame, getEvents, initDb } from '../src/db/index.js';
 import { registerGameActions } from '../src/socket/game-actions.js';
 import { ensureGame } from '../src/socket/util.js';
 import { ResolutionQueueManager } from '../src/state/resolution/index.js';
@@ -35,13 +35,18 @@ describe('Spree requestCastSpell prompt persistence', () => {
   const gameId = 'test_spree_request_cast_prompt_persistence';
   const playerId = 'p1';
 
+  async function resetGame(gameId: string) {
+    ResolutionQueueManager.removeQueue(gameId);
+    games.delete(gameId as any);
+    await deleteGame(gameId);
+  }
+
   beforeAll(async () => {
     await initDb();
   });
 
-  beforeEach(() => {
-    ResolutionQueueManager.removeQueue(gameId);
-    games.delete(gameId as any);
+  beforeEach(async () => {
+    await resetGame(gameId);
   });
 
   it('persists the initial spree mode-selection prompt before any modes are chosen', async () => {

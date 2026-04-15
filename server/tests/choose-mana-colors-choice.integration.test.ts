@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
-import { initDb, createGameIfNotExists } from '../src/db/index.js';
+import { initDb, createGameIfNotExists, deleteGame } from '../src/db/index.js';
 import { ensureGame } from '../src/socket/util.js';
 import { registerResolutionHandlers } from '../src/socket/resolution.js';
 import { ResolutionQueueManager, ResolutionStepType } from '../src/state/resolution/index.js';
@@ -44,13 +44,18 @@ function createMockSocket(
 describe('choose mana colors choice (integration)', () => {
   const gameId = 'test_choose_mana_colors_choice';
 
+  async function resetGame(gameId: string) {
+    ResolutionQueueManager.removeQueue(gameId);
+    games.delete(gameId as any);
+    await deleteGame(gameId);
+  }
+
   beforeAll(async () => {
     await initDb();
   });
 
-  beforeEach(() => {
-    ResolutionQueueManager.removeQueue(gameId);
-    games.delete(gameId as any);
+  beforeEach(async () => {
+    await resetGame(gameId);
   });
 
   it('adds ten mana of one chosen color', async () => {

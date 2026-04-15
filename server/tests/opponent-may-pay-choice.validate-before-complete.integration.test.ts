@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
-import { initDb, createGameIfNotExists } from '../src/db/index.js';
+import { initDb, createGameIfNotExists, deleteGame } from '../src/db/index.js';
 import { registerOpponentMayPayHandlers } from '../src/socket/opponent-may-pay.js';
 import { ensureGame } from '../src/socket/util.js';
 import '../src/state/modules/priority.js';
@@ -47,6 +47,12 @@ function createMockSocket(playerId: string, emitted: Array<{ room?: string; even
   return { socket, handlers };
 }
 
+async function resetGame(gameId: string) {
+  ResolutionQueueManager.removeQueue(gameId);
+  games.delete(gameId as any);
+  await deleteGame(gameId);
+}
+
 describe('opponentMayPayChoice validate-before-complete (integration)', () => {
   const gameId = 'test_opponent_may_pay_choice_validate_before_complete';
 
@@ -56,9 +62,8 @@ describe('opponentMayPayChoice validate-before-complete (integration)', () => {
     await new Promise(resolve => setTimeout(resolve, 0));
   });
 
-  beforeEach(() => {
-    ResolutionQueueManager.removeQueue(gameId);
-    games.delete(gameId as any);
+  beforeEach(async () => {
+    await resetGame(gameId);
   });
 
   it('does not consume the step on insufficient mana when selecting pay', async () => {

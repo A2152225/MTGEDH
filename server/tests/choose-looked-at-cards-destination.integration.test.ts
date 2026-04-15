@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
-import { initDb, createGameIfNotExists } from '../src/db/index.js';
+import { initDb, createGameIfNotExists, deleteGame } from '../src/db/index.js';
 import { ensureGame } from '../src/socket/util.js';
 import { registerResolutionHandlers } from '../src/socket/resolution.js';
 import { ResolutionQueueManager, ResolutionStepType } from '../src/state/resolution/index.js';
@@ -76,13 +76,18 @@ async function runChoice(gameId: string, p1: string, emitted: Array<{ room?: str
 describe('choose looked-at cards destination (integration)', () => {
   const gameId = 'test_choose_looked_at_cards_destination';
 
+  async function resetGame(gameId: string) {
+    ResolutionQueueManager.removeQueue(gameId);
+    games.delete(gameId as any);
+    await deleteGame(gameId);
+  }
+
   beforeAll(async () => {
     await initDb();
   });
 
-  beforeEach(() => {
-    ResolutionQueueManager.removeQueue(gameId);
-    games.delete(gameId as any);
+  beforeEach(async () => {
+    await resetGame(gameId);
   });
 
   it('puts the chosen card into hand and the other on the bottom of the library', async () => {

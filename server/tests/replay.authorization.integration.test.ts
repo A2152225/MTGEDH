@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
-import { initDb, createGameIfNotExists, appendEvent, truncateEventsForUndo } from '../src/db/index.js';
+import { initDb, createGameIfNotExists, appendEvent, deleteGame, truncateEventsForUndo } from '../src/db/index.js';
 import { ensureGame } from '../src/socket/util.js';
 import { registerReplayHandlers } from '../src/socket/replay.js';
 import { games } from '../src/socket/socket.js';
@@ -39,12 +39,17 @@ function createMockSocket(
 describe('replay authorization (integration)', () => {
   const gameId = 'test_replay_authorization';
 
+  async function resetGame(gameId: string) {
+    games.delete(gameId as any);
+    await deleteGame(gameId);
+  }
+
   beforeAll(async () => {
     await initDb();
   });
 
-  beforeEach(() => {
-    games.delete(gameId as any);
+  beforeEach(async () => {
+    await resetGame(gameId);
     try {
       truncateEventsForUndo(gameId, 0);
     } catch {

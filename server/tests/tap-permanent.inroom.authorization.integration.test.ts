@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
-import { initDb, createGameIfNotExists } from '../src/db/index.js';
+import { initDb, createGameIfNotExists, deleteGame } from '../src/db/index.js';
 import { ensureGame } from '../src/socket/util.js';
 import { registerInteractionHandlers } from '../src/socket/interaction.js';
 import { games } from '../src/socket/socket.js';
@@ -36,13 +36,18 @@ describe('tapPermanent in-room authorization (integration)', () => {
   const gameId = 'test_tapPermanent_inroom_auth';
   const otherGameId = 'test_tapPermanent_inroom_auth_other';
 
+  async function resetGame(gameId: string) {
+    games.delete(gameId as any);
+    await deleteGame(gameId);
+  }
+
   beforeAll(async () => {
     await initDb();
   });
 
-  beforeEach(() => {
-    games.delete(gameId as any);
-    games.delete(otherGameId as any);
+  beforeEach(async () => {
+    await resetGame(gameId);
+    await resetGame(otherGameId);
   });
 
   it('blocks tapPermanent when socket is not in the game room (no mutation)', async () => {

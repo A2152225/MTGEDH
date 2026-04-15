@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
-import { initDb, createGameIfNotExists, getEvents } from '../src/db/index.js';
+import { initDb, createGameIfNotExists, deleteGame, getEvents } from '../src/db/index.js';
 import { ensureGame } from '../src/socket/util.js';
 import '../src/state/modules/priority.js';
 import { registerResolutionHandlers, initializePriorityResolutionHandler } from '../src/socket/resolution.js';
@@ -47,8 +47,19 @@ function createMockSocket(playerId: string, emitted: Array<{ room?: string; even
   return { socket, handlers };
 }
 
+async function resetGame(gameId: string) {
+  ResolutionQueueManager.removeQueue(gameId);
+  games.delete(gameId as any);
+  await deleteGame(gameId);
+}
+
 describe('Phyrexian mana payment choice as activation cost (integration)', () => {
   const gameId = 'test_phyrexian_mana_payment_choice_activation_cost';
+  const resetGameIds = [
+    gameId,
+    'test_phyrexian_choice_step_not_consumed_when_insufficient_mana',
+    'test_phyrexian_choice_preserves_activation_text_for_sacrifice_step',
+  ];
 
   beforeAll(async () => {
     await initDb();
@@ -56,9 +67,10 @@ describe('Phyrexian mana payment choice as activation cost (integration)', () =>
     await new Promise((resolve) => setTimeout(resolve, 0));
   });
 
-  beforeEach(() => {
-    ResolutionQueueManager.removeQueue(gameId);
-    games.delete(gameId as any);
+  beforeEach(async () => {
+    for (const currentGameId of resetGameIds) {
+      await resetGame(currentGameId);
+    }
   });
 
   it('enqueues MANA_PAYMENT_CHOICE, then applies tap + life on submit and persists evidence for replay', async () => {
@@ -243,8 +255,6 @@ describe('Phyrexian mana payment choice as activation cost (integration)', () =>
 
   it('does not consume MANA_PAYMENT_CHOICE step when chosen payment is not currently payable', async () => {
     const gameId = 'test_phyrexian_choice_step_not_consumed_when_insufficient_mana';
-    ResolutionQueueManager.removeQueue(gameId);
-    games.delete(gameId as any);
 
     createGameIfNotExists(gameId, 'commander', 40);
     const game = ensureGame(gameId);
@@ -321,8 +331,6 @@ describe('Phyrexian mana payment choice as activation cost (integration)', () =>
 
   it('propagates activatedAbilityText into the follow-up sacrifice step after Phyrexian payment choice', async () => {
     const gameId = 'test_phyrexian_choice_preserves_activation_text_for_sacrifice_step';
-    ResolutionQueueManager.removeQueue(gameId);
-    games.delete(gameId as any);
 
     createGameIfNotExists(gameId, 'commander', 40);
     const game = ensureGame(gameId);

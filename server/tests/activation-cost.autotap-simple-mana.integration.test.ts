@@ -1,6 +1,6 @@
 import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
-import { createGameIfNotExists, initDb } from '../src/db/index.js';
+import { createGameIfNotExists, deleteGame, initDb } from '../src/db/index.js';
 import { registerInteractionHandlers } from '../src/socket/interaction.js';
 import { ensureGame } from '../src/socket/util.js';
 import { games } from '../src/socket/socket.js';
@@ -35,6 +35,12 @@ function createMockSocket(playerId: string, emitted: Array<{ room?: string; even
   return { socket, handlers };
 }
 
+async function resetGame(gameId: string) {
+  ResolutionQueueManager.removeQueue(gameId);
+  games.delete(gameId as any);
+  await deleteGame(gameId);
+}
+
 describe('activation-cost simple mana auto-tap (integration)', () => {
   const reflectedGameId = 'test_activation_cost_autotap_reflected_simple_sources';
   const multiColorGameId = 'test_activation_cost_autotap_multi_color_simple_source';
@@ -44,11 +50,9 @@ describe('activation-cost simple mana auto-tap (integration)', () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
   });
 
-  beforeEach(() => {
-    ResolutionQueueManager.removeQueue(reflectedGameId);
-    ResolutionQueueManager.removeQueue(multiColorGameId);
-    games.delete(reflectedGameId as any);
-    games.delete(multiColorGameId as any);
+  beforeEach(async () => {
+    await resetGame(reflectedGameId);
+    await resetGame(multiColorGameId);
   });
 
   it('uses the full amplified output of simple auto-tapped sources for activation costs', async () => {

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
-import { initDb, createGameIfNotExists, getEvents } from '../src/db/index.js';
+import { initDb, createGameIfNotExists, deleteGame, getEvents } from '../src/db/index.js';
 import { ensureGame } from '../src/socket/util.js';
 import '../src/state/modules/priority.js';
 import { registerResolutionHandlers, initializePriorityResolutionHandler } from '../src/socket/resolution.js';
@@ -44,6 +44,18 @@ function createMockSocket(playerId: string, emitted: Array<{ room?: string; even
 
 describe('choose pile from split choice (integration)', () => {
   const gameId = 'test_choose_pile_from_split_choice';
+  const replayGameIds = [
+    `${gameId}_choose_player_replay`,
+    `${gameId}_split_replay`,
+    `${gameId}_move_replay`,
+    `${gameId}_sac_replay`,
+  ];
+
+  async function resetGame(gameId: string) {
+    ResolutionQueueManager.removeQueue(gameId);
+    games.delete(gameId as any);
+    await deleteGame(gameId);
+  }
 
   beforeAll(async () => {
     await initDb();
@@ -51,9 +63,11 @@ describe('choose pile from split choice (integration)', () => {
     await new Promise(resolve => setTimeout(resolve, 0));
   });
 
-  beforeEach(() => {
-    ResolutionQueueManager.removeQueue(gameId);
-    games.delete(gameId as any);
+  beforeEach(async () => {
+    await resetGame(gameId);
+    for (const replayGameId of replayGameIds) {
+      await resetGame(replayGameId);
+    }
   });
 
   it('chooses a player to perform a two-pile split and enqueues the split step', async () => {

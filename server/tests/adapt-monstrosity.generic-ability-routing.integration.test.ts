@@ -1,6 +1,6 @@
 import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
-import { createGameIfNotExists, initDb } from '../src/db/index.js';
+import { createGameIfNotExists, deleteGame, initDb } from '../src/db/index.js';
 import { ensureGame } from '../src/socket/util.js';
 import { registerInteractionHandlers } from '../src/socket/interaction.js';
 import { ResolutionQueueManager } from '../src/state/resolution/index.js';
@@ -47,6 +47,12 @@ function createMockSocket(playerId: string, emitted: Array<{ room?: string; even
   return { socket, handlers };
 }
 
+async function resetGame(gameId: string) {
+  ResolutionQueueManager.removeQueue(gameId);
+  games.delete(gameId as any);
+  await deleteGame(gameId);
+}
+
 describe('Adapt and monstrosity generic ability routing (integration)', () => {
   beforeAll(async () => {
     await initDb();
@@ -54,11 +60,9 @@ describe('Adapt and monstrosity generic ability routing (integration)', () => {
     createNoopIo();
   });
 
-  beforeEach(() => {
-    ResolutionQueueManager.removeQueue('test_adapt_generic_activation');
-    ResolutionQueueManager.removeQueue('test_monstrosity_generic_activation');
-    games.delete('test_adapt_generic_activation' as any);
-    games.delete('test_monstrosity_generic_activation' as any);
+  beforeEach(async () => {
+    await resetGame('test_adapt_generic_activation');
+    await resetGame('test_monstrosity_generic_activation');
   });
 
   it('activates adapt through the parser-emitted generic id', async () => {

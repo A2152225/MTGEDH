@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
-import { initDb, createGameIfNotExists, getEvents } from '../src/db/index.js';
+import { initDb, createGameIfNotExists, deleteGame, getEvents } from '../src/db/index.js';
 import { ensureGame } from '../src/socket/util.js';
 import { registerResolutionHandlers } from '../src/socket/resolution.js';
 import { ResolutionQueueManager, ResolutionStepType } from '../src/state/resolution/index.js';
@@ -43,14 +43,21 @@ function createMockSocket(
 
 describe('optional discard then draw choice (integration)', () => {
   const gameId = 'test_optional_discard_then_draw_choice';
+  const replayGameId = `${gameId}_replay`;
+
+  async function resetGame(gameId: string) {
+    ResolutionQueueManager.removeQueue(gameId);
+    games.delete(gameId as any);
+    await deleteGame(gameId);
+  }
 
   beforeAll(async () => {
     await initDb();
   });
 
-  beforeEach(() => {
-    ResolutionQueueManager.removeQueue(gameId);
-    games.delete(gameId as any);
+  beforeEach(async () => {
+    await resetGame(gameId);
+    await resetGame(replayGameId);
   });
 
   it('does nothing when the player declines to discard', async () => {
@@ -161,7 +168,6 @@ describe('optional discard then draw choice (integration)', () => {
       afterDiscardDrawCount: 1,
     });
 
-    const replayGameId = `${gameId}_replay`;
     createGameIfNotExists(replayGameId, 'commander', 40);
     const replayGame = ensureGame(replayGameId);
     if (!replayGame) throw new Error('ensureGame returned undefined');

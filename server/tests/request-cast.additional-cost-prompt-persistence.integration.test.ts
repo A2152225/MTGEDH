@@ -1,6 +1,6 @@
 import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
-import { createGameIfNotExists, getEvents, initDb } from '../src/db/index.js';
+import { createGameIfNotExists, deleteGame, getEvents, initDb } from '../src/db/index.js';
 import { registerGameActions } from '../src/socket/game-actions.js';
 import { registerResolutionHandlers } from '../src/socket/resolution.js';
 import { ensureGame } from '../src/socket/util.js';
@@ -67,14 +67,30 @@ describe('requestCastSpell additional-cost prompt persistence (integration)', ()
   const gameId = 'test_request_cast_additional_cost_prompt_persistence';
   const playerId = 'p1';
   const opponentId = 'p2';
+  const derivedGameIds = [
+    `${gameId}_payment`,
+    `${gameId}_blight_notarget_choice`,
+    `${gameId}_blight_targeted_choice`,
+    `${gameId}_blight_notarget_paymana`,
+    `${gameId}_blight_targeted_target`,
+    `${gameId}_blight_followup_target`,
+  ];
+
+  async function resetGame(gameId: string) {
+    ResolutionQueueManager.removeQueue(gameId);
+    games.delete(gameId as any);
+    await deleteGame(gameId);
+  }
 
   beforeAll(async () => {
     await initDb();
   });
 
-  beforeEach(() => {
-    ResolutionQueueManager.removeQueue(gameId);
-    games.delete(gameId as any);
+  beforeEach(async () => {
+    await resetGame(gameId);
+    for (const derivedGameId of derivedGameIds) {
+      await resetGame(derivedGameId);
+    }
   });
 
   it('persists queued mana payment prompts for no-target spells', async () => {

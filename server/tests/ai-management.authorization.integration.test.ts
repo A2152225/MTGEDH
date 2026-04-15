@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
-import { initDb, createGameIfNotExists } from '../src/db/index.js';
+import { initDb, createGameIfNotExists, deleteGame } from '../src/db/index.js';
 import { ensureGame } from '../src/socket/util.js';
 import { registerAIHandlers } from '../src/socket/ai.js';
 import { games } from '../src/socket/socket.js';
@@ -36,13 +36,18 @@ function createMockSocket(playerId: string | undefined, emitted: Array<{ room?: 
 describe('AI management authorization (integration)', () => {
   const gameId = 'test_ai_management_authorization';
 
+  async function resetGame(gameId: string) {
+    ResolutionQueueManager.removeQueue(gameId);
+    games.delete(gameId as any);
+    await deleteGame(gameId);
+  }
+
   beforeAll(async () => {
     await initDb();
   });
 
-  beforeEach(() => {
-    ResolutionQueueManager.removeQueue(gameId);
-    games.delete(gameId as any);
+  beforeEach(async () => {
+    await resetGame(gameId);
   });
 
   it('rejects createGame* when gameId already exists (prevents mutating existing game)', async () => {

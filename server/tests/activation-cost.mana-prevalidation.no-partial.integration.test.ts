@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
-import { initDb, createGameIfNotExists } from '../src/db/index.js';
+import { initDb, createGameIfNotExists, deleteGame } from '../src/db/index.js';
 import { ensureGame } from '../src/socket/util.js';
 import '../src/state/modules/priority.js';
 import { registerResolutionHandlers, initializePriorityResolutionHandler } from '../src/socket/resolution.js';
@@ -47,6 +47,12 @@ function createMockSocket(playerId: string, emitted: Array<{ room?: string; even
   return { socket, handlers };
 }
 
+async function resetGame(gameId: string) {
+  ResolutionQueueManager.removeQueue(gameId);
+  games.delete(gameId as any);
+  await deleteGame(gameId);
+}
+
 describe('Activation-cost mana prevalidation prevents partial costs (integration)', () => {
   beforeAll(async () => {
     await initDb();
@@ -54,14 +60,16 @@ describe('Activation-cost mana prevalidation prevents partial costs (integration
     await new Promise((resolve) => setTimeout(resolve, 0));
   });
 
-  beforeEach(() => {
-    // Each test uses its own game id.
+  beforeEach(async () => {
+    await resetGame('test_activation_cost_tap_other_no_partial_when_insufficient_mana');
+    await resetGame('test_activation_cost_exile_hand_no_partial_when_insufficient_mana');
+    await resetGame('test_activation_cost_remove_counters_no_partial_when_insufficient_mana');
+    await resetGame('test_activation_cost_sacrifice_no_partial_when_insufficient_mana');
+    await resetGame('test_activation_cost_return_to_hand_no_partial_when_insufficient_mana');
   });
 
   it('does not tap targets (and does not consume step) when tap-other activation cost has insufficient mana', async () => {
     const gameId = 'test_activation_cost_tap_other_no_partial_when_insufficient_mana';
-    ResolutionQueueManager.removeQueue(gameId);
-    games.delete(gameId as any);
 
     createGameIfNotExists(gameId, 'commander', 40);
     const game = ensureGame(gameId);
@@ -146,8 +154,6 @@ describe('Activation-cost mana prevalidation prevents partial costs (integration
 
   it('does not move a card out of hand (and does not consume step) when exile-from-hand activation cost has insufficient mana', async () => {
     const gameId = 'test_activation_cost_exile_hand_no_partial_when_insufficient_mana';
-    ResolutionQueueManager.removeQueue(gameId);
-    games.delete(gameId as any);
 
     createGameIfNotExists(gameId, 'commander', 40);
     const game = ensureGame(gameId);
@@ -227,8 +233,6 @@ describe('Activation-cost mana prevalidation prevents partial costs (integration
 
   it('does not remove counters (and does not consume step) when remove-counters activation cost has insufficient mana', async () => {
     const gameId = 'test_activation_cost_remove_counters_no_partial_when_insufficient_mana';
-    ResolutionQueueManager.removeQueue(gameId);
-    games.delete(gameId as any);
 
     createGameIfNotExists(gameId, 'commander', 40);
     const game = ensureGame(gameId);
@@ -305,8 +309,6 @@ describe('Activation-cost mana prevalidation prevents partial costs (integration
 
   it('does not sacrifice a permanent (and does not consume step) when sacrifice activation cost has insufficient mana', async () => {
     const gameId = 'test_activation_cost_sacrifice_no_partial_when_insufficient_mana';
-    ResolutionQueueManager.removeQueue(gameId);
-    games.delete(gameId as any);
 
     createGameIfNotExists(gameId, 'commander', 40);
     const game = ensureGame(gameId);
@@ -384,8 +386,6 @@ describe('Activation-cost mana prevalidation prevents partial costs (integration
 
   it('does not return a permanent to hand (and does not consume step) when return-to-hand activation cost has insufficient mana', async () => {
     const gameId = 'test_activation_cost_return_to_hand_no_partial_when_insufficient_mana';
-    ResolutionQueueManager.removeQueue(gameId);
-    games.delete(gameId as any);
 
     createGameIfNotExists(gameId, 'commander', 40);
     const game = ensureGame(gameId);

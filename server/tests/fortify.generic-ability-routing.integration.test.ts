@@ -1,6 +1,6 @@
-import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
-import { createGameIfNotExists, getEvents, initDb } from '../src/db/index.js';
+import { createGameIfNotExists, deleteGame, getEvents, initDb } from '../src/db/index.js';
 import { ensureGame } from '../src/socket/util.js';
 import { registerInteractionHandlers } from '../src/socket/interaction.js';
 import { initializePriorityResolutionHandler, registerResolutionHandlers } from '../src/socket/resolution.js';
@@ -42,6 +42,13 @@ function createMockSocket(playerId: string, emitted: Array<{ room?: string; even
 
 describe('Fortify generic ability routing (integration)', () => {
   const gameId = 'test_fortify_generic_activation';
+  const trackedGameIds = new Set<string>();
+
+  async function resetGame(gameId: string) {
+    ResolutionQueueManager.removeQueue(gameId);
+    games.delete(gameId as any);
+    await deleteGame(gameId);
+  }
 
   beforeAll(async () => {
     await initDb();
@@ -49,15 +56,21 @@ describe('Fortify generic ability routing (integration)', () => {
     await new Promise(resolve => setTimeout(resolve, 0));
   });
 
-  beforeEach(() => {
-    ResolutionQueueManager.removeQueue(gameId);
-    games.delete(gameId as any);
+  beforeEach(async () => {
+    trackedGameIds.clear();
+    await resetGame(gameId);
+  });
+
+  afterEach(async () => {
+    for (const trackedGameId of trackedGameIds) {
+      await resetGame(trackedGameId);
+    }
   });
 
   it('activates fortify through the parser-emitted id and attaches to a land on resolution', async () => {
     const persistentGameId = `${gameId}_persisted_attach_${Math.random().toString(36).slice(2, 10)}`;
-    ResolutionQueueManager.removeQueue(persistentGameId);
-    games.delete(persistentGameId as any);
+    trackedGameIds.add(persistentGameId);
+    await resetGame(persistentGameId);
 
     createGameIfNotExists(persistentGameId, 'commander', 40);
     const game = ensureGame(persistentGameId);

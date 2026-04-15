@@ -1,6 +1,6 @@
 import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
-import { createGameIfNotExists, initDb } from '../src/db/index.js';
+import { createGameIfNotExists, deleteGame, initDb } from '../src/db/index.js';
 import { registerGameActions } from '../src/socket/game-actions.js';
 import { registerResolutionHandlers } from '../src/socket/resolution.js';
 import { ensureGame } from '../src/socket/util.js';
@@ -41,13 +41,18 @@ describe('generic cast-from-exile targeted free casts (integration)', () => {
   const playerId = 'p1';
   const opponentId = 'p2';
 
+  async function resetGame(gameId: string) {
+    ResolutionQueueManager.removeQueue(gameId);
+    games.delete(gameId as any);
+    await deleteGame(gameId);
+  }
+
   beforeAll(async () => {
     await initDb();
   });
 
-  beforeEach(() => {
-    ResolutionQueueManager.removeQueue(gameId);
-    games.delete(gameId as any);
+  beforeEach(async () => {
+    await resetGame(gameId);
   });
 
   it('routes accepted free casts from exile through target selection and completes them without mana payment', async () => {

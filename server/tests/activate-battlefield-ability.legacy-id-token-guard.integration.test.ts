@@ -1,6 +1,6 @@
 import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
-import { initDb, createGameIfNotExists } from '../src/db/index.js';
+import { initDb, createGameIfNotExists, deleteGame } from '../src/db/index.js';
 import { ensureGame } from '../src/socket/util.js';
 import '../src/state/modules/priority.js';
 import { registerInteractionHandlers } from '../src/socket/interaction.js';
@@ -52,9 +52,17 @@ function createMockSocket(playerId: string, emitted: Array<{ room?: string; even
   return { socket, handlers };
 }
 
-function setupGame(gameId: string, battlefield: any[], manaPool?: Partial<Record<'white' | 'blue' | 'black' | 'red' | 'green' | 'colorless', number>>) {
+const trackedGameIds = new Set<string>();
+
+async function resetGame(gameId: string) {
   ResolutionQueueManager.removeQueue(gameId);
   games.delete(gameId as any);
+  await deleteGame(gameId);
+}
+
+async function setupGame(gameId: string, battlefield: any[], manaPool?: Partial<Record<'white' | 'blue' | 'black' | 'red' | 'green' | 'colorless', number>>) {
+  trackedGameIds.add(gameId);
+  await resetGame(gameId);
 
   createGameIfNotExists(gameId, 'commander', 40);
   const game = ensureGame(gameId);
@@ -120,15 +128,18 @@ describe('activateBattlefieldAbility legacy id token guards (integration)', () =
     await new Promise(resolve => setTimeout(resolve, 0));
   });
 
-  beforeEach(() => {
-    ResolutionQueueManager.removeQueue(gameIdPrefix);
-    games.delete(gameIdPrefix as any);
+  beforeEach(async () => {
+    for (const gameId of trackedGameIds) {
+      await resetGame(gameId);
+    }
+    trackedGameIds.clear();
+    await resetGame(gameIdPrefix);
   });
 
   it('does not let animate token matching hijack an unrelated generic activation on Mutavault', async () => {
     const gameId = `${gameIdPrefix}_animate`;
     const permanentId = 'mutavault_animate_1';
-    const { game, emitted, handlers } = setupGame(gameId, [
+    const { game, emitted, handlers } = await setupGame(gameId, [
       {
         id: permanentId,
         controller: 'p1',
@@ -153,7 +164,7 @@ describe('activateBattlefieldAbility legacy id token guards (integration)', () =
   it('does not let hybrid-mana token matching hijack an unrelated generic activation on Graven Cairns', async () => {
     const gameId = `${gameIdPrefix}_hybrid`;
     const permanentId = 'graven-cairns_hybrid-mana_1';
-    const { game, emitted, handlers } = setupGame(gameId, [
+    const { game, emitted, handlers } = await setupGame(gameId, [
       {
         id: permanentId,
         controller: 'p1',
@@ -176,7 +187,7 @@ describe('activateBattlefieldAbility legacy id token guards (integration)', () =
   it('does not let storage add-counter token matching hijack an unrelated generic activation on Calciform Pools', async () => {
     const gameId = `${gameIdPrefix}_storage_add`;
     const permanentId = 'calciform_add-counter_1';
-    const { game, emitted, handlers } = setupGame(gameId, [
+    const { game, emitted, handlers } = await setupGame(gameId, [
       {
         id: permanentId,
         controller: 'p1',
@@ -202,7 +213,7 @@ describe('activateBattlefieldAbility legacy id token guards (integration)', () =
   it('does not let storage remove-counters token matching hijack an unrelated generic activation on Calciform Pools', async () => {
     const gameId = `${gameIdPrefix}_storage_remove`;
     const permanentId = 'calciform_remove-counters_1';
-    const { game, emitted, handlers } = setupGame(gameId, [
+    const { game, emitted, handlers } = await setupGame(gameId, [
       {
         id: permanentId,
         controller: 'p1',
@@ -226,7 +237,7 @@ describe('activateBattlefieldAbility legacy id token guards (integration)', () =
   it('does not let hideaway token matching hijack an unrelated generic activation on Windbrisk Heights', async () => {
     const gameId = `${gameIdPrefix}_hideaway`;
     const permanentId = 'windbrisk_play-hideaway_1';
-    const { game, emitted, handlers } = setupGame(gameId, [
+    const { game, emitted, handlers } = await setupGame(gameId, [
       {
         id: permanentId,
         controller: 'p1',
@@ -249,7 +260,7 @@ describe('activateBattlefieldAbility legacy id token guards (integration)', () =
   it('does not let fetch token matching hijack an unrelated generic activation on a fetch-style land', async () => {
     const gameId = `${gameIdPrefix}_fetch`;
     const permanentId = 'test-fetch-land_1';
-    const { game, emitted, handlers } = setupGame(gameId, [
+    const { game, emitted, handlers } = await setupGame(gameId, [
       {
         id: permanentId,
         controller: 'p1',
@@ -273,7 +284,7 @@ describe('activateBattlefieldAbility legacy id token guards (integration)', () =
   it('does not let native_ prefix matching hijack an unrelated generic battlefield activation', async () => {
     const gameId = `${gameIdPrefix}_native_prefix`;
     const permanentId = 'native_relay_1';
-    const { game, emitted, handlers } = setupGame(gameId, [
+    const { game, emitted, handlers } = await setupGame(gameId, [
       {
         id: permanentId,
         controller: 'p1',
@@ -297,7 +308,7 @@ describe('activateBattlefieldAbility legacy id token guards (integration)', () =
   it('does not let tap-mana prefix matching hijack an unrelated generic battlefield activation', async () => {
     const gameId = `${gameIdPrefix}_tap_mana_prefix`;
     const permanentId = 'tap-mana_relay_1';
-    const { game, emitted, handlers } = setupGame(gameId, [
+    const { game, emitted, handlers } = await setupGame(gameId, [
       {
         id: permanentId,
         controller: 'p1',
@@ -321,7 +332,7 @@ describe('activateBattlefieldAbility legacy id token guards (integration)', () =
   it('does not let pw-ability prefix matching hijack an unrelated generic battlefield activation', async () => {
     const gameId = `${gameIdPrefix}_pw_prefix`;
     const permanentId = 'pw-ability-relay_1';
-    const { game, emitted, handlers } = setupGame(gameId, [
+    const { game, emitted, handlers } = await setupGame(gameId, [
       {
         id: permanentId,
         controller: 'p1',
@@ -344,7 +355,7 @@ describe('activateBattlefieldAbility legacy id token guards (integration)', () =
   it('does not let upgrade token matching override the selected generic upgrade ability index', async () => {
     const gameId = `${gameIdPrefix}_upgrade`;
     const permanentId = 'figure-becomes-warrior_1';
-    const { game, emitted, handlers, playerId } = setupGame(
+    const { game, emitted, handlers, playerId } = await setupGame(
       gameId,
       [
         {

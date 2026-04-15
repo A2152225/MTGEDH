@@ -1,6 +1,6 @@
 import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
-import { createGameIfNotExists, getEvents, initDb } from '../src/db/index.js';
+import { createGameIfNotExists, deleteGame, getEvents, initDb } from '../src/db/index.js';
 import { registerGameActions } from '../src/socket/game-actions.js';
 import { initializePriorityResolutionHandler, registerResolutionHandlers } from '../src/socket/resolution.js';
 import { ensureGame } from '../src/socket/util.js';
@@ -46,17 +46,21 @@ describe('Gift cast choice flow', () => {
   const stackGameId = 'test_gift_cast_choice_stack';
   const playerId = 'p1';
 
+  async function resetGame(gameId: string) {
+    ResolutionQueueManager.removeQueue(gameId);
+    games.delete(gameId as any);
+    await deleteGame(gameId);
+  }
+
   beforeAll(async () => {
     await initDb();
     initializePriorityResolutionHandler(createNoopIo() as any);
     await new Promise(resolve => setTimeout(resolve, 0));
   });
 
-  beforeEach(() => {
-    ResolutionQueueManager.removeQueue(targetingGameId);
-    ResolutionQueueManager.removeQueue(stackGameId);
-    games.delete(targetingGameId as any);
-    games.delete(stackGameId as any);
+  beforeEach(async () => {
+    await resetGame(targetingGameId);
+    await resetGame(stackGameId);
   });
 
   it('widens target selection after promising a gift for Long River\'s Pull', async () => {
