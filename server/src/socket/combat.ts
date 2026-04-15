@@ -13,6 +13,7 @@ import { getTapTriggers, type TriggeredAbility } from "../state/modules/triggere
 import { buildTapTriggeredStackItem, serializeTapTriggeredStackItem } from "../state/modules/triggers/tap-untap.js";
 import { getAttackTriggersForCreatures } from "../state/modules/triggers/combat.js";
 import { isInterveningIfSatisfied } from "../state/modules/triggers/intervening-if.js";
+import { transformPermanentToFace } from "../state/modules/day-night.js";
 import { creatureHasHaste, permanentHasKeyword } from "./game-actions.js";
 import { debug, debugWarn, debugError } from "../utils/debug.js";
 import { ResolutionQueueManager, ResolutionStepType } from "../state/resolution/index.js";
@@ -97,16 +98,13 @@ export function resolveAttackTriggerManaPaymentChoice(
       const newFace = cardFaces[newFaceIndex];
 
       if (newFace) {
-        permanent.card = {
-          ...permanent.card,
-          name: newFace.name,
-          type_line: newFace.type_line,
-          oracle_text: newFace.oracle_text,
-          power: newFace.power,
-          toughness: newFace.toughness,
-          mana_cost: newFace.mana_cost,
-          colors: newFace.colors,
-        } as any;
+        transformPermanentToFace(permanent, newFaceIndex);
+        if ('mana_cost' in newFace) {
+          permanent.card.mana_cost = newFace.mana_cost;
+        }
+        if ('colors' in newFace) {
+          permanent.card.colors = newFace.colors;
+        }
 
         const newName = String(newFace.name || '');
         if (newName.toLowerCase().includes('pathbreaker owlbear')) {

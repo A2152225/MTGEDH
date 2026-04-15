@@ -1,4 +1,4 @@
-import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 import { initDb, createGameIfNotExists, deleteGame } from '../src/db/index.js';
 import { ensureGame } from '../src/socket/util.js';
@@ -85,6 +85,10 @@ describe('optional triggered ability integration', () => {
   });
 
   beforeEach(async () => {
+    await resetGame(gameId);
+  });
+
+  afterEach(async () => {
     await resetGame(gameId);
   });
 

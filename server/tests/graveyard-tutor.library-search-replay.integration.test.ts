@@ -1,4 +1,4 @@
-import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 import { createGameIfNotExists, deleteGame, getEvents, initDb } from '../src/db/index.js';
 import { registerInteractionHandlers } from '../src/socket/interaction.js';
@@ -147,13 +147,30 @@ async function seedExileTutorGame(gameId: string) {
 
 describe('graveyard tutor library-search replay semantics (integration)', () => {
   const gameId = 'test_graveyard_tutor_library_search_replay';
+  const resetGameIds = [
+    gameId,
+    `${gameId}_replay`,
+    `${gameId}_pending`,
+    `${gameId}_exile_cost_live`,
+    `${gameId}_self_etb_persistence_live`,
+    `${gameId}_self_etb_persistence_live_replay`,
+    `${gameId}_exile_cost_pending`,
+  ];
 
   beforeAll(async () => {
     await initDb();
   });
 
   beforeEach(async () => {
-    await resetGame(gameId);
+    for (const currentGameId of resetGameIds) {
+      await resetGame(currentGameId);
+    }
+  });
+
+  afterEach(async () => {
+    for (const currentGameId of resetGameIds) {
+      await resetGame(currentGameId);
+    }
   });
 
   it('persists and replays the resolved library search for a graveyard tutor activation', async () => {

@@ -1,4 +1,4 @@
-import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { createGameIfNotExists, deleteGame, initDb } from '../src/db/index.js';
 import { ensureGame } from '../src/socket/util.js';
 import '../src/state/modules/priority.js';
@@ -97,6 +97,11 @@ describe('Banneret request-cast flow (integration)', () => {
   });
 
   beforeEach(async () => {
+    await resetGame('test_stonybrook_banneret_request_cast');
+    await resetGame('test_ballyrush_banneret_request_cast');
+  });
+
+  afterEach(async () => {
     await resetGame('test_stonybrook_banneret_request_cast');
     await resetGame('test_ballyrush_banneret_request_cast');
   });

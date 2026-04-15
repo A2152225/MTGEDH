@@ -1,6 +1,6 @@
-import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
-import { createGameIfNotExists, getEvents, initDb } from '../src/db/index.js';
+import { createGameIfNotExists, deleteGame, getEvents, initDb } from '../src/db/index.js';
 import { registerResolutionHandlers } from '../src/socket/resolution.js';
 import { games } from '../src/socket/socket.js';
 import { ensureGame } from '../src/socket/util.js';
@@ -27,6 +27,12 @@ function createMockSocket(playerId: string, gameId: string, emitted: Array<{ roo
     },
   } as any;
   return { socket, handlers };
+}
+
+async function resetGame(gameId: string) {
+  ResolutionQueueManager.removeQueue(gameId);
+  games.delete(gameId as any);
+  await deleteGame(gameId);
 }
 
 function seedGame(gameId: string) {
@@ -66,14 +72,22 @@ function seedGame(gameId: string) {
 
 describe('playable-from-exile library-search replay semantics (integration)', () => {
   const gameId = 'test_playable_from_exile_library_search_replay';
+  const resetGameIds = [gameId, `${gameId}_replay`];
 
   beforeAll(async () => {
     await initDb();
   });
 
-  beforeEach(() => {
-    ResolutionQueueManager.removeQueue(gameId);
-    games.delete(gameId as any);
+  beforeEach(async () => {
+    for (const currentGameId of resetGameIds) {
+      await resetGame(currentGameId);
+    }
+  });
+
+  afterEach(async () => {
+    for (const currentGameId of resetGameIds) {
+      await resetGame(currentGameId);
+    }
   });
 
   it('persists and replays exile-play permissions from a resolved library search', async () => {

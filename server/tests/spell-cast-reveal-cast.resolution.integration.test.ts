@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { initDb, createGameIfNotExists, deleteGame, getEvents } from '../src/db/index.js';
 import { ensureGame } from '../src/socket/util.js';
 import '../src/state/modules/priority.js';
@@ -62,6 +62,10 @@ describe('spell-cast reveal/cast queue flow (integration)', () => {
   });
 
   beforeEach(async () => {
+    await resetGame(gameId);
+  });
+
+  afterEach(async () => {
     await resetGame(gameId);
   });
 

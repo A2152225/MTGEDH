@@ -1,4 +1,4 @@
-import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 import { createGameIfNotExists, deleteGame, getEvents, initDb } from '../src/db/index.js';
 import { createInitialGameState } from '../src/state/gameState.js';
@@ -96,6 +96,17 @@ describe('Join Forces replay persistence', () => {
   });
 
   beforeEach(async () => {
+    for (const id of [
+      'test_join_forces_partial_live',
+      'test_join_forces_complete_live',
+      'test_join_forces_partial_replay',
+      'test_join_forces_collective_replay',
+    ]) {
+      await resetGame(id);
+    }
+  });
+
+  afterEach(async () => {
     for (const id of [
       'test_join_forces_partial_live',
       'test_join_forces_complete_live',

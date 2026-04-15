@@ -1,10 +1,16 @@
-import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
-import { createGameIfNotExists, initDb } from '../src/db/index.js';
+import { createGameIfNotExists, deleteGame, initDb } from '../src/db/index.js';
 import { registerJoinHandlers } from '../src/socket/join.js';
 import { games } from '../src/socket/socket.js';
 import { ensureGame } from '../src/socket/util.js';
 import { ResolutionQueueManager } from '../src/state/resolution/index.js';
+
+async function resetGame(gameId: string) {
+  ResolutionQueueManager.removeQueue(gameId);
+  games.delete(gameId as any);
+  await deleteGame(gameId);
+}
 
 function createMockIo(emitted: Array<{ room?: string; event: string; payload: any }>) {
   return {
@@ -43,9 +49,12 @@ describe('joinGame pending cascade restore (integration)', () => {
     await initDb();
   });
 
-  beforeEach(() => {
-    ResolutionQueueManager.removeQueue(gameId);
-    games.delete(gameId as any);
+  beforeEach(async () => {
+    await resetGame(gameId);
+  });
+
+  afterEach(async () => {
+    await resetGame(gameId);
   });
 
   it('rebuilds a cascade prompt from pending cast state before sending the join prompt', async () => {

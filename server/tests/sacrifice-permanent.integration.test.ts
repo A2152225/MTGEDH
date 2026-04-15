@@ -1,4 +1,4 @@
-import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 import { createGameIfNotExists, deleteGame, getEvents, initDb } from '../src/db/index.js';
 import { ensureGame } from '../src/socket/util.js';
@@ -48,6 +48,12 @@ describe('sacrificePermanent live tracking (integration)', () => {
   });
 
   beforeEach(async () => {
+    for (const gameId of resetGameIds) {
+      await resetGame(gameId);
+    }
+  });
+
+  afterEach(async () => {
     for (const gameId of resetGameIds) {
       await resetGame(gameId);
     }

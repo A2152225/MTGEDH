@@ -1,7 +1,7 @@
-import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 import type { PlayerID } from '../../shared/src/index.js';
-import { createGameIfNotExists, getEvents, initDb } from '../src/db/index.js';
+import { createGameIfNotExists, deleteGame, getEvents, initDb } from '../src/db/index.js';
 import { ensureGame } from '../src/socket/util.js';
 import { games } from '../src/socket/socket.js';
 import { registerResolutionHandlers, initializePriorityResolutionHandler } from '../src/socket/resolution.js';
@@ -45,6 +45,12 @@ function createMockSocket(playerId: string, gameId: string, emitted: Array<{ roo
   return { socket, handlers };
 }
 
+async function resetGame(gameId: string) {
+  ResolutionQueueManager.removeQueue(gameId);
+  games.delete(gameId as any);
+  await deleteGame(gameId);
+}
+
 describe('spell library search regressions', () => {
   const gameId = 'test_spell_library_search_regressions';
   const playerId = 'p1';
@@ -55,9 +61,12 @@ describe('spell library search regressions', () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
   });
 
-  beforeEach(() => {
-    ResolutionQueueManager.removeQueue(gameId);
-    games.delete(gameId as any);
+  beforeEach(async () => {
+    await resetGame(gameId);
+  });
+
+  afterEach(async () => {
+    await resetGame(gameId);
   });
 
   it('filters Skyshroud Claim to Forests and puts both selected lands onto the battlefield', async () => {

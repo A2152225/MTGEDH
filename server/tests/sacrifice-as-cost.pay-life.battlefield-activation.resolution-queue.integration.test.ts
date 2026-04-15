@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { initDb, createGameIfNotExists, deleteGame } from '../src/db/index.js';
 import { ensureGame } from '../src/socket/util.js';
 import '../src/state/modules/priority.js';
@@ -63,6 +63,10 @@ describe('Pay-life + sacrifice as activation cost via Resolution Queue (integrat
   });
 
   beforeEach(async () => {
+    await resetGame(gameId);
+  });
+
+  afterEach(async () => {
     await resetGame(gameId);
   });
 

@@ -1,9 +1,15 @@
-import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
-import { createGameIfNotExists, initDb } from '../src/db/index.js';
+import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { createGameIfNotExists, deleteGame, initDb } from '../src/db/index.js';
 import { ensureGame } from '../src/socket/util.js';
 import { registerJoinHandlers } from '../src/socket/join.js';
 import { ResolutionQueueManager, ResolutionStepType } from '../src/state/resolution/index.js';
 import { games } from '../src/socket/socket.js';
+
+async function resetGame(gameId: string) {
+  ResolutionQueueManager.removeQueue(gameId);
+  games.delete(gameId as any);
+  await deleteGame(gameId);
+}
 
 function createMockIo(emitted: Array<{ room?: string; event: string; payload: any }>) {
   return {
@@ -42,9 +48,12 @@ describe('joinGame pending resolution step resend (integration)', () => {
     await initDb();
   });
 
-  beforeEach(() => {
-    ResolutionQueueManager.removeQueue(gameId);
-    games.delete(gameId as any);
+  beforeEach(async () => {
+    await resetGame(gameId);
+  });
+
+  afterEach(async () => {
+    await resetGame(gameId);
   });
 
   it('emits the next pending resolution step after join state', async () => {

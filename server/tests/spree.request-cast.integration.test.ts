@@ -1,4 +1,4 @@
-import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 import { createGameIfNotExists, deleteGame, getEvents, initDb } from '../src/db/index.js';
 import { registerGameActions } from '../src/socket/game-actions.js';
@@ -46,6 +46,10 @@ describe('Spree requestCastSpell prompt persistence', () => {
   });
 
   beforeEach(async () => {
+    await resetGame(gameId);
+  });
+
+  afterEach(async () => {
     await resetGame(gameId);
   });
 

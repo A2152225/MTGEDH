@@ -1,4 +1,4 @@
-import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 import { createGameIfNotExists, deleteGame, getEvents, initDb } from '../src/db/index.js';
 import { createInitialGameState } from '../src/state/gameState.js';
@@ -47,6 +47,10 @@ describe('tapPermanent replay semantics', () => {
   });
 
   beforeEach(async () => {
+    await resetGame(gameId);
+  });
+
+  afterEach(async () => {
     await resetGame(gameId);
   });
 

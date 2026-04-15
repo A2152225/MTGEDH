@@ -1,4 +1,4 @@
-import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 import { createGameIfNotExists, deleteGame, getEvents, initDb } from '../src/db/index.js';
 import { createInitialGameState } from '../src/state/gameState.js';
@@ -89,6 +89,16 @@ describe('Tempting Offer replay persistence', () => {
   });
 
   beforeEach(async () => {
+    for (const id of [
+      'test_tempting_offer_partial_live',
+      'test_tempting_offer_partial_replay',
+      'test_tempting_offer_complete_replay',
+    ]) {
+      await resetGame(id);
+    }
+  });
+
+  afterEach(async () => {
     for (const id of [
       'test_tempting_offer_partial_live',
       'test_tempting_offer_partial_replay',

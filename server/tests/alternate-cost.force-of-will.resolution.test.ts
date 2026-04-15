@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
-import { initDb, createGameIfNotExists } from '../src/db/index.js';
+import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { initDb, createGameIfNotExists, deleteGame } from '../src/db/index.js';
 import { ensureGame } from '../src/socket/util.js';
 import { registerResolutionHandlers } from '../src/socket/resolution.js';
 import { ResolutionQueueManager, ResolutionStepType } from '../src/state/resolution/index.js';
@@ -41,6 +41,12 @@ function createMockSocket(
   return { socket, handlers };
 }
 
+async function resetGame(gameId: string) {
+  ResolutionQueueManager.removeQueue(gameId);
+  games.delete(gameId as any);
+  await deleteGame(gameId);
+}
+
 describe('Resolution FORCE alternate cost (Force of Will / Negation style)', () => {
   const gameId = 'test_resolution_force_alt_cost';
 
@@ -48,9 +54,12 @@ describe('Resolution FORCE alternate cost (Force of Will / Negation style)', () 
     await initDb();
   });
 
-  beforeEach(() => {
-    ResolutionQueueManager.removeQueue(gameId);
-    games.delete(gameId as any);
+  beforeEach(async () => {
+    await resetGame(gameId);
+  });
+
+  afterEach(async () => {
+    await resetGame(gameId);
   });
 
   it('exiles the chosen blue card, pays life, and resumes casting', async () => {

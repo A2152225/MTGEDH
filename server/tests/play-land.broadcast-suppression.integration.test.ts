@@ -1,4 +1,4 @@
-import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createGameIfNotExists, deleteGame, initDb } from '../src/db/index.js';
 import { registerGameActions } from '../src/socket/game-actions.js';
@@ -47,6 +47,10 @@ describe('play land broadcast automation suppression (integration)', () => {
   });
 
   beforeEach(async () => {
+    await resetGame(gameId);
+  });
+
+  afterEach(async () => {
     await resetGame(gameId);
   });
 

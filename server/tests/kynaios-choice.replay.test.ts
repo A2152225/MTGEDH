@@ -1,4 +1,4 @@
-import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 import { createGameIfNotExists, deleteGame, getEvents, initDb } from '../src/db/index.js';
 import { createInitialGameState } from '../src/state/gameState.js';
@@ -133,6 +133,16 @@ describe('Kynaios choice replay persistence', () => {
   });
 
   beforeEach(async () => {
+    for (const id of [
+      gameId,
+      'test_kynaios_choice_replay_partial',
+      'test_kynaios_choice_replay_complete',
+    ]) {
+      await resetGame(id);
+    }
+  });
+
+  afterEach(async () => {
     for (const id of [
       gameId,
       'test_kynaios_choice_replay_partial',

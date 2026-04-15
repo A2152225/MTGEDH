@@ -1,4 +1,4 @@
-import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 import { createGameIfNotExists, deleteGame, getEvents, initDb } from '../src/db/index.js';
 import { games } from '../src/socket/socket.js';
@@ -37,6 +37,14 @@ describe('pending-effect prompt persistence (integration)', () => {
   });
 
   beforeEach(async () => {
+    for (const gameId of [cascadeGameId, ponderGameId, proliferateGameId, vaultGameId, danceGameId]) {
+      ResolutionQueueManager.removeQueue(gameId);
+      games.delete(gameId as any);
+      await deleteGame(gameId);
+    }
+  });
+
+  afterEach(async () => {
     for (const gameId of [cascadeGameId, ponderGameId, proliferateGameId, vaultGameId, danceGameId]) {
       ResolutionQueueManager.removeQueue(gameId);
       games.delete(gameId as any);

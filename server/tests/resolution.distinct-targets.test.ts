@@ -1,9 +1,15 @@
-import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
-import { initDb, createGameIfNotExists } from '../src/db/index.js';
+import { describe, it, expect, beforeAll, beforeEach, afterEach } from 'vitest';
+import { initDb, createGameIfNotExists, deleteGame } from '../src/db/index.js';
 import { ensureGame } from '../src/socket/util.js';
 import { registerResolutionHandlers } from '../src/socket/resolution.js';
 import { ResolutionQueueManager, ResolutionStepType } from '../src/state/resolution/index.js';
 import { games } from '../src/socket/socket.js';
+
+async function resetGame(gameId: string) {
+  ResolutionQueueManager.removeQueue(gameId);
+  games.delete(gameId as any);
+  await deleteGame(gameId);
+}
 
 function createMockIo(emitted: Array<{ room?: string; event: string; payload: any }>) {
   return {
@@ -35,33 +41,35 @@ function createMockSocket(
   return { socket, handlers };
 }
 
+const distinctTargetGameIds = [
+  'test_resolution_distinct_cross_step',
+  'test_resolution_distinct_non_target_another',
+  'test_resolution_distinct_other_target',
+  'test_resolution_distinct_second_target',
+  'test_resolution_distinct_new_target',
+  'test_resolution_distinct_other_targets_plural',
+  'test_resolution_distinct_different_creature_target',
+  'test_resolution_distinct_another_permanent_target',
+  'test_resolution_distinct_other_than_that_target',
+  'test_resolution_distinct_other_than_chosen_target',
+  'test_resolution_distinct_single_step',
+];
+
 describe('Resolution TARGET_SELECTION distinct-target enforcement', () => {
   beforeAll(async () => {
     await initDb();
   });
 
-  beforeEach(() => {
-    // Ensure no cross-test queue bleed (each test uses a unique gameId, but be extra safe)
-    ResolutionQueueManager.removeQueue('test_resolution_distinct_cross_step');
-    ResolutionQueueManager.removeQueue('test_resolution_distinct_single_step');
-    ResolutionQueueManager.removeQueue('test_resolution_distinct_other_target');
-    ResolutionQueueManager.removeQueue('test_resolution_distinct_second_target');
-    ResolutionQueueManager.removeQueue('test_resolution_distinct_new_target');
-    ResolutionQueueManager.removeQueue('test_resolution_distinct_other_targets_plural');
-    ResolutionQueueManager.removeQueue('test_resolution_distinct_different_creature_target');
-    ResolutionQueueManager.removeQueue('test_resolution_distinct_another_permanent_target');
-    ResolutionQueueManager.removeQueue('test_resolution_distinct_other_than_that_target');
-    ResolutionQueueManager.removeQueue('test_resolution_distinct_other_than_chosen_target');
-    games.delete('test_resolution_distinct_cross_step' as any);
-    games.delete('test_resolution_distinct_single_step' as any);
-    games.delete('test_resolution_distinct_other_target' as any);
-    games.delete('test_resolution_distinct_second_target' as any);
-    games.delete('test_resolution_distinct_new_target' as any);
-    games.delete('test_resolution_distinct_other_targets_plural' as any);
-    games.delete('test_resolution_distinct_different_creature_target' as any);
-    games.delete('test_resolution_distinct_another_permanent_target' as any);
-    games.delete('test_resolution_distinct_other_than_that_target' as any);
-    games.delete('test_resolution_distinct_other_than_chosen_target' as any);
+  beforeEach(async () => {
+    for (const gameId of distinctTargetGameIds) {
+      await resetGame(gameId);
+    }
+  });
+
+  afterEach(async () => {
+    for (const gameId of distinctTargetGameIds) {
+      await resetGame(gameId);
+    }
   });
 
   it('rejects selecting the same id across sequential TARGET_SELECTION steps for the same sourceId', async () => {

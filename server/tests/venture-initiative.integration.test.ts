@@ -1,4 +1,4 @@
-import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 import { createGameIfNotExists, deleteGame, getEvents, initDb } from '../src/db/index.js';
 import { ensureGame } from '../src/socket/util.js';
@@ -75,6 +75,37 @@ describe('venture and initiative support (integration)', () => {
   const initiativeAdvanceGameId = 'test_initiative_advance_integration';
   const initiativeUpkeepGameId = 'test_initiative_upkeep_integration';
   const initiativeSpellGameId = 'test_initiative_spell_integration';
+  const resetGameIds = [
+    venturePromptGameId,
+    ventureChoiceGameId,
+    ventureChoiceScryGameId,
+    ventureBranchPromptGameId,
+    ventureBranchChoiceGameId,
+    ventureForgeChoiceGameId,
+    ventureTrapChoiceGameId,
+    ventureArenaChoiceGameId,
+    ventureVeilsChoiceGameId,
+    ventureSandfallChoiceGameId,
+    ventureOublietteChoiceGameId,
+    ventureStashChoiceGameId,
+    ventureFungiChoiceGameId,
+    ventureRunestoneChoiceGameId,
+    ventureAutoRoomGameId,
+    ventureCradleAutoRoomGameId,
+    ventureTwistedChoiceGameId,
+    ventureMadWizardAutoRoomGameId,
+    ventureThroneAutoRoomGameId,
+    initiativeTakeGameId,
+    initiativeAdvanceGameId,
+    initiativeUpkeepGameId,
+    initiativeSpellGameId,
+  ];
+
+  async function resetGame(gameId: string) {
+    ResolutionQueueManager.removeQueue(gameId);
+    games.delete(gameId as any);
+    await deleteGame(gameId);
+  }
 
   beforeAll(async () => {
     await initDb();
@@ -83,34 +114,14 @@ describe('venture and initiative support (integration)', () => {
   });
 
   beforeEach(async () => {
-    for (const gameId of [
-      venturePromptGameId,
-      ventureChoiceGameId,
-      ventureChoiceScryGameId,
-      ventureBranchPromptGameId,
-      ventureBranchChoiceGameId,
-      ventureForgeChoiceGameId,
-      ventureTrapChoiceGameId,
-      ventureArenaChoiceGameId,
-      ventureVeilsChoiceGameId,
-      ventureSandfallChoiceGameId,
-      ventureOublietteChoiceGameId,
-      ventureStashChoiceGameId,
-      ventureFungiChoiceGameId,
-      ventureRunestoneChoiceGameId,
-      ventureAutoRoomGameId,
-      ventureCradleAutoRoomGameId,
-      ventureTwistedChoiceGameId,
-      ventureMadWizardAutoRoomGameId,
-      ventureThroneAutoRoomGameId,
-      initiativeTakeGameId,
-      initiativeAdvanceGameId,
-      initiativeUpkeepGameId,
-      initiativeSpellGameId,
-    ]) {
-      ResolutionQueueManager.removeQueue(gameId);
-      games.delete(gameId as any);
-      await deleteGame(gameId);
+    for (const gameId of resetGameIds) {
+      await resetGame(gameId);
+    }
+  });
+
+  afterEach(async () => {
+    for (const gameId of resetGameIds) {
+      await resetGame(gameId);
     }
   });
 

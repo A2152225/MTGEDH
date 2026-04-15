@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
-import { initDb, createGameIfNotExists } from '../src/db/index.js';
+import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { initDb, createGameIfNotExists, deleteGame } from '../src/db/index.js';
 import { ensureGame } from '../src/socket/util.js';
 import '../src/state/modules/priority.js';
 import { registerResolutionHandlers, initializePriorityResolutionHandler } from '../src/socket/resolution.js';
@@ -46,6 +46,12 @@ function createMockSocket(playerId: string, emitted: Array<{ room?: string; even
   return { socket, handlers };
 }
 
+async function resetGame(gameId: string) {
+  ResolutionQueueManager.removeQueue(gameId);
+  games.delete(gameId as any);
+  await deleteGame(gameId);
+}
+
 function initializePromenadePaymentGame(game: any, playerId: string, battlefield: any[]) {
   (game.state as any).players = [{ id: playerId, name: 'P1', spectator: false, life: 40 }];
   (game.state as any).startingLife = 40;
@@ -75,7 +81,20 @@ function queuePromenadeManaPaymentChoice(gameId: string, playerId: string) {
 }
 
 describe('sacrificeUnlessPayChoice validate-before-complete (integration)', () => {
-  const createGameId = () => `test_sacrifice_unless_pay_choice_validate_before_complete_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  const trackedGameIds = new Set<string>();
+  const createGameId = () => {
+    const gameId = `test_sacrifice_unless_pay_choice_validate_before_complete_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    trackedGameIds.add(gameId);
+    return gameId;
+  };
+
+  async function resetTrackedGames() {
+    const gameIds = [...trackedGameIds];
+    trackedGameIds.clear();
+    for (const gameId of gameIds) {
+      await resetGame(gameId);
+    }
+  }
 
   beforeAll(async () => {
     await initDb();
@@ -83,8 +102,12 @@ describe('sacrificeUnlessPayChoice validate-before-complete (integration)', () =
     await new Promise(resolve => setTimeout(resolve, 0));
   });
 
-  beforeEach(() => {
-    // Each test uses a unique game id to avoid persisted replay residue.
+  beforeEach(async () => {
+    await resetTrackedGames();
+  });
+
+  afterEach(async () => {
+    await resetTrackedGames();
   });
 
   it('does not consume the step or sacrifice on insufficient mana', async () => {

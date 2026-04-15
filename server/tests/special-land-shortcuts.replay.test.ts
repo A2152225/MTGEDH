@@ -1,4 +1,4 @@
-import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 import { createGameIfNotExists, deleteGame, getEvents, initDb } from '../src/db/index.js';
 import { createInitialGameState } from '../src/state/gameState.js';
@@ -57,6 +57,23 @@ describe('special land shortcut replay persistence', () => {
   });
 
   beforeEach(async () => {
+    for (const id of [
+      gameId,
+      `${gameId}_hybrid`,
+      `${gameId}_storage`,
+      `${gameId}_storage_remove`,
+      `${gameId}_hideaway`,
+      `${gameId}_rehydrated`,
+      `${gameId}_hybrid_rehydrated`,
+      `${gameId}_storage_rehydrated`,
+      `${gameId}_storage_remove_rehydrated`,
+      `${gameId}_hideaway_rehydrated`,
+    ]) {
+      await resetGame(id);
+    }
+  });
+
+  afterEach(async () => {
     for (const id of [
       gameId,
       `${gameId}_hybrid`,

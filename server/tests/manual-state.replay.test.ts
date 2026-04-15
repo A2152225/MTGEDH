@@ -1,4 +1,4 @@
-import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 import { createGameIfNotExists, deleteGame, getEvents, initDb } from '../src/db/index.js';
 import { createInitialGameState } from '../src/state/gameState.js';
@@ -48,6 +48,11 @@ describe('manual state replay persistence', () => {
   });
 
   beforeEach(async () => {
+    await resetGame(gameId);
+    await resetGame(`${gameId}_control`);
+  });
+
+  afterEach(async () => {
     await resetGame(gameId);
     await resetGame(`${gameId}_control`);
   });

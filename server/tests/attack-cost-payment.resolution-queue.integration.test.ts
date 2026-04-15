@@ -1,12 +1,18 @@
-import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
-import { createGameIfNotExists, initDb } from '../src/db/index.js';
+import { createGameIfNotExists, deleteGame, initDb } from '../src/db/index.js';
 import { registerCombatHandlers } from '../src/socket/combat.js';
 import { registerResolutionHandlers, initializePriorityResolutionHandler } from '../src/socket/resolution.js';
 import { ensureGame } from '../src/socket/util.js';
 import { games } from '../src/socket/socket.js';
 import { ResolutionQueueManager } from '../src/state/resolution/index.js';
 import '../src/state/modules/priority.js';
+
+async function resetGame(gameId: string) {
+  ResolutionQueueManager.removeQueue(gameId);
+  games.delete(gameId as any);
+  await deleteGame(gameId);
+}
 
 function createNoopIo() {
   return {
@@ -45,6 +51,7 @@ function createMockSocket(playerId: string, emitted: Array<{ room?: string; even
 }
 
 describe('attack cost payment via Resolution Queue (integration)', () => {
+  const trackedGameIds = new Set<string>();
   const createGameId = () => `test_attack_cost_payment_resolution_queue_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 
   beforeAll(async () => {
@@ -53,14 +60,24 @@ describe('attack cost payment via Resolution Queue (integration)', () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
   });
 
-  beforeEach(() => {
-    // Each test uses a unique game id to avoid persisted replay residue.
+  beforeEach(async () => {
+    for (const gameId of trackedGameIds) {
+      await resetGame(gameId);
+    }
+    trackedGameIds.clear();
+  });
+
+  afterEach(async () => {
+    for (const gameId of trackedGameIds) {
+      await resetGame(gameId);
+    }
+    trackedGameIds.clear();
   });
 
   it('prompts for Windborn Muse tax and resolves the attack after paying from untapped lands', async () => {
     const gameId = createGameId();
-    ResolutionQueueManager.removeQueue(gameId);
-    games.delete(gameId as any);
+    trackedGameIds.add(gameId);
+    await resetGame(gameId);
     createGameIfNotExists(gameId, 'commander', 40);
     const game = ensureGame(gameId);
     if (!game) throw new Error('ensureGame returned undefined');

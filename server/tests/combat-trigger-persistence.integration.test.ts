@@ -1,11 +1,16 @@
-import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
-import { initDb, createGameIfNotExists, getEvents } from '../src/db/index.js';
+import { initDb, createGameIfNotExists, deleteGame, getEvents } from '../src/db/index.js';
 import { createInitialGameState } from '../src/state/gameState.js';
 import { ensureGame } from '../src/socket/util.js';
 import { registerCombatHandlers } from '../src/socket/combat.js';
 import { games } from '../src/socket/socket.js';
 import type { PlayerID } from '../../shared/src';
+
+async function resetGame(gameId: string) {
+  games.delete(gameId as any);
+  await deleteGame(gameId);
+}
 
 function createMockIo(emitted: Array<{ room?: string; event: string; payload: any }>, sockets: any[] = []) {
   return {
@@ -40,16 +45,29 @@ function addPlayer(game: any, id: PlayerID, name: string) {
 }
 
 describe('combat trigger persistence', () => {
+  const trackedGameIds = new Set<string>();
+
   beforeAll(async () => {
     await initDb();
   });
 
-  beforeEach(() => {
-    games.clear();
+  beforeEach(async () => {
+    for (const gameId of trackedGameIds) {
+      await resetGame(gameId);
+    }
+    trackedGameIds.clear();
+  });
+
+  afterEach(async () => {
+    for (const gameId of trackedGameIds) {
+      await resetGame(gameId);
+    }
+    trackedGameIds.clear();
   });
 
   it('persists attack trigger stack pushes as pushTriggeredAbility events', async () => {
     const gameId = `test_combat_trigger_persistence_${Date.now()}`;
+    trackedGameIds.add(gameId);
     createGameIfNotExists(gameId, 'commander', 40);
     const game = ensureGame(gameId);
     if (!game) throw new Error('ensureGame returned undefined');
@@ -154,6 +172,7 @@ describe('combat trigger persistence', () => {
 
   it('grants Agent of the Shadow Thieves attack trigger to a battlefield commander flagged with isCommander', async () => {
     const gameId = `test_agent_background_attack_trigger_${Date.now()}`;
+    trackedGameIds.add(gameId);
     createGameIfNotExists(gameId, 'commander', 40);
     const game = ensureGame(gameId);
     if (!game) throw new Error('ensureGame returned undefined');

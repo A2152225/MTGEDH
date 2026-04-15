@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
-import { initDb, createGameIfNotExists } from '../src/db/index.js';
+import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { initDb, createGameIfNotExists, deleteGame } from '../src/db/index.js';
 import { ensureGame } from '../src/socket/util.js';
 import { registerResolutionHandlers } from '../src/socket/resolution.js';
 import { ResolutionQueueManager, ResolutionStepType } from '../src/state/resolution/index.js';
@@ -35,21 +35,34 @@ function createMockSocket(
   return { socket, handlers };
 }
 
+async function resetGame(gameId: string) {
+  ResolutionQueueManager.removeQueue(gameId);
+  games.delete(gameId as any);
+  await deleteGame(gameId);
+}
+
 describe('Legacy cleanup: pendingLibrarySearch is not created', () => {
+  const resetGameIds = [
+    'test_collective_voyage',
+    'test_tempt_with_discovery',
+    'test_library_search_invalid_selection',
+    'test_library_search_split_destination',
+  ];
+
   beforeAll(async () => {
     await initDb();
   });
 
-  beforeEach(() => {
-    // Ensure no cross-test queue bleed
-    ResolutionQueueManager.removeQueue('test_collective_voyage');
-    ResolutionQueueManager.removeQueue('test_tempt_with_discovery');
-    ResolutionQueueManager.removeQueue('test_library_search_invalid_selection');
-    ResolutionQueueManager.removeQueue('test_library_search_split_destination');
-    games.delete('test_collective_voyage' as any);
-    games.delete('test_tempt_with_discovery' as any);
-    games.delete('test_library_search_invalid_selection' as any);
-    games.delete('test_library_search_split_destination' as any);
+  beforeEach(async () => {
+    for (const gameId of resetGameIds) {
+      await resetGame(gameId);
+    }
+  });
+
+  afterEach(async () => {
+    for (const gameId of resetGameIds) {
+      await resetGame(gameId);
+    }
   });
 
   it('LIBRARY_SEARCH invalid selection does not consume the step', async () => {

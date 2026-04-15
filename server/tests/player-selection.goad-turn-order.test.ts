@@ -1,6 +1,6 @@
-import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
-import { createGameIfNotExists, initDb } from '../src/db/index.js';
+import { createGameIfNotExists, deleteGame, initDb } from '../src/db/index.js';
 import { ensureGame } from '../src/socket/util.js';
 import { games } from '../src/socket/socket.js';
 import { applyPlayerSelectionEffect } from '../src/socket/player-selection.js';
@@ -14,14 +14,28 @@ function createMockIo() {
   } as any;
 }
 
+async function resetGame(gameId: string) {
+  games.delete(gameId as any);
+  await deleteGame(gameId);
+}
+
 describe('player selection goad turn-order semantics', () => {
+  const resetGameIds = ['test_player_selection_goad_turn_order', 'test_player_selection_goad_turn_order_extra'];
+
   beforeAll(async () => {
     await initDb();
   });
 
-  beforeEach(() => {
-    games.delete('test_player_selection_goad_turn_order' as any);
-    games.delete('test_player_selection_goad_turn_order_extra' as any);
+  beforeEach(async () => {
+    for (const gameId of resetGameIds) {
+      await resetGame(gameId);
+    }
+  });
+
+  afterEach(async () => {
+    for (const gameId of resetGameIds) {
+      await resetGame(gameId);
+    }
   });
 
   it('sets goad expiry to the choosing player\'s next turn in multiplayer order', () => {

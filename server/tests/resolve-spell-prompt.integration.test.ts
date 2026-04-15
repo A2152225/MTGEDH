@@ -1,4 +1,4 @@
-import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 import { createGameIfNotExists, deleteGame, getEvents, initDb } from '../src/db/index.js';
 import { games } from '../src/socket/socket.js';
@@ -17,6 +17,14 @@ describe('resolveSpell prompt persistence (integration)', () => {
   });
 
   beforeEach(async () => {
+    for (const gameId of [ponderGameId, scryGameId, surveilGameId, blightGameId, genesisWaveGameId]) {
+      ResolutionQueueManager.removeQueue(gameId);
+      games.delete(gameId as any);
+      await deleteGame(gameId);
+    }
+  });
+
+  afterEach(async () => {
     for (const gameId of [ponderGameId, scryGameId, surveilGameId, blightGameId, genesisWaveGameId]) {
       ResolutionQueueManager.removeQueue(gameId);
       games.delete(gameId as any);

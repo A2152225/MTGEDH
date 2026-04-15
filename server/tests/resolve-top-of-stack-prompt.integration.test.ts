@@ -1,9 +1,15 @@
-import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 import { createGameIfNotExists, deleteGame, getEvents, initDb } from '../src/db/index.js';
 import { games } from '../src/socket/socket.js';
 import { ensureGame } from '../src/socket/util.js';
 import { ResolutionQueueManager, ResolutionStepType } from '../src/state/resolution/index.js';
+
+async function resetGame(gameId: string) {
+  ResolutionQueueManager.removeQueue(gameId);
+  games.delete(gameId as any);
+  await deleteGame(gameId);
+}
 
 describe('resolveTopOfStack prompt persistence (integration)', () => {
   const targetTriggerGameId = 'test_resolve_top_of_stack_prompt_targeted_trigger';
@@ -17,9 +23,13 @@ describe('resolveTopOfStack prompt persistence (integration)', () => {
 
   beforeEach(async () => {
     for (const gameId of [targetTriggerGameId, merrowGameId, bounceLandGameId, spellColorChoiceGameId]) {
-      ResolutionQueueManager.removeQueue(gameId);
-      games.delete(gameId as any);
-      await deleteGame(gameId);
+      await resetGame(gameId);
+    }
+  });
+
+  afterEach(async () => {
+    for (const gameId of [targetTriggerGameId, merrowGameId, bounceLandGameId, spellColorChoiceGameId]) {
+      await resetGame(gameId);
     }
   });
 

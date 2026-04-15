@@ -1,4 +1,4 @@
-import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 import { createGameIfNotExists, deleteGame, getEvents, initDb } from '../src/db/index.js';
 import { createInitialGameState } from '../src/state/gameState.js';
@@ -56,6 +56,11 @@ describe('bounce land choice replay persistence', () => {
   });
 
   beforeEach(async () => {
+    await resetGame(gameId);
+    await resetGame('test_bounce_land_choice_replay_rehydrated');
+  });
+
+  afterEach(async () => {
     await resetGame(gameId);
     await resetGame('test_bounce_land_choice_replay_rehydrated');
   });

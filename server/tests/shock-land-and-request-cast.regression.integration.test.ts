@@ -1,6 +1,6 @@
-import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { createGameIfNotExists, initDb } from '../src/db/index.js';
+import { createGameIfNotExists, deleteGame, initDb } from '../src/db/index.js';
 import { GameManager } from '../src/GameManager.js';
 import { registerGameActions } from '../src/socket/game-actions.js';
 import { initializePriorityResolutionHandler, registerResolutionHandlers } from '../src/socket/resolution.js';
@@ -42,6 +42,12 @@ function createMockSocket(playerId: string, emitted: Array<{ room?: string; even
   return { socket, handlers };
 }
 
+async function resetGame(gameId: string) {
+  ResolutionQueueManager.removeQueue(gameId);
+  games.delete(gameId as any);
+  await deleteGame(gameId);
+}
+
 describe('shock land and request-cast regressions (integration)', () => {
   const shockGameId = 'test_shock_land_decline_regression';
   const castGameId = 'test_request_cast_duplicate_regression';
@@ -49,6 +55,14 @@ describe('shock land and request-cast regressions (integration)', () => {
   const artifactCastGameId = 'test_request_cast_artifact_completion_regression';
   const modalDfcCastGameId = 'test_request_cast_modal_dfc_spell_face_regression';
   const adventureCastGameId = 'test_request_cast_adventure_face_regression';
+  const resetGameIds = [
+    shockGameId,
+    castGameId,
+    targetedCastGameId,
+    artifactCastGameId,
+    modalDfcCastGameId,
+    adventureCastGameId,
+  ];
   const playerId = 'p1';
   const opponentId = 'p2';
 
@@ -58,19 +72,16 @@ describe('shock land and request-cast regressions (integration)', () => {
     await new Promise(resolve => setTimeout(resolve, 0));
   });
 
-  beforeEach(() => {
-    ResolutionQueueManager.removeQueue(shockGameId);
-    ResolutionQueueManager.removeQueue(castGameId);
-    ResolutionQueueManager.removeQueue(targetedCastGameId);
-    ResolutionQueueManager.removeQueue(artifactCastGameId);
-    ResolutionQueueManager.removeQueue(modalDfcCastGameId);
-    ResolutionQueueManager.removeQueue(adventureCastGameId);
-    games.delete(shockGameId as any);
-    games.delete(castGameId as any);
-    games.delete(targetedCastGameId as any);
-    games.delete(artifactCastGameId as any);
-    games.delete(modalDfcCastGameId as any);
-    games.delete(adventureCastGameId as any);
+  beforeEach(async () => {
+    for (const gameId of resetGameIds) {
+      await resetGame(gameId);
+    }
+  });
+
+  afterEach(async () => {
+    for (const gameId of resetGameIds) {
+      await resetGame(gameId);
+    }
   });
 
   it('keeps Steam Vents tapped when the player chooses enter tapped through the live playLand flow', async () => {

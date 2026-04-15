@@ -1,8 +1,13 @@
-import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { createGameIfNotExists, initDb } from '../src/db/index.js';
+import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { createGameIfNotExists, deleteGame, initDb } from '../src/db/index.js';
 import { registerJoinHandlers } from '../src/socket/join.js';
 import { games } from '../src/socket/socket.js';
 import { ensureGame, broadcastGame } from '../src/socket/util.js';
+
+async function resetGame(gameId: string) {
+  games.delete(gameId as any);
+  await deleteGame(gameId);
+}
 
 function createMockIo(emitted: Array<{ room?: string; event: string; payload: any }>) {
   return {
@@ -45,8 +50,12 @@ describe('joinGame reconnect broadcast delivery (integration)', () => {
     await initDb();
   });
 
-  beforeEach(() => {
-    games.delete(gameId as any);
+  beforeEach(async () => {
+    await resetGame(gameId);
+  });
+
+  afterEach(async () => {
+    await resetGame(gameId);
   });
 
   it('rebinds the participant socket id so later broadcasts reach the refreshed client', async () => {

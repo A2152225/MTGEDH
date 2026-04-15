@@ -1,4 +1,4 @@
-import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 import { createGameIfNotExists, deleteGame, getEvents, initDb } from '../src/db/index.js';
 import { ensureGame } from '../src/socket/util.js';
@@ -58,6 +58,12 @@ function pushOptionalSoulAttendantTrigger(game: any, playerId: string) {
   ];
 }
 
+async function resetGame(gameId: string) {
+  ResolutionQueueManager.removeQueue(gameId);
+  games.delete(gameId as any);
+  await deleteGame(gameId);
+}
+
 describe('optional triggered ability persistence (integration)', () => {
   const acceptGameId = 'test_optional_trigger_persistence_accept';
   const declineGameId = 'test_optional_trigger_persistence_decline';
@@ -71,9 +77,13 @@ describe('optional triggered ability persistence (integration)', () => {
 
   beforeEach(async () => {
     for (const gameId of [acceptGameId, declineGameId]) {
-      ResolutionQueueManager.removeQueue(gameId);
-      games.delete(gameId as any);
-      await deleteGame(gameId);
+      await resetGame(gameId);
+    }
+  });
+
+  afterEach(async () => {
+    for (const gameId of [acceptGameId, declineGameId]) {
+      await resetGame(gameId);
     }
   });
 

@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
-import { initDb, createGameIfNotExists, truncateEventsForUndo, appendEvent, getEventCount, getEvents } from '../src/db/index.js';
+import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { initDb, createGameIfNotExists, deleteGame, truncateEventsForUndo, appendEvent, getEventCount, getEvents } from '../src/db/index.js';
 import { ensureGame } from '../src/socket/util.js';
 import { registerUndoHandlers, clearUndoRequestsForGame } from '../src/socket/undo.js';
 import { games } from '../src/socket/socket.js';
@@ -39,28 +39,35 @@ describe('undo authorization (integration)', () => {
   const gameId = 'test_undo_authorization';
   const wrapperGameId = 'test_undo_authorization_wrapper';
 
+  async function resetGameState(currentGameId: string) {
+    games.delete(currentGameId as any);
+    clearUndoRequestsForGame(currentGameId);
+
+    try {
+      truncateEventsForUndo(currentGameId, 0);
+    } catch {
+      // ignore
+    }
+
+    try {
+      await deleteGame(currentGameId);
+    } catch {
+      // ignore
+    }
+  }
+
   beforeAll(async () => {
     await initDb();
   });
 
-  beforeEach(() => {
-    games.delete(gameId as any);
-    games.delete(wrapperGameId as any);
+  beforeEach(async () => {
+    await resetGameState(gameId);
+    await resetGameState(wrapperGameId);
+  });
 
-    clearUndoRequestsForGame(gameId);
-    clearUndoRequestsForGame(wrapperGameId);
-
-    try {
-      truncateEventsForUndo(gameId, 0);
-    } catch {
-      // ignore
-    }
-
-    try {
-      truncateEventsForUndo(wrapperGameId, 0);
-    } catch {
-      // ignore
-    }
+  afterEach(async () => {
+    await resetGameState(gameId);
+    await resetGameState(wrapperGameId);
   });
 
   it('does not allow a non-participant to reject an undo request', async () => {

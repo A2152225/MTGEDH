@@ -1,6 +1,6 @@
-import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
-import { initDb, createGameIfNotExists } from '../src/db/index.js';
+import { initDb, createGameIfNotExists, deleteGame } from '../src/db/index.js';
 import { ensureGame } from '../src/socket/util.js';
 import { registerResolutionHandlers, initializePriorityResolutionHandler } from '../src/socket/resolution.js';
 import { games } from '../src/socket/socket.js';
@@ -51,16 +51,25 @@ function createMockSocket(playerId: string, emitted: Array<{ room?: string; even
 describe('Protean Hulk library search support', () => {
   const integrationGameId = 'test_protean_hulk_validate_before_complete';
 
+  async function resetPersistedGame() {
+    ResolutionQueueManager.removeQueue(integrationGameId);
+    ResolutionQueueManager.removeQueue('t_protean_hulk_trigger_search');
+    games.delete(integrationGameId as any);
+    await deleteGame(integrationGameId);
+  }
+
   beforeAll(async () => {
     await initDb();
     initializePriorityResolutionHandler(createNoopIo() as any);
     await new Promise((resolve) => setTimeout(resolve, 0));
   });
 
-  beforeEach(() => {
-    ResolutionQueueManager.removeQueue(integrationGameId);
-    ResolutionQueueManager.removeQueue('t_protean_hulk_trigger_search');
-    games.delete(integrationGameId as any);
+  beforeEach(async () => {
+    await resetPersistedGame();
+  });
+
+  afterEach(async () => {
+    await resetPersistedGame();
   });
 
   it('queues a library search step with a total mana value cap when Protean Hulk resolves', () => {

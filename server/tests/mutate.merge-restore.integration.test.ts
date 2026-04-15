@@ -1,28 +1,52 @@
-import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
-import { createGameIfNotExists, getEvents, initDb } from '../src/db/index.js';
+import { createGameIfNotExists, deleteGame, getEvents, initDb } from '../src/db/index.js';
 import { ensureGame } from '../src/socket/util.js';
 import { games } from '../src/socket/socket.js';
 import { ResolutionQueueManager } from '../src/state/resolution/index.js';
 import { createInitialGameState } from '../src/state/gameState.js';
 import type { PlayerID } from '../../shared/src/index.js';
 
+async function resetGame(gameId: string) {
+  ResolutionQueueManager.removeQueue(gameId);
+  games.delete(gameId as any);
+  await deleteGame(gameId);
+}
+
 describe('Mutate merge restore (integration)', () => {
   const gameId = 'test_mutate_merge_restore';
+  const trackedGameIds = new Set<string>();
+
+  function trackGameId(trackedGameId: string) {
+    trackedGameIds.add(trackedGameId);
+    ResolutionQueueManager.removeQueue(trackedGameId);
+    games.delete(trackedGameId as any);
+    return trackedGameId;
+  }
+
+  async function resetTrackedGames() {
+    for (const trackedGameId of trackedGameIds) {
+      await resetGame(trackedGameId);
+    }
+    trackedGameIds.clear();
+  }
 
   beforeAll(async () => {
     await initDb();
   });
 
-  beforeEach(() => {
-    ResolutionQueueManager.removeQueue(gameId);
-    games.delete(gameId as any);
+  beforeEach(async () => {
+    trackedGameIds.clear();
+    await resetGame(gameId);
+  });
+
+  afterEach(async () => {
+    await resetTrackedGames();
+    await resetGame(gameId);
   });
 
   it('merges a mutating creature spell into its target, persists the merge, and restores it from the explicit event', () => {
-    const persistentGameId = `${gameId}_${Math.random().toString(36).slice(2, 10)}`;
-    ResolutionQueueManager.removeQueue(persistentGameId);
-    games.delete(persistentGameId as any);
+    const persistentGameId = trackGameId(`${gameId}_${Math.random().toString(36).slice(2, 10)}`);
 
     createGameIfNotExists(persistentGameId, 'commander', 40);
     const game = ensureGame(persistentGameId);
@@ -125,9 +149,7 @@ describe('Mutate merge restore (integration)', () => {
   });
 
   it('queues and persists mutate triggers, and replays them only from pushTriggeredAbility', () => {
-    const persistentGameId = `${gameId}_${Math.random().toString(36).slice(2, 10)}`;
-    ResolutionQueueManager.removeQueue(persistentGameId);
-    games.delete(persistentGameId as any);
+    const persistentGameId = trackGameId(`${gameId}_${Math.random().toString(36).slice(2, 10)}`);
 
     createGameIfNotExists(persistentGameId, 'commander', 40);
     const game = ensureGame(persistentGameId);
