@@ -51,7 +51,7 @@ import { recordCardLeftGraveyardThisTurn, recordCardPutIntoGraveyardThisTurn } f
 import { applyGoadToCreature } from "./goad-effects.js";
 import { getEffectiveBasicLandTypes } from "./mana-abilities.js";
 import { getTokenImageUrls } from "../../services/tokens.js";
-import { listLocalCardNamesForChoiceSync, parseCardNameChoiceCriteriaFromOracleText } from "../../services/localCardLookup.js";
+import { listLocalCardNamesForChoiceSyncIfReady, parseCardNameChoiceCriteriaFromOracleText } from "../../services/localCardLookup.js";
 import { detectETBTappedPattern, evaluateConditionalLandETB, getLandSubtypes } from "../../socket/land-helpers.js";
 import { queueMayAbilityStep } from '../../socket/may-ability-prompts.js';
 import { queueOptionalPaymentStep } from '../../socket/optional-payment-prompts.js';
@@ -11449,7 +11449,7 @@ export function resolveTopOfStack(ctx: GameContext) {
           : `Choose a ${cardNameChoiceCriteria.restrictionText} name for ${effectiveCard.name}`;
         let candidateNames: string[] | undefined;
         try {
-          candidateNames = listLocalCardNamesForChoiceSync(cardNameChoiceCriteria);
+          candidateNames = listLocalCardNamesForChoiceSyncIfReady(cardNameChoiceCriteria);
         } catch (error) {
           debugWarn(1, `[resolveTopOfStack] Failed to build card-name candidates for ${effectiveCard.name}:`, error);
         }
@@ -12107,7 +12107,7 @@ export function resolveTopOfStack(ctx: GameContext) {
           let candidateNames: string[] | undefined;
 
           try {
-            candidateNames = listLocalCardNamesForChoiceSync(cardNameChoiceCriteria);
+            candidateNames = listLocalCardNamesForChoiceSyncIfReady(cardNameChoiceCriteria);
           } catch (err) {
             debugWarn(1, `[resolveTopOfStack] Failed to gather Academic Probation card-name candidates:`, err);
           }

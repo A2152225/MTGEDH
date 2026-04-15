@@ -215,7 +215,8 @@ describe('activation effect replay semantics', () => {
     expect(String((queue.steps[0] as any)?.destination || '')).toBe('battlefield');
     expect(Boolean((queue.steps[0] as any)?.entersTapped)).toBe(true);
     expect(Array.isArray((queue.steps[0] as any)?.availableCards)).toBe(true);
-    expect((queue.steps[0] as any)?.availableCards).toHaveLength(2);
+    expect((queue.steps[0] as any)?.availableCards).toHaveLength(1);
+    expect(String((queue.steps[0] as any)?.availableCards?.[0]?.id || '')).toBe('forest_1');
   });
 
   it('replays reconfigure unattach battlefield activations by rebuilding the unresolved stack item', () => {

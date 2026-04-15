@@ -49,6 +49,7 @@ const defaultDbFile = path.join(repoRoot, 'server', 'data', 'card-lookup.sqlite'
 let db: DB | null = null;
 let dbFilePath: string | null = null;
 let ensurePromise: Promise<void> | null = null;
+let cardNameChoiceCache = new Map<string, string[]>();
 
 function emitStatus(options: LocalCardLookupOptions | undefined, status: LocalCardLookupStatus): void {
   options?.onStatus?.(status);
@@ -235,6 +236,7 @@ function getDatabase(): DB {
     }
     db = null;
     dbFilePath = null;
+    cardNameChoiceCache.clear();
   }
 
   if (resolvedDbFile !== ':memory:') {
@@ -276,6 +278,48 @@ function isLookupCurrent(database: DB): boolean {
     && readMetaValue(database, 'schema_version') === schemaVersion
     && readMetaValue(database, 'oracle_signature') === getSourceSignature(resolveOracleCardsPath())
     && readMetaValue(database, 'atomic_signature') === getSourceSignature(resolveAtomicCardsPath());
+}
+
+function getCardNameChoiceCacheKey(criteria: CardNameChoiceCriteria): string {
+  return JSON.stringify({
+    restrictionText: criteria.restrictionText,
+    requiredTerms: criteria.requiredTerms,
+    excludedTerms: criteria.excludedTerms,
+    allowedTypeAlternatives: criteria.allowedTypeAlternatives || [],
+  });
+}
+
+function queryLocalCardNamesForChoice(database: DB, criteria: CardNameChoiceCriteria): string[] {
+  const rows = database.prepare('SELECT DISTINCT payload FROM card_lookup').all() as Array<{ payload: string }>;
+  const candidateNames = new Set<string>();
+
+  for (const row of rows) {
+    if (!row?.payload) continue;
+    try {
+      const record = JSON.parse(row.payload) as LocalCardLookupRecord;
+      for (const candidate of getCardNameCandidatesFromRecord(record)) {
+        if (!candidate.name) continue;
+        if (!matchesCardNameChoiceCriteria(candidate.typeLine, criteria)) continue;
+        candidateNames.add(candidate.name);
+      }
+    } catch (error) {
+      debugWarn(1, '[card-lookup] Failed to parse payload while listing card-name candidates', error);
+    }
+  }
+
+  return Array.from(candidateNames).sort((left, right) => left.localeCompare(right));
+}
+
+function getCachedLocalCardNamesForChoice(database: DB, criteria: CardNameChoiceCriteria): string[] {
+  const cacheKey = getCardNameChoiceCacheKey(criteria);
+  const cached = cardNameChoiceCache.get(cacheKey);
+  if (cached) {
+    return cached.slice();
+  }
+
+  const candidateNames = queryLocalCardNamesForChoice(database, criteria);
+  cardNameChoiceCache.set(cacheKey, candidateNames);
+  return candidateNames.slice();
 }
 
 function candidateQuality(card: LocalCardLookupRecord): number {
@@ -504,6 +548,7 @@ async function rebuildLookupIndex(database: DB, options?: LocalCardLookupOptions
   }
 
   debug(1, `[card-lookup] Built lookup table with ${aliasMap.size} aliases`);
+  cardNameChoiceCache.clear();
 }
 
 function rebuildLookupIndexSync(database: DB, options?: LocalCardLookupOptions): void {
@@ -541,6 +586,7 @@ function rebuildLookupIndexSync(database: DB, options?: LocalCardLookupOptions):
   }
 
   debug(1, `[card-lookup] Built lookup table with ${aliasMap.size} aliases`);
+  cardNameChoiceCache.clear();
 }
 
 export async function ensureLocalCardLookupIndex(options: LocalCardLookupOptions = {}): Promise<void> {
@@ -639,24 +685,7 @@ export async function listLocalCardNamesForChoice(
   await ensureLocalCardLookupIndex(options);
 
   const database = getDatabase();
-  const rows = database.prepare('SELECT DISTINCT payload FROM card_lookup').all() as Array<{ payload: string }>;
-  const candidateNames = new Set<string>();
-
-  for (const row of rows) {
-    if (!row?.payload) continue;
-    try {
-      const record = JSON.parse(row.payload) as LocalCardLookupRecord;
-      for (const candidate of getCardNameCandidatesFromRecord(record)) {
-        if (!candidate.name) continue;
-        if (!matchesCardNameChoiceCriteria(candidate.typeLine, criteria)) continue;
-        candidateNames.add(candidate.name);
-      }
-    } catch (error) {
-      debugWarn(1, '[card-lookup] Failed to parse payload while listing card-name candidates', error);
-    }
-  }
-
-  return Array.from(candidateNames).sort((left, right) => left.localeCompare(right));
+  return getCachedLocalCardNamesForChoice(database, criteria);
 }
 
 export function listLocalCardNamesForChoiceSync(
@@ -666,28 +695,26 @@ export function listLocalCardNamesForChoiceSync(
   ensureLocalCardLookupIndexSync(options);
 
   const database = getDatabase();
-  const rows = database.prepare('SELECT DISTINCT payload FROM card_lookup').all() as Array<{ payload: string }>;
-  const candidateNames = new Set<string>();
+  return getCachedLocalCardNamesForChoice(database, criteria);
+}
 
-  for (const row of rows) {
-    if (!row?.payload) continue;
-    try {
-      const record = JSON.parse(row.payload) as LocalCardLookupRecord;
-      for (const candidate of getCardNameCandidatesFromRecord(record)) {
-        if (!candidate.name) continue;
-        if (!matchesCardNameChoiceCriteria(candidate.typeLine, criteria)) continue;
-        candidateNames.add(candidate.name);
-      }
-    } catch (error) {
-      debugWarn(1, '[card-lookup] Failed to parse payload while listing card-name candidates', error);
-    }
+export function listLocalCardNamesForChoiceSyncIfReady(
+  criteria: CardNameChoiceCriteria,
+  _options: LocalCardLookupOptions = {}
+): string[] | undefined {
+  const database = getDatabase();
+  if (!isLookupCurrent(database)) {
+    return undefined;
   }
 
-  return Array.from(candidateNames).sort((left, right) => left.localeCompare(right));
+  const cacheKey = getCardNameChoiceCacheKey(criteria);
+  const cached = cardNameChoiceCache.get(cacheKey);
+  return cached ? cached.slice() : undefined;
 }
 
 export function resetLocalCardLookupForTests(): void {
   ensurePromise = null;
+  cardNameChoiceCache.clear();
   if (db) {
     try {
       (db as any).close?.();

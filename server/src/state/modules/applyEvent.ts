@@ -1063,6 +1063,18 @@ export function reset(ctx: any, preservePlayers = false): void {
     const preservedFormat = (currentState as any).format;
     const preservedStartingLife = Number((currentState as any).startingLife);
     const preservedTurnDirection = Number((currentState as any).turnDirection);
+    const preservedZonesRef = (currentState as any).zones && typeof (currentState as any).zones === 'object'
+      ? (currentState as any).zones
+      : {};
+    const preservedLifeRef = (currentState as any).life && typeof (currentState as any).life === 'object'
+      ? (currentState as any).life
+      : {};
+    const preservedCommandZoneRef = (currentState as any).commandZone && typeof (currentState as any).commandZone === 'object'
+      ? (currentState as any).commandZone
+      : {};
+    const preservedLandsPlayedThisTurnRef = (currentState as any).landsPlayedThisTurn && typeof (currentState as any).landsPlayedThisTurn === 'object'
+      ? (currentState as any).landsPlayedThisTurn
+      : {};
     const preservedPlayers = preservePlayers && Array.isArray((currentState as any).players)
       ? ((currentState as any).players as any[]).map((player: any) => ({ ...player }))
       : [];
@@ -1083,10 +1095,26 @@ export function reset(ctx: any, preservePlayers = false): void {
 
     const freshCtx = createContext(preservedGameId);
     const targetState = currentState as Record<string, any>;
+    for (const key of Object.keys(preservedZonesRef)) {
+      delete preservedZonesRef[key];
+    }
+    for (const key of Object.keys(preservedLifeRef)) {
+      delete preservedLifeRef[key];
+    }
+    for (const key of Object.keys(preservedCommandZoneRef)) {
+      delete preservedCommandZoneRef[key];
+    }
+    for (const key of Object.keys(preservedLandsPlayedThisTurnRef)) {
+      delete preservedLandsPlayedThisTurnRef[key];
+    }
     for (const key of Object.keys(targetState)) {
       delete targetState[key];
     }
     Object.assign(targetState, freshCtx.state);
+    targetState.zones = preservedZonesRef;
+    targetState.life = preservedLifeRef;
+    targetState.commandZone = preservedCommandZoneRef;
+    targetState.landsPlayedThisTurn = preservedLandsPlayedThisTurnRef;
     ctx.state = targetState;
 
     if (preservedFormat != null) {

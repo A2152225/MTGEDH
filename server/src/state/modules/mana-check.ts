@@ -666,6 +666,45 @@ function buildSupportedNonTapManaSourceCost(
   return option;
 }
 
+function normalizeSelfReferenceText(value: string): string {
+  return String(value || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+}
+
+function costTextReferencesSourcePermanent(costText: string, permanent: any): boolean {
+  const normalizedCost = normalizeSelfReferenceText(costText);
+  const normalizedSourceName = normalizeSelfReferenceText(String(permanent?.card?.name || ''));
+  if (!normalizedCost || !normalizedSourceName) {
+    return false;
+  }
+
+  return normalizedCost.includes(normalizedSourceName);
+}
+
+function shouldRepeatNonTapManaSource(
+  option: Omit<ExactManaSourceOption, 'produced'>,
+  costText: string,
+  permanent: any,
+): boolean {
+  const sacrificesSource = option.sacrificeCost?.type === 'self'
+    || /sacrifice\s+(?:this|~)\b/i.test(costText)
+    || costTextReferencesSourcePermanent(costText, permanent);
+
+  if (sacrificesSource) {
+    return false;
+  }
+
+  return Boolean(
+    option.activationCost
+    || option.lifeCost
+    || option.handCost
+    || option.sacrificeCost
+    || option.returnToHandCost,
+  );
+}
+
 function normalizePoolSignature(pool: Record<SimpleManaKey, number>): string {
   return SIMPLE_MANA_KEYS.map((key) => String(pool[key] || 0)).join(',');
 }
@@ -1119,9 +1158,19 @@ function buildExactManaSources(state: any, playerId: PlayerID): ExactManaSource[
       const supportedCost = buildSupportedNonTapManaSourceCost(costText);
       if (!supportedCost) continue;
 
+      const inferredSupportedCost = { ...supportedCost };
+      if (!inferredSupportedCost.sacrificeCost && /^sacrifice\b/i.test(costText) && costTextReferencesSourcePermanent(costText, permanent)) {
+        inferredSupportedCost.sacrificeCost = {
+          type: 'self',
+          count: 1,
+        };
+      }
+
+      const repeatable = shouldRepeatNonTapManaSource(inferredSupportedCost, costText, permanent);
+
       const producedOptions = buildProducedManaOptions(state, playerId, permanent, producedText);
       for (const produced of producedOptions) {
-        options.push({ ...supportedCost, repeatable: true, produced });
+        options.push({ ...inferredSupportedCost, repeatable, produced });
       }
     }
 
