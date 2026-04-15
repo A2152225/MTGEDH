@@ -1,4 +1,4 @@
-import { beforeAll, describe, expect, it } from 'vitest';
+import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 import type { PlayerID } from '../../shared/src';
 import { initDb } from '../src/db/index.js';
@@ -29,9 +29,24 @@ function initZones(game: any, playerId: PlayerID) {
   };
 }
 
+function resetGame(gameId: string) {
+  ResolutionQueueManager.removeQueue(gameId);
+}
+
 describe('Dance with Calamity live/replay semantics', () => {
   beforeAll(async () => {
     await initDb();
+  });
+
+  beforeEach(() => {
+    for (const gameId of [
+      't_dance_with_calamity_live_init',
+      't_dance_with_calamity_continue_replay',
+      't_dance_with_calamity_cast_replay',
+      't_dance_with_calamity_resolve_replay',
+    ]) {
+      resetGame(gameId);
+    }
   });
 
   it('resolving the spell queues the initial push-your-luck prompt directly without pending staging', () => {
@@ -63,7 +78,6 @@ describe('Dance with Calamity live/replay semantics', () => {
       },
     ];
 
-    ResolutionQueueManager.removeQueue(gameId);
     resolveTopOfStack(game as any);
 
     const steps = ResolutionQueueManager.getStepsForPlayer(gameId, p1);

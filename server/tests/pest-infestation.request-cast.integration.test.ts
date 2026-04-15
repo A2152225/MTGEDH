@@ -1,6 +1,6 @@
 import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
-import { createGameIfNotExists, getEvents, initDb } from '../src/db/index.js';
+import { createGameIfNotExists, deleteGame, getEvents, initDb } from '../src/db/index.js';
 import { registerGameActions } from '../src/socket/game-actions.js';
 import { ensureGame } from '../src/socket/util.js';
 import { registerResolutionHandlers } from '../src/socket/resolution.js';
@@ -42,6 +42,12 @@ function createMockSocket(
   return { socket, handlers };
 }
 
+async function resetGame(gameId: string) {
+  ResolutionQueueManager.removeQueue(gameId);
+  games.delete(gameId as any);
+  await deleteGame(gameId);
+}
+
 describe('Pest Infestation request-cast flow', () => {
   const gameId = 'test_pest_infestation_request_cast';
   const playerId = 'p1';
@@ -51,9 +57,8 @@ describe('Pest Infestation request-cast flow', () => {
     await initDb();
   });
 
-  beforeEach(() => {
-    ResolutionQueueManager.removeQueue(gameId);
-    games.delete(gameId as any);
+  beforeEach(async () => {
+    await resetGame(gameId);
   });
 
   it('chooses X before targets and pays the expanded XX mana cost', async () => {

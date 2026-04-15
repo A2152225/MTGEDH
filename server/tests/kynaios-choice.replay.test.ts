@@ -1,6 +1,6 @@
 import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
-import { createGameIfNotExists, getEvents, initDb } from '../src/db/index.js';
+import { createGameIfNotExists, deleteGame, getEvents, initDb } from '../src/db/index.js';
 import { createInitialGameState } from '../src/state/gameState.js';
 import '../src/state/modules/priority.js';
 import { ResolutionQueueManager, ResolutionStepType } from '../src/state/resolution/index.js';
@@ -117,6 +117,12 @@ function seedKynaiosQueue(game: any, gameId: string) {
   return batchId;
 }
 
+async function resetGame(gameId: string) {
+  games.delete(gameId as any);
+  ResolutionQueueManager.removeQueue(gameId);
+  await deleteGame(gameId);
+}
+
 describe('Kynaios choice replay persistence', () => {
   const gameId = 'test_kynaios_choice_replay_live';
 
@@ -126,11 +132,14 @@ describe('Kynaios choice replay persistence', () => {
     await new Promise(resolve => setTimeout(resolve, 0));
   });
 
-  beforeEach(() => {
-    ResolutionQueueManager.removeQueue(gameId);
-    ResolutionQueueManager.removeQueue('test_kynaios_choice_replay_partial');
-    ResolutionQueueManager.removeQueue('test_kynaios_choice_replay_complete');
-    games.delete(gameId as any);
+  beforeEach(async () => {
+    for (const id of [
+      gameId,
+      'test_kynaios_choice_replay_partial',
+      'test_kynaios_choice_replay_complete',
+    ]) {
+      await resetGame(id);
+    }
   });
 
   it('replays a persisted Kynaios land-play response into the pending queue state', async () => {

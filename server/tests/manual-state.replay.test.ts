@@ -1,6 +1,6 @@
 import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
-import { createGameIfNotExists, getEvents, initDb } from '../src/db/index.js';
+import { createGameIfNotExists, deleteGame, getEvents, initDb } from '../src/db/index.js';
 import { createInitialGameState } from '../src/state/gameState.js';
 import { ensureGame } from '../src/socket/util.js';
 import { registerGameActions } from '../src/socket/game-actions.js';
@@ -35,6 +35,11 @@ function createMockSocket(data: any, emitted: Array<{ room?: string; event: stri
   return { socket, handlers };
 }
 
+async function resetGame(gameId: string) {
+  games.delete(gameId as any);
+  await deleteGame(gameId);
+}
+
 describe('manual state replay persistence', () => {
   const gameId = 'test_manual_state_replay';
 
@@ -42,9 +47,9 @@ describe('manual state replay persistence', () => {
     await initDb();
   });
 
-  beforeEach(() => {
-    games.delete(gameId as any);
-    games.delete(`${gameId}_control` as any);
+  beforeEach(async () => {
+    await resetGame(gameId);
+    await resetGame(`${gameId}_control`);
   });
 
   it('persists and replays addManaToPool and removeManaFromPool including restricted mana', async () => {

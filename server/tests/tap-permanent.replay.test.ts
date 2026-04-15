@@ -1,6 +1,6 @@
 import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
-import { createGameIfNotExists, getEvents, initDb } from '../src/db/index.js';
+import { createGameIfNotExists, deleteGame, getEvents, initDb } from '../src/db/index.js';
 import { createInitialGameState } from '../src/state/gameState.js';
 import { registerInteractionHandlers } from '../src/socket/interaction.js';
 import { games } from '../src/socket/socket.js';
@@ -34,6 +34,11 @@ function createMockSocket(playerId: string, gameId: string, emitted: Array<{ roo
   return { socket, handlers };
 }
 
+async function resetGame(gameId: string) {
+  games.delete(gameId as any);
+  await deleteGame(gameId);
+}
+
 describe('tapPermanent replay semantics', () => {
   const gameId = 'test_tap_permanent_replay';
 
@@ -41,8 +46,8 @@ describe('tapPermanent replay semantics', () => {
     await initDb();
   });
 
-  beforeEach(() => {
-    games.delete(gameId as any);
+  beforeEach(async () => {
+    await resetGame(gameId);
   });
 
   it('replays recorded mana deltas, mana costs, and life loss on tapPermanent', () => {

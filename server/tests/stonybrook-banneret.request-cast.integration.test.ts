@@ -1,5 +1,5 @@
 import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { createGameIfNotExists, initDb } from '../src/db/index.js';
+import { createGameIfNotExists, deleteGame, initDb } from '../src/db/index.js';
 import { ensureGame } from '../src/socket/util.js';
 import '../src/state/modules/priority.js';
 import { registerGameActions } from '../src/socket/game-actions.js';
@@ -13,8 +13,6 @@ function setupBanneretCastScenario(options: {
 }) {
   const p1 = 'p1';
 
-  ResolutionQueueManager.removeQueue(options.gameId);
-  games.delete(options.gameId as any);
   createGameIfNotExists(options.gameId, 'commander', 40, undefined, p1);
   const game = ensureGame(options.gameId);
   if (!game) throw new Error('ensureGame returned undefined');
@@ -58,6 +56,12 @@ function setupBanneretCastScenario(options: {
   return { handlers };
 }
 
+async function resetGame(gameId: string) {
+  ResolutionQueueManager.removeQueue(gameId);
+  games.delete(gameId as any);
+  await deleteGame(gameId);
+}
+
 function createNoopIo() {
   return {
     to: (_room: string) => ({
@@ -92,11 +96,9 @@ describe('Banneret request-cast flow (integration)', () => {
     await initDb();
   });
 
-  beforeEach(() => {
-    ResolutionQueueManager.removeQueue('test_stonybrook_banneret_request_cast');
-    ResolutionQueueManager.removeQueue('test_ballyrush_banneret_request_cast');
-    games.delete('test_stonybrook_banneret_request_cast' as any);
-    games.delete('test_ballyrush_banneret_request_cast' as any);
+  beforeEach(async () => {
+    await resetGame('test_stonybrook_banneret_request_cast');
+    await resetGame('test_ballyrush_banneret_request_cast');
   });
 
   it('reduces Merfolk/Wizard spell payment by {1} in the queued mana payment step', async () => {

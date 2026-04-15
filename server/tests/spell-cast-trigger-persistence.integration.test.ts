@@ -1,6 +1,6 @@
 import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
-import { createGameIfNotExists, getEvents, initDb } from '../src/db/index.js';
+import { createGameIfNotExists, deleteGame, getEvents, initDb } from '../src/db/index.js';
 import { registerGameActions } from '../src/socket/game-actions.js';
 import { games } from '../src/socket/socket.js';
 import { ensureGame } from '../src/socket/util.js';
@@ -74,18 +74,24 @@ function setupCastingGame(gameId: string) {
   return game;
 }
 
+async function resetGame(gameId: string) {
+  ResolutionQueueManager.removeQueue(gameId);
+  games.delete(gameId as any);
+  await deleteGame(gameId);
+}
+
 describe('cast spell trigger persistence (integration)', () => {
   const merrowGameId = 'test_spell_cast_trigger_persistence_merrow';
   const rhysticGameId = 'test_spell_cast_trigger_persistence_rhystic';
+  const resetGameIds = [merrowGameId, rhysticGameId];
 
   beforeAll(async () => {
     await initDb();
   });
 
-  beforeEach(() => {
-    for (const gameId of [merrowGameId, rhysticGameId]) {
-      ResolutionQueueManager.removeQueue(gameId);
-      games.delete(gameId as any);
+  beforeEach(async () => {
+    for (const gameId of resetGameIds) {
+      await resetGame(gameId);
     }
   });
 

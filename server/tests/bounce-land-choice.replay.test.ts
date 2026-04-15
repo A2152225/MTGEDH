@@ -8,10 +8,10 @@ import { initializePriorityResolutionHandler, registerResolutionHandlers } from 
 import { games } from '../src/socket/socket.js';
 import { ensureGame } from '../src/socket/util.js';
 
-function resetGame(gameId: string) {
+async function resetGame(gameId: string) {
   ResolutionQueueManager.removeQueue(gameId);
   games.delete(gameId as any);
-  deleteGame(gameId);
+  await deleteGame(gameId);
 }
 
 function createNoopIo() {
@@ -55,8 +55,9 @@ describe('bounce land choice replay persistence', () => {
     await new Promise(resolve => setTimeout(resolve, 0));
   });
 
-  beforeEach(() => {
-    resetGame(gameId);
+  beforeEach(async () => {
+    await resetGame(gameId);
+    await resetGame('test_bounce_land_choice_replay_rehydrated');
   });
 
   it('persists and replays the chosen returned permanent plus originating stack item removal', async () => {

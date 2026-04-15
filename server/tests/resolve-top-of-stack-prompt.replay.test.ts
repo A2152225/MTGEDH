@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 
 import { createInitialGameState } from '../src/state/gameState.js';
 import { ResolutionQueueManager, ResolutionStepType } from '../src/state/resolution/index.js';
@@ -8,10 +8,24 @@ function addPlayer(game: any, id: PlayerID, name: string) {
   game.applyEvent({ type: 'join', playerId: id, name });
 }
 
+function resetGame(gameId: string) {
+  ResolutionQueueManager.removeQueue(gameId);
+}
+
 describe('resolveTopOfStack prompt replay semantics', () => {
+  beforeEach(() => {
+    for (const gameId of [
+      't_resolve_top_of_stack_prompt_replay_target',
+      't_resolve_top_of_stack_prompt_replay_player',
+      't_resolve_top_of_stack_prompt_replay_bounce',
+      't_resolve_top_of_stack_prompt_replay_spell_color',
+    ]) {
+      resetGame(gameId);
+    }
+  });
+
   it('replays queued target-selection prompts created during stack resolution', () => {
     const gameId = 't_resolve_top_of_stack_prompt_replay_target';
-    ResolutionQueueManager.removeQueue(gameId);
 
     const game = createInitialGameState(gameId);
     const p1 = 'p1' as PlayerID;
@@ -48,7 +62,6 @@ describe('resolveTopOfStack prompt replay semantics', () => {
 
   it('replays queued player-choice prompts created during stack resolution', () => {
     const gameId = 't_resolve_top_of_stack_prompt_replay_player';
-    ResolutionQueueManager.removeQueue(gameId);
 
     const game = createInitialGameState(gameId);
     const p1 = 'p1' as PlayerID;
@@ -84,7 +97,6 @@ describe('resolveTopOfStack prompt replay semantics', () => {
 
   it('replays queued bounce-land prompts created during stack resolution', () => {
     const gameId = 't_resolve_top_of_stack_prompt_replay_bounce';
-    ResolutionQueueManager.removeQueue(gameId);
 
     const game = createInitialGameState(gameId);
     const p1 = 'p1' as PlayerID;
@@ -120,7 +132,6 @@ describe('resolveTopOfStack prompt replay semantics', () => {
 
   it('replays queued spell color-choice prompts created during stack resolution', () => {
     const gameId = 't_resolve_top_of_stack_prompt_replay_spell_color';
-    ResolutionQueueManager.removeQueue(gameId);
 
     const game = createInitialGameState(gameId);
     const p1 = 'p1' as PlayerID;

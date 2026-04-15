@@ -1,6 +1,6 @@
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { createGameIfNotExists, initDb } from '../src/db/index.js';
+import { createGameIfNotExists, deleteGame, initDb } from '../src/db/index.js';
 import { registerGameActions } from '../src/socket/game-actions.js';
 import { games } from '../src/socket/socket.js';
 import { broadcastGame, ensureGame } from '../src/socket/util.js';
@@ -31,6 +31,12 @@ function createMockSocket(playerId: string, emitted: Array<{ room?: string; even
   return { socket, handlers };
 }
 
+async function resetGame(gameId: string) {
+  ResolutionQueueManager.removeQueue(gameId);
+  games.delete(gameId as any);
+  await deleteGame(gameId);
+}
+
 describe('play land broadcast automation suppression (integration)', () => {
   const gameId = 'test_play_land_broadcast_suppression';
   const playerId = 'p1';
@@ -40,9 +46,8 @@ describe('play land broadcast automation suppression (integration)', () => {
     await initDb();
   });
 
-  beforeEach(() => {
-    ResolutionQueueManager.removeQueue(gameId);
-    games.delete(gameId as any);
+  beforeEach(async () => {
+    await resetGame(gameId);
   });
 
   it('suppresses exactly one broadcast-driven auto-pass after a manual land play', async () => {

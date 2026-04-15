@@ -1,6 +1,6 @@
 import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
-import { createGameIfNotExists, getEvents, initDb } from '../src/db/index.js';
+import { createGameIfNotExists, deleteGame, getEvents, initDb } from '../src/db/index.js';
 import { registerGameActions } from '../src/socket/game-actions.js';
 import { registerResolutionHandlers, initializePriorityResolutionHandler } from '../src/socket/resolution.js';
 import { ensureGame } from '../src/socket/util.js';
@@ -44,6 +44,12 @@ function createMockSocket(playerId: string, gameId: string, emitted: Array<{ roo
   return { socket, handlers };
 }
 
+async function resetGame(gameId: string) {
+  ResolutionQueueManager.removeQueue(gameId);
+  games.delete(gameId as any);
+  await deleteGame(gameId);
+}
+
 describe('modal command targeting (integration)', () => {
   const gameId = 'test_modal_command_targeting';
   const playerId = 'p1';
@@ -55,9 +61,8 @@ describe('modal command targeting (integration)', () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
   });
 
-  beforeEach(() => {
-    ResolutionQueueManager.removeQueue(gameId);
-    games.delete(gameId as any);
+  beforeEach(async () => {
+    await resetGame(gameId);
   });
 
   it('queues one target step per selected Prismari Command target mode and defers payment until all are chosen', async () => {

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
-import { initDb, createGameIfNotExists, getEvents } from '../src/db/index.js';
+import { initDb, createGameIfNotExists, deleteGame, getEvents } from '../src/db/index.js';
 import { ensureGame } from '../src/socket/util.js';
 import '../src/state/modules/priority.js';
 import { registerResolutionHandlers, initializePriorityResolutionHandler } from '../src/socket/resolution.js';
@@ -50,8 +50,20 @@ function createMockSocket(playerId: string, emitted: Array<{ room?: string; even
   return { socket, handlers };
 }
 
+async function resetGame(gameId: string) {
+  ResolutionQueueManager.removeQueue(gameId);
+  games.delete(gameId as any);
+  await deleteGame(gameId);
+}
+
 describe('Tap-other-as-activation-cost via Resolution Queue (integration)', () => {
   const gameId = 'test_tap_other_activation_cost_resolution_queue';
+  const resetGameIds = [
+    gameId,
+    `${gameId}_multi_type`,
+    `${gameId}_power_restriction`,
+    `${gameId}_pay_life`,
+  ];
 
   beforeAll(async () => {
     await initDb();
@@ -59,9 +71,10 @@ describe('Tap-other-as-activation-cost via Resolution Queue (integration)', () =
     await new Promise((resolve) => setTimeout(resolve, 0));
   });
 
-  beforeEach(() => {
-    ResolutionQueueManager.removeQueue(gameId);
-    games.delete(gameId as any);
+  beforeEach(async () => {
+    for (const currentGameId of resetGameIds) {
+      await resetGame(currentGameId);
+    }
   });
 
   it('enqueues TAP_UNTAP_TARGET and resumes activation after tapping a creature you control', async () => {

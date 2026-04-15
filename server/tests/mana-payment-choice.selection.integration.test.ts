@@ -1,6 +1,6 @@
 import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
-import { createGameIfNotExists, getEvents, initDb } from '../src/db/index.js';
+import { createGameIfNotExists, deleteGame, getEvents, initDb } from '../src/db/index.js';
 import { registerGameActions } from '../src/socket/game-actions.js';
 import { registerInteractionHandlers } from '../src/socket/interaction.js';
 import { initializePriorityResolutionHandler, registerResolutionHandlers } from '../src/socket/resolution.js';
@@ -101,6 +101,12 @@ function buildAzureDynamoBaseline(playerId: string) {
   };
 }
 
+async function resetGame(gameId: string) {
+  ResolutionQueueManager.removeQueue(gameId);
+  games.delete(gameId as any);
+  await deleteGame(gameId);
+}
+
 describe('mana payment choice selection flow', () => {
   const signetGameId = 'test_mana_payment_choice_signet';
   const spellGameId = 'test_mana_payment_choice_spell';
@@ -108,6 +114,14 @@ describe('mana payment choice selection flow', () => {
   const reflectedSpellGameId = 'test_mana_payment_choice_spell_reflection';
   const mikokoroGameId = 'test_mana_payment_choice_mikokoro';
   const azureDynamoGameId = 'test_mana_payment_choice_azure_dynamo';
+  const resetGameIds = [
+    signetGameId,
+    spellGameId,
+    altarSpellGameId,
+    reflectedSpellGameId,
+    mikokoroGameId,
+    azureDynamoGameId,
+  ];
   const playerId = 'p1';
 
   beforeAll(async () => {
@@ -116,19 +130,10 @@ describe('mana payment choice selection flow', () => {
     await new Promise(resolve => setTimeout(resolve, 0));
   });
 
-  beforeEach(() => {
-    ResolutionQueueManager.removeQueue(signetGameId);
-    ResolutionQueueManager.removeQueue(spellGameId);
-    ResolutionQueueManager.removeQueue(altarSpellGameId);
-    ResolutionQueueManager.removeQueue(reflectedSpellGameId);
-    ResolutionQueueManager.removeQueue(mikokoroGameId);
-    ResolutionQueueManager.removeQueue(azureDynamoGameId);
-    games.delete(signetGameId as any);
-    games.delete(spellGameId as any);
-    games.delete(altarSpellGameId as any);
-    games.delete(reflectedSpellGameId as any);
-    games.delete(mikokoroGameId as any);
-    games.delete(azureDynamoGameId as any);
+  beforeEach(async () => {
+    for (const gameId of resetGameIds) {
+      await resetGame(gameId);
+    }
   });
 
   it('lets a signet activation spend chosen floating mana and keep the rest', async () => {

@@ -1,6 +1,6 @@
 import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
-import { appendEvent, createGameIfNotExists, getEvents, initDb, truncateEventsForUndo } from '../src/db/index.js';
+import { appendEvent, createGameIfNotExists, deleteGame, getEvents, initDb, truncateEventsForUndo } from '../src/db/index.js';
 import '../src/state/modules/priority.js';
 import { initializePriorityResolutionHandler, registerResolutionHandlers } from '../src/socket/resolution.js';
 import { games } from '../src/socket/socket.js';
@@ -47,6 +47,17 @@ function createMockSocket(playerId: string, gameId: string, emitted: Array<{ roo
   return { socket, handlers };
 }
 
+async function resetGame(gameId: string) {
+  ResolutionQueueManager.removeQueue(gameId);
+  games.delete(gameId as any);
+  try {
+    truncateEventsForUndo(gameId, 0);
+  } catch {
+    // ignore
+  }
+  await deleteGame(gameId);
+}
+
 describe('discard effect replay (integration)', () => {
   const gameId = 'test_discard_effect_replay';
 
@@ -56,14 +67,8 @@ describe('discard effect replay (integration)', () => {
     await new Promise(resolve => setTimeout(resolve, 0));
   });
 
-  beforeEach(() => {
-    ResolutionQueueManager.removeQueue(gameId);
-    games.delete(gameId as any);
-    try {
-      truncateEventsForUndo(gameId, 0);
-    } catch {
-      // ignore
-    }
+  beforeEach(async () => {
+    await resetGame(gameId);
   });
 
   it('replays generic discard-selection results and follow-up draws', async () => {

@@ -1,6 +1,6 @@
 import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
-import { createGameIfNotExists, getEvents, initDb } from '../src/db/index.js';
+import { createGameIfNotExists, deleteGame, getEvents, initDb } from '../src/db/index.js';
 import { ensureGame } from '../src/socket/util.js';
 import { registerInteractionHandlers } from '../src/socket/interaction.js';
 import { games } from '../src/socket/socket.js';
@@ -33,17 +33,24 @@ function createMockSocket(playerId: string, emitted: Array<{ room?: string; even
   return { socket, handlers };
 }
 
+async function resetGame(gameId: string) {
+  games.delete(gameId as any);
+  await deleteGame(gameId);
+}
+
 describe('sacrificePermanent live tracking (integration)', () => {
   const clueGameId = 'test_sacrifice_permanent_clue_integration';
   const foodGameId = 'test_sacrifice_permanent_food_integration';
+  const resetGameIds = [clueGameId, foodGameId];
 
   beforeAll(async () => {
     await initDb();
   });
 
-  beforeEach(() => {
-    games.delete(clueGameId as any);
-    games.delete(foodGameId as any);
+  beforeEach(async () => {
+    for (const gameId of resetGameIds) {
+      await resetGame(gameId);
+    }
   });
 
   it('tracks sacrificed Clues in live play and token Clues cease to exist', async () => {

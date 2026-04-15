@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 
 import { createInitialGameState } from '../src/state/gameState.js';
 import { ResolutionQueueManager } from '../src/state/resolution/index.js';
@@ -8,13 +8,27 @@ function addPlayer(game: any, id: PlayerID, name: string) {
   game.applyEvent({ type: 'join', playerId: id, name });
 }
 
+function resetGame(gameId: string) {
+  ResolutionQueueManager.removeQueue(gameId);
+}
+
 describe('skipToPhase replay semantics', () => {
+  beforeEach(() => {
+    for (const gameId of [
+      't_skip_to_phase_trigger_stop_replay',
+      't_skip_to_phase_auto_continue_replay',
+      't_skip_to_phase_untap_replay',
+      't_skip_to_phase_final_state_replay',
+    ]) {
+      resetGame(gameId);
+    }
+  });
+
   it('replays trigger-stopped skips by restoring pendingPhaseSkip and TRIGGER_ORDER state', () => {
     const gameId = 't_skip_to_phase_trigger_stop_replay';
     const game = createInitialGameState(gameId);
     const p1 = 'p1' as PlayerID;
 
-    ResolutionQueueManager.removeQueue(gameId);
     addPlayer(game, p1, 'P1');
 
     game.applyEvent({

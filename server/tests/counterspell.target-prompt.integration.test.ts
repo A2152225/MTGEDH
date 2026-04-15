@@ -1,6 +1,6 @@
-import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
-import { createGameIfNotExists, getEvents, initDb } from '../src/db/index.js';
+import { createGameIfNotExists, deleteGame, getEvents, initDb } from '../src/db/index.js';
 import { registerGameActions } from '../src/socket/game-actions.js';
 import { ensureGame } from '../src/socket/util.js';
 import { ResolutionQueueManager } from '../src/state/resolution/index.js';
@@ -30,22 +30,36 @@ function createMockSocket(playerId: string, gameId: string, emitted: Array<{ roo
   return { socket, handlers };
 }
 
+async function resetGame(gameId: string) {
+  ResolutionQueueManager.removeQueue(gameId);
+  games.delete(gameId as any);
+  await deleteGame(gameId);
+}
+
 describe('Counterspell target prompt metadata (integration)', () => {
   const gameId = 'test_counterspell_target_prompt_metadata';
   const p1 = 'p1';
   const p2 = 'p2';
+  const trackedGameIds = new Set<string>();
 
   beforeAll(async () => {
     await initDb();
   });
 
-  beforeEach(() => {
-    ResolutionQueueManager.removeQueue(gameId);
-    games.delete(gameId as any);
+  beforeEach(async () => {
+    await resetGame(gameId);
+  });
+
+  afterEach(async () => {
+    for (const trackedGameId of trackedGameIds) {
+      await resetGame(trackedGameId);
+    }
+    trackedGameIds.clear();
   });
 
   it('shows the target spell name and image instead of the raw stack id', async () => {
     const testGameId = `${gameId}_${Math.random().toString(36).slice(2, 10)}`;
+    trackedGameIds.add(testGameId);
     createGameIfNotExists(testGameId, 'commander', 40, undefined, p1);
     const game = ensureGame(testGameId);
     if (!game) throw new Error('ensureGame returned undefined');

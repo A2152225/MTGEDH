@@ -1,6 +1,6 @@
 import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
-import { createGameIfNotExists, getEvents, initDb } from '../src/db/index.js';
+import { createGameIfNotExists, deleteGame, getEvents, initDb } from '../src/db/index.js';
 import { createInitialGameState } from '../src/state/gameState.js';
 import '../src/state/modules/priority.js';
 import { ResolutionQueueManager, ResolutionStepType } from '../src/state/resolution/index.js';
@@ -40,6 +40,12 @@ function createMockSocket(playerId: string, emitted: Array<{ room?: string; even
   return { socket, handlers };
 }
 
+async function resetGame(gameId: string) {
+  games.delete(gameId as any);
+  ResolutionQueueManager.removeQueue(gameId);
+  await deleteGame(gameId);
+}
+
 describe('trigger order replay persistence', () => {
   const gameId = 'test_trigger_order_replay_live';
 
@@ -49,10 +55,10 @@ describe('trigger order replay persistence', () => {
     await new Promise(resolve => setTimeout(resolve, 0));
   });
 
-  beforeEach(() => {
-    ResolutionQueueManager.removeQueue(gameId);
-    ResolutionQueueManager.removeQueue('test_trigger_order_replay_apply');
-    games.delete(gameId as any);
+  beforeEach(async () => {
+    for (const id of [gameId, 'test_trigger_order_replay_apply']) {
+      await resetGame(id);
+    }
   });
 
   it('persists and replays the chosen in-place trigger order', async () => {

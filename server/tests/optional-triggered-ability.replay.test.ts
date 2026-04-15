@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 
 import { createInitialGameState } from '../src/state/gameState.js';
 import { ResolutionQueueManager, ResolutionStepType } from '../src/state/resolution/index.js';
@@ -8,10 +8,23 @@ function addPlayer(game: any, id: PlayerID, name: string) {
   game.applyEvent({ type: 'join', playerId: id, name });
 }
 
+function resetGame(gameId: string) {
+  ResolutionQueueManager.removeQueue(gameId);
+}
+
 describe('optional triggered ability replay semantics', () => {
+  beforeEach(() => {
+    for (const gameId of [
+      't_optional_trigger_prompt_replay',
+      't_optional_trigger_choice_accept_replay',
+      't_optional_trigger_choice_decline_replay',
+    ]) {
+      resetGame(gameId);
+    }
+  });
+
   it('replays the queued optional-trigger prompt during stack resolution replay', () => {
     const gameId = 't_optional_trigger_prompt_replay';
-    ResolutionQueueManager.removeQueue(gameId);
 
     const game = createInitialGameState(gameId);
     const playerId = 'p1' as PlayerID;
@@ -60,7 +73,6 @@ describe('optional triggered ability replay semantics', () => {
 
   it('replays an accepted optional-trigger choice by resolving the deferred trigger', () => {
     const gameId = 't_optional_trigger_choice_accept_replay';
-    ResolutionQueueManager.removeQueue(gameId);
 
     const game = createInitialGameState(gameId);
     const playerId = 'p1' as PlayerID;
@@ -119,7 +131,6 @@ describe('optional triggered ability replay semantics', () => {
 
   it('replays a declined optional-trigger choice by clearing the queued prompt only', () => {
     const gameId = 't_optional_trigger_choice_decline_replay';
-    ResolutionQueueManager.removeQueue(gameId);
 
     const game = createInitialGameState(gameId);
     const playerId = 'p1' as PlayerID;

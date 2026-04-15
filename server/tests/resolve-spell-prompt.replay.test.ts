@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 
 import { createInitialGameState } from '../src/state/gameState.js';
 import { ResolutionQueueManager, ResolutionStepType } from '../src/state/resolution/index.js';
@@ -8,10 +8,25 @@ function addPlayer(game: any, id: PlayerID, name: string) {
   game.applyEvent({ type: 'join', playerId: id, name });
 }
 
+function resetGame(gameId: string) {
+  ResolutionQueueManager.removeQueue(gameId);
+}
+
 describe('resolveSpell prompt replay semantics', () => {
+  beforeEach(() => {
+    for (const gameId of [
+      't_resolve_spell_prompt_replay_ponder',
+      't_resolve_spell_prompt_replay_scry',
+      't_resolve_spell_prompt_replay_surveil',
+      't_resolve_spell_prompt_replay_blight_batch',
+      't_resolve_spell_prompt_replay_genesis_wave',
+    ]) {
+      resetGame(gameId);
+    }
+  });
+
   it('replays queued Ponder-style prompts created during spell resolution', () => {
     const gameId = 't_resolve_spell_prompt_replay_ponder';
-    ResolutionQueueManager.removeQueue(gameId);
 
     const game = createInitialGameState(gameId);
     const p1 = 'p1' as PlayerID;
@@ -47,7 +62,6 @@ describe('resolveSpell prompt replay semantics', () => {
 
   it('replays queued scry prompts created during spell resolution', () => {
     const gameId = 't_resolve_spell_prompt_replay_scry';
-    ResolutionQueueManager.removeQueue(gameId);
 
     const game = createInitialGameState(gameId);
     const p1 = 'p1' as PlayerID;
@@ -78,7 +92,6 @@ describe('resolveSpell prompt replay semantics', () => {
 
   it('replays queued surveil prompts created during spell resolution', () => {
     const gameId = 't_resolve_spell_prompt_replay_surveil';
-    ResolutionQueueManager.removeQueue(gameId);
 
     const game = createInitialGameState(gameId);
     const p1 = 'p1' as PlayerID;
@@ -109,7 +122,6 @@ describe('resolveSpell prompt replay semantics', () => {
 
   it('replays queued APNAP blight prompt batches created during spell resolution', () => {
     const gameId = 't_resolve_spell_prompt_replay_blight_batch';
-    ResolutionQueueManager.removeQueue(gameId);
 
     const game = createInitialGameState(gameId);
     const p1 = 'p1' as PlayerID;
@@ -177,7 +189,6 @@ describe('resolveSpell prompt replay semantics', () => {
 
   it('replays Genesis Wave library-search prompts created during spell resolution', () => {
     const gameId = 't_resolve_spell_prompt_replay_genesis_wave';
-    ResolutionQueueManager.removeQueue(gameId);
 
     const game = createInitialGameState(gameId);
     const p1 = 'p1' as PlayerID;

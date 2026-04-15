@@ -1,6 +1,6 @@
 import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
-import { createGameIfNotExists, getEvents, initDb } from '../src/db/index.js';
+import { createGameIfNotExists, deleteGame, getEvents, initDb } from '../src/db/index.js';
 import { createInitialGameState } from '../src/state/gameState.js';
 import '../src/state/modules/priority.js';
 import { ensureGame } from '../src/socket/util.js';
@@ -41,6 +41,12 @@ function createMockSocket(playerId: string, emitted: Array<{ room?: string; even
   return { socket, handlers };
 }
 
+async function resetGame(gameId: string) {
+  ResolutionQueueManager.removeQueue(gameId);
+  games.delete(gameId as any);
+  await deleteGame(gameId);
+}
+
 describe('special land shortcut replay persistence', () => {
   const gameId = 'test_special_land_shortcuts_replay';
 
@@ -50,17 +56,21 @@ describe('special land shortcut replay persistence', () => {
     await new Promise(resolve => setTimeout(resolve, 0));
   });
 
-  beforeEach(() => {
-    ResolutionQueueManager.removeQueue(gameId);
-    ResolutionQueueManager.removeQueue(`${gameId}_hybrid`);
-    ResolutionQueueManager.removeQueue(`${gameId}_storage`);
-    ResolutionQueueManager.removeQueue(`${gameId}_storage_remove`);
-    ResolutionQueueManager.removeQueue(`${gameId}_hideaway`);
-    games.delete(gameId as any);
-    games.delete(`${gameId}_hybrid` as any);
-    games.delete(`${gameId}_storage` as any);
-    games.delete(`${gameId}_storage_remove` as any);
-    games.delete(`${gameId}_hideaway` as any);
+  beforeEach(async () => {
+    for (const id of [
+      gameId,
+      `${gameId}_hybrid`,
+      `${gameId}_storage`,
+      `${gameId}_storage_remove`,
+      `${gameId}_hideaway`,
+      `${gameId}_rehydrated`,
+      `${gameId}_hybrid_rehydrated`,
+      `${gameId}_storage_rehydrated`,
+      `${gameId}_storage_remove_rehydrated`,
+      `${gameId}_hideaway_rehydrated`,
+    ]) {
+      await resetGame(id);
+    }
   });
 
   it('persists and replays Mutavault animation shortcut state', async () => {

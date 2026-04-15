@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 
 import type { PlayerID } from '../../shared/src';
 import { createInitialGameState } from '../src/state/gameState.js';
@@ -8,10 +8,27 @@ function addPlayer(game: any, id: PlayerID, name: string) {
   game.applyEvent({ type: 'join', playerId: id, name });
 }
 
+function resetGame(gameId: string) {
+  ResolutionQueueManager.removeQueue(gameId);
+}
+
 describe('pending-effect prompt replay semantics', () => {
+  beforeEach(() => {
+    for (const gameId of [
+      't_pending_effect_prompt_replay_cascade',
+      't_pending_effect_prompt_replay_ponder',
+      't_pending_effect_prompt_replay_proliferate',
+      't_pending_effect_prompt_replay_vault',
+      't_pending_effect_prompt_replay_dance',
+      't_pending_effect_prompt_replay_cast_from_exile_followup',
+      't_pending_effect_prompt_replay_sacrifice_followup',
+    ]) {
+      resetGame(gameId);
+    }
+  });
+
   it('replays queued cascade prompts together with the consumed library snapshot', () => {
     const gameId = 't_pending_effect_prompt_replay_cascade';
-    ResolutionQueueManager.removeQueue(gameId);
 
     const game = createInitialGameState(gameId);
     const p1 = 'p1' as PlayerID;
@@ -81,7 +98,6 @@ describe('pending-effect prompt replay semantics', () => {
 
   it('replays queued Ponder-style prompts', () => {
     const gameId = 't_pending_effect_prompt_replay_ponder';
-    ResolutionQueueManager.removeQueue(gameId);
 
     const game = createInitialGameState(gameId);
     const p1 = 'p1' as PlayerID;
@@ -116,7 +132,6 @@ describe('pending-effect prompt replay semantics', () => {
 
   it('replays queued proliferate prompts', () => {
     const gameId = 't_pending_effect_prompt_replay_proliferate';
-    ResolutionQueueManager.removeQueue(gameId);
 
     const game = createInitialGameState(gameId);
     const p1 = 'p1' as PlayerID;
@@ -150,7 +165,6 @@ describe('pending-effect prompt replay semantics', () => {
 
   it('replays queued Lim-Dul\'s Vault prompts', () => {
     const gameId = 't_pending_effect_prompt_replay_vault';
-    ResolutionQueueManager.removeQueue(gameId);
 
     const game = createInitialGameState(gameId);
     const p1 = 'p1' as PlayerID;
@@ -183,7 +197,6 @@ describe('pending-effect prompt replay semantics', () => {
 
   it('replays queued initial Dance with Calamity prompts', () => {
     const gameId = 't_pending_effect_prompt_replay_dance';
-    ResolutionQueueManager.removeQueue(gameId);
 
     const game = createInitialGameState(gameId);
     const p1 = 'p1' as PlayerID;
@@ -216,7 +229,6 @@ describe('pending-effect prompt replay semantics', () => {
 
   it('replays queued follow-up cast-from-exile prompts created from option responses', () => {
     const gameId = 't_pending_effect_prompt_replay_cast_from_exile_followup';
-    ResolutionQueueManager.removeQueue(gameId);
 
     const game = createInitialGameState(gameId);
     const p1 = 'p1' as PlayerID;
@@ -260,7 +272,6 @@ describe('pending-effect prompt replay semantics', () => {
 
   it('replays queued sacrifice-for-benefit target prompts created from option responses', () => {
     const gameId = 't_pending_effect_prompt_replay_sacrifice_followup';
-    ResolutionQueueManager.removeQueue(gameId);
 
     const game = createInitialGameState(gameId);
     const p1 = 'p1' as PlayerID;

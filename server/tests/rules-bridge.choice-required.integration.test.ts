@@ -1,5 +1,5 @@
 import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { initDb, createGameIfNotExists } from '../src/db/index.js';
+import { initDb, createGameIfNotExists, deleteGame } from '../src/db/index.js';
 import { ensureGame } from '../src/socket/util.js';
 import { registerResolutionHandlers, initializePriorityResolutionHandler } from '../src/socket/resolution.js';
 import { createRulesBridge } from '../src/rules-bridge.js';
@@ -46,6 +46,12 @@ function createMockSocket(playerId: string, emitted: Array<{ room?: string; even
     },
   } as any;
   return { socket, handlers };
+}
+
+async function resetGame(gameId: string) {
+  ResolutionQueueManager.removeQueue(gameId);
+  games.delete(gameId as any);
+  await deleteGame(gameId);
 }
 
 function seedMerrowChoiceStack(gameId: string) {
@@ -157,6 +163,18 @@ describe('RulesBridge choice-required integration', () => {
   const playerGameId = 'test_rules_bridge_choice_required_player';
   const modeGameId = 'test_rules_bridge_choice_required_mode';
   const castDrivenGameId = 'test_rules_bridge_choice_required_cast_driven';
+  const castDrivenTokensGameId = `${castDrivenGameId}_tokens`;
+  const resetGameIds = [
+    queueGameId,
+    executeGameId,
+    declineGameId,
+    cancelGameId,
+    opponentGameId,
+    playerGameId,
+    modeGameId,
+    castDrivenGameId,
+    castDrivenTokensGameId,
+  ];
 
   beforeAll(async () => {
     await initDb();
@@ -164,23 +182,10 @@ describe('RulesBridge choice-required integration', () => {
     await new Promise(resolve => setTimeout(resolve, 0));
   });
 
-  beforeEach(() => {
-    ResolutionQueueManager.removeQueue(queueGameId);
-    ResolutionQueueManager.removeQueue(executeGameId);
-    ResolutionQueueManager.removeQueue(declineGameId);
-    ResolutionQueueManager.removeQueue(cancelGameId);
-    ResolutionQueueManager.removeQueue(opponentGameId);
-    ResolutionQueueManager.removeQueue(playerGameId);
-    ResolutionQueueManager.removeQueue(modeGameId);
-    ResolutionQueueManager.removeQueue(castDrivenGameId);
-    games.delete(queueGameId as any);
-    games.delete(executeGameId as any);
-    games.delete(declineGameId as any);
-    games.delete(cancelGameId as any);
-    games.delete(opponentGameId as any);
-    games.delete(playerGameId as any);
-    games.delete(modeGameId as any);
-    games.delete(castDrivenGameId as any);
+  beforeEach(async () => {
+    for (const gameId of resetGameIds) {
+      await resetGame(gameId);
+    }
   });
 
   it('enqueues resolution queue steps for unresolved triggered ability choices', () => {
@@ -645,7 +650,5 @@ describe('RulesBridge choice-required integration', () => {
       'option_choice',
     ]);
 
-    ResolutionQueueManager.removeQueue(gameId);
-    games.delete(gameId as any);
   });
 });

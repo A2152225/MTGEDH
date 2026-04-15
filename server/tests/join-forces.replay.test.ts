@@ -1,6 +1,6 @@
 import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
-import { createGameIfNotExists, getEvents, initDb } from '../src/db/index.js';
+import { createGameIfNotExists, deleteGame, getEvents, initDb } from '../src/db/index.js';
 import { createInitialGameState } from '../src/state/gameState.js';
 import '../src/state/modules/priority.js';
 import { ResolutionQueueManager, ResolutionStepType } from '../src/state/resolution/index.js';
@@ -82,6 +82,12 @@ function seedJoinForcesSpell(game: any, gameId: string, cardName: string) {
   ];
 }
 
+async function resetGame(gameId: string) {
+  games.delete(gameId as any);
+  ResolutionQueueManager.removeQueue(gameId);
+  await deleteGame(gameId);
+}
+
 describe('Join Forces replay persistence', () => {
   beforeAll(async () => {
     await initDb();
@@ -89,15 +95,14 @@ describe('Join Forces replay persistence', () => {
     await new Promise(resolve => setTimeout(resolve, 0));
   });
 
-  beforeEach(() => {
+  beforeEach(async () => {
     for (const id of [
       'test_join_forces_partial_live',
       'test_join_forces_complete_live',
       'test_join_forces_partial_replay',
       'test_join_forces_collective_replay',
     ]) {
-      games.delete(id as any);
-      ResolutionQueueManager.removeQueue(id);
+      await resetGame(id);
     }
   });
 

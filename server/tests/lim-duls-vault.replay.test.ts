@@ -1,6 +1,7 @@
-import { describe, expect, it } from 'vitest';
+import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 import type { PlayerID } from '../../shared/src';
+import { initDb } from '../src/db/index.js';
 import { processPendingLimDulsVault } from '../src/socket/resolution.js';
 import { createInitialGameState } from '../src/state/gameState.js';
 import { resolveTopOfStack } from '../src/state/modules/stack.js';
@@ -28,7 +29,25 @@ function initZones(game: any, playerId: PlayerID) {
   };
 }
 
+function resetGame(gameId: string) {
+  ResolutionQueueManager.removeQueue(gameId);
+}
+
 describe("Lim-Dul's Vault live/replay semantics", () => {
+  beforeAll(async () => {
+    await initDb();
+  });
+
+  beforeEach(() => {
+    for (const gameId of [
+      't_lim_duls_vault_live_init',
+      't_lim_duls_vault_continue_replay',
+      't_lim_duls_vault_resolve_replay',
+    ]) {
+      resetGame(gameId);
+    }
+  });
+
   it('resolving the spell queues the initial vault prompt directly without pending staging', () => {
     const gameId = 't_lim_duls_vault_live_init';
     const game = createInitialGameState(gameId);
@@ -60,7 +79,6 @@ describe("Lim-Dul's Vault live/replay semantics", () => {
       },
     ];
 
-    ResolutionQueueManager.removeQueue(gameId);
     resolveTopOfStack(game as any);
 
     const steps = ResolutionQueueManager.getStepsForPlayer(gameId, p1);
