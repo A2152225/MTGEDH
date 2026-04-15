@@ -1,4 +1,4 @@
-import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createGameIfNotExists, deleteGame, getEvents, initDb } from '../src/db/index.js';
 import { ensureGame } from '../src/socket/util.js';
@@ -8,11 +8,11 @@ import { ResolutionQueueManager } from '../src/state/resolution/index.js';
 import { initializeAIResolutionHandler } from '../src/socket/resolution.js';
 import { AIEngine, AIDecisionType } from '../../rules-engine/src/AIEngine.js';
 
-function resetTestGame(gameId: string, playerId: string) {
+async function resetTestGame(gameId: string, playerId: string) {
   ResolutionQueueManager.removeQueue(gameId);
   games.delete(gameId as any);
   unregisterAIPlayer(gameId, playerId as any);
-  deleteGame(gameId);
+  await deleteGame(gameId);
 }
 
 function createNoopIo() {
@@ -34,6 +34,7 @@ function createNoopIo() {
 describe('AI mana ability integration', () => {
   const playerId = 'ai1';
   const gameId = 'test_ai_mana_ability_integration';
+  const trackedGameIds: string[] = [];
 
   beforeAll(async () => {
     await initDb();
@@ -41,9 +42,20 @@ describe('AI mana ability integration', () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
   });
 
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.restoreAllMocks();
-    resetTestGame(gameId, playerId);
+    trackedGameIds.length = 0;
+    await resetTestGame(gameId, playerId);
+  });
+
+  afterEach(async () => {
+    while (trackedGameIds.length > 0) {
+      const trackedGameId = trackedGameIds.pop();
+      if (trackedGameId) {
+        await resetTestGame(trackedGameId, playerId);
+      }
+    }
+    await resetTestGame(gameId, playerId);
   });
 
   function mockAIActivatedAbilityDecision(permanentId: string, cardName: string, abilityText: string) {
@@ -61,9 +73,10 @@ describe('AI mana ability integration', () => {
     } as any);
   }
 
-  function setupTestGame(suffix: string) {
+  async function setupTestGame(suffix: string) {
     const localGameId = `${gameId}_${suffix}_${Math.random().toString(36).slice(2, 10)}`;
-    resetTestGame(localGameId, playerId);
+    trackedGameIds.push(localGameId);
+    await resetTestGame(localGameId, playerId);
     createGameIfNotExists(localGameId, 'commander', 40);
     const game = ensureGame(localGameId);
     if (!game) throw new Error('ensureGame returned undefined');
@@ -71,7 +84,7 @@ describe('AI mana ability integration', () => {
   }
 
   it('sacrifices Treasure mana sources live and persists the exact mana added', async () => {
-    const { localGameId, game } = setupTestGame('treasure');
+    const { localGameId, game } = await setupTestGame('treasure');
 
     (game.state as any).players = [
       { id: playerId, name: 'AI', spectator: false, isAI: true, life: 40 },
@@ -155,7 +168,7 @@ describe('AI mana ability integration', () => {
   });
 
   it('applies self-damage mana loss live and persists the mana delta', async () => {
-    const { localGameId, game } = setupTestGame('damage');
+    const { localGameId, game } = await setupTestGame('damage');
 
     (game.state as any).players = [
       { id: playerId, name: 'AI', spectator: false, isAI: true, life: 40 },
@@ -236,7 +249,7 @@ describe('AI mana ability integration', () => {
   });
 
   it('treats pay-life mana abilities as life loss without damage tracking', async () => {
-    const { localGameId, game } = setupTestGame('pay_life');
+    const { localGameId, game } = await setupTestGame('pay_life');
 
     (game.state as any).players = [
       { id: playerId, name: 'AI', spectator: false, isAI: true, life: 40 },

@@ -7,10 +7,10 @@ import { games } from '../src/socket/socket.js';
 import { ensureGame } from '../src/socket/util.js';
 import { ResolutionQueueManager, ResolutionStepType } from '../src/state/resolution/index.js';
 
-function resetGame(gameId: string) {
+async function resetGame(gameId: string) {
   ResolutionQueueManager.removeQueue(gameId);
   games.delete(gameId as any);
-  deleteGame(gameId);
+  await deleteGame(gameId);
 }
 
 function createMockIo(emitted: Array<{ room?: string; event: string; payload: any }>) {
@@ -36,8 +36,8 @@ function createMockSocket(playerId: string, gameId: string, emitted: Array<{ roo
   return { socket, handlers };
 }
 
-function seedGame(gameId: string) {
-  resetGame(gameId);
+async function seedGame(gameId: string) {
+  await resetGame(gameId);
   createGameIfNotExists(gameId, 'commander', 40);
   const game = ensureGame(gameId);
   if (!game) throw new Error('ensureGame returned undefined');
@@ -94,8 +94,8 @@ function seedGame(gameId: string) {
   return { game, playerId };
 }
 
-function seedExileTutorGame(gameId: string) {
-  resetGame(gameId);
+async function seedExileTutorGame(gameId: string) {
+  await resetGame(gameId);
   createGameIfNotExists(gameId, 'commander', 40);
   const game = ensureGame(gameId);
   if (!game) throw new Error('ensureGame returned undefined');
@@ -152,12 +152,12 @@ describe('graveyard tutor library-search replay semantics (integration)', () => 
     await initDb();
   });
 
-  beforeEach(() => {
-    resetGame(gameId);
+  beforeEach(async () => {
+    await resetGame(gameId);
   });
 
   it('persists and replays the resolved library search for a graveyard tutor activation', async () => {
-    const { game, playerId } = seedGame(gameId);
+    const { game, playerId } = await seedGame(gameId);
     const emitted: Array<{ room?: string; event: string; payload: any }> = [];
     const io = createMockIo(emitted);
     const { socket, handlers } = createMockSocket(playerId, gameId, emitted);
@@ -195,7 +195,7 @@ describe('graveyard tutor library-search replay semantics (integration)', () => 
     expect((liveZones?.graveyard || []).map((card: any) => card.id)).toEqual(['grave_tutor_1']);
 
     const replayGameId = `${gameId}_replay`;
-    const { game: replayGame } = seedGame(replayGameId);
+    const { game: replayGame } = await seedGame(replayGameId);
     replayGame.applyEvent({
       type: 'librarySearchResolve',
       ...((resolvedEvent as any).payload || {}),
@@ -209,9 +209,9 @@ describe('graveyard tutor library-search replay semantics (integration)', () => 
     );
   });
 
-  it('replays unresolved graveyard tutor activation by rebuilding the pending library search step and mana spend', () => {
+  it('replays unresolved graveyard tutor activation by rebuilding the pending library search step and mana spend', async () => {
     const replayGameId = `${gameId}_pending`;
-    const { game, playerId } = seedGame(replayGameId);
+    const { game, playerId } = await seedGame(replayGameId);
     (game.state as any).manaPool = {
       [playerId]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 3 },
     };
@@ -247,7 +247,7 @@ describe('graveyard tutor library-search replay semantics (integration)', () => 
 
   it('exiles the source and spends mana for graveyard tutor activations with exile-in-cost text', async () => {
     const exileGameId = `${gameId}_exile_cost_live`;
-    const { game, playerId } = seedExileTutorGame(exileGameId);
+    const { game, playerId } = await seedExileTutorGame(exileGameId);
     const emitted: Array<{ room?: string; event: string; payload: any }> = [];
     const io = createMockIo(emitted);
     const { socket, handlers } = createMockSocket(playerId, exileGameId, emitted);
@@ -296,7 +296,7 @@ describe('graveyard tutor library-search replay semantics (integration)', () => 
 
   it('persists and replays self ETB triggers for battlefield tutor resolutions', async () => {
     const exileGameId = `${gameId}_self_etb_persistence_live`;
-    const { game, playerId } = seedExileTutorGame(exileGameId);
+    const { game, playerId } = await seedExileTutorGame(exileGameId);
     const emitted: Array<{ room?: string; event: string; payload: any }> = [];
     const io = createMockIo(emitted);
     const { socket, handlers } = createMockSocket(playerId, exileGameId, emitted);
@@ -348,7 +348,7 @@ describe('graveyard tutor library-search replay semantics (integration)', () => 
     });
 
     const replayGameId = `${exileGameId}_replay`;
-    const { game: replayGame } = seedExileTutorGame(replayGameId);
+    const { game: replayGame } = await seedExileTutorGame(replayGameId);
     replayGame.applyEvent({
       type: 'pushTriggeredAbility',
       ...(triggerEvent.payload || {}),
@@ -364,9 +364,9 @@ describe('graveyard tutor library-search replay semantics (integration)', () => 
     });
   });
 
-  it('replays unresolved exile-cost graveyard tutor activations with source exile and mana spend', () => {
+  it('replays unresolved exile-cost graveyard tutor activations with source exile and mana spend', async () => {
     const replayGameId = `${gameId}_exile_cost_pending`;
-    const { game, playerId } = seedExileTutorGame(replayGameId);
+    const { game, playerId } = await seedExileTutorGame(replayGameId);
     (game.state as any).manaPool = {
       [playerId]: { white: 0, blue: 0, black: 0, red: 0, green: 1, colorless: 1 },
     };

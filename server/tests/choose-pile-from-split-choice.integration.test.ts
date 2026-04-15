@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { initDb, createGameIfNotExists, deleteGame, getEvents } from '../src/db/index.js';
 import { ensureGame } from '../src/socket/util.js';
 import '../src/state/modules/priority.js';
@@ -64,6 +64,13 @@ describe('choose pile from split choice (integration)', () => {
   });
 
   beforeEach(async () => {
+    await resetGame(gameId);
+    for (const replayGameId of replayGameIds) {
+      await resetGame(replayGameId);
+    }
+  });
+
+  afterEach(async () => {
     await resetGame(gameId);
     for (const replayGameId of replayGameIds) {
       await resetGame(replayGameId);

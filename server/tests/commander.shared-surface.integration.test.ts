@@ -40,9 +40,9 @@ function createMockSocket(
 
 const trackedGameIds: string[] = [];
 
-function cleanupTrackedGame(gameId: string) {
+async function cleanupTrackedGame(gameId: string) {
   games.delete(gameId as any);
-  deleteGame(gameId);
+  await deleteGame(gameId);
 }
 
 function createTestGameId(label: string): string {
@@ -60,9 +60,9 @@ describe('commander shared-surface integration', () => {
     await initDb();
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     for (const gameId of trackedGameIds.splice(0)) {
-      cleanupTrackedGame(gameId);
+      await cleanupTrackedGame(gameId);
     }
   });
 

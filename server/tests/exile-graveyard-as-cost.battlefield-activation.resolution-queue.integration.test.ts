@@ -50,16 +50,20 @@ function createMockSocket(playerId: string, emitted: Array<{ room?: string; even
 describe('Exile-from-graveyard-as-activation-cost via Resolution Queue (integration)', () => {
   const gameId = 'test_exile_graveyard_activation_cost_resolution_queue';
 
+  async function resetGame(gameId: string) {
+    ResolutionQueueManager.removeQueue(gameId);
+    games.delete(gameId as any);
+    await deleteGame(gameId);
+  }
+
   beforeAll(async () => {
     await initDb();
     initializePriorityResolutionHandler(createNoopIo() as any);
     await new Promise((resolve) => setTimeout(resolve, 0));
   });
 
-  beforeEach(() => {
-    ResolutionQueueManager.removeQueue(gameId);
-    games.delete(gameId as any);
-    deleteGame(gameId);
+  beforeEach(async () => {
+    await resetGame(gameId);
   });
 
   it('enqueues GRAVEYARD_SELECTION and resumes activation after exiling a card from your graveyard', async () => {

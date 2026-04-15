@@ -1,7 +1,7 @@
-import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { initDb, createGameIfNotExists, deleteGame } from '../src/db/index.js';
+import { cleanupGameAI, registerAIHandlers } from '../src/socket/ai.js';
 import { ensureGame } from '../src/socket/util.js';
-import { registerAIHandlers } from '../src/socket/ai.js';
 import { games } from '../src/socket/socket.js';
 import { ResolutionQueueManager, ResolutionStepType } from '../src/state/resolution/index.js';
 
@@ -47,6 +47,12 @@ describe('AI management authorization (integration)', () => {
   });
 
   beforeEach(async () => {
+    cleanupGameAI(gameId);
+    await resetGame(gameId);
+  });
+
+  afterEach(async () => {
+    cleanupGameAI(gameId);
     await resetGame(gameId);
   });
 

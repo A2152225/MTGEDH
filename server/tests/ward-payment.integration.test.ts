@@ -40,14 +40,18 @@ describe('ward mana payment flow', () => {
   const casterId = 'p1';
   const defenderId = 'p2';
 
+  async function resetGame(gameId: string) {
+    ResolutionQueueManager.removeQueue(gameId);
+    games.delete(gameId as any);
+    await deleteGame(gameId);
+  }
+
   beforeAll(async () => {
     await initDb();
   });
 
-  beforeEach(() => {
-    ResolutionQueueManager.removeQueue(gameId);
-    games.delete(gameId as any);
-    deleteGame(gameId);
+  beforeEach(async () => {
+    await resetGame(gameId);
   });
 
   it('queues mana ward payment without requiring floating mana and allows untapped lands to pay it', async () => {

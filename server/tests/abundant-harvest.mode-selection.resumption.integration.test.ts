@@ -44,10 +44,10 @@ function createMockSocket(playerId: string, gameId: string, emitted: Array<{ roo
   return { socket, handlers };
 }
 
-function resetGame(gameId: string) {
+async function resetGame(gameId: string) {
   ResolutionQueueManager.removeQueue(gameId);
   games.delete(gameId as any);
-  deleteGame(gameId);
+  await deleteGame(gameId);
 }
 
 describe('Abundant Harvest cast prompts', () => {
@@ -61,8 +61,8 @@ describe('Abundant Harvest cast prompts', () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
   });
 
-  beforeEach(() => {
-    resetGame(gameId);
+  beforeEach(async () => {
+    await resetGame(gameId);
   });
 
   it('queues the land or nonland choice on the initial cast path', async () => {

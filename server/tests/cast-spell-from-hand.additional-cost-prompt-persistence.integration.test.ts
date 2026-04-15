@@ -7,10 +7,10 @@ import { ResolutionQueueManager } from '../src/state/resolution/index.js';
 import { games } from '../src/socket/socket.js';
 import '../src/state/modules/priority.js';
 
-function resetGame(gameId: string) {
+async function resetGame(gameId: string) {
   ResolutionQueueManager.removeQueue(gameId);
   games.delete(gameId as any);
-  deleteGame(gameId);
+  await deleteGame(gameId);
 }
 
 function createNoopIo() {
@@ -36,8 +36,8 @@ function createMockSocket(playerId: string, gameId: string, emitted: Array<{ roo
   return { socket, handlers };
 }
 
-function setupBaseGame(testGameId: string, playerId = 'p1', opponentId = 'p2') {
-  resetGame(testGameId);
+async function setupBaseGame(testGameId: string, playerId = 'p1', opponentId = 'p2') {
+  await resetGame(testGameId);
   createGameIfNotExists(testGameId, 'commander', 40, undefined, playerId);
   const game = ensureGame(testGameId);
   if (!game) throw new Error('ensureGame returned undefined');
@@ -65,13 +65,13 @@ describe('castSpellFromHand additional-cost prompt persistence (integration)', (
     await initDb();
   });
 
-  beforeEach(() => {
-    resetGame(gameId);
+  beforeEach(async () => {
+    await resetGame(gameId);
   });
 
   it('persists direct life-payment prompts', async () => {
     const testGameId = `${gameId}_life`;
-    const game = setupBaseGame(testGameId, playerId, opponentId);
+    const game = await setupBaseGame(testGameId, playerId, opponentId);
     (game.state as any).zones = {
       [playerId]: {
         hand: [
@@ -98,7 +98,7 @@ describe('castSpellFromHand additional-cost prompt persistence (integration)', (
 
   it('persists direct bargain prompts', async () => {
     const testGameId = `${gameId}_bargain`;
-    const game = setupBaseGame(testGameId, playerId, opponentId);
+    const game = await setupBaseGame(testGameId, playerId, opponentId);
     (game.state as any).battlefield = [
       {
         id: 'treasure_1',
@@ -135,7 +135,7 @@ describe('castSpellFromHand additional-cost prompt persistence (integration)', (
 
   it('persists direct collect-evidence prompts', async () => {
     const testGameId = `${gameId}_evidence`;
-    const game = setupBaseGame(testGameId, playerId, opponentId);
+    const game = await setupBaseGame(testGameId, playerId, opponentId);
     (game.state as any).zones = {
       [playerId]: {
         hand: [
@@ -167,7 +167,7 @@ describe('castSpellFromHand additional-cost prompt persistence (integration)', (
 
   it('persists direct discard-cost prompts', async () => {
     const testGameId = `${gameId}_discard`;
-    const game = setupBaseGame(testGameId, playerId, opponentId);
+    const game = await setupBaseGame(testGameId, playerId, opponentId);
     (game.state as any).zones = {
       [playerId]: {
         hand: [
@@ -196,7 +196,7 @@ describe('castSpellFromHand additional-cost prompt persistence (integration)', (
 
   it('persists direct sacrifice-cost prompts', async () => {
     const testGameId = `${gameId}_sacrifice`;
-    const game = setupBaseGame(testGameId, playerId, opponentId);
+    const game = await setupBaseGame(testGameId, playerId, opponentId);
     (game.state as any).battlefield = [
       {
         id: 'creature_1',
@@ -233,7 +233,7 @@ describe('castSpellFromHand additional-cost prompt persistence (integration)', (
 
   it('persists direct squad-cost prompts', async () => {
     const testGameId = `${gameId}_squad`;
-    const game = setupBaseGame(testGameId, playerId, opponentId);
+    const game = await setupBaseGame(testGameId, playerId, opponentId);
     (game.state as any).zones = {
       [playerId]: {
         hand: [

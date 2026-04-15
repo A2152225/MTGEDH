@@ -38,14 +38,18 @@ describe('tap/untap follow-up prompt persistence', () => {
   const gameId = 'test_tap_untap_choice_persistence';
   const playerId = 'p1';
 
+  async function resetGame(gameId: string) {
+    ResolutionQueueManager.removeQueue(gameId);
+    games.delete(gameId as any);
+    await deleteGame(gameId);
+  }
+
   beforeAll(async () => {
     await initDb();
   });
 
-  beforeEach(() => {
-    ResolutionQueueManager.removeQueue(gameId);
-    games.delete(gameId as any);
-    deleteGame(gameId);
+  beforeEach(async () => {
+    await resetGame(gameId);
   });
 
   it('persists the queued tap-or-untap decision after target selection', async () => {

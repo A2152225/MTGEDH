@@ -49,16 +49,20 @@ function createMockSocket(playerId: string, emitted: Array<{ room?: string; even
 describe('spell-cast reveal/cast queue flow (integration)', () => {
   const gameId = 'test_spell_cast_reveal_cast_resolution';
 
+  async function resetGame(gameId: string) {
+    ResolutionQueueManager.removeQueue(gameId);
+    games.delete(gameId as any);
+    await deleteGame(gameId);
+  }
+
   beforeAll(async () => {
     await initDb();
     initializePriorityResolutionHandler(createNoopIo() as any);
     await new Promise(resolve => setTimeout(resolve, 0));
   });
 
-  beforeEach(() => {
-    ResolutionQueueManager.removeQueue(gameId);
-    games.delete(gameId as any);
-    deleteGame(gameId);
+  beforeEach(async () => {
+    await resetGame(gameId);
   });
 
   it('moves the triggering spell to the bottom, reveals until a nonland, and offers a free cast', async () => {

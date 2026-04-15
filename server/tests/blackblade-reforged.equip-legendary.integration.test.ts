@@ -1,4 +1,4 @@
-import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 import { createGameIfNotExists, deleteGame, getEvents, initDb } from '../src/db/index.js';
 import { ensureGame } from '../src/socket/util.js';
@@ -40,10 +40,18 @@ function createMockSocket(playerId: string, emitted: Array<{ room?: string; even
   return { socket, handlers };
 }
 
-function resetGame(gameId: string) {
+async function resetGame(gameId: string) {
   ResolutionQueueManager.removeQueue(gameId);
   games.delete(gameId as any);
-  deleteGame(gameId);
+  await deleteGame(gameId);
+}
+
+const trackedGameIds: string[] = [];
+
+async function cleanupTrackedGames() {
+  for (const trackedGameId of trackedGameIds.splice(0, trackedGameIds.length)) {
+    await resetGame(trackedGameId);
+  }
 }
 
 describe('Blackblade Reforged legendary equip (integration)', () => {
@@ -55,8 +63,14 @@ describe('Blackblade Reforged legendary equip (integration)', () => {
     await new Promise(resolve => setTimeout(resolve, 0));
   });
 
-  beforeEach(() => {
-    resetGame(gameId);
+  beforeEach(async () => {
+    await resetGame(gameId);
+    await cleanupTrackedGames();
+  });
+
+  afterEach(async () => {
+    await resetGame(gameId);
+    await cleanupTrackedGames();
   });
 
   it('queues equip payment after targeting and preserves unselected floating mana', async () => {
@@ -195,7 +209,8 @@ describe('Blackblade Reforged legendary equip (integration)', () => {
 
   it('persists resolved equip attachments so restore rebuilds attached and equipped state', async () => {
     const persistentGameId = `${gameId}_persisted_attach_${Math.random().toString(36).slice(2, 10)}`;
-    resetGame(persistentGameId);
+    trackedGameIds.push(persistentGameId);
+    await resetGame(persistentGameId);
 
     createGameIfNotExists(persistentGameId, 'commander', 40);
     const game = ensureGame(persistentGameId);
@@ -334,7 +349,8 @@ describe('Blackblade Reforged legendary equip (integration)', () => {
 
   it('persists tapped payment sources for equip activations so replay restores mana-source taps', async () => {
     const persistentGameId = `${gameId}_persisted_payment_taps_${Math.random().toString(36).slice(2, 10)}`;
-    resetGame(persistentGameId);
+    trackedGameIds.push(persistentGameId);
+    await resetGame(persistentGameId);
 
     createGameIfNotExists(persistentGameId, 'commander', 40);
     const game = ensureGame(persistentGameId);

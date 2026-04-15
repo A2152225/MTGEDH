@@ -7,10 +7,10 @@ import { games } from '../src/socket/socket.js';
 import { ensureGame } from '../src/socket/util.js';
 import { ResolutionQueueManager, ResolutionStepType } from '../src/state/resolution/index.js';
 
-function resetGame(gameId: string) {
+async function resetGame(gameId: string) {
   ResolutionQueueManager.removeQueue(gameId);
   games.delete(gameId as any);
-  deleteGame(gameId);
+  await deleteGame(gameId);
 }
 
 function createMockIo(emitted: Array<{ room?: string; event: string; payload: any }>) {
@@ -36,8 +36,8 @@ function createMockSocket(playerId: string, gameId: string, emitted: Array<{ roo
   return { socket, handlers };
 }
 
-function seedGame(gameId: string, cardId: string, oracleText: string, options?: { manaCost?: string; manaPool?: any; life?: number; hand?: any[]; extraGraveyard?: any[] }) {
-  resetGame(gameId);
+async function seedGame(gameId: string, cardId: string, oracleText: string, options?: { manaCost?: string; manaPool?: any; life?: number; hand?: any[]; extraGraveyard?: any[] }) {
+  await resetGame(gameId);
   createGameIfNotExists(gameId, 'commander', 40);
   const game = ensureGame(gameId);
   if (!game) throw new Error('ensureGame returned undefined');
@@ -82,12 +82,12 @@ describe('cast-from-graveyard replay semantics (integration)', () => {
     await initDb();
   });
 
-  beforeEach(() => {
-    resetGame(gameId);
+  beforeEach(async () => {
+    await resetGame(gameId);
   });
 
   it('live jump-start activation spends mana and moves the card from graveyard to stack', async () => {
-    const { game, playerId } = seedGame(gameId, 'jump_start_1', 'Draw a card.\nJump-start {1}{U}', {
+    const { game, playerId } = await seedGame(gameId, 'jump_start_1', 'Draw a card.\nJump-start {1}{U}', {
       manaPool: { white: 0, blue: 1, black: 0, red: 0, green: 0, colorless: 1 },
       hand: [
         {
@@ -139,7 +139,7 @@ describe('cast-from-graveyard replay semantics (integration)', () => {
 
   it('live retrace activation requires discarding a land card from hand', async () => {
     const retraceGameId = `${gameId}_retrace_live`;
-    const { game, playerId } = seedGame(retraceGameId, 'retrace_1', 'Flame Jab deals 1 damage to any target.\nRetrace', {
+    const { game, playerId } = await seedGame(retraceGameId, 'retrace_1', 'Flame Jab deals 1 damage to any target.\nRetrace', {
       manaCost: '{R}',
       manaPool: { white: 0, blue: 0, black: 0, red: 1, green: 0, colorless: 0 },
       hand: [
@@ -199,7 +199,7 @@ describe('cast-from-graveyard replay semantics (integration)', () => {
 
   it('live escape activation requires exiling other cards from your graveyard', async () => {
     const escapeGameId = `${gameId}_escape_live`;
-    const { game, playerId } = seedGame(escapeGameId, 'escape_1', 'Return target creature card from your graveyard to your hand.\nEscape {2}{G}, Exile three other cards from your graveyard.', {
+    const { game, playerId } = await seedGame(escapeGameId, 'escape_1', 'Return target creature card from your graveyard to your hand.\nEscape {2}{G}, Exile three other cards from your graveyard.', {
       manaPool: { white: 0, blue: 0, black: 0, red: 0, green: 1, colorless: 2 },
       extraGraveyard: [
         { id: 'escape_cost_1', name: 'Card One', type_line: 'Instant', oracle_text: '' },
@@ -249,14 +249,14 @@ describe('cast-from-graveyard replay semantics (integration)', () => {
   });
 
   for (const abilityId of ['flashback', 'retrace', 'escape']) {
-    it(`replays ${abilityId} as a cast-from-graveyard stack item`, () => {
+    it(`replays ${abilityId} as a cast-from-graveyard stack item`, async () => {
       const replayGameId = `${gameId}_${abilityId}`;
       const oracleText = abilityId === 'flashback'
         ? 'Target player draws two cards.\nFlashback—{1}{U}, Pay 3 life.'
         : abilityId === 'escape'
           ? 'Escape {2}{G}, Exile three other cards from your graveyard.'
           : `${abilityId} sample text`;
-      const { game, playerId } = seedGame(replayGameId, `${abilityId}_1`, oracleText, {
+      const { game, playerId } = await seedGame(replayGameId, `${abilityId}_1`, oracleText, {
         manaCost: abilityId === 'retrace' ? '{2}{B}' : undefined,
         manaPool: abilityId === 'flashback'
           ? { white: 0, blue: 1, black: 0, red: 0, green: 0, colorless: 1 }
@@ -290,9 +290,9 @@ describe('cast-from-graveyard replay semantics (integration)', () => {
     });
   }
 
-  it('replays cast-from-graveyard abilities using the persisted live stack id when present', () => {
+  it('replays cast-from-graveyard abilities using the persisted live stack id when present', async () => {
     const replayGameId = `${gameId}_flashback_stack_id`;
-    const { game, playerId } = seedGame(replayGameId, 'flashback_stack_id_1', 'Target player draws two cards.\nFlashback—{1}{U}, Pay 3 life.', {
+    const { game, playerId } = await seedGame(replayGameId, 'flashback_stack_id_1', 'Target player draws two cards.\nFlashback—{1}{U}, Pay 3 life.', {
       manaPool: { white: 0, blue: 1, black: 0, red: 0, green: 0, colorless: 1 },
       life: 20,
     });
@@ -314,9 +314,9 @@ describe('cast-from-graveyard replay semantics (integration)', () => {
     expect(stack[0]?.card?.castWithAbility).toBe('flashback');
   });
 
-  it('replay applies recorded jump-start discard choices before moving the spell to the stack', () => {
+  it('replay applies recorded jump-start discard choices before moving the spell to the stack', async () => {
     const replayGameId = `${gameId}_jump_start_replay`;
-    const { game, playerId } = seedGame(replayGameId, 'jump_start_replay_1', 'Draw a card.\nJump-start {1}{U}', {
+    const { game, playerId } = await seedGame(replayGameId, 'jump_start_replay_1', 'Draw a card.\nJump-start {1}{U}', {
       manaPool: { white: 0, blue: 1, black: 0, red: 0, green: 0, colorless: 1 },
       hand: [
         {
@@ -348,9 +348,9 @@ describe('cast-from-graveyard replay semantics (integration)', () => {
     expect((game.state as any).manaPool?.[playerId]).toEqual({ white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 });
   });
 
-  it('replays queued retrace discard prompts before the discard cost is paid', () => {
+  it('replays queued retrace discard prompts before the discard cost is paid', async () => {
     const replayGameId = `${gameId}_retrace_prompt_replay`;
-    const { game, playerId } = seedGame(replayGameId, 'retrace_prompt_1', 'Flame Jab deals 1 damage to any target.\nRetrace', {
+    const { game, playerId } = await seedGame(replayGameId, 'retrace_prompt_1', 'Flame Jab deals 1 damage to any target.\nRetrace', {
       hand: [
         {
           id: 'retrace_prompt_land_1',
@@ -405,9 +405,9 @@ describe('cast-from-graveyard replay semantics (integration)', () => {
     expect((steps[0] as any)?.graveyardCastDiscardAsCost).toBe(true);
   });
 
-  it('replays queued escape exile prompts before the exile cost is paid', () => {
+  it('replays queued escape exile prompts before the exile cost is paid', async () => {
     const replayGameId = `${gameId}_escape_prompt_replay`;
-    const { game, playerId } = seedGame(replayGameId, 'escape_prompt_1', 'Return target creature card from your graveyard to your hand.\nEscape {2}{G}, Exile three other cards from your graveyard.', {
+    const { game, playerId } = await seedGame(replayGameId, 'escape_prompt_1', 'Return target creature card from your graveyard to your hand.\nEscape {2}{G}, Exile three other cards from your graveyard.', {
       extraGraveyard: [
         { id: 'escape_prompt_cost_1', name: 'Card One', type_line: 'Instant', oracle_text: '' },
         { id: 'escape_prompt_cost_2', name: 'Card Two', type_line: 'Sorcery', oracle_text: '' },
@@ -456,9 +456,9 @@ describe('cast-from-graveyard replay semantics (integration)', () => {
     expect((steps[0] as any)?.graveyardCastExileAsCost).toBe(true);
   });
 
-  it('replay applies recorded escape exile choices before moving the spell to the stack', () => {
+  it('replay applies recorded escape exile choices before moving the spell to the stack', async () => {
     const replayGameId = `${gameId}_escape_replay`;
-    const { game, playerId } = seedGame(replayGameId, 'escape_replay_1', 'Return target creature card from your graveyard to your hand.\nEscape {2}{G}, Exile three other cards from your graveyard.', {
+    const { game, playerId } = await seedGame(replayGameId, 'escape_replay_1', 'Return target creature card from your graveyard to your hand.\nEscape {2}{G}, Exile three other cards from your graveyard.', {
       manaPool: { white: 0, blue: 0, black: 0, red: 0, green: 1, colorless: 2 },
       extraGraveyard: [
         { id: 'escape_replay_cost_1', name: 'Card One', type_line: 'Instant', oracle_text: '' },

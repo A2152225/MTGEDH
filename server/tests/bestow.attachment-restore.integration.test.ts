@@ -1,4 +1,4 @@
-import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 import { createGameIfNotExists, deleteGame, getEvents, initDb } from '../src/db/index.js';
 import { ensureGame } from '../src/socket/util.js';
@@ -12,6 +12,14 @@ async function resetGame(gameId: string) {
   await deleteGame(gameId);
 }
 
+const trackedGameIds: string[] = [];
+
+async function cleanupTrackedGames() {
+  for (const trackedGameId of trackedGameIds.splice(0, trackedGameIds.length)) {
+    await resetGame(trackedGameId);
+  }
+}
+
 describe('Bestow attachment restore (integration)', () => {
   const gameId = 'test_bestow_attachment_restore';
 
@@ -21,10 +29,17 @@ describe('Bestow attachment restore (integration)', () => {
 
   beforeEach(async () => {
     await resetGame(gameId);
+    await cleanupTrackedGames();
+  });
+
+  afterEach(async () => {
+    await resetGame(gameId);
+    await cleanupTrackedGames();
   });
 
   it('persists bestowed attachment state so restore rebuilds attachedTo and target attachments', async () => {
     const persistentGameId = `${gameId}_${Math.random().toString(36).slice(2, 10)}`;
+    trackedGameIds.push(persistentGameId);
     await resetGame(persistentGameId);
 
     createGameIfNotExists(persistentGameId, 'commander', 40);

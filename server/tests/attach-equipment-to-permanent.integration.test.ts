@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { initDb, createGameIfNotExists, deleteGame, getEvents } from '../src/db/index.js';
 import { ensureGame } from '../src/socket/util.js';
 import '../src/state/modules/priority.js';
@@ -41,14 +41,15 @@ function createMockSocket(playerId: string, emitted: Array<{ room?: string; even
   return { socket, handlers };
 }
 
-function resetGame(gameId: string) {
+async function resetGame(gameId: string) {
   ResolutionQueueManager.removeQueue(gameId);
   games.delete(gameId as any);
-  deleteGame(gameId);
+  await deleteGame(gameId);
 }
 
 describe('attach equipment to permanent (integration)', () => {
   const gameId = 'test_attach_equipment_to_permanent';
+  const replayGameIds = [`${gameId}_replay`];
 
   beforeAll(async () => {
     await initDb();
@@ -56,8 +57,18 @@ describe('attach equipment to permanent (integration)', () => {
     await new Promise(resolve => setTimeout(resolve, 0));
   });
 
-  beforeEach(() => {
-    resetGame(gameId);
+  beforeEach(async () => {
+    await resetGame(gameId);
+    for (const replayGameId of replayGameIds) {
+      await resetGame(replayGameId);
+    }
+  });
+
+  afterEach(async () => {
+    await resetGame(gameId);
+    for (const replayGameId of replayGameIds) {
+      await resetGame(replayGameId);
+    }
   });
 
   it('reattaches the chosen equipment from a previous creature to the target permanent', async () => {
@@ -160,7 +171,7 @@ describe('attach equipment to permanent (integration)', () => {
     });
 
     const replayGameId = `${gameId}_replay`;
-    resetGame(replayGameId);
+    await resetGame(replayGameId);
     createGameIfNotExists(replayGameId, 'commander', 40);
     const replayGame = ensureGame(replayGameId);
     if (!replayGame) throw new Error('ensureGame returned undefined');

@@ -1,10 +1,10 @@
-import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createGameIfNotExists, deleteGame, initDb } from '../src/db/index.js';
 import { ResolutionQueueManager, ResolutionStepType } from '../src/state/resolution/index.js';
 import { initializeAIResolutionHandler } from '../src/socket/resolution.js';
 import { broadcastGame, ensureGame } from '../src/socket/util.js';
 import { games } from '../src/socket/socket.js';
-import { handleAIPriority, registerAIPlayer, unregisterAIPlayer } from '../src/socket/ai.js';
+import { cleanupGameAI, handleAIPriority, registerAIPlayer } from '../src/socket/ai.js';
 
 function createNoopIo() {
   return {
@@ -34,8 +34,13 @@ describe('AI resolution-step integration', () => {
   });
 
   beforeEach(async () => {
+    cleanupGameAI(gameId);
     await resetGame(gameId);
-    unregisterAIPlayer(gameId, playerId as any);
+  });
+
+  afterEach(async () => {
+    cleanupGameAI(gameId);
+    await resetGame(gameId);
   });
 
   it('routes active target-selection steps through AI priority handling and chooses the best target', async () => {

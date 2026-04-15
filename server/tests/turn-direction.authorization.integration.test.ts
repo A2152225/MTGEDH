@@ -36,10 +36,10 @@ describe('setTurnDirection authorization (integration)', () => {
     await initDb();
   });
 
-  beforeEach(() => {
+  beforeEach(async () => {
     games.delete(gameId as any);
     try {
-      deleteGame(gameId);
+      await deleteGame(gameId);
     } catch {
       // ignore
     }

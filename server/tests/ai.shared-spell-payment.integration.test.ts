@@ -1,4 +1,4 @@
-import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 import { createGameIfNotExists, deleteGame, getEvents, initDb } from '../src/db/index.js';
 import { chooseAISpellPaymentSelections } from '../src/socket/ai.js';
@@ -31,15 +31,23 @@ function createTestGameId(label: string): string {
   return gameId;
 }
 
+async function cleanupTrackedGames() {
+  for (const gameId of trackedGameIds.splice(0, trackedGameIds.length)) {
+    await cleanupTrackedGame(gameId);
+  }
+}
+
 describe('AI shared spell-payment integration', () => {
   beforeAll(async () => {
     await initDb();
   });
 
   beforeEach(async () => {
-    for (const gameId of trackedGameIds.splice(0, trackedGameIds.length)) {
-      await cleanupTrackedGame(gameId);
-    }
+    await cleanupTrackedGames();
+  });
+
+  afterEach(async () => {
+    await cleanupTrackedGames();
   });
 
   it('selects the exact non-tap mana ability id when building a spell payment plan', async () => {

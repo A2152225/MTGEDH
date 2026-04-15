@@ -82,7 +82,7 @@ describe('venture and initiative support (integration)', () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
   });
 
-  beforeEach(() => {
+  beforeEach(async () => {
     for (const gameId of [
       venturePromptGameId,
       ventureChoiceGameId,
@@ -110,7 +110,7 @@ describe('venture and initiative support (integration)', () => {
     ]) {
       ResolutionQueueManager.removeQueue(gameId);
       games.delete(gameId as any);
-      deleteGame(gameId);
+      await deleteGame(gameId);
     }
   });
 

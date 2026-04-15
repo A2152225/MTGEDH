@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { initDb, createGameIfNotExists, deleteGame, getEvents } from '../src/db/index.js';
 import { ensureGame } from '../src/socket/util.js';
 import '../src/state/modules/priority.js';
@@ -42,14 +42,19 @@ function createMockSocket(playerId: string, emitted: Array<{ room?: string; even
   return { socket, handlers };
 }
 
-function resetGame(gameId: string) {
+async function resetGame(gameId: string) {
   ResolutionQueueManager.removeQueue(gameId);
   games.delete(gameId as any);
-  deleteGame(gameId);
+  await deleteGame(gameId);
 }
 
 describe('after sacrifice followup target selection (integration)', () => {
   const gameId = 'test_after_sacrifice_followup_target_selection';
+  const replayGameIds = [
+    `${gameId}_generic_replay`,
+    `${gameId}_replay`,
+    `${gameId}_ask_stage_replay`,
+  ];
 
   beforeAll(async () => {
     await initDb();
@@ -57,8 +62,18 @@ describe('after sacrifice followup target selection (integration)', () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
   });
 
-  beforeEach(() => {
-    resetGame(gameId);
+  beforeEach(async () => {
+    await resetGame(gameId);
+    for (const replayGameId of replayGameIds) {
+      await resetGame(replayGameId);
+    }
+  });
+
+  afterEach(async () => {
+    await resetGame(gameId);
+    for (const replayGameId of replayGameIds) {
+      await resetGame(replayGameId);
+    }
   });
 
   it('queues and resolves a generic target-selection action after sacrificing a creature', async () => {
@@ -160,7 +175,7 @@ describe('after sacrifice followup target selection (integration)', () => {
     expect(((game.state as any).zones[p1].graveyard || []).map((card: any) => card.name)).toEqual(['Disposable Creature']);
 
     const replayGameId = `${gameId}_generic_replay`;
-    resetGame(replayGameId);
+    await resetGame(replayGameId);
     createGameIfNotExists(replayGameId, 'commander', 40);
     const replayGame = ensureGame(replayGameId);
     if (!replayGame) throw new Error('ensureGame returned undefined');
@@ -326,7 +341,7 @@ describe('after sacrifice followup target selection (integration)', () => {
     });
 
     const replayGameId = `${gameId}_replay`;
-  resetGame(replayGameId);
+  await resetGame(replayGameId);
     createGameIfNotExists(replayGameId, 'commander', 40);
     const replayGame = ensureGame(replayGameId);
     if (!replayGame) throw new Error('ensureGame returned undefined');
@@ -494,7 +509,7 @@ describe('after sacrifice followup target selection (integration)', () => {
     });
 
     const replayGameId = `${gameId}_ask_stage_replay`;
-  resetGame(replayGameId);
+  await resetGame(replayGameId);
     createGameIfNotExists(replayGameId, 'commander', 40);
     const replayGame = ensureGame(replayGameId);
     if (!replayGame) throw new Error('ensureGame returned undefined');

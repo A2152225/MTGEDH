@@ -36,18 +36,22 @@ describe('top-library cast timing (integration)', () => {
   const playerId = 'p1';
   const opponentId = 'p2';
 
+  async function resetGame(gameId: string) {
+    ResolutionQueueManager.removeQueue(gameId);
+    games.delete(gameId as any);
+    try {
+      await deleteGame(gameId);
+    } catch {
+      // ignore cleanup failures for non-existent test DB rows
+    }
+  }
+
   beforeAll(async () => {
     await initDb();
   });
 
-  beforeEach(() => {
-    ResolutionQueueManager.removeQueue(gameId);
-    games.delete(gameId as any);
-    try {
-      deleteGame(gameId);
-    } catch {
-      // ignore cleanup failures for non-existent test DB rows
-    }
+  beforeEach(async () => {
+    await resetGame(gameId);
   });
 
   function setupGame() {

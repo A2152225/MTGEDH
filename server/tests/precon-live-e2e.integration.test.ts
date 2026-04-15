@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
-import { createGameIfNotExists, initDb } from '../src/db/index.js';
+import { createGameIfNotExists, deleteGame, initDb } from '../src/db/index.js';
 import { ensureGame, broadcastGame } from '../src/socket/util.js';
 import { initializeAIResolutionHandler } from '../src/socket/resolution.js';
 import { registerAIPlayer, scheduleAIGameFlow, unregisterAIPlayer } from '../src/socket/ai.js';
@@ -351,7 +351,7 @@ type PreparedLiveGame = {
   joinedFixtures: JoinedDeckFixture[];
 };
 
-function prepareLiveGame(gameId: string): PreparedLiveGame {
+async function prepareLiveGame(gameId: string): Promise<PreparedLiveGame> {
   const io = createNoopIo();
   const fixtures = loadDeckFixtures();
   const actualPlayerIds: string[] = [];
@@ -364,6 +364,7 @@ function prepareLiveGame(gameId: string): PreparedLiveGame {
     clearTimeout(existingPriorityTimer);
     priorityTimers.delete(gameId as any);
   }
+  await deleteGame(gameId);
 
   createGameIfNotExists(gameId, 'commander', 40);
   const game = ensureGame(gameId);
@@ -431,7 +432,7 @@ function prepareLiveGame(gameId: string): PreparedLiveGame {
   return { io, game, gameId, actualPlayerIds, joinedFixtures };
 }
 
-function cleanupLiveGame(prepared: PreparedLiveGame): void {
+async function cleanupLiveGame(prepared: PreparedLiveGame): Promise<void> {
   for (const playerId of prepared.actualPlayerIds) {
     unregisterAIPlayer(prepared.gameId, playerId as any);
   }
@@ -442,6 +443,7 @@ function cleanupLiveGame(prepared: PreparedLiveGame): void {
     priorityTimers.delete(prepared.gameId as any);
   }
   games.delete(prepared.gameId as any);
+  await deleteGame(prepared.gameId);
 }
 
 async function advanceLiveGame(
@@ -535,7 +537,7 @@ describe('live server precon end-to-end', () => {
 
   it('loads the three txt decks into the real server engine and advances multiple live turns without stalling', async () => {
     vi.useFakeTimers();
-    const prepared = prepareLiveGame('precon_live_e2e_server_integration');
+    const prepared = await prepareLiveGame('precon_live_e2e_server_integration');
 
     try {
       const requiredTurns = LIVE_PRECON_REQUIRED_TURNS;
@@ -565,7 +567,7 @@ describe('live server precon end-to-end', () => {
 
       expect(battlefieldCount > 0 || anyLifeChange || anyCardsLeftHand).toBe(true);
     } finally {
-      cleanupLiveGame(prepared);
+      await cleanupLiveGame(prepared);
       vi.clearAllTimers();
       vi.useRealTimers();
     }
@@ -574,7 +576,7 @@ describe('live server precon end-to-end', () => {
   const slowIt = RUN_SLOW_LIVE_PRECON_FINISH ? it : it.skip;
   slowIt('finishes the three txt decks through the real server engine', async () => {
     vi.useFakeTimers();
-    const prepared = prepareLiveGame('precon_live_e2e_server_full_finish');
+    const prepared = await prepareLiveGame('precon_live_e2e_server_full_finish');
 
     try {
       await advanceLiveGame(prepared.game, {
@@ -599,7 +601,7 @@ describe('live server precon end-to-end', () => {
           (prepared.game.state as any).gameOver,
       ).toBeTruthy();
     } finally {
-      cleanupLiveGame(prepared);
+      await cleanupLiveGame(prepared);
       vi.clearAllTimers();
       vi.useRealTimers();
     }

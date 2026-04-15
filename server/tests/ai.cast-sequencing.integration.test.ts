@@ -1,4 +1,4 @@
-import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const { requestCastSpellForSocket } = vi.hoisted(() => ({
   requestCastSpellForSocket: vi.fn(),
@@ -13,8 +13,9 @@ vi.mock('../src/socket/game-actions.js', async () => {
 });
 
 import { AIEngine, AIDecisionType } from '../../rules-engine/src/AIEngine.js';
-import { createGameIfNotExists, initDb } from '../src/db/index.js';
-import { cleanupGameAI, handleAIPriority, registerAIPlayer, unregisterAIPlayer } from '../src/socket/ai.js';
+import { createGameIfNotExists, deleteGame, initDb } from '../src/db/index.js';
+import { cleanupGameAI, handleAIPriority, registerAIPlayer } from '../src/socket/ai.js';
+import { ResolutionQueueManager } from '../src/state/resolution/index.js';
 import { games } from '../src/socket/socket.js';
 import { ensureGame } from '../src/socket/util.js';
 
@@ -31,16 +32,25 @@ describe('AI cast sequencing integration', () => {
   const gameId = 'test_ai_cast_sequencing';
   const playerId = 'ai1';
 
+  async function resetGame(gameId: string) {
+    cleanupGameAI(gameId);
+    ResolutionQueueManager.removeQueue(gameId);
+    games.delete(gameId as any);
+    await deleteGame(gameId);
+  }
+
   beforeAll(async () => {
     await initDb();
   });
 
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.restoreAllMocks();
     requestCastSpellForSocket.mockReset();
-    cleanupGameAI(gameId);
-    unregisterAIPlayer(gameId, playerId as any);
-    games.delete(gameId as any);
+    await resetGame(gameId);
+  });
+
+  afterEach(async () => {
+    await resetGame(gameId);
   });
 
   it('does not chain additional spell attempts after a cast loses priority', async () => {

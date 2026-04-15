@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
+import { describe, it, expect, beforeAll, beforeEach, afterEach } from 'vitest';
 import { initDb, createGameIfNotExists, deleteGame } from '../src/db/index.js';
 import { registerOpponentMayPayHandlers } from '../src/socket/opponent-may-pay.js';
 import { ensureGame } from '../src/socket/util.js';
@@ -63,6 +63,10 @@ describe('opponentMayPayChoice validate-before-complete (integration)', () => {
   });
 
   beforeEach(async () => {
+    await resetGame(gameId);
+  });
+
+  afterEach(async () => {
     await resetGame(gameId);
   });
 

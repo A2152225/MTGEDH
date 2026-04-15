@@ -59,17 +59,21 @@ describe('legacy native mana choice ids (integration)', () => {
     'test_legacy_native_mana_choice_multi',
   ];
 
+  async function resetGame(gameId: string) {
+    ResolutionQueueManager.removeQueue(gameId);
+    games.delete(gameId as any);
+    await deleteGame(gameId);
+  }
+
   beforeAll(async () => {
     await initDb();
     initializePriorityResolutionHandler(createNoopIo() as any);
     await new Promise(resolve => setTimeout(resolve, 0));
   });
 
-  beforeEach(() => {
+  beforeEach(async () => {
     for (const gameId of gameIds) {
-      ResolutionQueueManager.removeQueue(gameId);
-      games.delete(gameId as any);
-      deleteGame(gameId);
+      await resetGame(gameId);
     }
   });
 

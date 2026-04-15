@@ -1,4 +1,4 @@
-import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 import { appendEvent, createGameIfNotExists, deleteGame, getEvents, initDb } from '../src/db/index.js';
 import { createInitialGameState } from '../src/state/gameState.js';
@@ -54,10 +54,18 @@ function createMockSocket(playerId: string, emitted: Array<{ room?: string; even
   return { socket, handlers };
 }
 
-function resetGame(gameId: string) {
+async function resetGame(gameId: string) {
   ResolutionQueueManager.removeQueue(gameId);
   games.delete(gameId as any);
-  deleteGame(gameId);
+  await deleteGame(gameId);
+}
+
+const trackedGameIds: string[] = [];
+
+async function cleanupTrackedGames() {
+  for (const trackedGameId of trackedGameIds.splice(0, trackedGameIds.length)) {
+    await resetGame(trackedGameId);
+  }
 }
 
 describe('activateFetchland persistence (integration)', () => {
@@ -69,8 +77,14 @@ describe('activateFetchland persistence (integration)', () => {
     await new Promise(resolve => setTimeout(resolve, 0));
   });
 
-  beforeEach(() => {
-    resetGame(gameId);
+  beforeEach(async () => {
+    await resetGame(gameId);
+    await cleanupTrackedGames();
+  });
+
+  afterEach(async () => {
+    await resetGame(gameId);
+    await cleanupTrackedGames();
   });
 
   it('persists true-fetch activation evidence and tracks life lost this turn', async () => {
@@ -208,7 +222,8 @@ describe('activateFetchland persistence (integration)', () => {
 
   it('does not recreate a Misty Rainforest prompt after restart once the search resolved event was persisted', async () => {
     const persistentGameId = `${gameId}_${Math.random().toString(36).slice(2, 10)}`;
-    resetGame(persistentGameId);
+    trackedGameIds.push(persistentGameId);
+    await resetGame(persistentGameId);
 
     createGameIfNotExists(persistentGameId, 'commander', 40, undefined, 'p1');
     const game = ensureGame(persistentGameId);

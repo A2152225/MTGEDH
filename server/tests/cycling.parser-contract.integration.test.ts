@@ -1,10 +1,16 @@
-import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
-import { createGameIfNotExists, initDb } from '../src/db/index.js';
+import { createGameIfNotExists, deleteGame, initDb } from '../src/db/index.js';
 import { registerInteractionHandlers } from '../src/socket/interaction.js';
 import { games } from '../src/socket/socket.js';
 import { ensureGame } from '../src/socket/util.js';
 import { ResolutionQueueManager, ResolutionStepType } from '../src/state/resolution/index.js';
+
+async function resetGame(gameId: string) {
+  games.delete(gameId as any);
+  ResolutionQueueManager.removeQueue(gameId);
+  await deleteGame(gameId);
+}
 
 function createMockIo(emitted: Array<{ room?: string; event: string; payload: any }>) {
   return {
@@ -31,14 +37,27 @@ function createMockSocket(playerId: string, gameId: string, emitted: Array<{ roo
 
 describe('cycling parser contract (integration)', () => {
   const gameId = 'test_cycling_parser_contract';
+  const trackedGameIds = [
+    gameId,
+    'test_cycling_parser_contract_landcycling',
+    'test_cycling_parser_contract_wizardcycling',
+    'test_cycling_parser_contract_typecycling_replay',
+  ];
 
   beforeAll(async () => {
     await initDb();
   });
 
-  beforeEach(() => {
-    games.delete(gameId as any);
-    ResolutionQueueManager.removeQueue(gameId);
+  beforeEach(async () => {
+    for (const trackedGameId of trackedGameIds) {
+      await resetGame(trackedGameId);
+    }
+  });
+
+  afterEach(async () => {
+    for (const trackedGameId of trackedGameIds) {
+      await resetGame(trackedGameId);
+    }
   });
 
   it('accepts parser-emitted cycling ids through activateCycling and resolves the draw from the stack', async () => {
