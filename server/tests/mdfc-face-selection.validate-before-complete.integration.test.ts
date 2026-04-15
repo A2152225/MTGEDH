@@ -47,10 +47,10 @@ function createMockSocket(playerId: string, emitted: Array<{ room?: string; even
   return { socket, handlers };
 }
 
-function resetGame(gameId: string) {
+async function resetGame(gameId: string) {
   ResolutionQueueManager.removeQueue(gameId);
   games.delete(gameId as any);
-  deleteGame(gameId);
+  await deleteGame(gameId);
 }
 
 describe('MDFC face OPTION_CHOICE validate-before-complete (integration)', () => {
@@ -62,8 +62,8 @@ describe('MDFC face OPTION_CHOICE validate-before-complete (integration)', () =>
     await new Promise(resolve => setTimeout(resolve, 0));
   });
 
-  beforeEach(() => {
-    resetGame(gameId);
+  beforeEach(async () => {
+    await resetGame(gameId);
   });
 
   it('does not consume the step on invalid selection', async () => {

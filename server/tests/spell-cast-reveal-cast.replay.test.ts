@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 
 import { createInitialGameState } from '../src/state/gameState.js';
 import { ResolutionQueueManager, ResolutionStepType } from '../src/state/resolution/index.js';
@@ -8,10 +8,22 @@ function addPlayer(game: any, id: PlayerID, name: string) {
   game.applyEvent({ type: 'join', playerId: id, name });
 }
 
+function resetGame(gameId: string) {
+  ResolutionQueueManager.removeQueue(gameId);
+}
+
 describe('spell-cast reveal/cast replay semantics', () => {
+  beforeEach(() => {
+    for (const gameId of [
+      't_spell_bottom_reveal_choice_replay',
+      't_revealed_cast_choice_replay',
+    ]) {
+      resetGame(gameId);
+    }
+  });
+
   it('replays the bottom-reveal choice by clearing the initial prompt and queueing the cast choice', () => {
     const gameId = 't_spell_bottom_reveal_choice_replay';
-    ResolutionQueueManager.removeQueue(gameId);
     const game = createInitialGameState(gameId);
     const p1 = 'p1' as PlayerID;
     addPlayer(game, p1, 'P1');
@@ -113,7 +125,6 @@ describe('spell-cast reveal/cast replay semantics', () => {
 
   it('replays the revealed-card cast choice by clearing the prompt and restoring the stack item', () => {
     const gameId = 't_revealed_cast_choice_replay';
-    ResolutionQueueManager.removeQueue(gameId);
     const game = createInitialGameState(gameId);
     const p1 = 'p1' as PlayerID;
     addPlayer(game, p1, 'P1');

@@ -6,10 +6,10 @@ import { games } from '../src/socket/socket.js';
 import { ResolutionQueueManager } from '../src/state/resolution/index.js';
 import { createInitialGameState } from '../src/state/gameState.js';
 
-function resetGame(gameId: string) {
+async function resetGame(gameId: string) {
   ResolutionQueueManager.removeQueue(gameId);
   games.delete(gameId as any);
-  deleteGame(gameId);
+  await deleteGame(gameId);
 }
 
 describe('Bestow attachment restore (integration)', () => {
@@ -19,13 +19,13 @@ describe('Bestow attachment restore (integration)', () => {
     await initDb();
   });
 
-  beforeEach(() => {
-    resetGame(gameId);
+  beforeEach(async () => {
+    await resetGame(gameId);
   });
 
-  it('persists bestowed attachment state so restore rebuilds attachedTo and target attachments', () => {
+  it('persists bestowed attachment state so restore rebuilds attachedTo and target attachments', async () => {
     const persistentGameId = `${gameId}_${Math.random().toString(36).slice(2, 10)}`;
-    resetGame(persistentGameId);
+    await resetGame(persistentGameId);
 
     createGameIfNotExists(persistentGameId, 'commander', 40);
     const game = ensureGame(persistentGameId);

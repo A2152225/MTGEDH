@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 
 import { createInitialGameState } from '../src/state/gameState.js';
 import { ResolutionQueueManager, ResolutionStepType } from '../src/state/resolution/index.js';
@@ -8,7 +8,33 @@ function addPlayer(game: any, id: PlayerID, name: string) {
   game.applyEvent({ type: 'join', playerId: id, name });
 }
 
+function resetGame(gameId: string) {
+  ResolutionQueueManager.removeQueue(gameId);
+}
+
 describe('castSpellContinuation replay semantics', () => {
+  beforeEach(() => {
+    for (const gameId of [
+      't_cast_spell_continuation_life_replay',
+      't_cast_spell_continuation_bargain_replay',
+      't_cast_spell_continuation_force_replay',
+      't_cast_spell_continuation_clear_flags_replay',
+      't_cast_spell_continuation_target_prompt_replay',
+      't_cast_spell_continuation_gift_prompt_replay',
+      't_cast_spell_continuation_x_prompt_replay',
+      't_cast_spell_continuation_mode_prompt_replay',
+      't_cast_spell_continuation_mutate_mode_prompt_replay',
+      't_cast_spell_continuation_mutate_target_prompt_replay',
+      't_cast_spell_continuation_multi_target_prompt_replay',
+      't_cast_spell_continuation_payment_prompt_replay',
+      't_cast_spell_continuation_targeted_payment_prompt_replay',
+      't_cast_spell_continuation_mutate_payment_prompt_replay',
+      't_cast_spell_continuation_blight_prompt_replay',
+    ]) {
+      resetGame(gameId);
+    }
+  });
+
   it('replays life payment and in-hand spell updates', () => {
     const game = createInitialGameState('t_cast_spell_continuation_life_replay');
     const p1 = 'p1' as PlayerID;
@@ -218,7 +244,6 @@ describe('castSpellContinuation replay semantics', () => {
 
   it('replays queued spell target-selection prompts before the spell is cast', () => {
     const gameId = 't_cast_spell_continuation_target_prompt_replay';
-    ResolutionQueueManager.removeQueue(gameId);
     const game = createInitialGameState(gameId);
     const p1 = 'p1' as PlayerID;
     addPlayer(game, p1, 'P1');
@@ -320,7 +345,6 @@ describe('castSpellContinuation replay semantics', () => {
 
   it('replays queued gift cast-choice prompts before a gift is promised', () => {
     const gameId = 't_cast_spell_continuation_gift_prompt_replay';
-    ResolutionQueueManager.removeQueue(gameId);
     const game = createInitialGameState(gameId);
     const p1 = 'p1' as PlayerID;
     addPlayer(game, p1, 'P1');
@@ -375,7 +399,6 @@ describe('castSpellContinuation replay semantics', () => {
 
   it('replays queued X-value prompts before the spell is cast', () => {
     const gameId = 't_cast_spell_continuation_x_prompt_replay';
-    ResolutionQueueManager.removeQueue(gameId);
     const game = createInitialGameState(gameId);
     const p1 = 'p1' as PlayerID;
     addPlayer(game, p1, 'P1');
@@ -425,7 +448,6 @@ describe('castSpellContinuation replay semantics', () => {
 
   it('replays queued cast mode-selection prompts before any mode is chosen', () => {
     const gameId = 't_cast_spell_continuation_mode_prompt_replay';
-    ResolutionQueueManager.removeQueue(gameId);
     const game = createInitialGameState(gameId);
     const p1 = 'p1' as PlayerID;
     addPlayer(game, p1, 'P1');
@@ -482,7 +504,6 @@ describe('castSpellContinuation replay semantics', () => {
 
   it('replays queued mutate mode-choice prompts before a cast mode is chosen', () => {
     const gameId = 't_cast_spell_continuation_mutate_mode_prompt_replay';
-    ResolutionQueueManager.removeQueue(gameId);
     const game = createInitialGameState(gameId);
     const p1 = 'p1' as PlayerID;
     addPlayer(game, p1, 'P1');
@@ -536,7 +557,6 @@ describe('castSpellContinuation replay semantics', () => {
 
   it('replays queued mutate target-selection prompts before the spell is cast', () => {
     const gameId = 't_cast_spell_continuation_mutate_target_prompt_replay';
-    ResolutionQueueManager.removeQueue(gameId);
     const game = createInitialGameState(gameId);
     const p1 = 'p1' as PlayerID;
     addPlayer(game, p1, 'P1');
@@ -635,7 +655,6 @@ describe('castSpellContinuation replay semantics', () => {
 
   it('replays queued multi-step target-selection prompts before the spell is cast', () => {
     const gameId = 't_cast_spell_continuation_multi_target_prompt_replay';
-    ResolutionQueueManager.removeQueue(gameId);
     const game = createInitialGameState(gameId);
     const p1 = 'p1' as PlayerID;
     const p2 = 'p2' as PlayerID;
@@ -779,7 +798,6 @@ describe('castSpellContinuation replay semantics', () => {
 
   it('replays queued no-target spell payment prompts before the spell is cast', () => {
     const gameId = 't_cast_spell_continuation_payment_prompt_replay';
-    ResolutionQueueManager.removeQueue(gameId);
     const game = createInitialGameState(gameId);
     const p1 = 'p1' as PlayerID;
     addPlayer(game, p1, 'P1');
@@ -848,7 +866,6 @@ describe('castSpellContinuation replay semantics', () => {
 
   it('replays queued targeted spell payment prompts after target selection is complete', () => {
     const gameId = 't_cast_spell_continuation_targeted_payment_prompt_replay';
-    ResolutionQueueManager.removeQueue(gameId);
     const game = createInitialGameState(gameId);
     const p1 = 'p1' as PlayerID;
     const p2 = 'p2' as PlayerID;
@@ -921,7 +938,6 @@ describe('castSpellContinuation replay semantics', () => {
 
   it('replays queued mutate payment prompts after a mutate target is chosen', () => {
     const gameId = 't_cast_spell_continuation_mutate_payment_prompt_replay';
-    ResolutionQueueManager.removeQueue(gameId);
     const game = createInitialGameState(gameId);
     const p1 = 'p1' as PlayerID;
     addPlayer(game, p1, 'P1');
@@ -996,7 +1012,6 @@ describe('castSpellContinuation replay semantics', () => {
 
   it('replays queued blight choice and target prompts before the spell is cast', () => {
     const gameId = 't_cast_spell_continuation_blight_prompt_replay';
-    ResolutionQueueManager.removeQueue(gameId);
     const game = createInitialGameState(gameId);
     const p1 = 'p1' as PlayerID;
     const p2 = 'p2' as PlayerID;

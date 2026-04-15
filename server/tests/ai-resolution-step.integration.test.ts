@@ -19,10 +19,10 @@ function createNoopIo() {
   } as any;
 }
 
-function resetGame(gameId: string) {
+async function resetGame(gameId: string) {
   ResolutionQueueManager.removeQueue(gameId);
   games.delete(gameId as any);
-  deleteGame(gameId);
+  await deleteGame(gameId);
 }
 
 describe('AI resolution-step integration', () => {
@@ -33,8 +33,8 @@ describe('AI resolution-step integration', () => {
     await initDb();
   });
 
-  beforeEach(() => {
-    resetGame(gameId);
+  beforeEach(async () => {
+    await resetGame(gameId);
     unregisterAIPlayer(gameId, playerId as any);
   });
 

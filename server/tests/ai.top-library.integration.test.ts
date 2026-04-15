@@ -30,11 +30,11 @@ import { cleanupGameAI, handleAIPriority, registerAIPlayer, unregisterAIPlayer }
 import { games } from '../src/socket/socket.js';
 import { ensureGame } from '../src/socket/util.js';
 
-function cleanupTrackedGame(gameId: string) {
+async function cleanupTrackedGame(gameId: string) {
   cleanupGameAI(gameId);
   unregisterAIPlayer(gameId, playerId as any);
   games.delete(gameId as any);
-  deleteGame(gameId);
+  await deleteGame(gameId);
 }
 
 function createNoopIo() {
@@ -67,9 +67,9 @@ describe('AI top-library integration', () => {
     trackedGameIds.length = 0;
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     for (const gameId of trackedGameIds) {
-      cleanupTrackedGame(gameId);
+      await cleanupTrackedGame(gameId);
     }
   });
 

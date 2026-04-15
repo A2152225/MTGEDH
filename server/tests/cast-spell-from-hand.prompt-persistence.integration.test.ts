@@ -7,10 +7,10 @@ import { ResolutionQueueManager } from '../src/state/resolution/index.js';
 import { games } from '../src/socket/socket.js';
 import '../src/state/modules/priority.js';
 
-function resetGame(gameId: string) {
+async function resetGame(gameId: string) {
   ResolutionQueueManager.removeQueue(gameId);
   games.delete(gameId as any);
-  deleteGame(gameId);
+  await deleteGame(gameId);
 }
 
 function createNoopIo() {
@@ -36,8 +36,8 @@ function createMockSocket(playerId: string, gameId: string, emitted: Array<{ roo
   return { socket, handlers };
 }
 
-function setupBaseGame(testGameId: string, playerId = 'p1', opponentId = 'p2') {
-  resetGame(testGameId);
+async function setupBaseGame(testGameId: string, playerId = 'p1', opponentId = 'p2') {
+  await resetGame(testGameId);
   createGameIfNotExists(testGameId, 'commander', 40, undefined, playerId);
   const game = ensureGame(testGameId);
   if (!game) throw new Error('ensureGame returned undefined');
@@ -65,13 +65,13 @@ describe('castSpellFromHand prompt persistence (integration)', () => {
     await initDb();
   });
 
-  beforeEach(() => {
-    resetGame(gameId);
+  beforeEach(async () => {
+    await resetGame(gameId);
   });
 
   it('persists direct Force of Will alternate-cost prompts', async () => {
     const testGameId = `${gameId}_force`;
-    const game = setupBaseGame(testGameId, playerId, opponentId);
+    const game = await setupBaseGame(testGameId, playerId, opponentId);
     (game.state as any).zones = {
       [playerId]: {
         hand: [
@@ -105,7 +105,7 @@ describe('castSpellFromHand prompt persistence (integration)', () => {
 
   it('persists direct Abundant Harvest choice prompts', async () => {
     const testGameId = `${gameId}_abundant`;
-    const game = setupBaseGame(testGameId, playerId, opponentId);
+    const game = await setupBaseGame(testGameId, playerId, opponentId);
     (game.state as any).zones = {
       [playerId]: {
         hand: [
@@ -146,7 +146,7 @@ describe('castSpellFromHand prompt persistence (integration)', () => {
 
   it('persists direct single-target prompts with pending cast state', async () => {
     const testGameId = `${gameId}_target_single`;
-    const game = setupBaseGame(testGameId, playerId, opponentId);
+    const game = await setupBaseGame(testGameId, playerId, opponentId);
     (game.state as any).stack = [
       {
         id: 'stack_spell_1',
@@ -207,7 +207,7 @@ describe('castSpellFromHand prompt persistence (integration)', () => {
 
   it('persists direct modal spell selection prompts', async () => {
     const testGameId = `${gameId}_modal`;
-    const game = setupBaseGame(testGameId, playerId, opponentId);
+    const game = await setupBaseGame(testGameId, playerId, opponentId);
     (game.state as any).battlefield = [
       {
         id: 'sol_ring_1',
@@ -256,7 +256,7 @@ describe('castSpellFromHand prompt persistence (integration)', () => {
 
   it('persists direct multi-target prompts as an ordered continuation list', async () => {
     const testGameId = `${gameId}_target_multi`;
-    const game = setupBaseGame(testGameId, playerId, opponentId);
+    const game = await setupBaseGame(testGameId, playerId, opponentId);
     (game.state as any).battlefield = [
       {
         id: 'sol_ring_1',
@@ -316,7 +316,7 @@ describe('castSpellFromHand prompt persistence (integration)', () => {
 
   it('persists direct overload mode prompts', async () => {
     const testGameId = `${gameId}_overload`;
-    const game = setupBaseGame(testGameId, playerId, opponentId);
+    const game = await setupBaseGame(testGameId, playerId, opponentId);
     (game.state as any).zones = {
       [playerId]: {
         hand: [
@@ -356,7 +356,7 @@ describe('castSpellFromHand prompt persistence (integration)', () => {
 
   it('persists direct spree mode prompts', async () => {
     const testGameId = `${gameId}_spree`;
-    const game = setupBaseGame(testGameId, playerId, opponentId);
+    const game = await setupBaseGame(testGameId, playerId, opponentId);
     (game.state as any).zones = {
       [playerId]: {
         hand: [

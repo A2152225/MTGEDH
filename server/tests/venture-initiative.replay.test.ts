@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 
 import { createInitialGameState } from '../src/state/gameState.js';
 import { ResolutionQueueManager, ResolutionStepType } from '../src/state/resolution/index.js';
@@ -8,7 +8,36 @@ function addPlayer(game: any, id: PlayerID, name: string) {
   game.applyEvent({ type: 'join', playerId: id, name });
 }
 
+function resetGame(gameId: string) {
+  ResolutionQueueManager.removeQueue(gameId);
+}
+
 describe('venture and initiative replay semantics', () => {
+  beforeEach(() => {
+    for (const gameId of [
+      't_venture_choose_dungeon_resolve_replay',
+      't_venture_choose_dungeon_effect_replay',
+      't_venture_choose_room_resolve_replay',
+      't_venture_room_token_replay',
+      't_venture_room_creature_token_replay',
+      't_venture_runestone_execute_effect_replay',
+      't_venture_mad_wizard_execute_effect_replay',
+      't_venture_room_penalty_choice_replay',
+      't_venture_room_free_cast_choice_replay',
+      't_venture_room_throne_choice_replay',
+      't_venture_room_discard_payment_replay',
+      't_venture_room_sacrifice_payment_replay',
+      't_venture_fungi_target_creature_replay',
+      't_venture_twisted_target_creature_replay',
+      't_venture_choose_room_complete_replay',
+      't_venture_trap_target_player_replay',
+      't_venture_forge_target_creature_replay',
+      't_venture_arena_target_creature_replay',
+    ]) {
+      resetGame(gameId);
+    }
+  });
+
   it('replays ventureChooseDungeonResolve by restoring the chosen dungeon, including Undercity', () => {
     const game = createInitialGameState('t_venture_choose_dungeon_resolve_replay');
     const playerId = 'p1' as PlayerID;
@@ -245,7 +274,6 @@ describe('venture and initiative replay semantics', () => {
 
   it('replays dungeonRoomPenaltyChoiceResolve by clearing the queued option step and applying life loss', () => {
     const gameId = 't_venture_room_penalty_choice_replay';
-    ResolutionQueueManager.removeQueue(gameId);
 
     const game = createInitialGameState(gameId);
     addPlayer(game, 'p1' as PlayerID, 'P1');
@@ -299,7 +327,6 @@ describe('venture and initiative replay semantics', () => {
 
   it('replays dungeonRoomFreeCastChoiceResolve by clearing the queued Mad Wizard\'s Lair option step', () => {
     const gameId = 't_venture_room_free_cast_choice_replay';
-    ResolutionQueueManager.removeQueue(gameId);
 
     const game = createInitialGameState(gameId);
     const playerId = 'p1' as PlayerID;
@@ -350,7 +377,6 @@ describe('venture and initiative replay semantics', () => {
 
   it('replays dungeonRoomThroneResolve by clearing the queued prompt and restoring the chosen creature with counters and hexproof', () => {
     const gameId = 't_venture_room_throne_choice_replay';
-    ResolutionQueueManager.removeQueue(gameId);
 
     const game = createInitialGameState(gameId);
     const playerId = 'p1' as PlayerID;
@@ -421,7 +447,6 @@ describe('venture and initiative replay semantics', () => {
 
   it('replays discardEffect by clearing a queued dungeon discard-payment step', () => {
     const gameId = 't_venture_room_discard_payment_replay';
-    ResolutionQueueManager.removeQueue(gameId);
 
     const game = createInitialGameState(gameId);
     const playerId = 'p1' as PlayerID;
@@ -498,7 +523,6 @@ describe('venture and initiative replay semantics', () => {
 
   it('replays sacrificePermanent by clearing a queued dungeon sacrifice-payment step', () => {
     const gameId = 't_venture_room_sacrifice_payment_replay';
-    ResolutionQueueManager.removeQueue(gameId);
 
     const game = createInitialGameState(gameId);
     const playerId = 'p1' as PlayerID;
@@ -579,7 +603,6 @@ describe('venture and initiative replay semantics', () => {
 
   it('replays Fungi Cavern target-creature resolution by clearing the queued target prompt and applying the PT modifier', () => {
     const gameId = 't_venture_fungi_target_creature_replay';
-    ResolutionQueueManager.removeQueue(gameId);
 
     const game = createInitialGameState(gameId);
     const playerId = 'p1' as PlayerID;
@@ -677,7 +700,6 @@ describe('venture and initiative replay semantics', () => {
 
   it('replays Twisted Caverns target-creature resolution by clearing the queued target prompt and applying the attack restriction', () => {
     const gameId = 't_venture_twisted_target_creature_replay';
-    ResolutionQueueManager.removeQueue(gameId);
 
     const game = createInitialGameState(gameId);
     const playerId = 'p1' as PlayerID;
@@ -810,7 +832,6 @@ describe('venture and initiative replay semantics', () => {
 
   it('replays Trap target-player resolution by clearing the queued player prompt and applying life loss', () => {
     const gameId = 't_venture_trap_target_player_replay';
-    ResolutionQueueManager.removeQueue(gameId);
 
     const game = createInitialGameState(gameId);
     const playerId = 'p1' as PlayerID;
@@ -873,7 +894,6 @@ describe('venture and initiative replay semantics', () => {
 
   it('replays Forge target-creature resolution by clearing the queued target prompt and applying counters', () => {
     const gameId = 't_venture_forge_target_creature_replay';
-    ResolutionQueueManager.removeQueue(gameId);
 
     const game = createInitialGameState(gameId);
     const playerId = 'p1' as PlayerID;
@@ -966,7 +986,6 @@ describe('venture and initiative replay semantics', () => {
 
   it('replays Arena target-creature resolution by clearing the queued target prompt and applying goad', () => {
     const gameId = 't_venture_arena_target_creature_replay';
-    ResolutionQueueManager.removeQueue(gameId);
 
     const game = createInitialGameState(gameId);
     const playerId = 'p1' as PlayerID;

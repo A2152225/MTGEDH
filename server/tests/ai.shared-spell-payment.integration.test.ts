@@ -5,9 +5,9 @@ import { chooseAISpellPaymentSelections } from '../src/socket/ai.js';
 import { games } from '../src/socket/socket.js';
 import { ensureGame } from '../src/socket/util.js';
 
-function cleanupTrackedGame(gameId: string) {
+async function cleanupTrackedGame(gameId: string) {
   games.delete(gameId as any);
-  deleteGame(gameId);
+  await deleteGame(gameId);
 }
 
 function createNoopIo() {
@@ -36,9 +36,9 @@ describe('AI shared spell-payment integration', () => {
     await initDb();
   });
 
-  beforeEach(() => {
+  beforeEach(async () => {
     for (const gameId of trackedGameIds.splice(0, trackedGameIds.length)) {
-      cleanupTrackedGame(gameId);
+      await cleanupTrackedGame(gameId);
     }
   });
 
