@@ -9742,6 +9742,12 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       }
     }
 
+    const pendingSpellCardIdForCostSelection = (() => {
+      const pendingSpellCasts = Object.values((((game.state as any)?.pendingSpellCasts) || {})) as any[];
+      const pendingCast = pendingSpellCasts.find((entry: any) => String(entry?.playerId || '') === String(pid || ''));
+      return String(pendingCast?.cardId || '').trim();
+    })();
+
     // ========================================================================
     // DISCARD AS AN ACTIVATION COST
     // Example: "Discard a card: Draw a card." (no other non-mana cost components supported yet)
@@ -9854,8 +9860,11 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
           }
 
           const eligibleHand = (() => {
-            if (!typedRestriction) return hand;
-            return (hand as any[]).filter((c: any) => {
+            const filteredHand = pendingSpellCardIdForCostSelection
+              ? (hand as any[]).filter((c: any) => String(c?.id || '') !== pendingSpellCardIdForCostSelection)
+              : hand;
+            if (!typedRestriction) return filteredHand;
+            return (filteredHand as any[]).filter((c: any) => {
               const tl = String(c?.type_line || '').toLowerCase();
               switch (typedRestriction) {
                 case 'creature':
@@ -9881,7 +9890,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
               code: 'INSUFFICIENT_CARDS',
               message: typedRestriction
                 ? `Need to exile ${exileCount} ${typedRestriction} card(s) from your hand, but you only have ${eligibleHand.length}.`
-                : `Need to exile ${exileCount} card(s) from your hand, but you only have ${hand.length}.`,
+                : `Need to exile ${exileCount} card(s) from your hand, but you only have ${eligibleHand.length}.`,
             });
             return;
           }
@@ -10023,8 +10032,11 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
           }
 
           const eligibleHand = (() => {
-            if (!typedRestriction) return hand;
-            return (hand as any[]).filter((c: any) => {
+            const filteredHand = pendingSpellCardIdForCostSelection
+              ? (hand as any[]).filter((c: any) => String(c?.id || '') !== pendingSpellCardIdForCostSelection)
+              : hand;
+            if (!typedRestriction) return filteredHand;
+            return (filteredHand as any[]).filter((c: any) => {
               const tl = String(c?.type_line || '').toLowerCase();
               switch (typedRestriction) {
                 case 'creature':
@@ -10050,7 +10062,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
               code: 'INSUFFICIENT_CARDS',
               message: typedRestriction
                 ? `Need to discard ${discardCount} ${typedRestriction} card(s), but you only have ${eligibleHand.length}.`
-                : `Need to discard ${discardCount} card(s), but you only have ${hand.length}.`,
+                : `Need to discard ${discardCount} card(s), but you only have ${eligibleHand.length}.`,
             });
             return;
           }

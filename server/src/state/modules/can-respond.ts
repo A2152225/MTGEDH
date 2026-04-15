@@ -378,6 +378,9 @@ export function getCastableSpellCandidates(
       if (!card || typeof card === 'string') return;
 
       const sourceCardId = String(card?.id || card?.name || '');
+      const manaPaymentOptions = sourceZone === 'hand' && sourceCardId
+        ? { excludedHandCardIds: [sourceCardId] }
+        : undefined;
       if (skipIgnoredCards && sourceCardId && ignoredCards[sourceCardId]) {
         debug(2, `[getCastableSpellCandidates] Skipping ignored ${sourceZone} card: ${card.name || sourceCardId}`);
         return;
@@ -466,7 +469,7 @@ export function getCastableSpellCandidates(
         const costAdjustment = getCostAdjustmentForCard(state, playerId, castCard);
         const adjustedCost = applyCostAdjustment(parsedCost, costAdjustment);
 
-        if (canPayManaCostWithAvailableSources(state, playerId, adjustedCost)) {
+        if (canPayManaCostWithAvailableSources(state, playerId, adjustedCost, Infinity, manaPaymentOptions)) {
           candidates.push({
             card,
             castCard,

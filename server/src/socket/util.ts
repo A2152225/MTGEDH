@@ -547,8 +547,9 @@ function getPlayableCardIds(game: InMemoryGame, playerId: PlayerID): string[] {
           const parsedCost = parseManaFromString(manaCost);
           const reducedCost = applyCostReduction(parsedCost, reduction);
           const actualCost = { ...reducedCost, hasX: (reducedCost as any).hasX ?? (parsedCost as any).hasX ?? false };
+          const exactManaOptions = card?.id ? { excludedHandCardIds: [String(card.id)] } : undefined;
 
-          if (canPayManaCostWithAvailableSources(state, playerId, actualCost) || hasPayableAlternateCost(game as any, playerId, castCard)) {
+          if (canPayManaCostWithAvailableSources(state, playerId, actualCost, Infinity, exactManaOptions) || hasPayableAlternateCost(game as any, playerId, castCard)) {
             playableIds.push(card.id);
             break;
           }

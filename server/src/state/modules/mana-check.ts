@@ -389,6 +389,7 @@ type ExactManaSourceOption = {
     type: string;
     mustBeOther?: boolean;
   };
+  repeatable?: boolean;
   produced: Record<SimpleManaKey, number>;
 };
 
@@ -731,6 +732,10 @@ function buildExactHandCandidates(state: any, playerId: PlayerID): ExactHandCand
     .filter((candidate) => Boolean(candidate.id));
 }
 
+type ExactManaPaymentOptions = {
+  excludedHandCardIds?: string[];
+};
+
 function candidateMatchesSacrificeRequirement(
   candidate: ExactSacrificeCandidate,
   requirement: NonNullable<ExactManaSourceOption['sacrificeCost']>,
@@ -1045,7 +1050,6 @@ function buildProducedManaOptions(
 
 function buildExactManaSources(state: any, playerId: PlayerID): ExactManaSource[] {
   const battlefield = state?.battlefield || [];
-  const sacrificeCandidates = buildExactSacrificeCandidates(state, playerId);
   const sources: ExactManaSource[] = [];
 
   for (const permanent of battlefield) {
@@ -1117,7 +1121,7 @@ function buildExactManaSources(state: any, playerId: PlayerID): ExactManaSource[
 
       const producedOptions = buildProducedManaOptions(state, playerId, permanent, producedText);
       for (const produced of producedOptions) {
-        options.push({ ...supportedCost, produced });
+        options.push({ ...supportedCost, repeatable: true, produced });
       }
     }
 
@@ -1139,31 +1143,20 @@ function buildExactManaSources(state: any, playerId: PlayerID): ExactManaSource[
         const returnToHandSignature = option.returnToHandCost
           ? JSON.stringify(option.returnToHandCost)
           : 'none';
+        const repeatableSignature = option.repeatable ? 'repeatable' : 'single';
         const productionSignature = normalizePoolSignature(option.produced);
         dedupedOptions.set(
-          `${activationSignature}|${lifeSignature}|${handSignature}|${sacrificeSignature}|${returnToHandSignature}|${productionSignature}`,
+          `${activationSignature}|${lifeSignature}|${handSignature}|${sacrificeSignature}|${returnToHandSignature}|${repeatableSignature}|${productionSignature}`,
           option,
         );
       }
 
-      const materializedOptions = Array.from(dedupedOptions.values());
-      const repeatableUses = materializedOptions.reduce((maxUses, option) => {
-        if (!option.sacrificeCost || option.activationCost) return maxUses;
-        const usages = sacrificeCandidates.filter((candidate) =>
-          candidateMatchesSacrificeRequirement(candidate, option.sacrificeCost!, String(permanent.id || '')),
-        ).length;
-        return Math.max(maxUses, usages);
-      }, 1);
-
-      const sourceCount = Math.max(1, repeatableUses);
-      for (let index = 0; index < sourceCount; index += 1) {
-        const sourceIdBase = String(permanent.id || `${cardName}_${sources.length}`);
-        sources.push({
-          id: sourceCount > 1 ? `${sourceIdBase}#${index}` : sourceIdBase,
-          permanentId: sourceIdBase,
-          options: materializedOptions,
-        });
-      }
+      const sourceIdBase = String(permanent.id || `${cardName}_${sources.length}`);
+      sources.push({
+        id: sourceIdBase,
+        permanentId: sourceIdBase,
+        options: Array.from(dedupedOptions.values()),
+      });
     }
   }
 
@@ -1874,6 +1867,7 @@ export function canPayManaCostWithAvailableSources(
   playerId: PlayerID,
   parsedCost: ParsedManaCost,
   lifeAvailable: number = Infinity,
+  options?: ExactManaPaymentOptions,
 ): boolean {
   const effectiveLifeAvailable = Number.isFinite(Number(lifeAvailable))
     ? Number(lifeAvailable)
@@ -1885,7 +1879,14 @@ export function canPayManaCostWithAvailableSources(
 
   const sources = buildExactManaSources(state, playerId);
   const battlefieldCandidates = buildExactSacrificeCandidates(state, playerId);
-  const handCandidates = buildExactHandCandidates(state, playerId);
+  const excludedHandCardIds = new Set(
+    (Array.isArray(options?.excludedHandCardIds) ? options?.excludedHandCardIds : [])
+      .map((id) => String(id || '').trim())
+      .filter(Boolean),
+  );
+  const handCandidates = buildExactHandCandidates(state, playerId).filter(
+    (candidate) => !excludedHandCardIds.has(String(candidate.id || '')),
+  );
   const hasActivationCostSource = sources.some((source) =>
     source.options.some((option) => option.activationCost),
   );
@@ -1915,6 +1916,7 @@ export function canPayManaCostWithAvailableSources(
   }
 
   const memo = new Map<string, boolean>();
+  const visiting = new Set<string>();
 
   const search = (
     pool: Record<SimpleManaKey, number>,
@@ -1936,6 +1938,11 @@ export function canPayManaCostWithAvailableSources(
     if (typeof cached === 'boolean') {
       return cached;
     }
+    if (visiting.has(key)) {
+      return false;
+    }
+
+    visiting.add(key);
 
     for (let index = 0; index < remainingSources.length; index += 1) {
       const source = remainingSources[index];
@@ -1970,8 +1977,9 @@ export function canPayManaCostWithAvailableSources(
           remainingHandCandidates: ExactHandCandidate[];
         };
 
+        const baseRemainingSources = option.repeatable ? remainingSources : nextRemainingSources;
         let branchStates: ExactSearchBranchState[] = [{
-          remainingSources: nextRemainingSources,
+          remainingSources: baseRemainingSources,
           remainingBattlefieldCandidates,
           remainingHandCandidates,
         }];
@@ -2057,6 +2065,7 @@ export function canPayManaCostWithAvailableSources(
             )
           ) {
             memo.set(key, true);
+            visiting.delete(key);
             return true;
           }
         }
@@ -2064,6 +2073,7 @@ export function canPayManaCostWithAvailableSources(
     }
 
     memo.set(key, false);
+    visiting.delete(key);
     return false;
   };
 

@@ -253,6 +253,201 @@ describe('AI response-window integration', () => {
     );
   });
 
+  it('still attempts a cast when the only workable response path reuses the same non-tap mana activation', async () => {
+    const gameId = createTestGameId('hand_counterspell_repeatable_non_tap_payment');
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [
+      { id: playerId, name: 'AI', spectator: false, isAI: true, life: 40 },
+      { id: 'opp1', name: 'Opponent', spectator: false, life: 40 },
+    ];
+    (game.state as any).turnPlayer = 'opp1';
+    (game.state as any).activePlayer = 'opp1';
+    (game.state as any).priority = playerId;
+    (game.state as any).phase = 'main';
+    (game.state as any).step = 'precombat_main';
+    (game.state as any).stack = [
+      {
+        id: 'shock_stack',
+        controller: 'opp1',
+        card: {
+          id: 'shock_card',
+          name: 'Shock',
+          type_line: 'Instant',
+          mana_cost: '{R}',
+          oracle_text: 'Shock deals 2 damage to any target.',
+        },
+      },
+    ];
+    (game.state as any).manaPool = {
+      [playerId]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+      opp1: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+    };
+    (game.state as any).battlefield = [
+      {
+        id: 'pain_cache_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        summoningSickness: false,
+        counters: {},
+        card: {
+          id: 'pain_cache_card_1',
+          name: 'Pain Cache',
+          type_line: 'Artifact',
+          oracle_text: 'Pay 1 life: Add {U}.\n{T}: Add {C}.',
+        },
+      },
+    ];
+    (game.state as any).zones = {
+      [playerId]: {
+        hand: [
+          {
+            id: 'counterspell_hand',
+            name: 'Counterspell',
+            type_line: 'Instant',
+            oracle_text: 'Counter target spell.',
+            mana_cost: '{U}{U}',
+            cmc: 2,
+            zone: 'hand',
+          },
+        ],
+        handCount: 1,
+        library: [],
+        libraryCount: 0,
+        graveyard: [],
+        graveyardCount: 0,
+        exile: [],
+        exileCount: 0,
+      },
+      opp1: {
+        hand: [],
+        handCount: 0,
+        library: [],
+        libraryCount: 0,
+        graveyard: [],
+        graveyardCount: 0,
+        exile: [],
+        exileCount: 0,
+      },
+    };
+
+    registerAIPlayer(gameId, playerId as any);
+
+    vi.spyOn(AIEngine.prototype, 'makeDecision').mockResolvedValue({
+      type: AIDecisionType.ACTIVATE_ABILITY,
+      playerId,
+      action: {},
+      reasoning: 'No activated ability available',
+      confidence: 1,
+    } as any);
+
+    requestCastSpellForSocket.mockImplementationOnce(async (_io: any, _socket: any, payload: any) => {
+      const liveGame = ensureGame(String(payload?.gameId || ''));
+      if (!liveGame) throw new Error('game missing during mocked cast');
+      (liveGame.state as any).priority = null;
+    });
+
+    await handleAIPriority(createNoopIo(), gameId, playerId as any);
+
+    expect(requestCastSpellForSocket).toHaveBeenCalledTimes(1);
+    expect(requestCastSpellForSocket).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({
+        gameId,
+        cardId: 'counterspell_hand',
+        fromZone: 'hand',
+      }),
+    );
+  });
+
+  it('does not attempt a cast when the only discard payment would require discarding the spell being cast', async () => {
+    const gameId = createTestGameId('hand_instant_non_tap_discard_requires_other_card');
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [
+      { id: playerId, name: 'AI', spectator: false, isAI: true, life: 40 },
+      { id: 'opp1', name: 'Opponent', spectator: false, life: 40 },
+    ];
+    (game.state as any).turnPlayer = 'opp1';
+    (game.state as any).activePlayer = 'opp1';
+    (game.state as any).priority = playerId;
+    (game.state as any).phase = 'main';
+    (game.state as any).step = 'precombat_main';
+    (game.state as any).stack = [];
+    (game.state as any).manaPool = {
+      [playerId]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+      opp1: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+    };
+    (game.state as any).battlefield = [
+      {
+        id: 'mind_cache_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        summoningSickness: false,
+        counters: {},
+        card: {
+          id: 'mind_cache_card_1',
+          name: 'Mind Cache',
+          type_line: 'Artifact',
+          oracle_text: 'Discard a card: Add {U}.',
+        },
+      },
+    ];
+    (game.state as any).zones = {
+      [playerId]: {
+        hand: [
+          {
+            id: 'opt_hand',
+            name: 'Opt',
+            type_line: 'Instant',
+            oracle_text: 'Scry 1, then draw a card.',
+            mana_cost: '{U}',
+            cmc: 1,
+            zone: 'hand',
+          },
+        ],
+        handCount: 1,
+        library: [],
+        libraryCount: 0,
+        graveyard: [],
+        graveyardCount: 0,
+        exile: [],
+        exileCount: 0,
+      },
+      opp1: {
+        hand: [],
+        handCount: 0,
+        library: [],
+        libraryCount: 0,
+        graveyard: [],
+        graveyardCount: 0,
+        exile: [],
+        exileCount: 0,
+      },
+    };
+
+    registerAIPlayer(gameId, playerId as any);
+
+    vi.spyOn(AIEngine.prototype, 'makeDecision').mockResolvedValue({
+      type: AIDecisionType.ACTIVATE_ABILITY,
+      playerId,
+      action: {},
+      reasoning: 'No activated ability available',
+      confidence: 1,
+    } as any);
+
+    await handleAIPriority(createNoopIo(), gameId, playerId as any);
+
+    expect(requestCastSpellForSocket).not.toHaveBeenCalled();
+  });
+
   it('still attempts a cast when the only workable payment path is a non-tap discard mana activation first', async () => {
     const gameId = createTestGameId('hand_instant_non_tap_discard_payment');
     createGameIfNotExists(gameId, 'commander', 40);

@@ -129,12 +129,15 @@ export function chooseAIXValueSelection(game: any, playerId: PlayerID, step: any
   if (step?.spellCastXSelection === true) {
     const spellCard = findSpellCardForXSelection(game, playerId, step);
     const manaCost = String(spellCard?.manaCost || spellCard?.mana_cost || '').trim();
+    const exactManaOptions = spellCard?.id
+      ? { excludedHandCardIds: [String(spellCard.id)] }
+      : undefined;
 
     if (manaCost.includes('X')) {
       for (let candidate = maxValue; candidate >= minValue; candidate -= 1) {
         const expandedManaCost = applyChosenXToManaCost(manaCost, candidate);
         const parsedCost = parseManaCost(expandedManaCost);
-        if (canPayManaCostWithAvailableSources(game.state, playerId, parsedCost)) {
+        if (canPayManaCostWithAvailableSources(game.state, playerId, parsedCost, Infinity, exactManaOptions)) {
           return candidate;
         }
       }
@@ -2356,7 +2359,12 @@ function chooseOverloadMode(game: any, playerId: PlayerID, step: any, modes: any
   const overloadMatch = oracleText.match(/overload\s*\{([^}]+)\}/i);
   const overloadCost = overloadMatch ? `{${overloadMatch[1]}}` : null;
   const manaPool = getAvailableMana(game.state, playerId);
-  const canPayOverload = overloadCost ? canPayManaCostWithAvailableSources(game.state, playerId, parseManaCost(overloadCost)) : false;
+  const exactManaOptions = cardInHand?.id
+    ? { excludedHandCardIds: [String(cardInHand.id)] }
+    : undefined;
+  const canPayOverload = overloadCost
+    ? canPayManaCostWithAvailableSources(game.state, playerId, parseManaCost(overloadCost), Infinity, exactManaOptions)
+    : false;
   const opponentNonlandPermanents = (game?.state?.battlefield || []).filter((perm: any) =>
     perm?.controller !== playerId && !String(perm?.card?.type_line || '').toLowerCase().includes('land')
   ).length;
@@ -3642,7 +3650,12 @@ function findCastableSpells(
 
   const castable = sharedCandidates
     .filter((candidate) => candidate.payability === 'normal' && candidate.cost)
-    .filter((candidate) => canAIAssembleSpellPaymentPlan(game, playerId, candidate.cost!))
+    .filter((candidate) => {
+      const excludedHandCardIds = candidate.sourceZone === 'hand'
+        ? [String(candidate.card?.id || '').trim()].filter(Boolean)
+        : [];
+      return canAIAssembleSpellPaymentPlan(game, playerId, candidate.cost!, excludedHandCardIds);
+    })
     .map((candidate) => {
       const typeLine = String(candidate.castCard?.type_line || '').toLowerCase();
       const cmc = candidate.cost!.generic + Object.values(candidate.cost!.colors).reduce((sum, count) => sum + count, 0);
@@ -4502,6 +4515,7 @@ function snapshotAIAbilityActivationState(
     game: any,
     playerId: PlayerID,
     permanent: any,
+    excludedHandCardIds?: string[],
   ): AIActivatedAbilityResolverCandidate[] {
     return buildAIActivatedAbilityResolverCandidates(permanent)
       .filter(isAIManaAbilityResolverCandidate)
@@ -4518,7 +4532,7 @@ function snapshotAIAbilityActivationState(
         }
 
         const handCost = parseHandCostFromManaAbilityCost(costSection);
-        if (handCost && chooseAIHandCardsForNonTapManaAbilityCost(game, playerId, costSection).length < handCost.count) {
+        if (handCost && chooseAIHandCardsForNonTapManaAbilityCost(game, playerId, costSection, excludedHandCardIds).length < handCost.count) {
           return false;
         }
 
@@ -4542,8 +4556,9 @@ function snapshotAIAbilityActivationState(
     playerId: PlayerID,
     permanent: any,
     parsedCost: ReturnType<typeof parseManaCost>,
+    excludedHandCardIds?: string[],
   ): AIResolvedActivatedAbilityAction | null {
-    const candidates = getAINonTapManaResolverCandidates(game, playerId, permanent);
+    const candidates = getAINonTapManaResolverCandidates(game, playerId, permanent, excludedHandCardIds);
 
     if (candidates.length === 0) {
       return null;
@@ -4697,6 +4712,7 @@ function snapshotAIAbilityActivationState(
     game: any,
     playerId: PlayerID,
     costSection: string,
+    excludedHandCardIds?: string[],
   ): string[] {
     const handCost = parseHandCostFromManaAbilityCost(costSection);
     if (!handCost) {
@@ -4706,7 +4722,18 @@ function snapshotAIAbilityActivationState(
     const hand = Array.isArray(game.state?.zones?.[playerId]?.hand)
       ? game.state.zones[playerId].hand
       : [];
-    const eligibleHand = hand.filter((card: any) => matchesAIHandCostTypeRestriction(card, handCost.typeRestriction));
+    const excludedIds = new Set(
+      (Array.isArray(excludedHandCardIds) ? excludedHandCardIds : [])
+        .map((id) => String(id || '').trim())
+        .filter(Boolean),
+    );
+    const eligibleHand = hand.filter((card: any) => {
+      const cardId = String(card?.id || '').trim();
+      if (cardId && excludedIds.has(cardId)) {
+        return false;
+      }
+      return matchesAIHandCostTypeRestriction(card, handCost.typeRestriction);
+    });
     if (eligibleHand.length < handCost.count) {
       return [];
     }
@@ -4772,6 +4799,7 @@ function snapshotAIAbilityActivationState(
     playerId: PlayerID,
     permanent: any,
     action: AIResolvedActivatedAbilityAction,
+    excludedHandCardIds?: string[],
   ): boolean {
     const costSection = String(action?.abilityText || '').split(':')[0] || '';
     const lowerCost = costSection.toLowerCase();
@@ -4801,7 +4829,7 @@ function snapshotAIAbilityActivationState(
         return false;
       }
 
-      const chosenHandCardIds = chooseAIHandCardsForNonTapManaAbilityCost(game, playerId, costSection);
+      const chosenHandCardIds = chooseAIHandCardsForNonTapManaAbilityCost(game, playerId, costSection, excludedHandCardIds);
       if (chosenHandCardIds.length < handCost.count) {
         return false;
       }
@@ -4900,9 +4928,9 @@ function snapshotAIAbilityActivationState(
     game: any,
     playerId: PlayerID,
     parsedCost: ReturnType<typeof parseManaCost>,
-    usedPermanentIds: Set<string>,
+    excludedHandCardIds?: string[],
   ): boolean {
-    const candidates = getAINonTapManaAbilityCandidates(game, playerId, parsedCost, usedPermanentIds);
+    const candidates = getAINonTapManaAbilityCandidates(game, playerId, parsedCost, excludedHandCardIds);
     if (candidates.length === 0) {
       return false;
     }
@@ -4910,11 +4938,10 @@ function snapshotAIAbilityActivationState(
     for (const candidate of candidates) {
       const permanentId = String(candidate.permanent?.id || '');
       if (!permanentId) continue;
-      usedPermanentIds.add(permanentId);
 
       const manaPoolBefore = getOrInitManaPool(game.state, String(playerId)) as any;
       const totalBefore = getTotalManaFromPool(manaPoolBefore);
-      const activated = applyAISimulatedNonTapManaActivation(game, playerId, candidate.permanent, candidate.action);
+      const activated = applyAISimulatedNonTapManaActivation(game, playerId, candidate.permanent, candidate.action, excludedHandCardIds);
       if (!activated) {
         continue;
       }
@@ -5710,16 +5737,16 @@ function getPaymentSources(game: any, playerId: PlayerID, cost: { colors: Record
     game: any,
     playerId: PlayerID,
     parsedCost: ReturnType<typeof parseManaCost>,
+    excludedHandCardIds?: string[],
   ): boolean {
     if (buildAISpellPaymentPlan(game, playerId, parsedCost) !== null) {
       return true;
     }
 
     const simulatedGame = cloneAISpellPaymentSimulationGame(game);
-    const usedPermanentIds = new Set<string>();
 
     for (let attempt = 0; attempt < 6; attempt += 1) {
-      const activated = tryActivateAINonTapManaAbilityForSpellPaymentSimulation(simulatedGame, playerId, parsedCost, usedPermanentIds);
+      const activated = tryActivateAINonTapManaAbilityForSpellPaymentSimulation(simulatedGame, playerId, parsedCost, excludedHandCardIds);
       if (!activated) {
         break;
       }
@@ -5736,17 +5763,16 @@ function getPaymentSources(game: any, playerId: PlayerID, cost: { colors: Record
     game: any,
     playerId: PlayerID,
     parsedCost: ReturnType<typeof parseManaCost>,
-    usedPermanentIds: Set<string>,
+    excludedHandCardIds?: string[],
   ): Array<{ permanent: any; action: AIResolvedActivatedAbilityAction }> {
     const battlefield = Array.isArray(game.state?.battlefield) ? game.state.battlefield : [];
 
     return battlefield
       .map((permanent: any) => {
         if (!permanent || permanent.controller !== playerId) return false;
-        if (usedPermanentIds.has(String(permanent.id || ''))) return false;
         if (!hasManaAbility(permanent.card)) return false;
 
-        const action = selectAINonTapManaActivationAction(game, playerId, permanent, parsedCost);
+        const action = selectAINonTapManaActivationAction(game, playerId, permanent, parsedCost, excludedHandCardIds);
         if (!action) return null;
         return { permanent, action };
       })
@@ -5770,15 +5796,14 @@ function getPaymentSources(game: any, playerId: PlayerID, cost: { colors: Record
     game: any,
     playerId: PlayerID,
     parsedCost: ReturnType<typeof parseManaCost>,
-    usedPermanentIds: Set<string>,
+    excludedHandCardIds?: string[],
   ): Promise<boolean> {
-    const candidates = getAINonTapManaAbilityCandidates(game, playerId, parsedCost, usedPermanentIds);
+    const candidates = getAINonTapManaAbilityCandidates(game, playerId, parsedCost, excludedHandCardIds);
     if (candidates.length === 0) return false;
 
     for (const candidate of candidates) {
       const permanentId = String(candidate.permanent?.id || '');
       if (!permanentId) continue;
-      usedPermanentIds.add(permanentId);
 
       const manaPoolBefore = getOrInitManaPool(game.state, String(playerId)) as any;
       const totalBefore = getTotalManaFromPool(manaPoolBefore);
@@ -5822,14 +5847,19 @@ function getPaymentSources(game: any, playerId: PlayerID, cost: { colors: Record
       return { payment: [] };
     }
 
+    const excludedHandCardIds = Array.from(new Set(
+      [String(step?.spellCastContext?.cardId || ''), String(step?.cardId || '')]
+        .map((id) => id.trim())
+        .filter(Boolean),
+    ));
+
     const buildPlan = () => buildAISpellPaymentPlan(game, playerId, parsedCost);
 
     let plan = buildPlan();
     if (plan) return plan;
 
-    const usedPermanentIds = new Set<string>();
     for (let attempt = 0; attempt < 6; attempt++) {
-      const activated = await tryActivateAINonTapManaAbilityForSpellPayment(io, gameId, game, playerId, parsedCost, usedPermanentIds);
+      const activated = await tryActivateAINonTapManaAbilityForSpellPayment(io, gameId, game, playerId, parsedCost, excludedHandCardIds);
       if (!activated) break;
 
       plan = buildPlan();
@@ -5926,7 +5956,13 @@ function chooseCardsToDiscard(game: any, playerId: PlayerID, discardCount: numbe
     // A spell is "castable" if the AI can afford it with current/potential mana
     // Add +2 mana buffer for "next turn" (likely land drop)
     const canCastSoon = cmc <= totalAvailableMana + 2;
-    const canCastNow = canPayManaCostWithAvailableSources(game.state, playerId, parsedCost);
+    const canCastNow = canPayManaCostWithAvailableSources(
+      game.state,
+      playerId,
+      parsedCost,
+      Infinity,
+      card?.id ? { excludedHandCardIds: [String(card.id)] } : undefined,
+    );
     
     if (canCastNow) {
       score += 60; // Can cast right now - definitely keep

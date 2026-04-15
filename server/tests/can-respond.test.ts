@@ -177,6 +177,65 @@ describe('canCastAnySpell', () => {
         expect(canRespond(ctx, 'p1' as PlayerID)).toBe(true);
       });
 
+      it('should return true when a response requires repeated non-tap pay-life activations from the same source', () => {
+        const ctx = createTestContext({
+          players: [
+            { id: 'p1', life: 40 },
+            { id: 'p2', life: 40 },
+          ],
+          zones: {
+            p1: {
+              hand: [
+                {
+                  id: 'counterspell_hand',
+                  name: 'Counterspell',
+                  type_line: 'Instant',
+                  mana_cost: '{U}{U}',
+                  oracle_text: 'Counter target spell.',
+                },
+              ],
+              graveyard: [],
+              exile: [],
+            },
+          },
+          battlefield: [
+            {
+              id: 'pain_cache_1',
+              controller: 'p1',
+              tapped: false,
+              summoningSickness: false,
+              card: {
+                id: 'pain_cache_card_1',
+                name: 'Pain Cache',
+                type_line: 'Artifact',
+                oracle_text: 'Pay 1 life: Add {U}.\n{T}: Add {C}.',
+              },
+            },
+          ],
+          manaPool: {
+            p1: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+          },
+          stack: [
+            {
+              id: 'spell_on_stack',
+              card: {
+                id: 'shock_1',
+                name: 'Shock',
+                type_line: 'Instant',
+                mana_cost: '{R}',
+                oracle_text: 'Shock deals 2 damage to any target.',
+              },
+            },
+          ],
+          turnPlayer: 'p2',
+          priority: 'p1',
+          step: 'DECLARE_ATTACKERS',
+        });
+
+        expect(canCastAnySpell(ctx, 'p1' as PlayerID)).toBe(true);
+        expect(canRespond(ctx, 'p1' as PlayerID)).toBe(true);
+      });
+
       it('should return true when an instant is castable after a non-tap discard mana activation', () => {
         const ctx = createTestContext({
           players: [
@@ -243,6 +302,66 @@ describe('canCastAnySpell', () => {
 
         expect(canCastAnySpell(ctx, 'p1' as PlayerID)).toBe(true);
         expect(canRespond(ctx, 'p1' as PlayerID)).toBe(true);
+      });
+
+      it('should return false when the only discard payment would require discarding the spell being cast', () => {
+        const ctx = createTestContext({
+          players: [
+            { id: 'p1', life: 40 },
+            { id: 'p2', life: 40 },
+          ],
+          zones: {
+            p1: {
+              hand: [
+                {
+                  id: 'opt_hand',
+                  name: 'Opt',
+                  type_line: 'Instant',
+                  mana_cost: '{U}',
+                  oracle_text: 'Scry 1, then draw a card.',
+                  cmc: 1,
+                },
+              ],
+              graveyard: [],
+              exile: [],
+            },
+          },
+          battlefield: [
+            {
+              id: 'mind_cache_1',
+              controller: 'p1',
+              tapped: false,
+              summoningSickness: false,
+              card: {
+                id: 'mind_cache_card_1',
+                name: 'Mind Cache',
+                type_line: 'Artifact',
+                oracle_text: 'Discard a card: Add {U}.',
+              },
+            },
+          ],
+          manaPool: {
+            p1: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+          },
+          stack: [
+            {
+              id: 'spell_on_stack',
+              card: {
+                id: 'shock_1',
+                name: 'Shock',
+                type_line: 'Instant',
+                mana_cost: '{R}',
+                oracle_text: 'Shock deals 2 damage to any target.',
+              },
+            },
+          ],
+          turnPlayer: 'p2',
+          priority: 'p1',
+          step: 'DECLARE_ATTACKERS',
+        });
+
+        expect(canCastAnySpell(ctx, 'p1' as PlayerID)).toBe(false);
+        expect(canRespond(ctx, 'p1' as PlayerID)).toBe(false);
       });
 
   it('should return true when an Adventure instant face is castable from hand', () => {
