@@ -1738,17 +1738,22 @@ function buildActivatedAbilityValidTargets(
       case 'graveyard_planeswalker_card':
       case 'graveyard_nonland_card':
       case 'graveyard_noncreature_card': {
-        const playerZones = stateZones?.[controllerId] || {};
-        const graveyard = Array.isArray(playerZones?.graveyard) ? playerZones.graveyard : [];
-        validTargets.push(...graveyard
-          .filter((card: any) => matchesGraveyardCardTargetType(card, targetType))
-          .map((card: any) => ({
-            id: String(card.id),
-            name: card.name || 'Card',
-            type: 'graveyard_card',
-            controller: controllerId,
-            imageUrl: card.image_uris?.small || card.image_uris?.normal,
-          })));
+        const graveyardOwnerIds = (targetReqs.graveyardScope === 'any'
+          ? statePlayers.filter((player: any) => player?.id).map((player: any) => String(player.id))
+          : [controllerId]) as string[];
+        for (const ownerId of graveyardOwnerIds) {
+          const playerZones = stateZones?.[ownerId] || {};
+          const graveyard = Array.isArray(playerZones?.graveyard) ? playerZones.graveyard : [];
+          validTargets.push(...graveyard
+            .filter((card: any) => matchesGraveyardCardTargetType(card, targetType))
+            .map((card: any) => ({
+              id: String(card.id),
+              name: card.name || 'Card',
+              type: 'graveyard_card',
+              controller: ownerId,
+              imageUrl: card.image_uris?.small || card.image_uris?.normal,
+            })));
+        }
         break;
       }
     }

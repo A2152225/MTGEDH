@@ -3901,6 +3901,7 @@ async function requestAISharedCast(
     }
 
     const stackLengthBefore = Array.isArray(game.state?.stack) ? game.state.stack.length : 0;
+    const priorityBefore = game.state?.priority;
     const aiSocket = {
       data: { playerId },
       emit: (event: string, payload: any) => {
@@ -3943,8 +3944,16 @@ async function requestAISharedCast(
       String(step?.spellCardId || '') === cardId ||
       String(step?.spellCastContext?.cardId || '') === cardId
     );
+    const aiHasPendingSteps = ResolutionQueueManager.playerHasPendingSteps(gameId, playerId);
+    const priorityChanged = game.state?.priority !== priorityBefore;
 
-    const progressed = stackLengthAfter > stackLengthBefore || !cardStillInSourceZone || hasPendingCast || hasPendingStep;
+    const progressed =
+      stackLengthAfter > stackLengthBefore ||
+      !cardStillInSourceZone ||
+      hasPendingCast ||
+      hasPendingStep ||
+      aiHasPendingSteps ||
+      priorityChanged;
     if (!progressed) {
       debugWarn(1, '[AI] Shared cast request produced no state change:', {
         gameId,
@@ -3954,6 +3963,9 @@ async function requestAISharedCast(
         sourceZone: request.sourceZone,
         stackLengthBefore,
         stackLengthAfter,
+        priorityBefore,
+        priorityAfter: game.state?.priority,
+        aiHasPendingSteps,
       });
     }
 
@@ -4146,8 +4158,8 @@ function buildAIActivatedAbilityResolverCandidates(permanent: any): AIActivatedA
     .map((line) => line.trim())
     .filter(Boolean);
 
-  const activatedAbilityPattern = /^(\{[^}]+\}(?:,?\s*\{[^}]+\})*(?:,?\s*(?:Sacrifice[^:]*|Pay[^:]*|Discard[^:]*|Exile[^:]*|Remove[^:]*|Tap[^:]*|Untap[^:]*))?)\s*:\s*(.+)$/i;
-  const textOnlyActivatedAbilityPattern = /^((?:Sacrifice|Discard|Pay|Exile|Remove|Tap|Untap)[^:]*?)\s*:\s*(.+)$/i;
+  const activatedAbilityPattern = /^(\{[^}]+\}(?:,?\s*\{[^}]+\})*(?:,?\s*(?:Sacrifice[^:]*|Pay[^:]*|Discard[^:]*|Exile[^:]*|Remove[^:]*|Return[^:]*|Tap[^:]*|Untap[^:]*))?)\s*:\s*(.+)$/i;
+  const textOnlyActivatedAbilityPattern = /^((?:Sacrifice|Discard|Pay|Exile|Remove|Return|Tap|Untap)[^:]*?)\s*:\s*(.+)$/i;
 
   for (const line of lines) {
     const activatedMatch = line.match(activatedAbilityPattern);
@@ -4981,6 +4993,7 @@ async function requestAISharedBattlefieldAbilityActivation(
     permanentId: string;
     abilityId: string;
     xValue?: unknown;
+    drainQueuedSteps?: boolean;
   },
 ): Promise<boolean> {
   const game = ensureGame(gameId);
@@ -5032,6 +5045,28 @@ async function requestAISharedBattlefieldAbilityActivation(
     });
 
     await Promise.resolve();
+
+    if (request.drainQueuedSteps) {
+      for (let attempt = 0; attempt < 6; attempt += 1) {
+        const queue = ResolutionQueueManager.getQueue(gameId);
+        const aiStep = queue?.steps?.find((step: any) => step?.playerId === playerId);
+        if (!aiStep) {
+          break;
+        }
+
+        const manaBefore = JSON.stringify(getOrInitManaPool(game.state, String(playerId)) || {});
+        const pendingBefore = Array.isArray(queue?.steps) ? queue.steps.length : 0;
+        await handleAIResolutionStep(io, gameId, playerId, aiStep);
+        await Promise.resolve();
+
+        const nextQueue = ResolutionQueueManager.getQueue(gameId);
+        const manaAfter = JSON.stringify(getOrInitManaPool(game.state, String(playerId)) || {});
+        const pendingAfter = Array.isArray(nextQueue?.steps) ? nextQueue.steps.length : 0;
+        if (manaAfter === manaBefore && pendingAfter >= pendingBefore) {
+          break;
+        }
+      }
+    }
 
     const after = snapshotAIAbilityActivationState(game, gameId, playerId, permanentId);
     const progressed = didAIAbilityActivationProgress(before, after);
@@ -7361,6 +7396,7 @@ async function executeAIActivateAbility(
       permanentId: String(action.permanentId || ''),
       abilityId: resolvedAbilityId,
       xValue: action?.xValue,
+      drainQueuedSteps: !continueAfterResolution,
     });
     if (progressed) {
       if (continueAfterResolution) {
@@ -7430,6 +7466,7 @@ async function executeAILegacyActivateAbility(
     let persistedUsesStack = false;
     let persistedLifePaidForCost = 0;
     let persistedSacrificedPermanents: string[] = [];
+    let persistedReturnedPermanentsToHandForCost: string[] = [];
     let persistedSearchParams: any = undefined;
     let persistedChosenOpponentId = '';
     
@@ -7603,8 +7640,50 @@ async function executeAILegacyActivateAbility(
           }
         }
 
+        const returnToHandCost = parseReturnToHandCostFromManaAbilityCost(costSection);
+        if (returnToHandCost) {
+          const returnedPermanent = chooseAIReturnToHandPermanentForManaAbility(game, playerId, permanent, costSection);
+          if (!returnedPermanent) {
+            debugWarn(1, '[AI] No valid permanent available to return for mana ability:', card.name);
+            if (isTapAbility && tappedPermanents.includes(String(permanent.id))) {
+              permanent.tapped = false;
+              tappedPermanents.length = 0;
+            }
+            return;
+          }
+
+          try {
+            const { movePermanentToHand } = await import('../state/modules/zones.js');
+            const ctx = {
+              state: game.state,
+              libraries: (game as any).libraries,
+              bumpSeq: typeof (game as any).bumpSeq === 'function' ? (game as any).bumpSeq.bind(game) : (() => {}),
+              rng: (game as any).rng,
+              gameId,
+              commandZone: (game.state as any).commandZone,
+            } as any;
+
+            const moved = movePermanentToHand(ctx, String(returnedPermanent.id));
+            if (!moved) {
+              throw new Error('movePermanentToHand returned false');
+            }
+            persistedReturnedPermanentsToHandForCost = [String(returnedPermanent.id)];
+          } catch (err) {
+            debugWarn(1, '[AI] Failed to return permanent to hand for mana ability:', err);
+            if (isTapAbility && tappedPermanents.includes(String(permanent.id))) {
+              permanent.tapped = false;
+              tappedPermanents.length = 0;
+            }
+            return;
+          }
+        }
+
         try {
-          if (persistedLifePaidForCost > 0 || persistedSacrificedPermanents.length > 0) {
+          if (
+            persistedLifePaidForCost > 0 ||
+            persistedSacrificedPermanents.length > 0 ||
+            persistedReturnedPermanentsToHandForCost.length > 0
+          ) {
             await appendEvent(gameId, (game as any).seq || 0, 'activateBattlefieldAbility', {
               playerId,
               permanentId: action.permanentId,
@@ -7614,6 +7693,7 @@ async function executeAILegacyActivateAbility(
               activatedAbilityText,
               tappedPermanents,
               sacrificedPermanents: persistedSacrificedPermanents,
+              returnedPermanentsToHandForCost: persistedReturnedPermanentsToHandForCost,
               removedCountersForCost: [],
               lifePaidForCost: persistedLifePaidForCost,
             });
@@ -7742,7 +7822,7 @@ async function executeAILegacyActivateAbility(
             searchDescription = 'a Mountain or Plains card';
             landFilter = { types: ['land'], subtypes: ['Mountain', 'Plains'] };
           }
-          
+
           const stackItem = {
             id: `stack_ability_${Date.now()}_${permanent.id}`,
             type: 'ability',
@@ -7768,7 +7848,7 @@ async function executeAILegacyActivateAbility(
             },
           };
           persistedSearchParams = { ...(stackItem as any).searchParams };
-          
+
           game.state.stack.push(stackItem as any);
           debug(1, '[AI] Added FETCH LAND ability to stack:', card.name);
         } else {
@@ -7811,6 +7891,7 @@ async function executeAILegacyActivateAbility(
         usesStack: persistedUsesStack,
         ...(tappedPermanents.length > 0 ? { tappedPermanents } : {}),
         ...(persistedSacrificedPermanents.length > 0 ? { sacrificedPermanents: persistedSacrificedPermanents } : {}),
+        ...(persistedReturnedPermanentsToHandForCost.length > 0 ? { returnedPermanentsToHandForCost: persistedReturnedPermanentsToHandForCost } : {}),
         ...(persistedLifePaidForCost > 0 ? { lifePaidForCost: persistedLifePaidForCost } : {}),
         ...(persistedSearchParams ? { searchParams: persistedSearchParams } : {}),
         ...(persistedChosenOpponentId ? { targetOpponentId: persistedChosenOpponentId } : {}),

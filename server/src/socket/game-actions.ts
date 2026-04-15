@@ -692,6 +692,34 @@ function splitSpellTargetClauses(oracleText: string): string[] {
     .filter(Boolean);
 }
 
+function matchesSpellGraveyardCardTargetType(card: any, targetType: string): boolean {
+  const typeLine = String(card?.type_line || '').toLowerCase();
+  switch (targetType) {
+    case 'graveyard_card':
+      return true;
+    case 'graveyard_creature_card':
+      return typeLine.includes('creature');
+    case 'graveyard_artifact_card':
+      return typeLine.includes('artifact');
+    case 'graveyard_enchantment_card':
+      return typeLine.includes('enchantment');
+    case 'graveyard_land_card':
+      return typeLine.includes('land');
+    case 'graveyard_instant_card':
+      return typeLine.includes('instant');
+    case 'graveyard_sorcery_card':
+      return typeLine.includes('sorcery');
+    case 'graveyard_planeswalker_card':
+      return typeLine.includes('planeswalker');
+    case 'graveyard_nonland_card':
+      return !typeLine.includes('land');
+    case 'graveyard_noncreature_card':
+      return !typeLine.includes('creature');
+    default:
+      return false;
+  }
+}
+
 function buildSpellTargetListFromRequirements(game: any, playerId: string, targetReqs: any): Array<{ id: string; kind: string; name: string; isOpponent?: boolean; controller?: string; imageUrl?: string; typeLine?: string; life?: number }> {
   const validTargetList: Array<{ id: string; kind: string; name: string; isOpponent?: boolean; controller?: string; imageUrl?: string; typeLine?: string; life?: number }> = [];
 
@@ -767,6 +795,35 @@ function buildSpellTargetListFromRequirements(game: any, playerId: string, targe
           isOpponent: item.controller !== playerId,
           typeLine: item.card?.type_line,
         });
+      }
+      continue;
+    }
+
+    if (targetTypeLower.startsWith('graveyard_')) {
+      const graveyardOwnerIds = (targetReqs?.graveyardScope === 'any'
+        ? (game.state.players || []).filter((player: any) => player?.id).map((player: any) => String(player.id))
+        : [String(playerId)]) as string[];
+
+      for (const ownerId of graveyardOwnerIds) {
+        const graveyard = Array.isArray((game.state?.zones || {})?.[ownerId]?.graveyard)
+          ? game.state.zones[ownerId].graveyard
+          : [];
+
+        for (const card of graveyard) {
+          if (!matchesSpellGraveyardCardTargetType(card, targetTypeLower)) {
+            continue;
+          }
+
+          validTargetList.push({
+            id: String(card.id),
+            kind: 'graveyard_card',
+            name: card.name || 'Card',
+            imageUrl: card.image_uris?.small || card.image_uris?.normal,
+            controller: ownerId,
+            isOpponent: ownerId !== playerId,
+            typeLine: card.type_line,
+          });
+        }
       }
       continue;
     }

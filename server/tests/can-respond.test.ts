@@ -236,6 +236,77 @@ describe('canCastAnySpell', () => {
         expect(canRespond(ctx, 'p1' as PlayerID)).toBe(true);
       });
 
+      it('should return true when a response is only castable after a non-tap return-to-hand mana activation', () => {
+        const ctx = createTestContext({
+          players: [
+            { id: 'p1', life: 40 },
+            { id: 'p2', life: 40 },
+          ],
+          zones: {
+            p1: {
+              hand: [
+                {
+                  id: 'counterspell_hand',
+                  name: 'Counterspell',
+                  type_line: 'Instant',
+                  mana_cost: '{U}{U}',
+                  oracle_text: 'Counter target spell.',
+                },
+              ],
+              graveyard: [],
+              exile: [],
+            },
+          },
+          battlefield: [
+            {
+              id: 'tidal_commons_1',
+              controller: 'p1',
+              tapped: false,
+              summoningSickness: false,
+              card: {
+                id: 'tidal_commons_card_1',
+                name: 'Tidal Commons',
+                type_line: 'Land',
+                oracle_text: "Return another land you control to its owner's hand: Add {U}{U}.",
+              },
+            },
+            {
+              id: 'plains_1',
+              controller: 'p1',
+              tapped: false,
+              summoningSickness: false,
+              card: {
+                id: 'plains_card_1',
+                name: 'Plains',
+                type_line: 'Basic Land - Plains',
+                oracle_text: '',
+              },
+            },
+          ],
+          manaPool: {
+            p1: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+          },
+          stack: [
+            {
+              id: 'spell_on_stack',
+              card: {
+                id: 'shock_1',
+                name: 'Shock',
+                type_line: 'Instant',
+                mana_cost: '{R}',
+                oracle_text: 'Shock deals 2 damage to any target.',
+              },
+            },
+          ],
+          turnPlayer: 'p2',
+          priority: 'p1',
+          step: 'DECLARE_ATTACKERS',
+        });
+
+        expect(canCastAnySpell(ctx, 'p1' as PlayerID)).toBe(true);
+        expect(canRespond(ctx, 'p1' as PlayerID)).toBe(true);
+      });
+
       it('should return true when an instant is castable after a non-tap discard mana activation', () => {
         const ctx = createTestContext({
           players: [
@@ -337,6 +408,78 @@ describe('canCastAnySpell', () => {
                 name: 'Mind Cache',
                 type_line: 'Artifact',
                 oracle_text: 'Discard a card: Add {U}.',
+              },
+            },
+          ],
+          manaPool: {
+            p1: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+          },
+          stack: [
+            {
+              id: 'spell_on_stack',
+              card: {
+                id: 'shock_1',
+                name: 'Shock',
+                type_line: 'Instant',
+                mana_cost: '{R}',
+                oracle_text: 'Shock deals 2 damage to any target.',
+              },
+            },
+          ],
+          turnPlayer: 'p2',
+          priority: 'p1',
+          step: 'DECLARE_ATTACKERS',
+        });
+
+        expect(canCastAnySpell(ctx, 'p1' as PlayerID)).toBe(false);
+        expect(canRespond(ctx, 'p1' as PlayerID)).toBe(false);
+      });
+
+      it('should return false when an alternate-cost improvise line would require discarding the spell being cast', () => {
+        const ctx = createTestContext({
+          players: [
+            { id: 'p1', life: 40 },
+            { id: 'p2', life: 40 },
+          ],
+          zones: {
+            p1: {
+              hand: [
+                {
+                  id: 'rebuke_hand',
+                  name: 'Metallic Rebuke Clone',
+                  type_line: 'Instant',
+                  mana_cost: '{2}{U}',
+                  oracle_text: 'Improvise\nCounter target spell unless its controller pays {3}.',
+                  cmc: 3,
+                },
+              ],
+              graveyard: [],
+              exile: [],
+            },
+          },
+          battlefield: [
+            {
+              id: 'mind_cache_1',
+              controller: 'p1',
+              tapped: false,
+              summoningSickness: false,
+              card: {
+                id: 'mind_cache_card_1',
+                name: 'Mind Cache',
+                type_line: 'Artifact',
+                oracle_text: 'Discard a card: Add {U}.',
+              },
+            },
+            {
+              id: 'ornithopter_1',
+              controller: 'p1',
+              tapped: false,
+              summoningSickness: false,
+              card: {
+                id: 'ornithopter_card_1',
+                name: 'Ornithopter',
+                type_line: 'Artifact Creature - Thopter',
+                oracle_text: 'Flying',
               },
             },
           ],

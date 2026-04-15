@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
-import { initDb, createGameIfNotExists, getEvents } from '../src/db/index.js';
+import { initDb, createGameIfNotExists, deleteGame, getEvents } from '../src/db/index.js';
 import { ensureGame } from '../src/socket/util.js';
 import '../src/state/modules/priority.js';
 import { registerResolutionHandlers, initializePriorityResolutionHandler } from '../src/socket/resolution.js';
@@ -42,6 +42,12 @@ function createMockSocket(playerId: string, emitted: Array<{ room?: string; even
   return { socket, handlers };
 }
 
+function resetGame(gameId: string) {
+  ResolutionQueueManager.removeQueue(gameId);
+  games.delete(gameId as any);
+  deleteGame(gameId);
+}
+
 describe('after sacrifice followup target selection (integration)', () => {
   const gameId = 'test_after_sacrifice_followup_target_selection';
 
@@ -52,8 +58,7 @@ describe('after sacrifice followup target selection (integration)', () => {
   });
 
   beforeEach(() => {
-    ResolutionQueueManager.removeQueue(gameId);
-    games.delete(gameId as any);
+    resetGame(gameId);
   });
 
   it('queues and resolves a generic target-selection action after sacrificing a creature', async () => {
@@ -121,6 +126,8 @@ describe('after sacrifice followup target selection (integration)', () => {
     const io = createMockIo(emitted, [socket]);
     registerResolutionHandlers(io as any, socket as any);
 
+    const followupEventStart = getEvents(gameId).length;
+
     await handlers['submitResolutionResponse']({
       gameId,
       stepId: step.id,
@@ -136,8 +143,9 @@ describe('after sacrifice followup target selection (integration)', () => {
       'target_walker',
     ]);
 
-    const sacrificeEvent = [...getEvents(gameId)].reverse().find((event: any) => event.type === 'sacrificePermanent') as any;
-    const promptEvent = [...getEvents(gameId)].reverse().find((event: any) => event.type === 'resolveTopOfStackPrompt') as any;
+    const followupEvents = getEvents(gameId).slice(followupEventStart);
+    const sacrificeEvent = [...followupEvents].reverse().find((event: any) => event.type === 'sacrificePermanent') as any;
+    const promptEvent = [...followupEvents].reverse().find((event: any) => event.type === 'resolveTopOfStackPrompt') as any;
     expect(sacrificeEvent?.payload?.permanentId).toBe('sacrifice_me');
     expect(promptEvent?.payload?.queuedResolutionStep?.type).toBe(ResolutionStepType.TARGET_SELECTION);
     expect(promptEvent?.payload?.queuedResolutionStep?.action).toBe('destroy_target_creature_or_planeswalker');
@@ -152,6 +160,7 @@ describe('after sacrifice followup target selection (integration)', () => {
     expect(((game.state as any).zones[p1].graveyard || []).map((card: any) => card.name)).toEqual(['Disposable Creature']);
 
     const replayGameId = `${gameId}_generic_replay`;
+    resetGame(replayGameId);
     createGameIfNotExists(replayGameId, 'commander', 40);
     const replayGame = ensureGame(replayGameId);
     if (!replayGame) throw new Error('ensureGame returned undefined');
@@ -263,6 +272,8 @@ describe('after sacrifice followup target selection (integration)', () => {
     const io = createMockIo(emitted, [socket]);
     registerResolutionHandlers(io as any, socket as any);
 
+    const reflexiveEventStart = getEvents(gameId).length;
+
     await handlers['submitResolutionResponse']({
       gameId,
       stepId: step.id,
@@ -292,7 +303,7 @@ describe('after sacrifice followup target selection (integration)', () => {
       targetDescription: 'any target',
     });
 
-    const events = getEvents(gameId);
+    const events = getEvents(gameId).slice(reflexiveEventStart);
     const resolveEvent = [...events].reverse().find((event: any) => event.type === 'sacrificeWhenYouDoResolve') as any;
     const triggerEvent = [...events].reverse().find((event: any) => event.type === 'pushTriggeredAbility' && event.payload?.sourceName === 'Blood Rite') as any;
     expect(resolveEvent).toBeDefined();
@@ -315,6 +326,7 @@ describe('after sacrifice followup target selection (integration)', () => {
     });
 
     const replayGameId = `${gameId}_replay`;
+  resetGame(replayGameId);
     createGameIfNotExists(replayGameId, 'commander', 40);
     const replayGame = ensureGame(replayGameId);
     if (!replayGame) throw new Error('ensureGame returned undefined');
@@ -445,6 +457,8 @@ describe('after sacrifice followup target selection (integration)', () => {
     const io = createMockIo(emitted, [socket]);
     registerResolutionHandlers(io as any, socket as any);
 
+    const askStagePromptStart = getEvents(gameId).length;
+
     await handlers['submitResolutionResponse']({
       gameId,
       stepId: step.id,
@@ -465,7 +479,8 @@ describe('after sacrifice followup target selection (integration)', () => {
       'vampire_2',
     ]);
 
-    const promptEvent = [...getEvents(gameId)].reverse().find((event: any) =>
+    const askStageEvents = getEvents(gameId).slice(askStagePromptStart);
+    const promptEvent = [...askStageEvents].reverse().find((event: any) =>
       event.type === 'resolveTopOfStackPrompt' &&
       event.payload?.queuedResolutionStep?.sacrificeWhenYouDoStage === 'select_sacrifice'
     ) as any;
@@ -479,6 +494,7 @@ describe('after sacrifice followup target selection (integration)', () => {
     });
 
     const replayGameId = `${gameId}_ask_stage_replay`;
+  resetGame(replayGameId);
     createGameIfNotExists(replayGameId, 'commander', 40);
     const replayGame = ensureGame(replayGameId);
     if (!replayGame) throw new Error('ensureGame returned undefined');

@@ -1,6 +1,6 @@
 import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
-import { initDb, createGameIfNotExists, getEvents } from '../src/db/index.js';
+import { initDb, createGameIfNotExists, deleteGame, getEvents } from '../src/db/index.js';
 import { ensureGame } from '../src/socket/util.js';
 import '../src/state/modules/priority.js';
 import { registerGameActions } from '../src/socket/game-actions.js';
@@ -51,6 +51,12 @@ function createMockSocket(playerId: string, emitted: Array<{ room?: string; even
   } as any;
 
   return { socket, handlers };
+}
+
+function resetGame(gameId: string) {
+  ResolutionQueueManager.removeQueue(gameId);
+  games.delete(gameId as any);
+  deleteGame(gameId);
 }
 
 function seedBaseGame(
@@ -137,8 +143,7 @@ describe('ability-activated copy triggers (integration)', () => {
   });
 
   beforeEach(() => {
-    ResolutionQueueManager.removeQueue(gameId);
-    games.delete(gameId as any);
+    resetGame(gameId);
   });
 
   it('queues an optional payment prompt and copies the triggering stack ability on pay', async () => {
@@ -272,6 +277,8 @@ describe('ability-activated copy triggers (integration)', () => {
     registerInteractionHandlers(io as any, socket as any);
     registerResolutionHandlers(io as any, socket as any);
 
+    const activationEventStart = getEvents(gameId).length;
+
     await handlers['activateBattlefieldAbility']({
       gameId,
       permanentId: 'banner_1',
@@ -295,7 +302,8 @@ describe('ability-activated copy triggers (integration)', () => {
     const originalAbility = (game.state as any).stack[0];
     expect(originalAbility.targets).toEqual(['creature_1']);
     expect(originalAbility.copyRetargetValidTargets.map((target: any) => target.id)).toEqual(['creature_1', 'creature_2']);
-    const triggerPushEvents = getEvents(gameId).filter((event) => String(event?.type) === 'pushTriggeredAbility');
+    const activationEvents = getEvents(gameId).slice(activationEventStart);
+    const triggerPushEvents = activationEvents.filter((event) => String(event?.type) === 'pushTriggeredAbility');
     expect(triggerPushEvents.length).toBeGreaterThan(0);
     const lastTriggerPush = triggerPushEvents[triggerPushEvents.length - 1] as any;
     expect(String(lastTriggerPush?.payload?.sourceName || '')).toBe('Rings of Brighthearth');
@@ -311,6 +319,8 @@ describe('ability-activated copy triggers (integration)', () => {
       .steps.find((queuedStep: any) => (queuedStep as any).optionalPaymentPrompt === true);
     expect(payStep).toBeDefined();
 
+    const retargetChoicePromptStart = getEvents(gameId).length;
+
     await handlers['submitResolutionResponse']({
       gameId,
       stepId: String((payStep as any).id),
@@ -323,12 +333,15 @@ describe('ability-activated copy triggers (integration)', () => {
       .steps.find((queuedStep: any) => (queuedStep as any).retargetAbilityCopy === true);
     expect(retargetChoiceStep).toBeDefined();
 
-    const retargetChoicePromptEvent = [...getEvents(gameId)].reverse().find((event: any) =>
+    const retargetChoiceEvents = getEvents(gameId).slice(retargetChoicePromptStart);
+    const retargetChoicePromptEvent = [...retargetChoiceEvents].reverse().find((event: any) =>
       String(event?.type || '') === 'resolveTopOfStackPrompt' &&
       event?.payload?.queuedResolutionStep?.retargetAbilityCopy === true
     ) as any;
     expect(retargetChoicePromptEvent).toBeDefined();
     expect(retargetChoicePromptEvent?.payload?.queuedResolutionStep?.sourceId).toBe(String((game.state as any).stack[1]?.id || ''));
+
+    const retargetTargetPromptStart = getEvents(gameId).length;
 
     await handlers['submitResolutionResponse']({
       gameId,
@@ -342,12 +355,15 @@ describe('ability-activated copy triggers (integration)', () => {
       .steps.find((queuedStep: any) => (queuedStep as any).retargetAbilityCopyTargetSelection === true);
     expect(retargetTargetStep).toBeDefined();
 
-    const retargetTargetPromptEvent = [...getEvents(gameId)].reverse().find((event: any) =>
+    const retargetTargetEvents = getEvents(gameId).slice(retargetTargetPromptStart);
+    const retargetTargetPromptEvent = [...retargetTargetEvents].reverse().find((event: any) =>
       String(event?.type || '') === 'resolveTopOfStackPrompt' &&
       event?.payload?.queuedResolutionStep?.retargetAbilityCopyTargetSelection === true
     ) as any;
     expect(retargetTargetPromptEvent).toBeDefined();
     expect(retargetTargetPromptEvent?.payload?.queuedResolutionStep?.sourceId).toBe(String((game.state as any).stack[1]?.id || ''));
+
+    const retargetResolveEventStart = getEvents(gameId).length;
 
     await handlers['submitResolutionResponse']({
       gameId,
@@ -361,7 +377,8 @@ describe('ability-activated copy triggers (integration)', () => {
     expect(copiedAbility.copiedFromStackItemId).toBe(originalAbility.id);
     expect(copiedAbility.targets).toEqual(['creature_2']);
 
-    const retargetResolveEvent = [...getEvents(gameId)].reverse().find((event: any) =>
+    const retargetResolveEvents = getEvents(gameId).slice(retargetResolveEventStart);
+    const retargetResolveEvent = [...retargetResolveEvents].reverse().find((event: any) =>
       String(event?.type || '') === 'retargetAbilityCopyResolve'
     ) as any;
     expect(retargetResolveEvent).toBeDefined();
@@ -1217,8 +1234,17 @@ describe('ability-activated copy triggers (integration)', () => {
 
     const targetStep = ResolutionQueueManager
       .getQueue(gameId)
-      .steps.find((queuedStep: any) => (queuedStep as any).battlefieldAbilityTargetSelection === true);
+      .steps.find((queuedStep: any) =>
+        (queuedStep as any).battlefieldAbilityTargetSelection === true ||
+        ((queuedStep as any).type === 'graveyard_selection') ||
+        (
+          (queuedStep as any).type === 'target_selection' &&
+          Array.isArray((queuedStep as any).targetTypes) &&
+          (queuedStep as any).targetTypes.includes('graveyard_card')
+        )
+      );
     expect(targetStep).toBeDefined();
+    expect(((targetStep as any).validTargets || []).map((target: any) => target.id)).toEqual(['gy_1', 'gy_2']);
 
     await handlers['submitResolutionResponse']({
       gameId,

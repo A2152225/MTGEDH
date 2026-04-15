@@ -221,7 +221,8 @@ export function hasPactAlternateCost(card: any): boolean {
 export function hasConvokeAlternateCost(
   ctx: GameContext,
   playerId: PlayerID,
-  card: any
+  card: any,
+  excludedHandCardIds?: string[],
 ): boolean {
   if (!card) return false;
   
@@ -289,7 +290,13 @@ export function hasConvokeAlternateCost(
     generic: Math.max(0, parsedCost.generic - untappedCreatures.length),
   };
 
-  return canPayManaCostWithAvailableSources(state, playerId, adjustedCost);
+  return canPayManaCostWithAvailableSources(
+    state,
+    playerId,
+    adjustedCost,
+    Infinity,
+    excludedHandCardIds?.length ? { excludedHandCardIds } : undefined,
+  );
 }
 
 /**
@@ -328,7 +335,8 @@ export function hasDelveAlternateCost(
 export function hasImproviseAlternateCost(
   ctx: GameContext,
   playerId: PlayerID,
-  card: any
+  card: any,
+  excludedHandCardIds?: string[],
 ): boolean {
   if (!card) return false;
   
@@ -369,7 +377,13 @@ export function hasImproviseAlternateCost(
     generic: Math.max(0, parsedCost.generic - untappedArtifacts.length),
   };
 
-  return canPayManaCostWithAvailableSources(state, playerId, adjustedCost);
+  return canPayManaCostWithAvailableSources(
+    state,
+    playerId,
+    adjustedCost,
+    Infinity,
+    excludedHandCardIds?.length ? { excludedHandCardIds } : undefined,
+  );
 }
 
 /**
@@ -529,7 +543,8 @@ export function hasConditionalAlternateCost(card: any): {
 export function hasPayableAlternateCost(
   ctx: GameContext,
   playerId: PlayerID,
-  card: any
+  card: any,
+  excludedHandCardIds?: string[],
 ): boolean {
   if (!card) return false;
   
@@ -537,9 +552,9 @@ export function hasPayableAlternateCost(
   if (hasForceOfWillAlternateCost(ctx, playerId, card)) return true;
   if (hasCommanderFreeAlternateCost(ctx, playerId, card)) return true;
   if (hasPactAlternateCost(card)) return true;
-  if (hasConvokeAlternateCost(ctx, playerId, card)) return true;
+  if (hasConvokeAlternateCost(ctx, playerId, card, excludedHandCardIds)) return true;
   if (hasDelveAlternateCost(ctx, playerId, card)) return true;
-  if (hasImproviseAlternateCost(ctx, playerId, card)) return true;
+  if (hasImproviseAlternateCost(ctx, playerId, card, excludedHandCardIds)) return true;
   if (hasMutateAlternateCost(ctx, playerId, card)) return true;
   if (hasSelfWUBRGAlternateCost(card)) return true;
   if (getExternalWUBRGSource(ctx, playerId)) return true;

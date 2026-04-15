@@ -1,11 +1,12 @@
 import type { PlayerID } from "../../../shared/src/index.js";
 import { categorizeSpell, evaluateTargeting, parseTargetRequirements, requiresTargeting } from "./targeting.js";
 
-function getTargetingContext(state: any): { hasBattlefield: boolean; hasPlayers: boolean; hasStack: boolean } {
+function getTargetingContext(state: any): { hasBattlefield: boolean; hasPlayers: boolean; hasStack: boolean; hasZones: boolean } {
   return {
     hasBattlefield: Array.isArray(state?.battlefield),
     hasPlayers: Array.isArray(state?.players),
     hasStack: Array.isArray(state?.stack),
+    hasZones: !!state?.zones && typeof state.zones === 'object',
   };
 }
 
@@ -59,6 +60,36 @@ function matchesBattlefieldTargetType(perm: any, rawTargetType: string): boolean
 
   // Fallback: substring match (keeps this helper flexible for multiword types like "noncreature artifact").
   return targetType.length > 0 && typeLine.includes(targetType);
+}
+
+function matchesGraveyardTargetType(card: any, rawTargetType: string): boolean {
+  const targetType = String(rawTargetType || '').trim().toLowerCase();
+  const typeLine = String(card?.type_line || '').toLowerCase();
+
+  switch (targetType) {
+    case 'graveyard_card':
+      return true;
+    case 'graveyard_creature_card':
+      return typeLine.includes('creature');
+    case 'graveyard_artifact_card':
+      return typeLine.includes('artifact');
+    case 'graveyard_enchantment_card':
+      return typeLine.includes('enchantment');
+    case 'graveyard_land_card':
+      return typeLine.includes('land');
+    case 'graveyard_instant_card':
+      return typeLine.includes('instant');
+    case 'graveyard_sorcery_card':
+      return typeLine.includes('sorcery');
+    case 'graveyard_planeswalker_card':
+      return typeLine.includes('planeswalker');
+    case 'graveyard_nonland_card':
+      return !typeLine.includes('land');
+    case 'graveyard_noncreature_card':
+      return !typeLine.includes('creature');
+    default:
+      return false;
+  }
 }
 
 export function hasValidTargetsForSpell(
@@ -128,10 +159,12 @@ export function hasValidTargetsForSpell(
     const tt = String(t).toLowerCase();
     return tt.includes('spell') || tt.includes('ability');
   });
-  const needsBattlefield = !needsPlayers && !needsStack;
+  const needsGraveyard = targetReqs.targetTypes.some(t => String(t).toLowerCase().startsWith('graveyard_'));
+  const needsBattlefield = !needsPlayers && !needsStack && !needsGraveyard;
 
   if (needsPlayers && !ctx.hasPlayers) return conservative;
   if (needsStack && !ctx.hasStack) return conservative;
+  if (needsGraveyard && !ctx.hasZones) return conservative;
   if (needsBattlefield && !ctx.hasBattlefield) return conservative;
 
   const candidates = new Set<string>();
@@ -157,6 +190,23 @@ export function hasValidTargetsForSpell(
     for (const si of state.stack || []) {
       if (si?.type === "ability" || si?.type === "triggered_ability" || si?.type === "activated_ability") {
         candidates.add(`stack:${si.id}`);
+      }
+    }
+  }
+
+  if (needsGraveyard) {
+    const graveyardOwnerIds = (targetReqs.graveyardScope === 'any'
+      ? (state.players || []).filter((player: any) => player?.id).map((player: any) => String(player.id))
+      : [String(playerId)]) as string[];
+
+    for (const ownerId of graveyardOwnerIds) {
+      const graveyard = Array.isArray(state?.zones?.[ownerId]?.graveyard)
+        ? state.zones[ownerId].graveyard
+        : [];
+      for (const card of graveyard) {
+        if (targetReqs.targetTypes.some(tt => matchesGraveyardTargetType(card, tt))) {
+          candidates.add(`graveyard:${card.id}`);
+        }
       }
     }
   }

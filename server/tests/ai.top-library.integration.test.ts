@@ -4,11 +4,23 @@ const { requestCastSpellForSocket } = vi.hoisted(() => ({
   requestCastSpellForSocket: vi.fn(),
 }));
 
+const { debugWarn } = vi.hoisted(() => ({
+  debugWarn: vi.fn(),
+}));
+
 vi.mock('../src/socket/game-actions.js', async () => {
   const actual = await vi.importActual<typeof import('../src/socket/game-actions.js')>('../src/socket/game-actions.js');
   return {
     ...actual,
     requestCastSpellForSocket,
+  };
+});
+
+vi.mock('../src/utils/debug.js', async () => {
+  const actual = await vi.importActual<typeof import('../src/utils/debug.js')>('../src/utils/debug.js');
+  return {
+    ...actual,
+    debugWarn,
   };
 });
 
@@ -44,6 +56,7 @@ describe('AI top-library integration', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
     requestCastSpellForSocket.mockReset();
+    debugWarn.mockReset();
     trackedGameIds.length = 0;
   });
 
@@ -265,5 +278,8 @@ describe('AI top-library integration', () => {
         fromZone: 'library',
       }),
     );
+    expect(
+      debugWarn.mock.calls.some((call) => String(call[1] || '').includes('Shared cast request produced no state change')),
+    ).toBe(false);
   });
 });

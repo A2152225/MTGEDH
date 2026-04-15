@@ -518,6 +518,36 @@ function persistQueuedGraveyardAbilityStepActivation(params: {
   }
 }
 
+function matchesParsedGraveyardCardTargetType(card: any, rawTargetType: string): boolean {
+  const targetType = String(rawTargetType || '').trim().toLowerCase();
+  const typeLine = String(card?.type_line || '').toLowerCase();
+
+  switch (targetType) {
+    case 'graveyard_card':
+      return true;
+    case 'graveyard_creature_card':
+      return typeLine.includes('creature');
+    case 'graveyard_artifact_card':
+      return typeLine.includes('artifact');
+    case 'graveyard_enchantment_card':
+      return typeLine.includes('enchantment');
+    case 'graveyard_land_card':
+      return typeLine.includes('land');
+    case 'graveyard_instant_card':
+      return typeLine.includes('instant');
+    case 'graveyard_sorcery_card':
+      return typeLine.includes('sorcery');
+    case 'graveyard_planeswalker_card':
+      return typeLine.includes('planeswalker');
+    case 'graveyard_nonland_card':
+      return !typeLine.includes('land');
+    case 'graveyard_noncreature_card':
+      return !typeLine.includes('creature');
+    default:
+      return false;
+  }
+}
+
 // ============================================================================
 // Tap/Untap Ability Text Parsing
 // ============================================================================
@@ -7616,9 +7646,9 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
             case 'graveyard_planeswalker_card':
             case 'graveyard_nonland_card':
             case 'graveyard_noncreature_card': {
-              const graveyard = Array.isArray((game.state as any)?.zones?.[pid]?.graveyard)
-                ? (game.state as any).zones[pid].graveyard
-                : [];
+              const graveyardOwnerIds = (targetReqs.graveyardScope === 'any'
+                ? players.filter((player: any) => player?.id).map((player: any) => String(player.id))
+                : [String(pid)]) as string[];
               const matchesGraveyardCardType = (card: any): boolean => {
                 const typeLine = String(card?.type_line || '').toLowerCase();
                 switch (targetType.toLowerCase()) {
@@ -7646,15 +7676,20 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
                     return false;
                 }
               };
-              validTargets.push(...graveyard
-                .filter((card: any) => matchesGraveyardCardType(card))
-                .map((card: any) => ({
-                  id: card.id,
-                  kind: 'graveyard_card',
-                  name: card.name || 'Card',
-                  controller: pid,
-                  imageUrl: card.image_uris?.small || card.image_uris?.normal,
-                })));
+              for (const ownerId of graveyardOwnerIds) {
+                const graveyard = Array.isArray((game.state as any)?.zones?.[ownerId]?.graveyard)
+                  ? (game.state as any).zones[ownerId].graveyard
+                  : [];
+                validTargets.push(...graveyard
+                  .filter((card: any) => matchesGraveyardCardType(card))
+                  .map((card: any) => ({
+                    id: card.id,
+                    kind: 'graveyard_card',
+                    name: card.name || 'Card',
+                    controller: ownerId,
+                    imageUrl: card.image_uris?.small || card.image_uris?.normal,
+                  })));
+              }
               break;
             }
           }
@@ -10729,6 +10764,87 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       const tutorInfo = detectTutorEffect(abilityText);
 
       const activatedAbilityTextForStack = resolvedActivatedAbilityText;
+
+      const parsedGraveyardTargetReqs = parseTargetRequirements(resolvedAbilityText);
+      const hasParsedGraveyardTargets = parsedGraveyardTargetReqs.needsTargets
+        && Array.isArray(parsedGraveyardTargetReqs.targetTypes)
+        && parsedGraveyardTargetReqs.targetTypes.length > 0
+        && parsedGraveyardTargetReqs.targetTypes.every((targetType) => String(targetType || '').toLowerCase().startsWith('graveyard_'));
+
+      if (hasParsedGraveyardTargets) {
+        const players = Array.isArray(game.state?.players) ? game.state.players : [];
+        const graveyardOwnerIds = (parsedGraveyardTargetReqs.graveyardScope === 'any'
+          ? players.filter((player: any) => player?.id).map((player: any) => String(player.id))
+          : [String(pid)]) as string[];
+        const validTargets = graveyardOwnerIds.flatMap((ownerId) => {
+          const graveyard = Array.isArray((game.state as any)?.zones?.[ownerId]?.graveyard)
+            ? (game.state as any).zones[ownerId].graveyard
+            : [];
+          return graveyard
+            .filter((card: any) => parsedGraveyardTargetReqs.targetTypes.some((targetType) => matchesParsedGraveyardCardTargetType(card, String(targetType))))
+            .map((card: any) => ({
+              id: String(card.id),
+              name: card.name || 'Card',
+              type: 'graveyard_card',
+              controller: ownerId,
+              imageUrl: card.image_uris?.small || card.image_uris?.normal,
+            }));
+        });
+
+        if (validTargets.length < parsedGraveyardTargetReqs.minTargets) {
+          socket.emit('error', {
+            code: 'NO_VALID_TARGETS',
+            message: `${cardName}'s ability requires at least ${parsedGraveyardTargetReqs.minTargets} graveyard target(s) but only ${validTargets.length} are available.`,
+          });
+          return;
+        }
+
+        const queuedStep = {
+          type: ResolutionStepType.TARGET_SELECTION,
+          playerId: pid as PlayerID,
+          sourceId: permanentId,
+          sourceName: cardName,
+          sourceImage: (permanent as any).card?.image_uris?.small || (permanent as any).card?.image_uris?.normal,
+          description: `Choose ${parsedGraveyardTargetReqs.targetDescription} for ${cardName}`,
+          mandatory: parsedGraveyardTargetReqs.minTargets > 0,
+          validTargets,
+          targetTypes: parsedGraveyardTargetReqs.targetTypes,
+          minTargets: parsedGraveyardTargetReqs.minTargets,
+          maxTargets: parsedGraveyardTargetReqs.maxTargets,
+          targetDescription: parsedGraveyardTargetReqs.targetDescription,
+          battlefieldAbilityTargetSelection: true,
+          permanentId,
+          abilityId,
+          cardName,
+          abilityText: resolvedAbilityText,
+          activatedAbilityText: activatedAbilityTextForStack,
+          tappedPermanentsForCost,
+        };
+        const targetStep = ResolutionQueueManager.addStep(gameId, queuedStep as any);
+
+        if (typeof game.bumpSeq === 'function') {
+          game.bumpSeq();
+        }
+
+        persistQueuedBattlefieldAbilityStepActivation({
+          gameId,
+          game,
+          playerId: String(pid),
+          permanentId: String(permanentId),
+          abilityId: String(abilityId),
+          cardName,
+          abilityText: resolvedAbilityText,
+          activatedAbilityText: activatedAbilityTextForStack,
+          tappedPermanents: tappedPermanentsForCost,
+          queuedStep: {
+            ...queuedStep,
+            id: String((targetStep as any).id || ''),
+          },
+        });
+
+        broadcastGame(io, game, gameId);
+        return;
+      }
 
       if (isBoastAbility) {
         (permanent as any).activatedThisTurn = true;

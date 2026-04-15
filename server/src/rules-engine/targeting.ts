@@ -150,6 +150,20 @@ function buildGraveyardCardTargetType(rawTargetType: string | undefined): string
   return normalized ? `graveyard_${normalized}_card` : 'graveyard_card';
 }
 
+function normalizeGraveyardScope(rawScope: string | undefined): 'your' | 'any' {
+  return String(rawScope || '').trim().toLowerCase() === 'your' ? 'your' : 'any';
+}
+
+function buildGraveyardCardTargetDescription(
+  rawTargetType: string,
+  scope: 'your' | 'any',
+  prefix: string,
+): string {
+  const typeLabel = rawTargetType ? `${rawTargetType} card` : 'card';
+  const graveyardLabel = scope === 'your' ? 'your graveyard' : 'a graveyard';
+  return `${prefix} ${typeLabel} in ${graveyardLabel}`;
+}
+
 function parseTargetTypePhrase(rawTargetType: string | undefined): string[] {
   const normalized = String(rawTargetType || '')
     .toLowerCase()
@@ -213,6 +227,7 @@ export function parseTargetRequirements(oracleText?: string): {
   targetDescription: string;
   perOpponent?: boolean;  // For "for each opponent, up to one target X that player controls"
   targetControllerConstraint?: 'opponent' | 'that_player' | 'you' | 'any';
+  graveyardScope?: 'your' | 'any';
 } {
   if (!oracleText) return { needsTargets: false, targetTypes: [], minTargets: 0, maxTargets: 0, targetDescription: '' };
   
@@ -354,10 +369,8 @@ export function parseTargetRequirements(oracleText?: string): {
     maxTargets = numMap[numWord] || parseInt(numWord, 10) || 1;
     minTargets = 0;
     targetTypes.push(buildGraveyardCardTargetType(rawTargetType));
-    targetDescription = rawTargetType
-      ? `up to ${numWord} target ${rawTargetType} card in your graveyard`
-      : `up to ${numWord} target card in your graveyard`;
-    return { needsTargets: true, targetTypes, minTargets, maxTargets, targetDescription };
+    targetDescription = buildGraveyardCardTargetDescription(rawTargetType, 'your', `up to ${numWord} target`);
+    return { needsTargets: true, targetTypes, minTargets, maxTargets, targetDescription, graveyardScope: 'your' };
   }
 
   const graveyardMatch = t.match(/target\s+(?:(creature|artifact|enchantment|land|instant|sorcery|planeswalker|nonland|noncreature)\s+)?card\s+from\s+(?:your\s+)?graveyard\s+to\s+your\s+hand/i);
@@ -366,10 +379,32 @@ export function parseTargetRequirements(oracleText?: string): {
     minTargets = 1;
     maxTargets = 1;
     targetTypes.push(buildGraveyardCardTargetType(rawTargetType));
-    targetDescription = rawTargetType
-      ? `target ${rawTargetType} card in your graveyard`
-      : 'target card in your graveyard';
-    return { needsTargets: true, targetTypes, minTargets, maxTargets, targetDescription };
+    targetDescription = buildGraveyardCardTargetDescription(rawTargetType, 'your', 'target');
+    return { needsTargets: true, targetTypes, minTargets, maxTargets, targetDescription, graveyardScope: 'your' };
+  }
+
+  const anyGraveyardUpToMatch = t.match(/up\s+to\s+(\w+)\s+target\s+(?:(creature|artifact|enchantment|land|instant|sorcery|planeswalker|nonland|noncreature)\s+)?card\s+from\s+(your|a|any)\s+graveyard/i);
+  if (anyGraveyardUpToMatch) {
+    const numWord = String(anyGraveyardUpToMatch[1] || '').toLowerCase();
+    const rawTargetType = String(anyGraveyardUpToMatch[2] || '').trim().toLowerCase();
+    const scope = normalizeGraveyardScope(anyGraveyardUpToMatch[3]);
+    const numMap: Record<string, number> = { one: 1, two: 2, three: 3, four: 4, five: 5 };
+    maxTargets = numMap[numWord] || parseInt(numWord, 10) || 1;
+    minTargets = 0;
+    targetTypes.push(buildGraveyardCardTargetType(rawTargetType));
+    targetDescription = buildGraveyardCardTargetDescription(rawTargetType, scope, `up to ${numWord} target`);
+    return { needsTargets: true, targetTypes, minTargets, maxTargets, targetDescription, graveyardScope: scope };
+  }
+
+  const anyGraveyardMatch = t.match(/target\s+(?:(creature|artifact|enchantment|land|instant|sorcery|planeswalker|nonland|noncreature)\s+)?card\s+from\s+(your|a|any)\s+graveyard/i);
+  if (anyGraveyardMatch) {
+    const rawTargetType = String(anyGraveyardMatch[1] || '').trim().toLowerCase();
+    const scope = normalizeGraveyardScope(anyGraveyardMatch[2]);
+    minTargets = 1;
+    maxTargets = 1;
+    targetTypes.push(buildGraveyardCardTargetType(rawTargetType));
+    targetDescription = buildGraveyardCardTargetDescription(rawTargetType, scope, 'target');
+    return { needsTargets: true, targetTypes, minTargets, maxTargets, targetDescription, graveyardScope: scope };
   }
   
   // Check for "up to X target" patterns

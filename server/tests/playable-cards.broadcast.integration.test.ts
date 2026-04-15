@@ -244,6 +244,132 @@ describe('broadcastGame playable card refresh', () => {
     expect(stateEvent?.payload?.view?.playableCards).not.toContain('opt_hand');
   });
 
+  it('does not highlight an improvise hand instant when the only colored mana line would require discarding that spell', () => {
+    const gameId = 'playable_cards_improvise_discard_self_exclusion';
+    const ctx = createContext(gameId);
+
+    Object.assign(ctx.state as any, {
+      active: true,
+      phase: 'beginning',
+      step: 'UPKEEP',
+      turnDirection: 1,
+      turnPlayer: 'p2',
+      priority: 'p1',
+      players: [
+        { id: 'p1', seat: 1, name: 'Player 1' },
+        { id: 'p2', seat: 2, name: 'Player 2' },
+      ],
+      stack: [
+        {
+          id: 'shock_stack',
+          card: {
+            id: 'shock_card',
+            name: 'Shock',
+            type_line: 'Instant',
+            mana_cost: '{R}',
+            oracle_text: 'Shock deals 2 damage to any target.',
+          },
+        },
+      ],
+      battlefield: [
+        {
+          id: 'mind_cache_1',
+          controller: 'p1',
+          tapped: false,
+          card: {
+            id: 'mind_cache_card_1',
+            name: 'Mind Cache',
+            type_line: 'Artifact',
+            oracle_text: 'Discard a card: Add {U}.',
+          },
+        },
+        {
+          id: 'ornithopter_1',
+          controller: 'p1',
+          tapped: false,
+          card: {
+            id: 'ornithopter_card_1',
+            name: 'Ornithopter',
+            type_line: 'Artifact Creature - Thopter',
+            oracle_text: 'Flying',
+          },
+        },
+      ],
+      zones: {
+        p1: {
+          hand: [
+            {
+              id: 'rebuke_hand',
+              name: 'Metallic Rebuke Clone',
+              mana_cost: '{2}{U}',
+              type_line: 'Instant',
+              oracle_text: 'Improvise\nCounter target spell unless its controller pays {3}.',
+            },
+          ],
+          graveyard: [],
+          library: [],
+          exile: [],
+          handCount: 1,
+          graveyardCount: 0,
+          exileCount: 0,
+        },
+        p2: {
+          hand: [],
+          graveyard: [],
+          library: [],
+          exile: [],
+          handCount: 0,
+          graveyardCount: 0,
+          exileCount: 0,
+        },
+      },
+      life: { p1: 40, p2: 40 },
+      manaPool: {
+        p1: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+        p2: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+      },
+      landsPlayedThisTurn: { p1: 0, p2: 0 },
+      playableCards: ['rebuke_hand'],
+      canAct: false,
+      canRespond: true,
+    });
+
+    const game: any = {
+      gameId,
+      state: ctx.state,
+      inactive: ctx.inactive,
+      passesInRow: ctx.passesInRow,
+      libraries: ctx.libraries,
+      life: ctx.life,
+      commandZone: ctx.commandZone,
+      manaPool: ctx.manaPool,
+      get seq() {
+        return ctx.seq.value;
+      },
+      set seq(value: number) {
+        ctx.seq.value = value;
+      },
+      bumpSeq: ctx.bumpSeq,
+      participants: () => [{ socketId: 'sock_1', playerId: 'p1', spectator: false }],
+      viewFor: () => ({
+        ...ctx.state,
+        viewer: 'p1',
+        playableCards: ['rebuke_hand'],
+        canAct: false,
+        canRespond: true,
+      }),
+    };
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const io = createMockIo(emitted);
+
+    broadcastGame(io, game, gameId);
+
+    const stateEvent = emitted.find((entry) => entry.room === 'sock_1' && entry.event === 'state');
+    expect(stateEvent).toBeDefined();
+    expect(stateEvent?.payload?.view?.playableCards).not.toContain('rebuke_hand');
+  });
+
   it('highlights the library zone when the top card is a playable land from the shared land surface', () => {
     const gameId = 'playable_cards_top_library_land';
     const ctx = createContext(gameId);

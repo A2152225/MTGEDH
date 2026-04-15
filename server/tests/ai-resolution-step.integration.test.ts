@@ -1,5 +1,5 @@
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { createGameIfNotExists, initDb } from '../src/db/index.js';
+import { createGameIfNotExists, deleteGame, initDb } from '../src/db/index.js';
 import { ResolutionQueueManager, ResolutionStepType } from '../src/state/resolution/index.js';
 import { initializeAIResolutionHandler } from '../src/socket/resolution.js';
 import { broadcastGame, ensureGame } from '../src/socket/util.js';
@@ -19,6 +19,12 @@ function createNoopIo() {
   } as any;
 }
 
+function resetGame(gameId: string) {
+  ResolutionQueueManager.removeQueue(gameId);
+  games.delete(gameId as any);
+  deleteGame(gameId);
+}
+
 describe('AI resolution-step integration', () => {
   const gameId = 'test_ai_resolution_step_integration';
   const playerId = 'ai1';
@@ -28,8 +34,7 @@ describe('AI resolution-step integration', () => {
   });
 
   beforeEach(() => {
-    ResolutionQueueManager.removeQueue(gameId);
-    games.delete(gameId as any);
+    resetGame(gameId);
     unregisterAIPlayer(gameId, playerId as any);
   });
 

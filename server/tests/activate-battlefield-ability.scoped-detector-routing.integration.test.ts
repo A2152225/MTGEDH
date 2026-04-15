@@ -1,6 +1,6 @@
 import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
-import { initDb, createGameIfNotExists } from '../src/db/index.js';
+import { initDb, createGameIfNotExists, deleteGame } from '../src/db/index.js';
 import { ensureGame } from '../src/socket/util.js';
 import '../src/state/modules/priority.js';
 import { registerInteractionHandlers } from '../src/socket/interaction.js';
@@ -52,6 +52,12 @@ function createMockSocket(playerId: string, emitted: Array<{ room?: string; even
   return { socket, handlers };
 }
 
+function resetGame(gameId: string) {
+  ResolutionQueueManager.removeQueue(gameId);
+  games.delete(gameId as any);
+  deleteGame(gameId);
+}
+
 describe('activateBattlefieldAbility detector routing uses selected ability text (integration)', () => {
   const gameId = 'test_activate_battlefield_ability_scoped_detector_routing';
 
@@ -62,8 +68,7 @@ describe('activateBattlefieldAbility detector routing uses selected ability text
   });
 
   beforeEach(() => {
-    ResolutionQueueManager.removeQueue(gameId);
-    games.delete(gameId as any);
+    resetGame(gameId);
   });
 
   it('does not let a later counter ability hijack an earlier generic ability activation', async () => {
@@ -145,8 +150,7 @@ describe('activateBattlefieldAbility detector routing uses selected ability text
 
   it('does not let a later sacrifice-to-draw ability hijack an earlier generic ability activation', async () => {
     const sacrificeDrawGameId = `${gameId}_sacrifice_draw`;
-    ResolutionQueueManager.removeQueue(sacrificeDrawGameId);
-    games.delete(sacrificeDrawGameId as any);
+    resetGame(sacrificeDrawGameId);
 
     createGameIfNotExists(sacrificeDrawGameId, 'commander', 40);
     const game = ensureGame(sacrificeDrawGameId);
@@ -213,8 +217,7 @@ describe('activateBattlefieldAbility detector routing uses selected ability text
 
   it('routes a generic move-counter ability through COUNTER_MOVEMENT without relying on the legacy fallback branch', async () => {
     const moveCounterGameId = `${gameId}_move_counter`;
-    ResolutionQueueManager.removeQueue(moveCounterGameId);
-    games.delete(moveCounterGameId as any);
+    resetGame(moveCounterGameId);
 
     createGameIfNotExists(moveCounterGameId, 'commander', 40);
     const game = ensureGame(moveCounterGameId);
@@ -297,8 +300,7 @@ describe('activateBattlefieldAbility detector routing uses selected ability text
 
   it('does not let crew hijack a Vehicle\'s separate generic activated ability', async () => {
     const crewGameId = `${gameId}_crew`;
-    ResolutionQueueManager.removeQueue(crewGameId);
-    games.delete(crewGameId as any);
+    resetGame(crewGameId);
 
     createGameIfNotExists(crewGameId, 'commander', 40);
     const game = ensureGame(crewGameId);
@@ -375,8 +377,7 @@ describe('activateBattlefieldAbility detector routing uses selected ability text
 
   it('does not let station hijack a Spacecraft\'s separate generic activated ability', async () => {
     const stationGameId = `${gameId}_station`;
-    ResolutionQueueManager.removeQueue(stationGameId);
-    games.delete(stationGameId as any);
+    resetGame(stationGameId);
 
     createGameIfNotExists(stationGameId, 'commander', 40);
     const game = ensureGame(stationGameId);
@@ -454,8 +455,7 @@ describe('activateBattlefieldAbility detector routing uses selected ability text
 
   it('does not let equip hijack an Equipment\'s separate generic activated ability', async () => {
     const equipGameId = `${gameId}_equip`;
-    ResolutionQueueManager.removeQueue(equipGameId);
-    games.delete(equipGameId as any);
+    resetGame(equipGameId);
 
     createGameIfNotExists(equipGameId, 'commander', 40);
     const game = ensureGame(equipGameId);
@@ -532,8 +532,7 @@ describe('activateBattlefieldAbility detector routing uses selected ability text
 
   it('does not let a later grant-ability ability hijack an earlier generic ability activation', async () => {
     const grantAbilityGameId = `${gameId}_grant_ability`;
-    ResolutionQueueManager.removeQueue(grantAbilityGameId);
-    games.delete(grantAbilityGameId as any);
+    resetGame(grantAbilityGameId);
 
     createGameIfNotExists(grantAbilityGameId, 'commander', 40);
     const game = ensureGame(grantAbilityGameId);
@@ -608,8 +607,7 @@ describe('activateBattlefieldAbility detector routing uses selected ability text
 
   it('does not let a later graveyard-exile ability hijack an earlier generic ability activation', async () => {
     const exileGameId = `${gameId}_graveyard_exile`;
-    ResolutionQueueManager.removeQueue(exileGameId);
-    games.delete(exileGameId as any);
+    resetGame(exileGameId);
 
     createGameIfNotExists(exileGameId, 'commander', 40);
     const game = ensureGame(exileGameId);
@@ -678,8 +676,7 @@ describe('activateBattlefieldAbility detector routing uses selected ability text
 
   it('queues target selection for leading-clause grant abilities and keeps unrestricted creature targets', async () => {
     const sokratesGameId = `${gameId}_sokrates_grant`;
-    ResolutionQueueManager.removeQueue(sokratesGameId);
-    games.delete(sokratesGameId as any);
+    resetGame(sokratesGameId);
 
     createGameIfNotExists(sokratesGameId, 'commander', 40);
     const game = ensureGame(sokratesGameId);
@@ -786,8 +783,7 @@ describe('activateBattlefieldAbility detector routing uses selected ability text
 
   it('does not let a later fight ability hijack an earlier generic ability activation', async () => {
     const fightGameId = `${gameId}_fight`;
-    ResolutionQueueManager.removeQueue(fightGameId);
-    games.delete(fightGameId as any);
+    resetGame(fightGameId);
 
     createGameIfNotExists(fightGameId, 'commander', 40);
     const game = ensureGame(fightGameId);
@@ -862,8 +858,7 @@ describe('activateBattlefieldAbility detector routing uses selected ability text
 
   it('does not let a later tap-untap ability hijack an earlier generic ability activation', async () => {
     const tapUntapGameId = `${gameId}_tap_untap`;
-    ResolutionQueueManager.removeQueue(tapUntapGameId);
-    games.delete(tapUntapGameId as any);
+    resetGame(tapUntapGameId);
 
     createGameIfNotExists(tapUntapGameId, 'commander', 40);
     const game = ensureGame(tapUntapGameId);
@@ -936,8 +931,7 @@ describe('activateBattlefieldAbility detector routing uses selected ability text
 
   it('routes graveyard-to-library abilities through the selected ability text and preserves graveyard targeting', async () => {
     const gyLibraryGameId = `${gameId}_graveyard_library`;
-    ResolutionQueueManager.removeQueue(gyLibraryGameId);
-    games.delete(gyLibraryGameId as any);
+    resetGame(gyLibraryGameId);
 
     createGameIfNotExists(gyLibraryGameId, 'commander', 40);
     const game = ensureGame(gyLibraryGameId);
@@ -1020,8 +1014,7 @@ describe('activateBattlefieldAbility detector routing uses selected ability text
 
   it('does not let control-change routing hijack an unrelated generic activation just because the permanent id contains control', async () => {
     const controlGameId = `${gameId}_control_change`;
-    ResolutionQueueManager.removeQueue(controlGameId);
-    games.delete(controlGameId as any);
+    resetGame(controlGameId);
 
     createGameIfNotExists(controlGameId, 'commander', 40);
     const game = ensureGame(controlGameId);

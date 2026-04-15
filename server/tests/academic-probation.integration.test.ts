@@ -1,6 +1,6 @@
 import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
-import { createGameIfNotExists, initDb } from '../src/db/index.js';
+import { createGameIfNotExists, deleteGame, initDb } from '../src/db/index.js';
 import { registerGameActions } from '../src/socket/game-actions.js';
 import { registerResolutionHandlers, initializePriorityResolutionHandler } from '../src/socket/resolution.js';
 import { ensureGame } from '../src/socket/util.js';
@@ -51,6 +51,12 @@ function addPlayer(game: any, id: PlayerID, name: string) {
   game.applyEvent({ type: 'join', playerId: id, name });
 }
 
+function resetGame(gameId: string) {
+  ResolutionQueueManager.removeQueue(gameId);
+  games.delete(gameId as any);
+  deleteGame(gameId);
+}
+
 const academicProbationOracle = "Choose one -\n• Choose a nonland card name. Opponents can't cast spells with the chosen name until your next turn.\n• Choose target nonland permanent. Until your next turn, it can't attack or block, and its activated abilities can't be activated.";
 
 describe('Academic Probation', () => {
@@ -65,8 +71,7 @@ describe('Academic Probation', () => {
   });
 
   beforeEach(() => {
-    ResolutionQueueManager.removeQueue(gameId);
-    games.delete(gameId as any);
+    resetGame(gameId);
   });
 
   it('resumes from name mode into payment without prompting for a target', async () => {

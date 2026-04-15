@@ -1,6 +1,7 @@
-import { describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
 
 import type { PlayerID } from '../../shared/src';
+import { initDb } from '../src/db/index.js';
 import { processPendingDanceWithCalamity } from '../src/socket/resolution.js';
 import { createInitialGameState } from '../src/state/gameState.js';
 import { resolveTopOfStack } from '../src/state/modules/stack.js';
@@ -29,6 +30,10 @@ function initZones(game: any, playerId: PlayerID) {
 }
 
 describe('Dance with Calamity live/replay semantics', () => {
+  beforeAll(async () => {
+    await initDb();
+  });
+
   it('resolving the spell queues the initial push-your-luck prompt directly without pending staging', () => {
     const gameId = 't_dance_with_calamity_live_init';
     const game = createInitialGameState(gameId);

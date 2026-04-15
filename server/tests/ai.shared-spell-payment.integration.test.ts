@@ -264,6 +264,109 @@ describe('AI shared spell-payment integration', () => {
     expect(getEvents(gameId)).toEqual([]);
   });
 
+  it('pre-activates a non-tap return-to-hand mana line when another land can be bounced', async () => {
+    const gameId = createTestGameId('non_tap_return_to_hand');
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [
+      { id: playerId, name: 'AI', spectator: false, isAI: true, life: 40 },
+    ];
+    (game.state as any).startingLife = 40;
+    (game.state as any).life = { [playerId]: 40 };
+    (game.state as any).lifeLostThisTurn = { [playerId]: 0 };
+    (game.state as any).damageTakenThisTurnByPlayer = { [playerId]: 0 };
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).activePlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).phase = 'main';
+    (game.state as any).step = 'precombat_main';
+    (game.state as any).stack = [];
+    (game.state as any).manaPool = {
+      [playerId]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+    };
+    (game.state as any).zones = {
+      [playerId]: {
+        hand: [],
+        handCount: 0,
+        graveyard: [],
+        graveyardCount: 0,
+        library: [],
+        libraryCount: 0,
+        exile: [],
+        exileCount: 0,
+      },
+    };
+    (game.state as any).battlefield = [
+      {
+        id: 'tidal_commons_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        summoningSickness: false,
+        counters: {},
+        card: {
+          id: 'tidal_commons_card_1',
+          name: 'Tidal Commons',
+          type_line: 'Land',
+          oracle_text: "Return another land you control to its owner's hand: Add {U}{U}.",
+        },
+      },
+      {
+        id: 'plains_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        summoningSickness: false,
+        counters: {},
+        card: {
+          id: 'plains_card_1',
+          name: 'Plains',
+          type_line: 'Basic Land - Plains',
+          oracle_text: '',
+        },
+      },
+    ];
+
+    const plan = await chooseAISpellPaymentSelections(createNoopIo(), gameId, game, playerId as any, {
+      manaCost: '{U}{U}',
+      totalManaCost: '{U}{U}',
+    });
+
+    expect(plan).toEqual({ payment: [] });
+    expect((game.state as any).manaPool?.[playerId]).toEqual({
+      white: 0,
+      blue: 2,
+      black: 0,
+      red: 0,
+      green: 0,
+      colorless: 0,
+    });
+    const battlefieldIds = ((game.state as any).battlefield || []).map((perm: any) => perm?.id);
+    expect(battlefieldIds).toContain('tidal_commons_1');
+    expect(battlefieldIds).not.toContain('plains_1');
+    expect((game.state as any).zones?.[playerId]?.hand?.map((card: any) => card?.id)).toEqual(['plains_card_1']);
+    expect(getEvents(gameId)).toEqual([
+      expect.objectContaining({
+        type: 'activateBattlefieldAbility',
+        payload: expect.objectContaining({
+          permanentId: 'tidal_commons_1',
+          abilityId: 'tidal_commons_card_1-ability-0',
+          returnedPermanentsToHandForCost: ['plains_1'],
+        }),
+      }),
+      expect.objectContaining({
+        type: 'activateManaAbility',
+        payload: expect.objectContaining({
+          permanentId: 'tidal_commons_1',
+          abilityId: 'tidal_commons_card_1-ability-0',
+          addedMana: { blue: 2 },
+        }),
+      }),
+    ]);
+  });
+
   it('activates an exact non-tap mana line even when the permanent also has a tap mana line', async () => {
     const gameId = createTestGameId('non_tap_fallback_multi_line');
     createGameIfNotExists(gameId, 'commander', 40);
