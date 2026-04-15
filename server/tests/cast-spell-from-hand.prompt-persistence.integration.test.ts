@@ -1,4 +1,4 @@
-import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 import { createGameIfNotExists, deleteGame, getEvents, initDb } from '../src/db/index.js';
 import { registerGameActions } from '../src/socket/game-actions.js';
@@ -60,6 +60,15 @@ describe('castSpellFromHand prompt persistence (integration)', () => {
   const gameId = 'test_cast_spell_from_hand_prompt_persistence';
   const playerId = 'p1';
   const opponentId = 'p2';
+  const derivedGameIds = [
+    `${gameId}_force`,
+    `${gameId}_abundant`,
+    `${gameId}_target_single`,
+    `${gameId}_modal`,
+    `${gameId}_target_multi`,
+    `${gameId}_overload`,
+    `${gameId}_spree`,
+  ];
 
   beforeAll(async () => {
     await initDb();
@@ -67,6 +76,13 @@ describe('castSpellFromHand prompt persistence (integration)', () => {
 
   beforeEach(async () => {
     await resetGame(gameId);
+  });
+
+  afterEach(async () => {
+    await resetGame(gameId);
+    for (const derivedGameId of derivedGameIds) {
+      await resetGame(derivedGameId);
+    }
   });
 
   it('persists direct Force of Will alternate-cost prompts', async () => {

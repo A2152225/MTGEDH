@@ -1,4 +1,4 @@
-import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 import { createGameIfNotExists, deleteGame, initDb } from '../src/db/index.js';
 import { ensureGame } from '../src/socket/util.js';
@@ -61,6 +61,11 @@ describe('Adapt and monstrosity generic ability routing (integration)', () => {
   });
 
   beforeEach(async () => {
+    await resetGame('test_adapt_generic_activation');
+    await resetGame('test_monstrosity_generic_activation');
+  });
+
+  afterEach(async () => {
     await resetGame('test_adapt_generic_activation');
     await resetGame('test_monstrosity_generic_activation');
   });

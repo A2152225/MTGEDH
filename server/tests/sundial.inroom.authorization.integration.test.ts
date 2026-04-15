@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
+import { describe, it, expect, beforeAll, beforeEach, afterEach } from 'vitest';
 import { initDb, createGameIfNotExists, deleteGame } from '../src/db/index.js';
 import { ensureGame } from '../src/socket/util.js';
 import registerSundialHandlers from '../src/socket/sundial.js';
@@ -37,6 +37,15 @@ describe('sundialActivate in-room authorization (integration)', () => {
   });
 
   beforeEach(async () => {
+    games.delete(gameId as any);
+    try {
+      await deleteGame(gameId);
+    } catch {
+      // ignore
+    }
+  });
+
+  afterEach(async () => {
     games.delete(gameId as any);
     try {
       await deleteGame(gameId);

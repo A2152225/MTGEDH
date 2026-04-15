@@ -1,4 +1,4 @@
-import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 import { createGameIfNotExists, deleteGame, initDb } from '../src/db/index.js';
 import { registerGameActions } from '../src/socket/game-actions.js';
@@ -52,6 +52,10 @@ describe('generic cast-from-exile targeted free casts (integration)', () => {
   });
 
   beforeEach(async () => {
+    await resetGame(gameId);
+  });
+
+  afterEach(async () => {
     await resetGame(gameId);
   });
 

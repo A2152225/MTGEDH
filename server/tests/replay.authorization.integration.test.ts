@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
+import { describe, it, expect, beforeAll, beforeEach, afterEach } from 'vitest';
 import { initDb, createGameIfNotExists, appendEvent, deleteGame, truncateEventsForUndo } from '../src/db/index.js';
 import { ensureGame } from '../src/socket/util.js';
 import { registerReplayHandlers } from '../src/socket/replay.js';
@@ -49,6 +49,15 @@ describe('replay authorization (integration)', () => {
   });
 
   beforeEach(async () => {
+    await resetGame(gameId);
+    try {
+      truncateEventsForUndo(gameId, 0);
+    } catch {
+      // ignore
+    }
+  });
+
+  afterEach(async () => {
     await resetGame(gameId);
     try {
       truncateEventsForUndo(gameId, 0);

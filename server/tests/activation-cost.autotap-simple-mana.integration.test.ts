@@ -1,4 +1,4 @@
-import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 import { createGameIfNotExists, deleteGame, initDb } from '../src/db/index.js';
 import { registerInteractionHandlers } from '../src/socket/interaction.js';
@@ -51,6 +51,11 @@ describe('activation-cost simple mana auto-tap (integration)', () => {
   });
 
   beforeEach(async () => {
+    await resetGame(reflectedGameId);
+    await resetGame(multiColorGameId);
+  });
+
+  afterEach(async () => {
     await resetGame(reflectedGameId);
     await resetGame(multiColorGameId);
   });

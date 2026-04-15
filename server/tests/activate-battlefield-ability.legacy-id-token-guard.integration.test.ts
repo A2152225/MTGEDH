@@ -1,4 +1,4 @@
-import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 import { initDb, createGameIfNotExists, deleteGame } from '../src/db/index.js';
 import { ensureGame } from '../src/socket/util.js';
@@ -129,6 +129,14 @@ describe('activateBattlefieldAbility legacy id token guards (integration)', () =
   });
 
   beforeEach(async () => {
+    for (const gameId of trackedGameIds) {
+      await resetGame(gameId);
+    }
+    trackedGameIds.clear();
+    await resetGame(gameIdPrefix);
+  });
+
+  afterEach(async () => {
     for (const gameId of trackedGameIds) {
       await resetGame(gameId);
     }

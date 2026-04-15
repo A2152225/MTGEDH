@@ -1,4 +1,4 @@
-import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 import { createGameIfNotExists, deleteGame, getEvents, initDb } from '../src/db/index.js';
 import { registerGameActions } from '../src/socket/game-actions.js';
@@ -59,6 +59,11 @@ describe('Gift cast choice flow', () => {
   });
 
   beforeEach(async () => {
+    await resetGame(targetingGameId);
+    await resetGame(stackGameId);
+  });
+
+  afterEach(async () => {
     await resetGame(targetingGameId);
     await resetGame(stackGameId);
   });

@@ -1,4 +1,4 @@
-import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 import { createGameIfNotExists, deleteGame, getEvents, initDb } from '../src/db/index.js';
 import { registerGameActions } from '../src/socket/game-actions.js';
@@ -87,6 +87,13 @@ describe('requestCastSpell additional-cost prompt persistence (integration)', ()
   });
 
   beforeEach(async () => {
+    await resetGame(gameId);
+    for (const derivedGameId of derivedGameIds) {
+      await resetGame(derivedGameId);
+    }
+  });
+
+  afterEach(async () => {
     await resetGame(gameId);
     for (const derivedGameId of derivedGameIds) {
       await resetGame(derivedGameId);

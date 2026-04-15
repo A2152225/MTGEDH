@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
+import { describe, it, expect, beforeAll, beforeEach, afterEach } from 'vitest';
 import { initDb, createGameIfNotExists, deleteGame } from '../src/db/index.js';
 import { ensureGame } from '../src/socket/util.js';
 import '../src/state/modules/priority.js';
@@ -61,6 +61,14 @@ describe('Activation-cost mana prevalidation prevents partial costs (integration
   });
 
   beforeEach(async () => {
+    await resetGame('test_activation_cost_tap_other_no_partial_when_insufficient_mana');
+    await resetGame('test_activation_cost_exile_hand_no_partial_when_insufficient_mana');
+    await resetGame('test_activation_cost_remove_counters_no_partial_when_insufficient_mana');
+    await resetGame('test_activation_cost_sacrifice_no_partial_when_insufficient_mana');
+    await resetGame('test_activation_cost_return_to_hand_no_partial_when_insufficient_mana');
+  });
+
+  afterEach(async () => {
     await resetGame('test_activation_cost_tap_other_no_partial_when_insufficient_mana');
     await resetGame('test_activation_cost_exile_hand_no_partial_when_insufficient_mana');
     await resetGame('test_activation_cost_remove_counters_no_partial_when_insufficient_mana');

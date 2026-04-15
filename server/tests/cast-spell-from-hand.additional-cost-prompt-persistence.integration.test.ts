@@ -1,4 +1,4 @@
-import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 import { createGameIfNotExists, deleteGame, getEvents, initDb } from '../src/db/index.js';
 import { registerGameActions } from '../src/socket/game-actions.js';
@@ -60,6 +60,14 @@ describe('castSpellFromHand additional-cost prompt persistence (integration)', (
   const gameId = 'test_cast_spell_from_hand_additional_cost_prompt_persistence';
   const playerId = 'p1';
   const opponentId = 'p2';
+  const derivedGameIds = [
+    `${gameId}_life`,
+    `${gameId}_bargain`,
+    `${gameId}_evidence`,
+    `${gameId}_discard`,
+    `${gameId}_sacrifice`,
+    `${gameId}_squad`,
+  ];
 
   beforeAll(async () => {
     await initDb();
@@ -67,6 +75,13 @@ describe('castSpellFromHand additional-cost prompt persistence (integration)', (
 
   beforeEach(async () => {
     await resetGame(gameId);
+  });
+
+  afterEach(async () => {
+    await resetGame(gameId);
+    for (const derivedGameId of derivedGameIds) {
+      await resetGame(derivedGameId);
+    }
   });
 
   it('persists direct life-payment prompts', async () => {
