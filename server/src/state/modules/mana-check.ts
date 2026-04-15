@@ -6,7 +6,7 @@
  */
 
 import type { PlayerID } from "../../../../shared/src";
-import { parseSacrificeCost, type SacrificeType } from "../../../../shared/src/textUtils";
+import { parseNumberFromText, parseSacrificeCost, type SacrificeType } from "../../../../shared/src/textUtils";
 import { creatureHasHaste } from "../../socket/game-actions.js";
 import { getMoxAmberAvailableColors, isMoxAmberConditionalManaSource } from "./mana-abilities.js";
 import { debug } from "../../utils/debug.js";
@@ -373,10 +373,20 @@ type SimpleManaKey = typeof SIMPLE_MANA_KEYS[number];
 
 type ExactManaSourceOption = {
   activationCost?: ParsedManaCost;
+  lifeCost?: number;
+  handCost?: {
+    count: number;
+    destination: 'graveyard' | 'exile';
+    typeRestriction?: string;
+  };
   sacrificeCost?: {
     type: SacrificeType;
     count: number;
     creatureSubtype?: string;
+    mustBeOther?: boolean;
+  };
+  returnToHandCost?: {
+    type: string;
     mustBeOther?: boolean;
   };
   produced: Record<SimpleManaKey, number>;
@@ -392,6 +402,16 @@ type ExactSacrificeCandidate = {
   id: string;
   typeLine: string;
   subtypeWords: string[];
+};
+
+type ExactHandCandidate = {
+  id: string;
+  typeLine: string;
+};
+
+type ExactCandidateRemovalResult<TCandidate> = {
+  remainingCandidates: TCandidate[];
+  removedIds: string[];
 };
 
 function createSimpleManaPool(seed?: Record<string, number>): Record<SimpleManaKey, number> {
@@ -433,6 +453,216 @@ function createSingleColorProduction(colorKey: SimpleManaKey, amount: number = 1
   const pool = createSimpleManaPool();
   pool[colorKey] = amount;
   return pool;
+}
+
+function getPlayerLifeTotal(state: any, playerId: PlayerID): number {
+  const mappedLife = Number(state?.life?.[playerId]);
+  if (Number.isFinite(mappedLife)) {
+    return mappedLife;
+  }
+
+  const playerEntry = Array.isArray(state?.players)
+    ? state.players.find((entry: any) => String(entry?.id || '') === String(playerId || ''))
+    : null;
+  const playerLife = Number(playerEntry?.life);
+  if (Number.isFinite(playerLife)) {
+    return playerLife;
+  }
+
+  return 40;
+}
+
+function parsedManaCostHasValue(parsedCost?: ParsedManaCost): boolean {
+  if (!parsedCost) return false;
+
+  return (
+    Number(parsedCost.generic || 0) > 0 ||
+    Object.values(parsedCost.colors || {}).some((value) => Number(value || 0) > 0) ||
+    (Array.isArray(parsedCost.hybrid) && parsedCost.hybrid.length > 0) ||
+    parsedCost.hasX === true
+  );
+}
+
+function parseLifeCostFromManaAbilityCost(costText: string): number {
+  const matches = [...String(costText || '').matchAll(/pay\s+(\d+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\s+life/gi)];
+  return matches.reduce(
+    (sum, match) => sum + parseNumberFromText(String(match?.[1] || '0'), 0),
+    0,
+  );
+}
+
+function matchesHandCostTypeLine(typeLineValue: string, typeRestriction?: string): boolean {
+  if (!typeRestriction) {
+    return true;
+  }
+
+  const typeLine = String(typeLineValue || '').toLowerCase();
+  switch (String(typeRestriction || '').toLowerCase()) {
+    case 'creature':
+    case 'artifact':
+    case 'enchantment':
+    case 'land':
+    case 'instant':
+    case 'sorcery':
+    case 'planeswalker':
+      return typeLine.includes(String(typeRestriction || '').toLowerCase());
+    case 'nonland':
+      return !typeLine.includes('land');
+    case 'noncreature':
+      return !typeLine.includes('creature');
+    default:
+      return false;
+  }
+}
+
+export function parseHandCostFromManaAbilityCost(
+  costText: string,
+): NonNullable<ExactManaSourceOption['handCost']> | null {
+  const normalizedCost = String(costText || '').trim();
+  if (!normalizedCost) {
+    return null;
+  }
+
+  const discardTypedMatch = normalizedCost.match(
+    /\bdiscard\s+(a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+(creature|artifact|enchantment|land|instant|sorcery|planeswalker|nonland|noncreature)\s+cards?\b/i,
+  );
+  const discardMatch = normalizedCost.match(
+    /\bdiscard\s+(a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+cards?\b/i,
+  );
+  if (discardTypedMatch || discardMatch) {
+    const rawCount = String((discardTypedMatch?.[1] || discardMatch?.[1]) || '').trim();
+    const count = parseNumberFromText(rawCount, 1);
+    if (!Number.isFinite(count) || count <= 0) {
+      return null;
+    }
+
+    const typeRestriction = discardTypedMatch
+      ? String(discardTypedMatch[2] || '').trim().toLowerCase()
+      : undefined;
+
+    return {
+      count,
+      destination: 'graveyard',
+      ...(typeRestriction ? { typeRestriction } : {}),
+    };
+  }
+
+  const exileMatch = normalizedCost.match(
+    /\bexile\s+(a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+(?:(creature|artifact|enchantment|land|instant|sorcery|planeswalker|nonland|noncreature)\s+)?cards?\s+from\s+your\s+hand\b/i,
+  );
+  if (!exileMatch) {
+    return null;
+  }
+
+  const rawCount = String(exileMatch[1] || '').trim();
+  const count = parseNumberFromText(rawCount, 1);
+  if (!Number.isFinite(count) || count <= 0) {
+    return null;
+  }
+
+  const typeRestriction = exileMatch[2]
+    ? String(exileMatch[2] || '').trim().toLowerCase()
+    : undefined;
+
+  return {
+    count,
+    destination: 'exile',
+    ...(typeRestriction ? { typeRestriction } : {}),
+  };
+}
+
+export function parseReturnToHandCostFromManaAbilityCost(
+  costText: string,
+): NonNullable<ExactManaSourceOption['returnToHandCost']> | null {
+  const normalizedCost = String(costText || '').trim();
+  if (!normalizedCost) {
+    return null;
+  }
+
+  const returnMatch = normalizedCost.match(
+    /\breturn\s+(?:(another|other)\s+(creature|artifact|enchantment|land|permanent|nonland\s+permanent)|(a|an|one|1)\s+(creature|artifact|enchantment|land|permanent|nonland\s+permanent))\s+you\s+control\s+to\s+its\s+owner(?:'|’)s\s+hand\b/i,
+  );
+  if (!returnMatch) {
+    return null;
+  }
+
+  const type = String(returnMatch[2] || returnMatch[4] || '').trim().toLowerCase();
+  if (!type) {
+    return null;
+  }
+
+  return {
+    type,
+    ...(returnMatch[1] ? { mustBeOther: true } : {}),
+  };
+}
+
+function buildSupportedNonTapManaSourceCost(
+  costText: string,
+): Omit<ExactManaSourceOption, 'produced'> | null {
+  const normalizedCost = String(costText || '').trim();
+  if (!normalizedCost) {
+    return null;
+  }
+
+  let unsupportedResidue = normalizedCost;
+  unsupportedResidue = unsupportedResidue.replace(/\{[^}]+\}/g, ' ');
+  unsupportedResidue = unsupportedResidue.replace(/pay\s+(\d+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\s+life/gi, ' ');
+  unsupportedResidue = unsupportedResidue.replace(
+    /\bdiscard\s+(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+(?:(?:creature|artifact|enchantment|land|instant|sorcery|planeswalker|nonland|noncreature)\s+)?cards?\b/gi,
+    ' ',
+  );
+  unsupportedResidue = unsupportedResidue.replace(
+    /\bexile\s+(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+(?:(?:creature|artifact|enchantment|land|instant|sorcery|planeswalker|nonland|noncreature)\s+)?cards?\s+from\s+your\s+hand\b/gi,
+    ' ',
+  );
+  unsupportedResidue = unsupportedResidue.replace(/sacrifice\s+[^,;:]*/gi, ' ');
+  unsupportedResidue = unsupportedResidue.replace(
+    /\breturn\s+(?:(?:another|other)\s+(?:creature|artifact|enchantment|land|permanent|nonland\s+permanent)|(?:a|an|one|1)\s+(?:creature|artifact|enchantment|land|permanent|nonland\s+permanent))\s+you\s+control\s+to\s+its\s+owner(?:'|’)s\s+hand\b/gi,
+    ' ',
+  );
+  unsupportedResidue = unsupportedResidue.replace(/,/g, ' ');
+  unsupportedResidue = unsupportedResidue.replace(/\band\b/gi, ' ');
+  unsupportedResidue = unsupportedResidue.replace(/\s+/g, ' ').trim();
+  if (unsupportedResidue.length > 0) {
+    return null;
+  }
+
+  const option: Omit<ExactManaSourceOption, 'produced'> = {};
+  const manaCostTokens = normalizedCost.match(/\{[^}]+\}/g) || [];
+  if (manaCostTokens.length > 0) {
+    const activationCost = parseManaCost(manaCostTokens.join(''));
+    if (parsedManaCostHasValue(activationCost)) {
+      option.activationCost = activationCost;
+    }
+  }
+
+  const lifeCost = parseLifeCostFromManaAbilityCost(normalizedCost);
+  if (lifeCost > 0) {
+    option.lifeCost = lifeCost;
+  }
+
+  const handCost = parseHandCostFromManaAbilityCost(normalizedCost);
+  if (handCost) {
+    option.handCost = handCost;
+  }
+
+  const sacrificeInfo = parseSacrificeCost(normalizedCost);
+  if (sacrificeInfo.requiresSacrifice && sacrificeInfo.sacrificeType) {
+    option.sacrificeCost = {
+      type: sacrificeInfo.sacrificeType,
+      count: Math.max(1, Number(sacrificeInfo.sacrificeCount || 1)),
+      creatureSubtype: sacrificeInfo.creatureSubtype,
+      mustBeOther: Boolean(sacrificeInfo.mustBeOther),
+    };
+  }
+
+  const returnToHandCost = parseReturnToHandCostFromManaAbilityCost(normalizedCost);
+  if (returnToHandCost) {
+    option.returnToHandCost = returnToHandCost;
+  }
+
+  return option;
 }
 
 function normalizePoolSignature(pool: Record<SimpleManaKey, number>): string {
@@ -488,6 +718,19 @@ function buildExactSacrificeCandidates(state: any, playerId: PlayerID): ExactSac
     .filter((candidate) => Boolean(candidate.id));
 }
 
+function buildExactHandCandidates(state: any, playerId: PlayerID): ExactHandCandidate[] {
+  const hand = Array.isArray(state?.zones?.[playerId]?.hand)
+    ? state.zones[playerId].hand
+    : [];
+
+  return hand
+    .map((card: any) => ({
+      id: String(card?.id || ''),
+      typeLine: String(card?.type_line || '').toLowerCase(),
+    }))
+    .filter((candidate) => Boolean(candidate.id));
+}
+
 function candidateMatchesSacrificeRequirement(
   candidate: ExactSacrificeCandidate,
   requirement: NonNullable<ExactManaSourceOption['sacrificeCost']>,
@@ -526,7 +769,7 @@ function removeSacrificeCandidates(
   candidates: ExactSacrificeCandidate[],
   requirement: NonNullable<ExactManaSourceOption['sacrificeCost']>,
   sourcePermanentId: string,
-): ExactSacrificeCandidate[][] {
+): ExactCandidateRemovalResult<ExactSacrificeCandidate>[] {
   const requiredCount = Math.max(1, Number(requirement.count || 1));
   const matchingCandidates = candidates.filter((candidate) =>
     candidateMatchesSacrificeRequirement(candidate, requirement, sourcePermanentId),
@@ -536,11 +779,14 @@ function removeSacrificeCandidates(
     return [];
   }
 
-  const results: ExactSacrificeCandidate[][] = [];
+  const results: ExactCandidateRemovalResult<ExactSacrificeCandidate>[] = [];
   const choose = (startIndex: number, chosenIds: string[]) => {
     if (chosenIds.length >= requiredCount) {
       const chosen = new Set(chosenIds);
-      results.push(candidates.filter((candidate) => !chosen.has(candidate.id)));
+      results.push({
+        remainingCandidates: candidates.filter((candidate) => !chosen.has(candidate.id)),
+        removedIds: [...chosenIds],
+      });
       return;
     }
 
@@ -551,6 +797,73 @@ function removeSacrificeCandidates(
 
   choose(0, []);
   return results;
+}
+
+function removeHandCandidates(
+  candidates: ExactHandCandidate[],
+  requirement: NonNullable<ExactManaSourceOption['handCost']>,
+): ExactCandidateRemovalResult<ExactHandCandidate>[] {
+  const requiredCount = Math.max(1, Number(requirement.count || 1));
+  const matchingCandidates = candidates.filter((candidate) =>
+    matchesHandCostTypeLine(candidate.typeLine, requirement.typeRestriction),
+  );
+
+  if (matchingCandidates.length < requiredCount) {
+    return [];
+  }
+
+  const results: ExactCandidateRemovalResult<ExactHandCandidate>[] = [];
+  const choose = (startIndex: number, chosenIds: string[]) => {
+    if (chosenIds.length >= requiredCount) {
+      const chosen = new Set(chosenIds);
+      results.push({
+        remainingCandidates: candidates.filter((candidate) => !chosen.has(candidate.id)),
+        removedIds: [...chosenIds],
+      });
+      return;
+    }
+
+    for (let index = startIndex; index < matchingCandidates.length; index += 1) {
+      choose(index + 1, chosenIds.concat(matchingCandidates[index].id));
+    }
+  };
+
+  choose(0, []);
+  return results;
+}
+
+function candidateMatchesReturnToHandRequirement(
+  candidate: ExactSacrificeCandidate,
+  requirement: NonNullable<ExactManaSourceOption['returnToHandCost']>,
+  sourcePermanentId: string,
+): boolean {
+  if (requirement.mustBeOther && candidate.id === sourcePermanentId) {
+    return false;
+  }
+
+  switch (requirement.type) {
+    case 'permanent':
+      return true;
+    case 'nonland permanent':
+      return !candidate.typeLine.includes('land');
+    default:
+      return candidate.typeLine.includes(String(requirement.type || '').toLowerCase());
+  }
+}
+
+function removeReturnToHandCandidates(
+  candidates: ExactSacrificeCandidate[],
+  requirement: NonNullable<ExactManaSourceOption['returnToHandCost']>,
+  sourcePermanentId: string,
+): ExactCandidateRemovalResult<ExactSacrificeCandidate>[] {
+  const matchingCandidates = candidates.filter((candidate) =>
+    candidateMatchesReturnToHandRequirement(candidate, requirement, sourcePermanentId),
+  );
+
+  return matchingCandidates.map((candidate) => ({
+    remainingCandidates: candidates.filter((entry) => entry.id !== candidate.id),
+    removedIds: [candidate.id],
+  }));
 }
 
 function spendGenericManaFromPool(
@@ -772,21 +1085,12 @@ function buildExactManaSources(state: any, playerId: PlayerID): ExactManaSource[
 
     const manaAbilityWithCostPattern = /\{([0-9]+|[wubrgc])\}(?:,\s*)?\{t\}(?:[^:]*)?:\s*add\s+([^.\n]+)/gi;
     const manaAbilityNoCostPattern = /\{t\}(?:[^:]*)?:\s*add\s+([^.\n]+)/gi;
-    const sacrificeManaAbilityPattern = /([^:.\n]+):\s*add\s+([^.\n]+)/gi;
+    const nonTapManaAbilityPattern = /([^:.\n]+):\s*add\s+([^.\n]+)/gi;
     const costMatches = [...oracleText.matchAll(manaAbilityWithCostPattern)];
     const noCostMatches = filterOutCostedTapMatches([...oracleText.matchAll(manaAbilityNoCostPattern)], costMatches);
-    const sacrificeSelfMatches = [
-      ...oracleText.matchAll(/(?:^|[.;]\s*)sacrifice\s+this[^:]*:\s*add\s+([^.\n]+)/gi),
-      ...(() => {
-        const escapedCardName = escapeRegExp(String(permanent.card.name || '').trim().toLowerCase());
-        if (!escapedCardName) return [] as RegExpMatchArray[];
-        return [...oracleText.matchAll(new RegExp(`(?:^|[.;]\\s*)sacrifice\\s+${escapedCardName}[^:]*:\\s*add\\s+([^.\\n]+)`, 'gi'))];
-      })(),
-    ];
-    const sacrificeOtherMatches = [...oracleText.matchAll(sacrificeManaAbilityPattern)].filter((match) => {
+    const nonTapCostMatches = [...oracleText.matchAll(nonTapManaAbilityPattern)].filter((match) => {
       const costText = String(match[1] || '').trim();
-      const info = parseSacrificeCost(costText);
-      return info.requiresSacrifice === true && info.sacrificeType && info.sacrificeType !== 'self';
+      return Boolean(costText) && !/\{[^}]*\bt\b[^}]*\}/i.test(costText);
     });
     const options: ExactManaSourceOption[] = [];
 
@@ -805,30 +1109,15 @@ function buildExactManaSources(state: any, playerId: PlayerID): ExactManaSource[
       }
     }
 
-    for (const match of sacrificeSelfMatches) {
-      const producedOptions = buildProducedManaOptions(state, playerId, permanent, String(match[1] || ''));
-      for (const produced of producedOptions) {
-        options.push({ produced });
-      }
-    }
-
-    for (const match of sacrificeOtherMatches) {
+    for (const match of nonTapCostMatches) {
       const costText = String(match[1] || '').trim();
       const producedText = String(match[2] || '');
-      const sacrificeInfo = parseSacrificeCost(costText);
-      if (!sacrificeInfo.sacrificeType) continue;
+      const supportedCost = buildSupportedNonTapManaSourceCost(costText);
+      if (!supportedCost) continue;
 
       const producedOptions = buildProducedManaOptions(state, playerId, permanent, producedText);
       for (const produced of producedOptions) {
-        options.push({
-          produced,
-          sacrificeCost: {
-            type: sacrificeInfo.sacrificeType,
-            count: Math.max(1, Number(sacrificeInfo.sacrificeCount || 1)),
-            creatureSubtype: sacrificeInfo.creatureSubtype,
-            mustBeOther: Boolean(sacrificeInfo.mustBeOther),
-          },
-        });
+        options.push({ ...supportedCost, produced });
       }
     }
 
@@ -838,11 +1127,23 @@ function buildExactManaSources(state: any, playerId: PlayerID): ExactManaSource[
         const activationSignature = option.activationCost
           ? JSON.stringify(option.activationCost)
           : 'none';
+        const lifeSignature = Number(option.lifeCost || 0) > 0
+          ? String(option.lifeCost)
+          : 'none';
+        const handSignature = option.handCost
+          ? JSON.stringify(option.handCost)
+          : 'none';
         const sacrificeSignature = option.sacrificeCost
           ? JSON.stringify(option.sacrificeCost)
           : 'none';
+        const returnToHandSignature = option.returnToHandCost
+          ? JSON.stringify(option.returnToHandCost)
+          : 'none';
         const productionSignature = normalizePoolSignature(option.produced);
-        dedupedOptions.set(`${activationSignature}|${sacrificeSignature}|${productionSignature}`, option);
+        dedupedOptions.set(
+          `${activationSignature}|${lifeSignature}|${handSignature}|${sacrificeSignature}|${returnToHandSignature}|${productionSignature}`,
+          option,
+        );
       }
 
       const materializedOptions = Array.from(dedupedOptions.values());
@@ -1574,23 +1875,43 @@ export function canPayManaCostWithAvailableSources(
   parsedCost: ParsedManaCost,
   lifeAvailable: number = Infinity,
 ): boolean {
+  const effectiveLifeAvailable = Number.isFinite(Number(lifeAvailable))
+    ? Number(lifeAvailable)
+    : getPlayerLifeTotal(state, playerId);
   const floatingPool = createSimpleManaPool(getManaPoolFromState(state, playerId));
-  if (canPayManaCost(floatingPool, parsedCost, lifeAvailable)) {
+  if (canPayManaCost(floatingPool, parsedCost, effectiveLifeAvailable)) {
     return true;
   }
 
   const sources = buildExactManaSources(state, playerId);
-  const sacrificeCandidates = buildExactSacrificeCandidates(state, playerId);
+  const battlefieldCandidates = buildExactSacrificeCandidates(state, playerId);
+  const handCandidates = buildExactHandCandidates(state, playerId);
   const hasActivationCostSource = sources.some((source) =>
     source.options.some((option) => option.activationCost),
+  );
+  const hasLifeCostSource = sources.some((source) =>
+    source.options.some((option) => Number(option.lifeCost || 0) > 0),
+  );
+  const hasHandCostSource = sources.some((source) =>
+    source.options.some((option) => option.handCost),
   );
   const hasSacrificeCostSource = sources.some((source) =>
     source.options.some((option) => option.sacrificeCost),
   );
+  const hasReturnToHandCostSource = sources.some((source) =>
+    source.options.some((option) => option.returnToHandCost),
+  );
   const hasBranchingSource = sources.some((source) => source.options.length > 1);
 
-  if (!hasActivationCostSource && !hasSacrificeCostSource && !hasBranchingSource) {
-    return canPayManaCost(getAvailableMana(state, playerId), parsedCost, lifeAvailable);
+  if (
+    !hasActivationCostSource &&
+    !hasLifeCostSource &&
+    !hasHandCostSource &&
+    !hasSacrificeCostSource &&
+    !hasReturnToHandCostSource &&
+    !hasBranchingSource
+  ) {
+    return canPayManaCost(getAvailableMana(state, playerId), parsedCost, effectiveLifeAvailable);
   }
 
   const memo = new Map<string, boolean>();
@@ -1599,7 +1920,8 @@ export function canPayManaCostWithAvailableSources(
     pool: Record<SimpleManaKey, number>,
     life: number,
     remainingSources: ExactManaSource[],
-    remainingSacrificeCandidates: ExactSacrificeCandidate[],
+    remainingBattlefieldCandidates: ExactSacrificeCandidate[],
+    remainingHandCandidates: ExactHandCandidate[],
   ): boolean => {
     if (canPayManaCost(pool, parsedCost, life)) {
       return true;
@@ -1609,7 +1931,7 @@ export function canPayManaCostWithAvailableSources(
       return false;
     }
 
-    const key = `${normalizePoolSignature(pool)}|${life}|${remainingSources.map((source) => source.id).join(',')}|${remainingSacrificeCandidates.map((candidate) => candidate.id).join(',')}`;
+    const key = `${normalizePoolSignature(pool)}|${life}|${remainingSources.map((source) => source.id).join(',')}|${remainingBattlefieldCandidates.map((candidate) => candidate.id).join(',')}|${remainingHandCandidates.map((candidate) => candidate.id).join(',')}`;
     const cached = memo.get(key);
     if (typeof cached === 'boolean') {
       return cached;
@@ -1624,7 +1946,6 @@ export function canPayManaCostWithAvailableSources(
       for (const option of source.options) {
         let workingPool = createSimpleManaPool(pool);
         let workingLife = life;
-        let nextSacrificeCandidateSets: ExactSacrificeCandidate[][] = [remainingSacrificeCandidates];
 
         if (option.activationCost) {
           const spent = spendManaCostFromExactPool(workingPool, option.activationCost, workingLife);
@@ -1636,20 +1957,105 @@ export function canPayManaCostWithAvailableSources(
           workingLife = spent.lifeAvailable;
         }
 
-        if (option.sacrificeCost) {
-          nextSacrificeCandidateSets = removeSacrificeCandidates(
-            remainingSacrificeCandidates,
-            option.sacrificeCost,
-            source.permanentId,
-          );
-          if (nextSacrificeCandidateSets.length === 0) {
+        if (option.lifeCost) {
+          if (workingLife < Number(option.lifeCost)) {
             continue;
           }
+          workingLife -= Number(option.lifeCost);
         }
 
-        for (const nextSacrificeCandidates of nextSacrificeCandidateSets) {
+        type ExactSearchBranchState = {
+          remainingSources: ExactManaSource[];
+          remainingBattlefieldCandidates: ExactSacrificeCandidate[];
+          remainingHandCandidates: ExactHandCandidate[];
+        };
+
+        let branchStates: ExactSearchBranchState[] = [{
+          remainingSources: nextRemainingSources,
+          remainingBattlefieldCandidates,
+          remainingHandCandidates,
+        }];
+
+        if (option.handCost) {
+          const nextBranchStates: ExactSearchBranchState[] = [];
+          for (const branchState of branchStates) {
+            const handRemovalSets = removeHandCandidates(branchState.remainingHandCandidates, option.handCost);
+            for (const handRemovalSet of handRemovalSets) {
+              nextBranchStates.push({
+                ...branchState,
+                remainingHandCandidates: handRemovalSet.remainingCandidates,
+              });
+            }
+          }
+
+          if (nextBranchStates.length === 0) {
+            continue;
+          }
+
+          branchStates = nextBranchStates;
+        }
+
+        if (option.sacrificeCost) {
+          const nextBranchStates: ExactSearchBranchState[] = [];
+          for (const branchState of branchStates) {
+            const sacrificeRemovalSets = removeSacrificeCandidates(
+              branchState.remainingBattlefieldCandidates,
+              option.sacrificeCost,
+              source.permanentId,
+            );
+            for (const sacrificeRemovalSet of sacrificeRemovalSets) {
+              const removedIds = new Set(sacrificeRemovalSet.removedIds);
+              nextBranchStates.push({
+                remainingSources: branchState.remainingSources.filter((candidateSource) => !removedIds.has(candidateSource.permanentId)),
+                remainingBattlefieldCandidates: sacrificeRemovalSet.remainingCandidates,
+                remainingHandCandidates: branchState.remainingHandCandidates,
+              });
+            }
+          }
+
+          if (nextBranchStates.length === 0) {
+            continue;
+          }
+
+          branchStates = nextBranchStates;
+        }
+
+        if (option.returnToHandCost) {
+          const nextBranchStates: ExactSearchBranchState[] = [];
+          for (const branchState of branchStates) {
+            const returnRemovalSets = removeReturnToHandCandidates(
+              branchState.remainingBattlefieldCandidates,
+              option.returnToHandCost,
+              source.permanentId,
+            );
+            for (const returnRemovalSet of returnRemovalSets) {
+              const removedIds = new Set(returnRemovalSet.removedIds);
+              nextBranchStates.push({
+                remainingSources: branchState.remainingSources.filter((candidateSource) => !removedIds.has(candidateSource.permanentId)),
+                remainingBattlefieldCandidates: returnRemovalSet.remainingCandidates,
+                remainingHandCandidates: branchState.remainingHandCandidates,
+              });
+            }
+          }
+
+          if (nextBranchStates.length === 0) {
+            continue;
+          }
+
+          branchStates = nextBranchStates;
+        }
+
+        for (const branchState of branchStates) {
           const producedPool = addProducedMana(workingPool, option.produced);
-          if (search(producedPool, workingLife, nextRemainingSources, nextSacrificeCandidates)) {
+          if (
+            search(
+              producedPool,
+              workingLife,
+              branchState.remainingSources,
+              branchState.remainingBattlefieldCandidates,
+              branchState.remainingHandCandidates,
+            )
+          ) {
             memo.set(key, true);
             return true;
           }
@@ -1661,5 +2067,5 @@ export function canPayManaCostWithAvailableSources(
     return false;
   };
 
-  return search(floatingPool, lifeAvailable, sources, sacrificeCandidates);
+  return search(floatingPool, effectiveLifeAvailable, sources, battlefieldCandidates, handCandidates);
 }

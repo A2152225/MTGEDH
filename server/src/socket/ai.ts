@@ -21,10 +21,18 @@ import { getDeck, listDecks } from "../db/decks.js";
 import { parseDecklist } from "../services/scryfall.js";
 import { resolveDeckList } from '../services/deckImport.js';
 import type { PlayerID } from "../../../shared/src/types.js";
-import { parseSacrificeCost } from "../../../shared/src/textUtils.js";
+import { parseNumberFromText, parseSacrificeCost } from "../../../shared/src/textUtils.js";
 import { categorizeSpell, evaluateTargeting, type SpellSpec, type TargetRef } from "../rules-engine/targeting.js";
 import { GameManager } from "../GameManager.js";
-import { getAvailableMana, parseManaCost, canPayManaCost, canPayManaCostWithAvailableSources, getTotalManaFromPool } from "../state/modules/mana-check.js";
+import {
+  getAvailableMana,
+  parseManaCost,
+  canPayManaCost,
+  canPayManaCostWithAvailableSources,
+  getTotalManaFromPool,
+  parseHandCostFromManaAbilityCost,
+  parseReturnToHandCostFromManaAbilityCost,
+} from "../state/modules/mana-check.js";
 import { canAct, canPlayLand, canRespond, getCastableCommanderCandidates, getCastableSpellCandidates, getPlayableLandCandidates, isCardPlayableAsLandFromHand, type SharedCommanderCastCandidate, type SharedPlayableLandCandidate, type SharedSpellSourceZone } from "../state/modules/can-respond.js";
 import { canCastFromTop, canPlayLandsFromTop } from "../state/modules/game-state-effects.js";
 import { ResolutionQueueManager } from "../state/resolution/ResolutionQueueManager.js";
@@ -3634,7 +3642,7 @@ function findCastableSpells(
 
   const castable = sharedCandidates
     .filter((candidate) => candidate.payability === 'normal' && candidate.cost)
-    .filter((candidate) => buildAISpellPaymentPlan(game, playerId, candidate.cost!) !== null)
+    .filter((candidate) => canAIAssembleSpellPaymentPlan(game, playerId, candidate.cost!))
     .map((candidate) => {
       const typeLine = String(candidate.castCard?.type_line || '').toLowerCase();
       const cmc = candidate.cost!.generic + Object.values(candidate.cost!.colors).reduce((sum, count) => sum + count, 0);
@@ -3822,7 +3830,7 @@ function detectBeneficialAura(oracleText: string): boolean {
 function findCastableCommander(game: any, playerId: PlayerID): AICastableCommanderCandidate | null {
   const manaPool = getAvailableMana(game.state, playerId);
   const candidate = getCastableCommanderCandidates(getAIActionContext(game), playerId)
-    .find((entry) => entry.cost && buildAISpellPaymentPlan(game, playerId, entry.cost) !== null) || null;
+    .find((entry) => entry.cost && canAIAssembleSpellPaymentPlan(game, playerId, entry.cost)) || null;
 
   if (!candidate) {
     debug(2, '[AI] No castable commanders found', {
@@ -4500,6 +4508,25 @@ function snapshotAIAbilityActivationState(
       .filter((candidate) => !/\{[^}]*\bT\b[^}]*\}/i.test(String(candidate?.text || '')))
       .filter((candidate) => {
         const costSection = String(candidate?.text || '').split(':')[0] || '';
+        const playerLife = Number(game.state?.life?.[playerId] ?? 40);
+        const totalLifeCost = [...costSection.matchAll(/pay\s+(\d+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\s+life/gi)].reduce(
+          (sum, match) => sum + parseNumberFromText(String(match?.[1] || '0'), 0),
+          0,
+        );
+        if (totalLifeCost > 0 && playerLife < totalLifeCost) {
+          return false;
+        }
+
+        const handCost = parseHandCostFromManaAbilityCost(costSection);
+        if (handCost && chooseAIHandCardsForNonTapManaAbilityCost(game, playerId, costSection).length < handCost.count) {
+          return false;
+        }
+
+        const returnToHandCost = parseReturnToHandCostFromManaAbilityCost(costSection);
+        if (returnToHandCost && !chooseAIReturnToHandPermanentForManaAbility(game, playerId, permanent, costSection)) {
+          return false;
+        }
+
         const sacrificeInfo = parseSacrificeCost(String(costSection || ''));
         if (!sacrificeInfo.requiresSacrifice || !sacrificeInfo.sacrificeType || sacrificeInfo.sacrificeType === 'self') {
           return true;
@@ -4571,6 +4598,18 @@ function snapshotAIAbilityActivationState(
         score -= 12;
       }
 
+      if (!/\bexile\b.*\bhand\b/i.test(normalizedText)) {
+        score += 1;
+      } else {
+        score -= 10;
+      }
+
+      if (!/\breturn\b.*\bhand\b/i.test(normalizedText)) {
+        score += 1;
+      } else {
+        score -= 6;
+      }
+
       if (!/\bor\b/i.test(normalizedEffect)) {
         score += 2;
       }
@@ -4593,20 +4632,301 @@ function snapshotAIAbilityActivationState(
     };
   }
 
+  function getAINonTapManaActionProduction(
+    game: any,
+    playerId: PlayerID,
+    permanent: any,
+    action: AIResolvedActivatedAbilityAction,
+  ): { chosenManaColor: string; manaInfo: ReturnType<typeof calculateManaProduction> } {
+    const candidates = getAINonTapManaResolverCandidates(game, playerId, permanent);
+    const candidate = candidates.find((entry) => String(entry?.id || '') === String(action?.abilityId || '')) || null;
+    const candidateColors = candidate ? getAIManaAbilityCandidateColors(candidate) : [];
+    const producedColors = candidateColors.length > 0 ? candidateColors : getAIManaProductionOptions(game, playerId, permanent);
+    const chosenManaColor = chooseAIManaColorForActivation(game, playerId, producedColors);
+    const manaInfo = calculateManaProduction(game.state, permanent, String(playerId), chosenManaColor, action?.abilityId);
+
+    return {
+      chosenManaColor,
+      manaInfo,
+    };
+  }
+
   function getAINonTapManaActionAmount(
     game: any,
     playerId: PlayerID,
     permanent: any,
     action: AIResolvedActivatedAbilityAction,
   ): number {
-    const candidates = getAINonTapManaResolverCandidates(game, playerId, permanent);
-    const candidate = candidates.find((entry) => String(entry?.id || '') === String(action?.abilityId || '')) || null;
-    const candidateColors = candidate ? getAIManaAbilityCandidateColors(candidate) : [];
-    const producedColors = candidateColors.length > 0 ? candidateColors : getAIManaProductionOptions(game, playerId, permanent);
-    const chosenManaColor = chooseAIManaColorForActivation(game, playerId, producedColors);
-    return Number(
-      calculateManaProduction(game.state, permanent, String(playerId), chosenManaColor, action?.abilityId).totalAmount || 0
+    return Number(getAINonTapManaActionProduction(game, playerId, permanent, action).manaInfo.totalAmount || 0);
+  }
+
+  function removeAISimulatedPermanent(game: any, permanentId: string): void {
+    if (!Array.isArray(game.state?.battlefield)) {
+      return;
+    }
+
+    const targetId = String(permanentId || '');
+    game.state.battlefield = game.state.battlefield.filter((entry: any) => String(entry?.id || '') !== targetId);
+  }
+
+  function matchesAIHandCostTypeRestriction(card: any, typeRestriction?: string): boolean {
+    if (!typeRestriction) {
+      return true;
+    }
+
+    const typeLine = String(card?.type_line || '').toLowerCase();
+    switch (String(typeRestriction || '').toLowerCase()) {
+      case 'creature':
+      case 'artifact':
+      case 'enchantment':
+      case 'land':
+      case 'instant':
+      case 'sorcery':
+      case 'planeswalker':
+        return typeLine.includes(String(typeRestriction || '').toLowerCase());
+      case 'nonland':
+        return !typeLine.includes('land');
+      case 'noncreature':
+        return !typeLine.includes('creature');
+      default:
+        return false;
+    }
+  }
+
+  function chooseAIHandCardsForNonTapManaAbilityCost(
+    game: any,
+    playerId: PlayerID,
+    costSection: string,
+  ): string[] {
+    const handCost = parseHandCostFromManaAbilityCost(costSection);
+    if (!handCost) {
+      return [];
+    }
+
+    const hand = Array.isArray(game.state?.zones?.[playerId]?.hand)
+      ? game.state.zones[playerId].hand
+      : [];
+    const eligibleHand = hand.filter((card: any) => matchesAIHandCostTypeRestriction(card, handCost.typeRestriction));
+    if (eligibleHand.length < handCost.count) {
+      return [];
+    }
+
+    return eligibleHand
+      .map((card: any) => {
+        const cmc = Number(card?.cmc || 0) || 0;
+        const typeLine = String(card?.type_line || '').toLowerCase();
+        let score = cmc;
+        if (typeLine.includes('land')) {
+          score -= 5;
+        }
+        return { card, score };
+      })
+      .sort((left, right) => right.score - left.score)
+      .slice(0, handCost.count)
+      .map((entry) => String(entry.card?.id || ''))
+      .filter(Boolean);
+  }
+
+  function chooseAIReturnToHandPermanentForManaAbility(
+    game: any,
+    playerId: PlayerID,
+    sourcePermanent: any,
+    costSection: string,
+  ): any | null {
+    const returnToHandCost = parseReturnToHandCostFromManaAbilityCost(costSection);
+    if (!returnToHandCost) {
+      return null;
+    }
+
+    const battlefield = Array.isArray(game.state?.battlefield) ? game.state.battlefield : [];
+    const candidates = battlefield
+      .filter((permanent: any) => {
+        if (!permanent || permanent.controller !== playerId) return false;
+        if ((permanent as any)?.isCommander) return false;
+
+        const permanentId = String(permanent?.id || '');
+        const typeLine = String(permanent?.card?.type_line || '').toLowerCase();
+        if (returnToHandCost.mustBeOther && permanentId === String(sourcePermanent?.id || '')) {
+          return false;
+        }
+
+        switch (String(returnToHandCost.type || '')) {
+          case 'permanent':
+            return true;
+          case 'nonland permanent':
+            return !typeLine.includes('land');
+          default:
+            return typeLine.includes(String(returnToHandCost.type || '').toLowerCase());
+        }
+      })
+      .sort((left: any, right: any) =>
+        scoreAISacrificePermanentForManaAbility(game, playerId, left) -
+        scoreAISacrificePermanentForManaAbility(game, playerId, right)
+      );
+
+    return candidates[0] || null;
+  }
+
+  function applyAISimulatedNonTapManaActivation(
+    game: any,
+    playerId: PlayerID,
+    permanent: any,
+    action: AIResolvedActivatedAbilityAction,
+  ): boolean {
+    const costSection = String(action?.abilityText || '').split(':')[0] || '';
+    const lowerCost = costSection.toLowerCase();
+    if (/\{[^}]*\bT\b[^}]*\}/i.test(costSection)) {
+      return false;
+    }
+
+    const playerLife = Number(game.state?.life?.[playerId] ?? 40);
+    const lifeCostMatches = [...lowerCost.matchAll(/pay\s+(\d+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\s+life/gi)];
+    const totalLifeCost = lifeCostMatches.reduce(
+      (sum, match) => sum + parseNumberFromText(String(match?.[1] || '0'), 0),
+      0,
     );
+
+    if (totalLifeCost > 0) {
+      if (playerLife < totalLifeCost) {
+        return false;
+      }
+      game.state.life = game.state.life || {};
+      game.state.life[playerId] = playerLife - totalLifeCost;
+    }
+
+    const handCost = parseHandCostFromManaAbilityCost(costSection);
+    if (handCost) {
+      const zones = game.state?.zones?.[playerId];
+      if (!zones || !Array.isArray(zones.hand)) {
+        return false;
+      }
+
+      const chosenHandCardIds = chooseAIHandCardsForNonTapManaAbilityCost(game, playerId, costSection);
+      if (chosenHandCardIds.length < handCost.count) {
+        return false;
+      }
+
+      zones.graveyard = Array.isArray(zones.graveyard) ? zones.graveyard : [];
+      zones.exile = Array.isArray(zones.exile) ? zones.exile : [];
+      const destinationZone = handCost.destination === 'exile' ? 'exile' : 'graveyard';
+
+      for (const chosenHandCardId of chosenHandCardIds.slice(0, handCost.count)) {
+        const handIndex = zones.hand.findIndex((card: any) => String(card?.id || '') === String(chosenHandCardId || ''));
+        if (handIndex < 0) {
+          return false;
+        }
+
+        const [movedCard] = zones.hand.splice(handIndex, 1);
+        if (!movedCard) {
+          return false;
+        }
+
+        movedCard.zone = destinationZone;
+        zones[destinationZone].push(movedCard);
+      }
+
+      zones.handCount = zones.hand.length;
+      zones.graveyardCount = zones.graveyard.length;
+      zones.exileCount = zones.exile.length;
+    }
+
+    const sacrificeInfo = parseSacrificeCost(costSection);
+    if (sacrificeInfo.requiresSacrifice && sacrificeInfo.sacrificeType === 'self') {
+      removeAISimulatedPermanent(game, String(permanent?.id || ''));
+    } else if (sacrificeInfo.requiresSacrifice && sacrificeInfo.sacrificeType) {
+      const sacrificedPermanentIds = chooseAISacrificePermanentsForManaAbility(game, playerId, permanent, costSection);
+      const requiredCount = Math.max(1, Number(sacrificeInfo.sacrificeCount || 1));
+      if (sacrificedPermanentIds.length < requiredCount) {
+        return false;
+      }
+      for (const sacrificedPermanentId of sacrificedPermanentIds.slice(0, requiredCount)) {
+        removeAISimulatedPermanent(game, String(sacrificedPermanentId || ''));
+      }
+    }
+
+    const returnToHandCost = parseReturnToHandCostFromManaAbilityCost(costSection);
+    if (returnToHandCost) {
+      const returnedPermanent = chooseAIReturnToHandPermanentForManaAbility(game, playerId, permanent, costSection);
+      const battlefield = Array.isArray(game.state?.battlefield) ? game.state.battlefield : [];
+      const zones = game.state?.zones?.[playerId];
+      if (!returnedPermanent || !zones) {
+        return false;
+      }
+
+      const permanentIndex = battlefield.findIndex(
+        (entry: any) => String(entry?.id || '') === String(returnedPermanent?.id || ''),
+      );
+      if (permanentIndex < 0) {
+        return false;
+      }
+
+      const [removedPermanent] = battlefield.splice(permanentIndex, 1);
+      if (!removedPermanent) {
+        return false;
+      }
+
+      zones.hand = Array.isArray(zones.hand) ? zones.hand : [];
+      zones.hand.push({
+        ...(removedPermanent.card || {}),
+        zone: 'hand',
+      });
+      zones.handCount = zones.hand.length;
+    }
+
+    const livePermanent = (Array.isArray(game.state?.battlefield) ? game.state.battlefield : []).find(
+      (entry: any) => String(entry?.id || '') === String(permanent?.id || ''),
+    ) || permanent;
+    const { chosenManaColor, manaInfo } = getAINonTapManaActionProduction(game, playerId, livePermanent, action);
+    const manaPool = getOrInitManaPool(game.state, String(playerId)) as any;
+    const primaryPoolKey = COLOR_IDENTITY_MAP[String(chosenManaColor || '').toUpperCase()] || 'colorless';
+    const primaryAmount = Number(manaInfo.totalAmount || 0);
+
+    if (primaryAmount > 0) {
+      manaPool[primaryPoolKey] = Number(manaPool[primaryPoolKey] || 0) + primaryAmount;
+    }
+
+    for (const bonus of Array.isArray(manaInfo.bonusMana) ? manaInfo.bonusMana : []) {
+      const bonusPoolKey = COLOR_IDENTITY_MAP[String(bonus?.color || '').toUpperCase()] || 'colorless';
+      const bonusAmount = Number(bonus?.amount || 0);
+      if (bonusAmount > 0) {
+        manaPool[bonusPoolKey] = Number(manaPool[bonusPoolKey] || 0) + bonusAmount;
+      }
+    }
+
+    return primaryAmount > 0 || (Array.isArray(manaInfo.bonusMana) && manaInfo.bonusMana.some((bonus) => Number(bonus?.amount || 0) > 0));
+  }
+
+  function tryActivateAINonTapManaAbilityForSpellPaymentSimulation(
+    game: any,
+    playerId: PlayerID,
+    parsedCost: ReturnType<typeof parseManaCost>,
+    usedPermanentIds: Set<string>,
+  ): boolean {
+    const candidates = getAINonTapManaAbilityCandidates(game, playerId, parsedCost, usedPermanentIds);
+    if (candidates.length === 0) {
+      return false;
+    }
+
+    for (const candidate of candidates) {
+      const permanentId = String(candidate.permanent?.id || '');
+      if (!permanentId) continue;
+      usedPermanentIds.add(permanentId);
+
+      const manaPoolBefore = getOrInitManaPool(game.state, String(playerId)) as any;
+      const totalBefore = getTotalManaFromPool(manaPoolBefore);
+      const activated = applyAISimulatedNonTapManaActivation(game, playerId, candidate.permanent, candidate.action);
+      if (!activated) {
+        continue;
+      }
+
+      const manaPoolAfter = getOrInitManaPool(game.state, String(playerId)) as any;
+      const totalAfter = getTotalManaFromPool(manaPoolAfter);
+      if (totalAfter > totalBefore) {
+        return true;
+      }
+    }
+
+    return false;
   }
 function didAIAbilityActivationProgress(
   before: AIAbilityActivationSnapshot,
@@ -5378,6 +5698,38 @@ function getPaymentSources(game: any, playerId: PlayerID, cost: { colors: Record
           : {}),
       })),
     };
+  }
+
+  function cloneAISpellPaymentSimulationGame(game: any): any {
+    return {
+      state: JSON.parse(JSON.stringify(game?.state || {})),
+    };
+  }
+
+  function canAIAssembleSpellPaymentPlan(
+    game: any,
+    playerId: PlayerID,
+    parsedCost: ReturnType<typeof parseManaCost>,
+  ): boolean {
+    if (buildAISpellPaymentPlan(game, playerId, parsedCost) !== null) {
+      return true;
+    }
+
+    const simulatedGame = cloneAISpellPaymentSimulationGame(game);
+    const usedPermanentIds = new Set<string>();
+
+    for (let attempt = 0; attempt < 6; attempt += 1) {
+      const activated = tryActivateAINonTapManaAbilityForSpellPaymentSimulation(simulatedGame, playerId, parsedCost, usedPermanentIds);
+      if (!activated) {
+        break;
+      }
+
+      if (buildAISpellPaymentPlan(simulatedGame, playerId, parsedCost) !== null) {
+        return true;
+      }
+    }
+
+    return false;
   }
 
   function getAINonTapManaAbilityCandidates(
