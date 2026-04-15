@@ -1,9 +1,14 @@
-import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
-import { createGameIfNotExists, initDb } from '../src/db/index.js';
+import { createGameIfNotExists, deleteGame, initDb } from '../src/db/index.js';
 import { registerInteractionHandlers } from '../src/socket/interaction.js';
 import { games } from '../src/socket/socket.js';
 import { ensureGame } from '../src/socket/util.js';
+
+async function resetGame(gameId: string) {
+  games.delete(gameId as any);
+  await deleteGame(gameId);
+}
 
 function createMockIo(emitted: Array<{ room?: string; event: string; payload: any }>) {
   return {
@@ -92,13 +97,22 @@ function seedGame(gameId: string) {
 
 describe('exile-to-add-counters graveyard replay semantics (integration)', () => {
   const gameId = 'test_exile_to_add_counters_graveyard_replay';
+  const fixedGameIds = [gameId, `${gameId}_replay`];
 
   beforeAll(async () => {
     await initDb();
   });
 
-  beforeEach(() => {
-    games.delete(gameId as any);
+  beforeEach(async () => {
+    for (const fixedGameId of fixedGameIds) {
+      await resetGame(fixedGameId);
+    }
+  });
+
+  afterEach(async () => {
+    for (const fixedGameId of fixedGameIds) {
+      await resetGame(fixedGameId);
+    }
   });
 
   it('live exile-to-add-counters exiles the card and adds counters to matching creatures', async () => {

@@ -1,4 +1,4 @@
-import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 import { createGameIfNotExists, deleteGame, initDb } from '../src/db/index.js';
 import { registerInteractionHandlers } from '../src/socket/interaction.js';
@@ -73,6 +73,12 @@ describe('metalcraft generic battlefield activation routing (integration)', () =
   });
 
   beforeEach(async () => {
+    for (const fixedGameId of fixedGameIds) {
+      await resetGame(fixedGameId);
+    }
+  });
+
+  afterEach(async () => {
     for (const fixedGameId of fixedGameIds) {
       await resetGame(fixedGameId);
     }

@@ -1,4 +1,4 @@
-import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 import { createGameIfNotExists, deleteGame, getEvents, initDb } from '../src/db/index.js';
 import { registerInteractionHandlers } from '../src/socket/interaction.js';
@@ -77,13 +77,34 @@ async function seedGame(gameId: string, cardId: string, oracleText: string, opti
 
 describe('cast-from-graveyard replay semantics (integration)', () => {
   const gameId = 'test_cast_from_graveyard_replay';
+  const fixedGameIds = [
+    gameId,
+    `${gameId}_retrace_live`,
+    `${gameId}_escape_live`,
+    `${gameId}_flashback`,
+    `${gameId}_retrace`,
+    `${gameId}_escape`,
+    `${gameId}_flashback_stack_id`,
+    `${gameId}_jump_start_replay`,
+    `${gameId}_retrace_prompt_replay`,
+    `${gameId}_escape_prompt_replay`,
+    `${gameId}_escape_replay`,
+  ];
 
   beforeAll(async () => {
     await initDb();
   });
 
   beforeEach(async () => {
-    await resetGame(gameId);
+    for (const fixedGameId of fixedGameIds) {
+      await resetGame(fixedGameId);
+    }
+  });
+
+  afterEach(async () => {
+    for (const fixedGameId of fixedGameIds) {
+      await resetGame(fixedGameId);
+    }
   });
 
   it('live jump-start activation spends mana and moves the card from graveyard to stack', async () => {

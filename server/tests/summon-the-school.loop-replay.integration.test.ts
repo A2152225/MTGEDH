@@ -1,6 +1,6 @@
-import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
-import { createGameIfNotExists, getEvents, initDb } from '../src/db/index.js';
+import { createGameIfNotExists, deleteGame, getEvents, initDb } from '../src/db/index.js';
 import { registerGameActions } from '../src/socket/game-actions.js';
 import { registerInteractionHandlers } from '../src/socket/interaction.js';
 import { initializePriorityResolutionHandler, registerResolutionHandlers } from '../src/socket/resolution.js';
@@ -261,17 +261,26 @@ describe('Summon the School loop replay persistence (integration)', () => {
   const gameId = 'test_summon_the_school_loop_replay';
   const replayGameId = 'test_summon_the_school_loop_replay_rehydrated';
 
+  async function resetGame(gameId: string) {
+    ResolutionQueueManager.removeQueue(gameId);
+    games.delete(gameId as any);
+    await deleteGame(gameId);
+  }
+
   beforeAll(async () => {
     await initDb();
     initializePriorityResolutionHandler(createNoopIo() as any);
     await new Promise(resolve => setTimeout(resolve, 0));
   });
 
-  beforeEach(() => {
-    ResolutionQueueManager.removeQueue(gameId);
-    ResolutionQueueManager.removeQueue(replayGameId);
-    games.delete(gameId as any);
-    games.delete(replayGameId as any);
+  beforeEach(async () => {
+    await resetGame(gameId);
+    await resetGame(replayGameId);
+  });
+
+  afterEach(async () => {
+    await resetGame(gameId);
+    await resetGame(replayGameId);
   });
 
   it('replays a recorded Summon loop line that taps one of the newly created tokens for Drowner of Secrets', async () => {

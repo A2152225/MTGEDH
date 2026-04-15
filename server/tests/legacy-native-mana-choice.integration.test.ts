@@ -1,4 +1,4 @@
-import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 import { createGameIfNotExists, deleteGame, getEvents, initDb } from '../src/db/index.js';
 import { registerInteractionHandlers } from '../src/socket/interaction.js';
@@ -72,6 +72,12 @@ describe('legacy native mana choice ids (integration)', () => {
   });
 
   beforeEach(async () => {
+    for (const gameId of gameIds) {
+      await resetGame(gameId);
+    }
+  });
+
+  afterEach(async () => {
     for (const gameId of gameIds) {
       await resetGame(gameId);
     }

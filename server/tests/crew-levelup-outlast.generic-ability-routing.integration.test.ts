@@ -1,6 +1,6 @@
-import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
-import { createGameIfNotExists, getEvents, initDb } from '../src/db/index.js';
+import { createGameIfNotExists, deleteGame, getEvents, initDb } from '../src/db/index.js';
 import { registerInteractionHandlers } from '../src/socket/interaction.js';
 import { initializePriorityResolutionHandler, registerResolutionHandlers } from '../src/socket/resolution.js';
 import { games } from '../src/socket/socket.js';
@@ -40,19 +40,34 @@ function createMockSocket(playerId: string, emitted: Array<{ room?: string; even
 }
 
 describe('Crew, level-up, and outlast generic ability routing (integration)', () => {
+  const fixedGameIds = [
+    'test_crew_generic_activation',
+    'test_levelup_generic_activation',
+    'test_outlast_generic_activation',
+  ];
+
+  async function resetGame(gameId: string) {
+    ResolutionQueueManager.removeQueue(gameId);
+    games.delete(gameId as any);
+    await deleteGame(gameId);
+  }
+
   beforeAll(async () => {
     await initDb();
     initializePriorityResolutionHandler(createNoopIo() as any);
     await new Promise(resolve => setTimeout(resolve, 0));
   });
 
-  beforeEach(() => {
-    ResolutionQueueManager.removeQueue('test_crew_generic_activation');
-    ResolutionQueueManager.removeQueue('test_levelup_generic_activation');
-    ResolutionQueueManager.removeQueue('test_outlast_generic_activation');
-    games.delete('test_crew_generic_activation' as any);
-    games.delete('test_levelup_generic_activation' as any);
-    games.delete('test_outlast_generic_activation' as any);
+  beforeEach(async () => {
+    for (const gameId of fixedGameIds) {
+      await resetGame(gameId);
+    }
+  });
+
+  afterEach(async () => {
+    for (const gameId of fixedGameIds) {
+      await resetGame(gameId);
+    }
   });
 
   it('activates crew through the parser-emitted id and resolves the crew selection', async () => {

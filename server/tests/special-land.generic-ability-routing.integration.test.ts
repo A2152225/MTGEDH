@@ -1,4 +1,4 @@
-import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 import { initDb, createGameIfNotExists, deleteGame, getEvents } from '../src/db/index.js';
 import { ensureGame } from '../src/socket/util.js';
@@ -82,6 +82,12 @@ describe('special land generic ability routing (integration)', () => {
   });
 
   beforeEach(async () => {
+    for (const currentGameId of resetGameIds) {
+      await resetGame(currentGameId);
+    }
+  });
+
+  afterEach(async () => {
     for (const currentGameId of resetGameIds) {
       await resetGame(currentGameId);
     }
