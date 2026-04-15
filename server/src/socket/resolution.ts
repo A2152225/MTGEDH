@@ -34,6 +34,7 @@ import {
   validateAndConsumeManaCostFromPool,
   broadcastManaPoolUpdate,
   calculateManaProduction,
+  resolveActivatedAbilityLineById,
   clearHumanAutoPassPauseOnAction,
   getMaxGenericManaAvailable,
   payGenericManaWithAvailableSources,
@@ -1190,16 +1191,51 @@ type ResolutionSelectedManaPaymentResult =
     }
   | { ok: false; code: string; message: string };
 
-function getResolutionManaSourceCostText(permanent: any): string {
+function getResolutionManaSourceCostText(
+  game: any,
+  playerId: string,
+  permanent: any,
+  mana?: string,
+  abilityId?: string,
+): string {
+  const resolvedLine = resolveActivatedAbilityLineById(permanent, abilityId);
+  const resolvedCostText = String(resolvedLine?.costText || '').trim();
+  if (resolvedCostText) {
+    return resolvedCostText.toLowerCase();
+  }
+
+  const selectedActivationCost = String(
+    calculateManaProduction(game.state, permanent, playerId, mana, abilityId)?.activationCost || ''
+  ).trim();
+  if (selectedActivationCost) {
+    return selectedActivationCost.toLowerCase();
+  }
+
+  if (String(abilityId || '').trim()) {
+    return '';
+  }
+
   return String((permanent as any)?.card?.oracle_text || '').split(':')[0].toLowerCase();
 }
 
-function resolutionManaSourceRequiresSacrifice(permanent: any): boolean {
-  return /\bsacrifice\b/.test(getResolutionManaSourceCostText(permanent));
+function resolutionManaSourceRequiresSacrifice(
+  game: any,
+  playerId: string,
+  permanent: any,
+  mana?: string,
+  abilityId?: string,
+): boolean {
+  return /\bsacrifice\b/.test(getResolutionManaSourceCostText(game, playerId, permanent, mana, abilityId));
 }
 
-function resolutionManaSourceHasUnsupportedAdditionalCosts(permanent: any): boolean {
-  const costText = getResolutionManaSourceCostText(permanent);
+function resolutionManaSourceHasUnsupportedAdditionalCosts(
+  game: any,
+  playerId: string,
+  permanent: any,
+  mana?: string,
+  abilityId?: string,
+): boolean {
+  const costText = getResolutionManaSourceCostText(game, playerId, permanent, mana, abilityId);
   const manaSymbols = costText.match(/\{[^}]+\}/g) || [];
   if (manaSymbols.some((symbol) => !/^\{[tq]\}$/i.test(symbol))) {
     return true;
@@ -1249,7 +1285,7 @@ function applySelectedManaPaymentForResolutionCost(
       if ((permanent as any).tapped) {
         return { ok: false, code: 'PAYMENT_SOURCE_TAPPED', message: `${(permanent as any).card?.name || 'Permanent'} is already tapped.` };
       }
-      if (resolutionManaSourceHasUnsupportedAdditionalCosts(permanent)) {
+      if (resolutionManaSourceHasUnsupportedAdditionalCosts(game, playerId, permanent, mana, abilityId)) {
         return {
           ok: false,
           code: 'INVALID_PAYMENT',
@@ -1314,7 +1350,7 @@ function applySelectedManaPaymentForResolutionCost(
         return { ok: false, code: 'PAYMENT_SOURCE_NOT_FOUND', message: `Permanent ${permanentId} not found on battlefield.` };
       }
 
-      if (resolutionManaSourceRequiresSacrifice(permanent)) {
+      if (resolutionManaSourceRequiresSacrifice(game, playerId, permanent, mana, abilityId)) {
         sacrificedPermanents.push(String(permanentId));
       } else {
         (permanent as any).tapped = true;
@@ -1378,6 +1414,38 @@ function applySelectedManaPaymentForResolutionCost(
     tappedPermanents,
     sacrificedPermanents,
     paymentManaDelta: calculateResolutionManaPoolDelta(manaPoolBeforePayment, (game.state as any)?.manaPool?.[playerId]),
+  };
+}
+
+function cloneGameForResolutionPaymentValidation(game: any, playerId: string): any {
+  const state = (game?.state || {}) as any;
+  const playerZones = ((state.zones || {})[playerId] || {}) as any;
+
+  return {
+    ...game,
+    state: {
+      ...state,
+      battlefield: Array.isArray(state.battlefield)
+        ? state.battlefield.map((permanent: any) => ({
+            ...permanent,
+            card: permanent?.card && typeof permanent.card === 'object' ? { ...permanent.card } : permanent?.card,
+            counters: permanent?.counters && typeof permanent.counters === 'object' ? { ...permanent.counters } : permanent?.counters,
+          }))
+        : [],
+      manaPool: {
+        ...(state.manaPool || {}),
+        [playerId]: { ...(((state.manaPool || {})[playerId] || {}) as any) },
+      },
+      zones: {
+        ...(state.zones || {}),
+        [playerId]: {
+          ...playerZones,
+          hand: Array.isArray(playerZones.hand) ? [...playerZones.hand] : playerZones.hand,
+          graveyard: Array.isArray(playerZones.graveyard) ? [...playerZones.graveyard] : [],
+          exile: Array.isArray(playerZones.exile) ? [...playerZones.exile] : playerZones.exile,
+        },
+      },
+    },
   };
 }
 
@@ -4356,6 +4424,28 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
           return;
         }
       }
+
+      const needsSelectedPaymentValidation =
+        !cancelled &&
+        stepAny.phyrexianManaChoice !== true &&
+        stepAny.sacrificeUnlessPayChoice === true;
+
+      if (needsSelectedPaymentValidation) {
+        const manaCost = String(stepAny?.manaCost || stepAny?.totalManaCost || '').trim();
+        if (manaCost) {
+          const validationGame = cloneGameForResolutionPaymentValidation(game, pid);
+          const payment = extractResolutionPaymentItems(response.selections as any);
+          const applied = applySelectedManaPaymentForResolutionCost(validationGame, pid, manaCost, payment);
+          if (!applied.ok) {
+            const appliedError = applied as { ok: false; code: string; message: string };
+            socket.emit('error', {
+              code: appliedError.code,
+              message: appliedError.message,
+            });
+            return;
+          }
+        }
+      }
     }
 
     // Validate OPTION_CHOICE selections before completing the step.
@@ -6615,7 +6705,6 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
         socket.emit('error', { code: 'INVALID_STEP', message: 'Morph step missing permanent id' });
         return;
       }
-
       if (morphStep?.canAfford === false) {
         socket.emit('error', { code: 'INVALID_SELECTION', message: 'You cannot afford to turn that permanent face-up' });
         return;
@@ -22538,7 +22627,6 @@ async function handleOptionChoiceResponse(
       debugWarn(1, `[Resolution] sacrificeUnlessPayChoice: missing permanentId`);
       return;
     }
-
     const normalized = String(choiceId || '').toLowerCase();
     const shouldPay = !response.cancelled && normalized === 'pay_cost';
 

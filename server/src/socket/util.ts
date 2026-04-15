@@ -3820,7 +3820,7 @@ function normalizeActivatedAbilityOracleLine(line: string): string {
   return String(wrappedMatch?.[1] || trimmed).trim();
 }
 
-function resolveActivatedAbilityLineById(permanent: any, abilityId?: string | null): ResolvedActivatedAbilityLine | undefined {
+export function resolveActivatedAbilityLineById(permanent: any, abilityId?: string | null): ResolvedActivatedAbilityLine | undefined {
   const normalizedAbilityId = String(abilityId || '').trim();
   if (!normalizedAbilityId) return undefined;
 
