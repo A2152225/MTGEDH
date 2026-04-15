@@ -178,4 +178,242 @@ describe('AI shared spell-payment integration', () => {
     expect(((game.state as any).battlefield || []).some((perm: any) => perm?.id === 'azure_dynamo_1')).toBe(true);
     expect(getEvents(gameId)).toEqual([]);
   });
+
+  it('includes sacrificedPermanentIds for mana abilities that require sacrificing another permanent', async () => {
+    const gameId = createTestGameId('sacrifice_another_payment_ids');
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [
+      { id: playerId, name: 'AI', spectator: false, isAI: true, life: 40 },
+    ];
+    (game.state as any).startingLife = 40;
+    (game.state as any).life = { [playerId]: 40 };
+    (game.state as any).lifeLostThisTurn = { [playerId]: 0 };
+    (game.state as any).damageTakenThisTurnByPlayer = { [playerId]: 0 };
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).activePlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).phase = 'main';
+    (game.state as any).step = 'precombat_main';
+    (game.state as any).stack = [];
+    (game.state as any).manaPool = {
+      [playerId]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+    };
+    (game.state as any).zones = {
+      [playerId]: {
+        hand: [],
+        handCount: 0,
+        graveyard: [],
+        graveyardCount: 0,
+        library: [],
+        libraryCount: 0,
+        exile: [],
+        exileCount: 0,
+      },
+    };
+    (game.state as any).battlefield = [
+      {
+        id: 'crucible_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        summoningSickness: false,
+        counters: {},
+        card: {
+          id: 'crucible_card_1',
+          name: 'Aether Crucible',
+          type_line: 'Artifact',
+          oracle_text: 'Sacrifice another artifact: Add {U}.',
+        },
+      },
+      {
+        id: 'spare_artifact_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        summoningSickness: false,
+        counters: {},
+        card: {
+          id: 'spare_artifact_card_1',
+          name: 'Spare Relic',
+          type_line: 'Artifact',
+          oracle_text: '',
+        },
+      },
+    ];
+
+    const plan = await chooseAISpellPaymentSelections(createNoopIo(), gameId, game, playerId as any, {
+      manaCost: '{U}',
+      totalManaCost: '{U}',
+    });
+
+    expect(plan).toEqual({
+      payment: [
+        {
+          permanentId: 'crucible_1',
+          mana: 'U',
+          abilityId: 'crucible_card_1-ability-0',
+          sacrificedPermanentIds: ['spare_artifact_1'],
+        },
+      ],
+    });
+    expect((game.state as any).manaPool?.[playerId]?.blue).toBe(0);
+    expect(((game.state as any).battlefield || []).some((perm: any) => perm?.id === 'spare_artifact_1')).toBe(true);
+    expect(getEvents(gameId)).toEqual([]);
+  });
+
+  it('activates an exact non-tap mana line even when the permanent also has a tap mana line', async () => {
+    const gameId = createTestGameId('non_tap_fallback_multi_line');
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [
+      { id: playerId, name: 'AI', spectator: false, isAI: true, life: 40 },
+    ];
+    (game.state as any).startingLife = 40;
+    (game.state as any).life = { [playerId]: 40 };
+    (game.state as any).lifeLostThisTurn = { [playerId]: 0 };
+    (game.state as any).damageTakenThisTurnByPlayer = { [playerId]: 0 };
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).activePlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).phase = 'main';
+    (game.state as any).step = 'precombat_main';
+    (game.state as any).stack = [];
+    (game.state as any).manaPool = {
+      [playerId]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+    };
+    (game.state as any).zones = {
+      [playerId]: {
+        hand: [],
+        handCount: 0,
+        graveyard: [],
+        graveyardCount: 0,
+        library: [],
+        libraryCount: 0,
+        exile: [],
+        exileCount: 0,
+      },
+    };
+    (game.state as any).battlefield = [
+      {
+        id: 'pain_cache_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        summoningSickness: false,
+        counters: {},
+        card: {
+          id: 'pain_cache_card_1',
+          name: 'Pain Cache',
+          type_line: 'Artifact',
+          oracle_text: 'Pay 1 life: Add {U}.\n{T}: Add {C}.',
+        },
+      },
+    ];
+
+    const plan = await chooseAISpellPaymentSelections(createNoopIo(), gameId, game, playerId as any, {
+      manaCost: '{U}',
+      totalManaCost: '{U}',
+    });
+
+    expect(plan).toEqual({ payment: [] });
+    expect((game.state as any).manaPool?.[playerId]).toEqual({
+      white: 0,
+      blue: 1,
+      black: 0,
+      red: 0,
+      green: 0,
+      colorless: 0,
+    });
+    expect((game.state as any).life?.[playerId]).toBe(39);
+    const permanent = ((game.state as any).battlefield || []).find((entry: any) => entry?.id === 'pain_cache_1');
+    expect(permanent?.tapped).toBe(false);
+  });
+
+  it('refuses signet-style spell payment plans that require unsupported activation costs or all-at-once mixed colors', async () => {
+    const gameId = createTestGameId('signet_unsupported_spell_payment');
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [
+      { id: playerId, name: 'AI', spectator: false, isAI: true, life: 40 },
+    ];
+    (game.state as any).startingLife = 40;
+    (game.state as any).life = { [playerId]: 40 };
+    (game.state as any).lifeLostThisTurn = { [playerId]: 0 };
+    (game.state as any).damageTakenThisTurnByPlayer = { [playerId]: 0 };
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).activePlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).phase = 'main';
+    (game.state as any).step = 'precombat_main';
+    (game.state as any).stack = [];
+    (game.state as any).manaPool = {
+      [playerId]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+    };
+    (game.state as any).zones = {
+      [playerId]: {
+        hand: [],
+        handCount: 0,
+        graveyard: [],
+        graveyardCount: 0,
+        library: [],
+        libraryCount: 0,
+        exile: [],
+        exileCount: 0,
+      },
+    };
+    (game.state as any).battlefield = [
+      {
+        id: 'island_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        summoningSickness: false,
+        counters: {},
+        card: {
+          id: 'island_card_1',
+          name: 'Island',
+          type_line: 'Basic Land — Island',
+          oracle_text: '',
+        },
+      },
+      {
+        id: 'izzet_signet_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        summoningSickness: false,
+        counters: {},
+        card: {
+          id: 'izzet_signet_card_1',
+          name: 'Izzet Signet',
+          type_line: 'Artifact',
+          oracle_text: '{1}, {T}: Add {U}{R}.',
+        },
+      },
+    ];
+
+    const plan = await chooseAISpellPaymentSelections(createNoopIo(), gameId, game, playerId as any, {
+      manaCost: '{U}{R}',
+      totalManaCost: '{U}{R}',
+    });
+
+    expect(plan).toBeNull();
+    expect((game.state as any).manaPool?.[playerId]).toEqual({
+      white: 0,
+      blue: 0,
+      black: 0,
+      red: 0,
+      green: 0,
+      colorless: 0,
+    });
+    expect(((game.state as any).battlefield || []).some((perm: any) => perm?.id === 'izzet_signet_1')).toBe(true);
+    expect(getEvents(gameId)).toEqual([]);
+  });
 });

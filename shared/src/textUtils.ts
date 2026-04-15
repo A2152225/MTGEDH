@@ -73,8 +73,8 @@ export function parseSacrificeCost(costStr: string): SacrificeCostInfo {
   
   const result: SacrificeCostInfo = { requiresSacrifice: true };
   
-  // Check for "other" modifier (e.g., "Sacrifice two other artifacts")
-  result.mustBeOther = /sacrifice\s+(?:\d+|one|two|three|four|five|an?)\s+other\b/i.test(lowerCost);
+  // Check for "other" modifier, including singular "another".
+  result.mustBeOther = /sacrifice\s+(?:(?:\d+|one|two|three|four|five|an?)\s+other\b|another\b)/i.test(lowerCost);
   
   // "Sacrifice ~" or "sacrifice this" = sacrifice self
   if (lowerCost.includes('sacrifice ~') || lowerCost.includes('sacrifice this')) {
@@ -99,21 +99,21 @@ export function parseSacrificeCost(costStr: string): SacrificeCostInfo {
   }
   
   // "Sacrifice a/an X" patterns - first check for permanent types
-  if (/sacrifice\s+(?:a|an)\s+creature\b/i.test(lowerCost)) {
+  if (/sacrifice\s+(?:a|an|another)\s+creature\b/i.test(lowerCost)) {
     result.sacrificeType = 'creature';
-  } else if (/sacrifice\s+(?:a|an)\s+artifact\b/i.test(lowerCost)) {
+  } else if (/sacrifice\s+(?:a|an|another)\s+artifact\b/i.test(lowerCost)) {
     result.sacrificeType = 'artifact';
-  } else if (/sacrifice\s+(?:a|an)\s+enchantment\b/i.test(lowerCost)) {
+  } else if (/sacrifice\s+(?:a|an|another)\s+enchantment\b/i.test(lowerCost)) {
     result.sacrificeType = 'enchantment';
-  } else if (/sacrifice\s+(?:a|an)\s+land\b/i.test(lowerCost)) {
+  } else if (/sacrifice\s+(?:a|an|another)\s+land\b/i.test(lowerCost)) {
     result.sacrificeType = 'land';
-  } else if (/sacrifice\s+(?:a|an)\s+permanent\b/i.test(lowerCost)) {
+  } else if (/sacrifice\s+(?:a|an|another)\s+permanent\b/i.test(lowerCost)) {
     result.sacrificeType = 'permanent';
   } else {
     // Check for creature subtypes dynamically using regex
     // Pattern: "Sacrifice a/an [Subtype]" where Subtype is a capitalized word
     // Examples: "Sacrifice a Soldier", "Sacrifice a Goblin", "Sacrifice an Elf"
-    const subtypeMatch = costStr.match(/sacrifice\s+(?:a|an)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)\b/i);
+    const subtypeMatch = costStr.match(/sacrifice\s+(?:a|an|another)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)\b/i);
     if (subtypeMatch) {
       const potentialSubtype = subtypeMatch[1].trim();
       // Verify it's not a card type (case-insensitive check)
@@ -124,6 +124,10 @@ export function parseSacrificeCost(costStr: string): SacrificeCostInfo {
         result.creatureSubtype = potentialSubtype;
       }
     }
+  }
+
+  if (result.mustBeOther && result.sacrificeCount == null && /sacrifice\s+another\b/i.test(lowerCost)) {
+    result.sacrificeCount = 1;
   }
   
   // "Sacrifice X creatures/artifacts/etc" (multiple)

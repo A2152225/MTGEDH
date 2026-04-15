@@ -21,6 +21,7 @@ import { getDeck, listDecks } from "../db/decks.js";
 import { parseDecklist } from "../services/scryfall.js";
 import { resolveDeckList } from '../services/deckImport.js';
 import type { PlayerID } from "../../../shared/src/types.js";
+import { parseSacrificeCost } from "../../../shared/src/textUtils.js";
 import { categorizeSpell, evaluateTargeting, type SpellSpec, type TargetRef } from "../rules-engine/targeting.js";
 import { GameManager } from "../GameManager.js";
 import { getAvailableMana, parseManaCost, canPayManaCost, canPayManaCostWithAvailableSources, getTotalManaFromPool } from "../state/modules/mana-check.js";
@@ -3633,6 +3634,7 @@ function findCastableSpells(
 
   const castable = sharedCandidates
     .filter((candidate) => candidate.payability === 'normal' && candidate.cost)
+    .filter((candidate) => buildAISpellPaymentPlan(game, playerId, candidate.cost!) !== null)
     .map((candidate) => {
       const typeLine = String(candidate.castCard?.type_line || '').toLowerCase();
       const cmc = candidate.cost!.generic + Object.values(candidate.cost!.colors).reduce((sum, count) => sum + count, 0);
@@ -3819,7 +3821,8 @@ function detectBeneficialAura(oracleText: string): boolean {
  */
 function findCastableCommander(game: any, playerId: PlayerID): AICastableCommanderCandidate | null {
   const manaPool = getAvailableMana(game.state, playerId);
-  const candidate = getCastableCommanderCandidates(getAIActionContext(game), playerId)[0] || null;
+  const candidate = getCastableCommanderCandidates(getAIActionContext(game), playerId)
+    .find((entry) => entry.cost && buildAISpellPaymentPlan(game, playerId, entry.cost) !== null) || null;
 
   if (!candidate) {
     debug(2, '[AI] No castable commanders found', {
@@ -4487,15 +4490,33 @@ function snapshotAIAbilityActivationState(
     };
   }
 
+  function getAINonTapManaResolverCandidates(
+    game: any,
+    playerId: PlayerID,
+    permanent: any,
+  ): AIActivatedAbilityResolverCandidate[] {
+    return buildAIActivatedAbilityResolverCandidates(permanent)
+      .filter(isAIManaAbilityResolverCandidate)
+      .filter((candidate) => !/\{[^}]*\bT\b[^}]*\}/i.test(String(candidate?.text || '')))
+      .filter((candidate) => {
+        const costSection = String(candidate?.text || '').split(':')[0] || '';
+        const sacrificeInfo = parseSacrificeCost(String(costSection || ''));
+        if (!sacrificeInfo.requiresSacrifice || !sacrificeInfo.sacrificeType || sacrificeInfo.sacrificeType === 'self') {
+          return true;
+        }
+
+        const requiredCount = Math.max(1, Number(sacrificeInfo.sacrificeCount || 1));
+        return chooseAISacrificePermanentsForManaAbility(game, playerId, permanent, costSection).length >= requiredCount;
+      });
+  }
+
   function selectAINonTapManaActivationAction(
     game: any,
     playerId: PlayerID,
     permanent: any,
     parsedCost: ReturnType<typeof parseManaCost>,
   ): AIResolvedActivatedAbilityAction | null {
-    const candidates = buildAIActivatedAbilityResolverCandidates(permanent)
-      .filter(isAIManaAbilityResolverCandidate)
-      .filter((candidate) => !/\{[^}]*\bT\b[^}]*\}/i.test(String(candidate?.text || '')));
+    const candidates = getAINonTapManaResolverCandidates(game, playerId, permanent);
 
     if (candidates.length === 0) {
       return null;
@@ -4570,6 +4591,22 @@ function snapshotAIAbilityActivationState(
       abilityId: String(bestCandidate?.id || ''),
       abilityText: String(bestCandidate?.text || ''),
     };
+  }
+
+  function getAINonTapManaActionAmount(
+    game: any,
+    playerId: PlayerID,
+    permanent: any,
+    action: AIResolvedActivatedAbilityAction,
+  ): number {
+    const candidates = getAINonTapManaResolverCandidates(game, playerId, permanent);
+    const candidate = candidates.find((entry) => String(entry?.id || '') === String(action?.abilityId || '')) || null;
+    const candidateColors = candidate ? getAIManaAbilityCandidateColors(candidate) : [];
+    const producedColors = candidateColors.length > 0 ? candidateColors : getAIManaProductionOptions(game, playerId, permanent);
+    const chosenManaColor = chooseAIManaColorForActivation(game, playerId, producedColors);
+    return Number(
+      calculateManaProduction(game.state, permanent, String(playerId), chosenManaColor, action?.abilityId).totalAmount || 0
+    );
   }
 function didAIAbilityActivationProgress(
   before: AIAbilityActivationSnapshot,
@@ -4817,14 +4854,150 @@ function calculateSpellPriority(card: any, game: any, playerId: PlayerID): numbe
   return priority;
 }
 
+function getAISpellPaymentSourceCostText(
+  game: any,
+  playerId: PlayerID,
+  permanent: any,
+  manaColor: string,
+  abilityId?: string,
+): string {
+  const normalizedAbilityId = String(abilityId || '').trim();
+  if (normalizedAbilityId) {
+    const candidate = buildAIActivatedAbilityResolverCandidates(permanent).find(
+      (entry) => String(entry?.id || '') === normalizedAbilityId,
+    );
+    const candidateText = String(candidate?.text || '').trim();
+    const candidateCostText = candidateText.split(':')[0] || '';
+    if (candidateCostText.trim()) {
+      return candidateCostText.trim().toLowerCase();
+    }
+  }
+
+  const selectedActivationCost = String(
+    calculateManaProduction(game.state, permanent, String(playerId), String(manaColor || ''), abilityId)?.activationCost || ''
+  ).trim();
+  if (selectedActivationCost) {
+    return selectedActivationCost.toLowerCase();
+  }
+
+  if (normalizedAbilityId) {
+    return '';
+  }
+
+  return String(permanent?.card?.oracle_text || '').split(':')[0].toLowerCase();
+}
+
+function aiSpellPaymentSourceHasUnsupportedAdditionalCosts(
+  game: any,
+  playerId: PlayerID,
+  permanent: any,
+  manaColor: string,
+  abilityId?: string,
+): boolean {
+  const costText = getAISpellPaymentSourceCostText(game, playerId, permanent, manaColor, abilityId);
+  const manaSymbols = costText.match(/\{[^}]+\}/g) || [];
+  if (manaSymbols.some((symbol) => !/^\{[tq]\}$/i.test(symbol))) {
+    return true;
+  }
+
+  return /\bpay\b|\bdiscard\b|\bexile\b|\breturn\b/.test(costText);
+}
+
+function aiSpellPaymentSourceProducesUnsupportedMulticolor(
+  permanent: any,
+  manaColor: string,
+  manaInfo: ReturnType<typeof calculateManaProduction>,
+  abilityId?: string,
+): boolean {
+  const normalizedAbilityId = String(abilityId || '').trim();
+  if (normalizedAbilityId) {
+    const candidate = buildAIActivatedAbilityResolverCandidates(permanent).find(
+      (entry) => String(entry?.id || '') === normalizedAbilityId,
+    );
+    const effectText = String(candidate?.effect || candidate?.text || '').toLowerCase();
+    const manaSymbols = effectText.match(/\{([wubrgc])\}/gi) || [];
+    const distinctSymbols = new Set(
+      manaSymbols.map((token) => token.replace(/[{}]/g, '').toUpperCase())
+    );
+    const isChoiceAbility = /\bor\b/.test(effectText) || /one mana of any color|any color of mana|mana of any one color|one mana of any type/i.test(effectText);
+    if (!isChoiceAbility && (distinctSymbols.size > 1 || /mana in any combination/i.test(effectText))) {
+      return true;
+    }
+  }
+
+  const producedPoolKeys = new Set<string>();
+  const primaryPoolKey = COLOR_IDENTITY_MAP[String(manaColor || '').toUpperCase()] || 'colorless';
+  if (Number(manaInfo.totalAmount || 0) > 0) {
+    producedPoolKeys.add(primaryPoolKey);
+  }
+
+  for (const bonus of Array.isArray(manaInfo.bonusMana) ? manaInfo.bonusMana : []) {
+    const bonusPoolKey = COLOR_IDENTITY_MAP[String(bonus?.color || '').toUpperCase()] || 'colorless';
+    if (Number(bonus?.amount || 0) > 0) {
+      producedPoolKeys.add(bonusPoolKey);
+    }
+  }
+
+  return producedPoolKeys.size > 1;
+}
+
+function getAISupportedSpellPaymentSource(
+  game: any,
+  playerId: PlayerID,
+  permanent: any,
+  manaColor: string,
+  abilityId?: string,
+  unavailablePermanentIds?: Set<string>,
+): { manaAmount: number; abilityId?: string; sacrificedPermanentIds?: string[] } | null {
+  const manaInfo = calculateManaProduction(game.state, permanent, String(playerId), manaColor, abilityId);
+  const manaAmount = Number(manaInfo.totalAmount || 0);
+  if (manaAmount <= 0) {
+    return null;
+  }
+
+  if (aiSpellPaymentSourceHasUnsupportedAdditionalCosts(game, playerId, permanent, manaColor, abilityId)) {
+    return null;
+  }
+
+  if (aiSpellPaymentSourceProducesUnsupportedMulticolor(permanent, manaColor, manaInfo, abilityId)) {
+    return null;
+  }
+
+  const costText = getAISpellPaymentSourceCostText(game, playerId, permanent, manaColor, abilityId);
+  const sacrificeInfo = parseSacrificeCost(costText);
+  let sacrificedPermanentIds: string[] | undefined;
+
+  if (sacrificeInfo.requiresSacrifice && sacrificeInfo.sacrificeType && sacrificeInfo.sacrificeType !== 'self') {
+    const chosenSacrifices = chooseAISacrificePermanentsForManaAbility(
+      game,
+      playerId,
+      permanent,
+      costText,
+      unavailablePermanentIds,
+    );
+    const requiredCount = Math.max(1, Number(sacrificeInfo.sacrificeCount || 1));
+    if (chosenSacrifices.length !== requiredCount) {
+      return null;
+    }
+    sacrificedPermanentIds = chosenSacrifices;
+  }
+
+  return {
+    manaAmount,
+    ...(abilityId ? { abilityId } : {}),
+    ...(sacrificedPermanentIds && sacrificedPermanentIds.length > 0 ? { sacrificedPermanentIds } : {}),
+  };
+}
+
 /**
  * Get untapped mana sources (lands, artifacts, creatures) that can pay for a spell
  * Returns source IDs in the order they should be tapped, with the color each should produce
  */
-function getPaymentSources(game: any, playerId: PlayerID, cost: { colors: Record<string, number>; generic: number }): Array<{ sourceId: string; produceColor: string; abilityId?: string; count?: number }> {
+function getPaymentSources(game: any, playerId: PlayerID, cost: { colors: Record<string, number>; generic: number }): Array<{ sourceId: string; produceColor: string; abilityId?: string; count?: number; sacrificedPermanentIds?: string[] }> {
   const battlefield = game.state?.battlefield || [];
-  const payments: Array<{ sourceId: string; produceColor: string; abilityId?: string; count?: number }> = [];
+  const payments: Array<{ sourceId: string; produceColor: string; abilityId?: string; count?: number; sacrificedPermanentIds?: string[] }> = [];
   const usedSourceIds = new Set<string>(); // Track which sources we've already assigned
+  const reservedSacrificeIds = new Set<string>();
   const colorsPaid: Record<string, number> = { W: 0, U: 0, B: 0, R: 0, G: 0 };
   let genericPaid = 0;
   
@@ -4894,15 +5067,27 @@ function getPaymentSources(game: any, playerId: PlayerID, cost: { colors: Record
       let bestSource: { perm: any; producedColors: string[]; isLand: boolean } | null = null;
       let bestSourceAbilityId: string | undefined;
       let bestSourceAmount = 0;
+      let bestSourceSacrificedPermanentIds: string[] | undefined;
       let bestScore = -1;
       
       for (const source of availableSources) {
-        if (usedSourceIds.has(source.perm.id)) continue;
+        if (usedSourceIds.has(source.perm.id) || reservedSacrificeIds.has(String(source.perm.id || ''))) continue;
         if (!source.producedColors.includes(color)) continue;
 
         const abilityId = resolveAIPaymentManaAbilityId(game, playerId, source.perm, color);
-        const manaAmount = Number(calculateManaProduction(game.state, source.perm, String(playerId), color, abilityId).totalAmount || 0);
-        if (manaAmount <= 0) continue;
+        const supportedSource = getAISupportedSpellPaymentSource(
+          game,
+          playerId,
+          source.perm,
+          color,
+          abilityId,
+          new Set<string>([
+            ...Array.from(usedSourceIds).map((id) => String(id || '')),
+            ...Array.from(reservedSacrificeIds).map((id) => String(id || '')),
+          ]),
+        );
+        if (!supportedSource) continue;
+        const manaAmount = supportedSource.manaAmount;
         
         // Score: prefer single-color lands, then single-color artifacts, then multi
         let score = 0;
@@ -4915,17 +5100,24 @@ function getPaymentSources(game: any, playerId: PlayerID, cost: { colors: Record
           bestSource = source;
           bestSourceAbilityId = abilityId;
           bestSourceAmount = manaAmount;
+          bestSourceSacrificedPermanentIds = supportedSource.sacrificedPermanentIds;
         }
       }
       
       if (bestSource) {
         usedSourceIds.add(bestSource.perm.id);
+        for (const sacrificedId of bestSourceSacrificedPermanentIds || []) {
+          reservedSacrificeIds.add(String(sacrificedId || ''));
+        }
         const spendCount = Math.min(bestSourceAmount, needed - colorsPaid[color]);
         payments.push({
           sourceId: bestSource.perm.id,
           produceColor: color,
           ...(bestSourceAbilityId ? { abilityId: bestSourceAbilityId } : {}),
           ...((spendCount !== 1 || bestSourceAmount !== spendCount) ? { count: spendCount } : {}),
+          ...(bestSourceSacrificedPermanentIds && bestSourceSacrificedPermanentIds.length > 0
+            ? { sacrificedPermanentIds: bestSourceSacrificedPermanentIds }
+            : {}),
         });
         colorsPaid[color] += spendCount;
       } else {
@@ -4944,14 +5136,26 @@ function getPaymentSources(game: any, playerId: PlayerID, cost: { colors: Record
       let bestColor = colorOptions[0] || 'C';
       let bestAbilityId: string | undefined;
       let bestAmount = 0;
+      let bestSacrificedPermanentIds: string[] | undefined;
 
       for (const colorOption of colorOptions) {
         const abilityId = resolveAIPaymentManaAbilityId(game, playerId, source.perm, colorOption);
-        const manaAmount = Number(calculateManaProduction(game.state, source.perm, String(playerId), colorOption, abilityId).totalAmount || 0);
-        if (manaAmount > bestAmount) {
-          bestAmount = manaAmount;
+        const supportedSource = getAISupportedSpellPaymentSource(
+          game,
+          playerId,
+          source.perm,
+          colorOption,
+          abilityId,
+          new Set<string>([
+            ...Array.from(usedSourceIds).map((id) => String(id || '')),
+            ...Array.from(reservedSacrificeIds).map((id) => String(id || '')),
+          ]),
+        );
+        if (supportedSource && supportedSource.manaAmount > bestAmount) {
+          bestAmount = supportedSource.manaAmount;
           bestColor = colorOption;
           bestAbilityId = abilityId;
+          bestSacrificedPermanentIds = supportedSource.sacrificedPermanentIds;
         }
       }
 
@@ -4960,6 +5164,7 @@ function getPaymentSources(game: any, playerId: PlayerID, cost: { colors: Record
         color: bestColor,
         abilityId: bestAbilityId,
         amount: bestAmount,
+        sacrificedPermanentIds: bestSacrificedPermanentIds,
       };
     })
     .filter((entry) => entry.amount > 0)
@@ -4969,12 +5174,18 @@ function getPaymentSources(game: any, playerId: PlayerID, cost: { colors: Record
     if (genericNeeded <= 0) break;
 
     usedSourceIds.add(entry.source.perm.id);
+    for (const sacrificedId of entry.sacrificedPermanentIds || []) {
+      reservedSacrificeIds.add(String(sacrificedId || ''));
+    }
     const spendCount = Math.min(entry.amount, genericNeeded);
     payments.push({
       sourceId: entry.source.perm.id,
       produceColor: entry.color,
       ...(entry.abilityId ? { abilityId: entry.abilityId } : {}),
       ...((spendCount !== 1 || entry.amount !== spendCount) ? { count: spendCount } : {}),
+      ...(entry.sacrificedPermanentIds && entry.sacrificedPermanentIds.length > 0
+        ? { sacrificedPermanentIds: entry.sacrificedPermanentIds }
+        : {}),
     });
 
     genericNeeded -= spendCount;
@@ -5013,37 +5224,88 @@ function getPaymentSources(game: any, playerId: PlayerID, cost: { colors: Record
     sourcePermanent: any,
     costSection: string,
   ): any | null {
-    const battlefield = Array.isArray(game.state?.battlefield) ? game.state.battlefield : [];
-    const lowerCost = String(costSection || '').toLowerCase();
-    const requireAnother = /\banother\b/i.test(lowerCost);
-    const requiredTypes: string[] = [];
+    const chosenIds = chooseAISacrificePermanentsForManaAbility(game, playerId, sourcePermanent, costSection);
+    if (chosenIds.length === 0) {
+      return null;
+    }
 
-    if (/sacrifice\s+(?:an?\s+|another\s+)?creature/i.test(lowerCost)) requiredTypes.push('creature');
-    else if (/sacrifice\s+(?:an?\s+|another\s+)?artifact/i.test(lowerCost)) requiredTypes.push('artifact');
-    else if (/sacrifice\s+(?:an?\s+|another\s+)?enchantment/i.test(lowerCost)) requiredTypes.push('enchantment');
-    else if (/sacrifice\s+(?:an?\s+|another\s+)?land/i.test(lowerCost)) requiredTypes.push('land');
+    const battlefield = Array.isArray(game.state?.battlefield) ? game.state.battlefield : [];
+    return battlefield.find((permanent: any) => String(permanent?.id || '') === String(chosenIds[0] || '')) || null;
+  }
+
+  function chooseAISacrificePermanentsForManaAbility(
+    game: any,
+    playerId: PlayerID,
+    sourcePermanent: any,
+    costSection: string,
+    unavailablePermanentIds?: Set<string>,
+  ): string[] {
+    const battlefield = Array.isArray(game.state?.battlefield) ? game.state.battlefield : [];
+    const sacrificeInfo = parseSacrificeCost(String(costSection || ''));
+    if (!sacrificeInfo.requiresSacrifice || !sacrificeInfo.sacrificeType || sacrificeInfo.sacrificeType === 'self') {
+      return [];
+    }
+
+    const blockedIds = unavailablePermanentIds || new Set<string>();
+    const requiredCount = Math.max(1, Number(sacrificeInfo.sacrificeCount || 1));
 
     const candidates = battlefield
       .filter((permanent: any) => {
         if (!permanent || permanent.controller !== playerId) return false;
-        if (requireAnother && String(permanent.id || '') === String(sourcePermanent?.id || '')) return false;
+        if (blockedIds.has(String(permanent.id || ''))) return false;
         if ((permanent as any)?.isCommander) return false;
 
+        const permanentId = String(permanent.id || '');
         const typeLine = String(permanent.card?.type_line || '').toLowerCase();
-        return requiredTypes.length === 0 || requiredTypes.every((type) => typeLine.includes(type));
+        const subtypeWords = typeLine
+          .split(/[—-]/)
+          .slice(1)
+          .join(' ')
+          .split(/[^a-z0-9']+/i)
+          .map((part) => part.trim())
+          .filter(Boolean);
+
+        if (sacrificeInfo.mustBeOther && permanentId === String(sourcePermanent?.id || '')) {
+          return false;
+        }
+
+        switch (sacrificeInfo.sacrificeType) {
+          case 'creature':
+            if (!typeLine.includes('creature')) return false;
+            if (sacrificeInfo.creatureSubtype) {
+              return subtypeWords.includes(String(sacrificeInfo.creatureSubtype || '').toLowerCase());
+            }
+            return true;
+          case 'artifact':
+            return typeLine.includes('artifact');
+          case 'enchantment':
+            return typeLine.includes('enchantment');
+          case 'land':
+            return typeLine.includes('land');
+          case 'permanent':
+            return true;
+          case 'artifact_or_creature':
+            return typeLine.includes('artifact') || typeLine.includes('creature');
+          default:
+            return false;
+        }
       })
       .sort((left: any, right: any) =>
         scoreAISacrificePermanentForManaAbility(game, playerId, left) -
         scoreAISacrificePermanentForManaAbility(game, playerId, right)
       );
 
-    return candidates[0] || null;
+    if (candidates.length < requiredCount) {
+      return [];
+    }
+
+    return candidates.slice(0, requiredCount).map((permanent: any) => String(permanent.id || '')).filter(Boolean);
   }
 
   function buildAIAvailableManaForSpellPayment(
     game: any,
     playerId: PlayerID,
-    paymentSources: Array<{ sourceId: string; produceColor: string; abilityId?: string; count?: number }>,
+    paymentSources: Array<{ sourceId: string; produceColor: string; abilityId?: string; count?: number; sacrificedPermanentIds?: string[] }>,
   ): Record<string, number> {
     const pool = getOrInitManaPool(game.state, String(playerId)) as any;
     const totalAvailable: Record<string, number> = {
@@ -5082,49 +5344,71 @@ function getPaymentSources(game: any, playerId: PlayerID, cost: { colors: Record
     game: any,
     playerId: PlayerID,
     parsedCost: ReturnType<typeof parseManaCost>,
-    paymentSources: Array<{ sourceId: string; produceColor: string; abilityId?: string; count?: number }>,
+    paymentSources: Array<{ sourceId: string; produceColor: string; abilityId?: string; count?: number; sacrificedPermanentIds?: string[] }>,
   ): boolean {
     const totalAvailable = buildAIAvailableManaForSpellPayment(game, playerId, paymentSources);
     return !validateManaPayment(totalAvailable, parsedCost.colors, parsedCost.generic);
   }
 
+  function buildAISpellPaymentPlan(
+    game: any,
+    playerId: PlayerID,
+    parsedCost: ReturnType<typeof parseManaCost>,
+  ): { payment: Array<{ permanentId: string; mana: string; count?: number; abilityId?: string }> } | null {
+    if (canAIPaySpellCostWithPaymentSources(game, playerId, parsedCost, [])) {
+      return { payment: [] };
+    }
+
+    const paymentSources = getPaymentSources(game, playerId, {
+      colors: { ...(parsedCost.colors || {}) },
+      generic: Number(parsedCost.generic || 0),
+    });
+    if (!canAIPaySpellCostWithPaymentSources(game, playerId, parsedCost, paymentSources)) {
+      return null;
+    }
+
+    return {
+      payment: paymentSources.map((source) => ({
+        permanentId: String(source.sourceId),
+        mana: String(source.produceColor).toUpperCase(),
+        ...(source.count != null ? { count: Number(source.count) } : {}),
+        ...(source.abilityId ? { abilityId: String(source.abilityId) } : {}),
+        ...(source.sacrificedPermanentIds && source.sacrificedPermanentIds.length > 0
+          ? { sacrificedPermanentIds: source.sacrificedPermanentIds.map((id) => String(id || '')) }
+          : {}),
+      })),
+    };
+  }
+
   function getAINonTapManaAbilityCandidates(
     game: any,
     playerId: PlayerID,
+    parsedCost: ReturnType<typeof parseManaCost>,
     usedPermanentIds: Set<string>,
-  ): any[] {
+  ): Array<{ permanent: any; action: AIResolvedActivatedAbilityAction }> {
     const battlefield = Array.isArray(game.state?.battlefield) ? game.state.battlefield : [];
 
     return battlefield
-      .filter((permanent: any) => {
+      .map((permanent: any) => {
         if (!permanent || permanent.controller !== playerId) return false;
         if (usedPermanentIds.has(String(permanent.id || ''))) return false;
         if (!hasManaAbility(permanent.card)) return false;
 
-        const oracleText = String(permanent.card?.oracle_text || '').toLowerCase();
-        const costSection = oracleText.split(':')[0] || '';
-        const isTapAbility = oracleText.includes('{t}:') || oracleText.includes('{t},');
-        const hasTargets = /target/i.test(oracleText);
-        const isManaAbility = AI_MANA_ABILITY_PATTERN.test(oracleText) && !hasTargets;
-
-        if (!isManaAbility || isTapAbility) return false;
-
-        if (/sacrifice\s+(?:an?\s+|another\s+)?(?:creature|artifact|enchantment|land|permanent)/i.test(costSection)) {
-          return Boolean(chooseAISacrificePermanentForManaAbility(game, playerId, permanent, costSection));
-        }
-
-        return true;
+        const action = selectAINonTapManaActivationAction(game, playerId, permanent, parsedCost);
+        if (!action) return null;
+        return { permanent, action };
       })
-      .sort((left: any, right: any) => {
-        const leftText = String(left?.card?.oracle_text || '').toLowerCase();
-        const rightText = String(right?.card?.oracle_text || '').toLowerCase();
+      .filter((entry): entry is { permanent: any; action: AIResolvedActivatedAbilityAction } => Boolean(entry))
+      .sort((left, right) => {
+        const leftText = String(left.action?.abilityText || '').toLowerCase();
+        const rightText = String(right.action?.abilityText || '').toLowerCase();
         const leftHasSacrifice = /\bsacrifice\b/i.test(leftText);
         const rightHasSacrifice = /\bsacrifice\b/i.test(rightText);
         if (leftHasSacrifice !== rightHasSacrifice) return leftHasSacrifice ? -1 : 1;
 
-        const leftMana = calculateManaProduction(game.state, left, String(playerId), 'C').totalAmount || 0;
-        const rightMana = calculateManaProduction(game.state, right, String(playerId), 'C').totalAmount || 0;
-        return Number(rightMana) - Number(leftMana);
+        const leftMana = getAINonTapManaActionAmount(game, playerId, left.permanent, left.action);
+        const rightMana = getAINonTapManaActionAmount(game, playerId, right.permanent, right.action);
+        return rightMana - leftMana;
       });
   }
 
@@ -5136,21 +5420,21 @@ function getPaymentSources(game: any, playerId: PlayerID, cost: { colors: Record
     parsedCost: ReturnType<typeof parseManaCost>,
     usedPermanentIds: Set<string>,
   ): Promise<boolean> {
-    const candidates = getAINonTapManaAbilityCandidates(game, playerId, usedPermanentIds);
+    const candidates = getAINonTapManaAbilityCandidates(game, playerId, parsedCost, usedPermanentIds);
     if (candidates.length === 0) return false;
 
-    for (const permanent of candidates) {
-      const permanentId = String(permanent?.id || '');
+    for (const candidate of candidates) {
+      const permanentId = String(candidate.permanent?.id || '');
       if (!permanentId) continue;
       usedPermanentIds.add(permanentId);
 
       const manaPoolBefore = getOrInitManaPool(game.state, String(playerId)) as any;
       const totalBefore = getTotalManaFromPool(manaPoolBefore);
 
-      const activationAction = selectAINonTapManaActivationAction(game, playerId, permanent, parsedCost) || {
-        cardName: String(permanent?.card?.name || 'Mana Ability'),
+      const activationAction = candidate.action || {
+        cardName: String(candidate.permanent?.card?.name || 'Mana Ability'),
         permanentId,
-        abilityText: String(permanent?.card?.oracle_text || ''),
+        abilityText: String(candidate.permanent?.card?.oracle_text || ''),
       };
 
       await executeAIActivateAbility(
@@ -5186,28 +5470,7 @@ function getPaymentSources(game: any, playerId: PlayerID, cost: { colors: Record
       return { payment: [] };
     }
 
-    if (canAIPaySpellCostWithPaymentSources(game, playerId, parsedCost, [])) {
-      return { payment: [] };
-    }
-
-    const buildPlan = () => {
-      const paymentSources = getPaymentSources(game, playerId, {
-        colors: { ...(parsedCost.colors || {}) },
-        generic: Number(parsedCost.generic || 0),
-      });
-      if (!canAIPaySpellCostWithPaymentSources(game, playerId, parsedCost, paymentSources)) {
-        return null;
-      }
-
-      return {
-        payment: paymentSources.map((source) => ({
-          permanentId: String(source.sourceId),
-          mana: String(source.produceColor).toUpperCase(),
-          ...(source.count != null ? { count: Number(source.count) } : {}),
-          ...(source.abilityId ? { abilityId: String(source.abilityId) } : {}),
-        })),
-      };
-    };
+    const buildPlan = () => buildAISpellPaymentPlan(game, playerId, parsedCost);
 
     let plan = buildPlan();
     if (plan) return plan;
