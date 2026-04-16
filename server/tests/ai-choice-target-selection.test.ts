@@ -139,4 +139,211 @@ describe('AI choice target selection', () => {
 
     expect(selections).toEqual(['solemn']);
   });
+
+  it('prefers higher-impact opposing spells on the stack during target selection steps', () => {
+    const playerId = 'ai1' as PlayerID;
+    const game = {
+      state: {
+        players: [
+          createPlayer(playerId, 'AI'),
+          createPlayer('opp1', 'Opponent'),
+        ],
+        battlefield: [],
+        stack: [
+          {
+            id: 'divination_stack',
+            controller: 'opp1',
+            type: 'spell',
+            card: {
+              id: 'divination_card',
+              name: 'Divination',
+              type_line: 'Sorcery',
+              oracle_text: 'Draw two cards.',
+              mana_cost: '{2}{U}',
+            },
+          },
+          {
+            id: 'tutor_stack',
+            controller: 'opp1',
+            type: 'spell',
+            card: {
+              id: 'tutor_card',
+              name: 'Demonic Tutor',
+              type_line: 'Sorcery',
+              oracle_text: 'Search your library for a card, put that card into your hand, then shuffle.',
+              mana_cost: '{1}{B}',
+            },
+          },
+        ],
+        zones: {
+          [playerId]: {
+            hand: [],
+          },
+        },
+      },
+    } as any;
+
+    const step = {
+      id: 'target-step-3',
+      type: 'target_selection',
+      playerId,
+      sourceName: 'Counterspell',
+      description: 'Choose target spell.',
+      minTargets: 1,
+      maxTargets: 1,
+      validTargets: [
+        { id: 'divination_stack', label: 'Divination', description: 'stack' },
+        { id: 'tutor_stack', label: 'Demonic Tutor', description: 'stack' },
+      ],
+      spellCastContext: {
+        cardId: 'counterspell_card',
+        cardName: 'Counterspell',
+        manaCost: '{U}{U}',
+        playerId,
+        effectId: 'effect3',
+        oracleText: 'Counter target spell.',
+      },
+    } as any;
+
+    const selections = chooseAITargetSelectionsForChoiceStep(game, playerId, step);
+
+    expect(selections).toEqual(['tutor_stack']);
+  });
+
+  it('prefers stronger graveyard reanimation targets during target selection steps', () => {
+    const playerId = 'ai1' as PlayerID;
+    const game = {
+      state: {
+        players: [
+          createPlayer(playerId, 'AI'),
+          createPlayer('opp1', 'Opponent'),
+        ],
+        battlefield: [],
+        zones: {
+          [playerId]: {
+            hand: [],
+            graveyard: [
+              {
+                id: 'solemn_gy',
+                name: 'Solemn Simulacrum',
+                type_line: 'Artifact Creature — Golem',
+                oracle_text: 'When Solemn Simulacrum enters the battlefield, you may search your library for a basic land card, put that card onto the battlefield tapped, then shuffle. When Solemn Simulacrum dies, you may draw a card.',
+                mana_cost: '{4}',
+                cmc: 4,
+              },
+              {
+                id: 'bear_gy',
+                name: 'Grizzly Bears',
+                type_line: 'Creature — Bear',
+                oracle_text: '',
+                mana_cost: '{1}{G}',
+                cmc: 2,
+              },
+            ],
+          },
+        },
+      },
+    } as any;
+
+    const step = {
+      id: 'target-step-4',
+      type: 'target_selection',
+      playerId,
+      sourceName: 'Reanimate Lesson',
+      description: 'Choose target creature card in your graveyard.',
+      minTargets: 1,
+      maxTargets: 1,
+      validTargets: [
+        { id: 'bear_gy', label: 'Grizzly Bears', description: 'graveyard_card' },
+        { id: 'solemn_gy', label: 'Solemn Simulacrum', description: 'graveyard_card' },
+      ],
+      spellCastContext: {
+        cardId: 'reanimate_lesson_card',
+        cardName: 'Reanimate Lesson',
+        manaCost: '{3}{W}',
+        playerId,
+        effectId: 'effect4',
+        oracleText: 'Return target creature card from your graveyard to the battlefield.',
+      },
+    } as any;
+
+    const selections = chooseAITargetSelectionsForChoiceStep(game, playerId, step);
+
+    expect(selections).toEqual(['solemn_gy']);
+  });
+
+  it('prefers exiling stronger opposing graveyard cards during target selection steps', () => {
+    const playerId = 'ai1' as PlayerID;
+    const game = {
+      state: {
+        players: [
+          createPlayer(playerId, 'AI'),
+          createPlayer('opp1', 'Opponent'),
+        ],
+        battlefield: [],
+        zones: {
+          [playerId]: {
+            hand: [],
+            graveyard: [
+              {
+                id: 'small_self_gy',
+                name: 'Minor Lesson',
+                type_line: 'Sorcery',
+                oracle_text: 'Draw a card.',
+                mana_cost: '{U}',
+                cmc: 1,
+              },
+            ],
+          },
+          opp1: {
+            graveyard: [
+              {
+                id: 'tutor_gy',
+                name: 'Demonic Tutor',
+                type_line: 'Sorcery',
+                oracle_text: 'Search your library for a card, put that card into your hand, then shuffle.',
+                mana_cost: '{1}{B}',
+                cmc: 2,
+              },
+              {
+                id: 'bear_opp_gy',
+                name: 'Grizzly Bears',
+                type_line: 'Creature — Bear',
+                oracle_text: '',
+                mana_cost: '{1}{G}',
+                cmc: 2,
+              },
+            ],
+          },
+        },
+      },
+    } as any;
+
+    const step = {
+      id: 'target-step-5',
+      type: 'target_selection',
+      playerId,
+      sourceName: 'Soul Lantern',
+      description: 'Choose target card in a graveyard.',
+      minTargets: 1,
+      maxTargets: 1,
+      validTargets: [
+        { id: 'small_self_gy', label: 'Minor Lesson', description: 'graveyard_card' },
+        { id: 'bear_opp_gy', label: 'Grizzly Bears', description: 'graveyard_card' },
+        { id: 'tutor_gy', label: 'Demonic Tutor', description: 'graveyard_card' },
+      ],
+      spellCastContext: {
+        cardId: 'soul_lantern_card',
+        cardName: 'Soul Lantern',
+        manaCost: '{1}',
+        playerId,
+        effectId: 'effect5',
+        oracleText: 'Exile target card from a graveyard.',
+      },
+    } as any;
+
+    const selections = chooseAITargetSelectionsForChoiceStep(game, playerId, step);
+
+    expect(selections).toEqual(['tutor_gy']);
+  });
 });

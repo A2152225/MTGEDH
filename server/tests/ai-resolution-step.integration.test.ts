@@ -232,6 +232,242 @@ describe('AI resolution-step integration', () => {
     }
   });
 
+  it('routes active graveyard-card target-selection steps through AI priority handling and chooses the best reanimation target', async () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [
+      { id: playerId, name: 'AI', spectator: false, life: 40 },
+      { id: 'opp1', name: 'Opponent', spectator: false, life: 40 },
+    ];
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).phase = 'main';
+    (game.state as any).step = 'precombat_main';
+    (game.state as any).stack = [];
+    (game.state as any).zones = {
+      [playerId]: {
+        hand: [],
+        library: [],
+        exile: [],
+        graveyard: [
+          {
+            id: 'solemn_gy',
+            name: 'Solemn Simulacrum',
+            type_line: 'Artifact Creature — Golem',
+            oracle_text: 'When Solemn Simulacrum enters the battlefield, you may search your library for a basic land card, put that card onto the battlefield tapped, then shuffle. When Solemn Simulacrum dies, you may draw a card.',
+            mana_cost: '{4}',
+            cmc: 4,
+          },
+          {
+            id: 'bear_gy',
+            name: 'Grizzly Bears',
+            type_line: 'Creature — Bear',
+            oracle_text: '',
+            mana_cost: '{1}{G}',
+            cmc: 2,
+          },
+        ],
+      },
+      opp1: {
+        hand: [],
+        library: [],
+        exile: [],
+        graveyard: [],
+      },
+    };
+    (game.state as any).battlefield = [];
+
+    registerAIPlayer(gameId, playerId as any);
+
+    const step = ResolutionQueueManager.addStep(gameId, {
+      type: ResolutionStepType.TARGET_SELECTION,
+      playerId: playerId as any,
+      description: 'Choose target creature card in your graveyard.',
+      mandatory: true,
+      sourceId: 'reanimate_spell',
+      sourceName: 'Reanimate Lesson',
+      targetTypes: ['graveyard_creature_card'],
+      minTargets: 1,
+      maxTargets: 1,
+      targetDescription: 'target creature card in your graveyard',
+      validTargets: [
+        { id: 'bear_gy', label: 'Grizzly Bears', description: 'graveyard_card' },
+        { id: 'solemn_gy', label: 'Solemn Simulacrum', description: 'graveyard_card' },
+      ],
+      spellCastContext: {
+        cardId: 'reanimate_spell',
+        cardName: 'Reanimate Lesson',
+        manaCost: '{3}{W}',
+        playerId,
+        effectId: 'effect_reanimate',
+        oracleText: 'Return target creature card from your graveyard to the battlefield.',
+      },
+    } as any);
+
+    ResolutionQueueManager.activateStep(gameId, step.id);
+
+    await handleAIPriority(createNoopIo(), gameId, playerId as any);
+
+    const queue = ResolutionQueueManager.getQueue(gameId);
+    expect(queue.steps.some((entry: any) => String(entry.id) === String(step.id))).toBe(false);
+    const completed = queue.completedSteps.find((entry: any) => String(entry.id) === String(step.id));
+    expect(completed?.response?.selections).toEqual(['solemn_gy']);
+  });
+
+  it('routes active opponent graveyard-selection steps through AI priority handling and exiles the strongest opposing card', async () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [
+      { id: playerId, name: 'AI', spectator: false, life: 40 },
+      { id: 'opp1', name: 'Opponent', spectator: false, life: 40 },
+    ];
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).phase = 'main';
+    (game.state as any).step = 'precombat_main';
+    (game.state as any).stack = [];
+    (game.state as any).zones = {
+      [playerId]: {
+        hand: [],
+        library: [],
+        exile: [],
+        graveyard: [],
+      },
+      opp1: {
+        hand: [],
+        library: [],
+        exile: [],
+        graveyard: [
+          {
+            id: 'opp_tutor_gy',
+            name: 'Demonic Tutor',
+            type_line: 'Sorcery',
+            oracle_text: 'Search your library for a card, put that card into your hand, then shuffle.',
+            mana_cost: '{1}{B}',
+            cmc: 2,
+          },
+          {
+            id: 'opp_bear_gy',
+            name: 'Runeclaw Bear',
+            type_line: 'Creature — Bear',
+            oracle_text: '',
+            mana_cost: '{1}{G}',
+            cmc: 2,
+          },
+        ],
+      },
+    };
+    (game.state as any).battlefield = [];
+
+    registerAIPlayer(gameId, playerId as any);
+
+    const step = ResolutionQueueManager.addStep(gameId, {
+      type: ResolutionStepType.GRAVEYARD_SELECTION,
+      playerId: playerId as any,
+      description: 'Choose a card to exile from an opponent\'s graveyard.',
+      mandatory: true,
+      sourceId: 'lantern_effect',
+      sourceName: 'Soul-Guide Lantern',
+      effectId: 'grave_hate_effect',
+      targetPlayerId: 'opp1',
+      minTargets: 1,
+      maxTargets: 1,
+      destination: 'exile',
+      validTargets: [
+        { id: 'opp_bear_gy', name: 'Runeclaw Bear', typeLine: 'Creature — Bear' },
+        { id: 'opp_tutor_gy', name: 'Demonic Tutor', typeLine: 'Sorcery' },
+      ],
+    } as any);
+
+    ResolutionQueueManager.activateStep(gameId, step.id);
+
+    await handleAIPriority(createNoopIo(), gameId, playerId as any);
+
+    const queue = ResolutionQueueManager.getQueue(gameId);
+    expect(queue.steps.some((entry: any) => String(entry.id) === String(step.id))).toBe(false);
+    const completed = queue.completedSteps.find((entry: any) => String(entry.id) === String(step.id));
+    expect(completed?.response?.selections).toEqual(['opp_tutor_gy']);
+  });
+
+  it('routes active library-search steps through AI priority handling and submits the best card choice', async () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [
+      { id: playerId, name: 'AI', spectator: false, life: 40 },
+      { id: 'opp1', name: 'Opponent', spectator: false, life: 40 },
+    ];
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).phase = 'main';
+    (game.state as any).step = 'precombat_main';
+    (game.state as any).stack = [];
+    (game.state as any).zones = {
+      [playerId]: {
+        hand: [],
+        library: [],
+        exile: [],
+        graveyard: [],
+      },
+      opp1: {
+        hand: [],
+        library: [],
+        exile: [],
+        graveyard: [],
+      },
+    };
+    (game.state as any).battlefield = [];
+
+    registerAIPlayer(gameId, playerId as any);
+
+    const step = ResolutionQueueManager.addStep(gameId, {
+      type: ResolutionStepType.LIBRARY_SEARCH,
+      playerId: playerId as any,
+      description: 'Search your library for a card.',
+      mandatory: true,
+      sourceId: 'tutor_spell',
+      sourceName: 'Wishful Tutor',
+      searchCriteria: 'a card',
+      minSelections: 1,
+      maxSelections: 1,
+      destination: 'hand',
+      reveal: false,
+      shuffleAfter: true,
+      availableCards: [
+        {
+          id: 'scepter_lib',
+          name: 'Isochron Scepter',
+          type_line: 'Artifact',
+          oracle_text: 'Imprint — When Isochron Scepter enters the battlefield, you may exile an instant card with mana value 2 or less from your hand.',
+          mana_cost: '{2}',
+          cmc: 2,
+        },
+        {
+          id: 'bear_lib',
+          name: 'Grizzly Bears',
+          type_line: 'Creature — Bear',
+          oracle_text: '',
+          mana_cost: '{1}{G}',
+          cmc: 2,
+        },
+      ],
+    } as any);
+
+    ResolutionQueueManager.activateStep(gameId, step.id);
+
+    await handleAIPriority(createNoopIo(), gameId, playerId as any);
+
+    const queue = ResolutionQueueManager.getQueue(gameId);
+    expect(queue.steps.some((entry: any) => String(entry.id) === String(step.id))).toBe(false);
+    const completed = queue.completedSteps.find((entry: any) => String(entry.id) === String(step.id));
+    expect(completed?.response?.selections).toEqual(['scepter_lib']);
+  });
+
   it('auto-resolves AI spell-cast X selections and continues the cast', async () => {
     const io = createNoopIo();
     const aiHandler = initializeAIResolutionHandler(io as any);

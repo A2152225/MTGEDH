@@ -1837,6 +1837,19 @@ function scoreCardForAIAcquisition(
   return score;
 }
 
+function scoreHostileGraveyardCardDisruption(card: any): number {
+  const analysis = cardAnalyzer.analyzeCard(card);
+  const manaValue = Number(card?.cmc || 0) || 0;
+  let score = analysis.comboPotential * 8 + manaValue * 2;
+
+  if (analysis.categories.includes(CardCategory.TUTOR)) score += 12;
+  if (analysis.categories.includes(CardCategory.REMOVAL)) score += 8;
+  if (analysis.categories.includes(CardCategory.DRAW)) score += 6;
+  if (analysis.categories.includes(CardCategory.FINISHER)) score += 8;
+
+  return score;
+}
+
 function rehydrateCardsById(sourceCards: readonly any[], ids: readonly string[]): any[] {
   const byId = new Map(sourceCards.map((card: any) => [String(card?.id || ''), card]));
   return ids
@@ -1925,6 +1938,7 @@ export function chooseAIGraveyardSelectionIds(
   const destination = String(step?.destination || 'hand');
   const exileLike = destination === 'exile' || String(step?.purpose || '') === 'collectEvidence';
   const collectEvidenceMinManaValue = Math.max(0, Number(step?.collectEvidenceMinManaValue ?? 0));
+  const targetsOwnGraveyard = String(targetPlayerId) === String(playerId);
 
   const scored = cards
     .map((card: any) => {
@@ -1935,6 +1949,7 @@ export function chooseAIGraveyardSelectionIds(
         manaValue,
         acquisitionScore: scoreCardForAIAcquisition(game, playerId, card, destination, profile),
         exileScore: retentionScore - manaValue * 2,
+        hostileScore: scoreHostileGraveyardCardDisruption(card),
       };
     })
     .filter((entry) => Boolean(entry.id));
@@ -1956,7 +1971,10 @@ export function chooseAIGraveyardSelectionIds(
   return [...scored]
     .sort((left, right) => {
       if (exileLike) {
-        return left.exileScore - right.exileScore;
+        if (targetsOwnGraveyard) {
+          return left.exileScore - right.exileScore || left.hostileScore - right.hostileScore;
+        }
+        return right.hostileScore - left.hostileScore || right.manaValue - left.manaValue;
       }
       return right.acquisitionScore - left.acquisitionScore;
     })
@@ -2423,9 +2441,46 @@ function getPermanentForTarget(game: any, target: TargetRef): any | null {
   return battlefield.find((perm: any) => perm?.id === target.id) || null;
 }
 
+function getStackItemForTarget(game: any, target: TargetRef): any | null {
+  if (target.kind !== 'stack') return null;
+  return (game?.state?.stack || []).find((item: any) => String(item?.id || '') === String(target.id)) || null;
+}
+
 function getPlayerForTarget(game: any, target: TargetRef): any | null {
   if (target.kind !== 'player') return null;
   return (game?.state?.players || []).find((player: any) => player?.id === target.id) || null;
+}
+
+function findZoneCardById(
+  game: any,
+  cardId: string,
+  preferredZones?: string[],
+): { card: any; ownerId: string; zone: string } | null {
+  const zonesToSearch = Array.isArray(preferredZones) && preferredZones.length > 0
+    ? preferredZones.map((zone) => String(zone || '').trim().toLowerCase()).filter(Boolean)
+    : ['graveyard', 'exile', 'hand', 'library'];
+  const stateZones = game?.state?.zones || {};
+
+  for (const [ownerId, playerZones] of Object.entries(stateZones)) {
+    for (const zoneName of zonesToSearch) {
+      const zoneCards = Array.isArray((playerZones as any)?.[zoneName]) ? (playerZones as any)[zoneName] : [];
+      const card = zoneCards.find((entry: any) => String(entry?.id || '') === String(cardId));
+      if (card) {
+        return { card, ownerId: String(ownerId), zone: zoneName };
+      }
+    }
+  }
+
+  return null;
+}
+
+function getZoneCardForTarget(
+  game: any,
+  target: TargetRef,
+): { card: any; ownerId: string; zone: string } | null {
+  if (target.kind !== 'card') return null;
+  const preferredZone = String((target as any)?.zone || '').trim().toLowerCase();
+  return findZoneCardById(game, String(target.id), preferredZone ? [preferredZone] : undefined);
 }
 
 function isHelpfulSpellOp(op: SpellSpec['op']): boolean {
@@ -2589,6 +2644,74 @@ function scorePlayerTargetForSpell(
   return score;
 }
 
+function scoreStackTargetChoice(
+  game: any,
+  playerId: PlayerID,
+  target: TargetRef,
+): number {
+  const stackItem = getStackItemForTarget(game, target);
+  if (!stackItem?.card) return -9999;
+
+  const analysis = cardAnalyzer.analyzeCard(stackItem.card);
+  let score = stackItem.controller === playerId ? -120 : 50;
+
+  score += analysis.comboPotential * 8;
+  if (analysis.categories.includes(CardCategory.TUTOR)) score += 12;
+  if (analysis.categories.includes(CardCategory.REMOVAL)) score += 8;
+  if (analysis.categories.includes(CardCategory.DRAW)) score += 6;
+  if (analysis.categories.includes(CardCategory.FINISHER)) score += 8;
+
+  return score;
+}
+
+function inferChoiceCardDestination(sourceCard: any): string {
+  const oracleText = String(sourceCard?.oracle_text || '').toLowerCase();
+  if (/to the battlefield|onto the battlefield/.test(oracleText)) return 'battlefield';
+  if (/to (?:your |their )?hand|into (?:your |their )?hand/.test(oracleText)) return 'hand';
+  if (/on top of .*library|into .*library/.test(oracleText)) return 'library';
+  if (/\bexile\b/.test(oracleText)) return 'exile';
+  return 'hand';
+}
+
+function scoreChoiceCardTarget(
+  game: any,
+  playerId: PlayerID,
+  target: TargetRef,
+  sourceCard: any,
+  profile: DeckArchetypeProfile | null,
+): number {
+  const targetCard = getZoneCardForTarget(game, target);
+  if (!targetCard?.card) return -9999;
+
+  const { card, ownerId, zone } = targetCard;
+  const oracleText = String(sourceCard?.oracle_text || '').toLowerCase();
+  const destination = inferChoiceCardDestination(sourceCard);
+  const analysis = cardAnalyzer.analyzeCard(card);
+  const acquisitionScore = scoreCardForAIAcquisition(game, playerId, card, destination, profile);
+  const manaValue = Number(card?.cmc || 0) || 0;
+
+  if (zone === 'graveyard') {
+    const helpfulGraveyardEffect = /(return|put)[\s\S]*graveyard[\s\S]*(to|onto|into)/i.test(oracleText);
+    const hostileGraveyardEffect = /\bexile\b[\s\S]*graveyard/i.test(oracleText);
+
+    if (helpfulGraveyardEffect) {
+      let score = acquisitionScore;
+      if (destination === 'battlefield' && analysis.details.hasETBTrigger) score += 10;
+      if (destination === 'battlefield' && analysis.details.producesMana) score += 6;
+      return score;
+    }
+
+    if (hostileGraveyardEffect) {
+      let score = scoreHostileGraveyardCardDisruption(card);
+      return ownerId === playerId ? -score : score + 40;
+    }
+
+    return acquisitionScore + (ownerId === playerId ? 5 : 0);
+  }
+
+  return acquisitionScore;
+}
+
 export function chooseAITargetsForSpell(
   game: any,
   playerId: PlayerID,
@@ -2607,9 +2730,16 @@ export function chooseAITargetsForSpell(
   const threatAssessment = aiEngine.assessBattlefieldThreats(game.state as any, playerId);
 
   const scoredTargets = validTargets.map((target) => {
-    const score = target.kind === 'permanent'
-      ? scorePermanentTargetForSpell(game, playerId, card, spellSpec, target, profile, threatAssessment)
-      : scorePlayerTargetForSpell(game, playerId, spellSpec, target, profile, threatAssessment);
+    let score = -9999;
+    if (target.kind === 'permanent') {
+      score = scorePermanentTargetForSpell(game, playerId, card, spellSpec, target, profile, threatAssessment);
+    } else if (target.kind === 'player') {
+      score = scorePlayerTargetForSpell(game, playerId, spellSpec, target, profile, threatAssessment);
+    } else if (target.kind === 'stack') {
+      score = scoreStackTargetChoice(game, playerId, target);
+    } else if (target.kind === 'card') {
+      score = scoreChoiceCardTarget(game, playerId, target, card, profile);
+    }
     return { target, score };
   });
 
@@ -2665,6 +2795,8 @@ function mapChoiceOptionToTargetRef(game: any, option: any): TargetRef | null {
     return null;
   }
 
+  const optionType = String(option?.type || option?.kind || option?.description || '').trim().toLowerCase();
+
   const battlefield = game?.state?.battlefield || [];
   if (battlefield.some((perm: any) => String(perm?.id || '') === optionId)) {
     return { kind: 'permanent', id: optionId };
@@ -2673,6 +2805,25 @@ function mapChoiceOptionToTargetRef(game: any, option: any): TargetRef | null {
   const players = game?.state?.players || [];
   if (players.some((player: any) => String(player?.id || '') === optionId)) {
     return { kind: 'player', id: optionId };
+  }
+
+  const stack = game?.state?.stack || [];
+  if (stack.some((item: any) => String(item?.id || '') === optionId) || optionType === 'stack' || optionType === 'spell') {
+    return { kind: 'stack', id: optionId };
+  }
+
+  if (optionType === 'graveyard_card' || optionType.includes('graveyard')) {
+    return { kind: 'card', id: optionId, zone: 'graveyard' };
+  }
+
+  const graveyardCard = findZoneCardById(game, optionId, ['graveyard']);
+  if (graveyardCard) {
+    return { kind: 'card', id: optionId, zone: 'graveyard' };
+  }
+
+  const zoneCard = findZoneCardById(game, optionId);
+  if (zoneCard) {
+    return { kind: 'card', id: optionId, zone: zoneCard.zone };
   }
 
   return null;
@@ -2714,6 +2865,14 @@ function scoreChoiceTargetFallback(
     }
 
     return score;
+  }
+
+  if (target.kind === 'stack') {
+    return scoreStackTargetChoice(game, playerId, target);
+  }
+
+  if (target.kind === 'card') {
+    return scoreChoiceCardTarget(game, playerId, target, sourceCard, profile);
   }
 
   const player = getPlayerForTarget(game, target);
@@ -8241,6 +8400,32 @@ async function handleAIResolutionStep(
         };
         ResolutionQueueManager.completeStep(gameId, step.id, response);
         debug(1, `[AI] mode_selection: Selected ${modeDecision.selections.join(', ') || 'none'}`);
+        break;
+      }
+
+      case 'graveyard_selection': {
+        const selections = chooseAIGraveyardSelectionIds(game, playerId, step);
+        ResolutionQueueManager.completeStep(gameId, step.id, createResponse(selections));
+        debug(1, `[AI] graveyard_selection: Selected ${selections.join(', ') || 'none'}`);
+        break;
+      }
+
+      case 'library_search': {
+        const selections = chooseAILibrarySearchCards(
+          game,
+          playerId,
+          Array.isArray(step?.availableCards) ? step.availableCards : [],
+          {
+            minSelections: Number(step?.minSelections ?? 0),
+            maxSelections: Number(step?.maxSelections ?? 1),
+            destination: String(step?.destination || 'hand'),
+            maxTotalManaValue: Number.isFinite(Number(step?.maxTotalManaValue))
+              ? Number(step.maxTotalManaValue)
+              : undefined,
+          },
+        );
+        ResolutionQueueManager.completeStep(gameId, step.id, createResponse(selections));
+        debug(1, `[AI] library_search: Selected ${selections.join(', ') || 'none'}`);
         break;
       }
 

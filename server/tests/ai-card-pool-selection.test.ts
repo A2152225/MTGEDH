@@ -185,4 +185,66 @@ describe('AI card pool selection', () => {
 
     expect(selected).toEqual(['filler']);
   });
+
+  it('prefers stronger opposing graveyard cards for exile-style targeting', () => {
+    const playerId = 'ai1' as PlayerID;
+    const tutor = {
+      id: 'tutor',
+      name: 'Demonic Tutor',
+      type_line: 'Sorcery',
+      oracle_text: 'Search your library for a card, put that card into your hand, then shuffle.',
+      mana_cost: '{1}{B}',
+      cmc: 2,
+    };
+    const filler = {
+      id: 'filler_opp',
+      name: 'Runeclaw Bear',
+      type_line: 'Creature — Bear',
+      oracle_text: '',
+      mana_cost: '{1}{G}',
+      cmc: 2,
+      power: '2',
+      toughness: '2',
+    };
+
+    const game = {
+      state: {
+        players: [createPlayer(playerId, 'AI'), createPlayer('opp1', 'Opponent')],
+        battlefield: [],
+        zones: {
+          [playerId]: {
+            hand: [],
+            library: [],
+            graveyard: [],
+            exile: [],
+          },
+          opp1: {
+            hand: [],
+            library: [],
+            graveyard: [tutor, filler],
+            exile: [],
+          },
+        },
+        commandZone: {
+          [playerId]: [],
+        },
+      },
+    } as any;
+
+    const step = {
+      playerId,
+      targetPlayerId: 'opp1',
+      minTargets: 1,
+      maxTargets: 1,
+      destination: 'exile',
+      validTargets: [
+        { id: 'tutor', name: 'Demonic Tutor', typeLine: tutor.type_line },
+        { id: 'filler_opp', name: 'Runeclaw Bear', typeLine: filler.type_line },
+      ],
+    };
+
+    const selected = chooseAIGraveyardSelectionIds(game, playerId, step);
+
+    expect(selected).toEqual(['tutor']);
+  });
 });
