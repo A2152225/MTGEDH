@@ -41,7 +41,7 @@ import {
 } from "./util.js";
 import { checkAndPromptOpeningHandActions, getOpeningHandBattlefieldCounters, isOpeningHandBattlefieldCard } from "./opening-hand.js";
 import { executeDeclareAttackers } from "./combat.js";
-import { parsePT, uid, calculateVariablePT, validateLifePayment } from "../state/utils.js";
+import { cardManaValue, parsePT, uid, calculateVariablePT, validateLifePayment } from "../state/utils.js";
 import { debug, debugWarn, debugError } from "../utils/debug.js";
 import { filterLibraryCardsForSearch } from "./library-search.js";
 import {
@@ -1639,8 +1639,8 @@ function buildActivatedAbilityValidTargets(
   game: any,
   controllerId: string,
   targetReqs: ReturnType<typeof parseTargetRequirements>
-): Array<{ id: string; name: string; type: string; controller?: string; imageUrl?: string; life?: number; isOpponent?: boolean }> {
-  const validTargets: Array<{ id: string; name: string; type: string; controller?: string; imageUrl?: string; life?: number; isOpponent?: boolean }> = [];
+): Array<{ id: string; name: string; type: string; controller?: string; zoneOwnerId?: string; imageUrl?: string; life?: number; isOpponent?: boolean }> {
+  const validTargets: Array<{ id: string; name: string; type: string; controller?: string; zoneOwnerId?: string; imageUrl?: string; life?: number; isOpponent?: boolean }> = [];
   const stateBattlefield = Array.isArray(game.state?.battlefield) ? game.state.battlefield : [];
   const statePlayers = Array.isArray(game.state?.players) ? game.state.players : [];
   const stateZones = game.state?.zones || {};
@@ -1745,12 +1745,30 @@ function buildActivatedAbilityValidTargets(
           const playerZones = stateZones?.[ownerId] || {};
           const graveyard = Array.isArray(playerZones?.graveyard) ? playerZones.graveyard : [];
           validTargets.push(...graveyard
-            .filter((card: any) => matchesGraveyardCardTargetType(card, targetType))
+            .filter((card: any) => {
+              if (!matchesGraveyardCardTargetType(card, targetType)) {
+                return false;
+              }
+              if (typeof (targetReqs as any).targetFilterMaxManaValue === 'number' && Number.isFinite((targetReqs as any).targetFilterMaxManaValue)) {
+                if (cardManaValue(card) > Number((targetReqs as any).targetFilterMaxManaValue)) {
+                  return false;
+                }
+              }
+              if (typeof (targetReqs as any).targetTotalPowerLimit === 'number' && Number.isFinite((targetReqs as any).targetTotalPowerLimit)) {
+                const typeLine = String(card?.type_line || '').toLowerCase();
+                const cardPower = typeLine.includes('creature') ? parsePT(card?.power) : 0;
+                if (cardPower > Number((targetReqs as any).targetTotalPowerLimit)) {
+                  return false;
+                }
+              }
+              return true;
+            })
             .map((card: any) => ({
               id: String(card.id),
               name: card.name || 'Card',
               type: 'graveyard_card',
               controller: ownerId,
+              zoneOwnerId: ownerId,
               imageUrl: card.image_uris?.small || card.image_uris?.normal,
             })));
         }
@@ -1760,6 +1778,48 @@ function buildActivatedAbilityValidTargets(
   }
 
   return validTargets.filter((target, index, all) => all.findIndex((candidate) => candidate.id === target.id) === index);
+}
+
+function getSelectedGraveyardCardsForStep(
+  game: any,
+  stepData: any,
+  selectedCardIds: string[]
+): Array<{ ownerId: string; card: any }> {
+  const zones = (((game.state as any)?.zones || {}) as Record<string, any>);
+  const validTargets: any[] = Array.isArray(stepData?.validTargets) ? stepData.validTargets : [];
+  const validTargetById = new Map<string, any>(
+    validTargets
+      .map((target: any): [string, any] => [String(target?.id || ''), target])
+      .filter(([id]) => Boolean(id))
+  );
+  const defaultTargetPlayerId = String(stepData?.targetPlayerId || '').trim();
+
+  return selectedCardIds
+    .map((selectedCardId) => {
+      const cardId = String(selectedCardId || '').trim();
+      if (!cardId) {
+        return null;
+      }
+
+      const targetInfo = validTargetById.get(cardId);
+      const explicitOwnerId = String(targetInfo?.zoneOwnerId || targetInfo?.controller || '').trim();
+      const ownersToCheck = explicitOwnerId
+        ? [explicitOwnerId]
+        : defaultTargetPlayerId
+          ? [defaultTargetPlayerId, ...Object.keys(zones).filter((playerId) => playerId !== defaultTargetPlayerId)]
+          : Object.keys(zones);
+
+      for (const ownerId of ownersToCheck) {
+        const graveyard = Array.isArray(zones[ownerId]?.graveyard) ? zones[ownerId].graveyard : [];
+        const card = graveyard.find((entry: any) => entry && String(entry.id) === cardId);
+        if (card) {
+          return { ownerId, card };
+        }
+      }
+
+      return null;
+    })
+    .filter(Boolean) as Array<{ ownerId: string; card: any }>;
 }
 
 /** Remove all pending may callbacks for a game (call on game teardown). */
@@ -3958,25 +4018,15 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
       const collectEvidenceMinManaValue = Number(stepAny.collectEvidenceMinManaValue ?? 0);
       const totalPowerLimit = Number(stepAny.totalPowerLimit ?? 0);
       const targetPlayerId = String(stepAny.targetPlayerId || pid || '').trim();
-
       if (Number.isFinite(totalPowerLimit) && totalPowerLimit > 0 && selectedCardIds.length > 0) {
-        const zones = (game.state as any)?.zones;
-        const gy = zones?.[targetPlayerId]?.graveyard;
-        if (!Array.isArray(gy)) {
-          socket.emit('error', { code: 'NO_GRAVEYARD', message: 'Graveyard not found' });
-          return;
-        }
-
-        const chosen = selectedCardIds
-          .map((id) => (gy as any[]).find((c: any) => c && String(c.id) === String(id)))
-          .filter(Boolean);
-
+        const chosen = getSelectedGraveyardCardsForStep(game, stepAny, selectedCardIds);
         if (chosen.length !== selectedCardIds.length) {
           socket.emit('error', { code: 'INVALID_TARGET', message: 'Selected card not found in graveyard' });
           return;
         }
 
-        const selectedTotalPower = chosen.reduce((sum: number, card: any) => {
+        const selectedTotalPower = chosen.reduce((sum: number, entry: any) => {
+          const card = entry?.card;
           const typeLine = String(card?.type_line || '').toLowerCase();
           if (!typeLine.includes('creature')) {
             return sum;
@@ -8700,31 +8750,73 @@ async function handleStepResponse(
             break;
           }
 
-          const queuedResolutionStep = ResolutionQueueManager.addStep(gameId, {
-            type: ResolutionStepType.TARGET_SELECTION,
-            playerId: controllerId as any,
-            sourceId: permanentId,
-            sourceName: cardName,
-            sourceImage: (sourcePerm as any)?.card?.image_uris?.small || (sourcePerm as any)?.card?.image_uris?.normal,
-            description: abilityText,
-            mandatory: minTargets > 0,
-            validTargets,
-            targetTypes: targetReqs.targetTypes,
-            minTargets,
-            maxTargets,
-            targetDescription: targetReqs.targetDescription || 'target',
-            battlefieldAbilityTargetSelection: true,
-            permanentId,
-            abilityId,
-            cardName,
-            abilityText,
-            activatedAbilityText: String(stepAny?.activatedAbilityText || '').trim() || `${manaCost}: ${abilityText}`,
-            tappedPermanentsForCost,
-            tapCostTargetFilter: { ...(targetFilter || {}) },
-            tapCostTargetCount: targetIds.length,
-            tapCostPreferTokens: targets.length > 0 && targets.every((target: any) => Boolean(target?.isToken)),
-            tapCostPreferNonTokens: targets.length > 0 && targets.every((target: any) => !target?.isToken),
-          } as any);
+          const useGraveyardSelection = Array.isArray(targetReqs.targetTypes)
+            && targetReqs.targetTypes.length > 0
+            && targetReqs.targetTypes.every((targetType) => String(targetType || '').toLowerCase().startsWith('graveyard_'))
+            && typeof targetReqs.targetTotalPowerLimit === 'number'
+            && Number.isFinite(targetReqs.targetTotalPowerLimit)
+            && targetReqs.targetTotalPowerLimit > 0;
+          const graveyardSelectionTargetPlayerId = useGraveyardSelection
+            ? (() => {
+                const ownerIds = Array.from(new Set(validTargets.map((target: any) => String(target?.zoneOwnerId || target?.controller || '')).filter(Boolean)));
+                return ownerIds.length === 1 ? ownerIds[0] : undefined;
+              })()
+            : undefined;
+          const queuedResolutionStep = ResolutionQueueManager.addStep(gameId, (useGraveyardSelection
+            ? {
+                type: ResolutionStepType.GRAVEYARD_SELECTION,
+                playerId: controllerId as any,
+                sourceId: permanentId,
+                sourceName: cardName,
+                sourceImage: (sourcePerm as any)?.card?.image_uris?.small || (sourcePerm as any)?.card?.image_uris?.normal,
+                title: cardName,
+                description: `Choose ${targetReqs.targetDescription || 'target'} for ${cardName}`,
+                mandatory: minTargets > 0,
+                validTargets,
+                targetTypes: targetReqs.targetTypes,
+                minTargets,
+                maxTargets,
+                targetDescription: targetReqs.targetDescription || 'target',
+                targetPlayerId: graveyardSelectionTargetPlayerId,
+                destination: 'battlefield',
+                totalPowerLimit: Number(targetReqs.targetTotalPowerLimit),
+                battlefieldAbilityTargetSelection: true,
+                permanentId,
+                abilityId,
+                cardName,
+                abilityText,
+                activatedAbilityText: String(stepAny?.activatedAbilityText || '').trim() || `${manaCost}: ${abilityText}`,
+                tappedPermanentsForCost,
+                tapCostTargetFilter: { ...(targetFilter || {}) },
+                tapCostTargetCount: targetIds.length,
+                tapCostPreferTokens: targets.length > 0 && targets.every((target: any) => Boolean(target?.isToken)),
+                tapCostPreferNonTokens: targets.length > 0 && targets.every((target: any) => !target?.isToken),
+              }
+            : {
+                type: ResolutionStepType.TARGET_SELECTION,
+                playerId: controllerId as any,
+                sourceId: permanentId,
+                sourceName: cardName,
+                sourceImage: (sourcePerm as any)?.card?.image_uris?.small || (sourcePerm as any)?.card?.image_uris?.normal,
+                description: abilityText,
+                mandatory: minTargets > 0,
+                validTargets,
+                targetTypes: targetReqs.targetTypes,
+                minTargets,
+                maxTargets,
+                targetDescription: targetReqs.targetDescription || 'target',
+                battlefieldAbilityTargetSelection: true,
+                permanentId,
+                abilityId,
+                cardName,
+                abilityText,
+                activatedAbilityText: String(stepAny?.activatedAbilityText || '').trim() || `${manaCost}: ${abilityText}`,
+                tappedPermanentsForCost,
+                tapCostTargetFilter: { ...(targetFilter || {}) },
+                tapCostTargetCount: targetIds.length,
+                tapCostPreferTokens: targets.length > 0 && targets.every((target: any) => Boolean(target?.isToken)),
+                tapCostPreferNonTokens: targets.length > 0 && targets.every((target: any) => !target?.isToken),
+              }) as any);
 
           try {
             appendEvent(gameId, (game as any).seq ?? 0, 'activateBattlefieldAbility', {
@@ -12751,29 +12843,69 @@ async function handleDiscardResponse(
           return;
         }
 
-        const queuedResolutionStep = ResolutionQueueManager.addStep(gameId, {
-          type: ResolutionStepType.TARGET_SELECTION,
-          playerId: controllerId as any,
-          sourceId: permanentId,
-          sourceName: cardName,
-          sourceImage: (sourcePerm as any)?.card?.image_uris?.small || (sourcePerm as any)?.card?.image_uris?.normal,
-          description: abilityText,
-          mandatory: minTargets > 0,
-          validTargets,
-          targetTypes: targetReqs.targetTypes,
-          minTargets,
-          maxTargets,
-          targetDescription: targetReqs.targetDescription || 'target',
-          battlefieldAbilityTargetSelection: true,
-          permanentId,
-          abilityId,
-          cardName,
-          abilityText,
-          activatedAbilityText: String(stepAny?.activatedAbilityText || '').trim() || `${manaCost}: ${abilityText}`,
-          tappedPermanentsForCost,
-          discardedCardIdsForCost: selections.map((id: any) => String(id)).filter(Boolean),
-          lifePaidForCost: lifeToPayForCost > 0 ? lifeToPayForCost : undefined,
-        } as any);
+        const useGraveyardSelection = Array.isArray(targetReqs.targetTypes)
+          && targetReqs.targetTypes.length > 0
+          && targetReqs.targetTypes.every((targetType) => String(targetType || '').toLowerCase().startsWith('graveyard_'))
+          && typeof targetReqs.targetTotalPowerLimit === 'number'
+          && Number.isFinite(targetReqs.targetTotalPowerLimit)
+          && targetReqs.targetTotalPowerLimit > 0;
+        const graveyardSelectionTargetPlayerId = useGraveyardSelection
+          ? (() => {
+              const ownerIds = Array.from(new Set(validTargets.map((target: any) => String(target?.zoneOwnerId || target?.controller || '')).filter(Boolean)));
+              return ownerIds.length === 1 ? ownerIds[0] : undefined;
+            })()
+          : undefined;
+        const queuedResolutionStep = ResolutionQueueManager.addStep(gameId, (useGraveyardSelection
+          ? {
+              type: ResolutionStepType.GRAVEYARD_SELECTION,
+              playerId: controllerId as any,
+              sourceId: permanentId,
+              sourceName: cardName,
+              sourceImage: (sourcePerm as any)?.card?.image_uris?.small || (sourcePerm as any)?.card?.image_uris?.normal,
+              title: cardName,
+              description: `Choose ${targetReqs.targetDescription || 'target'} for ${cardName}`,
+              mandatory: minTargets > 0,
+              validTargets,
+              targetTypes: targetReqs.targetTypes,
+              minTargets,
+              maxTargets,
+              targetDescription: targetReqs.targetDescription || 'target',
+              targetPlayerId: graveyardSelectionTargetPlayerId,
+              destination: 'battlefield',
+              totalPowerLimit: Number(targetReqs.targetTotalPowerLimit),
+              battlefieldAbilityTargetSelection: true,
+              permanentId,
+              abilityId,
+              cardName,
+              abilityText,
+              activatedAbilityText: String(stepAny?.activatedAbilityText || '').trim() || `${manaCost}: ${abilityText}`,
+              tappedPermanentsForCost,
+              discardedCardIdsForCost: selections.map((id: any) => String(id)).filter(Boolean),
+              lifePaidForCost: lifeToPayForCost > 0 ? lifeToPayForCost : undefined,
+            }
+          : {
+              type: ResolutionStepType.TARGET_SELECTION,
+              playerId: controllerId as any,
+              sourceId: permanentId,
+              sourceName: cardName,
+              sourceImage: (sourcePerm as any)?.card?.image_uris?.small || (sourcePerm as any)?.card?.image_uris?.normal,
+              description: abilityText,
+              mandatory: minTargets > 0,
+              validTargets,
+              targetTypes: targetReqs.targetTypes,
+              minTargets,
+              maxTargets,
+              targetDescription: targetReqs.targetDescription || 'target',
+              battlefieldAbilityTargetSelection: true,
+              permanentId,
+              abilityId,
+              cardName,
+              abilityText,
+              activatedAbilityText: String(stepAny?.activatedAbilityText || '').trim() || `${manaCost}: ${abilityText}`,
+              tappedPermanentsForCost,
+              discardedCardIdsForCost: selections.map((id: any) => String(id)).filter(Boolean),
+              lifePaidForCost: lifeToPayForCost > 0 ? lifeToPayForCost : undefined,
+            }) as any);
 
         try {
           appendEvent(gameId, (game as any).seq ?? 0, 'activateBattlefieldAbility', {
@@ -14606,6 +14738,7 @@ async function handleTargetSelectionResponse(
   // TARGETED BATTLEFIELD ABILITY CONTINUATION AFTER INTERACTIVE COST PAYMENT
   // ========================================================================
   if (stepAny?.battlefieldAbilityTargetSelection === true) {
+    const targetStepData = stepAny;
     const controllerId = String(step.playerId || pid);
     const permanentId = String(stepAny?.permanentId || step.sourceId || '').trim();
     const abilityId = String(stepAny?.abilityId || '').trim();
@@ -26266,7 +26399,7 @@ async function handleGraveyardSelectionResponse(
   const collectEvidenceMinManaValue = Number(stepData.collectEvidenceMinManaValue ?? 0);
   const totalPowerLimit = Number(stepData.totalPowerLimit ?? 0);
 
-  if (!targetPlayerId) {
+  if (!targetPlayerId && stepData.battlefieldAbilityTargetSelection !== true) {
     emitToPlayer(io, pid, 'error', { code: 'NO_TARGET_PLAYER', message: 'No graveyard specified for selection' });
     return;
   }
@@ -26355,16 +26488,16 @@ async function handleGraveyardSelectionResponse(
   );
 
   const zones = (game.state as any).zones = (game.state as any).zones || {};
-  zones[targetPlayerId] = zones[targetPlayerId] || { hand: [], handCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0, libraryCount: 0 };
-  const srcZones = zones[targetPlayerId] as any;
+  const srcZones = targetPlayerId
+    ? (zones[targetPlayerId] = zones[targetPlayerId] || { hand: [], handCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0, libraryCount: 0 })
+    : { hand: [], handCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0, libraryCount: 0 };
   srcZones.graveyard = Array.isArray(srcZones.graveyard) ? srcZones.graveyard : [];
   srcZones.exile = Array.isArray(srcZones.exile) ? srcZones.exile : [];
 
   if (Number.isFinite(totalPowerLimit) && totalPowerLimit > 0 && selectedCardIds.length > 0) {
-    const selectedCards = selectedCardIds
-      .map((id) => (srcZones.graveyard as any[]).find((card: any) => card && String(card.id) === String(id)))
-      .filter(Boolean);
-    const selectedTotalPower = selectedCards.reduce((sum: number, card: any) => {
+    const selectedCards = getSelectedGraveyardCardsForStep(game, stepData, selectedCardIds);
+    const selectedTotalPower = selectedCards.reduce((sum: number, entry: any) => {
+      const card = entry?.card;
       const typeLine = String(card?.type_line || '').toLowerCase();
       if (!typeLine.includes('creature')) {
         return sum;
@@ -26410,6 +26543,112 @@ async function handleGraveyardSelectionResponse(
 
     return null;
   };
+
+  if (stepData?.battlefieldAbilityTargetSelection === true) {
+    const controllerId = String(step.playerId || pid);
+    const permanentId = String(stepData?.permanentId || step.sourceId || '').trim();
+    const abilityId = String(stepData?.abilityId || '').trim();
+    const cardName = String(stepData?.cardName || step.sourceName || 'Ability');
+    const abilityText = String(stepData?.abilityText || step.description || '').trim();
+    const activatedAbilityText = String(stepData?.activatedAbilityText || '').trim();
+    const tappedPermanentsForCost = Array.isArray(stepData?.tappedPermanentsForCost)
+      ? stepData.tappedPermanentsForCost.map((id: any) => String(id)).filter(Boolean)
+      : [];
+
+    const battlefield = Array.isArray(game.state?.battlefield) ? game.state.battlefield : [];
+    const sourcePerm = battlefield.find((perm: any) => perm && String(perm.id) === permanentId);
+    if (!sourcePerm) {
+      emitToPlayer(io, controllerId, 'error', { code: 'PERMANENT_NOT_FOUND', message: 'Permanent no longer on battlefield' });
+      return;
+    }
+    if (String(sourcePerm.controller || '') !== controllerId) {
+      emitToPlayer(io, controllerId, 'error', { code: 'NOT_CONTROLLER', message: 'You no longer control that permanent' });
+      return;
+    }
+
+    const selectedEntries = getSelectedGraveyardCardsForStep(game, stepData, selectedCardIds);
+    if (selectedEntries.length !== selectedCardIds.length) {
+      emitToPlayer(io, controllerId, 'error', { code: 'INVALID_TARGET', message: 'Selected card not found in graveyard' });
+      return;
+    }
+
+    if (Number.isFinite(totalPowerLimit) && totalPowerLimit > 0 && selectedCardIds.length > 0) {
+      const selectedTotalPower = selectedEntries.reduce((sum: number, entry: any) => {
+        const card = entry?.card;
+        const typeLine = String(card?.type_line || '').toLowerCase();
+        if (!typeLine.includes('creature')) {
+          return sum;
+        }
+        return sum + parsePT(card?.power);
+      }, 0);
+
+      if (selectedTotalPower > totalPowerLimit) {
+        emitToPlayer(io, controllerId, 'error', {
+          code: 'INVALID_TOTAL_POWER',
+          message: `Selected cards have total power ${selectedTotalPower} (need ${totalPowerLimit} or less).`,
+        });
+        return;
+      }
+    }
+
+    const stackItem = {
+      id: `ability_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      type: 'ability' as const,
+      controller: controllerId,
+      source: permanentId,
+      sourceName: cardName,
+      description: abilityText,
+      activatedAbilityText: activatedAbilityText || undefined,
+      targets: selectedCardIds,
+      copyRetargetValidTargets: validTargets.map((target: any) => ({ ...target })),
+      copyRetargetTargetTypes: Array.isArray(stepData.targetTypes) ? [...stepData.targetTypes] : [],
+      copyRetargetMinTargets: minTargets,
+      copyRetargetMaxTargets: maxTargets,
+      copyRetargetTargetDescription: String(stepData.targetDescription || 'target'),
+      ...(Number.isFinite(totalPowerLimit) && totalPowerLimit > 0 ? { targetTotalPowerLimit: totalPowerLimit } : null),
+    } as any;
+
+    game.state.stack = game.state.stack || [];
+    game.state.stack.push(stackItem);
+    fireBattlefieldAbilityActivatedTriggers(game, controllerId, permanentId, abilityText, gameId, stackItem.id);
+
+    io.to(gameId).emit('chat', {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: 'system',
+      message: `⚡ ${getPlayerName(game, controllerId)} activated ${cardName}'s ability: ${abilityText}`,
+      ts: Date.now(),
+    });
+
+    try {
+      appendEvent(gameId, (game as any).seq ?? 0, 'activateBattlefieldAbility', {
+        playerId: controllerId,
+        permanentId,
+        abilityId: abilityId || undefined,
+        cardName,
+        abilityText,
+        activatedAbilityText: activatedAbilityText || undefined,
+        targets: selectedCardIds,
+        copyRetargetValidTargets: validTargets.map((target: any) => ({ ...target })),
+        copyRetargetTargetTypes: Array.isArray(stepData.targetTypes) ? [...stepData.targetTypes] : [],
+        copyRetargetMinTargets: minTargets,
+        copyRetargetMaxTargets: maxTargets,
+        copyRetargetTargetDescription: String(stepData.targetDescription || 'target'),
+        targetTotalPowerLimit: Number.isFinite(totalPowerLimit) && totalPowerLimit > 0 ? totalPowerLimit : undefined,
+        tappedPermanents: tappedPermanentsForCost.length > 0 ? tappedPermanentsForCost : undefined,
+        discardedCardIds: Array.isArray(stepData?.discardedCardIdsForCost) && stepData.discardedCardIdsForCost.length > 0
+          ? stepData.discardedCardIdsForCost.map((id: any) => String(id))
+          : undefined,
+        lifePaidForCost: Number(stepData?.lifePaidForCost || 0) > 0 ? Number(stepData.lifePaidForCost) : undefined,
+      });
+    } catch {
+      // ignore persistence failures
+    }
+
+    if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
+    broadcastGame(io, game, gameId);
+    return;
+  }
 
   // Collect evidence validation: ensure the chosen cards meet the required total mana value.
   let evidenceCollected = false;
@@ -27050,31 +27289,73 @@ async function handleGraveyardSelectionResponse(
           return;
         }
 
-        const queuedResolutionStep = ResolutionQueueManager.addStep(gameId, {
-          type: ResolutionStepType.TARGET_SELECTION,
-          playerId: controllerId as any,
-          sourceId: permanentId,
-          sourceName: cardName,
-          sourceImage: (sourcePerm as any)?.card?.image_uris?.small || (sourcePerm as any)?.card?.image_uris?.normal,
-          description: abilityText,
-          mandatory: minTargets > 0,
-          validTargets,
-          targetTypes: targetReqs.targetTypes,
-          minTargets,
-          maxTargets,
-          targetDescription: targetReqs.targetDescription || 'target',
-          battlefieldAbilityTargetSelection: true,
-          permanentId,
-          abilityId,
-          cardName,
-          abilityText,
-          activatedAbilityText: String(stepAny?.activatedAbilityText || '').trim() || `${manaCost}: ${abilityText}`,
-          tappedPermanentsForCost,
-          discardedCardIdsForCost: Array.isArray(stepAny?.discardedCardIdsForCost)
-            ? stepAny.discardedCardIdsForCost.map((id: any) => String(id)).filter(Boolean)
-            : undefined,
-          lifePaidForCost: lifeToPayForCost > 0 ? lifeToPayForCost : undefined,
-        } as any);
+        const useGraveyardSelection = Array.isArray(targetReqs.targetTypes)
+          && targetReqs.targetTypes.length > 0
+          && targetReqs.targetTypes.every((targetType) => String(targetType || '').toLowerCase().startsWith('graveyard_'))
+          && typeof targetReqs.targetTotalPowerLimit === 'number'
+          && Number.isFinite(targetReqs.targetTotalPowerLimit)
+          && targetReqs.targetTotalPowerLimit > 0;
+        const graveyardSelectionTargetPlayerId = useGraveyardSelection
+          ? (() => {
+              const ownerIds = Array.from(new Set(validTargets.map((target: any) => String(target?.zoneOwnerId || target?.controller || '')).filter(Boolean)));
+              return ownerIds.length === 1 ? ownerIds[0] : undefined;
+            })()
+          : undefined;
+        const queuedResolutionStep = ResolutionQueueManager.addStep(gameId, (useGraveyardSelection
+          ? {
+              type: ResolutionStepType.GRAVEYARD_SELECTION,
+              playerId: controllerId as any,
+              sourceId: permanentId,
+              sourceName: cardName,
+              sourceImage: (sourcePerm as any)?.card?.image_uris?.small || (sourcePerm as any)?.card?.image_uris?.normal,
+              title: cardName,
+              description: `Choose ${targetReqs.targetDescription || 'target'} for ${cardName}`,
+              mandatory: minTargets > 0,
+              validTargets,
+              targetTypes: targetReqs.targetTypes,
+              minTargets,
+              maxTargets,
+              targetDescription: targetReqs.targetDescription || 'target',
+              targetPlayerId: graveyardSelectionTargetPlayerId,
+              destination: 'battlefield',
+              totalPowerLimit: Number(targetReqs.targetTotalPowerLimit),
+              battlefieldAbilityTargetSelection: true,
+              permanentId,
+              abilityId,
+              cardName,
+              abilityText,
+              activatedAbilityText: String(stepAny?.activatedAbilityText || '').trim() || `${manaCost}: ${abilityText}`,
+              tappedPermanentsForCost,
+              discardedCardIdsForCost: Array.isArray(stepAny?.discardedCardIdsForCost)
+                ? stepAny.discardedCardIdsForCost.map((id: any) => String(id)).filter(Boolean)
+                : undefined,
+              lifePaidForCost: lifeToPayForCost > 0 ? lifeToPayForCost : undefined,
+            }
+          : {
+              type: ResolutionStepType.TARGET_SELECTION,
+              playerId: controllerId as any,
+              sourceId: permanentId,
+              sourceName: cardName,
+              sourceImage: (sourcePerm as any)?.card?.image_uris?.small || (sourcePerm as any)?.card?.image_uris?.normal,
+              description: abilityText,
+              mandatory: minTargets > 0,
+              validTargets,
+              targetTypes: targetReqs.targetTypes,
+              minTargets,
+              maxTargets,
+              targetDescription: targetReqs.targetDescription || 'target',
+              battlefieldAbilityTargetSelection: true,
+              permanentId,
+              abilityId,
+              cardName,
+              abilityText,
+              activatedAbilityText: String(stepAny?.activatedAbilityText || '').trim() || `${manaCost}: ${abilityText}`,
+              tappedPermanentsForCost,
+              discardedCardIdsForCost: Array.isArray(stepAny?.discardedCardIdsForCost)
+                ? stepAny.discardedCardIdsForCost.map((id: any) => String(id)).filter(Boolean)
+                : undefined,
+              lifePaidForCost: lifeToPayForCost > 0 ? lifeToPayForCost : undefined,
+            }) as any);
 
         try {
           appendEvent(gameId, (game as any).seq ?? 0, 'activateBattlefieldAbility', {
