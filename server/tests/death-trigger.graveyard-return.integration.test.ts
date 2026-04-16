@@ -399,6 +399,96 @@ describe('Death trigger graveyard returns (integration)', () => {
     expect(String(confirmEvent?.payload?.destination || '')).toBe('hand');
   });
 
+  it('uses the dying creature\'s power for graveyard mana-value limits on death-trigger targets', async () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const playerId = 'p1';
+    (game.state as any).players = [{ id: playerId, name: 'P1', spectator: false, life: 40 }];
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).pendingDelayedGraveyardReturns = [];
+    (game.state as any).battlefield = [
+      {
+        id: 'power_reclaimer_die_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        counters: {},
+        basePower: 3,
+        baseToughness: 1,
+        card: {
+          id: 'power_reclaimer_die_card_1',
+          name: 'Power Reclaimer',
+          type_line: 'Creature - Spirit',
+          mana_cost: '{4}{B}',
+          oracle_text: 'When this creature dies, return target creature card with mana value less than or equal to this creature\'s power from your graveyard to the battlefield.',
+          zone: 'battlefield',
+          power: '3',
+          toughness: '1',
+        },
+      },
+    ];
+    (game.state as any).zones = {
+      [playerId]: {
+        hand: [],
+        handCount: 0,
+        graveyard: [
+          {
+            id: 'gy_mv3_target',
+            name: 'Three-Drop Witness',
+            type_line: 'Creature - Human',
+            mana_cost: '{2}{G}',
+            zone: 'graveyard',
+            power: '3',
+            toughness: '2',
+          },
+          {
+            id: 'gy_mv4_target',
+            name: 'Four-Drop Giant',
+            type_line: 'Creature - Giant',
+            mana_cost: '{3}{G}',
+            zone: 'graveyard',
+            power: '4',
+            toughness: '4',
+          },
+        ],
+        graveyardCount: 2,
+        exile: [],
+        exileCount: 0,
+        library: [],
+        libraryCount: 0,
+      },
+    };
+
+    expect(movePermanentToGraveyard(game as any, 'power_reclaimer_die_1')).toBe(true);
+
+    const triggerStack = (game.state as any).stack || [];
+    expect(triggerStack).toHaveLength(1);
+    expect(triggerStack[0]).toMatchObject({
+      type: 'triggered_ability',
+      source: 'power_reclaimer_die_1',
+      sourceName: 'Power Reclaimer',
+      requiresTarget: true,
+      targetZone: 'graveyard',
+      targetDestination: 'battlefield',
+      targetGraveyardScope: 'your',
+      targetFilterTypes: ['creature'],
+      targetFilterMaxManaValue: 3,
+    });
+
+    game.resolveTopOfStack();
+
+    const queue = ResolutionQueueManager.getQueue(gameId);
+    expect(queue.steps).toHaveLength(1);
+    const step = queue.steps[0] as any;
+    expect(step.type).toBe('graveyard_selection');
+    expect(step.targetPlayerId).toBe(playerId);
+    expect(step.destination).toBe('battlefield');
+    expect(step.validTargets.map((target: any) => String(target.id))).toEqual(['gy_mv3_target']);
+  });
+
   it('routes Junji death modal reanimation through MODAL_CHOICE and excludes Dragon creature cards', async () => {
     createGameIfNotExists(gameId, 'commander', 40);
     const game = ensureGame(gameId);

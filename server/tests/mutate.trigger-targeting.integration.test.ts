@@ -331,6 +331,132 @@ describe('Mutate trigger targeting (integration)', () => {
     expect(String(persisted?.payload?.destination || '')).toBe('hand');
   });
 
+  it('filters mutate graveyard-return triggers with mana value or greater', async () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const playerId = 'p1';
+    (game.state as any).players = [{ id: playerId, name: 'P1', spectator: false, life: 40 }];
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).battlefield = [
+      {
+        id: 'host_mv_greater_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        counters: {},
+        basePower: 3,
+        baseToughness: 3,
+        card: {
+          id: 'host_mv_greater_card_1',
+          name: 'Mutation Host',
+          type_line: 'Creature - Beast',
+          oracle_text: 'Reach',
+          zone: 'battlefield',
+          power: '3',
+          toughness: '3',
+        },
+      },
+    ];
+    (game.state as any).zones = {
+      [playerId]: {
+        hand: [],
+        handCount: 0,
+        graveyard: [
+          {
+            id: 'gy_creature_mv2_greater_1',
+            name: 'Small Return',
+            type_line: 'Creature - Bear',
+            mana_cost: '{1}{G}',
+            zone: 'graveyard',
+            power: '2',
+            toughness: '2',
+          },
+          {
+            id: 'gy_creature_mv4_greater_1',
+            name: 'Large Return',
+            type_line: 'Creature - Beast',
+            mana_cost: '{3}{G}',
+            zone: 'graveyard',
+            power: '4',
+            toughness: '4',
+          },
+        ],
+        graveyardCount: 2,
+        exile: [],
+        exileCount: 0,
+        library: [],
+        libraryCount: 0,
+      },
+    };
+    (game.state as any).stack = [
+      {
+        id: 'stack_mutate_graveyard_greater_1',
+        type: 'spell',
+        controller: playerId,
+        alternateCostId: 'mutate',
+        targets: ['host_mv_greater_1'],
+        card: {
+          id: 'mutate_graveyard_greater_1',
+          name: 'Greater Grave Lurker',
+          type_line: 'Creature - Nightmare Beast',
+          oracle_text: 'Mutate {2}{B/G}{B/G}\nWhenever this creature mutates, return target creature card with mana value 4 or greater from your graveyard to your hand.',
+          zone: 'stack',
+          power: '4',
+          toughness: '4',
+          isMutating: true,
+          mutateTarget: 'host_mv_greater_1',
+          mutateOnTop: true,
+          alternateCostId: 'mutate',
+        },
+      },
+    ];
+
+    game.resolveTopOfStack();
+
+    const triggerStack = (game.state as any).stack || [];
+    expect(triggerStack).toHaveLength(1);
+    expect(triggerStack[0]).toMatchObject({
+      type: 'triggered_ability',
+      source: 'host_mv_greater_1',
+      sourceName: 'Greater Grave Lurker',
+      description: 'return target creature card with mana value 4 or greater from your graveyard to your hand.',
+      requiresTarget: true,
+      targetZone: 'graveyard',
+      targetDestination: 'hand',
+      targetFilterTypes: ['creature'],
+      targetFilterMinManaValue: 4,
+    });
+
+    game.resolveTopOfStack();
+
+    const queue = ResolutionQueueManager.getQueue(gameId);
+    expect(queue.steps).toHaveLength(1);
+    const step = queue.steps[0] as any;
+    expect(step.type).toBe('graveyard_selection');
+    expect(step.validTargets.map((target: any) => String(target.id))).toEqual(['gy_creature_mv4_greater_1']);
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(playerId, emitted);
+    socket.rooms.add(gameId);
+    const io = createMockIo(emitted, [socket]);
+
+    registerResolutionHandlers(io as any, socket as any);
+    registerInteractionHandlers(io as any, socket as any);
+
+    await handlers.submitResolutionResponse({
+      gameId,
+      stepId: step.id,
+      selections: ['gy_creature_mv4_greater_1'],
+    });
+
+    const playerZones = (game.state as any).zones?.[playerId];
+    expect((playerZones?.graveyard || []).map((card: any) => String(card?.id || ''))).toEqual(['gy_creature_mv2_greater_1']);
+    expect((playerZones?.hand || []).some((card: any) => String(card?.id || '') === 'gy_creature_mv4_greater_1')).toBe(true);
+  });
+
   it('routes mutate opponent-graveyard reanimation triggers through GRAVEYARD_SELECTION', async () => {
     createGameIfNotExists(gameId, 'commander', 40);
     const game = ensureGame(gameId);

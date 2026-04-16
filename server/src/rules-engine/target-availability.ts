@@ -1,5 +1,6 @@
 import type { PlayerID } from "../../../shared/src/index.js";
 import { categorizeSpell, evaluateTargeting, matchesGraveyardCardTargetType as matchesSharedGraveyardCardTargetType, parseTargetRequirements, requiresTargeting } from "./targeting.js";
+import { cardManaValue } from "../state/utils.js";
 
 function getTargetingContext(state: any): { hasBattlefield: boolean; hasPlayers: boolean; hasStack: boolean; hasZones: boolean } {
   return {
@@ -178,9 +179,25 @@ export function hasValidTargetsForSpell(
         ? state.zones[ownerId].graveyard
         : [];
       for (const card of graveyard) {
-        if (targetReqs.targetTypes.some(tt => matchesGraveyardTargetType(card, tt))) {
-          candidates.add(`graveyard:${card.id}`);
+        if (!targetReqs.targetTypes.some(tt => matchesGraveyardTargetType(card, tt))) {
+          continue;
         }
+        if (typeof (targetReqs as any).targetFilterExactManaValue === 'number' && Number.isFinite((targetReqs as any).targetFilterExactManaValue)) {
+          if (cardManaValue(card) !== Number((targetReqs as any).targetFilterExactManaValue)) {
+            continue;
+          }
+        }
+        if (typeof (targetReqs as any).targetFilterMinManaValue === 'number' && Number.isFinite((targetReqs as any).targetFilterMinManaValue)) {
+          if (cardManaValue(card) < Number((targetReqs as any).targetFilterMinManaValue)) {
+            continue;
+          }
+        }
+        if (typeof (targetReqs as any).targetFilterMaxManaValue === 'number' && Number.isFinite((targetReqs as any).targetFilterMaxManaValue)) {
+          if (cardManaValue(card) > Number((targetReqs as any).targetFilterMaxManaValue)) {
+            continue;
+          }
+        }
+          candidates.add(`graveyard:${card.id}`);
       }
     }
   }

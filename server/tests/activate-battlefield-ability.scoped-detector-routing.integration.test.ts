@@ -1985,6 +1985,253 @@ describe('activateBattlefieldAbility detector routing uses selected ability text
     expect((returnedPermanent?.counters || {}).finality).toBe(1);
   });
 
+  it('filters exact-mana-value graveyard-to-battlefield abilities through the selected ability text', async () => {
+    const gyBattlefieldExactManaValueGameId = `${gameId}_graveyard_battlefield_exact_mana_value`;
+    await resetGame(gyBattlefieldExactManaValueGameId);
+
+    createGameIfNotExists(gyBattlefieldExactManaValueGameId, 'commander', 40);
+    const game = ensureGame(gyBattlefieldExactManaValueGameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const playerId = 'p1';
+    const opponentId = 'p2';
+    (game.state as any).players = [
+      { id: playerId, name: 'P1', spectator: false, life: 40 },
+      { id: opponentId, name: 'P2', spectator: false, life: 40 },
+    ];
+    (game.state as any).startingLife = 40;
+    (game.state as any).life = { [playerId]: 40, [opponentId]: 40 };
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).manaPool = {
+      [playerId]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 3 },
+      [opponentId]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+    };
+    (game.state as any).zones = {
+      [playerId]: {
+        hand: [],
+        handCount: 0,
+        graveyard: [],
+        graveyardCount: 0,
+        library: [],
+        libraryCount: 0,
+      },
+      [opponentId]: {
+        hand: [],
+        handCount: 0,
+        graveyard: [
+          {
+            id: 'opp_creature_mv1_exact_1',
+            name: 'Exact Pup',
+            type_line: 'Creature - Dog',
+            mana_cost: '{W}',
+            zone: 'graveyard',
+            power: '1',
+            toughness: '1',
+          },
+          {
+            id: 'opp_creature_mv2_exact_1',
+            name: 'Too Costly Target',
+            type_line: 'Creature - Cat',
+            mana_cost: '{1}{W}',
+            zone: 'graveyard',
+            power: '2',
+            toughness: '2',
+          },
+        ],
+        graveyardCount: 2,
+        library: [],
+        libraryCount: 0,
+      },
+    };
+    (game as any).libraries.set(playerId, []);
+    (game as any).libraries.set(opponentId, []);
+    (game.state as any).battlefield = [
+      {
+        id: 'exact_mv_gravecaller_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        card: {
+          id: 'exact_mv_gravecaller_card_1',
+          name: 'Exact Mana Gravecaller',
+          type_line: 'Artifact',
+          oracle_text: '{3}: Put target creature card with mana value 1 from a graveyard onto the battlefield under your control.',
+        },
+      },
+    ];
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(playerId, emitted);
+    socket.rooms.add(gyBattlefieldExactManaValueGameId);
+    const io = createMockIo(emitted, [socket]);
+
+    registerResolutionHandlers(io as any, socket as any);
+    registerInteractionHandlers(io as any, socket as any);
+
+    await handlers['activateBattlefieldAbility']({ gameId: gyBattlefieldExactManaValueGameId, permanentId: 'exact_mv_gravecaller_1', abilityId: 'exact_mv_gravecaller_1-ability-0' });
+
+    const queue = ResolutionQueueManager.getQueue(gyBattlefieldExactManaValueGameId);
+    expect(queue.steps).toHaveLength(1);
+
+    const validTargetIds = ((queue.steps[0] as any).validTargets || []).map((target: any) => String(target?.id));
+    expect(validTargetIds).toEqual(['opp_creature_mv1_exact_1']);
+    expect(String((queue.steps[0] as any).targetDescription || '').toLowerCase()).toContain('mana value 1');
+    expect(String((queue.steps[0] as any).targetDescription || '').toLowerCase()).not.toContain('or less');
+
+    await handlers['submitResolutionResponse']({
+      gameId: gyBattlefieldExactManaValueGameId,
+      stepId: String((queue.steps[0] as any).id),
+      selections: ['opp_creature_mv1_exact_1'],
+      cancelled: false,
+    });
+
+    const stack = (game.state as any).stack || [];
+    expect(stack).toHaveLength(1);
+    expect(String(stack[0]?.description || '').toLowerCase()).toContain('mana value 1');
+    expect(String(stack[0]?.description || '').toLowerCase()).not.toContain('or less');
+
+    game.resolveTopOfStack();
+
+    const opponentZones = (game.state as any).zones?.[opponentId];
+    expect((opponentZones?.graveyard || []).map((card: any) => String(card?.id || ''))).toEqual(['opp_creature_mv2_exact_1']);
+
+    const returnedPermanent = ((game.state as any).battlefield || []).find(
+      (perm: any) => String(perm?.card?.id || '') === 'opp_creature_mv1_exact_1'
+    );
+    expect(returnedPermanent).toMatchObject({
+      controller: playerId,
+      owner: opponentId,
+      tapped: false,
+      summoningSickness: true,
+    });
+  });
+
+  it('filters chosen-X graveyard-to-battlefield abilities with mana value or greater through the selected ability text', async () => {
+    const gyBattlefieldChosenXGreaterGameId = `${gameId}_graveyard_battlefield_chosen_x_greater`;
+    await resetGame(gyBattlefieldChosenXGreaterGameId);
+
+    createGameIfNotExists(gyBattlefieldChosenXGreaterGameId, 'commander', 40);
+    const game = ensureGame(gyBattlefieldChosenXGreaterGameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const playerId = 'p1';
+    const opponentId = 'p2';
+    (game.state as any).players = [
+      { id: playerId, name: 'P1', spectator: false, life: 40 },
+      { id: opponentId, name: 'P2', spectator: false, life: 40 },
+    ];
+    (game.state as any).startingLife = 40;
+    (game.state as any).life = { [playerId]: 40, [opponentId]: 40 };
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).manaPool = {
+      [playerId]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 2 },
+      [opponentId]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+    };
+    (game.state as any).zones = {
+      [playerId]: {
+        hand: [],
+        handCount: 0,
+        graveyard: [],
+        graveyardCount: 0,
+        library: [],
+        libraryCount: 0,
+      },
+      [opponentId]: {
+        hand: [],
+        handCount: 0,
+        graveyard: [
+          {
+            id: 'opp_creature_mv1_x_greater_1',
+            name: 'Too Small Target',
+            type_line: 'Creature - Dog',
+            mana_cost: '{W}',
+            zone: 'graveyard',
+            power: '1',
+            toughness: '1',
+          },
+          {
+            id: 'opp_creature_mv3_x_greater_1',
+            name: 'Chosen X Target',
+            type_line: 'Creature - Cat',
+            mana_cost: '{2}{W}',
+            zone: 'graveyard',
+            power: '3',
+            toughness: '3',
+          },
+        ],
+        graveyardCount: 2,
+        library: [],
+        libraryCount: 0,
+      },
+    };
+    (game as any).libraries.set(playerId, []);
+    (game as any).libraries.set(opponentId, []);
+    (game.state as any).battlefield = [
+      {
+        id: 'x_greater_gravecaller_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        card: {
+          id: 'x_greater_gravecaller_card_1',
+          name: 'Chosen X Gravecaller',
+          type_line: 'Artifact',
+          oracle_text: '{X}: Put target creature card with mana value X or greater from a graveyard onto the battlefield under your control.',
+        },
+      },
+    ];
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(playerId, emitted);
+    socket.rooms.add(gyBattlefieldChosenXGreaterGameId);
+    const io = createMockIo(emitted, [socket]);
+
+    registerResolutionHandlers(io as any, socket as any);
+    registerInteractionHandlers(io as any, socket as any);
+
+    await handlers['activateBattlefieldAbility']({
+      gameId: gyBattlefieldChosenXGreaterGameId,
+      permanentId: 'x_greater_gravecaller_1',
+      abilityId: 'x_greater_gravecaller_1-ability-0',
+      xValue: 2,
+    });
+
+    const queue = ResolutionQueueManager.getQueue(gyBattlefieldChosenXGreaterGameId);
+    expect(queue.steps).toHaveLength(1);
+
+    const validTargetIds = ((queue.steps[0] as any).validTargets || []).map((target: any) => String(target?.id));
+    expect(validTargetIds).toEqual(['opp_creature_mv3_x_greater_1']);
+    expect(String((queue.steps[0] as any).targetDescription || '').toLowerCase()).toContain('mana value 2 or greater');
+
+    await handlers['submitResolutionResponse']({
+      gameId: gyBattlefieldChosenXGreaterGameId,
+      stepId: String((queue.steps[0] as any).id),
+      selections: ['opp_creature_mv3_x_greater_1'],
+      cancelled: false,
+    });
+
+    const stack = (game.state as any).stack || [];
+    expect(stack).toHaveLength(1);
+    expect(String(stack[0]?.description || '').toLowerCase()).toContain('mana value 2 or greater');
+
+    game.resolveTopOfStack();
+
+    const opponentZones = (game.state as any).zones?.[opponentId];
+    expect((opponentZones?.graveyard || []).map((card: any) => String(card?.id || ''))).toEqual(['opp_creature_mv1_x_greater_1']);
+
+    const returnedPermanent = ((game.state as any).battlefield || []).find(
+      (perm: any) => String(perm?.card?.id || '') === 'opp_creature_mv3_x_greater_1'
+    );
+    expect(returnedPermanent).toMatchObject({
+      controller: playerId,
+      owner: opponentId,
+      tapped: false,
+      summoningSickness: true,
+    });
+  });
+
   it('routes total-power-limited graveyard-to-battlefield abilities through the selected ability text', async () => {
     const gyBattlefieldTotalPowerGameId = `${gameId}_graveyard_battlefield_total_power`;
     await resetGame(gyBattlefieldTotalPowerGameId);

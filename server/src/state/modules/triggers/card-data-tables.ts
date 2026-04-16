@@ -865,12 +865,12 @@ export const KNOWN_END_STEP_TRIGGERS: Record<string, {
   },
   // Abiding Grace - At the beginning of your end step, choose one —
   // • You gain 1 life.
-  // • Return target creature card with mana value 1 or less from your graveyard to the battlefield.
+  // • Return target creature card with mana value 1 from your graveyard to the battlefield.
   "abiding grace": {
-    effect: "Choose one: You gain 1 life; or return a creature card with mana value 1 or less from your graveyard to the battlefield.",
+    effect: "Choose one: You gain 1 life; or return target creature card with mana value 1 from your graveyard to the battlefield.",
     mandatory: true,
     requiresChoice: true,
-    modalOptions: ["You gain 1 life", "Return a creature card with mana value 1 or less from your graveyard to the battlefield"],
+    modalOptions: ["You gain 1 life", "Return target creature card with mana value 1 from your graveyard to the battlefield"],
   },
   // Agitator Ant - At the beginning of your end step, each player may put two +1/+1 counters on a creature they control.
   // Goad each creature that had counters put on it this way. (Until your next turn, those creatures attack each combat

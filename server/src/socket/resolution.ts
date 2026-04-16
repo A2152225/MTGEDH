@@ -1719,6 +1719,16 @@ function buildActivatedAbilityValidTargets(
               if (!matchesGraveyardCardTargetType(card, targetType)) {
                 return false;
               }
+              if (typeof (targetReqs as any).targetFilterExactManaValue === 'number' && Number.isFinite((targetReqs as any).targetFilterExactManaValue)) {
+                if (cardManaValue(card) !== Number((targetReqs as any).targetFilterExactManaValue)) {
+                  return false;
+                }
+              }
+              if (typeof (targetReqs as any).targetFilterMinManaValue === 'number' && Number.isFinite((targetReqs as any).targetFilterMinManaValue)) {
+                if (cardManaValue(card) < Number((targetReqs as any).targetFilterMinManaValue)) {
+                  return false;
+                }
+              }
               if (typeof (targetReqs as any).targetFilterMaxManaValue === 'number' && Number.isFinite((targetReqs as any).targetFilterMaxManaValue)) {
                 if (cardManaValue(card) > Number((targetReqs as any).targetFilterMaxManaValue)) {
                   return false;
@@ -27740,7 +27750,7 @@ async function handleModalChoiceResponse(
     if (selectedEffectTexts.length > 0) {
       const controllerId = String(triggerData.controllerId || pid || '').trim() || String(pid || '');
       const sourceName = String(triggerData.sourceName || modalStep.sourceName || 'Triggered ability').trim() || 'Triggered ability';
-      const sourceId = String(triggerData.sourceId || modalStep.sourceId || '').trim();
+      const sourceId = String(triggerData.sourceId || triggerData.source || modalStep.sourceId || modalStep.source || '').trim();
       const triggerType = String(triggerData.triggerType || 'triggered_ability').trim() || 'triggered_ability';
       const ctx = {
         state: game.state,
@@ -27754,8 +27764,22 @@ async function handleModalChoiceResponse(
         commandZone: (game as any).commandZone || {},
       } as any;
 
+      const sourcePermanent = Array.isArray(game.state?.battlefield)
+        ? (game.state.battlefield as any[]).find((permanent: any) => {
+            if (sourceId && String(permanent?.id || '') === sourceId) {
+              return true;
+            }
+            return String(permanent?.card?.name || permanent?.name || '').trim() === sourceName;
+          })
+        : undefined;
+
       for (const effectText of selectedEffectTexts) {
-        const metadata = inferTriggeredAbilityTargetMetadata(effectText);
+        const metadata = inferTriggeredAbilityTargetMetadata(effectText, {
+          gameState: game.state,
+          controllerId,
+          sourceName,
+          sourcePermanent,
+        });
         const syntheticTriggerId = uid('trigger');
         const syntheticTriggerItem = {
           id: syntheticTriggerId,
@@ -27782,6 +27806,8 @@ async function handleModalChoiceResponse(
           ...(Array.isArray((metadata as any).targetFilterRequiredTypeWords) ? { targetFilterRequiredTypeWords: (metadata as any).targetFilterRequiredTypeWords } : null),
           ...(Array.isArray(metadata.targetFilterExcludeTypes) ? { targetFilterExcludeTypes: metadata.targetFilterExcludeTypes } : null),
           ...(metadata.targetFilterPermanentOnly === true ? { targetFilterPermanentOnly: true } : null),
+          ...(typeof (metadata as any).targetFilterExactManaValue === 'number' ? { targetFilterExactManaValue: (metadata as any).targetFilterExactManaValue } : null),
+          ...(typeof (metadata as any).targetFilterMinManaValue === 'number' ? { targetFilterMinManaValue: (metadata as any).targetFilterMinManaValue } : null),
           ...(typeof metadata.targetFilterMaxManaValue === 'number' ? { targetFilterMaxManaValue: metadata.targetFilterMaxManaValue } : null),
           ...(typeof metadata.targetTotalPowerLimit === 'number' ? { targetTotalPowerLimit: metadata.targetTotalPowerLimit } : null),
           ...(metadata.targetCastWithoutPayingManaCost === true ? { targetCastWithoutPayingManaCost: true } : null),
@@ -27818,6 +27844,8 @@ async function handleModalChoiceResponse(
             ...(Array.isArray((metadata as any).targetFilterRequiredTypeWords) ? { targetFilterRequiredTypeWords: (metadata as any).targetFilterRequiredTypeWords } : null),
             ...(Array.isArray(metadata.targetFilterExcludeTypes) ? { targetFilterExcludeTypes: metadata.targetFilterExcludeTypes } : null),
             ...(metadata.targetFilterPermanentOnly === true ? { targetFilterPermanentOnly: true } : null),
+            ...(typeof (metadata as any).targetFilterExactManaValue === 'number' ? { targetFilterExactManaValue: (metadata as any).targetFilterExactManaValue } : null),
+            ...(typeof (metadata as any).targetFilterMinManaValue === 'number' ? { targetFilterMinManaValue: (metadata as any).targetFilterMinManaValue } : null),
             ...(typeof metadata.targetFilterMaxManaValue === 'number' ? { targetFilterMaxManaValue: metadata.targetFilterMaxManaValue } : null),
             ...(typeof metadata.targetTotalPowerLimit === 'number' ? { targetTotalPowerLimit: metadata.targetTotalPowerLimit } : null),
             ...(metadata.targetCastWithoutPayingManaCost === true ? { targetCastWithoutPayingManaCost: true } : null),

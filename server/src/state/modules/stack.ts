@@ -20,6 +20,7 @@ import {
   type KeywordTriggerContext
 } from "./keyword-handlers.js";
 import { canPermanentBeTargetedByPlayer, categorizeSpell, resolveSpell, type EngineEffect, type TargetRef } from "../../rules-engine/targeting.js";
+import { inferManaValueConstraintFromText, type DynamicManaValueContext } from "./graveyard-mana-value.js";
 import { debug, debugWarn, debugError, debugEnv } from "../../utils/debug.js";
 import { appendEvent } from '../../db/index.js';
 import { 
@@ -784,7 +785,7 @@ function parseBattlefieldCounterClause(text: string): Record<string, number> | u
   return { [counterName]: quantity };
 }
 
-export function inferTriggeredAbilityTargetMetadata(effectText: string): {
+export function inferTriggeredAbilityTargetMetadata(effectText: string, context?: DynamicManaValueContext): {
   requiresTarget: boolean;
   targetType?: string;
   targetConstraint?: 'opponent' | 'you';
@@ -799,6 +800,8 @@ export function inferTriggeredAbilityTargetMetadata(effectText: string): {
   targetFilterRequiredTypeWords?: string[];
   targetFilterExcludeTypes?: string[];
   targetFilterPermanentOnly?: boolean;
+  targetFilterExactManaValue?: number;
+  targetFilterMinManaValue?: number;
   targetFilterMaxManaValue?: number;
   targetTotalPowerLimit?: number;
   targetCastWithoutPayingManaCost?: boolean;
@@ -820,6 +823,8 @@ export function inferTriggeredAbilityTargetMetadata(effectText: string): {
   let targetFilterRequiredTypeWords: string[] | undefined;
   let targetFilterExcludeTypes: string[] | undefined;
   let targetFilterPermanentOnly = false;
+  let targetFilterExactManaValue: number | undefined;
+  let targetFilterMinManaValue: number | undefined;
   let targetFilterMaxManaValue: number | undefined;
   let targetTotalPowerLimit: number | undefined;
   let targetCastWithoutPayingManaCost = false;
@@ -828,13 +833,10 @@ export function inferTriggeredAbilityTargetMetadata(effectText: string): {
   let maxTargets: number | undefined;
 
   if (requiresTarget) {
-    const manaValueMatch = lower.match(/mana value (\d+) or less/);
-    if (manaValueMatch) {
-      const parsedMaxManaValue = Number.parseInt(String(manaValueMatch[1] || ''), 10);
-      if (Number.isFinite(parsedMaxManaValue)) {
-        targetFilterMaxManaValue = parsedMaxManaValue;
-      }
-    }
+    const manaValueConstraint = inferManaValueConstraintFromText(effectText, context);
+    targetFilterExactManaValue = manaValueConstraint.targetFilterExactManaValue;
+    targetFilterMinManaValue = manaValueConstraint.targetFilterMinManaValue;
+    targetFilterMaxManaValue = manaValueConstraint.targetFilterMaxManaValue;
 
     const totalPowerMatch = lower.match(/total power (\d+) or less/);
     if (totalPowerMatch) {
@@ -972,6 +974,8 @@ export function inferTriggeredAbilityTargetMetadata(effectText: string): {
     targetFilterRequiredTypeWords,
     targetFilterExcludeTypes,
     targetFilterPermanentOnly,
+    targetFilterExactManaValue,
+    targetFilterMinManaValue,
     targetFilterMaxManaValue,
     targetTotalPowerLimit,
     targetCastWithoutPayingManaCost,
@@ -1014,6 +1018,8 @@ function matchesTriggeredGraveyardTarget(card: any, metadata: {
   targetFilterRequiredTypeWords?: string[];
   targetFilterExcludeTypes?: string[];
   targetFilterPermanentOnly?: boolean;
+  targetFilterExactManaValue?: number;
+  targetFilterMinManaValue?: number;
   targetFilterMaxManaValue?: number;
 }): boolean {
   const typeLine = String(card?.type_line || '').toLowerCase();
@@ -1042,6 +1048,20 @@ function matchesTriggeredGraveyardTarget(card: any, metadata: {
   if (Array.isArray(metadata.targetFilterExcludeTypes) && metadata.targetFilterExcludeTypes.length > 0) {
     const matchesExcludedType = metadata.targetFilterExcludeTypes.some((type) => typeLine.includes(String(type || '').toLowerCase()));
     if (matchesExcludedType) {
+      return false;
+    }
+  }
+
+  if (typeof metadata.targetFilterExactManaValue === 'number' && Number.isFinite(metadata.targetFilterExactManaValue)) {
+    const manaValue = cardManaValue(card);
+    if (manaValue !== metadata.targetFilterExactManaValue) {
+      return false;
+    }
+  }
+
+  if (typeof metadata.targetFilterMinManaValue === 'number' && Number.isFinite(metadata.targetFilterMinManaValue)) {
+    const manaValue = cardManaValue(card);
+    if (manaValue < metadata.targetFilterMinManaValue) {
       return false;
     }
   }
@@ -1135,13 +1155,20 @@ function queueMutateTriggeredAbilities(
       targetFilterRequiredTypeWords,
       targetFilterExcludeTypes,
       targetFilterPermanentOnly,
+      targetFilterExactManaValue,
+      targetFilterMinManaValue,
       targetFilterMaxManaValue,
       targetTotalPowerLimit,
       targetCastWithoutPayingManaCost,
       targetCastIsOptional,
       minTargets,
       maxTargets,
-    } = inferTriggeredAbilityTargetMetadata(effectText);
+    } = inferTriggeredAbilityTargetMetadata(effectText, {
+      gameState: state,
+      controllerId: controller,
+      sourceName,
+      sourcePermanent: permanent,
+    });
     const triggerId = uid('trigger');
 
     state.stack.push({
@@ -1168,6 +1195,8 @@ function queueMutateTriggeredAbilities(
       ...(Array.isArray(targetFilterRequiredTypeWords) ? { targetFilterRequiredTypeWords } : null),
       ...(Array.isArray(targetFilterExcludeTypes) ? { targetFilterExcludeTypes } : null),
       ...(targetFilterPermanentOnly === true ? { targetFilterPermanentOnly: true } : null),
+      ...(typeof targetFilterExactManaValue === 'number' ? { targetFilterExactManaValue } : null),
+      ...(typeof targetFilterMinManaValue === 'number' ? { targetFilterMinManaValue } : null),
       ...(typeof targetFilterMaxManaValue === 'number' ? { targetFilterMaxManaValue } : null),
       ...(typeof targetTotalPowerLimit === 'number' ? { targetTotalPowerLimit } : null),
       ...(targetCastWithoutPayingManaCost === true ? { targetCastWithoutPayingManaCost: true } : null),
@@ -1202,6 +1231,8 @@ function queueMutateTriggeredAbilities(
           ...(Array.isArray(targetFilterRequiredTypeWords) ? { targetFilterRequiredTypeWords } : null),
           ...(Array.isArray(targetFilterExcludeTypes) ? { targetFilterExcludeTypes } : null),
           ...(targetFilterPermanentOnly === true ? { targetFilterPermanentOnly: true } : null),
+          ...(typeof targetFilterExactManaValue === 'number' ? { targetFilterExactManaValue } : null),
+          ...(typeof targetFilterMinManaValue === 'number' ? { targetFilterMinManaValue } : null),
           ...(typeof targetFilterMaxManaValue === 'number' ? { targetFilterMaxManaValue } : null),
           ...(typeof targetTotalPowerLimit === 'number' ? { targetTotalPowerLimit } : null),
           ...(targetCastWithoutPayingManaCost === true ? { targetCastWithoutPayingManaCost: true } : null),
@@ -8379,7 +8410,7 @@ export function executeTriggerEffect(
   }
 
   // Pattern: "exile target [type] card from a graveyard" or "exile up to one target card from any graveyard"
-  if (/exile\s+(?:up\s+to\s+one\s+)?target\s+(?:(?:[^.]+?)\s+)?card(?:\s+with\s+mana\s+value\s+\d+\s+or\s+less)?\s+from\s+(?:your|a|any)\s+graveyard/i.test(desc)) {
+  if (/exile\s+(?:up\s+to\s+one\s+)?target\s+(?:(?:[^.]+?)\s+)?card(?:\s+with\s+mana\s+value\s+[^.]+?)?\s+from\s+(?:your|a|any)\s+graveyard/i.test(desc)) {
     const targets = Array.isArray((triggerItem as any).targets) ? (triggerItem as any).targets : [];
     const targetCardId = String(targets[0] || '').trim();
     if (!targetCardId) {
@@ -8704,7 +8735,7 @@ export function executeTriggerEffect(
     }
 
     // Pattern: "return target [type] card from a graveyard to the battlefield"
-    const graveyardToBattlefieldMatch = desc.match(/^(?:return|put)\s+(?:up\s+to\s+one\s+)?target\s+(?:(?:[^.]+?)\s+)?card(?:\s+with\s+mana\s+value\s+\d+\s+or\s+less)?\s+from\s+(?:your|a|any)\s+graveyard\s+(?:to|onto)\s+the\s+battlefield(?:\s+tapped)?(?:\s+under\s+(your|its owner['’]s)\s+control)?(?:\s+with\s+[^.]+?\s+counters?\s+on\s+it)?\.?$/i);
+    const graveyardToBattlefieldMatch = desc.match(/^(?:return|put)\s+(?:up\s+to\s+one\s+)?target\s+(?:(?:[^.]+?)\s+)?card(?:\s+with\s+mana\s+value\s+.+?)?\s+from\s+(?:your|a|any)\s+graveyard\s+(?:to|onto)\s+the\s+battlefield(?:\s+tapped)?(?:\s+under\s+(your|its owner['’]s)\s+control)?(?:\s+with\s+[^.]+?\s+counters?\s+on\s+it)?\.?$/i);
     if (graveyardToBattlefieldMatch) {
       const targets = Array.isArray(triggerItem.targets) ? triggerItem.targets : [];
       const targetId = String(targets[0] || '').trim();
@@ -8772,7 +8803,7 @@ export function executeTriggerEffect(
     }
 
     // Pattern: "return target [type] card from a graveyard to its owner's hand"
-    const graveyardToHandMatch = desc.match(/return\s+(?:up\s+to\s+one\s+)?target\s+(?:(?:[^.]+?)\s+)?card(?:\s+with\s+mana\s+value\s+\d+\s+or\s+less)?\s+from\s+(?:your|a|any)\s+graveyard\s+to\s+(?:your|its owner['’]s)\s+hand/i);
+    const graveyardToHandMatch = desc.match(/return\s+(?:up\s+to\s+one\s+)?target\s+(?:(?:[^.]+?)\s+)?card(?:\s+with\s+mana\s+value\s+.+?)?\s+from\s+(?:your|a|any)\s+graveyard\s+to\s+(?:your|its owner['’]s)\s+hand/i);
     if (graveyardToHandMatch) {
       const targets = Array.isArray(triggerItem.targets) ? triggerItem.targets : [];
       const targetId = String(targets[0] || '').trim();
@@ -9123,7 +9154,7 @@ export function executeTriggerEffect(
     return;
   }
 
-      const graveyardToLibraryMatch = desc.match(/put target (?:[^.]+? )?card(?:\s+with\s+mana\s+value\s+\d+\s+or\s+less)? from (?:your|a|any) graveyard on (?:the )?(top|bottom) of (?:its owner['’]s|your) library/i);
+      const graveyardToLibraryMatch = desc.match(/put target (?:[^.]+? )?card(?:\s+with\s+mana\s+value\s+.+?)? from (?:your|a|any) graveyard on (?:the )?(top|bottom) of (?:its owner['’]s|your) library/i);
       if (graveyardToLibraryMatch) {
         const targets = Array.isArray((triggerItem as any).targets) ? (triggerItem as any).targets : [];
         const targetCardId = String(targets[0] || '').trim();
@@ -11125,6 +11156,12 @@ export function resolveTopOfStack(ctx: GameContext) {
         const targetFilterRequiredTypeWords = Array.isArray((item as any).targetFilterRequiredTypeWords) ? (item as any).targetFilterRequiredTypeWords : undefined;
         const targetFilterExcludeTypes = Array.isArray((item as any).targetFilterExcludeTypes) ? (item as any).targetFilterExcludeTypes : undefined;
         const targetFilterPermanentOnly = (item as any).targetFilterPermanentOnly === true;
+        const targetFilterExactManaValue = typeof (item as any).targetFilterExactManaValue === 'number'
+          ? Number((item as any).targetFilterExactManaValue)
+          : undefined;
+        const targetFilterMinManaValue = typeof (item as any).targetFilterMinManaValue === 'number'
+          ? Number((item as any).targetFilterMinManaValue)
+          : undefined;
         const targetFilterMaxManaValue = typeof (item as any).targetFilterMaxManaValue === 'number'
           ? Number((item as any).targetFilterMaxManaValue)
           : undefined;
@@ -11141,6 +11178,8 @@ export function resolveTopOfStack(ctx: GameContext) {
                 targetFilterRequiredTypeWords,
                 targetFilterExcludeTypes,
                 targetFilterPermanentOnly,
+                targetFilterExactManaValue,
+                targetFilterMinManaValue,
                 targetFilterMaxManaValue,
               }))
               .map((card: any) => ({

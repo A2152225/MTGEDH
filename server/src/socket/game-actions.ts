@@ -24,7 +24,7 @@ import { isInterveningIfSatisfied } from "../state/modules/triggers/intervening-
 import { getUpkeepTriggersForPlayer, autoProcessCumulativeUpkeepMana, sacrificePermanent } from "../state/modules/upkeep-triggers";
 import { categorizeSpell, evaluateTargeting, matchesGraveyardCardTargetType as matchesSharedGraveyardCardTargetType, parseTargetRequirements, requiresTargeting } from "../rules-engine/targeting";
 import { recalculatePlayerEffects, hasMetalcraft, countArtifacts, calculateMaxLandsPerTurn, canPlayLandsFromTop, canCastFromTop } from "../state/modules/game-state-effects";
-import { PAY_X_LIFE_CARDS, getMaxPayableLife, validateLifePayment, uid, oracleTextReferencesCard } from "../state/utils";
+import { PAY_X_LIFE_CARDS, cardManaValue, getMaxPayableLife, validateLifePayment, uid, oracleTextReferencesCard } from "../state/utils";
 import { detectTutorEffect, parseSearchCriteria, type TutorInfo } from "./interaction";
 import { ResolutionQueueManager, ResolutionStepType, createResolutionStep } from "../state/resolution/index.js";
 import { extractModalModesFromOracleText } from "../utils/oraclePromptContext.js";
@@ -789,6 +789,21 @@ function buildSpellTargetListFromRequirements(game: any, playerId: string, targe
           if (!matchesSpellGraveyardCardTargetType(card, targetTypeLower)) {
             continue;
           }
+          if (typeof targetReqs?.targetFilterExactManaValue === 'number' && Number.isFinite(targetReqs.targetFilterExactManaValue)) {
+            if (cardManaValue(card) !== Number(targetReqs.targetFilterExactManaValue)) {
+              continue;
+            }
+          }
+          if (typeof targetReqs?.targetFilterMinManaValue === 'number' && Number.isFinite(targetReqs.targetFilterMinManaValue)) {
+            if (cardManaValue(card) < Number(targetReqs.targetFilterMinManaValue)) {
+              continue;
+            }
+          }
+          if (typeof targetReqs?.targetFilterMaxManaValue === 'number' && Number.isFinite(targetReqs.targetFilterMaxManaValue)) {
+            if (cardManaValue(card) > Number(targetReqs.targetFilterMaxManaValue)) {
+              continue;
+            }
+          }
 
           validTargetList.push({
             id: String(card.id),
@@ -847,7 +862,7 @@ function buildSpellTargetSelectionClauses(
 
   for (const clauseText of clauses) {
     const spellSpec = categorizeSpell(cardName, clauseText);
-    const targetReqs = parseTargetRequirements(clauseText);
+    const targetReqs = parseTargetRequirements(clauseText, { xValue });
     const minTargets = spellSpec
       ? resolveTargetCount(spellSpec.minTargets, (spellSpec as any).minTargetsIsX === true, xValue)
       : resolveTargetCount(targetReqs?.minTargets, (targetReqs as any)?.minTargetsIsX === true, xValue);
@@ -3705,7 +3720,7 @@ export async function requestCastSpellForSocket(
     // Check if this spell requires targets
     const isAura = spellTypeLine.includes("aura") && /^enchant\s+/i.test(oracleText);
     const spellSpec = (isInstantOrSorcery && !isAura) ? categorizeSpell(cardName, oracleText) : null;
-    const targetReqs = (isInstantOrSorcery && !isAura) ? parseTargetRequirements(oracleText) : null;
+    const targetReqs = (isInstantOrSorcery && !isAura) ? parseTargetRequirements(oracleText, { xValue: chosenXValue }) : null;
 
     const requiredMinTargets = spellSpec
       ? resolveTargetCount(spellSpec.minTargets, (spellSpec as any).minTargetsIsX === true, chosenXValue)
@@ -6293,7 +6308,7 @@ export function registerGameActions(io: Server, socket: Socket) {
       
       // If categorizeSpell didn't find a pattern but the spell has "target" in text,
       // use the comprehensive detection
-      const targetReqs = (isInstantOrSorcery && !isAura) ? parseTargetRequirements(oracleText) : null;
+      const targetReqs = (isInstantOrSorcery && !isAura) ? parseTargetRequirements(oracleText, { xValue }) : null;
       const multiTargetClauses = !isAura
         ? buildSpellTargetSelectionClauses(game, String(playerId), String(cardInHand.name || ''), oracleText, xValue)
         : [];

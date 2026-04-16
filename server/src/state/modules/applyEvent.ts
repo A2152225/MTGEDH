@@ -8505,6 +8505,8 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
         const targetFilterRequiredTypeWords = (e as any).targetFilterRequiredTypeWords;
         const targetFilterExcludeTypes = (e as any).targetFilterExcludeTypes;
         const targetFilterPermanentOnly = (e as any).targetFilterPermanentOnly;
+        const targetFilterExactManaValue = (e as any).targetFilterExactManaValue;
+        const targetFilterMinManaValue = (e as any).targetFilterMinManaValue;
         const targetFilterMaxManaValue = (e as any).targetFilterMaxManaValue;
         const targetTotalPowerLimit = (e as any).targetTotalPowerLimit;
         const targetCastWithoutPayingManaCost = (e as any).targetCastWithoutPayingManaCost;
@@ -8565,6 +8567,8 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
             ...(Array.isArray(targetFilterRequiredTypeWords) ? { targetFilterRequiredTypeWords } : null),
             ...(Array.isArray(targetFilterExcludeTypes) ? { targetFilterExcludeTypes } : null),
             ...(targetFilterPermanentOnly === true ? { targetFilterPermanentOnly: true } : null),
+            ...(typeof targetFilterExactManaValue === 'number' ? { targetFilterExactManaValue } : null),
+            ...(typeof targetFilterMinManaValue === 'number' ? { targetFilterMinManaValue } : null),
             ...(typeof targetFilterMaxManaValue === 'number' ? { targetFilterMaxManaValue } : null),
             ...(typeof targetTotalPowerLimit === 'number' ? { targetTotalPowerLimit } : null),
             ...(targetCastWithoutPayingManaCost === true ? { targetCastWithoutPayingManaCost: true } : null),

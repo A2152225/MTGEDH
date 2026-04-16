@@ -10520,6 +10520,12 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         const maxManaValue = typeof parsedGraveyardTargetReqs.targetFilterMaxManaValue === 'number'
           ? Number(parsedGraveyardTargetReqs.targetFilterMaxManaValue)
           : undefined;
+        const exactManaValue = typeof (parsedGraveyardTargetReqs as any).targetFilterExactManaValue === 'number'
+          ? Number((parsedGraveyardTargetReqs as any).targetFilterExactManaValue)
+          : undefined;
+        const minManaValue = typeof (parsedGraveyardTargetReqs as any).targetFilterMinManaValue === 'number'
+          ? Number((parsedGraveyardTargetReqs as any).targetFilterMinManaValue)
+          : undefined;
         const totalPowerLimit = typeof parsedGraveyardTargetReqs.targetTotalPowerLimit === 'number'
           ? Number(parsedGraveyardTargetReqs.targetTotalPowerLimit)
           : undefined;
@@ -10530,6 +10536,12 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
           return graveyard
             .filter((card: any) => {
               if (!parsedGraveyardTargetReqs.targetTypes.some((targetType) => matchesParsedGraveyardCardTargetType(card, String(targetType)))) {
+                return false;
+              }
+              if (typeof exactManaValue === 'number' && Number.isFinite(exactManaValue) && cardManaValue(card) !== exactManaValue) {
+                return false;
+              }
+              if (typeof minManaValue === 'number' && Number.isFinite(minManaValue) && cardManaValue(card) < minManaValue) {
                 return false;
               }
               if (typeof maxManaValue === 'number' && Number.isFinite(maxManaValue) && cardManaValue(card) > maxManaValue) {

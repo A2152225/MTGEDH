@@ -16,6 +16,7 @@ import { ensureInitialDayNightDesignationFromBattlefield } from "./day-night.js"
 import { recordCardPutIntoGraveyardThisTurn } from "./turn-tracking.js";
 import { cleanupCardLeavingExile } from "./playable-from-exile.js";
 import { applyShieldCounterDamagePrevention, getCounterLeaveBattlefieldReplacement } from "./counter-common-effects.js";
+import { inferManaValueConstraintFromText } from "./graveyard-mana-value.js";
 
 /**
  * Counter modification effects that double or halve counters
@@ -48,6 +49,9 @@ type DeathTriggerStackMetadata = {
   targetFilterRequiredTypeWords?: string[];
   targetFilterExcludeTypes?: string[];
   targetFilterPermanentOnly?: true;
+  targetFilterExactManaValue?: number;
+  targetFilterMinManaValue?: number;
+  targetFilterMaxManaValue?: number;
   boundGraveyardCardId?: string;
   boundGraveyardOwnerId?: string;
 };
@@ -74,7 +78,7 @@ function isPermanentTypeLine(typeLineValue: string): boolean {
   return ['artifact', 'battle', 'creature', 'enchantment', 'land', 'planeswalker'].some((type) => typeLine.includes(type));
 }
 
-function inferDeathTriggerStackMetadata(effectText: string, dyingPermanent: any): DeathTriggerStackMetadata {
+function inferDeathTriggerStackMetadata(effectText: string, dyingPermanent: any, gameState?: any): DeathTriggerStackMetadata {
   const lower = String(effectText || '').toLowerCase();
   const metadata: DeathTriggerStackMetadata = {};
   const underlyingCard = (dyingPermanent as any)?.faceUpCard || dyingPermanent?.card;
@@ -170,6 +174,16 @@ function inferDeathTriggerStackMetadata(effectText: string, dyingPermanent: any)
     if (lower.includes('target permanent card')) {
       metadata.targetFilterPermanentOnly = true;
     } else {
+      const manaValueConstraint = inferManaValueConstraintFromText(effectText, {
+        gameState,
+        controllerId: String(dyingPermanent?.controller || dyingPermanent?.owner || '').trim() || undefined,
+        sourceName: String(dyingPermanent?.card?.name || dyingPermanent?.name || '').trim() || undefined,
+        sourcePermanent: dyingPermanent,
+      });
+      metadata.targetFilterExactManaValue = manaValueConstraint.targetFilterExactManaValue;
+      metadata.targetFilterMinManaValue = manaValueConstraint.targetFilterMinManaValue;
+      metadata.targetFilterMaxManaValue = manaValueConstraint.targetFilterMaxManaValue;
+
       const nonSubtypeCreatureMatch = lower.match(/target\s+non-([a-z0-9'-]+(?:\s+[a-z0-9'-]+)*)\s+creature\s+card/);
       if (nonSubtypeCreatureMatch) {
         metadata.targetFilterTypes = ['creature'];
@@ -326,7 +340,7 @@ function pushDeathTriggerOntoStack(ctx: GameContext, trigger: any, dyingPermanen
   const state = ctx.state as any;
   const triggerId = uid('trigger');
   const effectText = String(trigger?.effect || '').trim();
-  const metadata = inferDeathTriggerStackMetadata(effectText, dyingPermanent);
+  const metadata = inferDeathTriggerStackMetadata(effectText, dyingPermanent, (ctx as any).state);
 
   const stackItem = {
     id: triggerId,
@@ -356,6 +370,9 @@ function pushDeathTriggerOntoStack(ctx: GameContext, trigger: any, dyingPermanen
     ...(Array.isArray(metadata.targetFilterRequiredTypeWords) ? { targetFilterRequiredTypeWords: metadata.targetFilterRequiredTypeWords } : null),
     ...(Array.isArray(metadata.targetFilterExcludeTypes) ? { targetFilterExcludeTypes: metadata.targetFilterExcludeTypes } : null),
     ...(metadata.targetFilterPermanentOnly === true ? { targetFilterPermanentOnly: true } : null),
+    ...(typeof metadata.targetFilterExactManaValue === 'number' ? { targetFilterExactManaValue: metadata.targetFilterExactManaValue } : null),
+    ...(typeof metadata.targetFilterMinManaValue === 'number' ? { targetFilterMinManaValue: metadata.targetFilterMinManaValue } : null),
+    ...(typeof metadata.targetFilterMaxManaValue === 'number' ? { targetFilterMaxManaValue: metadata.targetFilterMaxManaValue } : null),
     ...(metadata.boundGraveyardCardId ? { boundGraveyardCardId: metadata.boundGraveyardCardId } : null),
     ...(metadata.boundGraveyardOwnerId ? { boundGraveyardOwnerId: metadata.boundGraveyardOwnerId } : null),
   } as any;
@@ -396,6 +413,9 @@ function pushDeathTriggerOntoStack(ctx: GameContext, trigger: any, dyingPermanen
       ...(Array.isArray(metadata.targetFilterRequiredTypeWords) ? { targetFilterRequiredTypeWords: metadata.targetFilterRequiredTypeWords } : null),
       ...(Array.isArray(metadata.targetFilterExcludeTypes) ? { targetFilterExcludeTypes: metadata.targetFilterExcludeTypes } : null),
       ...(metadata.targetFilterPermanentOnly === true ? { targetFilterPermanentOnly: true } : null),
+      ...(typeof metadata.targetFilterExactManaValue === 'number' ? { targetFilterExactManaValue: metadata.targetFilterExactManaValue } : null),
+      ...(typeof metadata.targetFilterMinManaValue === 'number' ? { targetFilterMinManaValue: metadata.targetFilterMinManaValue } : null),
+      ...(typeof metadata.targetFilterMaxManaValue === 'number' ? { targetFilterMaxManaValue: metadata.targetFilterMaxManaValue } : null),
       ...(metadata.boundGraveyardCardId ? { boundGraveyardCardId: metadata.boundGraveyardCardId } : null),
       ...(metadata.boundGraveyardOwnerId ? { boundGraveyardOwnerId: metadata.boundGraveyardOwnerId } : null),
     });

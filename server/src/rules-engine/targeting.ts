@@ -231,6 +231,46 @@ function buildGraveyardCardTargetDescription(
   return `${prefix} ${typeLabel} in ${graveyardLabel}`;
 }
 
+function buildManaValueConstraintSuffix(exactManaValue?: number, maxManaValue?: number, minManaValue?: number): string {
+  if (typeof exactManaValue === 'number' && Number.isFinite(exactManaValue)) {
+    return ` with mana value ${exactManaValue}`;
+  }
+  if (typeof maxManaValue === 'number' && Number.isFinite(maxManaValue)) {
+    return ` with mana value ${maxManaValue} or less`;
+  }
+  if (typeof minManaValue === 'number' && Number.isFinite(minManaValue)) {
+    return ` with mana value ${minManaValue} or greater`;
+  }
+  return '';
+}
+
+function parseManaValueConstraintValue(rawValue: string | undefined, xValue?: number): number | undefined {
+  const normalized = String(rawValue || '').trim().toLowerCase();
+  if (!normalized) {
+    return undefined;
+  }
+  if (normalized === 'x') {
+    return typeof xValue === 'number' && Number.isFinite(xValue) ? Number(xValue) : undefined;
+  }
+  const parsedValue = Number.parseInt(normalized, 10);
+  return Number.isFinite(parsedValue) ? parsedValue : undefined;
+}
+
+function buildManaValueConstraint(rawValue: string | undefined, rawComparator: string | undefined, xValue?: number): { targetFilterExactManaValue?: number; targetFilterMinManaValue?: number; targetFilterMaxManaValue?: number } {
+  const parsedValue = parseManaValueConstraintValue(rawValue, xValue);
+  if (!Number.isFinite(parsedValue)) {
+    return {};
+  }
+  const comparator = String(rawComparator || '').trim().toLowerCase();
+  if (comparator === 'less' || comparator === 'fewer') {
+    return { targetFilterMaxManaValue: parsedValue };
+  }
+  if (comparator === 'greater' || comparator === 'more') {
+    return { targetFilterMinManaValue: parsedValue };
+  }
+  return { targetFilterExactManaValue: parsedValue };
+}
+
 function parseTargetTypePhrase(rawTargetType: string | undefined): string[] {
   const normalized = String(rawTargetType || '')
     .toLowerCase()
@@ -284,7 +324,7 @@ export function requiresTargeting(oracleText?: string): boolean {
  * Parse target requirements from oracle text
  * Returns details about what types of targets are needed and how many
  */
-export function parseTargetRequirements(oracleText?: string): {
+export function parseTargetRequirements(oracleText?: string, options?: { xValue?: number }): {
   needsTargets: boolean;
   targetTypes: string[];
   minTargets: number;
@@ -295,12 +335,17 @@ export function parseTargetRequirements(oracleText?: string): {
   perOpponent?: boolean;  // For "for each opponent, up to one target X that player controls"
   targetControllerConstraint?: 'opponent' | 'that_player' | 'you' | 'any';
   graveyardScope?: 'your' | 'any';
+  targetFilterExactManaValue?: number;
+  targetFilterMinManaValue?: number;
   targetFilterMaxManaValue?: number;
   targetTotalPowerLimit?: number;
 } {
   if (!oracleText) return { needsTargets: false, targetTypes: [], minTargets: 0, maxTargets: 0, targetDescription: '' };
   
   const t = oracleText.toLowerCase();
+  const xValue = typeof options?.xValue === 'number' && Number.isFinite(options.xValue)
+    ? Number(options.xValue)
+    : undefined;
   const targetTypes: string[] = [];
   let minTargets = 0;
   let maxTargets = 0;
@@ -442,54 +487,54 @@ export function parseTargetRequirements(oracleText?: string): {
   // Examples:
   // - "Return target creature card from your graveyard to your hand."
   // - "Return up to one target artifact card from your graveyard to your hand."
-  const graveyardUpToMatch = t.match(/up\s+to\s+(\w+)\s+target\s+(?:(.+?)\s+)?card(?:\s+with\s+mana\s+value\s+(\d+)\s+or\s+less)?\s+from\s+(?:your\s+)?graveyard\s+to\s+your\s+hand/i);
+  const graveyardUpToMatch = t.match(/up\s+to\s+(\w+)\s+target\s+(?:(.+?)\s+)?card(?:\s+with\s+mana\s+value\s+(?:exactly\s+)?(\d+|x)(?:\s+or\s+(less|fewer|greater|more))?)?\s+from\s+(?:your\s+)?graveyard\s+to\s+your\s+hand/i);
   if (graveyardUpToMatch) {
     const numWord = String(graveyardUpToMatch[1] || '').toLowerCase();
     const rawTargetType = String(graveyardUpToMatch[2] || '').trim().toLowerCase();
-    const maxManaValue = Number.parseInt(String(graveyardUpToMatch[3] || ''), 10);
+    const manaValueConstraint = buildManaValueConstraint(graveyardUpToMatch[3], graveyardUpToMatch[4], xValue);
     const numMap: Record<string, number> = { one: 1, two: 2, three: 3, four: 4, five: 5 };
     maxTargets = numMap[numWord] || parseInt(numWord, 10) || 1;
     minTargets = 0;
     targetTypes.push(...buildGraveyardCardTargetTypes(rawTargetType));
-    targetDescription = buildGraveyardCardTargetDescription(rawTargetType, 'your', `up to ${numWord} target`) + (Number.isFinite(maxManaValue) ? ` with mana value ${maxManaValue} or less` : '');
-    return { needsTargets: true, targetTypes, minTargets, maxTargets, targetDescription, graveyardScope: 'your', ...(Number.isFinite(maxManaValue) ? { targetFilterMaxManaValue: maxManaValue } : {}) };
+    targetDescription = buildGraveyardCardTargetDescription(rawTargetType, 'your', `up to ${numWord} target`) + buildManaValueConstraintSuffix(manaValueConstraint.targetFilterExactManaValue, manaValueConstraint.targetFilterMaxManaValue, manaValueConstraint.targetFilterMinManaValue);
+    return { needsTargets: true, targetTypes, minTargets, maxTargets, targetDescription, graveyardScope: 'your', ...manaValueConstraint };
   }
 
-  const graveyardMatch = t.match(/target\s+(?:(.+?)\s+)?card(?:\s+with\s+mana\s+value\s+(\d+)\s+or\s+less)?\s+from\s+(?:your\s+)?graveyard\s+to\s+your\s+hand/i);
+  const graveyardMatch = t.match(/target\s+(?:(.+?)\s+)?card(?:\s+with\s+mana\s+value\s+(?:exactly\s+)?(\d+|x)(?:\s+or\s+(less|fewer|greater|more))?)?\s+from\s+(?:your\s+)?graveyard\s+to\s+your\s+hand/i);
   if (graveyardMatch) {
     const rawTargetType = String(graveyardMatch[1] || '').trim().toLowerCase();
-    const maxManaValue = Number.parseInt(String(graveyardMatch[2] || ''), 10);
+    const manaValueConstraint = buildManaValueConstraint(graveyardMatch[2], graveyardMatch[3], xValue);
     minTargets = 1;
     maxTargets = 1;
     targetTypes.push(...buildGraveyardCardTargetTypes(rawTargetType));
-    targetDescription = buildGraveyardCardTargetDescription(rawTargetType, 'your', 'target') + (Number.isFinite(maxManaValue) ? ` with mana value ${maxManaValue} or less` : '');
-    return { needsTargets: true, targetTypes, minTargets, maxTargets, targetDescription, graveyardScope: 'your', ...(Number.isFinite(maxManaValue) ? { targetFilterMaxManaValue: maxManaValue } : {}) };
+    targetDescription = buildGraveyardCardTargetDescription(rawTargetType, 'your', 'target') + buildManaValueConstraintSuffix(manaValueConstraint.targetFilterExactManaValue, manaValueConstraint.targetFilterMaxManaValue, manaValueConstraint.targetFilterMinManaValue);
+    return { needsTargets: true, targetTypes, minTargets, maxTargets, targetDescription, graveyardScope: 'your', ...manaValueConstraint };
   }
 
-  const anyGraveyardUpToMatch = t.match(/up\s+to\s+(\w+)\s+target\s+(?:(.+?)\s+)?card(?:\s+with\s+mana\s+value\s+(\d+)\s+or\s+less)?\s+from\s+(your|a|any)\s+graveyard/i);
+  const anyGraveyardUpToMatch = t.match(/up\s+to\s+(\w+)\s+target\s+(?:(.+?)\s+)?card(?:\s+with\s+mana\s+value\s+(?:exactly\s+)?(\d+|x)(?:\s+or\s+(less|fewer|greater|more))?)?\s+from\s+(your|a|any)\s+graveyard/i);
   if (anyGraveyardUpToMatch) {
     const numWord = String(anyGraveyardUpToMatch[1] || '').toLowerCase();
     const rawTargetType = String(anyGraveyardUpToMatch[2] || '').trim().toLowerCase();
-    const maxManaValue = Number.parseInt(String(anyGraveyardUpToMatch[3] || ''), 10);
-    const scope = normalizeGraveyardScope(anyGraveyardUpToMatch[4]);
+    const manaValueConstraint = buildManaValueConstraint(anyGraveyardUpToMatch[3], anyGraveyardUpToMatch[4], xValue);
+    const scope = normalizeGraveyardScope(anyGraveyardUpToMatch[5]);
     const numMap: Record<string, number> = { one: 1, two: 2, three: 3, four: 4, five: 5 };
     maxTargets = numMap[numWord] || parseInt(numWord, 10) || 1;
     minTargets = 0;
     targetTypes.push(...buildGraveyardCardTargetTypes(rawTargetType));
-    targetDescription = buildGraveyardCardTargetDescription(rawTargetType, scope, `up to ${numWord} target`) + (Number.isFinite(maxManaValue) ? ` with mana value ${maxManaValue} or less` : '');
-    return { needsTargets: true, targetTypes, minTargets, maxTargets, targetDescription, graveyardScope: scope, ...(Number.isFinite(maxManaValue) ? { targetFilterMaxManaValue: maxManaValue } : {}) };
+    targetDescription = buildGraveyardCardTargetDescription(rawTargetType, scope, `up to ${numWord} target`) + buildManaValueConstraintSuffix(manaValueConstraint.targetFilterExactManaValue, manaValueConstraint.targetFilterMaxManaValue, manaValueConstraint.targetFilterMinManaValue);
+    return { needsTargets: true, targetTypes, minTargets, maxTargets, targetDescription, graveyardScope: scope, ...manaValueConstraint };
   }
 
-  const anyGraveyardMatch = t.match(/target\s+(?:(.+?)\s+)?card(?:\s+with\s+mana\s+value\s+(\d+)\s+or\s+less)?\s+from\s+(your|a|any)\s+graveyard/i);
+  const anyGraveyardMatch = t.match(/target\s+(?:(.+?)\s+)?card(?:\s+with\s+mana\s+value\s+(?:exactly\s+)?(\d+|x)(?:\s+or\s+(less|fewer|greater|more))?)?\s+from\s+(your|a|any)\s+graveyard/i);
   if (anyGraveyardMatch) {
     const rawTargetType = String(anyGraveyardMatch[1] || '').trim().toLowerCase();
-    const maxManaValue = Number.parseInt(String(anyGraveyardMatch[2] || ''), 10);
-    const scope = normalizeGraveyardScope(anyGraveyardMatch[3]);
+    const manaValueConstraint = buildManaValueConstraint(anyGraveyardMatch[2], anyGraveyardMatch[3], xValue);
+    const scope = normalizeGraveyardScope(anyGraveyardMatch[4]);
     minTargets = 1;
     maxTargets = 1;
     targetTypes.push(...buildGraveyardCardTargetTypes(rawTargetType));
-    targetDescription = buildGraveyardCardTargetDescription(rawTargetType, scope, 'target') + (Number.isFinite(maxManaValue) ? ` with mana value ${maxManaValue} or less` : '');
-    return { needsTargets: true, targetTypes, minTargets, maxTargets, targetDescription, graveyardScope: scope, ...(Number.isFinite(maxManaValue) ? { targetFilterMaxManaValue: maxManaValue } : {}) };
+    targetDescription = buildGraveyardCardTargetDescription(rawTargetType, scope, 'target') + buildManaValueConstraintSuffix(manaValueConstraint.targetFilterExactManaValue, manaValueConstraint.targetFilterMaxManaValue, manaValueConstraint.targetFilterMinManaValue);
+    return { needsTargets: true, targetTypes, minTargets, maxTargets, targetDescription, graveyardScope: scope, ...manaValueConstraint };
   }
   
   // Check for "up to X target" patterns
