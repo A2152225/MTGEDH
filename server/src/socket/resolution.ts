@@ -8715,7 +8715,12 @@ async function handleStepResponse(
         }
         for (const id of tappedSet) tappedPermanentsForCost.push(id);
 
-        const targetReqs = parseTargetRequirements(abilityText);
+        const targetReqs = parseTargetRequirements(abilityText, {
+          gameState: game.state,
+          controllerId: String(controllerId),
+          sourceName: cardName,
+          sourcePermanent: sourcePerm,
+        });
         if (targetReqs.needsTargets) {
           const validTargets = buildActivatedAbilityValidTargets(game, controllerId, targetReqs);
           const minTargets = Number(targetReqs.minTargets ?? 1);
@@ -11232,7 +11237,11 @@ async function handleStepResponse(
             const original = Array.isArray((pending as any).validTargets) ? ([...(pending as any).validTargets] as any[]) : [];
             const cardName = String((pending as any).sourceName || step.sourceName || 'spell');
             const modeSpellSpec = categorizeSpell(cardName, modeText);
-            const modeTargetReqs = parseTargetRequirements(modeText);
+            const modeTargetReqs = parseTargetRequirements(modeText, {
+              gameState: game.state,
+              controllerId: String(pid),
+              sourceName: String((pending as any).sourceName || step.sourceName || ''),
+            });
             const nextMinTargets = Number(modeSpellSpec?.minTargets ?? modeTargetReqs?.minTargets ?? (pending as any).minTargets ?? 1);
             const nextMaxTargets = Number(modeSpellSpec?.maxTargets ?? modeTargetReqs?.maxTargets ?? (pending as any).maxTargets ?? 1);
             const nextTargetDescription = String(
@@ -12808,7 +12817,12 @@ async function handleDiscardResponse(
         tappedPermanentsForCost.push(String(permanentId));
       }
 
-      const targetReqs = parseTargetRequirements(abilityText);
+      const targetReqs = parseTargetRequirements(abilityText, {
+        gameState: game.state,
+        controllerId: String(controllerId),
+        sourceName: cardName,
+        sourcePermanent: sourcePerm,
+      });
       if (targetReqs.needsTargets) {
         const validTargets = buildActivatedAbilityValidTargets(game, controllerId, targetReqs);
         const minTargets = Number(targetReqs.minTargets ?? 1);
@@ -27254,7 +27268,12 @@ async function handleGraveyardSelectionResponse(
         tappedPermanentsForCost.push(String(permanentId));
       }
 
-      const targetReqs = parseTargetRequirements(abilityText);
+      const targetReqs = parseTargetRequirements(abilityText, {
+        gameState: game.state,
+        controllerId: String(controllerId),
+        sourceName: cardName,
+        sourcePermanent: sourcePerm,
+      });
       if (targetReqs.needsTargets) {
         const validTargets = buildActivatedAbilityValidTargets(game, controllerId, targetReqs);
         const minTargets = Number(targetReqs.minTargets ?? 1);

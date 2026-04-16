@@ -1,4 +1,5 @@
 import type { GameState, PlayerID, TargetRef, BattlefieldPermanent } from '../../../shared/src';
+import { inferManaValueConstraintFromText, type DynamicManaValueContext } from '../state/modules/graveyard-mana-value.js';
 
 // Re-export TargetRef for consumers of this module
 export type { TargetRef };
@@ -244,31 +245,13 @@ function buildManaValueConstraintSuffix(exactManaValue?: number, maxManaValue?: 
   return '';
 }
 
-function parseManaValueConstraintValue(rawValue: string | undefined, xValue?: number): number | undefined {
-  const normalized = String(rawValue || '').trim().toLowerCase();
-  if (!normalized) {
-    return undefined;
-  }
-  if (normalized === 'x') {
-    return typeof xValue === 'number' && Number.isFinite(xValue) ? Number(xValue) : undefined;
-  }
-  const parsedValue = Number.parseInt(normalized, 10);
-  return Number.isFinite(parsedValue) ? parsedValue : undefined;
-}
-
-function buildManaValueConstraint(rawValue: string | undefined, rawComparator: string | undefined, xValue?: number): { targetFilterExactManaValue?: number; targetFilterMinManaValue?: number; targetFilterMaxManaValue?: number } {
-  const parsedValue = parseManaValueConstraintValue(rawValue, xValue);
-  if (!Number.isFinite(parsedValue)) {
+function buildManaValueConstraintFromClause(rawClause: string | undefined, context?: DynamicManaValueContext): { targetFilterExactManaValue?: number; targetFilterMinManaValue?: number; targetFilterMaxManaValue?: number } {
+  const clauseText = String(rawClause || '').trim();
+  if (!clauseText) {
     return {};
   }
-  const comparator = String(rawComparator || '').trim().toLowerCase();
-  if (comparator === 'less' || comparator === 'fewer') {
-    return { targetFilterMaxManaValue: parsedValue };
-  }
-  if (comparator === 'greater' || comparator === 'more') {
-    return { targetFilterMinManaValue: parsedValue };
-  }
-  return { targetFilterExactManaValue: parsedValue };
+
+  return inferManaValueConstraintFromText(clauseText, context);
 }
 
 function parseTargetTypePhrase(rawTargetType: string | undefined): string[] {
@@ -324,7 +307,7 @@ export function requiresTargeting(oracleText?: string): boolean {
  * Parse target requirements from oracle text
  * Returns details about what types of targets are needed and how many
  */
-export function parseTargetRequirements(oracleText?: string, options?: { xValue?: number }): {
+export function parseTargetRequirements(oracleText?: string, options?: DynamicManaValueContext): {
   needsTargets: boolean;
   targetTypes: string[];
   minTargets: number;
@@ -346,6 +329,10 @@ export function parseTargetRequirements(oracleText?: string, options?: { xValue?
   const xValue = typeof options?.xValue === 'number' && Number.isFinite(options.xValue)
     ? Number(options.xValue)
     : undefined;
+  const manaValueContext: DynamicManaValueContext = {
+    ...(options || {}),
+    ...(typeof xValue === 'number' ? { xValue } : null),
+  };
   const targetTypes: string[] = [];
   let minTargets = 0;
   let maxTargets = 0;
@@ -487,11 +474,11 @@ export function parseTargetRequirements(oracleText?: string, options?: { xValue?
   // Examples:
   // - "Return target creature card from your graveyard to your hand."
   // - "Return up to one target artifact card from your graveyard to your hand."
-  const graveyardUpToMatch = t.match(/up\s+to\s+(\w+)\s+target\s+(?:(.+?)\s+)?card(?:\s+with\s+mana\s+value\s+(?:exactly\s+)?(\d+|x)(?:\s+or\s+(less|fewer|greater|more))?)?\s+from\s+(?:your\s+)?graveyard\s+to\s+your\s+hand/i);
+  const graveyardUpToMatch = t.match(/up\s+to\s+(\w+)\s+target\s+(?:(.+?)\s+)?card((?:\s+with\s+mana\s+value\s+.+?)?)\s+from\s+(?:your\s+)?graveyard\s+to\s+your\s+hand/i);
   if (graveyardUpToMatch) {
     const numWord = String(graveyardUpToMatch[1] || '').toLowerCase();
     const rawTargetType = String(graveyardUpToMatch[2] || '').trim().toLowerCase();
-    const manaValueConstraint = buildManaValueConstraint(graveyardUpToMatch[3], graveyardUpToMatch[4], xValue);
+    const manaValueConstraint = buildManaValueConstraintFromClause(graveyardUpToMatch[3], manaValueContext);
     const numMap: Record<string, number> = { one: 1, two: 2, three: 3, four: 4, five: 5 };
     maxTargets = numMap[numWord] || parseInt(numWord, 10) || 1;
     minTargets = 0;
@@ -500,10 +487,10 @@ export function parseTargetRequirements(oracleText?: string, options?: { xValue?
     return { needsTargets: true, targetTypes, minTargets, maxTargets, targetDescription, graveyardScope: 'your', ...manaValueConstraint };
   }
 
-  const graveyardMatch = t.match(/target\s+(?:(.+?)\s+)?card(?:\s+with\s+mana\s+value\s+(?:exactly\s+)?(\d+|x)(?:\s+or\s+(less|fewer|greater|more))?)?\s+from\s+(?:your\s+)?graveyard\s+to\s+your\s+hand/i);
+  const graveyardMatch = t.match(/target\s+(?:(.+?)\s+)?card((?:\s+with\s+mana\s+value\s+.+?)?)\s+from\s+(?:your\s+)?graveyard\s+to\s+your\s+hand/i);
   if (graveyardMatch) {
     const rawTargetType = String(graveyardMatch[1] || '').trim().toLowerCase();
-    const manaValueConstraint = buildManaValueConstraint(graveyardMatch[2], graveyardMatch[3], xValue);
+    const manaValueConstraint = buildManaValueConstraintFromClause(graveyardMatch[2], manaValueContext);
     minTargets = 1;
     maxTargets = 1;
     targetTypes.push(...buildGraveyardCardTargetTypes(rawTargetType));
@@ -511,12 +498,12 @@ export function parseTargetRequirements(oracleText?: string, options?: { xValue?
     return { needsTargets: true, targetTypes, minTargets, maxTargets, targetDescription, graveyardScope: 'your', ...manaValueConstraint };
   }
 
-  const anyGraveyardUpToMatch = t.match(/up\s+to\s+(\w+)\s+target\s+(?:(.+?)\s+)?card(?:\s+with\s+mana\s+value\s+(?:exactly\s+)?(\d+|x)(?:\s+or\s+(less|fewer|greater|more))?)?\s+from\s+(your|a|any)\s+graveyard/i);
+  const anyGraveyardUpToMatch = t.match(/up\s+to\s+(\w+)\s+target\s+(?:(.+?)\s+)?card((?:\s+with\s+mana\s+value\s+.+?)?)\s+from\s+(your|a|any)\s+graveyard/i);
   if (anyGraveyardUpToMatch) {
     const numWord = String(anyGraveyardUpToMatch[1] || '').toLowerCase();
     const rawTargetType = String(anyGraveyardUpToMatch[2] || '').trim().toLowerCase();
-    const manaValueConstraint = buildManaValueConstraint(anyGraveyardUpToMatch[3], anyGraveyardUpToMatch[4], xValue);
-    const scope = normalizeGraveyardScope(anyGraveyardUpToMatch[5]);
+    const manaValueConstraint = buildManaValueConstraintFromClause(anyGraveyardUpToMatch[3], manaValueContext);
+    const scope = normalizeGraveyardScope(anyGraveyardUpToMatch[4]);
     const numMap: Record<string, number> = { one: 1, two: 2, three: 3, four: 4, five: 5 };
     maxTargets = numMap[numWord] || parseInt(numWord, 10) || 1;
     minTargets = 0;
@@ -525,11 +512,11 @@ export function parseTargetRequirements(oracleText?: string, options?: { xValue?
     return { needsTargets: true, targetTypes, minTargets, maxTargets, targetDescription, graveyardScope: scope, ...manaValueConstraint };
   }
 
-  const anyGraveyardMatch = t.match(/target\s+(?:(.+?)\s+)?card(?:\s+with\s+mana\s+value\s+(?:exactly\s+)?(\d+|x)(?:\s+or\s+(less|fewer|greater|more))?)?\s+from\s+(your|a|any)\s+graveyard/i);
+  const anyGraveyardMatch = t.match(/target\s+(?:(.+?)\s+)?card((?:\s+with\s+mana\s+value\s+.+?)?)\s+from\s+(your|a|any)\s+graveyard/i);
   if (anyGraveyardMatch) {
     const rawTargetType = String(anyGraveyardMatch[1] || '').trim().toLowerCase();
-    const manaValueConstraint = buildManaValueConstraint(anyGraveyardMatch[2], anyGraveyardMatch[3], xValue);
-    const scope = normalizeGraveyardScope(anyGraveyardMatch[4]);
+    const manaValueConstraint = buildManaValueConstraintFromClause(anyGraveyardMatch[2], manaValueContext);
+    const scope = normalizeGraveyardScope(anyGraveyardMatch[3]);
     minTargets = 1;
     maxTargets = 1;
     targetTypes.push(...buildGraveyardCardTargetTypes(rawTargetType));

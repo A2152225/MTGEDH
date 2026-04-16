@@ -110,7 +110,18 @@ export function hasValidTargetsForSpell(
 
   // Prefer the dynamic heuristic spell categorizer (it aligns with our target selector).
   const spellSpec = categorizeSpell(cardName, oracleText);
-  if (spellSpec) {
+
+  // Fallback: use template parser to infer basic targeting requirements.
+  const targetReqs = parseTargetRequirements(oracleTextRaw, {
+    gameState: state,
+    controllerId: String(playerId),
+    sourceName: cardName,
+  });
+  const preferParsedTargetReqs = Boolean(targetReqs.needsTargets)
+    && Array.isArray(targetReqs.targetTypes)
+    && targetReqs.targetTypes.some(t => String(t || '').toLowerCase().startsWith('graveyard_'));
+
+  if (spellSpec && !preferParsedTargetReqs) {
     if (specNeedsPlayers(spellSpec) && !ctx.hasPlayers) return conservative;
     if (specNeedsStack(spellSpec) && !ctx.hasStack) return conservative;
     if (specNeedsBattlefield(spellSpec) && !ctx.hasBattlefield) return conservative;
@@ -123,8 +134,6 @@ export function hasValidTargetsForSpell(
     }
   }
 
-  // Fallback: use template parser to infer basic targeting requirements.
-  const targetReqs = parseTargetRequirements(oracleTextRaw);
   if (!targetReqs.needsTargets || targetReqs.minTargets <= 0) {
     return true;
   }

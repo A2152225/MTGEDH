@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { createInitialGameState } from '../src/state/gameState';
 import type { PlayerID, TargetRef } from '../../shared/src';
-import { categorizeSpell, evaluateTargeting, type SpellSpec } from '../src/rules-engine/targeting';
+import { categorizeSpell, evaluateTargeting, parseTargetRequirements, type SpellSpec } from '../src/rules-engine/targeting';
 
 describe('Oracle templates: gain / lose life', () => {
   it('categorizeSpell: "Gain 3 life." -> GAIN_LIFE', () => {
@@ -66,6 +66,23 @@ describe('Oracle templates: gain / lose life', () => {
     expect((spec as any)?.amount).toBe(2);
     expect(spec?.minTargets).toBe(0);
     expect(spec?.maxTargets).toBe(0);
+  });
+
+  it('parseTargetRequirements resolves life-lost graveyard mana-value limits from context', () => {
+    const reqs = parseTargetRequirements(
+      'Return target creature card with mana value less than or equal to the amount of life you lost this turn from your graveyard to your hand.',
+      {
+        controllerId: 'p1',
+        gameState: {
+          lifeLostThisTurn: { p1: 4 },
+        },
+      },
+    );
+
+    expect(reqs.needsTargets).toBe(true);
+    expect(reqs.targetTypes).toEqual(['graveyard_creature_card']);
+    expect(reqs.targetFilterMaxManaValue).toBe(4);
+    expect(reqs.targetDescription).toBe('target creature card in your graveyard with mana value 4 or less');
   });
 });
 

@@ -9,6 +9,7 @@ export type DynamicManaValueContext = {
   controllerId?: string;
   sourceName?: string;
   sourcePermanent?: any;
+  xValue?: number;
 };
 
 function normalizeText(value: string | undefined): string {
@@ -35,10 +36,23 @@ function getSourcePower(sourcePermanent: any): number | undefined {
   );
 }
 
+function resolveNumericOrDynamicValue(value: unknown, context?: DynamicManaValueContext): number | undefined {
+  const parsedNumericValue = parseNumber(value);
+  if (Number.isFinite(parsedNumericValue)) {
+    return parsedNumericValue;
+  }
+
+  return resolveDynamicManaValueReference(String(value ?? ''), context);
+}
+
 function resolveDynamicManaValueReference(referenceText: string, context?: DynamicManaValueContext): number | undefined {
   const normalizedReference = normalizeText(referenceText);
   if (!normalizedReference) {
     return undefined;
+  }
+
+  if (normalizedReference === 'x') {
+    return parseNumber(context?.xValue);
   }
 
   const sourcePower = getSourcePower(context?.sourcePermanent);
@@ -81,25 +95,25 @@ export function inferManaValueConstraintFromText(effectText: string, context?: D
     return {};
   }
 
-  const minManaValueMatch = lower.match(/mana value (\d+) or (?:greater|more)/);
+  const minManaValueMatch = lower.match(/mana value (\d+|x) or (?:greater|more)/);
   if (minManaValueMatch) {
-    const parsedMinManaValue = parseNumber(minManaValueMatch[1]);
+    const parsedMinManaValue = resolveNumericOrDynamicValue(minManaValueMatch[1], context);
     return Number.isFinite(parsedMinManaValue)
       ? { targetFilterMinManaValue: parsedMinManaValue }
       : {};
   }
 
-  const maxManaValueMatch = lower.match(/mana value (\d+) or (?:less|fewer)/);
+  const maxManaValueMatch = lower.match(/mana value (\d+|x) or (?:less|fewer)/);
   if (maxManaValueMatch) {
-    const parsedMaxManaValue = parseNumber(maxManaValueMatch[1]);
+    const parsedMaxManaValue = resolveNumericOrDynamicValue(maxManaValueMatch[1], context);
     return Number.isFinite(parsedMaxManaValue)
       ? { targetFilterMaxManaValue: parsedMaxManaValue }
       : {};
   }
 
-  const exactManaValueMatch = lower.match(/mana value (\d+)(?!\s+or\s+(?:less|fewer|greater|more))/);
+  const exactManaValueMatch = lower.match(/mana value (\d+|x)(?!\s+or\s+(?:less|fewer|greater|more))/);
   if (exactManaValueMatch) {
-    const parsedExactManaValue = parseNumber(exactManaValueMatch[1]);
+    const parsedExactManaValue = resolveNumericOrDynamicValue(exactManaValueMatch[1], context);
     return Number.isFinite(parsedExactManaValue)
       ? { targetFilterExactManaValue: parsedExactManaValue }
       : {};

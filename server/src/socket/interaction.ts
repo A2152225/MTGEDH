@@ -7271,7 +7271,12 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       const ability = abilities[abilityIndex];
       
       // Check if this ability requires targets
-      const targetReqs = parseTargetRequirements(ability.text);
+      const targetReqs = parseTargetRequirements(ability.text, {
+        gameState: game.state,
+        controllerId: String(pid),
+        sourceName: cardName,
+        sourcePermanent: permanent,
+      });
       
       // Get current loyalty (needed for validation)
       const currentLoyalty = (permanent as any).counters?.loyalty || 0;
@@ -10506,7 +10511,12 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
 
       const activatedAbilityTextForStack = resolvedActivatedAbilityText;
 
-      const parsedGraveyardTargetReqs = parseTargetRequirements(resolvedAbilityText);
+      const parsedGraveyardTargetReqs = parseTargetRequirements(resolvedAbilityText, {
+        gameState: game.state,
+        controllerId: String(pid),
+        sourceName: cardName,
+        sourcePermanent: permanent,
+      });
       const hasParsedGraveyardTargets = parsedGraveyardTargetReqs.needsTargets
         && Array.isArray(parsedGraveyardTargetReqs.targetTypes)
         && parsedGraveyardTargetReqs.targetTypes.length > 0

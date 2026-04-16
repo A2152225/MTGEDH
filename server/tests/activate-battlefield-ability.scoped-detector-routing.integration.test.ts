@@ -74,6 +74,7 @@ describe('activateBattlefieldAbility detector routing uses selected ability text
     `${gameId}_graveyard_hand_battle`,
     `${gameId}_graveyard_hand_permanent`,
     `${gameId}_graveyard_hand_mana_value`,
+    `${gameId}_graveyard_hand_life_gained`,
     `${gameId}_sokrates_grant`,
     `${gameId}_fight`,
     `${gameId}_tap_untap`,
@@ -2882,6 +2883,108 @@ describe('activateBattlefieldAbility detector routing uses selected ability text
     expect((opponentZones?.graveyard || []).map((card: any) => String(card?.id || ''))).toEqual(['opp_hand_mv_target_2']);
     expect((opponentZones?.hand || []).map((card: any) => String(card?.id || ''))).toEqual(['opp_hand_mv_target_1']);
     expect(opponentZones?.handCount).toBe(1);
+  });
+
+  it('filters life-gained graveyard activations through the shared parsed target path', async () => {
+    const gyHandLifeGainGameId = `${gameId}_graveyard_hand_life_gained`;
+    await resetGame(gyHandLifeGainGameId);
+
+    createGameIfNotExists(gyHandLifeGainGameId, 'commander', 40);
+    const game = ensureGame(gyHandLifeGainGameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const playerId = 'p1';
+    const opponentId = 'p2';
+    (game.state as any).players = [
+      { id: playerId, name: 'P1', spectator: false, life: 40 },
+      { id: opponentId, name: 'P2', spectator: false, life: 40 },
+    ];
+    (game.state as any).startingLife = 40;
+    (game.state as any).life = { [playerId]: 40, [opponentId]: 40 };
+    (game.state as any).lifeGainedThisTurn = { [playerId]: 3 };
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).manaPool = {
+      [playerId]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 2 },
+    };
+    (game.state as any).zones = {
+      [playerId]: {
+        hand: [],
+        handCount: 0,
+        graveyard: [
+          { id: 'own_life_gain_target_1', name: 'Recovered Relic', type_line: 'Artifact', mana_cost: '{3}', zone: 'graveyard' },
+          { id: 'own_life_gain_target_2', name: 'Heavy Relic', type_line: 'Artifact', mana_cost: '{4}', zone: 'graveyard' },
+        ],
+        graveyardCount: 2,
+        exile: [],
+        exileCount: 0,
+        library: [],
+        libraryCount: 0,
+      },
+      [opponentId]: {
+        hand: [],
+        handCount: 0,
+        graveyard: [],
+        graveyardCount: 0,
+        exile: [],
+        exileCount: 0,
+        library: [],
+        libraryCount: 0,
+      },
+    };
+    (game.state as any).battlefield = [
+      {
+        id: 'healer_reclaimer_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        card: {
+          id: 'healer_reclaimer_card_1',
+          name: 'Healer Reclaimer',
+          type_line: 'Artifact Creature',
+          oracle_text: '{2}: Return target artifact card with mana value less than or equal to the amount of life you gained this turn from your graveyard to your hand.',
+        },
+      },
+    ];
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(playerId, emitted);
+    socket.rooms.add(gyHandLifeGainGameId);
+    const io = createMockIo(emitted, [socket]);
+
+    registerResolutionHandlers(io as any, socket as any);
+    registerInteractionHandlers(io as any, socket as any);
+
+    await handlers['activateBattlefieldAbility']({ gameId: gyHandLifeGainGameId, permanentId: 'healer_reclaimer_1', abilityId: 'healer_reclaimer_1-ability-0' });
+
+    const queue = ResolutionQueueManager.getQueue(gyHandLifeGainGameId);
+    expect(queue.steps).toHaveLength(1);
+    expect(queue.steps[0]).toEqual(
+      expect.objectContaining({
+        type: 'target_selection',
+        battlefieldAbilityTargetSelection: true,
+        targetDescription: 'target artifact card in your graveyard with mana value 3 or less',
+      })
+    );
+    expect(((queue.steps[0] as any).validTargets || []).map((target: any) => String(target?.id))).toEqual(['own_life_gain_target_1']);
+
+    await handlers['submitResolutionResponse']({
+      gameId: gyHandLifeGainGameId,
+      stepId: String((queue.steps[0] as any).id),
+      selections: ['own_life_gain_target_1'],
+      cancelled: false,
+    });
+
+    const stack = (game.state as any).stack || [];
+    expect(stack).toHaveLength(1);
+    expect(String(stack[0]?.description || '').toLowerCase()).toContain('mana value less than or equal to the amount of life you gained this turn');
+
+    game.resolveTopOfStack();
+
+    const playerZones = (game.state as any).zones?.[playerId];
+    expect((playerZones?.graveyard || []).map((card: any) => String(card?.id || ''))).toEqual(['own_life_gain_target_2']);
+    expect((playerZones?.hand || []).map((card: any) => String(card?.id || ''))).toEqual(['own_life_gain_target_1']);
+    expect(playerZones?.handCount).toBe(1);
   });
 
   it('does not let control-change routing hijack an unrelated generic activation just because the permanent id contains control', async () => {

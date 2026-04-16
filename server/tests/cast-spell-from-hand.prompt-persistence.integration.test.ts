@@ -64,6 +64,7 @@ describe('castSpellFromHand prompt persistence (integration)', () => {
     `${gameId}_force`,
     `${gameId}_abundant`,
     `${gameId}_target_single`,
+    `${gameId}_target_graveyard_dynamic`,
     `${gameId}_modal`,
     `${gameId}_target_multi`,
     `${gameId}_overload`,
@@ -219,6 +220,60 @@ describe('castSpellFromHand prompt persistence (integration)', () => {
     expect(queuedCastEvent?.payload?.pendingSpellCast?.cardId).toBe('counterspell_1');
     expect(queuedCastEvent?.payload?.queuedResolutionStep?.type).toBe('target_selection');
     expect(queuedCastEvent?.payload?.queuedResolutionStep?.validTargets?.[0]?.id).toBe('stack_spell_1');
+  });
+
+  it('persists spell graveyard target prompts with dynamic experience-counter limits', async () => {
+    const testGameId = `${gameId}_target_graveyard_dynamic`;
+    const game = await setupBaseGame(testGameId, playerId, opponentId);
+    (game.state as any).experienceCounters = { [playerId]: 3 };
+    (game.state as any).zones = {
+      [playerId]: {
+        hand: [
+          {
+            id: 'revive_experience_1',
+            name: 'Experience Revival',
+            mana_cost: '{2}{W}',
+            manaCost: '{2}{W}',
+            type_line: 'Sorcery',
+            oracle_text: 'Return target creature card with mana value less than or equal to the number of experience counters you have from your graveyard to the battlefield.',
+            image_uris: { small: 'https://example.com/experience-revival.jpg' },
+          },
+        ],
+        handCount: 1,
+        exile: [],
+        exileCount: 0,
+        graveyard: [
+          { id: 'grave_creature_3', name: 'Seasoned Adept', type_line: 'Creature - Human', mana_cost: '{2}{W}', image_uris: { small: 'https://example.com/adept.jpg' } },
+          { id: 'grave_creature_4', name: 'Late Titan', type_line: 'Creature - Giant', mana_cost: '{3}{W}', image_uris: { small: 'https://example.com/titan.jpg' } },
+        ],
+        graveyardCount: 2,
+      },
+      [opponentId]: {
+        hand: [],
+        handCount: 0,
+        exile: [],
+        exileCount: 0,
+        graveyard: [],
+        graveyardCount: 0,
+      },
+    };
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(playerId, testGameId, emitted);
+    registerGameActions(createNoopIo() as any, socket as any);
+
+    await handlers.castSpellFromHand({ gameId: testGameId, cardId: 'revive_experience_1' });
+
+    const queue = ResolutionQueueManager.getQueue(testGameId);
+    const step = queue.steps.find((entry: any) => entry.type === 'target_selection') as any;
+    expect(step?.spellCastContext?.cardId).toBe('revive_experience_1');
+    expect(step?.targetDescription).toBe('target creature card in your graveyard with mana value 3 or less');
+    expect((step?.validTargets || []).map((target: any) => String(target?.id))).toEqual(['grave_creature_3']);
+
+    const queuedCastEvent = [...getEvents(testGameId)].reverse().find((event: any) => event.type === 'castSpellContinuation') as any;
+    expect(queuedCastEvent?.payload?.queuedResolutionStep?.type).toBe('target_selection');
+    expect(queuedCastEvent?.payload?.queuedResolutionStep?.targetDescription).toBe('target creature card in your graveyard with mana value 3 or less');
+    expect((queuedCastEvent?.payload?.queuedResolutionStep?.validTargets || []).map((target: any) => String(target?.id))).toEqual(['grave_creature_3']);
   });
 
   it('persists direct modal spell selection prompts', async () => {

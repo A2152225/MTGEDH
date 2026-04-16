@@ -862,11 +862,19 @@ function buildSpellTargetSelectionClauses(
 
   for (const clauseText of clauses) {
     const spellSpec = categorizeSpell(cardName, clauseText);
-    const targetReqs = parseTargetRequirements(clauseText, { xValue });
-    const minTargets = spellSpec
+    const targetReqs = parseTargetRequirements(clauseText, {
+      xValue,
+      gameState: game.state,
+      controllerId: String(playerId),
+      sourceName: cardName,
+    });
+    const preferParsedTargetReqs = Boolean(targetReqs?.needsTargets)
+      && Array.isArray(targetReqs?.targetTypes)
+      && targetReqs.targetTypes.some((targetType) => String(targetType || '').toLowerCase().startsWith('graveyard_'));
+    const minTargets = spellSpec && !preferParsedTargetReqs
       ? resolveTargetCount(spellSpec.minTargets, (spellSpec as any).minTargetsIsX === true, xValue)
       : resolveTargetCount(targetReqs?.minTargets, (targetReqs as any)?.minTargetsIsX === true, xValue);
-    const maxTargets = spellSpec
+    const maxTargets = spellSpec && !preferParsedTargetReqs
       ? resolveTargetCount(spellSpec.maxTargets, (spellSpec as any).maxTargetsIsX === true, xValue)
       : resolveTargetCount(targetReqs?.maxTargets, (targetReqs as any)?.maxTargetsIsX === true, xValue);
 
@@ -874,10 +882,10 @@ function buildSpellTargetSelectionClauses(
       return [];
     }
 
-    const needsTargets = spellSpec ? maxTargets > 0 : Boolean(targetReqs?.needsTargets) && maxTargets > 0;
+    const needsTargets = spellSpec && !preferParsedTargetReqs ? maxTargets > 0 : Boolean(targetReqs?.needsTargets) && maxTargets > 0;
     if (!needsTargets) continue;
 
-    const validTargetList = spellSpec
+    const validTargetList = spellSpec && !preferParsedTargetReqs
       ? evaluateTargeting(game.state as any, playerId, spellSpec).map((targetRef: any) => mapSpellTargetRefToDisplay(game, playerId, targetRef))
       : buildSpellTargetListFromRequirements(game, playerId, targetReqs);
 
@@ -888,7 +896,9 @@ function buildSpellTargetSelectionClauses(
       validTargetList,
       minTargets,
       maxTargets,
-      targetDescription: spellSpec?.targetDescription || targetReqs?.targetDescription || 'target',
+      targetDescription: preferParsedTargetReqs
+        ? targetReqs?.targetDescription || spellSpec?.targetDescription || 'target'
+        : spellSpec?.targetDescription || targetReqs?.targetDescription || 'target',
     });
   }
 
@@ -3720,12 +3730,20 @@ export async function requestCastSpellForSocket(
     // Check if this spell requires targets
     const isAura = spellTypeLine.includes("aura") && /^enchant\s+/i.test(oracleText);
     const spellSpec = (isInstantOrSorcery && !isAura) ? categorizeSpell(cardName, oracleText) : null;
-    const targetReqs = (isInstantOrSorcery && !isAura) ? parseTargetRequirements(oracleText, { xValue: chosenXValue }) : null;
+    const targetReqs = (isInstantOrSorcery && !isAura) ? parseTargetRequirements(oracleText, {
+      xValue: chosenXValue,
+      gameState: game.state,
+      controllerId: String(playerId),
+      sourceName: cardName,
+    }) : null;
+    const preferParsedTargetReqs = Boolean(targetReqs?.needsTargets)
+      && Array.isArray(targetReqs?.targetTypes)
+      && targetReqs.targetTypes.some((targetType) => String(targetType || '').toLowerCase().startsWith('graveyard_'));
 
-    const requiredMinTargets = spellSpec
+    const requiredMinTargets = spellSpec && !preferParsedTargetReqs
       ? resolveTargetCount(spellSpec.minTargets, (spellSpec as any).minTargetsIsX === true, chosenXValue)
       : resolveTargetCount(targetReqs?.minTargets, (targetReqs as any)?.minTargetsIsX === true, chosenXValue);
-    const requiredMaxTargets = spellSpec
+    const requiredMaxTargets = spellSpec && !preferParsedTargetReqs
       ? resolveTargetCount(spellSpec.maxTargets, (spellSpec as any).maxTargetsIsX === true, chosenXValue)
       : resolveTargetCount(targetReqs?.maxTargets, (targetReqs as any)?.maxTargetsIsX === true, chosenXValue);
 
@@ -3873,9 +3891,11 @@ export async function requestCastSpellForSocket(
               imageUrl: p.card?.image_uris?.small || p.card?.image_uris?.normal,
             }));
         }
-      } else if (spellSpec) {
+      } else if (spellSpec && !preferParsedTargetReqs) {
         const validRefs = evaluateTargeting(game.state as any, playerId, spellSpec);
         validTargetList = validRefs.map((t: any) => mapSpellTargetRefToDisplay(game, String(playerId), t));
+      } else if (targetReqs) {
+        validTargetList = buildSpellTargetListFromRequirements(game, String(playerId), targetReqs);
       }
 
       if (validTargetList.length === 0) {
@@ -4093,7 +4113,9 @@ export async function requestCastSpellForSocket(
 
           debug(2, `[requestCastSpell] Added ${multiTargetClauses.length} TARGET_SELECTION steps to Resolution Queue for ${cardName} (effectId: ${effectId})`);
         } else {
-          const targetDescription = spellSpec?.targetDescription || targetReqs?.targetDescription || 'target';
+          const targetDescription = preferParsedTargetReqs
+            ? targetReqs?.targetDescription || spellSpec?.targetDescription || 'target'
+            : spellSpec?.targetDescription || targetReqs?.targetDescription || 'target';
 
           const targetStep = ResolutionQueueManager.addStep(gameId, {
             type: ResolutionStepType.TARGET_SELECTION,
@@ -6308,7 +6330,15 @@ export function registerGameActions(io: Server, socket: Socket) {
       
       // If categorizeSpell didn't find a pattern but the spell has "target" in text,
       // use the comprehensive detection
-      const targetReqs = (isInstantOrSorcery && !isAura) ? parseTargetRequirements(oracleText, { xValue }) : null;
+      const targetReqs = (isInstantOrSorcery && !isAura) ? parseTargetRequirements(oracleText, {
+        xValue,
+        gameState: game.state,
+        controllerId: String(playerId),
+        sourceName: String(cardInHand.name || ''),
+      }) : null;
+      const preferParsedTargetReqs = Boolean(targetReqs?.needsTargets)
+        && Array.isArray(targetReqs?.targetTypes)
+        && targetReqs.targetTypes.some((targetType) => String(targetType || '').toLowerCase().startsWith('graveyard_'));
       const multiTargetClauses = !isAura
         ? buildSpellTargetSelectionClauses(game, String(playerId), String(cardInHand.name || ''), oracleText, xValue)
         : [];
@@ -6317,7 +6347,7 @@ export function registerGameActions(io: Server, socket: Socket) {
       // 1. The spell requires targets (minTargets > 0 OR needsTargets)
       // 2. AND no targets have been provided yet
       // This prevents double-targeting when completeCastSpell is called with targets already set
-      const needsTargetSelection = (spellSpec && spellSpec.minTargets > 0 && (!targets || targets.length === 0)) || 
+      const needsTargetSelection = ((spellSpec && !preferParsedTargetReqs) && spellSpec.minTargets > 0 && (!targets || targets.length === 0)) || 
                                    (targetReqs && targetReqs.needsTargets && (!targets || targets.length === 0));
       
       // DEBUG: Log targeting logic to debug infinite loop
@@ -6479,8 +6509,8 @@ export function registerGameActions(io: Server, socket: Socket) {
       // Use BOTH spellSpec (for known patterns) and targetReqs (for any "target" text)
       if (needsTargetSelection) {
         // This spell requires targets - check if we have them already
-        const requiredMinTargets = spellSpec?.minTargets || targetReqs?.minTargets || 1;
-        const requiredMaxTargets = spellSpec?.maxTargets || targetReqs?.maxTargets || 1;
+        const requiredMinTargets = (spellSpec && !preferParsedTargetReqs) ? spellSpec.minTargets : (targetReqs?.minTargets || spellSpec?.minTargets || 1);
+        const requiredMaxTargets = (spellSpec && !preferParsedTargetReqs) ? spellSpec.maxTargets : (targetReqs?.maxTargets || spellSpec?.maxTargets || 1);
         
         // CRITICAL: Check if there's already a pending cast for this card to prevent infinite loop
         // If a pending cast exists, it means we've already requested targets before
@@ -6518,7 +6548,7 @@ export function registerGameActions(io: Server, socket: Socket) {
             validTargetList = multiTargetClauses
               .flatMap((clause) => clause.validTargetList)
               .filter((target, index, all) => all.findIndex((candidate) => String(candidate.id) === String(target.id)) === index);
-          } else if (spellSpec) {
+          } else if (spellSpec && !preferParsedTargetReqs) {
             const validRefs = evaluateTargeting(game.state as any, playerId, spellSpec);
             validTargetList = validRefs.map((t: any) => {
               if (t.kind === 'permanent') {
@@ -6553,77 +6583,7 @@ export function registerGameActions(io: Server, socket: Socket) {
               }
             });
           } else if (targetReqs) {
-            // Build targets based on parsed requirements
-            for (const targetType of targetReqs.targetTypes) {
-              const targetTypeLower = targetType.toLowerCase();
-              if (targetTypeLower === 'creature' || targetTypeLower === 'permanent' || targetTypeLower === 'artifact' || 
-                  targetTypeLower === 'enchantment' || targetTypeLower === 'land' || targetTypeLower === 'planeswalker' ||
-                  targetTypeLower.includes('nonland') || targetTypeLower.includes('noncreature')) {
-                // Add battlefield permanents matching the type
-                const perms = (game.state.battlefield || []).filter((p: any) => {
-                  const tl = (p.card?.type_line || '').toLowerCase();
-                  if (targetTypeLower === 'permanent') return true;
-                  if (targetTypeLower.includes('nonland')) return !tl.includes('land');
-                  if (targetTypeLower.includes('noncreature')) return !tl.includes('creature');
-                  return tl.includes(targetTypeLower);
-                });
-                for (const perm of perms) {
-                  validTargetList.push({
-                    id: perm.id,
-                    kind: 'permanent',
-                    name: perm.card?.name || 'Unknown',
-                    imageUrl: perm.card?.image_uris?.small || perm.card?.image_uris?.normal,
-                    controller: perm.controller,
-                    isOpponent: perm.controller !== playerId,
-                  });
-                }
-              } else if (targetType === 'player' || targetType === 'opponent' || targetType === 'any') {
-                // Add players
-                const players = (game.state.players || []).filter((p: any) => {
-                  if (targetType === 'opponent') return p.id !== playerId;
-                  return true;
-                });
-                for (const p of players) {
-                  validTargetList.push({
-                    id: p.id,
-                    kind: 'player',
-                    name: p.name || p.id,
-                    isOpponent: p.id !== playerId,
-                  });
-                }
-                // If "any target", also add creatures and planeswalkers
-                if (targetType === 'any') {
-                  const perms = (game.state.battlefield || []).filter((p: any) => {
-                    const tl = (p.card?.type_line || '').toLowerCase();
-                    return tl.includes('creature') || tl.includes('planeswalker');
-                  });
-                  for (const perm of perms) {
-                    validTargetList.push({
-                      id: perm.id,
-                      kind: 'permanent',
-                      name: perm.card?.name || 'Unknown',
-                      imageUrl: perm.card?.image_uris?.small || perm.card?.image_uris?.normal,
-                      controller: perm.controller,
-                      isOpponent: perm.controller !== playerId,
-                    });
-                  }
-                }
-              } else if (targetType === 'spell') {
-                // Add spells on the stack
-                const stackItems = (game.state.stack || []).filter((s: any) => s.controller !== playerId);
-                for (const item of stackItems) {
-                  validTargetList.push({
-                    id: item.id,
-                    kind: 'stack',
-                    name: item.card?.name || 'Unknown Spell',
-                    imageUrl: item.card?.image_uris?.small || item.card?.image_uris?.normal,
-                    controller: item.controller,
-                    isOpponent: item.controller !== playerId,
-                    typeLine: item.card?.type_line,
-                  });
-                }
-              }
-            }
+            validTargetList = buildSpellTargetListFromRequirements(game, String(playerId), targetReqs);
           }
           
           if (validTargetList.length === 0) {
@@ -6635,7 +6595,9 @@ export function registerGameActions(io: Server, socket: Socket) {
           }
           
           // Emit target selection request
-          const targetDescription = targetReqs?.targetDescription || spellSpec?.targetDescription || 'target';
+          const targetDescription = preferParsedTargetReqs
+            ? targetReqs?.targetDescription || spellSpec?.targetDescription || 'target'
+            : targetReqs?.targetDescription || spellSpec?.targetDescription || 'target';
           const effectId = `cast_${cardId}_${Date.now()}`;
           
           // Store pending cast info for after targets are selected (like requestCastSpell does)
