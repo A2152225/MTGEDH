@@ -415,6 +415,92 @@ describe('queue-backed keyword ETB choices (integration)', () => {
     expect(emitted.some((entry) => entry.event === 'error')).toBe(false);
   });
 
+  it('suppresses tribute-dependent ETB triggers and adds counters when tribute is paid for library-search battlefield entry', async () => {
+    const game = seedGame(gameId, playerId, opponentId);
+    (game.state as any).zones[playerId].libraryCount = 1;
+    (game as any).libraries = new Map([
+      [playerId, [
+        {
+          id: 'tribute_library_card_paid',
+          name: 'Tribute Test Creature',
+          type_line: 'Creature — Beast',
+          oracle_text: "Tribute 3 (As this creature enters the battlefield, an opponent of your choice may place three +1/+1 counters on it.) When Tribute Test Creature enters the battlefield, if tribute wasn't paid, draw a card.",
+          power: '2',
+          toughness: '2',
+        },
+      ]],
+    ]);
+
+    const searchStep = ResolutionQueueManager.addStep(gameId, {
+      type: ResolutionStepType.LIBRARY_SEARCH,
+      playerId,
+      description: 'Search your library for a creature card and put it onto the battlefield.',
+      searchCriteria: 'Search your library for a creature card and put it onto the battlefield.',
+      mandatory: true,
+      sourceName: 'Tribute Search Effect',
+      sourceId: 'tribute_search_source_paid',
+      minSelections: 1,
+      maxSelections: 1,
+      destination: 'battlefield',
+      shuffleAfter: false,
+      filter: { types: ['creature'] },
+      availableCards: [
+        {
+          id: 'tribute_library_card_paid',
+          name: 'Tribute Test Creature',
+          type_line: 'Creature — Beast',
+          oracle_text: "Tribute 3 (As this creature enters the battlefield, an opponent of your choice may place three +1/+1 counters on it.) When Tribute Test Creature enters the battlefield, if tribute wasn't paid, draw a card.",
+          power: '2',
+          toughness: '2',
+        },
+      ],
+      nonSelectableCards: [],
+    } as any) as any;
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket: playerSocket, handlers: playerHandlers } = createMockSocket(playerId, emitted, gameId);
+    const { socket: opponentSocket, handlers: opponentHandlers } = createMockSocket(opponentId, emitted, gameId);
+    const io = createMockIo(emitted, [playerSocket, opponentSocket]);
+    registerResolutionHandlers(io as any, playerSocket as any);
+    registerResolutionHandlers(io as any, opponentSocket as any);
+
+    await playerHandlers.submitResolutionResponse({
+      gameId,
+      stepId: String(searchStep.id),
+      selections: ['tribute_library_card_paid'],
+    });
+
+    const permanent = ((game.state as any).battlefield || []).find(
+      (entry: any) => String(entry?.card?.id || '') === 'tribute_library_card_paid'
+    );
+    expect(permanent).toBeDefined();
+
+    const tributeStep = ResolutionQueueManager.getStepsForPlayer(gameId, opponentId).find(
+      (entry: any) => entry?.type === ResolutionStepType.TRIBUTE_CHOICE
+    ) as any;
+    expect(tributeStep).toBeDefined();
+
+    await opponentHandlers.submitResolutionResponse({
+      gameId,
+      stepId: String(tributeStep.id),
+      selections: ['pay'],
+    });
+
+    const updatedPermanent = ((game.state as any).battlefield || []).find((entry: any) => entry?.id === permanent.id);
+    expect(updatedPermanent?.tributePaid).toBe(true);
+    expect(updatedPermanent?.card?.tributePaid).toBe(true);
+    expect(updatedPermanent?.counters?.['+1/+1']).toBe(3);
+    expect(
+      ((game.state as any).stack || []).some(
+        (entry: any) =>
+          entry?.type === 'triggered_ability' &&
+          String(entry?.source || '') === String(permanent?.id || '') &&
+          /tribute wasn't paid/i.test(String(entry?.description || entry?.effect || ''))
+      )
+    ).toBe(false);
+    expect(emitted.some((entry) => entry.event === 'error')).toBe(false);
+  });
+
   it('applies riot counter selections through submitResolutionResponse', async () => {
     const game = seedGame(gameId, playerId, opponentId);
     (game.state as any).battlefield.push({

@@ -7855,6 +7855,13 @@ function getTypeSpecificFields(step: ResolutionStep): Record<string, any> {
       if ('maxSelections' in step) fields.maxSelections = (step as any).maxSelections;
       if ('value' in step) fields.value = (step as any).value;
       break;
+
+    case ResolutionStepType.MENTOR_TARGET:
+      if ('permanentId' in step) fields.permanentId = (step as any).permanentId;
+      if ('targets' in step) fields.targets = (step as any).targets;
+      if ('minSelections' in step) fields.minSelections = (step as any).minSelections;
+      if ('maxSelections' in step) fields.maxSelections = (step as any).maxSelections;
+      break;
       
     case ResolutionStepType.CASCADE:
       if ('cascadeNumber' in step) fields.cascadeNumber = step.cascadeNumber;
@@ -12108,6 +12115,10 @@ async function handleStepResponse(
     case ResolutionStepType.TRIBUTE_CHOICE:
       await handleTributeChoiceResponse(io, game, gameId, step, response);
       break;
+
+    case ResolutionStepType.MENTOR_TARGET:
+      handleMentorTargetResponse(io, game, gameId, step, response);
+      break;
     
     case ResolutionStepType.UPKEEP_SACRIFICE:
       handleUpkeepSacrificeResponse(io, game, gameId, step, response);
@@ -12371,6 +12382,44 @@ async function handleTributeChoiceResponse(
 
   queueSelfETBTriggersForPermanent(tributeCtx, permanent, controllerId as any);
   triggerETBEffectsForPermanent(tributeCtx, permanent, controllerId as any);
+
+  if (typeof game.bumpSeq === 'function') {
+    game.bumpSeq();
+  }
+  broadcastGame(io, game, gameId);
+}
+
+function handleMentorTargetResponse(
+  io: Server,
+  game: any,
+  gameId: string,
+  step: ResolutionStep,
+  response: ResolutionStepResponse
+): void {
+  const targetId = String(extractResolutionChoiceId(response.selections) || '').trim();
+  const battlefield = Array.isArray(game?.state?.battlefield) ? game.state.battlefield : [];
+  const sourcePermanent = findKeywordChoicePermanent(game, step);
+  const targetPermanent = battlefield.find((permanent: any) => String(permanent?.id || '') === targetId) || null;
+  const validTargetIds = new Set(
+    (Array.isArray((step as any)?.targets) ? (step as any).targets : [])
+      .map((target: any) => String(target?.id || '').trim())
+      .filter(Boolean)
+  );
+
+  if (!sourcePermanent || !targetPermanent || !targetId || !validTargetIds.has(targetId)) {
+    debugWarn(1, `[Resolution] Mentor target could not be applied for step ${step.id}`);
+    return;
+  }
+
+  updateCounters(game as any, String(targetPermanent.id), { '+1/+1': 1 });
+
+  const sourceName = String(step.sourceName || sourcePermanent.card?.name || 'Mentor');
+  emitKeywordChoiceChat(
+    io,
+    gameId,
+    sourceName,
+    `${getPlayerName(game, response.playerId)} put a +1/+1 counter on ${targetPermanent.card?.name || 'the target creature'} with mentor.`
+  );
 
   if (typeof game.bumpSeq === 'function') {
     game.bumpSeq();

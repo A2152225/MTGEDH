@@ -3304,7 +3304,7 @@ export function App() {
         });
       }
       // Handle target selection via resolution queue (spell casting, planeswalker abilities, etc.)
-      else if (step.type === 'target_selection') {
+      else if (step.type === 'target_selection' || step.type === 'mentor_target') {
         const selectedModeRaw = (step as any).selectedMode as { label?: string; description?: string } | undefined;
         const selectedModeUi = selectedModeRaw ? {
           name: String(selectedModeRaw.label || 'Selected mode'),
@@ -3312,7 +3312,10 @@ export function App() {
         } : undefined;
 
         // Convert resolution queue step to target modal format
-        const validTargets: TargetOption[] = (step.validTargets || []).map((t: any) => ({
+        const rawTargets = step.type === 'mentor_target'
+          ? ((step as any).targets || [])
+          : (step.validTargets || []);
+        const validTargets: TargetOption[] = rawTargets.map((t: any) => ({
           id: t.id,
           type: (t.type as any) || (t.description === 'player' || t.description === 'permanent' || t.description === 'card' ? t.description : 'permanent'),
           name: t.label || t.name || 'Unknown',
@@ -3332,7 +3335,7 @@ export function App() {
           title: step.description || `Choose target`,
           description: (selectedModeUi?.description && (!step.targetDescription || step.targetDescription === 'target')
             ? selectedModeUi.description
-            : (step.targetDescription || '')),
+            : (step.targetDescription || (step.type === 'mentor_target' ? 'Choose an attacking creature with lesser power.' : ''))),
           contextSteps: (step.oracleContext?.steps || step.spellCastContext?.oracleContext?.steps || undefined) as any,
           selectedMode: selectedModeUi,
           targets: validTargets,

@@ -1272,6 +1272,23 @@ function enqueueSupportedKeywordChoiceStep(
     if (typeof keywordChoice.value === 'number' && Number.isFinite(keywordChoice.value)) {
       queueExtras.value = keywordChoice.value;
     }
+  } else if (result.keyword === 'mentor' && keywordChoice.type === 'target_creature') {
+    queueType = ResolutionStepType.MENTOR_TARGET;
+    queueExtras.targets = Array.isArray(keywordChoice.options)
+      ? keywordChoice.options
+          .map((option: any) => {
+            const id = String(option?.id ?? '').trim();
+            if (!id) return null;
+            return {
+              id,
+              name: String(option?.name ?? option?.label ?? 'Creature'),
+              power: option?.power,
+              toughness: option?.toughness,
+              type: 'permanent',
+            };
+          })
+          .filter(Boolean)
+      : [];
   }
 
   if (!queueType || !keywordGameId || keywordGameId === 'unknown') {
