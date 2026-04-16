@@ -38,6 +38,7 @@ export interface KeywordTriggerResult {
     options?: any[];
     playerId: string;
     permanentId: string;
+    value?: number;
   };
   chatMessage?: string;
 }
@@ -805,6 +806,7 @@ function handleFabricate(ctx: KeywordTriggerContext, keyword: DetectedKeyword): 
       ],
       playerId: ctx.controller,
       permanentId: ctx.permanent?.id,
+      value: n,
     },
     chatMessage: `${cardName}'s Fabricate ${n} - choose counters or tokens`,
   };
@@ -875,6 +877,7 @@ function handleTribute(ctx: KeywordTriggerContext, keyword: DetectedKeyword): Ke
       ],
       playerId: opponent.id,
       permanentId: ctx.permanent?.id,
+      value: n,
     },
     chatMessage: `${cardName}'s Tribute ${n} - ${opponent.name || opponent.id} may put counters on it`,
   };

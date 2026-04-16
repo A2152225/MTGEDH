@@ -1247,6 +1247,346 @@ function queueMutateTriggeredAbilities(
   }
 }
 
+function enqueueSupportedKeywordChoiceStep(
+  ctx: GameContext,
+  permanent: any,
+  sourceName: string,
+  sourceId: string | undefined,
+  result: KeywordTriggerResult,
+): boolean {
+  const keywordChoice = result.requiresPlayerChoice;
+  if (!keywordChoice) {
+    return false;
+  }
+
+  const keywordGameId = String((ctx as any).gameId || '').trim();
+  let queueType: ResolutionStepType | null = null;
+  const queueExtras: Record<string, any> = {};
+
+  if (result.keyword === 'riot' && keywordChoice.type === 'riot_choice') {
+    queueType = ResolutionStepType.RIOT_CHOICE;
+  } else if (result.keyword === 'unleash' && keywordChoice.type === 'unleash_choice') {
+    queueType = ResolutionStepType.UNLEASH_CHOICE;
+  } else if (result.keyword === 'fabricate' && keywordChoice.type === 'fabricate_choice') {
+    queueType = ResolutionStepType.FABRICATE_CHOICE;
+    if (typeof keywordChoice.value === 'number' && Number.isFinite(keywordChoice.value)) {
+      queueExtras.value = keywordChoice.value;
+    }
+  }
+
+  if (!queueType || !keywordGameId || keywordGameId === 'unknown') {
+    return false;
+  }
+
+  const playerSteps = ResolutionQueueManager.getStepsForPlayer(keywordGameId, keywordChoice.playerId as any);
+  const normalizedSourceId = String(sourceId || permanent?.id || '').trim();
+  const normalizedPermanentId = String(keywordChoice.permanentId || permanent?.id || '').trim();
+  const duplicateStep = playerSteps.some((step: any) =>
+    step?.type === queueType &&
+    String(step?.sourceId || '').trim() === normalizedSourceId &&
+    String(step?.permanentId || '').trim() === normalizedPermanentId
+  );
+  if (duplicateStep) {
+    return true;
+  }
+
+  const normalizedOptions = Array.isArray(keywordChoice.options)
+    ? keywordChoice.options
+        .map((option: any) => {
+          const id = String(option?.id ?? option?.value ?? option?.name ?? '').trim();
+          if (!id) return null;
+          return {
+            ...option,
+            id,
+            label: String(option?.label ?? option?.name ?? id),
+          };
+        })
+        .filter(Boolean)
+    : [];
+  const sourceImage =
+    permanent?.card?.image_uris?.small ||
+    permanent?.card?.image_uris?.normal ||
+    permanent?.card?.imageUrl ||
+    undefined;
+
+  ResolutionQueueManager.addStep(keywordGameId, {
+    type: queueType,
+    playerId: keywordChoice.playerId as any,
+    description: String(result.chatMessage || `${sourceName}: Make a choice.`),
+    mandatory: true,
+    sourceId: normalizedSourceId,
+    sourceName,
+    sourceImage,
+    permanentId: normalizedPermanentId,
+    options: normalizedOptions,
+    minSelections: 1,
+    maxSelections: 1,
+    ...queueExtras,
+  } as any);
+
+  return true;
+}
+
+function queueSupportedETBKeywordChoices(
+  ctx: GameContext,
+  permanent: any,
+  controller: PlayerID,
+): void {
+  const state = (ctx as any).state;
+  if (!state || !permanent) {
+    return;
+  }
+
+  const battlefield = state.battlefield || [];
+  const actualController = (permanent?.controller || controller) as PlayerID;
+  const keywordCtx: KeywordTriggerContext = {
+    gameId: (ctx as any).gameId || 'unknown',
+    permanent,
+    controller: actualController,
+    state,
+    battlefield,
+    players: state.players || [],
+    activePlayer: state.activePlayer || actualController,
+  };
+
+  const results = processKeywordTriggers(keywordCtx, 'etb');
+  for (const result of results) {
+    if (!result.requiresPlayerChoice) {
+      continue;
+    }
+
+    if (enqueueSupportedKeywordChoiceStep(
+      ctx,
+      permanent,
+      String(permanent?.card?.name || 'Permanent'),
+      String(permanent?.id || ''),
+      result,
+    )) {
+      debug(2, `[queueSupportedETBKeywordChoices] Queued ${result.keyword} choice for ${permanent?.card?.name || permanent?.id || 'permanent'}`);
+    }
+  }
+}
+
+export function queueTributeChoiceOnEntry(
+  ctx: GameContext,
+  permanent: any,
+  controller: PlayerID,
+): boolean {
+  if ((ctx as any).isReplaying) {
+    return false;
+  }
+
+  const state = (ctx as any).state;
+  if (!state || !permanent?.card) {
+    return false;
+  }
+
+  const existingOutcome =
+    permanent?.tributePaid ??
+    permanent?.tributeWasPaid ??
+    permanent?.card?.tributePaid ??
+    permanent?.card?.tributeWasPaid;
+  if (typeof existingOutcome === 'boolean') {
+    return false;
+  }
+
+  const battlefield = state.battlefield || [];
+  const actualController = (permanent?.controller || controller) as PlayerID;
+  const keywordCtx: KeywordTriggerContext = {
+    gameId: (ctx as any).gameId || 'unknown',
+    permanent,
+    controller: actualController,
+    state,
+    battlefield,
+    players: state.players || [],
+    activePlayer: state.activePlayer || actualController,
+  };
+
+  const tributeResult = processKeywordTriggers(keywordCtx, 'etb').find(
+    (result) => result.keyword === 'tribute' && result.requiresPlayerChoice?.type === 'tribute_choice'
+  );
+  if (!tributeResult?.requiresPlayerChoice) {
+    return false;
+  }
+
+  const keywordChoice = tributeResult.requiresPlayerChoice;
+  const gameId = String((ctx as any).gameId || '').trim();
+  if (!gameId || gameId === 'unknown') {
+    return false;
+  }
+
+  const normalizedPermanentId = String(keywordChoice.permanentId || permanent?.id || '').trim();
+  if (!normalizedPermanentId) {
+    return false;
+  }
+
+  const existingStep = ResolutionQueueManager.getStepsForPlayer(gameId, keywordChoice.playerId as any).some((step: any) =>
+    step?.type === ResolutionStepType.TRIBUTE_CHOICE &&
+    String(step?.permanentId || '').trim() === normalizedPermanentId
+  );
+  if (existingStep) {
+    return true;
+  }
+
+  const normalizedOptions = Array.isArray(keywordChoice.options)
+    ? keywordChoice.options
+        .map((option: any) => {
+          const id = String(option?.id ?? option?.value ?? option?.name ?? '').trim();
+          if (!id) return null;
+          return {
+            ...option,
+            id,
+            label: String(option?.label ?? option?.name ?? id),
+          };
+        })
+        .filter(Boolean)
+    : [];
+  if (normalizedOptions.length === 0) {
+    return false;
+  }
+
+  ResolutionQueueManager.addStep(gameId, {
+    type: ResolutionStepType.TRIBUTE_CHOICE,
+    playerId: keywordChoice.playerId as any,
+    description: String(tributeResult.chatMessage || `${permanent?.card?.name || 'Permanent'}: Tribute choice`),
+    mandatory: true,
+    sourceId: normalizedPermanentId,
+    sourceName: String(permanent?.card?.name || 'Permanent'),
+    sourceImage:
+      permanent?.card?.image_uris?.small ||
+      permanent?.card?.image_uris?.normal ||
+      permanent?.card?.imageUrl ||
+      undefined,
+    permanentId: normalizedPermanentId,
+    options: normalizedOptions,
+    minSelections: 1,
+    maxSelections: 1,
+    ...(typeof keywordChoice.value === 'number' && Number.isFinite(keywordChoice.value)
+      ? { value: keywordChoice.value }
+      : null),
+  } as any);
+
+  debug(2, `[queueTributeChoiceOnEntry] Queued tribute choice for ${permanent?.card?.name || normalizedPermanentId}`);
+  return true;
+}
+
+export function queueSelfETBTriggersForPermanent(
+  ctx: GameContext,
+  permanent: any,
+  controller: PlayerID,
+): void {
+  const state = (ctx as any).state;
+  if (!state || !permanent?.card) {
+    return;
+  }
+
+  const selfETBTriggerTypes = new Set([
+    'etb',
+    'etb_modal_choice',
+    'job_select',
+    'living_weapon',
+    'etb_sacrifice_unless_pay',
+    'etb_bounce_land',
+    'etb_gain_life',
+    'etb_draw',
+    'etb_search',
+    'etb_create_token',
+    'etb_counter',
+  ]);
+  const allTriggers = getETBTriggersForPermanent(permanent.card, permanent);
+  for (const trigger of allTriggers) {
+    const triggerAny = trigger as any;
+    const triggerType = String((trigger as any)?.triggerType || '').trim();
+    const isExplicitSelfETB = selfETBTriggerTypes.has(triggerType);
+    const isKnownExternalETB =
+      triggerType === 'permanent_etb' ||
+      triggerType === 'creature_etb' ||
+      triggerType === 'another_permanent_etb' ||
+      triggerType === 'opponent_creature_etb';
+    if (!isExplicitSelfETB && isKnownExternalETB) {
+      continue;
+    }
+
+    const raw = String((trigger as any)?.description || (trigger as any)?.effect || '').trim();
+    let textForEval = raw;
+    if (!/^(?:when|whenever|at)\b/i.test(textForEval)) {
+      textForEval = `When ~ enters the battlefield, ${textForEval}`;
+    }
+
+    const ok = isInterveningIfSatisfied(
+      ctx as any,
+      String(controller),
+      textForEval,
+      permanent,
+      /\bthat player\b/i.test(textForEval)
+        ? {
+            thatPlayerId: String(controller),
+            referencedPlayerId: String(controller),
+            theirPlayerId: String(controller),
+          }
+        : undefined
+    );
+    if (ok === false) {
+      continue;
+    }
+
+    state.stack = state.stack || [];
+    const triggerId = uid('trigger');
+    const stackItem = {
+      id: triggerId,
+      type: 'triggered_ability',
+      controller,
+      source: permanent.id,
+      sourceName: trigger.cardName || permanent.card?.name,
+      description: trigger.description,
+      triggerType: trigger.triggerType,
+      mandatory: trigger.mandatory,
+      permanentId: permanent.id,
+      effect: trigger.effect || trigger.description,
+      requiresChoice: trigger.requiresChoice,
+      requiresTarget: trigger.requiresTarget,
+      targetType: trigger.targetType,
+      targetConstraint: trigger.targetConstraint,
+      needsTargetSelection: trigger.requiresTarget || false,
+      isModal: triggerAny.isModal,
+      modalOptions: triggerAny.modalOptions,
+      targetPlayer: triggerAny.targetPlayer,
+      value: trigger.value,
+      effectData: triggerAny.effectData,
+    } as any;
+    state.stack.push(stackItem);
+
+    const gameId = String((ctx as any).gameId || '').trim();
+    if (gameId && gameId !== 'unknown') {
+      try {
+        appendEvent(gameId, (state as any).seq ?? 0, 'pushTriggeredAbility', {
+          triggerId,
+          sourceId: permanent.id,
+          permanentId: permanent.id,
+          sourceName: trigger.cardName || permanent.card?.name,
+          controllerId: controller,
+          description: trigger.description,
+          triggerType: trigger.triggerType,
+          effect: trigger.effect || trigger.description,
+          mandatory: trigger.mandatory,
+          requiresChoice: trigger.requiresChoice,
+          requiresTarget: trigger.requiresTarget,
+          targetType: trigger.targetType,
+          targetConstraint: trigger.targetConstraint,
+          needsTargetSelection: trigger.requiresTarget || false,
+          isModal: triggerAny.isModal,
+          modalOptions: triggerAny.modalOptions,
+          targetPlayer: triggerAny.targetPlayer,
+          value: trigger.value,
+          effectData: triggerAny.effectData,
+        });
+      } catch (err) {
+        debugWarn(1, '[queueSelfETBTriggersForPermanent] appendEvent(pushTriggeredAbility self ETB) failed:', err);
+      }
+    }
+  }
+}
+
 function resolveOracleQuantityToNumber(q: OracleQuantity, xValue?: number): number | null {
   if (!q) return null;
   if (q.kind === 'number') return Number.isFinite(q.value) ? q.value : null;
@@ -4726,6 +5066,8 @@ export function triggerETBEffectsForPermanent(
     byController[key] = byController[key] || {};
     byController[key][String(permanent.id)] = true;
   }
+
+  queueSupportedETBKeywordChoices(ctx, permanent, controller);
   
   // Check all other permanents for triggers that fire when creatures/permanents enter
   for (const perm of state.battlefield) {
@@ -9656,17 +9998,20 @@ export function executeTriggerEffect(
         
         // Handle player choices (will be processed by socket layer)
         if (result.requiresPlayerChoice) {
-          // Store pending choice for socket layer to handle
-          state.pendingKeywordChoice = state.pendingKeywordChoice || [];
-          state.pendingKeywordChoice.push({
-            keyword: result.keyword,
-            playerId: result.requiresPlayerChoice.playerId,
-            permanentId: result.requiresPlayerChoice.permanentId,
-            type: result.requiresPlayerChoice.type,
-            options: result.requiresPlayerChoice.options,
-            sourceName,
-            sourceId,
-          });
+          if (!enqueueSupportedKeywordChoiceStep(ctx, permanent, sourceName, sourceId, result)) {
+            const keywordChoice = result.requiresPlayerChoice;
+            // Preserve legacy fallback for keyword-choice flows that still lack queue-backed handling.
+            state.pendingKeywordChoice = state.pendingKeywordChoice || [];
+            state.pendingKeywordChoice.push({
+              keyword: result.keyword,
+              playerId: keywordChoice.playerId,
+              permanentId: keywordChoice.permanentId,
+              type: keywordChoice.type,
+              options: keywordChoice.options,
+              sourceName,
+              sourceId,
+            });
+          }
         }
       }
       
@@ -11993,9 +12338,13 @@ export function resolveTopOfStack(ctx: GameContext) {
     } catch (err) {
       debugError(1, `[resolveTopOfStack] Error checking control change effects:`, err);
     }
-    
-    // Check for ETB triggers on this permanent and other permanents
-    try {
+
+    const tributeChoiceDeferred = queueTributeChoiceOnEntry(ctx, newPermanent, controller);
+    if (!tributeChoiceDeferred) {
+      queueSupportedETBKeywordChoices(ctx, newPermanent, controller);
+      
+      // Check for ETB triggers on this permanent and other permanents
+      try {
       const allTriggers = getETBTriggersForPermanent(effectiveCard, newPermanent);
       
       // Filter out triggers that fire when OTHER permanents enter (not when self enters)
@@ -12231,8 +12580,11 @@ export function resolveTopOfStack(ctx: GameContext) {
           debug(2, `[resolveTopOfStack] ⚡ ${trigger.cardName}'s triggered ability (controlled by ${triggerController}): ${trigger.description}`);
         }
       }
-    } catch (err) {
-      debugWarn(1, '[resolveTopOfStack] Failed to detect ETB triggers:', err);
+      } catch (err) {
+        debugWarn(1, '[resolveTopOfStack] Failed to detect ETB triggers:', err);
+      }
+    } else {
+      debug(2, `[resolveTopOfStack] ${effectiveCard.name || 'Permanent'} tribute choice queued before ETB triggers are created`);
     }
     
     // Handle Squad token creation (Rule 702.157)

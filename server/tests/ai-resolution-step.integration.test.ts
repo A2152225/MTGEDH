@@ -1028,6 +1028,122 @@ describe('AI resolution-step integration', () => {
     expect(completed?.response?.selections).toBe('mana_dork');
   });
 
+  it('routes active hideaway-choice steps through AI priority handling and hides away the highest-value card', async () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const libraryCards = [
+      {
+        id: 'forest_top',
+        name: 'Forest',
+        type_line: 'Basic Land — Forest',
+        oracle_text: '{T}: Add {G}.',
+        cmc: 0,
+        zone: 'library',
+      },
+      {
+        id: 'cultivate_top',
+        name: 'Cultivate',
+        type_line: 'Sorcery',
+        oracle_text: 'Search your library for up to two basic land cards, reveal those cards, put one onto the battlefield tapped and the other into your hand, then shuffle.',
+        cmc: 3,
+        zone: 'library',
+      },
+      {
+        id: 'ulamog_top',
+        name: 'Ulamog\'s Crusher',
+        type_line: 'Creature — Eldrazi',
+        oracle_text: 'Annihilator 2',
+        power: '8',
+        toughness: '8',
+        cmc: 8,
+        zone: 'library',
+      },
+      {
+        id: 'plains_top',
+        name: 'Plains',
+        type_line: 'Basic Land — Plains',
+        oracle_text: '{T}: Add {W}.',
+        cmc: 0,
+        zone: 'library',
+      },
+      {
+        id: 'filler_1',
+        name: 'Ponder',
+        type_line: 'Sorcery',
+        oracle_text: 'Look at the top three cards of your library, then put them back in any order. You may shuffle. Draw a card.',
+        cmc: 1,
+        zone: 'library',
+      },
+    ];
+
+    (game.state as any).players = [
+      { id: playerId, name: 'AI', spectator: false, life: 40 },
+    ];
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).phase = 'main';
+    (game.state as any).step = 'precombat_main';
+    (game.state as any).stack = [{ id: 'hideaway_stack', controller: playerId, owner: playerId }];
+    (game.state as any).zones = {
+      [playerId]: {
+        hand: [],
+        handCount: 0,
+        library: libraryCards.map((card) => ({ ...card })),
+        libraryCount: libraryCards.length,
+        graveyard: [],
+        graveyardCount: 0,
+        exile: [],
+        exileCount: 0,
+      },
+    };
+    (game as any).libraries.set(playerId, libraryCards.map((card) => ({ ...card })));
+    (game.state as any).battlefield = [
+      {
+        id: 'windbrisk_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        summoningSickness: false,
+        counters: {},
+        card: {
+          id: 'windbrisk_card',
+          name: 'Windbrisk Heights',
+          type_line: 'Land',
+          oracle_text: 'Hideaway 4',
+        },
+      },
+    ];
+
+    registerAIPlayer(gameId, playerId as any);
+
+    const step = ResolutionQueueManager.addStep(gameId, {
+      type: ResolutionStepType.HIDEAWAY_CHOICE,
+      playerId: playerId as any,
+      description: 'Windbrisk Heights: Choose a card to exile face down (Hideaway)',
+      mandatory: true,
+      sourceId: 'windbrisk_1',
+      sourceName: 'Windbrisk Heights',
+      permanentId: 'windbrisk_1',
+      stackItemId: 'hideaway_stack',
+      hideawayCards: libraryCards.slice(0, 4).map((card) => ({
+        cardId: card.id,
+        cardName: card.name,
+      })),
+      hideawayCondition: 'attack_with_three_or_more',
+    } as any);
+
+    ResolutionQueueManager.activateStep(gameId, step.id);
+
+    await handleAIPriority(createNoopIo(), gameId, playerId as any);
+
+    const queue = ResolutionQueueManager.getQueue(gameId);
+    expect(queue.steps.some((entry: any) => String(entry.id) === String(step.id))).toBe(false);
+    const completed = queue.completedSteps.find((entry: any) => String(entry.id) === String(step.id));
+    expect(completed?.response?.selections).toEqual(['ulamog_top']);
+  });
+
   it('routes active scry steps through AI priority handling and submits a legal keep-top partition', async () => {
     createGameIfNotExists(gameId, 'commander', 40);
     const game = ensureGame(gameId);
@@ -1041,6 +1157,44 @@ describe('AI resolution-step integration', () => {
     (game.state as any).phase = 'main';
     (game.state as any).step = 'precombat_main';
     (game.state as any).stack = [];
+    (game.state as any).battlefield = [
+      {
+        id: 'plains_battlefield',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        counters: {},
+        card: { id: 'plains_battlefield_card', name: 'Plains', type_line: 'Basic Land — Plains', oracle_text: '{T}: Add {W}.' },
+      },
+      {
+        id: 'island_battlefield',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        counters: {},
+        card: { id: 'island_battlefield_card', name: 'Island', type_line: 'Basic Land — Island', oracle_text: '{T}: Add {U}.' },
+      },
+      {
+        id: 'swamp_battlefield',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        counters: {},
+        card: { id: 'swamp_battlefield_card', name: 'Swamp', type_line: 'Basic Land — Swamp', oracle_text: '{T}: Add {B}.' },
+      },
+    ];
+    (game.state as any).zones = {
+      [playerId]: {
+        hand: [],
+        handCount: 0,
+        library: [],
+        libraryCount: 0,
+        graveyard: [],
+        graveyardCount: 0,
+        exile: [],
+        exileCount: 0,
+      },
+    };
 
     registerAIPlayer(gameId, playerId as any);
 
@@ -1078,8 +1232,8 @@ describe('AI resolution-step integration', () => {
     expect(queue.steps.some((entry: any) => String(entry.id) === String(step.id))).toBe(false);
     const completed = queue.completedSteps.find((entry: any) => String(entry.id) === String(step.id));
     expect(completed?.response?.selections).toEqual({
-      keepTopOrder: cards,
-      bottomOrder: [],
+      keepTopOrder: [cards[0]],
+      bottomOrder: [cards[1]],
     });
   });
 
@@ -3723,6 +3877,641 @@ describe('AI resolution-step integration', () => {
 
         const battlefieldNames = (((game.state as any).battlefield) || []).map((perm: any) => String(perm?.card?.name || ''));
         expect(battlefieldNames).toContain('Forest');
+      });
+    } finally {
+      ResolutionQueueManager.off(aiHandler);
+    }
+  });
+
+  it('auto-resolves AI fateseal steps from the shared resolution queue handler', async () => {
+    const io = createNoopIo();
+    const aiHandler = initializeAIResolutionHandler(io as any);
+
+    try {
+      createGameIfNotExists(gameId, 'commander', 40);
+      const game = ensureGame(gameId);
+      if (!game) throw new Error('ensureGame returned undefined');
+
+      (game.state as any).players = [
+        { id: playerId, name: 'AI', spectator: false, life: 40, isAI: true },
+        { id: 'opp1', name: 'Opponent', spectator: false, life: 40 },
+      ];
+      (game.state as any).turnPlayer = playerId;
+      (game.state as any).priority = playerId;
+      (game.state as any).phase = 'main';
+      (game.state as any).step = 'precombat_main';
+      (game.state as any).stack = [];
+
+      const cards = [
+        { id: 'fate_a', name: 'Card A' },
+        { id: 'fate_b', name: 'Card B' },
+      ];
+
+      const step = ResolutionQueueManager.addStep(gameId, {
+        type: ResolutionStepType.FATESEAL,
+        playerId: playerId as any,
+        description: 'Fateseal 2',
+        mandatory: true,
+        opponentId: 'opp1',
+        cards,
+      } as any);
+
+      await vi.waitFor(() => {
+        const queue = ResolutionQueueManager.getQueue(gameId);
+        expect(queue.steps.some((entry: any) => String(entry.id) === String(step.id))).toBe(false);
+
+        const completed = queue.completedSteps.find((entry: any) => String(entry.id) === String(step.id));
+        expect(completed?.response?.selections).toEqual({
+          keepTopOrder: cards,
+          bottomOrder: [],
+        });
+      });
+    } finally {
+      ResolutionQueueManager.off(aiHandler);
+    }
+  });
+
+  it('auto-resolves AI clash steps from the shared resolution queue handler', async () => {
+    const io = createNoopIo();
+    const aiHandler = initializeAIResolutionHandler(io as any);
+
+    try {
+      createGameIfNotExists(gameId, 'commander', 40);
+      const game = ensureGame(gameId);
+      if (!game) throw new Error('ensureGame returned undefined');
+
+      (game.state as any).players = [
+        { id: playerId, name: 'AI', spectator: false, life: 40, isAI: true },
+      ];
+      (game.state as any).turnPlayer = playerId;
+      (game.state as any).priority = playerId;
+      (game.state as any).phase = 'main';
+      (game.state as any).step = 'precombat_main';
+      (game.state as any).stack = [];
+
+      const step = ResolutionQueueManager.addStep(gameId, {
+        type: ResolutionStepType.CLASH,
+        playerId: playerId as any,
+        description: 'Choose whether to put the revealed card on the bottom.',
+        mandatory: true,
+      } as any);
+
+      await vi.waitFor(() => {
+        const queue = ResolutionQueueManager.getQueue(gameId);
+        expect(queue.steps.some((entry: any) => String(entry.id) === String(step.id))).toBe(false);
+
+        const completed = queue.completedSteps.find((entry: any) => String(entry.id) === String(step.id));
+        expect(completed?.response?.selections).toEqual({
+          putOnBottom: false,
+        });
+      });
+    } finally {
+      ResolutionQueueManager.off(aiHandler);
+    }
+  });
+
+  it('auto-resolves AI vote steps from the shared resolution queue handler', async () => {
+    const io = createNoopIo();
+    const aiHandler = initializeAIResolutionHandler(io as any);
+
+    try {
+      createGameIfNotExists(gameId, 'commander', 40);
+      const game = ensureGame(gameId);
+      if (!game) throw new Error('ensureGame returned undefined');
+
+      (game.state as any).players = [
+        { id: playerId, name: 'AI', spectator: false, life: 40, isAI: true },
+      ];
+      (game.state as any).turnPlayer = playerId;
+      (game.state as any).priority = playerId;
+      (game.state as any).phase = 'main';
+      (game.state as any).step = 'precombat_main';
+      (game.state as any).stack = [];
+
+      const step = ResolutionQueueManager.addStep(gameId, {
+        type: ResolutionStepType.VOTE,
+        playerId: playerId as any,
+        description: 'Vote for grace or condemnation.',
+        mandatory: true,
+        choices: ['grace', 'condemnation'],
+      } as any);
+
+      await vi.waitFor(() => {
+        const queue = ResolutionQueueManager.getQueue(gameId);
+        expect(queue.steps.some((entry: any) => String(entry.id) === String(step.id))).toBe(false);
+
+        const completed = queue.completedSteps.find((entry: any) => String(entry.id) === String(step.id));
+        expect(completed?.response?.selections).toEqual({
+          choice: 'grace',
+          voteCount: 1,
+        });
+      });
+    } finally {
+      ResolutionQueueManager.off(aiHandler);
+    }
+  });
+
+  it('auto-resolves AI entrapment-maneuver steps from the shared resolution queue handler', async () => {
+    const io = createNoopIo();
+    const aiHandler = initializeAIResolutionHandler(io as any);
+
+    try {
+      createGameIfNotExists(gameId, 'commander', 40);
+      const game = ensureGame(gameId);
+      if (!game) throw new Error('ensureGame returned undefined');
+
+      (game.state as any).players = [
+        { id: playerId, name: 'AI', spectator: false, life: 40, isAI: true },
+        { id: 'opp1', name: 'Opponent', spectator: false, life: 40 },
+      ];
+      (game.state as any).turnPlayer = playerId;
+      (game.state as any).priority = playerId;
+      (game.state as any).phase = 'combat';
+      (game.state as any).step = 'declare_blockers';
+      (game.state as any).stack = [];
+      (game.state as any).battlefield = [
+        {
+          id: 'attacker_small',
+          controller: playerId,
+          owner: playerId,
+          tapped: true,
+          attacking: true,
+          counters: {},
+          card: {
+            id: 'attacker_small_card',
+            name: 'Small Attacker',
+            type_line: 'Creature — Bear',
+            power: '2',
+            toughness: '2',
+          },
+        },
+        {
+          id: 'attacker_big',
+          controller: playerId,
+          owner: playerId,
+          tapped: true,
+          attacking: true,
+          counters: {},
+          card: {
+            id: 'attacker_big_card',
+            name: 'Big Attacker',
+            type_line: 'Creature — Beast',
+            power: '5',
+            toughness: '5',
+          },
+        },
+      ];
+      (game.state as any).zones = {
+        [playerId]: { hand: [], handCount: 0, library: [], graveyard: [], exile: [] },
+        opp1: { hand: [], handCount: 0, library: [], graveyard: [], exile: [] },
+      };
+
+      const step = ResolutionQueueManager.addStep(gameId, {
+        type: ResolutionStepType.ENTRAPMENT_MANEUVER,
+        playerId: playerId as any,
+        description: 'You must sacrifice an attacking creature you control.',
+        mandatory: true,
+        sourceId: 'spell1',
+        sourceName: 'Entrapment Maneuver',
+        caster: 'opp1',
+        attackingCreatures: [
+          {
+            id: 'attacker_big',
+            name: 'Big Attacker',
+            power: '5',
+            toughness: '5',
+            typeLine: 'Creature — Beast',
+          },
+          {
+            id: 'attacker_small',
+            name: 'Small Attacker',
+            power: '2',
+            toughness: '2',
+            typeLine: 'Creature — Bear',
+          },
+        ],
+      } as any);
+
+      await vi.waitFor(() => {
+        const queue = ResolutionQueueManager.getQueue(gameId);
+        expect(queue.steps.some((entry: any) => String(entry.id) === String(step.id))).toBe(false);
+
+        const completed = queue.completedSteps.find((entry: any) => String(entry.id) === String(step.id));
+        expect(completed?.response?.selections).toEqual(['attacker_small']);
+      });
+    } finally {
+      ResolutionQueueManager.off(aiHandler);
+    }
+  });
+
+  it('auto-resolves AI upkeep-sacrifice steps from the shared resolution queue handler using the live sacrifice heuristic', async () => {
+    const io = createNoopIo();
+    const aiHandler = initializeAIResolutionHandler(io as any);
+
+    try {
+      createGameIfNotExists(gameId, 'commander', 40);
+      const game = ensureGame(gameId);
+      if (!game) throw new Error('ensureGame returned undefined');
+
+      (game.state as any).players = [
+        { id: playerId, name: 'AI', spectator: false, life: 40, isAI: true },
+      ];
+      (game.state as any).turnPlayer = playerId;
+      (game.state as any).priority = playerId;
+      (game.state as any).phase = 'upkeep';
+      (game.state as any).step = 'upkeep';
+      (game.state as any).stack = [];
+      (game.state as any).battlefield = [
+        {
+          id: 'commander_1',
+          controller: playerId,
+          owner: playerId,
+          tapped: false,
+          summoningSickness: false,
+          counters: {},
+          card: {
+            id: 'commander_card',
+            name: 'Test Commander',
+            type_line: 'Legendary Creature — Angel',
+            oracle_text: '',
+            power: '5',
+            toughness: '5',
+          },
+          isCommander: true,
+        },
+        {
+          id: 'mana_dork',
+          controller: playerId,
+          owner: playerId,
+          tapped: false,
+          summoningSickness: false,
+          counters: {},
+          card: {
+            id: 'dork1',
+            name: 'Llanowar Elves',
+            type_line: 'Creature — Elf Druid',
+            oracle_text: '{T}: Add {G}.',
+            power: '1',
+            toughness: '1',
+          },
+        },
+        {
+          id: 'soldier_token',
+          controller: playerId,
+          owner: playerId,
+          tapped: false,
+          summoningSickness: false,
+          counters: {},
+          isToken: true,
+          card: {
+            id: 'token1',
+            name: 'Soldier',
+            type_line: 'Token Creature — Soldier',
+            oracle_text: '',
+            power: '1',
+            toughness: '1',
+          },
+        },
+      ];
+
+      const step = ResolutionQueueManager.addStep(gameId, {
+        type: ResolutionStepType.UPKEEP_SACRIFICE,
+        playerId: playerId as any,
+        description: 'Sacrifice a creature.',
+        mandatory: true,
+        sourceId: 'monument_1',
+        sourceName: 'Eldrazi Monument',
+        creatures: [
+          { id: 'commander_1', name: 'Test Commander', power: '5', toughness: '5', isCommander: true },
+          { id: 'mana_dork', name: 'Llanowar Elves', power: '1', toughness: '1' },
+          { id: 'soldier_token', name: 'Soldier', power: '1', toughness: '1', isToken: true },
+        ],
+        sourceToSacrifice: { id: 'monument_1', name: 'Eldrazi Monument' },
+        allowSourceSacrifice: true,
+      } as any);
+
+      await vi.waitFor(() => {
+        const queue = ResolutionQueueManager.getQueue(gameId);
+        expect(queue.steps.some((entry: any) => String(entry.id) === String(step.id))).toBe(false);
+
+        const completed = queue.completedSteps.find((entry: any) => String(entry.id) === String(step.id));
+        expect(completed?.response?.selections).toEqual({ type: 'creature', creatureId: 'soldier_token' });
+      });
+    } finally {
+      ResolutionQueueManager.off(aiHandler);
+    }
+  });
+
+  it('auto-resolves AI return-controlled-permanent steps from the shared resolution queue handler using the live bounce heuristic', async () => {
+    const io = createNoopIo();
+    const aiHandler = initializeAIResolutionHandler(io as any);
+
+    try {
+      createGameIfNotExists(gameId, 'commander', 40);
+      const game = ensureGame(gameId);
+      if (!game) throw new Error('ensureGame returned undefined');
+
+      (game.state as any).players = [
+        { id: playerId, name: 'AI', spectator: false, life: 40, isAI: true },
+      ];
+      (game.state as any).turnPlayer = playerId;
+      (game.state as any).priority = playerId;
+      (game.state as any).phase = 'main';
+      (game.state as any).step = 'precombat_main';
+      (game.state as any).stack = [];
+      (game.state as any).battlefield = [
+        {
+          id: 'bounce_source',
+          controller: playerId,
+          owner: playerId,
+          tapped: false,
+          summoningSickness: false,
+          counters: {},
+          card: {
+            id: 'bounce_source_card',
+            name: 'Simic Growth Chamber',
+            type_line: 'Land',
+            oracle_text: '{T}: Add {G}{U}.',
+          },
+        },
+        {
+          id: 'forest_1',
+          controller: playerId,
+          owner: playerId,
+          tapped: false,
+          summoningSickness: false,
+          counters: {},
+          card: {
+            id: 'forest_1_card',
+            name: 'Forest',
+            type_line: 'Basic Land — Forest',
+            oracle_text: '{T}: Add {G}.',
+          },
+        },
+        {
+          id: 'mana_dork',
+          controller: playerId,
+          owner: playerId,
+          tapped: false,
+          summoningSickness: false,
+          counters: {},
+          card: {
+            id: 'mana_dork_card',
+            name: 'Llanowar Elves',
+            type_line: 'Creature — Elf Druid',
+            oracle_text: '{T}: Add {G}.',
+            power: '1',
+            toughness: '1',
+          },
+        },
+      ];
+
+      const step = ResolutionQueueManager.addStep(gameId, {
+        type: ResolutionStepType.RETURN_CONTROLLED_PERMANENT_CHOICE,
+        playerId: playerId as any,
+        description: "Return a permanent you control to its owner's hand.",
+        mandatory: true,
+        sourceId: 'bounce_source',
+        sourceName: 'Simic Growth Chamber',
+        returnControlledPermanentChoice: true,
+        returnControlledPermanentSourceName: 'Simic Growth Chamber',
+        returnControlledPermanentDestination: 'hand',
+        returnControlledPermanentOptions: [
+          { permanentId: 'bounce_source', cardName: 'Simic Growth Chamber' },
+          { permanentId: 'forest_1', cardName: 'Forest' },
+          { permanentId: 'mana_dork', cardName: 'Llanowar Elves' },
+        ],
+      } as any);
+
+      await vi.waitFor(() => {
+        const queue = ResolutionQueueManager.getQueue(gameId);
+        expect(queue.steps.some((entry: any) => String(entry.id) === String(step.id))).toBe(false);
+
+        const completed = queue.completedSteps.find((entry: any) => String(entry.id) === String(step.id));
+        expect(completed?.response?.selections).toEqual(['mana_dork']);
+      });
+    } finally {
+      ResolutionQueueManager.off(aiHandler);
+    }
+  });
+
+  it('auto-resolves AI hideaway-choice steps from the shared resolution queue handler and stores the chosen card under the source permanent', async () => {
+    const io = createNoopIo();
+    const aiHandler = initializeAIResolutionHandler(io as any);
+
+    try {
+      createGameIfNotExists(gameId, 'commander', 40);
+      const game = ensureGame(gameId);
+      if (!game) throw new Error('ensureGame returned undefined');
+
+      const libraryCards = [
+        {
+          id: 'forest_top',
+          name: 'Forest',
+          type_line: 'Basic Land — Forest',
+          oracle_text: '{T}: Add {G}.',
+          cmc: 0,
+          zone: 'library',
+        },
+        {
+          id: 'cultivate_top',
+          name: 'Cultivate',
+          type_line: 'Sorcery',
+          oracle_text: 'Search your library for up to two basic land cards, reveal those cards, put one onto the battlefield tapped and the other into your hand, then shuffle.',
+          cmc: 3,
+          zone: 'library',
+        },
+        {
+          id: 'ulamog_top',
+          name: 'Ulamog\'s Crusher',
+          type_line: 'Creature — Eldrazi',
+          oracle_text: 'Annihilator 2',
+          power: '8',
+          toughness: '8',
+          cmc: 8,
+          zone: 'library',
+        },
+        {
+          id: 'plains_top',
+          name: 'Plains',
+          type_line: 'Basic Land — Plains',
+          oracle_text: '{T}: Add {W}.',
+          cmc: 0,
+          zone: 'library',
+        },
+        {
+          id: 'filler_1',
+          name: 'Ponder',
+          type_line: 'Sorcery',
+          oracle_text: 'Look at the top three cards of your library, then put them back in any order. You may shuffle. Draw a card.',
+          cmc: 1,
+          zone: 'library',
+        },
+      ];
+
+      (game.state as any).players = [
+        { id: playerId, name: 'AI', spectator: false, life: 40, isAI: true },
+      ];
+      (game.state as any).turnPlayer = playerId;
+      (game.state as any).priority = playerId;
+      (game.state as any).phase = 'main';
+      (game.state as any).step = 'precombat_main';
+      (game.state as any).stack = [{ id: 'hideaway_stack', controller: playerId, owner: playerId }];
+      (game.state as any).zones = {
+        [playerId]: {
+          hand: [],
+          handCount: 0,
+          library: libraryCards.map((card) => ({ ...card })),
+          libraryCount: libraryCards.length,
+          graveyard: [],
+          graveyardCount: 0,
+          exile: [],
+          exileCount: 0,
+        },
+      };
+      (game as any).libraries.set(playerId, libraryCards.map((card) => ({ ...card })));
+      (game.state as any).battlefield = [
+        {
+          id: 'windbrisk_1',
+          controller: playerId,
+          owner: playerId,
+          tapped: false,
+          summoningSickness: false,
+          counters: {},
+          card: {
+            id: 'windbrisk_card',
+            name: 'Windbrisk Heights',
+            type_line: 'Land',
+            oracle_text: 'Hideaway 4',
+          },
+        },
+      ];
+
+      const step = ResolutionQueueManager.addStep(gameId, {
+        type: ResolutionStepType.HIDEAWAY_CHOICE,
+        playerId: playerId as any,
+        description: 'Windbrisk Heights: Choose a card to exile face down (Hideaway)',
+        mandatory: true,
+        sourceId: 'windbrisk_1',
+        sourceName: 'Windbrisk Heights',
+        permanentId: 'windbrisk_1',
+        stackItemId: 'hideaway_stack',
+        hideawayCards: libraryCards.slice(0, 4).map((card) => ({
+          cardId: card.id,
+          cardName: card.name,
+        })),
+        hideawayCondition: 'attack_with_three_or_more',
+      } as any);
+
+      await vi.waitFor(() => {
+        const queue = ResolutionQueueManager.getQueue(gameId);
+        expect(queue.steps.some((entry: any) => String(entry.id) === String(step.id))).toBe(false);
+
+        const completed = queue.completedSteps.find((entry: any) => String(entry.id) === String(step.id));
+        expect(completed?.response?.selections).toEqual(['ulamog_top']);
+
+        const permanent = (game.state as any).battlefield.find((entry: any) => entry.id === 'windbrisk_1');
+        expect((permanent as any)?.hideawayCard?.card?.id).toBe('ulamog_top');
+        expect(((game as any).libraries.get(playerId) || []).map((card: any) => card.id)).not.toContain('ulamog_top');
+        expect(((game as any).libraries.get(playerId) || [])[0]?.id).toBe('filler_1');
+        expect(((game.state as any).stack || []).some((entry: any) => entry.id === 'hideaway_stack')).toBe(false);
+      });
+    } finally {
+      ResolutionQueueManager.off(aiHandler);
+    }
+  });
+
+  it('auto-resolves AI scry steps from the shared resolution queue handler using the land-aware heuristic', async () => {
+    const io = createNoopIo();
+    const aiHandler = initializeAIResolutionHandler(io as any);
+
+    try {
+      createGameIfNotExists(gameId, 'commander', 40);
+      const game = ensureGame(gameId);
+      if (!game) throw new Error('ensureGame returned undefined');
+
+      (game.state as any).players = [
+        { id: playerId, name: 'AI', spectator: false, life: 40, isAI: true },
+      ];
+      (game.state as any).turnPlayer = playerId;
+      (game.state as any).priority = playerId;
+      (game.state as any).phase = 'main';
+      (game.state as any).step = 'precombat_main';
+      (game.state as any).stack = [];
+      (game.state as any).battlefield = [
+        {
+          id: 'plains_battlefield',
+          controller: playerId,
+          owner: playerId,
+          tapped: false,
+          counters: {},
+          card: { id: 'plains_battlefield_card', name: 'Plains', type_line: 'Basic Land — Plains', oracle_text: '{T}: Add {W}.' },
+        },
+        {
+          id: 'island_battlefield',
+          controller: playerId,
+          owner: playerId,
+          tapped: false,
+          counters: {},
+          card: { id: 'island_battlefield_card', name: 'Island', type_line: 'Basic Land — Island', oracle_text: '{T}: Add {U}.' },
+        },
+        {
+          id: 'swamp_battlefield',
+          controller: playerId,
+          owner: playerId,
+          tapped: false,
+          counters: {},
+          card: { id: 'swamp_battlefield_card', name: 'Swamp', type_line: 'Basic Land — Swamp', oracle_text: '{T}: Add {B}.' },
+        },
+      ];
+      (game.state as any).zones = {
+        [playerId]: {
+          hand: [],
+          handCount: 0,
+          library: [],
+          libraryCount: 0,
+          graveyard: [],
+          graveyardCount: 0,
+          exile: [],
+          exileCount: 0,
+        },
+      };
+
+      const cards = [
+        {
+          id: 'cultivate_1',
+          name: 'Cultivate',
+          type_line: 'Sorcery',
+          oracle_text: 'Search your library for up to two basic land cards, reveal those cards, put one onto the battlefield tapped and the other into your hand, then shuffle.',
+          cmc: 3,
+        },
+        {
+          id: 'forest_1',
+          name: 'Forest',
+          type_line: 'Basic Land — Forest',
+          oracle_text: '',
+          cmc: 0,
+        },
+      ];
+
+      const step = ResolutionQueueManager.addStep(gameId, {
+        type: ResolutionStepType.SCRY,
+        playerId: playerId as any,
+        description: 'Scry 2',
+        mandatory: true,
+        scryCount: 2,
+        cards,
+      } as any);
+
+      await vi.waitFor(() => {
+        const queue = ResolutionQueueManager.getQueue(gameId);
+        expect(queue.steps.some((entry: any) => String(entry.id) === String(step.id))).toBe(false);
+
+        const completed = queue.completedSteps.find((entry: any) => String(entry.id) === String(step.id));
+        expect(completed?.response?.selections).toEqual({
+          keepTopOrder: [cards[0]],
+          bottomOrder: [cards[1]],
+        });
       });
     } finally {
       ResolutionQueueManager.off(aiHandler);

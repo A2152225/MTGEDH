@@ -2181,6 +2181,11 @@ function hasValidBlockers(ctx: GameContext, playerId: PlayerID): boolean {
       
       // Can't block if tapped
       if (permanent.tapped) continue;
+
+      const unleashPreventsBlocking =
+        (permanent as any).unleashed === true &&
+        Number((permanent.counters || {})['+1/+1'] || 0) > 0;
+      if (unleashPreventsBlocking) continue;
       
       // Check for "can't block" effects (like Goblin Tunneler's ability)
       const oracleText = (permanent.card?.oracle_text || "").toLowerCase();

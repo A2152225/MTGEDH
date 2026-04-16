@@ -784,6 +784,61 @@ describe('canCastAnySpell', () => {
   });
 });
 
+describe('canAct combat blocker checks', () => {
+  it('should return false for declare blockers when the only blocker is unleashed with a +1/+1 counter', () => {
+    const ctx = createTestContext({
+      players: [
+        { id: 'p1', life: 40 },
+        { id: 'p2', life: 40 },
+      ],
+      battlefield: [
+        {
+          id: 'unleash_blocker',
+          controller: 'p1',
+          tapped: false,
+          unleashed: true,
+          counters: { '+1/+1': 1 },
+          card: {
+            name: 'Gore-House Chainwalker',
+            type_line: 'Creature — Human Warrior',
+            power: '2',
+            toughness: '1',
+            oracle_text: 'Unleash (You may have this creature enter the battlefield with a +1/+1 counter on it. It can\'t block as long as it has a +1/+1 counter on it.)',
+          },
+        },
+        {
+          id: 'attacker',
+          controller: 'p2',
+          tapped: false,
+          attacking: true,
+          card: {
+            name: 'Attacker',
+            type_line: 'Creature — Bear',
+            power: '2',
+            toughness: '2',
+            oracle_text: '',
+          },
+        },
+      ],
+      declaredAttackers: [{ creatureId: 'attacker' }],
+      zones: {
+        p1: { hand: [], graveyard: [], exile: [] },
+        p2: { hand: [], graveyard: [], exile: [] },
+      },
+      manaPool: {
+        p1: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+        p2: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+      },
+      stack: [],
+      turnPlayer: 'p2',
+      priority: 'p1',
+      step: 'DECLARE_BLOCKERS',
+    });
+
+    expect(canAct(ctx, 'p1' as PlayerID)).toBe(false);
+  });
+});
+
 describe('canPlayLand', () => {
   it('does not treat transform front-face enchantments as lands in hand', () => {
     const ctx = createTestContext({

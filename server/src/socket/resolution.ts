@@ -45,10 +45,14 @@ import { cardManaValue, parsePT, uid, calculateVariablePT, validateLifePayment }
 import { debug, debugWarn, debugError } from "../utils/debug.js";
 import { filterLibraryCardsForSearch } from "./library-search.js";
 import {
+  chooseAIHideawayCardId,
   chooseAIKynaiosChoiceSelection,
   chooseAIPlayerChoiceId,
+  chooseAIReturnControlledPermanentId,
+  chooseAIScrySelection,
   chooseAIModeSelectionsForStep,
   chooseAIOptionSelectionsForStep,
+  chooseAIUpkeepSacrificeSelection,
   handleBounceLandETB,
   chooseAICardNameSelection,
   chooseAILibrarySearchCards,
@@ -69,7 +73,14 @@ import { drawCards as drawCardsFromZones } from "../state/modules/zones.js";
 import { dispatchDamageReceivedTrigger, processDamageReceivedTriggers, resolveDamageTrigger, type DamageTriggerInfo } from "../state/modules/triggers/damage-received.js";
 import { getTokenImageUrls } from "../services/tokens.js";
 import { normalizeCardName } from "../state/modules/chosen-name-restrictions.js";
-import { executeTriggerEffect, inferTriggeredAbilityTargetMetadata, triggerETBEffectsForToken } from "../state/modules/stack.js";
+import {
+  executeTriggerEffect,
+  inferTriggeredAbilityTargetMetadata,
+  queueSelfETBTriggersForPermanent,
+  queueTributeChoiceOnEntry,
+  triggerETBEffectsForPermanent,
+  triggerETBEffectsForToken,
+} from "../state/modules/stack.js";
 import { creatureHasHaste, formatManaCostWithReduction, getSpellModeAdditionalCost, handlePlayLandRequest, registerGameActions, requestCastSpellForSocket } from "./game-actions.js";
 import { buildOraclePromptContext, getOracleTextFromResolutionStep } from "../utils/oraclePromptContext.js";
 import { cleanupCardLeavingExile } from "../state/modules/playable-from-exile.js";
@@ -1918,75 +1929,38 @@ async function handleAIResolutionStep(
       }
 
       case ResolutionStepType.RETURN_CONTROLLED_PERMANENT_CHOICE: {
-        const stepData = step as any;
-        const optionsToChoose = stepData.returnControlledPermanentOptions || [];
-        
-        if (optionsToChoose.length === 0) {
+        const permanentId = chooseAIReturnControlledPermanentId(game, step.playerId as any, step as any);
+        if (!permanentId) {
           debugWarn(1, `[Resolution] AI return-controlled-permanent choice: no options available`);
           break;
         }
-        
-        // Use existing AI logic to choose which permanent to return.
-        const battlefield = game.state.battlefield || [];
-        const playerId = step.playerId;
-        const sourceName = stepData.returnControlledPermanentSourceName || stepData.sourceName || 'Return Controlled Permanent';
-        
-        // Check for landfall synergy
-        const hasLandfallSynergy = battlefield.some((perm: any) => {
-          if (perm.controller !== playerId) return false;
-          const oracleText = (perm.card?.oracle_text || '').toLowerCase();
-          return oracleText.includes('landfall') || 
-                 oracleText.includes('whenever a land enters') ||
-                 oracleText.includes('whenever you play a land');
-        });
-        
-        // Score each land option
-        const scoredOptions = optionsToChoose.map((option: any) => {
-          const perm = battlefield.find((p: any) => p.id === option.permanentId);
-          if (!perm) return { option, score: 1000 };
-          
-          let score = 50; // Base score
-          const card = perm.card;
-          const typeLine = (card?.type_line || '').toLowerCase();
-          const permName = (card?.name || '').toLowerCase();
-          
-          // The triggering source itself is often a good candidate to return.
-          if (permName === sourceName.toLowerCase()) {
-            if (optionsToChoose.length === 1) {
-              score = 0; // Only option
-            } else {
-              score += hasLandfallSynergy ? 10 : 30;
-              if (perm.tapped) score -= 10;
-            }
-            return { option, score };
-          }
-          
-          // Basic lands are least valuable
-          if (typeLine.includes('basic')) {
-            score -= 30;
-            if (hasLandfallSynergy) score -= 10;
-          }
-          
-          // Tapped lands are good to return
-          if (perm.tapped) score -= 10;
-          
-          return { option, score };
-        });
-        
-        // Sort by score (lowest first = return first)
-        scoredOptions.sort((a: any, b: any) => a.score - b.score);
-        const chosenOption = scoredOptions[0]?.option;
-        
-        if (chosenOption) {
-          response = {
-            stepId: step.id,
-            playerId: step.playerId,
-            selections: chosenOption.permanentId,
-            cancelled: false,
-            timestamp: Date.now(),
-          };
-          debug(2, `[Resolution] AI chose to return permanent: ${chosenOption.cardName}`);
+
+        response = {
+          stepId: step.id,
+          playerId: step.playerId,
+          selections: [permanentId],
+          cancelled: false,
+          timestamp: Date.now(),
+        };
+        debug(2, `[Resolution] AI chose to return permanent: ${permanentId}`);
+        break;
+      }
+
+      case ResolutionStepType.HIDEAWAY_CHOICE: {
+        const cardId = chooseAIHideawayCardId(game, step.playerId as any, step as any);
+        if (!cardId) {
+          debugWarn(1, `[Resolution] AI hideaway choice: no cards available`);
+          break;
         }
+
+        response = {
+          stepId: step.id,
+          playerId: step.playerId,
+          selections: [cardId],
+          cancelled: false,
+          timestamp: Date.now(),
+        };
+        debug(2, `[Resolution] AI chose hideaway card: ${cardId}`);
         break;
       }
       
@@ -2491,21 +2465,16 @@ async function handleAIResolutionStep(
       }
       
       case ResolutionStepType.SCRY: {
-        // AI keeps all cards on top (simple strategy - could be improved)
-        const scryStep = step as any;
-        const cards = scryStep.cards || [];
+        const selections = chooseAIScrySelection(game, step.playerId as any, step as any);
         
         response = {
           stepId: step.id,
           playerId: step.playerId,
-          selections: {
-            keepTopOrder: cards, // Keep all on top
-            bottomOrder: [],     // Put none on bottom
-          },
+          selections,
           cancelled: false,
           timestamp: Date.now(),
         };
-        debug(2, `[Resolution] AI scry: keeping ${cards.length} card(s) on top`);
+        debug(2, `[Resolution] AI scry: keeping ${selections.keepTopOrder.length} on top, ${selections.bottomOrder.length} on bottom`);
         break;
       }
       
@@ -2866,6 +2835,78 @@ async function handleAIResolutionStep(
         debug(2, `[Resolution] AI proliferate: selected ${selectedTargetIds.length} targets`);
         break;
       }
+
+      case ResolutionStepType.FATESEAL: {
+        const fatesealStep = step as any;
+        const cards = Array.isArray(fatesealStep.cards) ? fatesealStep.cards : [];
+
+        response = {
+          stepId: step.id,
+          playerId: step.playerId,
+          selections: {
+            keepTopOrder: cards,
+            bottomOrder: [],
+          },
+          cancelled: false,
+          timestamp: Date.now(),
+        };
+        debug(2, `[Resolution] AI fateseal: keeping ${cards.length} card(s) on top`);
+        break;
+      }
+
+      case ResolutionStepType.CLASH: {
+        response = {
+          stepId: step.id,
+          playerId: step.playerId,
+          selections: {
+            putOnBottom: false,
+          },
+          cancelled: false,
+          timestamp: Date.now(),
+        };
+        debug(2, `[Resolution] AI clash: keeping revealed card on top`);
+        break;
+      }
+
+      case ResolutionStepType.VOTE: {
+        const voteStep = step as any;
+        const choices = Array.isArray(voteStep.choices) ? voteStep.choices : [];
+        const choice = typeof choices[0] === 'string' ? choices[0] : 'decline';
+
+        response = {
+          stepId: step.id,
+          playerId: step.playerId,
+          selections: {
+            choice,
+            voteCount: 1,
+          },
+          cancelled: false,
+          timestamp: Date.now(),
+        };
+        debug(2, `[Resolution] AI vote: selected ${choice}`);
+        break;
+      }
+
+      case ResolutionStepType.ENTRAPMENT_MANEUVER: {
+        const stepData = step as any;
+        const attackingCreatures = Array.isArray(stepData.attackingCreatures) ? stepData.attackingCreatures : [];
+        const sortedCreatures = [...attackingCreatures].sort((a: any, b: any) => {
+          const toughA = parseInt(String(a?.toughness || '0').replace(/\D.*$/, ''), 10) || 0;
+          const toughB = parseInt(String(b?.toughness || '0').replace(/\D.*$/, ''), 10) || 0;
+          return toughA - toughB;
+        });
+        const creatureToSacrifice = sortedCreatures[0];
+
+        response = {
+          stepId: step.id,
+          playerId: step.playerId,
+          selections: creatureToSacrifice ? [String(creatureToSacrifice.id || '')] : [],
+          cancelled: !creatureToSacrifice,
+          timestamp: Date.now(),
+        };
+        debug(2, `[Resolution] AI entrapment maneuver: ${creatureToSacrifice ? `sacrificing ${String(creatureToSacrifice.name || creatureToSacrifice.id)}` : 'no valid attacker found'}`);
+        break;
+      }
       
       case ResolutionStepType.KYNAIOS_CHOICE: {
         const selection = chooseAIKynaiosChoiceSelection(step as any);
@@ -2882,49 +2923,15 @@ async function handleAIResolutionStep(
       }
       
       case ResolutionStepType.UPKEEP_SACRIFICE: {
-        // AI must sacrifice a creature or the source
-        // Strategy: Sacrifice the weakest creature if available, otherwise sacrifice the source
-        const sacrificeStep = step as any;
-        const creatures = sacrificeStep.creatures || [];
-        const sourceToSacrifice = sacrificeStep.sourceToSacrifice;
-        const allowSourceSacrifice: boolean = sacrificeStep.allowSourceSacrifice !== false;
-        
-        let selection: { type: 'creature' | 'source'; creatureId?: string } | undefined = allowSourceSacrifice
-          ? { type: 'source' }
-          : undefined;
-        
-        if (creatures.length > 0) {
-          // Find the weakest creature (lowest combined power + toughness)
-          let weakestCreature = creatures[0];
-          let weakestValue = Infinity;
-          
-          for (const creature of creatures) {
-            const power = parseInt(creature.power) || 0;
-            const toughness = parseInt(creature.toughness) || 0;
-            const value = power + toughness;
-            if (value < weakestValue) {
-              weakestValue = value;
-              weakestCreature = creature;
-            }
-          }
-          
-          selection = { type: 'creature', creatureId: weakestCreature.id };
-          debug(2, `[Resolution] AI upkeep sacrifice: sacrificing ${weakestCreature.name} (weakest creature)`);
-        } else {
-          if (allowSourceSacrifice) {
-            debug(2, `[Resolution] AI upkeep sacrifice: no creatures, sacrificing ${sourceToSacrifice?.name || 'source'}`);
-          } else {
-            debug(2, `[Resolution] AI upkeep sacrifice: no creatures and no fallback, doing nothing`);
-          }
-        }
-        
+        const selection = chooseAIUpkeepSacrificeSelection(game, step.playerId as any, step as any);
         response = {
           stepId: step.id,
           playerId: step.playerId,
-          selections: selection ?? [],
+          selections: selection,
           cancelled: false,
           timestamp: Date.now(),
         };
+        debug(2, `[Resolution] AI upkeep sacrifice: selected ${typeof selection === 'object' && !Array.isArray(selection) ? `${selection.type}${selection.creatureId ? `:${selection.creatureId}` : ''}` : 'none'}`);
         break;
       }
       
@@ -5958,6 +5965,40 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
       }
     }
 
+    if (step.type === ResolutionStepType.HIDEAWAY_CHOICE) {
+      const stepAny = step as any;
+
+      if (cancelled) {
+        if (step.mandatory) {
+          socket.emit('error', { code: 'STEP_MANDATORY', message: 'This step is mandatory and cannot be cancelled' });
+          return;
+        }
+      } else {
+        const raw: any = response.selections as any;
+        let selectedCardId = '';
+        if (typeof raw === 'string') selectedCardId = raw;
+        else if (Array.isArray(raw) && raw.length > 0 && typeof raw[0] === 'string') selectedCardId = raw[0];
+        else if (raw && typeof raw === 'object' && !Array.isArray(raw)) selectedCardId = String(raw.cardId || raw.selectedCardId || raw.id || '');
+
+        selectedCardId = String(selectedCardId || '').trim();
+        if (!selectedCardId) {
+          socket.emit('error', { code: 'INVALID_SELECTION', message: 'No hideaway card selected' });
+          return;
+        }
+
+        const hideawayCards: any[] = Array.isArray(stepAny?.hideawayCards) ? stepAny.hideawayCards : [];
+        const validIds = new Set(
+          hideawayCards
+            .map((card: any) => String(card?.cardId || card?.id || '').trim())
+            .filter(Boolean),
+        );
+        if (!validIds.has(selectedCardId)) {
+          socket.emit('error', { code: 'INVALID_SELECTION', message: 'Selected card is not a valid hideaway choice' });
+          return;
+        }
+      }
+    }
+
     // Validate DEVOUR_SELECTION selections before completing the step.
     // If we complete first, invalid input would permanently consume the step and skip devour.
     if (step.type === ResolutionStepType.DEVOUR_SELECTION) {
@@ -6749,6 +6790,8 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
     if (
       (step.type === ResolutionStepType.RIOT_CHOICE ||
         step.type === ResolutionStepType.UNLEASH_CHOICE ||
+        step.type === ResolutionStepType.FABRICATE_CHOICE ||
+        step.type === ResolutionStepType.TRIBUTE_CHOICE ||
         step.type === ResolutionStepType.KEYWORD_CHOICE) &&
       !cancelled
     ) {
@@ -6790,6 +6833,10 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
           ? new Set(['counter', 'haste'])
           : step.type === ResolutionStepType.UNLEASH_CHOICE
             ? new Set(['counter', 'none'])
+            : step.type === ResolutionStepType.FABRICATE_CHOICE
+              ? new Set(['counters', 'tokens'])
+              : step.type === ResolutionStepType.TRIBUTE_CHOICE
+                ? new Set(['pay', 'decline'])
             : new Set<string>();
 
       const allowed = allowedFromStep.size > 0 ? allowedFromStep : allowedFallback;
@@ -7789,6 +7836,24 @@ function getTypeSpecificFields(step: ResolutionStep): Record<string, any> {
       if ('returnControlledPermanentDestination' in step) fields.returnControlledPermanentDestination = (step as any).returnControlledPermanentDestination;
       if ('returnControlledPermanentOptions' in step) fields.returnControlledPermanentOptions = (step as any).returnControlledPermanentOptions;
       if ('stackItemId' in step) fields.stackItemId = step.stackItemId;
+      break;
+
+    case ResolutionStepType.HIDEAWAY_CHOICE:
+      if ('hideawayCards' in step) fields.hideawayCards = (step as any).hideawayCards;
+      if ('hideawayCondition' in step) fields.hideawayCondition = (step as any).hideawayCondition;
+      if ('permanentId' in step) fields.permanentId = (step as any).permanentId;
+      if ('stackItemId' in step) fields.stackItemId = (step as any).stackItemId;
+      break;
+
+    case ResolutionStepType.RIOT_CHOICE:
+    case ResolutionStepType.UNLEASH_CHOICE:
+    case ResolutionStepType.FABRICATE_CHOICE:
+    case ResolutionStepType.TRIBUTE_CHOICE:
+      if ('permanentId' in step) fields.permanentId = (step as any).permanentId;
+      if ('options' in step) fields.options = (step as any).options;
+      if ('minSelections' in step) fields.minSelections = (step as any).minSelections;
+      if ('maxSelections' in step) fields.maxSelections = (step as any).maxSelections;
+      if ('value' in step) fields.value = (step as any).value;
       break;
       
     case ResolutionStepType.CASCADE:
@@ -11927,6 +11992,10 @@ async function handleStepResponse(
     case ResolutionStepType.RETURN_CONTROLLED_PERMANENT_CHOICE:
       handleReturnControlledPermanentChoiceResponse(io, game, gameId, step, response);
       break;
+
+    case ResolutionStepType.HIDEAWAY_CHOICE:
+      handleHideawayChoiceResponse(io, game, gameId, step, response);
+      break;
       
     case ResolutionStepType.ACTIVATED_ABILITY:
       await handleActivatedAbilityResponse(io, game, gameId, step, response);
@@ -12023,6 +12092,22 @@ async function handleStepResponse(
     case ResolutionStepType.CARD_NAME_CHOICE:
       await handleCardNameChoiceResponse(io, game, gameId, step, response);
       break;
+
+    case ResolutionStepType.RIOT_CHOICE:
+      handleRiotChoiceResponse(io, game, gameId, step, response);
+      break;
+
+    case ResolutionStepType.UNLEASH_CHOICE:
+      handleUnleashChoiceResponse(io, game, gameId, step, response);
+      break;
+
+    case ResolutionStepType.FABRICATE_CHOICE:
+      await handleFabricateChoiceResponse(io, game, gameId, step, response);
+      break;
+
+    case ResolutionStepType.TRIBUTE_CHOICE:
+      await handleTributeChoiceResponse(io, game, gameId, step, response);
+      break;
     
     case ResolutionStepType.UPKEEP_SACRIFICE:
       handleUpkeepSacrificeResponse(io, game, gameId, step, response);
@@ -12036,6 +12121,261 @@ async function handleStepResponse(
     default:
       debug(2, `[Resolution] No specific handler for step type: ${step.type}`);
   }
+}
+
+function extractResolutionChoiceId(selections: any): string | null {
+  if (typeof selections === 'string') return selections;
+  if (Array.isArray(selections)) {
+    if (selections.length === 0) return null;
+    const first = selections[0];
+    if (typeof first === 'string') return first;
+    if (first && typeof first === 'object') {
+      return String((first as any).optionId ?? (first as any).choice ?? (first as any).id ?? (first as any).value ?? '').trim() || null;
+    }
+    return null;
+  }
+  if (selections && typeof selections === 'object') {
+    return String((selections as any).optionId ?? (selections as any).choice ?? (selections as any).id ?? (selections as any).value ?? '').trim() || null;
+  }
+  return null;
+}
+
+function findKeywordChoicePermanent(game: any, step: ResolutionStep): any | null {
+  const battlefield = Array.isArray(game?.state?.battlefield) ? game.state.battlefield : [];
+  const permanentId = String((step as any)?.permanentId || step.sourceId || '').trim();
+  if (!permanentId) return null;
+  return battlefield.find((permanent: any) => String(permanent?.id || '') === permanentId) || null;
+}
+
+function emitKeywordChoiceChat(io: Server, gameId: string, sourceName: string, message: string): void {
+  io.to(gameId).emit('chat', {
+    id: `m_${Date.now()}_${Math.random()}`,
+    gameId,
+    from: 'system',
+    message: `${sourceName}: ${message}`,
+    ts: Date.now(),
+  });
+}
+
+function handleRiotChoiceResponse(
+  io: Server,
+  game: any,
+  gameId: string,
+  step: ResolutionStep,
+  response: ResolutionStepResponse
+): void {
+  const choiceId = String(extractResolutionChoiceId(response.selections) || '').trim().toLowerCase();
+  const permanent = findKeywordChoicePermanent(game, step);
+  if (!permanent || !choiceId) {
+    debugWarn(1, `[Resolution] Riot choice could not be applied for step ${step.id}`);
+    return;
+  }
+
+  const sourceName = String(step.sourceName || permanent.card?.name || 'Riot');
+  if (choiceId === 'counter') {
+    updateCounters(game as any, String(permanent.id), { '+1/+1': 1 });
+    emitKeywordChoiceChat(
+      io,
+      gameId,
+      sourceName,
+      `${getPlayerName(game, response.playerId)} chose a +1/+1 counter for ${permanent.card?.name || 'the creature'}.`
+    );
+  } else if (choiceId === 'haste') {
+    const grantedAbilities = Array.isArray((permanent as any).grantedAbilities)
+      ? (permanent as any).grantedAbilities
+      : ((permanent as any).grantedAbilities = []);
+    if (!grantedAbilities.some((ability: any) => String(ability || '').toLowerCase() === 'haste')) {
+      grantedAbilities.push('Haste');
+    }
+    permanent.summoningSickness = false;
+    emitKeywordChoiceChat(
+      io,
+      gameId,
+      sourceName,
+      `${getPlayerName(game, response.playerId)} chose haste for ${permanent.card?.name || 'the creature'}.`
+    );
+  } else {
+    debugWarn(1, `[Resolution] Unsupported riot choice "${choiceId}" for step ${step.id}`);
+    return;
+  }
+
+  if (typeof game.bumpSeq === 'function') {
+    game.bumpSeq();
+  }
+  broadcastGame(io, game, gameId);
+}
+
+function handleUnleashChoiceResponse(
+  io: Server,
+  game: any,
+  gameId: string,
+  step: ResolutionStep,
+  response: ResolutionStepResponse
+): void {
+  const choiceId = String(extractResolutionChoiceId(response.selections) || '').trim().toLowerCase();
+  const permanent = findKeywordChoicePermanent(game, step);
+  if (!permanent || !choiceId) {
+    debugWarn(1, `[Resolution] Unleash choice could not be applied for step ${step.id}`);
+    return;
+  }
+
+  const sourceName = String(step.sourceName || permanent.card?.name || 'Unleash');
+  if (choiceId === 'counter') {
+    updateCounters(game as any, String(permanent.id), { '+1/+1': 1 });
+    (permanent as any).unleashed = true;
+    emitKeywordChoiceChat(
+      io,
+      gameId,
+      sourceName,
+      `${getPlayerName(game, response.playerId)} unleashed ${permanent.card?.name || 'the creature'} with a +1/+1 counter.`
+    );
+  } else if (choiceId === 'none') {
+    (permanent as any).unleashed = false;
+    emitKeywordChoiceChat(
+      io,
+      gameId,
+      sourceName,
+      `${getPlayerName(game, response.playerId)} chose not to unleash ${permanent.card?.name || 'the creature'}.`
+    );
+  } else {
+    debugWarn(1, `[Resolution] Unsupported unleash choice "${choiceId}" for step ${step.id}`);
+    return;
+  }
+
+  if (typeof game.bumpSeq === 'function') {
+    game.bumpSeq();
+  }
+  broadcastGame(io, game, gameId);
+}
+
+async function handleFabricateChoiceResponse(
+  io: Server,
+  game: any,
+  gameId: string,
+  step: ResolutionStep,
+  response: ResolutionStepResponse
+): Promise<void> {
+  const choiceId = String(extractResolutionChoiceId(response.selections) || '').trim().toLowerCase();
+  const permanent = findKeywordChoicePermanent(game, step);
+  if (!permanent || !choiceId) {
+    debugWarn(1, `[Resolution] Fabricate choice could not be applied for step ${step.id}`);
+    return;
+  }
+
+  const amount = Math.max(1, Number((step as any).value || 1));
+  const sourceName = String(step.sourceName || permanent.card?.name || 'Fabricate');
+
+  if (choiceId === 'counters') {
+    updateCounters(game as any, String(permanent.id), { '+1/+1': amount });
+    emitKeywordChoiceChat(
+      io,
+      gameId,
+      sourceName,
+      `${getPlayerName(game, response.playerId)} put ${amount} +1/+1 counter${amount === 1 ? '' : 's'} on ${permanent.card?.name || 'the creature'}.`
+    );
+  } else if (choiceId === 'tokens') {
+    const { createToken } = await import('../state/modules/counters_tokens.js');
+    createToken(
+      {
+        state: game.state,
+        bumpSeq: () => game.bumpSeq?.(),
+        libraries: (game as any).libraries,
+        commandZone: (game as any).commandZone || {},
+        gameId,
+      } as any,
+      response.playerId as any,
+      'Servo',
+      amount,
+      1,
+      1,
+      {
+        typeLine: 'Token Artifact Creature — Servo',
+        isArtifact: true,
+      }
+    );
+    emitKeywordChoiceChat(
+      io,
+      gameId,
+      sourceName,
+      `${getPlayerName(game, response.playerId)} created ${amount} 1/1 Servo token${amount === 1 ? '' : 's'}.`
+    );
+  } else {
+    debugWarn(1, `[Resolution] Unsupported fabricate choice "${choiceId}" for step ${step.id}`);
+    return;
+  }
+
+  if (typeof game.bumpSeq === 'function') {
+    game.bumpSeq();
+  }
+  broadcastGame(io, game, gameId);
+}
+
+async function handleTributeChoiceResponse(
+  io: Server,
+  game: any,
+  gameId: string,
+  step: ResolutionStep,
+  response: ResolutionStepResponse
+): Promise<void> {
+  const choiceId = String(extractResolutionChoiceId(response.selections) || '').trim().toLowerCase();
+  const permanent = findKeywordChoicePermanent(game, step);
+  if (!permanent || !choiceId) {
+    debugWarn(1, `[Resolution] Tribute choice could not be applied for step ${step.id}`);
+    return;
+  }
+
+  const amount = Math.max(1, Number((step as any).value || 1));
+  const sourceName = String(step.sourceName || permanent.card?.name || 'Tribute');
+  const controllerId = String((permanent as any).controller || response.playerId || '').trim();
+
+  const applyTributeOutcome = (wasPaid: boolean) => {
+    (permanent as any).tributePaid = wasPaid;
+    (permanent as any).tributeWasPaid = wasPaid;
+    if ((permanent as any).card && typeof (permanent as any).card === 'object') {
+      (permanent as any).card.tributePaid = wasPaid;
+      (permanent as any).card.tributeWasPaid = wasPaid;
+    }
+  };
+
+  if (choiceId === 'pay') {
+    updateCounters(game as any, String(permanent.id), { '+1/+1': amount });
+    applyTributeOutcome(true);
+    emitKeywordChoiceChat(
+      io,
+      gameId,
+      sourceName,
+      `${getPlayerName(game, response.playerId)} paid tribute and put ${amount} +1/+1 counter${amount === 1 ? '' : 's'} on ${permanent.card?.name || 'the creature'}.`
+    );
+  } else if (choiceId === 'decline') {
+    applyTributeOutcome(false);
+    emitKeywordChoiceChat(
+      io,
+      gameId,
+      sourceName,
+      `${getPlayerName(game, response.playerId)} declined tribute for ${permanent.card?.name || 'the creature'}.`
+    );
+  } else {
+    debugWarn(1, `[Resolution] Unsupported tribute choice "${choiceId}" for step ${step.id}`);
+    return;
+  }
+
+  const tributeCtx = {
+    state: game.state,
+    gameId,
+    inactive: new Set(),
+    libraries: (game as any).libraries,
+    players: game.state?.players || [],
+    bumpSeq: () => game.bumpSeq?.(),
+    commandZone: (game as any).commandZone || {},
+  } as any;
+
+  queueSelfETBTriggersForPermanent(tributeCtx, permanent, controllerId as any);
+  triggerETBEffectsForPermanent(tributeCtx, permanent, controllerId as any);
+
+  if (typeof game.bumpSeq === 'function') {
+    game.bumpSeq();
+  }
+  broadcastGame(io, game, gameId);
 }
 
 async function handleXValueSelectionResponse(
@@ -18086,6 +18426,136 @@ function handleReturnControlledPermanentChoiceResponse(
   }
 }
 
+function handleHideawayChoiceResponse(
+  io: Server,
+  game: any,
+  gameId: string,
+  step: ResolutionStep,
+  response: ResolutionStepResponse,
+): void {
+  const pid = response.playerId;
+  const selection = response.selections as any;
+
+  let selectedCardId = '';
+  if (typeof selection === 'string') {
+    selectedCardId = selection;
+  } else if (Array.isArray(selection) && selection.length > 0) {
+    selectedCardId = String(selection[0] || '');
+  } else if (selection && typeof selection === 'object' && !Array.isArray(selection)) {
+    selectedCardId = String(selection.cardId || selection.selectedCardId || selection.id || '');
+  }
+
+  selectedCardId = String(selectedCardId || '').trim();
+  if (!selectedCardId) {
+    debugWarn(1, `[Resolution] Hideaway choice: no card selected by ${pid}`);
+    return;
+  }
+
+  const stepData = step as any;
+  const permanentId = String(stepData.permanentId || stepData.sourceId || '').trim();
+  const sourceName = String(stepData.sourceName || 'Hideaway');
+  const stackItemId = String(stepData.stackItemId || '').trim();
+  const hideawayCards = Array.isArray(stepData.hideawayCards) ? stepData.hideawayCards : [];
+  const validIds = new Set(
+    hideawayCards
+      .map((card: any) => String(card?.cardId || card?.id || '').trim())
+      .filter(Boolean),
+  );
+
+  if (!validIds.has(selectedCardId)) {
+    debugWarn(1, `[Resolution] Invalid hideaway choice: ${selectedCardId} not in valid options`);
+    return;
+  }
+
+  const battlefield = Array.isArray(game.state?.battlefield) ? game.state.battlefield : [];
+  const permanent = battlefield.find((entry: any) => String(entry?.id || '') === permanentId);
+  if (!permanent) {
+    debugWarn(1, `[Resolution] Hideaway source permanent not found: ${permanentId}`);
+    return;
+  }
+
+  const library = Array.isArray((game as any).libraries?.get?.(pid))
+    ? ((game as any).libraries.get(pid) as any[])
+    : [];
+  const lookedAtCount = Math.min(hideawayCards.length, library.length);
+  const topCards = library.slice(0, lookedAtCount);
+  const selectedCard = topCards.find((card: any) => String(card?.id || '') === selectedCardId);
+
+  if (!selectedCard) {
+    debugWarn(1, `[Resolution] Hideaway selected card not found in library top cards: ${selectedCardId}`);
+    return;
+  }
+
+  const remainingCards = topCards.filter((card: any) => String(card?.id || '') !== selectedCardId);
+  for (let i = remainingCards.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [remainingCards[i], remainingCards[j]] = [remainingCards[j], remainingCards[i]];
+  }
+
+  library.splice(0, lookedAtCount);
+  library.push(...remainingCards.map((card: any) => ({ ...card, zone: 'library' })));
+
+  if ((game as any).libraries?.set) {
+    (game as any).libraries.set(pid, library);
+  }
+
+  game.state = (game.state || {}) as any;
+  game.state.zones = game.state.zones || {};
+  const zones = game.state.zones;
+  const zoneState = (zones[pid] = zones[pid] || {
+    hand: [],
+    handCount: 0,
+    libraryCount: 0,
+    library: [],
+    graveyard: [],
+    graveyardCount: 0,
+    exile: [],
+    exileCount: 0,
+  });
+  zoneState.library = Array.isArray(library) ? library.map((card: any) => ({ ...card, zone: 'library' })) : zoneState.library;
+  zoneState.libraryCount = Array.isArray(library) ? library.length : zoneState.libraryCount;
+
+  (permanent as any).hideawayCard = {
+    card: { ...selectedCard, zone: 'exile' },
+  };
+
+  if (stackItemId) {
+    game.state.stack = Array.isArray(game.state.stack) ? game.state.stack : [];
+    const stackIndex = game.state.stack.findIndex((item: any) => String(item?.id || '') === stackItemId);
+    if (stackIndex !== -1) {
+      game.state.stack.splice(stackIndex, 1);
+    }
+  }
+
+  try {
+    appendEvent(gameId, (game as any).seq ?? 0, 'hideawayChoice', {
+      playerId: pid,
+      permanentId,
+      selectedCardId,
+      lookedAtCardIds: topCards.map((card: any) => String(card?.id || '')),
+      bottomOrderIds: remainingCards.map((card: any) => String(card?.id || '')),
+      stackItemId: stackItemId || undefined,
+      sourceName,
+    });
+  } catch (err) {
+    debugWarn(1, '[Resolution] appendEvent(hideawayChoice) failed:', err);
+  }
+
+  io.to(gameId).emit('chat', {
+    id: `m_${Date.now()}`,
+    gameId,
+    from: 'system',
+    message: `${getPlayerName(game, pid)} hides away ${selectedCard.name || 'a card'} with ${sourceName}.`,
+    ts: Date.now(),
+  });
+
+  if (typeof (game as any).bumpSeq === 'function') {
+    (game as any).bumpSeq();
+  }
+
+  broadcastGame(io, game, gameId);
+}
+
 /**
  * Handle activated ability resolution
  * Executes non-mana activated abilities from the stack
@@ -20236,107 +20706,6 @@ async function putCardOntoBattlefield(
 
     debug(2, `[putCardOntoBattlefield] Shock land ${cardName} entering - queued choice for ${controller}`);
   }
-  
-  // Self ETB triggers
-  const selfETBTriggerTypes = new Set([
-    'etb',
-    'etb_modal_choice',
-    'job_select',
-    'living_weapon',
-    'etb_sacrifice_unless_pay',
-    'etb_bounce_land',
-    'etb_gain_life',
-    'etb_draw',
-    'etb_search',
-    'etb_create_token',
-    'etb_counter',
-  ]);
-
-  // Intervening-if (Rule 603.4): if recognized and false at trigger time, do not trigger.
-  // This path bypasses the usual ETB trigger plumbing in stack.ts, so we must filter here.
-  const { isInterveningIfSatisfied } = await import("../state/modules/triggers/intervening-if.js");
-  const ctxForInterveningIf = { state } as any;
-
-  const allTriggers = getETBTriggersForPermanent(card, newPermanent);
-  for (const trigger of allTriggers) {
-    if (selfETBTriggerTypes.has(trigger.triggerType)) {
-      const raw = String(trigger.description || trigger.effect || "").trim();
-      let textForEval = raw;
-      if (!/^(?:when|whenever|at)\b/i.test(textForEval)) {
-        textForEval = `When ~ enters the battlefield, ${textForEval}`;
-      }
-      const ok = isInterveningIfSatisfied(
-        ctxForInterveningIf,
-        String(controller),
-        textForEval,
-        newPermanent,
-        /\bthat player\b/i.test(textForEval)
-          ? {
-              thatPlayerId: String(controller),
-              referencedPlayerId: String(controller),
-              theirPlayerId: String(controller),
-            }
-          : undefined
-      );
-      if (ok === false) continue;
-
-      state.stack = state.stack || [];
-      const triggerId = uid("trigger");
-      const stackItem = {
-        id: triggerId,
-        type: 'triggered_ability',
-        controller,
-        source: newPermanent.id,
-        sourceName: trigger.cardName,
-        description: trigger.description,
-        triggerType: trigger.triggerType,
-        mandatory: trigger.mandatory,
-        permanentId: newPermanent.id,
-        effect: trigger.effect || trigger.description,
-        requiresChoice: trigger.requiresChoice,
-        requiresTarget: trigger.requiresTarget,
-        targetType: trigger.targetType,
-        targetConstraint: trigger.targetConstraint,
-        needsTargetSelection: trigger.requiresTarget || false,
-        isModal: trigger.isModal,
-        modalOptions: trigger.modalOptions,
-        targetPlayer: trigger.targetPlayer,
-        value: trigger.value,
-        effectData: trigger.effectData,
-      } as any;
-      state.stack.push(stackItem);
-
-      if (gameId) {
-        try {
-          appendEvent(gameId, (game as any).seq ?? 0, 'pushTriggeredAbility', {
-            triggerId,
-            sourceId: newPermanent.id,
-            permanentId: newPermanent.id,
-            sourceName: trigger.cardName,
-            controllerId: controller,
-            description: trigger.description,
-            triggerType: trigger.triggerType,
-            effect: trigger.effect || trigger.description,
-            mandatory: trigger.mandatory,
-            requiresChoice: trigger.requiresChoice,
-            requiresTarget: trigger.requiresTarget,
-            targetType: trigger.targetType,
-            targetConstraint: trigger.targetConstraint,
-            needsTargetSelection: trigger.requiresTarget || false,
-            isModal: trigger.isModal,
-            modalOptions: trigger.modalOptions,
-            targetPlayer: trigger.targetPlayer,
-            value: trigger.value,
-            effectData: trigger.effectData,
-          });
-        } catch (err) {
-          debugWarn(1, '[putCardOntoBattlefield] appendEvent(pushTriggeredAbility self ETB) failed:', err);
-        }
-      }
-    }
-  }
-  
-  // Triggers from other permanents (landfall, etc.)
   const ctx = { 
     state, 
     gameId: (game as any).gameId,
@@ -20344,7 +20713,14 @@ async function putCardOntoBattlefield(
     libraries: (game as any).libraries, 
     players: state.players 
   };
-  triggerETBEffectsForPermanent(ctx as any, newPermanent, controller);
+
+  const tributeChoiceDeferred = queueTributeChoiceOnEntry(ctx as any, newPermanent, controller as any);
+  if (!tributeChoiceDeferred) {
+    queueSelfETBTriggersForPermanent(ctx as any, newPermanent, controller as any);
+    triggerETBEffectsForPermanent(ctx as any, newPermanent, controller);
+  } else {
+    debug(2, `[putCardOntoBattlefield] ${cardName} tribute choice queued before ETB triggers are created`);
+  }
 
   return String(newPermanent.id);
 }

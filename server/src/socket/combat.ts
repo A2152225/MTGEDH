@@ -849,6 +849,13 @@ function canBlockAttacker(
       reason: `Has ${counterCheck.counterType} counter (${counterCheck.sourceName} effect)` 
     };
   }
+
+  if ((blocker as any).unleashed === true && Number(((blocker as any).counters || {})['+1/+1'] || 0) > 0) {
+    return {
+      canBlock: false,
+      reason: 'Unleashed creature has a +1/+1 counter',
+    };
+  }
   
   // Check flying - can only be blocked by flying or reach
   const attackerFlying = hasEffectiveAbility(attacker, 'flying', battlefield, attacker.controller);

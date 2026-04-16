@@ -1983,7 +1983,7 @@ export function chooseAIGraveyardSelectionIds(
     .map((entry) => entry.id);
 }
 
-function chooseAIUpkeepSacrificeSelection(
+export function chooseAIUpkeepSacrificeSelection(
   game: any,
   playerId: PlayerID,
   step: any,
@@ -2041,7 +2041,7 @@ function chooseAIUpkeepSacrificeSelection(
   return [];
 }
 
-function chooseAIReturnControlledPermanentId(
+export function chooseAIReturnControlledPermanentId(
   game: any,
   playerId: PlayerID,
   step: any,
@@ -2073,6 +2073,118 @@ function chooseAIReturnControlledPermanentId(
 
   scoredOptions.sort((left, right) => left.score - right.score || left.permanentId.localeCompare(right.permanentId));
   return scoredOptions[0]?.permanentId || '';
+}
+
+function scoreAIHideawayCandidate(game: any, playerId: PlayerID, card: any): number {
+  if (!card || typeof card !== 'object') return Number.NEGATIVE_INFINITY;
+
+  const typeLine = String(card?.type_line || '').toLowerCase();
+  const oracleText = String(card?.oracle_text || '').toLowerCase();
+  const isLand = typeLine.includes('land');
+  const isCreature = typeLine.includes('creature');
+  const manaValue = Number(card?.cmc ?? 0) || 0;
+  const power = Number(card?.power ?? 0) || 0;
+  const toughness = Number(card?.toughness ?? 0) || 0;
+  const analysis = cardAnalyzer.analyzeCard(card);
+
+  let score = 0;
+  score += isLand ? -60 : 30;
+  score += manaValue * (isLand ? 2 : 12);
+  score += calculateCardThemeAlignment(card, ensureAIDeckProfile(game, playerId));
+  score += analysis.comboPotential * 3;
+  if (analysis.categories.includes(CardCategory.DRAW)) score += 8;
+  if (analysis.categories.includes(CardCategory.REMOVAL)) score += 10;
+  if (analysis.categories.includes(CardCategory.TUTOR)) score += 12;
+  if (analysis.categories.includes(CardCategory.FINISHER)) score += 14;
+  if (isCreature) score += power + toughness;
+  if (/take an extra turn|extra turn|extra combat/.test(oracleText)) score += 20;
+  if (/destroy target|exile target|counter target/.test(oracleText)) score += 8;
+  if (/draw [a-z0-9 ]*cards?/.test(oracleText)) score += 6;
+
+  return score;
+}
+
+export function chooseAIHideawayCardId(
+  game: any,
+  playerId: PlayerID,
+  step: any,
+): string {
+  const options = Array.isArray(step?.hideawayCards) ? step.hideawayCards : [];
+  if (options.length === 0) return '';
+
+  const library = Array.isArray(game?.libraries?.get?.(playerId))
+    ? (game.libraries.get(playerId) as any[])
+    : Array.isArray(game?.state?.zones?.[playerId]?.library)
+      ? game.state.zones[playerId].library
+      : [];
+
+  const visibleTopCards = library.slice(0, options.length);
+  const fullCardById = new Map(
+    visibleTopCards
+      .map((card: any) => [String(card?.id || '').trim(), card] as const)
+      .filter(([cardId]) => Boolean(cardId)),
+  );
+
+  const scoredOptions = options
+    .map((option: any) => {
+      const cardId = String(option?.cardId || option?.id || '').trim();
+      if (!cardId) return null;
+
+      const fullCard = fullCardById.get(cardId) || option;
+      return {
+        cardId,
+        score: scoreAIHideawayCandidate(game, playerId, fullCard),
+      };
+    })
+    .filter((entry): entry is { cardId: string; score: number } => Boolean(entry));
+
+  scoredOptions.sort((left, right) => right.score - left.score || left.cardId.localeCompare(right.cardId));
+  return scoredOptions[0]?.cardId || '';
+}
+
+export function chooseAIScrySelection(
+  game: any,
+  playerId: PlayerID,
+  step: any,
+): { keepTopOrder: any[]; bottomOrder: any[] } {
+  const cards = Array.isArray(step?.cards) ? step.cards : [];
+  if (cards.length === 0) {
+    return { keepTopOrder: [], bottomOrder: [] };
+  }
+
+  const battlefield = Array.isArray(game?.state?.battlefield) ? game.state.battlefield : [];
+  const hand = Array.isArray(game?.state?.zones?.[playerId]?.hand) ? game.state.zones[playerId].hand : [];
+  const controlledLands = battlefield.filter((perm: any) => {
+    const typeLine = String(perm?.card?.type_line || '').toLowerCase();
+    return String(perm?.controller || '') === String(playerId) && typeLine.includes('land');
+  }).length;
+  const landsInHand = hand.filter((card: any) => String(card?.type_line || '').toLowerCase().includes('land')).length;
+  const landsNeeded = Math.max(0, 3 - (controlledLands + landsInHand));
+
+  const lands: any[] = [];
+  const nonlands: any[] = [];
+  for (const card of cards) {
+    const typeLine = String(card?.type_line || '').toLowerCase();
+    if (typeLine.includes('land')) lands.push(card);
+    else nonlands.push(card);
+  }
+
+  const keptLands = lands.slice(0, landsNeeded);
+  const bottomLands = lands.slice(landsNeeded);
+  const orderedNonlands = [...nonlands].sort((left: any, right: any) => {
+    const leftScore = scoreAIHideawayCandidate(game, playerId, left);
+    const rightScore = scoreAIHideawayCandidate(game, playerId, right);
+    return rightScore - leftScore || String(left?.id || '').localeCompare(String(right?.id || ''));
+  });
+
+  const keepTopOrder = keptLands.length > 0
+    ? [...keptLands, ...orderedNonlands]
+    : orderedNonlands;
+
+  return {
+    keepTopOrder,
+    bottomOrder: bottomLands,
+  };
 }
 
 function getProtectedStackItem(game: any, step: any): any | null {
@@ -8881,12 +8993,9 @@ async function handleAIResolutionStep(
       }
 
       case 'scry': {
-        const cards = Array.isArray((step as any)?.cards) ? (step as any).cards : [];
-        ResolutionQueueManager.completeStep(gameId, step.id, createResponse({
-          keepTopOrder: cards,
-          bottomOrder: [],
-        }));
-        debug(1, `[AI] scry: keeping ${cards.length} card(s) on top`);
+        const selections = chooseAIScrySelection(game, playerId, step as any);
+        ResolutionQueueManager.completeStep(gameId, step.id, createResponse(selections));
+        debug(1, `[AI] scry: keeping ${selections.keepTopOrder.length} on top, ${selections.bottomOrder.length} on bottom`);
         break;
       }
 
@@ -9450,6 +9559,13 @@ async function handleAIResolutionStep(
         const permanentId = chooseAIReturnControlledPermanentId(game, playerId, step);
         ResolutionQueueManager.completeStep(gameId, step.id, createResponse(permanentId));
         debug(1, `[AI] return_controlled_permanent_choice: selected ${permanentId || 'none'}`);
+        break;
+      }
+
+      case 'hideaway_choice': {
+        const cardId = chooseAIHideawayCardId(game, playerId, step);
+        ResolutionQueueManager.completeStep(gameId, step.id, createResponse(cardId ? [cardId] : []));
+        debug(1, `[AI] hideaway_choice: selected ${cardId || 'none'}`);
         break;
       }
       

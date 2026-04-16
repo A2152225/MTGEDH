@@ -348,6 +348,19 @@ export function App() {
     stepId?: string;  // Resolution queue step ID
   } | null>(null);
 
+  const [hideawayChoiceModalOpen, setHideawayChoiceModalOpen] = useState(false);
+  const [hideawayChoiceData, setHideawayChoiceData] = useState<{
+    sourceName: string;
+    imageUrl?: string;
+    cards: Array<{ cardId: string; cardName: string; imageUrl?: string }>;
+    title?: string;
+    subtitle?: string;
+    oracleText?: string;
+    confirmButtonText?: string;
+    mandatory: boolean;
+    stepId?: string;
+  } | null>(null);
+
   // Proliferate modal state
   const [proliferateModalOpen, setProliferateModalOpen] = useState(false);
   const [proliferateData, setProliferateData] = useState<{
@@ -2295,6 +2308,7 @@ export function App() {
 
   const dismissResolutionStepUi = React.useCallback(() => {
     setReturnControlledPermanentModalOpen(false);
+    setHideawayChoiceModalOpen(false);
     setProliferateModalOpen(false);
     setFatesealModalOpen(false);
     setClashModalOpen(false);
@@ -2485,7 +2499,14 @@ export function App() {
       }
       
       // Handle Option Choice resolution step
-      else if (step.type === 'option_choice' || step.type === 'modal_choice') {
+      else if (
+        step.type === 'option_choice' ||
+        step.type === 'modal_choice' ||
+        step.type === 'riot_choice' ||
+        step.type === 'unleash_choice' ||
+        step.type === 'fabricate_choice' ||
+        step.type === 'tribute_choice'
+      ) {
         // Deck import wipe confirmations are handled via the existing confirm modal UI.
         if (step.importWipeConfirm === true || step.judgeConfirm === true) {
           openConfirmFromResolutionStep(step);
@@ -2837,6 +2858,23 @@ export function App() {
           stepId: step.id,  // Store the step ID for resolution response
         });
         setReturnControlledPermanentModalOpen(true);
+      }
+
+      else if (step.type === 'hideaway_choice') {
+        const sourceName = step.sourceName || 'Hideaway';
+        const cards = Array.isArray(step.hideawayCards) ? step.hideawayCards : [];
+        setHideawayChoiceData({
+          sourceName,
+          imageUrl: step.sourceImage || step.sourceImageUrl,
+          cards,
+          title: `${sourceName} Hideaway`,
+          subtitle: 'Choose a card to exile face down',
+          oracleText: step.description || `Choose a card to exile face down with ${sourceName}.`,
+          confirmButtonText: 'Hide Away Selected Card',
+          mandatory: step.mandatory !== false,
+          stepId: step.id,
+        });
+        setHideawayChoiceModalOpen(true);
       }
 
       // Handle Join Forces resolution step
@@ -4464,6 +4502,41 @@ export function App() {
     
     setReturnControlledPermanentModalOpen(false);
     setReturnControlledPermanentData(null);
+  };
+
+  const handleHideawayChoiceConfirm = (selectedIds: string[]) => {
+    if (!safeView || !hideawayChoiceData) return;
+
+    const stepId = hideawayChoiceData.stepId;
+    if (!stepId || selectedIds.length === 0) {
+      debug(1, '[HideawayChoice] Missing stepId or selection - prompt must use resolution queue');
+      return;
+    }
+
+    socket.emit('submitResolutionResponse', {
+      gameId: safeView.id,
+      stepId,
+      selections: selectedIds[0],
+      cancelled: false,
+    });
+    debug(2, '[HideawayChoice] Completed resolution step via resolution queue');
+
+    setHideawayChoiceModalOpen(false);
+    setHideawayChoiceData(null);
+  };
+
+  const handleHideawayChoiceCancel = () => {
+    if (!safeView || !hideawayChoiceData?.stepId) return;
+
+    socket.emit('submitResolutionResponse', {
+      gameId: safeView.id,
+      stepId: hideawayChoiceData.stepId,
+      selections: [],
+      cancelled: true,
+    });
+
+    setHideawayChoiceModalOpen(false);
+    setHideawayChoiceData(null);
   };
 
   // Proliferate handler - player selects targets to proliferate
@@ -6900,6 +6973,26 @@ export function App() {
         oracleText={returnControlledPermanentData?.oracleText}
         confirmButtonText={returnControlledPermanentData?.confirmButtonText}
         onSelectPermanent={handleReturnControlledPermanentSelect}
+      />
+
+      <CardSelectionModal
+        open={hideawayChoiceModalOpen}
+        title={hideawayChoiceData?.title || 'Hideaway'}
+        subtitle={hideawayChoiceData?.subtitle}
+        sourceCardName={hideawayChoiceData?.sourceName}
+        sourceCardImageUrl={hideawayChoiceData?.imageUrl}
+        oracleText={hideawayChoiceData?.oracleText}
+        options={(hideawayChoiceData?.cards || []).map((card) => ({
+          id: card.cardId,
+          name: card.cardName,
+          imageUrl: card.imageUrl,
+        }))}
+        minSelections={1}
+        maxSelections={1}
+        confirmButtonText={hideawayChoiceData?.confirmButtonText || 'Hide Away Selected Card'}
+        canCancel={hideawayChoiceData?.mandatory === false}
+        onConfirm={handleHideawayChoiceConfirm}
+        onCancel={handleHideawayChoiceCancel}
       />
 
       {/* Proliferate Modal */}

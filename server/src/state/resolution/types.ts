@@ -809,6 +809,18 @@ export interface ReturnControlledPermanentChoiceStep extends BaseResolutionStep 
 
 export type BounceLandChoiceStep = ReturnControlledPermanentChoiceStep;
 
+export interface HideawayChoiceStep extends BaseResolutionStep {
+  readonly type: ResolutionStepType.HIDEAWAY_CHOICE;
+  readonly hideawayCards: readonly {
+    cardId: string;
+    cardName: string;
+    imageUrl?: string;
+  }[];
+  readonly hideawayCondition?: string;
+  readonly permanentId: string;
+  readonly stackItemId?: string;
+}
+
 /**
  * Cascade resolution step
  * When a cascade spell is cast, exile cards until hitting a nonland card with lower mana value
@@ -923,6 +935,7 @@ export type ResolutionStep =
   | JoinForcesStep
   | TemptingOfferStep
   | ReturnControlledPermanentChoiceStep
+  | HideawayChoiceStep
   | CascadeStep
   | DevourSelectionStep
   | SuspendCastStep

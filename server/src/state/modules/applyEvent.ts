@@ -7472,6 +7472,68 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
         break;
       }
 
+      case "hideawayChoice": {
+        const pid = String((e as any).playerId || '').trim();
+        const permanentId = String((e as any).permanentId || '').trim();
+        const selectedCardId = String((e as any).selectedCardId || '').trim();
+        const bottomOrderIds = Array.isArray((e as any).bottomOrderIds)
+          ? (e as any).bottomOrderIds.map((id: any) => String(id || '').trim()).filter(Boolean)
+          : [];
+        const lookedAtCardIds = Array.isArray((e as any).lookedAtCardIds)
+          ? (e as any).lookedAtCardIds.map((id: any) => String(id || '').trim()).filter(Boolean)
+          : [];
+        const stackItemId = String((e as any).stackItemId || '').trim();
+
+        try {
+          if (pid && permanentId && selectedCardId) {
+            const library = ctx.libraries.get(pid) || [];
+            const lookedAtCount = Math.min(lookedAtCardIds.length || 0, library.length);
+            const topCards = library.splice(0, lookedAtCount);
+            const selectedCard = topCards.find((card: any) => String(card?.id || '') === selectedCardId);
+            const orderedBottomCards = bottomOrderIds
+              .map((cardId: string) => topCards.find((card: any) => String(card?.id || '') === cardId))
+              .filter(Boolean);
+            const leftoverBottomCards = topCards.filter((card: any) => {
+              const cardId = String(card?.id || '');
+              return cardId && cardId !== selectedCardId && !bottomOrderIds.includes(cardId);
+            });
+
+            for (const card of [...orderedBottomCards, ...leftoverBottomCards]) {
+              library.push({ ...(card as any), zone: 'library' });
+            }
+
+            ctx.libraries.set(pid, library);
+
+            ctx.state.zones = ctx.state.zones || {};
+            const z: any = ctx.state.zones[pid] || { hand: [], handCount: 0, library: [], libraryCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0 };
+            ctx.state.zones[pid] = z;
+            z.library = library.map((card: any) => ({ ...(card as any), zone: 'library' }));
+            z.libraryCount = library.length;
+
+            const battlefield = Array.isArray(ctx.state.battlefield) ? ctx.state.battlefield : [];
+            const permanent = battlefield.find((entry: any) => String(entry?.id || '') === permanentId) as any;
+            if (permanent && selectedCard) {
+              permanent.hideawayCard = {
+                card: { ...(selectedCard as any), zone: 'exile' },
+              };
+            }
+          }
+
+          if (stackItemId) {
+            ctx.state.stack = Array.isArray(ctx.state.stack) ? ctx.state.stack : [];
+            const stackIndex = (ctx.state.stack as any[]).findIndex((item: any) => String(item?.id || '') === stackItemId);
+            if (stackIndex !== -1) {
+              (ctx.state.stack as any[]).splice(stackIndex, 1);
+            }
+          }
+
+          ctx.bumpSeq();
+        } catch (err) {
+          debugWarn(1, 'applyEvent(hideawayChoice): failed', err);
+        }
+        break;
+      }
+
       case "librarySearchSelect": {
         // Select cards from library search (tutor effects)
         const pid = (e as any).playerId;
