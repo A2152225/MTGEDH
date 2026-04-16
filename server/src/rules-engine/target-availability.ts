@@ -1,5 +1,5 @@
 import type { PlayerID } from "../../../shared/src/index.js";
-import { categorizeSpell, evaluateTargeting, parseTargetRequirements, requiresTargeting } from "./targeting.js";
+import { categorizeSpell, evaluateTargeting, matchesGraveyardCardTargetType as matchesSharedGraveyardCardTargetType, parseTargetRequirements, requiresTargeting } from "./targeting.js";
 
 function getTargetingContext(state: any): { hasBattlefield: boolean; hasPlayers: boolean; hasStack: boolean; hasZones: boolean } {
   return {
@@ -63,33 +63,7 @@ function matchesBattlefieldTargetType(perm: any, rawTargetType: string): boolean
 }
 
 function matchesGraveyardTargetType(card: any, rawTargetType: string): boolean {
-  const targetType = String(rawTargetType || '').trim().toLowerCase();
-  const typeLine = String(card?.type_line || '').toLowerCase();
-
-  switch (targetType) {
-    case 'graveyard_card':
-      return true;
-    case 'graveyard_creature_card':
-      return typeLine.includes('creature');
-    case 'graveyard_artifact_card':
-      return typeLine.includes('artifact');
-    case 'graveyard_enchantment_card':
-      return typeLine.includes('enchantment');
-    case 'graveyard_land_card':
-      return typeLine.includes('land');
-    case 'graveyard_instant_card':
-      return typeLine.includes('instant');
-    case 'graveyard_sorcery_card':
-      return typeLine.includes('sorcery');
-    case 'graveyard_planeswalker_card':
-      return typeLine.includes('planeswalker');
-    case 'graveyard_nonland_card':
-      return !typeLine.includes('land');
-    case 'graveyard_noncreature_card':
-      return !typeLine.includes('creature');
-    default:
-      return false;
-  }
+  return matchesSharedGraveyardCardTargetType(card, rawTargetType);
 }
 
 export function hasValidTargetsForSpell(

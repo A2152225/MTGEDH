@@ -202,6 +202,435 @@ describe('Mutate trigger targeting (integration)', () => {
     expect(String(persisted?.payload?.destination || '')).toBe('hand');
   });
 
+  it('routes mutate battle-card graveyard-return triggers through GRAVEYARD_SELECTION', async () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const playerId = 'p1';
+    (game.state as any).players = [{ id: playerId, name: 'P1', spectator: false, life: 40 }];
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).battlefield = [
+      {
+        id: 'host_battle_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        counters: {},
+        basePower: 3,
+        baseToughness: 3,
+        card: {
+          id: 'host_battle_card_1',
+          name: 'Mutation Host',
+          type_line: 'Creature - Beast',
+          oracle_text: 'Trample',
+          zone: 'battlefield',
+          power: '3',
+          toughness: '3',
+        },
+      },
+    ];
+    (game.state as any).zones = {
+      [playerId]: {
+        hand: [],
+        handCount: 0,
+        graveyard: [
+          {
+            id: 'gy_battle_1',
+            name: 'Recovered Siege',
+            type_line: 'Battle - Siege',
+            mana_cost: '{2}{R}',
+            zone: 'graveyard',
+          },
+          {
+            id: 'gy_nonbattle_1',
+            name: 'Spent Spell',
+            type_line: 'Sorcery',
+            mana_cost: '{1}{U}',
+            zone: 'graveyard',
+          },
+        ],
+        graveyardCount: 2,
+        exile: [],
+        exileCount: 0,
+        library: [],
+        libraryCount: 0,
+      },
+    };
+    (game.state as any).stack = [
+      {
+        id: 'stack_mutate_battle_graveyard_1',
+        type: 'spell',
+        controller: playerId,
+        alternateCostId: 'mutate',
+        targets: ['host_battle_1'],
+        card: {
+          id: 'mutate_battle_graveyard_1',
+          name: 'Siegebreak Lurker',
+          type_line: 'Creature - Nightmare Beast',
+          oracle_text: 'Mutate {2}{U}{R}\nWhenever this creature mutates, return target battle card from your graveyard to your hand.',
+          zone: 'stack',
+          power: '4',
+          toughness: '4',
+          isMutating: true,
+          mutateTarget: 'host_battle_1',
+          mutateOnTop: true,
+          alternateCostId: 'mutate',
+        },
+      },
+    ];
+
+    game.resolveTopOfStack();
+
+    const triggerStack = (game.state as any).stack || [];
+    expect(triggerStack).toHaveLength(1);
+    expect(triggerStack[0]).toMatchObject({
+      type: 'triggered_ability',
+      source: 'host_battle_1',
+      sourceName: 'Siegebreak Lurker',
+      description: 'return target battle card from your graveyard to your hand.',
+      requiresTarget: true,
+      targetZone: 'graveyard',
+      targetDestination: 'hand',
+      targetFilterTypes: ['battle'],
+    });
+
+    game.resolveTopOfStack();
+
+    const queue = ResolutionQueueManager.getQueue(gameId);
+    expect(queue.steps).toHaveLength(1);
+    const step = queue.steps[0] as any;
+    expect(step.type).toBe('graveyard_selection');
+    expect(step.targetPlayerId).toBe(playerId);
+    expect(step.destination).toBe('hand');
+    expect(step.triggeredAbilityGraveyardSelection).toBe(true);
+    expect(step.validTargets.map((target: any) => String(target.id))).toEqual(['gy_battle_1']);
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(playerId, emitted);
+    socket.rooms.add(gameId);
+    const io = createMockIo(emitted, [socket]);
+
+    registerResolutionHandlers(io as any, socket as any);
+    registerInteractionHandlers(io as any, socket as any);
+
+    expect(typeof handlers.submitResolutionResponse).toBe('function');
+    await handlers.submitResolutionResponse({
+      gameId,
+      stepId: step.id,
+      selections: ['gy_battle_1'],
+    });
+
+    const playerZones = (game.state as any).zones?.[playerId];
+    expect((playerZones?.graveyard || []).some((card: any) => String(card?.id || '') === 'gy_battle_1')).toBe(false);
+    expect((playerZones?.hand || []).some((card: any) => String(card?.id || '') === 'gy_battle_1')).toBe(true);
+
+    const persisted = [...getEvents(gameId)].reverse().find((event: any) => event.type === 'confirmGraveyardTargets') as any;
+    expect(persisted?.payload?.selectedCardIds).toEqual(['gy_battle_1']);
+    expect(String(persisted?.payload?.destination || '')).toBe('hand');
+  });
+
+  it('routes mutate opponent-graveyard reanimation triggers through GRAVEYARD_SELECTION', async () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const playerId = 'p1';
+    const opponentId = 'p2';
+    (game.state as any).players = [
+      { id: playerId, name: 'P1', spectator: false, life: 40 },
+      { id: opponentId, name: 'P2', spectator: false, life: 40 },
+    ];
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).battlefield = [
+      {
+        id: 'host_opponent_gy_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        counters: {},
+        basePower: 2,
+        baseToughness: 2,
+        card: {
+          id: 'host_opponent_gy_card_1',
+          name: 'Mutation Host',
+          type_line: 'Creature - Beast',
+          oracle_text: 'Reach',
+          zone: 'battlefield',
+          power: '2',
+          toughness: '2',
+        },
+      },
+    ];
+    (game.state as any).zones = {
+      [playerId]: {
+        hand: [],
+        handCount: 0,
+        graveyard: [
+          {
+            id: 'own_gy_creature_1',
+            name: 'Friendly Bear',
+            type_line: 'Creature - Bear',
+            mana_cost: '{2}{G}',
+            power: '2',
+            toughness: '2',
+            zone: 'graveyard',
+          },
+        ],
+        graveyardCount: 1,
+        exile: [],
+        exileCount: 0,
+        library: [],
+        libraryCount: 0,
+      },
+      [opponentId]: {
+        hand: [],
+        handCount: 0,
+        graveyard: [
+          {
+            id: 'opp_gy_creature_1',
+            name: 'Opposing Bear',
+            type_line: 'Creature - Bear',
+            mana_cost: '{2}{G}',
+            power: '2',
+            toughness: '2',
+            zone: 'graveyard',
+          },
+          {
+            id: 'opp_gy_noncreature_1',
+            name: 'Opposing Trick',
+            type_line: 'Instant',
+            mana_cost: '{1}{U}',
+            zone: 'graveyard',
+          },
+        ],
+        graveyardCount: 2,
+        exile: [],
+        exileCount: 0,
+        library: [],
+        libraryCount: 0,
+      },
+    };
+    (game.state as any).stack = [
+      {
+        id: 'stack_mutate_opponent_graveyard_1',
+        type: 'spell',
+        controller: playerId,
+        alternateCostId: 'mutate',
+        targets: ['host_opponent_gy_1'],
+        card: {
+          id: 'mutate_opponent_graveyard_1',
+          name: 'Grave-Turn Lurker',
+          type_line: 'Creature - Nightmare Beast',
+          oracle_text: 'Mutate {3}{B}{G}\nWhenever this creature mutates, put target creature card from an opponent\'s graveyard onto the battlefield under your control.',
+          zone: 'stack',
+          power: '5',
+          toughness: '5',
+          isMutating: true,
+          mutateTarget: 'host_opponent_gy_1',
+          mutateOnTop: true,
+          alternateCostId: 'mutate',
+        },
+      },
+    ];
+
+    game.resolveTopOfStack();
+
+    const triggerStack = (game.state as any).stack || [];
+    expect(triggerStack).toHaveLength(1);
+    expect(triggerStack[0]).toMatchObject({
+      type: 'triggered_ability',
+      source: 'host_opponent_gy_1',
+      sourceName: 'Grave-Turn Lurker',
+      description: "put target creature card from an opponent's graveyard onto the battlefield under your control.",
+      requiresTarget: true,
+      targetZone: 'graveyard',
+      targetDestination: 'battlefield',
+      targetGraveyardScope: 'opponent',
+      targetFilterTypes: ['creature'],
+    });
+
+    game.resolveTopOfStack();
+
+    const queue = ResolutionQueueManager.getQueue(gameId);
+    expect(queue.steps).toHaveLength(1);
+    const step = queue.steps[0] as any;
+    expect(step.type).toBe('graveyard_selection');
+    expect(step.targetPlayerId).toBe(opponentId);
+    expect(step.destination).toBe('battlefield');
+    expect(step.triggeredAbilityGraveyardSelection).toBe(true);
+    expect(step.validTargets.map((target: any) => String(target.id))).toEqual(['opp_gy_creature_1']);
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(playerId, emitted);
+    socket.rooms.add(gameId);
+    const io = createMockIo(emitted, [socket]);
+
+    registerResolutionHandlers(io as any, socket as any);
+    registerInteractionHandlers(io as any, socket as any);
+
+    expect(typeof handlers.submitResolutionResponse).toBe('function');
+    await handlers.submitResolutionResponse({
+      gameId,
+      stepId: step.id,
+      selections: ['opp_gy_creature_1'],
+    });
+
+    const opponentZones = (game.state as any).zones?.[opponentId];
+    expect((opponentZones?.graveyard || []).some((card: any) => String(card?.id || '') === 'opp_gy_creature_1')).toBe(false);
+
+    const persisted = [...getEvents(gameId)].reverse().find((event: any) => event.type === 'confirmGraveyardTargets') as any;
+    const createdPermanentId = String(persisted?.payload?.createdPermanentIds?.[0] || '');
+    expect(createdPermanentId).not.toBe('');
+
+    const battlefieldIds = (((game.state as any).battlefield || []) as any[]).map((permanent: any) => String(permanent?.id || ''));
+    expect(battlefieldIds).toContain(createdPermanentId);
+
+    const reanimatedPermanent = (((game.state as any).battlefield || []) as any[]).find((permanent: any) => String(permanent?.id || '') === createdPermanentId);
+    expect(String(reanimatedPermanent?.controller || '')).toBe(playerId);
+    expect(String(reanimatedPermanent?.owner || '')).toBe(opponentId);
+    expect(String(reanimatedPermanent?.card?.id || '')).toBe('opp_gy_creature_1');
+
+    expect(persisted?.payload?.selectedCardIds).toEqual(['opp_gy_creature_1']);
+    expect(String(persisted?.payload?.destination || '')).toBe('battlefield');
+  });
+
+  it('routes mutate positive-subtype graveyard-return triggers through GRAVEYARD_SELECTION', async () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const playerId = 'p1';
+    (game.state as any).players = [{ id: playerId, name: 'P1', spectator: false, life: 40 }];
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).battlefield = [
+      {
+        id: 'host_dragon_gy_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        counters: {},
+        basePower: 2,
+        baseToughness: 2,
+        card: {
+          id: 'host_dragon_gy_card_1',
+          name: 'Mutation Host',
+          type_line: 'Creature - Beast',
+          oracle_text: 'Flying',
+          zone: 'battlefield',
+          power: '2',
+          toughness: '2',
+        },
+      },
+    ];
+    (game.state as any).zones = {
+      [playerId]: {
+        hand: [],
+        handCount: 0,
+        graveyard: [
+          {
+            id: 'gy_dragon_1',
+            name: 'Reclaimed Whelp',
+            type_line: 'Creature - Dragon',
+            mana_cost: '{4}{R}',
+            power: '4',
+            toughness: '4',
+            zone: 'graveyard',
+          },
+          {
+            id: 'gy_non_dragon_1',
+            name: 'Reclaimed Bear',
+            type_line: 'Creature - Bear',
+            mana_cost: '{2}{G}',
+            power: '2',
+            toughness: '2',
+            zone: 'graveyard',
+          },
+        ],
+        graveyardCount: 2,
+        exile: [],
+        exileCount: 0,
+        library: [],
+        libraryCount: 0,
+      },
+    };
+    (game.state as any).stack = [
+      {
+        id: 'stack_mutate_dragon_graveyard_1',
+        type: 'spell',
+        controller: playerId,
+        alternateCostId: 'mutate',
+        targets: ['host_dragon_gy_1'],
+        card: {
+          id: 'mutate_dragon_graveyard_1',
+          name: 'Broodcaller Lurker',
+          type_line: 'Creature - Nightmare Beast',
+          oracle_text: 'Mutate {3}{U}{R}\nWhenever this creature mutates, return target Dragon creature card from your graveyard to your hand.',
+          zone: 'stack',
+          power: '5',
+          toughness: '5',
+          isMutating: true,
+          mutateTarget: 'host_dragon_gy_1',
+          mutateOnTop: true,
+          alternateCostId: 'mutate',
+        },
+      },
+    ];
+
+    game.resolveTopOfStack();
+
+    const triggerStack = (game.state as any).stack || [];
+    expect(triggerStack).toHaveLength(1);
+    expect(triggerStack[0]).toMatchObject({
+      type: 'triggered_ability',
+      source: 'host_dragon_gy_1',
+      sourceName: 'Broodcaller Lurker',
+      description: 'return target dragon creature card from your graveyard to your hand.',
+      requiresTarget: true,
+      targetZone: 'graveyard',
+      targetDestination: 'hand',
+      targetFilterTypes: ['creature'],
+      targetFilterRequiredTypeWords: ['dragon'],
+    });
+
+    game.resolveTopOfStack();
+
+    const queue = ResolutionQueueManager.getQueue(gameId);
+    expect(queue.steps).toHaveLength(1);
+    const step = queue.steps[0] as any;
+    expect(step.type).toBe('graveyard_selection');
+    expect(step.targetPlayerId).toBe(playerId);
+    expect(step.destination).toBe('hand');
+    expect(step.triggeredAbilityGraveyardSelection).toBe(true);
+    expect(step.validTargets.map((target: any) => String(target.id))).toEqual(['gy_dragon_1']);
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(playerId, emitted);
+    socket.rooms.add(gameId);
+    const io = createMockIo(emitted, [socket]);
+
+    registerResolutionHandlers(io as any, socket as any);
+    registerInteractionHandlers(io as any, socket as any);
+
+    expect(typeof handlers.submitResolutionResponse).toBe('function');
+    await handlers.submitResolutionResponse({
+      gameId,
+      stepId: step.id,
+      selections: ['gy_dragon_1'],
+    });
+
+    const playerZones = (game.state as any).zones?.[playerId];
+    expect((playerZones?.graveyard || []).some((card: any) => String(card?.id || '') === 'gy_dragon_1')).toBe(false);
+    expect((playerZones?.hand || []).some((card: any) => String(card?.id || '') === 'gy_dragon_1')).toBe(true);
+
+    const persisted = [...getEvents(gameId)].reverse().find((event: any) => event.type === 'confirmGraveyardTargets') as any;
+    expect(persisted?.payload?.selectedCardIds).toEqual(['gy_dragon_1']);
+    expect(String(persisted?.payload?.destination || '')).toBe('hand');
+  });
+
   it('allows mutate destroy triggers to target planeswalkers through generic TARGET_SELECTION', async () => {
     createGameIfNotExists(gameId, 'commander', 40);
     const game = ensureGame(gameId);

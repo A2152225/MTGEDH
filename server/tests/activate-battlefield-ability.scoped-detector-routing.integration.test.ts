@@ -71,6 +71,8 @@ describe('activateBattlefieldAbility detector routing uses selected ability text
     `${gameId}_graveyard_exile`,
     `${gameId}_graveyard_exile_resolve`,
     `${gameId}_graveyard_hand`,
+    `${gameId}_graveyard_hand_battle`,
+    `${gameId}_graveyard_hand_permanent`,
     `${gameId}_graveyard_hand_mana_value`,
     `${gameId}_sokrates_grant`,
     `${gameId}_fight`,
@@ -78,6 +80,7 @@ describe('activateBattlefieldAbility detector routing uses selected ability text
     `${gameId}_graveyard_library`,
     `${gameId}_graveyard_library_top`,
     `${gameId}_graveyard_library_top_mana_value`,
+    `${gameId}_graveyard_library_top_own_graveyard`,
     `${gameId}_graveyard_battlefield`,
     `${gameId}_graveyard_battlefield_owner`,
     `${gameId}_graveyard_battlefield_tapped`,
@@ -1281,6 +1284,108 @@ describe('activateBattlefieldAbility detector routing uses selected ability text
     ]);
   });
 
+  it('routes own-graveyard top-of-library abilities through the selected ability text', async () => {
+    const gyLibraryTopOwnGameId = `${gameId}_graveyard_library_top_own_graveyard`;
+    await resetGame(gyLibraryTopOwnGameId);
+
+    createGameIfNotExists(gyLibraryTopOwnGameId, 'commander', 40);
+    const game = ensureGame(gyLibraryTopOwnGameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const playerId = 'p1';
+    const opponentId = 'p2';
+    (game.state as any).players = [
+      { id: playerId, name: 'P1', spectator: false, life: 40 },
+      { id: opponentId, name: 'P2', spectator: false, life: 40 },
+    ];
+    (game.state as any).startingLife = 40;
+    (game.state as any).life = { [playerId]: 40, [opponentId]: 40 };
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).manaPool = {
+      [playerId]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 2 },
+      [opponentId]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+    };
+    (game.state as any).zones = {
+      [playerId]: {
+        hand: [],
+        handCount: 0,
+        graveyard: [
+          { id: 'own_top_mv_target_1', name: 'Recovered Adept', type_line: 'Creature', mana_cost: '{1}{U}', zone: 'graveyard' },
+          { id: 'own_top_mv_target_2', name: 'Too Costly', type_line: 'Creature', mana_cost: '{4}{U}', zone: 'graveyard' },
+        ],
+        graveyardCount: 2,
+        library: [{ id: 'own_library_top_existing_1', name: 'Existing Top Card', type_line: 'Sorcery', zone: 'library' }],
+        libraryCount: 1,
+      },
+      [opponentId]: {
+        hand: [],
+        handCount: 0,
+        graveyard: [],
+        graveyardCount: 0,
+        library: [],
+        libraryCount: 0,
+      },
+    };
+    (game as any).libraries.set(playerId, (game.state as any).zones[playerId].library);
+    (game as any).libraries.set(opponentId, []);
+    (game.state as any).battlefield = [
+      {
+        id: 'top_archivist_own_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        card: {
+          id: 'top_archivist_own_card_1',
+          name: 'Personal Archivist',
+          type_line: 'Artifact Creature',
+          oracle_text: '{2}: Put target creature card with mana value 2 or less from your graveyard on top of your library.',
+        },
+      },
+    ];
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(playerId, emitted);
+    socket.rooms.add(gyLibraryTopOwnGameId);
+    const io = createMockIo(emitted, [socket]);
+
+    registerResolutionHandlers(io as any, socket as any);
+    registerInteractionHandlers(io as any, socket as any);
+
+    await handlers['activateBattlefieldAbility']({ gameId: gyLibraryTopOwnGameId, permanentId: 'top_archivist_own_1', abilityId: 'top_archivist_own_1-ability-0' });
+
+    const queue = ResolutionQueueManager.getQueue(gyLibraryTopOwnGameId);
+    expect(queue.steps).toHaveLength(1);
+    expect(queue.steps[0]).toEqual(
+      expect.objectContaining({
+        type: 'target_selection',
+        battlefieldAbilityTargetSelection: true,
+        targetDescription: 'target creature card in your graveyard with mana value 2 or less',
+      })
+    );
+    expect(((queue.steps[0] as any).validTargets || []).map((target: any) => String(target?.id))).toEqual(['own_top_mv_target_1']);
+
+    await handlers['submitResolutionResponse']({
+      gameId: gyLibraryTopOwnGameId,
+      stepId: String((queue.steps[0] as any).id),
+      selections: ['own_top_mv_target_1'],
+      cancelled: false,
+    });
+
+    const stack = (game.state as any).stack || [];
+    expect(stack).toHaveLength(1);
+    expect(String(stack[0]?.description || '').toLowerCase()).toContain('from your graveyard');
+
+    game.resolveTopOfStack();
+
+    const playerZones = (game.state as any).zones?.[playerId];
+    expect((playerZones?.graveyard || []).map((card: any) => String(card?.id || ''))).toEqual(['own_top_mv_target_2']);
+    expect((playerZones?.library || []).map((card: any) => String(card?.id || ''))).toEqual([
+      'own_top_mv_target_1',
+      'own_library_top_existing_1',
+    ]);
+  });
+
   it('routes graveyard-to-battlefield abilities through the selected ability text and preserves graveyard targeting', async () => {
     const gyBattlefieldGameId = `${gameId}_graveyard_battlefield`;
     await resetGame(gyBattlefieldGameId);
@@ -2232,6 +2337,210 @@ describe('activateBattlefieldAbility detector routing uses selected ability text
     expect((opponentZones?.graveyard || []).map((card: any) => String(card?.id || ''))).toEqual(['opp_wrong_type_1']);
     expect((opponentZones?.hand || []).map((card: any) => String(card?.id || ''))).toEqual(['opp_creature_1']);
     expect(opponentZones?.handCount).toBe(1);
+  });
+
+  it('resolves battle-card graveyard-to-hand activations through the shared parsed target path', async () => {
+    const gyHandBattleGameId = `${gameId}_graveyard_hand_battle`;
+    await resetGame(gyHandBattleGameId);
+
+    createGameIfNotExists(gyHandBattleGameId, 'commander', 40);
+    const game = ensureGame(gyHandBattleGameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const playerId = 'p1';
+    const opponentId = 'p2';
+    (game.state as any).players = [
+      { id: playerId, name: 'P1', spectator: false, life: 40 },
+      { id: opponentId, name: 'P2', spectator: false, life: 40 },
+    ];
+    (game.state as any).startingLife = 40;
+    (game.state as any).life = { [playerId]: 40, [opponentId]: 40 };
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).manaPool = {
+      [playerId]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 2 },
+    };
+    (game.state as any).zones = {
+      [playerId]: {
+        hand: [],
+        handCount: 0,
+        graveyard: [
+          { id: 'own_battle_target_1', name: 'Recovered Siege', type_line: 'Battle — Siege', zone: 'graveyard' },
+          { id: 'own_nonbattle_target_1', name: 'Loose Thought', type_line: 'Instant', zone: 'graveyard' },
+        ],
+        graveyardCount: 2,
+        exile: [],
+        exileCount: 0,
+        library: [],
+        libraryCount: 0,
+      },
+      [opponentId]: {
+        hand: [],
+        handCount: 0,
+        graveyard: [],
+        graveyardCount: 0,
+        exile: [],
+        exileCount: 0,
+        library: [],
+        libraryCount: 0,
+      },
+    };
+    (game.state as any).battlefield = [
+      {
+        id: 'siege_reclaimer_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        card: {
+          id: 'siege_reclaimer_card_1',
+          name: 'Siege Reclaimer',
+          type_line: 'Artifact Creature',
+          oracle_text: '{2}: Return target battle card from your graveyard to your hand.',
+        },
+      },
+    ];
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(playerId, emitted);
+    socket.rooms.add(gyHandBattleGameId);
+    const io = createMockIo(emitted, [socket]);
+
+    registerResolutionHandlers(io as any, socket as any);
+    registerInteractionHandlers(io as any, socket as any);
+
+    await handlers['activateBattlefieldAbility']({ gameId: gyHandBattleGameId, permanentId: 'siege_reclaimer_1', abilityId: 'siege_reclaimer_1-ability-0' });
+
+    const queue = ResolutionQueueManager.getQueue(gyHandBattleGameId);
+    expect(queue.steps).toHaveLength(1);
+    expect(queue.steps[0]).toEqual(
+      expect.objectContaining({
+        type: 'target_selection',
+        battlefieldAbilityTargetSelection: true,
+        targetDescription: 'target battle card in your graveyard',
+      })
+    );
+    expect(((queue.steps[0] as any).targetTypes || []).map((targetType: any) => String(targetType))).toEqual(['graveyard_battle_card']);
+    expect(((queue.steps[0] as any).validTargets || []).map((target: any) => String(target?.id))).toEqual(['own_battle_target_1']);
+
+    await handlers['submitResolutionResponse']({
+      gameId: gyHandBattleGameId,
+      stepId: String((queue.steps[0] as any).id),
+      selections: ['own_battle_target_1'],
+      cancelled: false,
+    });
+
+    const stack = (game.state as any).stack || [];
+    expect(stack).toHaveLength(1);
+    expect(String(stack[0]?.description || '').toLowerCase()).toBe('return target battle card from your graveyard to your hand.');
+
+    game.resolveTopOfStack();
+
+    const playerZones = (game.state as any).zones?.[playerId];
+    expect((playerZones?.graveyard || []).map((card: any) => String(card?.id || ''))).toEqual(['own_nonbattle_target_1']);
+    expect((playerZones?.hand || []).map((card: any) => String(card?.id || ''))).toEqual(['own_battle_target_1']);
+    expect(playerZones?.handCount).toBe(1);
+  });
+
+  it('filters permanent-only graveyard-to-hand activations through the shared parsed target path', async () => {
+    const gyHandPermanentGameId = `${gameId}_graveyard_hand_permanent`;
+    await resetGame(gyHandPermanentGameId);
+
+    createGameIfNotExists(gyHandPermanentGameId, 'commander', 40);
+    const game = ensureGame(gyHandPermanentGameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const playerId = 'p1';
+    const opponentId = 'p2';
+    (game.state as any).players = [
+      { id: playerId, name: 'P1', spectator: false, life: 40 },
+      { id: opponentId, name: 'P2', spectator: false, life: 40 },
+    ];
+    (game.state as any).startingLife = 40;
+    (game.state as any).life = { [playerId]: 40, [opponentId]: 40 };
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).manaPool = {
+      [playerId]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 2 },
+    };
+    (game.state as any).zones = {
+      [playerId]: {
+        hand: [],
+        handCount: 0,
+        graveyard: [
+          { id: 'own_perm_target_1', name: 'Recovered Relic', type_line: 'Artifact', zone: 'graveyard' },
+          { id: 'own_nonperm_target_1', name: 'Loose Thought', type_line: 'Instant', zone: 'graveyard' },
+        ],
+        graveyardCount: 2,
+        exile: [],
+        exileCount: 0,
+        library: [],
+        libraryCount: 0,
+      },
+      [opponentId]: {
+        hand: [],
+        handCount: 0,
+        graveyard: [],
+        graveyardCount: 0,
+        exile: [],
+        exileCount: 0,
+        library: [],
+        libraryCount: 0,
+      },
+    };
+    (game.state as any).battlefield = [
+      {
+        id: 'reclaimer_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        card: {
+          id: 'reclaimer_card_1',
+          name: 'Vault Reclaimer',
+          type_line: 'Artifact Creature',
+          oracle_text: '{2}: Return target permanent card from your graveyard to your hand.',
+        },
+      },
+    ];
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(playerId, emitted);
+    socket.rooms.add(gyHandPermanentGameId);
+    const io = createMockIo(emitted, [socket]);
+
+    registerResolutionHandlers(io as any, socket as any);
+    registerInteractionHandlers(io as any, socket as any);
+
+    await handlers['activateBattlefieldAbility']({ gameId: gyHandPermanentGameId, permanentId: 'reclaimer_1', abilityId: 'reclaimer_1-ability-0' });
+
+    const queue = ResolutionQueueManager.getQueue(gyHandPermanentGameId);
+    expect(queue.steps).toHaveLength(1);
+    expect(queue.steps[0]).toEqual(
+      expect.objectContaining({
+        type: 'target_selection',
+        battlefieldAbilityTargetSelection: true,
+        targetDescription: 'target permanent card in your graveyard',
+      })
+    );
+    expect(((queue.steps[0] as any).targetTypes || []).map((targetType: any) => String(targetType))).toEqual(['graveyard_permanent_card']);
+    expect(((queue.steps[0] as any).validTargets || []).map((target: any) => String(target?.id))).toEqual(['own_perm_target_1']);
+
+    await handlers['submitResolutionResponse']({
+      gameId: gyHandPermanentGameId,
+      stepId: String((queue.steps[0] as any).id),
+      selections: ['own_perm_target_1'],
+      cancelled: false,
+    });
+
+    const stack = (game.state as any).stack || [];
+    expect(stack).toHaveLength(1);
+    expect(String(stack[0]?.description || '').toLowerCase()).toBe('return target permanent card from your graveyard to your hand.');
+
+    game.resolveTopOfStack();
+
+    const playerZones = (game.state as any).zones?.[playerId];
+    expect((playerZones?.graveyard || []).map((card: any) => String(card?.id || ''))).toEqual(['own_nonperm_target_1']);
+    expect((playerZones?.hand || []).map((card: any) => String(card?.id || ''))).toEqual(['own_perm_target_1']);
+    expect(playerZones?.handCount).toBe(1);
   });
 
   it('filters mana-value-limited graveyard-to-hand activations through the selected ability text', async () => {

@@ -8502,6 +8502,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
         const battlefieldControllerMode = (e as any).battlefieldControllerMode;
         const targetAction = (e as any).targetAction;
         const targetFilterTypes = (e as any).targetFilterTypes;
+        const targetFilterRequiredTypeWords = (e as any).targetFilterRequiredTypeWords;
         const targetFilterExcludeTypes = (e as any).targetFilterExcludeTypes;
         const targetFilterPermanentOnly = (e as any).targetFilterPermanentOnly;
         const targetFilterMaxManaValue = (e as any).targetFilterMaxManaValue;
@@ -8561,6 +8562,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
             ...(battlefieldControllerMode ? { battlefieldControllerMode } : null),
             ...(targetAction ? { targetAction } : null),
             ...(Array.isArray(targetFilterTypes) ? { targetFilterTypes } : null),
+            ...(Array.isArray(targetFilterRequiredTypeWords) ? { targetFilterRequiredTypeWords } : null),
             ...(Array.isArray(targetFilterExcludeTypes) ? { targetFilterExcludeTypes } : null),
             ...(targetFilterPermanentOnly === true ? { targetFilterPermanentOnly: true } : null),
             ...(typeof targetFilterMaxManaValue === 'number' ? { targetFilterMaxManaValue } : null),

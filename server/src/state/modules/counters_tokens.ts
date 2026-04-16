@@ -45,6 +45,8 @@ type DeathTriggerStackMetadata = {
   battlefieldTurnFaceUp?: true;
   battlefieldSuspected?: true;
   targetFilterTypes?: string[];
+  targetFilterRequiredTypeWords?: string[];
+  targetFilterExcludeTypes?: string[];
   targetFilterPermanentOnly?: true;
   boundGraveyardCardId?: string;
   boundGraveyardOwnerId?: string;
@@ -167,18 +169,44 @@ function inferDeathTriggerStackMetadata(effectText: string, dyingPermanent: any)
 
     if (lower.includes('target permanent card')) {
       metadata.targetFilterPermanentOnly = true;
-    } else if (lower.includes('target creature card')) {
-      metadata.targetFilterTypes = ['creature'];
-    } else if (lower.includes('target artifact card')) {
+    } else {
+      const nonSubtypeCreatureMatch = lower.match(/target\s+non-([a-z0-9'-]+(?:\s+[a-z0-9'-]+)*)\s+creature\s+card/);
+      if (nonSubtypeCreatureMatch) {
+        metadata.targetFilterTypes = ['creature'];
+        metadata.targetFilterExcludeTypes = String(nonSubtypeCreatureMatch[1] || '')
+          .trim()
+          .toLowerCase()
+          .split(/\s+/)
+          .map((word) => word.trim())
+          .filter(Boolean);
+      } else {
+        const requiredTypeCreatureMatch = lower.match(/target\s+([a-z0-9'-]+(?:\s+[a-z0-9'-]+)*)\s+creature\s+card/);
+        if (requiredTypeCreatureMatch) {
+          metadata.targetFilterTypes = ['creature'];
+          metadata.targetFilterRequiredTypeWords = String(requiredTypeCreatureMatch[1] || '')
+            .trim()
+            .toLowerCase()
+            .split(/\s+/)
+            .map((word) => word.trim())
+            .filter(Boolean);
+        }
+      }
+    }
+
+    if (!Array.isArray(metadata.targetFilterRequiredTypeWords) || metadata.targetFilterRequiredTypeWords.length === 0) {
+      if (lower.includes('target creature card')) {
+        metadata.targetFilterTypes = ['creature'];
+      } else if (lower.includes('target artifact card')) {
       metadata.targetFilterTypes = ['artifact'];
-    } else if (lower.includes('target enchantment card')) {
-      metadata.targetFilterTypes = ['enchantment'];
-    } else if (lower.includes('target land card')) {
-      metadata.targetFilterTypes = ['land'];
-    } else if (lower.includes('target planeswalker card')) {
-      metadata.targetFilterTypes = ['planeswalker'];
-    } else if (lower.includes('target instant or sorcery card')) {
-      metadata.targetFilterTypes = ['instant', 'sorcery'];
+      } else if (lower.includes('target enchantment card')) {
+        metadata.targetFilterTypes = ['enchantment'];
+      } else if (lower.includes('target land card')) {
+        metadata.targetFilterTypes = ['land'];
+      } else if (lower.includes('target planeswalker card')) {
+        metadata.targetFilterTypes = ['planeswalker'];
+      } else if (lower.includes('target instant or sorcery card')) {
+        metadata.targetFilterTypes = ['instant', 'sorcery'];
+      }
     }
 
     return metadata;
@@ -310,6 +338,8 @@ function pushDeathTriggerOntoStack(ctx: GameContext, trigger: any, dyingPermanen
     triggerType: 'creature_dies',
     effect: effectText,
     mandatory: true,
+    ...(trigger.requiresChoice === true ? { requiresChoice: true } : null),
+    ...(Array.isArray(trigger.modalOptions) ? { modalOptions: trigger.modalOptions } : null),
     ...(metadata.requiresTarget ? { requiresTarget: true, needsTargetSelection: true } : null),
     ...(metadata.targetZone ? { targetZone: metadata.targetZone } : null),
     ...(metadata.targetDestination ? { targetDestination: metadata.targetDestination } : null),
@@ -323,6 +353,8 @@ function pushDeathTriggerOntoStack(ctx: GameContext, trigger: any, dyingPermanen
     ...(metadata.battlefieldTurnFaceUp === true ? { battlefieldTurnFaceUp: true } : null),
     ...(metadata.battlefieldSuspected === true ? { battlefieldSuspected: true } : null),
     ...(Array.isArray(metadata.targetFilterTypes) ? { targetFilterTypes: metadata.targetFilterTypes } : null),
+    ...(Array.isArray(metadata.targetFilterRequiredTypeWords) ? { targetFilterRequiredTypeWords: metadata.targetFilterRequiredTypeWords } : null),
+    ...(Array.isArray(metadata.targetFilterExcludeTypes) ? { targetFilterExcludeTypes: metadata.targetFilterExcludeTypes } : null),
     ...(metadata.targetFilterPermanentOnly === true ? { targetFilterPermanentOnly: true } : null),
     ...(metadata.boundGraveyardCardId ? { boundGraveyardCardId: metadata.boundGraveyardCardId } : null),
     ...(metadata.boundGraveyardOwnerId ? { boundGraveyardOwnerId: metadata.boundGraveyardOwnerId } : null),
@@ -346,6 +378,8 @@ function pushDeathTriggerOntoStack(ctx: GameContext, trigger: any, dyingPermanen
       triggerType: 'creature_dies',
       effect: effectText,
       mandatory: true,
+      ...(trigger.requiresChoice === true ? { requiresChoice: true } : null),
+      ...(Array.isArray(trigger.modalOptions) ? { modalOptions: trigger.modalOptions } : null),
       ...(metadata.requiresTarget ? { requiresTarget: true, needsTargetSelection: true } : null),
       ...(metadata.targetZone ? { targetZone: metadata.targetZone } : null),
       ...(metadata.targetDestination ? { targetDestination: metadata.targetDestination } : null),
@@ -359,6 +393,8 @@ function pushDeathTriggerOntoStack(ctx: GameContext, trigger: any, dyingPermanen
       ...(metadata.battlefieldTurnFaceUp === true ? { battlefieldTurnFaceUp: true } : null),
       ...(metadata.battlefieldSuspected === true ? { battlefieldSuspected: true } : null),
       ...(Array.isArray(metadata.targetFilterTypes) ? { targetFilterTypes: metadata.targetFilterTypes } : null),
+      ...(Array.isArray(metadata.targetFilterRequiredTypeWords) ? { targetFilterRequiredTypeWords: metadata.targetFilterRequiredTypeWords } : null),
+      ...(Array.isArray(metadata.targetFilterExcludeTypes) ? { targetFilterExcludeTypes: metadata.targetFilterExcludeTypes } : null),
       ...(metadata.targetFilterPermanentOnly === true ? { targetFilterPermanentOnly: true } : null),
       ...(metadata.boundGraveyardCardId ? { boundGraveyardCardId: metadata.boundGraveyardCardId } : null),
       ...(metadata.boundGraveyardOwnerId ? { boundGraveyardOwnerId: metadata.boundGraveyardOwnerId } : null),

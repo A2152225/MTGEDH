@@ -2292,6 +2292,8 @@ export interface DeathTriggerResult {
   };
   effect: string;
   targets?: string[]; // Player IDs affected
+  requiresChoice?: boolean;
+  modalOptions?: string[];
   requiresSacrificeSelection?: boolean;
   sacrificeFrom?: string; // Player ID who must sacrifice
   returnsUnderControl?: boolean; // For Grave Betrayal - return under your control
@@ -2480,11 +2482,50 @@ export function getDeathTriggers(
   for (const rulesText of getPermanentRulesTextFragments(dyingCreature)) {
     const matches = rulesText.matchAll(selfDiesPattern);
     for (const match of matches) {
-      const effect = String(match?.[1] || '').trim();
+      let effect = String(match?.[1] || '').trim();
+      if (/^choose one\b/i.test(effect)) {
+        const matchText = String(match?.[0] || '');
+        const matchIndex = typeof match?.index === 'number' ? match.index : -1;
+        const effectOffset = matchText.lastIndexOf(effect);
+        if (matchIndex >= 0 && effectOffset >= 0) {
+          const remainder = String(rulesText || '').slice(matchIndex + effectOffset).trim();
+          const collectedLines: string[] = [];
+          for (const [index, lineValue] of remainder.split(/\n/).entries()) {
+            const line = String(lineValue || '').trim();
+            if (!line) continue;
+            if (index === 0 || /^[•]/.test(line)) {
+              collectedLines.push(line);
+              continue;
+            }
+            break;
+          }
+          if (collectedLines.length > 0) {
+            effect = collectedLines.join('\n').trim();
+          }
+        }
+      }
       if (!effect) continue;
       const effectKey = effect.toLowerCase();
       if (seenSelfEffects.has(effectKey)) continue;
       seenSelfEffects.add(effectKey);
+      const modalOptions = (() => {
+        if (!/^choose one\b/i.test(effect)) return undefined;
+        const modalBody = effect.replace(/^choose one\s*[—:-]\s*/i, '').trim();
+        const hasBulletOptions = /(?:^|\n)\s*[•]\s*/.test(modalBody);
+        const bulletOptions = hasBulletOptions
+          ? modalBody
+              .split(/(?:^|\n)\s*[•]\s*/)
+              .map((option) => option.trim())
+              .filter(Boolean)
+          : [];
+        if (bulletOptions.length > 0) {
+          return bulletOptions;
+        }
+        return modalBody
+          .split(/\s*;\s*or\s+/i)
+          .map((option) => option.trim())
+          .filter(Boolean);
+      })();
       results.push({
         source: {
           permanentId: String(dyingCreature?.id || ''),
@@ -2492,6 +2533,7 @@ export function getDeathTriggers(
           controllerId: String(dyingCreatureController || ''),
         },
         effect,
+        ...(Array.isArray(modalOptions) && modalOptions.length > 0 ? { requiresChoice: true, modalOptions } : null),
         requiresSacrificeSelection: effectKey.includes('sacrifice'),
       });
     }

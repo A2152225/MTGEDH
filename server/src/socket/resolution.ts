@@ -64,7 +64,7 @@ import { drawCards as drawCardsFromZones } from "../state/modules/zones.js";
 import { dispatchDamageReceivedTrigger, processDamageReceivedTriggers, resolveDamageTrigger, type DamageTriggerInfo } from "../state/modules/triggers/damage-received.js";
 import { getTokenImageUrls } from "../services/tokens.js";
 import { normalizeCardName } from "../state/modules/chosen-name-restrictions.js";
-import { executeTriggerEffect, triggerETBEffectsForToken } from "../state/modules/stack.js";
+import { executeTriggerEffect, inferTriggeredAbilityTargetMetadata, triggerETBEffectsForToken } from "../state/modules/stack.js";
 import { creatureHasHaste, formatManaCostWithReduction, getSpellModeAdditionalCost, handlePlayLandRequest, registerGameActions, requestCastSpellForSocket } from "./game-actions.js";
 import { buildOraclePromptContext, getOracleTextFromResolutionStep } from "../utils/oraclePromptContext.js";
 import { cleanupCardLeavingExile } from "../state/modules/playable-from-exile.js";
@@ -72,7 +72,7 @@ import { movePermanentToExile } from "../state/modules/counters_tokens.js";
 import { trackCountersPlacedThisTurn } from "../state/modules/counters_tokens.js";
 import { updateCounters } from "../state/modules/counters_tokens.js";
 import { recordCardLeftGraveyardThisTurn, recordCardPutIntoGraveyardThisTurn } from "../state/modules/turn-tracking.js";
-import { canPermanentBeTargetedByPlayer, categorizeSpell, evaluateTargeting, parseTargetRequirements, type SpellSpec } from "../rules-engine/targeting";
+import { canPermanentBeTargetedByPlayer, categorizeSpell, evaluateTargeting, matchesGraveyardCardTargetType as matchesSharedGraveyardCardTargetType, parseTargetRequirements, type SpellSpec } from "../rules-engine/targeting";
 import { getWardCost, counterStackItem } from "../state/modules/stack-mechanics.js";
 import { checkGraveyardTrigger } from "../state/modules/triggered-abilities.js";
 import { applyPlayerSelectionEffect, handleDeclinedPlayerSelection } from "./player-selection.js";
@@ -1608,31 +1608,7 @@ function fireBattlefieldAbilityActivatedTriggers(
 }
 
 function matchesGraveyardCardTargetType(card: any, targetType: string): boolean {
-  const typeLine = String(card?.type_line || '').toLowerCase();
-  switch (targetType) {
-    case 'graveyard_card':
-      return true;
-    case 'graveyard_creature_card':
-      return typeLine.includes('creature');
-    case 'graveyard_artifact_card':
-      return typeLine.includes('artifact');
-    case 'graveyard_enchantment_card':
-      return typeLine.includes('enchantment');
-    case 'graveyard_land_card':
-      return typeLine.includes('land');
-    case 'graveyard_instant_card':
-      return typeLine.includes('instant');
-    case 'graveyard_sorcery_card':
-      return typeLine.includes('sorcery');
-    case 'graveyard_planeswalker_card':
-      return typeLine.includes('planeswalker');
-    case 'graveyard_nonland_card':
-      return !typeLine.includes('land');
-    case 'graveyard_noncreature_card':
-      return !typeLine.includes('creature');
-    default:
-      return false;
-  }
+  return matchesSharedGraveyardCardTargetType(card, targetType);
 }
 
 function buildActivatedAbilityValidTargets(
@@ -1728,16 +1704,10 @@ function buildActivatedAbilityValidTargets(
             isOpponent: String(player.id) !== controllerId,
           })));
         break;
-      case 'graveyard_card':
-      case 'graveyard_creature_card':
-      case 'graveyard_artifact_card':
-      case 'graveyard_enchantment_card':
-      case 'graveyard_land_card':
-      case 'graveyard_instant_card':
-      case 'graveyard_sorcery_card':
-      case 'graveyard_planeswalker_card':
-      case 'graveyard_nonland_card':
-      case 'graveyard_noncreature_card': {
+      default: {
+        if (!targetType.startsWith('graveyard_')) {
+          break;
+        }
         const graveyardOwnerIds = (targetReqs.graveyardScope === 'any'
           ? statePlayers.filter((player: any) => player?.id).map((player: any) => String(player.id))
           : [controllerId]) as string[];
@@ -3657,17 +3627,15 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
       // Some TARGET_SELECTION steps are used as generic “pick an object” prompts for
       // action-based workflows. These handlers can early-return if the selected object no longer
       // exists (e.g. destroyed before the response arrives). Validate existence before consuming.
-      const targetAction = (step as any)?.action;
+      const targetAction = String((step as any)?.action || '');
       const requiresBattlefield = new Set<string>([
         'pw_lukka_exile_upgrade',
         'destroy_target_creature_or_planeswalker',
       ]);
-      const requiresGraveyard = new Set<string>([
-        'move_graveyard_card_to_battlefield',
-        'exile_graveyard_card',
-      ]);
+      const requiresGraveyard = targetAction === 'exile_graveyard_card'
+        || targetAction.startsWith('move_graveyard_card_to_');
 
-      if (requiresBattlefield.has(String(targetAction || ''))) {
+      if (requiresBattlefield.has(targetAction)) {
         const battlefield: any[] = Array.isArray((game.state as any)?.battlefield) ? (game.state as any).battlefield : [];
         const battlefieldIds = new Set(battlefield.map((p: any) => String(p?.id)).filter(Boolean));
         const missing = selectedIds.find((id) => !battlefieldIds.has(String(id)));
@@ -3677,12 +3645,12 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
         }
       }
 
-      if (requiresGraveyard.has(String(targetAction || ''))) {
+      if (requiresGraveyard) {
         const zones = (game.state as any)?.zones || {};
         const fromPlayerId = String((step as any)?.fromPlayerId || pid);
 
         const isCardInGraveyard = (cardId: string) => {
-          if (String(targetAction) === 'exile_graveyard_card') {
+          if (targetAction === 'exile_graveyard_card') {
             for (const ownerId of Object.keys(zones)) {
               const gy: any[] = Array.isArray(zones?.[ownerId]?.graveyard) ? zones[ownerId].graveyard : [];
               if (gy.some((c: any) => c && String(c.id) === String(cardId))) return true;
@@ -27752,6 +27720,127 @@ async function handleModalChoiceResponse(
       game.bumpSeq();
     }
     return;
+  }
+
+  if (triggerData && triggerData.modalTrigger) {
+    let choiceIds: string[] = [];
+    if (typeof selections === 'string') {
+      choiceIds = [selections];
+    } else if (Array.isArray(selections)) {
+      choiceIds = selections.map((selection) => String(selection || '').trim()).filter(Boolean);
+    }
+
+    const stepOptions = Array.isArray((modalStep as any).options) ? ((modalStep as any).options as any[]) : [];
+    const selectedEffectTexts = choiceIds
+      .map((choiceId) => stepOptions.find((option: any) => String(option?.id || '').trim() === choiceId))
+      .filter(Boolean)
+      .map((option: any) => String(option?.description || option?.value || option?.label || '').trim())
+      .filter(Boolean);
+
+    if (selectedEffectTexts.length > 0) {
+      const controllerId = String(triggerData.controllerId || pid || '').trim() || String(pid || '');
+      const sourceName = String(triggerData.sourceName || modalStep.sourceName || 'Triggered ability').trim() || 'Triggered ability';
+      const sourceId = String(triggerData.sourceId || modalStep.sourceId || '').trim();
+      const triggerType = String(triggerData.triggerType || 'triggered_ability').trim() || 'triggered_ability';
+      const ctx = {
+        state: game.state,
+        gameId,
+        bumpSeq: () => {
+          if (typeof game.bumpSeq === 'function') {
+            game.bumpSeq();
+          }
+        },
+        libraries: (game as any).libraries,
+        commandZone: (game as any).commandZone || {},
+      } as any;
+
+      for (const effectText of selectedEffectTexts) {
+        const metadata = inferTriggeredAbilityTargetMetadata(effectText);
+        const syntheticTriggerId = uid('trigger');
+        const syntheticTriggerItem = {
+          id: syntheticTriggerId,
+          type: 'triggered_ability',
+          controller: controllerId,
+          source: sourceId,
+          sourceId,
+          sourceName,
+          description: effectText,
+          triggerType,
+          mandatory: triggerData.mandatory !== false,
+          effect: effectText,
+          ...(metadata.requiresTarget ? { requiresTarget: true, needsTargetSelection: true } : null),
+          ...(metadata.targetType ? { targetType: metadata.targetType } : null),
+          ...(metadata.targetConstraint ? { targetConstraint: metadata.targetConstraint } : null),
+          ...(metadata.targetZone ? { targetZone: metadata.targetZone } : null),
+          ...(metadata.targetDestination ? { targetDestination: metadata.targetDestination } : null),
+          ...(metadata.targetGraveyardScope ? { targetGraveyardScope: metadata.targetGraveyardScope } : null),
+          ...(metadata.destinationUsesSelectedCardOwner === true ? { destinationUsesSelectedCardOwner: true } : null),
+          ...(metadata.battlefieldControllerMode ? { battlefieldControllerMode: metadata.battlefieldControllerMode } : null),
+          ...(metadata.battlefieldCounters ? { battlefieldCounters: metadata.battlefieldCounters } : null),
+          ...(metadata.targetAction ? { targetAction: metadata.targetAction } : null),
+          ...(Array.isArray(metadata.targetFilterTypes) ? { targetFilterTypes: metadata.targetFilterTypes } : null),
+          ...(Array.isArray((metadata as any).targetFilterRequiredTypeWords) ? { targetFilterRequiredTypeWords: (metadata as any).targetFilterRequiredTypeWords } : null),
+          ...(Array.isArray(metadata.targetFilterExcludeTypes) ? { targetFilterExcludeTypes: metadata.targetFilterExcludeTypes } : null),
+          ...(metadata.targetFilterPermanentOnly === true ? { targetFilterPermanentOnly: true } : null),
+          ...(typeof metadata.targetFilterMaxManaValue === 'number' ? { targetFilterMaxManaValue: metadata.targetFilterMaxManaValue } : null),
+          ...(typeof metadata.targetTotalPowerLimit === 'number' ? { targetTotalPowerLimit: metadata.targetTotalPowerLimit } : null),
+          ...(metadata.targetCastWithoutPayingManaCost === true ? { targetCastWithoutPayingManaCost: true } : null),
+          ...(metadata.targetCastIsOptional === true ? { targetCastIsOptional: true } : null),
+          ...(typeof metadata.minTargets === 'number' ? { minTargets: metadata.minTargets } : null),
+          ...(typeof metadata.maxTargets === 'number' ? { maxTargets: metadata.maxTargets } : null),
+        } as any;
+
+        game.state.stack = game.state.stack || [];
+        (game.state.stack as any[]).push(syntheticTriggerItem);
+
+        try {
+          appendEvent(gameId, (game as any).seq ?? 0, 'pushTriggeredAbility', {
+            triggerId: syntheticTriggerId,
+            sourceId,
+            permanentId: sourceId,
+            sourceName,
+            controllerId,
+            description: effectText,
+            triggerType,
+            effect: effectText,
+            mandatory: triggerData.mandatory !== false,
+            ...(metadata.requiresTarget ? { requiresTarget: true, needsTargetSelection: true } : null),
+            ...(metadata.targetType ? { targetType: metadata.targetType } : null),
+            ...(metadata.targetConstraint ? { targetConstraint: metadata.targetConstraint } : null),
+            ...(metadata.targetZone ? { targetZone: metadata.targetZone } : null),
+            ...(metadata.targetDestination ? { targetDestination: metadata.targetDestination } : null),
+            ...(metadata.targetGraveyardScope ? { targetGraveyardScope: metadata.targetGraveyardScope } : null),
+            ...(metadata.destinationUsesSelectedCardOwner === true ? { destinationUsesSelectedCardOwner: true } : null),
+            ...(metadata.battlefieldControllerMode ? { battlefieldControllerMode: metadata.battlefieldControllerMode } : null),
+            ...(metadata.battlefieldCounters ? { battlefieldCounters: metadata.battlefieldCounters } : null),
+            ...(metadata.targetAction ? { targetAction: metadata.targetAction } : null),
+            ...(Array.isArray(metadata.targetFilterTypes) ? { targetFilterTypes: metadata.targetFilterTypes } : null),
+            ...(Array.isArray((metadata as any).targetFilterRequiredTypeWords) ? { targetFilterRequiredTypeWords: (metadata as any).targetFilterRequiredTypeWords } : null),
+            ...(Array.isArray(metadata.targetFilterExcludeTypes) ? { targetFilterExcludeTypes: metadata.targetFilterExcludeTypes } : null),
+            ...(metadata.targetFilterPermanentOnly === true ? { targetFilterPermanentOnly: true } : null),
+            ...(typeof metadata.targetFilterMaxManaValue === 'number' ? { targetFilterMaxManaValue: metadata.targetFilterMaxManaValue } : null),
+            ...(typeof metadata.targetTotalPowerLimit === 'number' ? { targetTotalPowerLimit: metadata.targetTotalPowerLimit } : null),
+            ...(metadata.targetCastWithoutPayingManaCost === true ? { targetCastWithoutPayingManaCost: true } : null),
+            ...(metadata.targetCastIsOptional === true ? { targetCastIsOptional: true } : null),
+            ...(typeof metadata.minTargets === 'number' ? { minTargets: metadata.minTargets } : null),
+            ...(typeof metadata.maxTargets === 'number' ? { maxTargets: metadata.maxTargets } : null),
+          });
+        } catch (err) {
+          debugWarn(1, '[Resolution] appendEvent(pushTriggeredAbility modal) failed:', err);
+        }
+
+        if (typeof game.resolveTopOfStack === 'function') {
+          game.resolveTopOfStack();
+        } else {
+          executeTriggerEffect(ctx as any, controllerId as PlayerID, sourceName, effectText, syntheticTriggerItem);
+        }
+      }
+
+      if (typeof game.bumpSeq === "function") {
+        game.bumpSeq();
+      }
+      return;
+    }
   }
   
   // For generic modal choices without specific data, just log and continue

@@ -150,6 +150,49 @@ function buildGraveyardCardTargetType(rawTargetType: string | undefined): string
   return normalized ? `graveyard_${normalized}_card` : 'graveyard_card';
 }
 
+function isPermanentCardTypeLine(typeLine: string): boolean {
+  return typeLine.includes('artifact')
+    || typeLine.includes('battle')
+    || typeLine.includes('creature')
+    || typeLine.includes('enchantment')
+    || typeLine.includes('land')
+    || typeLine.includes('planeswalker');
+}
+
+export function matchesGraveyardCardTargetType(card: any, rawTargetType: string): boolean {
+  const targetType = String(rawTargetType || '').trim().toLowerCase();
+  const typeLine = String(card?.type_line || '').toLowerCase();
+
+  switch (targetType) {
+    case 'graveyard_card':
+      return true;
+    case 'graveyard_permanent_card':
+      return isPermanentCardTypeLine(typeLine);
+    case 'graveyard_battle_card':
+      return typeLine.includes('battle');
+    case 'graveyard_creature_card':
+      return typeLine.includes('creature');
+    case 'graveyard_artifact_card':
+      return typeLine.includes('artifact');
+    case 'graveyard_enchantment_card':
+      return typeLine.includes('enchantment');
+    case 'graveyard_land_card':
+      return typeLine.includes('land');
+    case 'graveyard_instant_card':
+      return typeLine.includes('instant');
+    case 'graveyard_sorcery_card':
+      return typeLine.includes('sorcery');
+    case 'graveyard_planeswalker_card':
+      return typeLine.includes('planeswalker');
+    case 'graveyard_nonland_card':
+      return !typeLine.includes('land');
+    case 'graveyard_noncreature_card':
+      return !typeLine.includes('creature');
+    default:
+      return false;
+  }
+}
+
 function buildGraveyardCardTargetTypes(rawTargetType: string | undefined): string[] {
   const normalized = String(rawTargetType || '').trim().toLowerCase();
   if (!normalized) {
@@ -162,7 +205,7 @@ function buildGraveyardCardTargetTypes(rawTargetType: string | undefined): strin
   }
 
   const matchedTypes = Array.from(new Set(
-    (normalized.match(/\b(?:creature|artifact|enchantment|land|instant|sorcery|planeswalker|nonland|noncreature)\b/g) || [])
+    (normalized.match(/\b(?:permanent|battle|creature|artifact|enchantment|land|instant|sorcery|planeswalker|nonland|noncreature)\b/g) || [])
       .map((piece) => piece.trim().toLowerCase())
       .filter(Boolean)
   ));

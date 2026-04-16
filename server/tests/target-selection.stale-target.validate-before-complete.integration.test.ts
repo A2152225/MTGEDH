@@ -131,4 +131,66 @@ describe('TARGET_SELECTION stale-target validate-before-complete (integration)',
     const queueAfterOk = ResolutionQueueManager.getQueue(gameId);
     expect(queueAfterOk.steps.some((s: any) => String(s.id) === stepId)).toBe(false);
   });
+
+  it('does not consume the step if a move_graveyard_card_to_hand target is no longer in the graveyard', async () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const p1 = 'p1';
+    (game.state as any).players = [{ id: p1, name: 'P1', spectator: false, life: 40 }];
+    (game.state as any).startingLife = 40;
+    (game.state as any).life = { [p1]: 40 };
+    (game.state as any).zones = {
+      [p1]: { hand: [], handCount: 0, libraryCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0 },
+    };
+    (game.state as any).battlefield = [];
+
+    const targetId = 'gy_missing_card';
+
+    ResolutionQueueManager.addStep(gameId, {
+      type: ResolutionStepType.TARGET_SELECTION,
+      playerId: p1 as any,
+      description: 'Choose a card in your graveyard',
+      mandatory: true,
+      sourceName: 'Test Graveyard Return',
+      validTargets: [{ id: targetId, label: 'Missing Card' }],
+      targetTypes: ['graveyard_card'],
+      minTargets: 1,
+      maxTargets: 1,
+      action: 'move_graveyard_card_to_hand',
+      fromPlayerId: p1,
+    } as any);
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(p1, emitted);
+    socket.rooms.add(gameId);
+
+    const io = createMockIo(emitted, [socket]);
+    registerResolutionHandlers(io as any, socket as any);
+
+    const queue = ResolutionQueueManager.getQueue(gameId);
+    const step = queue.steps.find((s: any) => s.type === 'target_selection');
+    expect(step).toBeDefined();
+
+    const stepId = String((step as any).id);
+
+    await handlers['submitResolutionResponse']({ gameId, stepId, selections: [targetId] });
+
+    const err = emitted.find(e => e.event === 'error');
+    expect(err?.payload?.code).toBe('CARD_NOT_IN_GRAVEYARD');
+
+    const queueAfter = ResolutionQueueManager.getQueue(gameId);
+    expect(queueAfter.steps.some((s: any) => String(s.id) === stepId)).toBe(true);
+
+    (game.state as any).zones[p1].graveyard.push({ id: targetId, name: 'Recovered Note', type_line: 'Sorcery', zone: 'graveyard' });
+    (game.state as any).zones[p1].graveyardCount = 1;
+
+    await handlers['submitResolutionResponse']({ gameId, stepId, selections: [targetId] });
+
+    const queueAfterOk = ResolutionQueueManager.getQueue(gameId);
+    expect(queueAfterOk.steps.some((s: any) => String(s.id) === stepId)).toBe(false);
+    expect(((game.state as any).zones[p1].graveyard || []).map((card: any) => String(card?.id || ''))).toEqual([]);
+    expect(((game.state as any).zones[p1].hand || []).map((card: any) => String(card?.id || ''))).toEqual([targetId]);
+  });
 });

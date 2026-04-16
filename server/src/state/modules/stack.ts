@@ -784,18 +784,19 @@ function parseBattlefieldCounterClause(text: string): Record<string, number> | u
   return { [counterName]: quantity };
 }
 
-function inferTriggeredAbilityTargetMetadata(effectText: string): {
+export function inferTriggeredAbilityTargetMetadata(effectText: string): {
   requiresTarget: boolean;
   targetType?: string;
   targetConstraint?: 'opponent' | 'you';
   targetZone?: 'graveyard';
   targetDestination?: 'hand' | 'battlefield' | 'library_top' | 'library_bottom';
-  targetGraveyardScope?: 'your' | 'any';
+  targetGraveyardScope?: 'your' | 'any' | 'opponent';
   destinationUsesSelectedCardOwner?: boolean;
   battlefieldControllerMode?: 'selector' | 'owner';
   battlefieldCounters?: Record<string, number>;
   targetAction?: 'cast';
   targetFilterTypes?: string[];
+  targetFilterRequiredTypeWords?: string[];
   targetFilterExcludeTypes?: string[];
   targetFilterPermanentOnly?: boolean;
   targetFilterMaxManaValue?: number;
@@ -810,12 +811,13 @@ function inferTriggeredAbilityTargetMetadata(effectText: string): {
   let targetType: string | undefined;
   let targetZone: 'graveyard' | undefined;
   let targetDestination: 'hand' | 'battlefield' | 'library_top' | 'library_bottom' | undefined;
-  let targetGraveyardScope: 'your' | 'any' | undefined;
+  let targetGraveyardScope: 'your' | 'any' | 'opponent' | undefined;
   let destinationUsesSelectedCardOwner = false;
   let battlefieldControllerMode: 'selector' | 'owner' | undefined;
   let battlefieldCounters: Record<string, number> | undefined;
   let targetAction: 'cast' | undefined;
   let targetFilterTypes: string[] | undefined;
+  let targetFilterRequiredTypeWords: string[] | undefined;
   let targetFilterExcludeTypes: string[] | undefined;
   let targetFilterPermanentOnly = false;
   let targetFilterMaxManaValue: number | undefined;
@@ -842,9 +844,18 @@ function inferTriggeredAbilityTargetMetadata(effectText: string): {
       }
     }
 
-    if (lower.includes('from your graveyard') || lower.includes('from a graveyard') || lower.includes('from any graveyard')) {
+    if (
+      lower.includes('from your graveyard')
+      || lower.includes('from a graveyard')
+      || lower.includes('from any graveyard')
+      || /from (?:an |target )?opponent['’]s graveyard/.test(lower)
+    ) {
       targetZone = 'graveyard';
-      targetGraveyardScope = lower.includes('from your graveyard') ? 'your' : 'any';
+      targetGraveyardScope = lower.includes('from your graveyard')
+        ? 'your'
+        : /from (?:an |target )?opponent['’]s graveyard/.test(lower)
+          ? 'opponent'
+          : 'any';
       if (lower.includes('cast target')) {
         targetAction = 'cast';
         targetCastWithoutPayingManaCost = lower.includes('without paying its mana cost');
@@ -878,20 +889,48 @@ function inferTriggeredAbilityTargetMetadata(effectText: string): {
 
       if (lower.includes('target permanent card')) {
         targetFilterPermanentOnly = true;
-      } else if (lower.includes('target instant or sorcery card')) {
-        targetFilterTypes = ['instant', 'sorcery'];
-      } else if (lower.includes('target creature card')) {
-        targetFilterTypes = ['creature'];
-      } else if (lower.includes('target artifact card')) {
-        targetFilterTypes = ['artifact'];
-      } else if (lower.includes('target enchantment card')) {
-        targetFilterTypes = ['enchantment'];
-      } else if (lower.includes('target land card')) {
-        targetFilterTypes = ['land'];
-      } else if (lower.includes('target planeswalker card')) {
-        targetFilterTypes = ['planeswalker'];
-      } else if (lower.includes('target noncreature card')) {
-        targetFilterExcludeTypes = ['creature'];
+      } else if (lower.includes('target battle card')) {
+        targetFilterTypes = ['battle'];
+      } else {
+        const nonSubtypeCreatureMatch = lower.match(/target\s+non-([a-z0-9'-]+(?:\s+[a-z0-9'-]+)*)\s+creature\s+card/);
+        if (nonSubtypeCreatureMatch) {
+          targetFilterTypes = ['creature'];
+          targetFilterExcludeTypes = String(nonSubtypeCreatureMatch[1] || '')
+            .trim()
+            .toLowerCase()
+            .split(/\s+/)
+            .map((word) => word.trim())
+            .filter(Boolean);
+        } else {
+          const requiredTypeCreatureMatch = lower.match(/target\s+([a-z0-9'-]+(?:\s+[a-z0-9'-]+)*)\s+creature\s+card/);
+          if (requiredTypeCreatureMatch) {
+            targetFilterTypes = ['creature'];
+            targetFilterRequiredTypeWords = String(requiredTypeCreatureMatch[1] || '')
+              .trim()
+              .toLowerCase()
+              .split(/\s+/)
+              .map((word) => word.trim())
+              .filter(Boolean);
+          }
+        }
+
+        if (!Array.isArray(targetFilterRequiredTypeWords) || targetFilterRequiredTypeWords.length === 0) {
+          if (lower.includes('target instant or sorcery card')) {
+          targetFilterTypes = ['instant', 'sorcery'];
+          } else if (lower.includes('target creature card')) {
+            targetFilterTypes = ['creature'];
+          } else if (lower.includes('target artifact card')) {
+            targetFilterTypes = ['artifact'];
+          } else if (lower.includes('target enchantment card')) {
+            targetFilterTypes = ['enchantment'];
+          } else if (lower.includes('target land card')) {
+            targetFilterTypes = ['land'];
+          } else if (lower.includes('target planeswalker card')) {
+            targetFilterTypes = ['planeswalker'];
+          } else if (lower.includes('target noncreature card')) {
+            targetFilterExcludeTypes = ['creature'];
+          }
+        }
       }
     }
 
@@ -930,6 +969,7 @@ function inferTriggeredAbilityTargetMetadata(effectText: string): {
     battlefieldCounters,
     targetAction,
     targetFilterTypes,
+    targetFilterRequiredTypeWords,
     targetFilterExcludeTypes,
     targetFilterPermanentOnly,
     targetFilterMaxManaValue,
@@ -971,6 +1011,7 @@ function matchesTriggeredBattlefieldTarget(targetType: string, typeLine: string)
 
 function matchesTriggeredGraveyardTarget(card: any, metadata: {
   targetFilterTypes?: string[];
+  targetFilterRequiredTypeWords?: string[];
   targetFilterExcludeTypes?: string[];
   targetFilterPermanentOnly?: boolean;
   targetFilterMaxManaValue?: number;
@@ -987,6 +1028,13 @@ function matchesTriggeredGraveyardTarget(card: any, metadata: {
   if (Array.isArray(metadata.targetFilterTypes) && metadata.targetFilterTypes.length > 0) {
     const matchesAnyIncludedType = metadata.targetFilterTypes.some((type) => typeLine.includes(String(type || '').toLowerCase()));
     if (!matchesAnyIncludedType) {
+      return false;
+    }
+  }
+
+  if (Array.isArray(metadata.targetFilterRequiredTypeWords) && metadata.targetFilterRequiredTypeWords.length > 0) {
+    const matchesAllRequiredTypeWords = metadata.targetFilterRequiredTypeWords.every((word) => typeLine.includes(String(word || '').toLowerCase()));
+    if (!matchesAllRequiredTypeWords) {
       return false;
     }
   }
@@ -1084,6 +1132,7 @@ function queueMutateTriggeredAbilities(
       battlefieldCounters,
       targetAction,
       targetFilterTypes,
+      targetFilterRequiredTypeWords,
       targetFilterExcludeTypes,
       targetFilterPermanentOnly,
       targetFilterMaxManaValue,
@@ -1116,6 +1165,7 @@ function queueMutateTriggeredAbilities(
       ...(battlefieldCounters ? { battlefieldCounters } : null),
       ...(targetAction ? { targetAction } : null),
       ...(Array.isArray(targetFilterTypes) ? { targetFilterTypes } : null),
+      ...(Array.isArray(targetFilterRequiredTypeWords) ? { targetFilterRequiredTypeWords } : null),
       ...(Array.isArray(targetFilterExcludeTypes) ? { targetFilterExcludeTypes } : null),
       ...(targetFilterPermanentOnly === true ? { targetFilterPermanentOnly: true } : null),
       ...(typeof targetFilterMaxManaValue === 'number' ? { targetFilterMaxManaValue } : null),
@@ -1149,6 +1199,7 @@ function queueMutateTriggeredAbilities(
           ...(battlefieldCounters ? { battlefieldCounters } : null),
           ...(targetAction ? { targetAction } : null),
           ...(Array.isArray(targetFilterTypes) ? { targetFilterTypes } : null),
+          ...(Array.isArray(targetFilterRequiredTypeWords) ? { targetFilterRequiredTypeWords } : null),
           ...(Array.isArray(targetFilterExcludeTypes) ? { targetFilterExcludeTypes } : null),
           ...(targetFilterPermanentOnly === true ? { targetFilterPermanentOnly: true } : null),
           ...(typeof targetFilterMaxManaValue === 'number' ? { targetFilterMaxManaValue } : null),
@@ -9072,7 +9123,7 @@ export function executeTriggerEffect(
     return;
   }
 
-      const graveyardToLibraryMatch = desc.match(/put target (?:[^.]+? )?card(?:\s+with\s+mana\s+value\s+\d+\s+or\s+less)? from (?:a|any) graveyard on (?:the )?(top|bottom) of its owner['’]s library/i);
+      const graveyardToLibraryMatch = desc.match(/put target (?:[^.]+? )?card(?:\s+with\s+mana\s+value\s+\d+\s+or\s+less)? from (?:your|a|any) graveyard on (?:the )?(top|bottom) of (?:its owner['’]s|your) library/i);
       if (graveyardToLibraryMatch) {
         const targets = Array.isArray((triggerItem as any).targets) ? (triggerItem as any).targets : [];
         const targetCardId = String(targets[0] || '').trim();
@@ -10810,15 +10861,24 @@ export function resolveTopOfStack(ctx: GameContext) {
     // ========================================================================
     const requiresChoice = (item as any).requiresChoice;
     
-    if (requiresChoice && triggerType === 'begin_combat') {
-      // Handle "SOLDIER Military Program" and similar "choose one" beginning of combat triggers
+    if (requiresChoice && String((item as any).type || '') === 'triggered_ability') {
+      // Handle narrow triggered modal choices without introducing a separate execution path.
+      // SOLDIER Military Program keeps its special handling because it supports a custom choose-both flow.
       const oracleText = (item as any).effect || description || '';
       const lowerText = oracleText.toLowerCase();
+      const modalOptionsFromItem = Array.isArray((item as any).modalOptions)
+        ? ((item as any).modalOptions as any[])
+            .map((option) => String(option || '').trim())
+            .filter(Boolean)
+        : [];
       
       // Check if this is SOLDIER Military Program specifically
-      const isSoldierProgram = sourceName.toLowerCase().includes('soldier military program');
+      const isSoldierProgram =
+        triggerType === 'begin_combat'
+        && sourceName.toLowerCase().includes('soldier military program');
+      const isGenericChooseOneTrigger = !isSoldierProgram && (modalOptionsFromItem.length > 0 || lowerText.includes('choose one'));
       
-      if (isSoldierProgram || lowerText.includes('choose one')) {
+      if (isSoldierProgram || isGenericChooseOneTrigger) {
         // Skip adding resolution steps during replay
         const isReplaying = (ctx as any).isReplaying;
         if (isReplaying) {
@@ -10869,19 +10929,23 @@ export function resolveTopOfStack(ctx: GameContext) {
             });
           }
         } else {
-          // Generic modal trigger - parse options from oracle text
-          // This is a simplified parser - may need enhancement for complex cases
-          const optionMatches = oracleText.match(/•\s*([^•]+)/g);
-          if (optionMatches) {
-            optionMatches.forEach((match, index) => {
-              const optionText = match.replace(/^•\s*/, '').trim();
-              options.push({
-                id: `option_${index + 1}`,
-                label: optionText,
-                description: optionText,
-              });
+          // Generic choose-one trigger.
+          // Prefer pre-parsed modalOptions when available; otherwise fall back to bullet parsing.
+          const optionTexts: string[] = modalOptionsFromItem.length > 0
+            ? modalOptionsFromItem
+            : Array.from(new Set(
+                (oracleText.match(/•\s*([^•]+)/g) || [])
+                  .map((match) => match.replace(/^•\s*/, '').trim())
+                  .filter(Boolean)
+              ));
+
+          optionTexts.forEach((optionText, index) => {
+            options.push({
+              id: `option_${index + 1}`,
+              label: optionText,
+              description: optionText,
             });
-          }
+          });
         }
         
         if (options.length > 0) {
@@ -10904,6 +10968,9 @@ export function resolveTopOfStack(ctx: GameContext) {
               sourceId,
               isSoldierProgram,
               canChooseBoth,
+              modalTrigger: !isSoldierProgram,
+              controllerId: triggerController,
+              mandatory: (item as any).mandatory !== false,
             },
           } as any);
           
@@ -11045,8 +11112,17 @@ export function resolveTopOfStack(ctx: GameContext) {
               const graveyard = Array.isArray(zones[playerId]?.graveyard) ? zones[playerId].graveyard : [];
               return graveyard.length > 0;
             })
-          : [String(triggerController)];
+          : graveyardScope === 'opponent'
+            ? Object.keys(zones).filter((playerId) => {
+                if (String(playerId) === String(triggerController)) {
+                  return false;
+                }
+                const graveyard = Array.isArray(zones[playerId]?.graveyard) ? zones[playerId].graveyard : [];
+                return graveyard.length > 0;
+              })
+            : [String(triggerController)];
         const targetFilterTypes = Array.isArray((item as any).targetFilterTypes) ? (item as any).targetFilterTypes : undefined;
+        const targetFilterRequiredTypeWords = Array.isArray((item as any).targetFilterRequiredTypeWords) ? (item as any).targetFilterRequiredTypeWords : undefined;
         const targetFilterExcludeTypes = Array.isArray((item as any).targetFilterExcludeTypes) ? (item as any).targetFilterExcludeTypes : undefined;
         const targetFilterPermanentOnly = (item as any).targetFilterPermanentOnly === true;
         const targetFilterMaxManaValue = typeof (item as any).targetFilterMaxManaValue === 'number'
@@ -11062,6 +11138,7 @@ export function resolveTopOfStack(ctx: GameContext) {
             return graveyard
               .filter((card: any) => matchesTriggeredGraveyardTarget(card, {
                 targetFilterTypes,
+                targetFilterRequiredTypeWords,
                 targetFilterExcludeTypes,
                 targetFilterPermanentOnly,
                 targetFilterMaxManaValue,
@@ -11077,6 +11154,12 @@ export function resolveTopOfStack(ctx: GameContext) {
           })
           .filter((card: any) => Boolean(card.id));
 
+        const graveyardPromptSource = graveyardScope === 'opponent'
+          ? "an opponent's graveyard"
+          : graveyardScope === 'any'
+            ? 'a graveyard'
+            : 'your graveyard';
+
         const minSelectionCount = Math.max(0, Number((item as any).minTargets ?? 1));
         const requestedMaxSelectionCount = Math.max(minSelectionCount, Number((item as any).maxTargets ?? minSelectionCount));
         const maxSelectionCount = Math.min(validTargets.length, requestedMaxSelectionCount);
@@ -11088,8 +11171,8 @@ export function resolveTopOfStack(ctx: GameContext) {
             sourceId: String(sourceId || (item as any).id || ''),
             sourceName,
             description: targetAction === 'cast'
-              ? `${sourceName}: Choose target card from your graveyard to cast`
-              : `${sourceName}: Choose target card from your graveyard`,
+              ? `${sourceName}: Choose target card from ${graveyardPromptSource} to cast`
+              : `${sourceName}: Choose target card from ${graveyardPromptSource}`,
             mandatory: true,
             effectId: String((item as any).id || sourceId || uid('graveyard_trigger')),
             cardName: sourceName,

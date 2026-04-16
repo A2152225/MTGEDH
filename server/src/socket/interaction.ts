@@ -31,7 +31,7 @@ import { creatureHasHaste } from "./game-actions.js";
 import { debug, debugWarn, debugError } from "../utils/debug.js";
 import { filterLibraryCardsForSearch } from "./library-search.js";
 import { registerManaHandlers } from "./mana-handlers.js";
-import { parseTargetRequirements } from "../rules-engine/targeting.js";
+import { matchesGraveyardCardTargetType as matchesSharedGraveyardCardTargetType, parseTargetRequirements } from "../rules-engine/targeting.js";
 import { requestPlayerSelection } from "./player-selection.js";
 import { serializeAbilityActivatedTriggeredStackItem, triggerAbilityActivatedTriggers } from "../state/modules/triggers/ability-activated.js";
 import { isCreatureNow } from "../state/creatureTypeNow.js";
@@ -519,33 +519,7 @@ function persistQueuedGraveyardAbilityStepActivation(params: {
 }
 
 function matchesParsedGraveyardCardTargetType(card: any, rawTargetType: string): boolean {
-  const targetType = String(rawTargetType || '').trim().toLowerCase();
-  const typeLine = String(card?.type_line || '').toLowerCase();
-
-  switch (targetType) {
-    case 'graveyard_card':
-      return true;
-    case 'graveyard_creature_card':
-      return typeLine.includes('creature');
-    case 'graveyard_artifact_card':
-      return typeLine.includes('artifact');
-    case 'graveyard_enchantment_card':
-      return typeLine.includes('enchantment');
-    case 'graveyard_land_card':
-      return typeLine.includes('land');
-    case 'graveyard_instant_card':
-      return typeLine.includes('instant');
-    case 'graveyard_sorcery_card':
-      return typeLine.includes('sorcery');
-    case 'graveyard_planeswalker_card':
-      return typeLine.includes('planeswalker');
-    case 'graveyard_nonland_card':
-      return !typeLine.includes('land');
-    case 'graveyard_noncreature_card':
-      return !typeLine.includes('creature');
-    default:
-      return false;
-  }
+  return matchesSharedGraveyardCardTargetType(card, rawTargetType);
 }
 
 // ============================================================================
@@ -5585,7 +5559,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         .find((s: any) => s?.type === ResolutionStepType.TARGET_SELECTION && (s as any)?.battlefieldAbilityTargetSelection === true && String((s as any)?.abilityId || '') === String(abilityId) && String(s?.sourceId) === String(permanentId));
 
       if (!existing) {
-        const crewStep = ResolutionQueueManager.addStep(gameId, {
+        ResolutionQueueManager.addStep(gameId, {
           type: ResolutionStepType.TARGET_SELECTION,
           playerId: pid as PlayerID,
           sourceId: permanentId,
@@ -5611,222 +5585,15 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
           abilityText: scopedGrantResolvedAbilityText,
           activatedAbilityText: scopedGrantActivatedAbilityText || undefined,
         } as any);
-      }
 
-
-      // Build a flat list of all cards currently in all graveyards.
-      // If there are no legal targets, don't allow the activation.
-      const zonesAll = (game.state as any)?.zones || {};
-      const playersAll: any[] = Array.isArray((game.state as any)?.players) ? (game.state as any).players : [];
-      const graveyardTargets: any[] = [];
-
-      for (const p of playersAll) {
-        const pId = String(p?.id || '');
-        if (!pId) continue;
-        const pZones = zonesAll?.[pId];
-        const gy = pZones && Array.isArray(pZones.graveyard) ? pZones.graveyard : [];
-        for (const c of gy) {
-          if (!c || !c.id) continue;
-          graveyardTargets.push({
-            id: String(c.id),
-            label: `${String(c.name || 'Card')} (${getPlayerName(game, pId)})`,
-            description: String(c.type_line || 'Card'),
-            imageUrl: c.image_uris?.small || c.image_uris?.normal,
-          });
+        if (typeof game.bumpSeq === 'function') {
+          game.bumpSeq();
         }
+        broadcastGame(io, game, gameId);
       }
-
-      if (graveyardTargets.length === 0) {
-        socket.emit("error", {
-          code: "NO_VALID_TARGETS",
-          message: "No cards in any graveyard to exile",
-        });
-        return;
-      }
-      
-      // Parse the cost and validate mana availability
-      const cost = String(scopedAbilityFullText || '').split(':')[0] || '';
-      const parsedCost = parseManaCost(cost);
-      const pool = getOrInitManaPool(game.state, pid);
-      const manaPoolBeforePayment = snapshotInteractionManaPool(pool);
-      const totalAvailable = calculateTotalAvailableMana(pool, []);
-      
-      // Validate payment
-      const validationError = validateManaPayment(totalAvailable, parsedCost.colors, parsedCost.generic);
-      if (validationError) {
-        socket.emit("error", { code: "INSUFFICIENT_MANA", message: validationError });
-        return;
-      }
-      
-      // Consume mana
-      consumeManaFromPool(pool, parsedCost.colors, parsedCost.generic, '[activateBattlefieldAbility:exile-graveyard]');
-      
-      // Tap the permanent if it has a tap symbol in the cost
-      // Pattern: {T}: or {1}{T}: etc.
-      if (scopedAbilityFullText.match(/\{[^}]*\bT\b[^}]*\}:/)) {
-        (permanent as any).tapped = true;
-      }
-
-      const resolvedAbilityText = String(scopedAbilityText || 'Exile target card from a graveyard.').trim();
-      const resolvedActivatedAbilityText = String(scopedAbilityFullText || `${cost}: ${resolvedAbilityText}`).trim();
-      const tappedPermanentsForCost = (scopedAbilityFullText.match(/\{[^}]*\bT\b[^}]*\}:/) ? [String(permanentId)] : []);
-
-      // Route through the shared battlefield target-selection continuation so the
-      // activation becomes a real stack item and copied abilities can retarget honestly.
-      const targetStep = ResolutionQueueManager.addStep(gameId, {
-        type: ResolutionStepType.TARGET_SELECTION,
-        playerId: pid as any,
-        sourceId: permanentId,
-        sourceName: cardName,
-        sourceImage: (permanent as any)?.card?.image_uris?.small || (permanent as any)?.card?.image_uris?.normal,
-        description: `Choose a card to exile from a graveyard (${cost})`,
-        mandatory: true,
-        validTargets: graveyardTargets,
-        targetTypes: ['graveyard_card'],
-        minTargets: 1,
-        maxTargets: 1,
-        targetDescription: 'card in a graveyard',
-        battlefieldAbilityTargetSelection: true,
-        permanentId,
-        abilityId,
-        cardName,
-        abilityText: resolvedAbilityText,
-        activatedAbilityText: resolvedActivatedAbilityText,
-        tappedPermanentsForCost,
-      } as any);
-
-      if (typeof game.bumpSeq === 'function') {
-        game.bumpSeq();
-      }
-      broadcastGame(io, game, gameId);
-      debug(2, `[activateBattlefieldAbility] Graveyard exile ability on ${cardName}: paid ${cost}, queued TARGET_SELECTION (${graveyardTargets.length} targets)`);
       return;
     }
 
-    const parseGraveyardToLibraryTypeFilter = (text: string): string[] | undefined => {
-      const qualifierMatch = text.match(/put target (.+?) card from (?:a|any) graveyard on (?:the )?(?:top|bottom) of its owner['’]s library/i);
-      const qualifier = String(qualifierMatch?.[1] || '').trim().toLowerCase();
-      if (!qualifier) return undefined;
-
-      const parsed = qualifier
-        .replace(/\band\b/gi, ',')
-        .replace(/\bor\b/gi, ',')
-        .split(',')
-        .map((part) => part.trim())
-        .filter(Boolean)
-        .filter((part) => ['artifact', 'creature', 'enchantment', 'instant', 'land', 'planeswalker', 'sorcery'].includes(part));
-
-      return parsed.length > 0 ? parsed : undefined;
-    };
-
-    const resolvedGraveyardLibraryAbilityText = String(scopedAbilityText || String(scopedAbilityFullText).replace(/^[^:]+:\s*/, '').trim()).trim();
-    const parsedGraveyardLibraryReqs = parseTargetRequirements(resolvedGraveyardLibraryAbilityText);
-    const sharedGraveyardLibraryRouting = parsedGraveyardLibraryReqs.needsTargets
-      && Array.isArray(parsedGraveyardLibraryReqs.targetTypes)
-      && parsedGraveyardLibraryReqs.targetTypes.length > 0
-      && parsedGraveyardLibraryReqs.targetTypes.every((targetType) => String(targetType || '').toLowerCase().startsWith('graveyard_'));
-
-    const graveyardToLibraryMatch = scopedAbilityFullText.match(/put target (?:.+? )?card from (?:a|any) graveyard on (?:the )?(top|bottom) of its owner['’]s library/i);
-    if (graveyardToLibraryMatch && isGenericActivatedAbilityId && !sharedGraveyardLibraryRouting) {
-      const placement = String(graveyardToLibraryMatch[1] || 'bottom').toLowerCase() === 'top' ? 'top' : 'bottom';
-      const costText = String(scopedAbilityFullText.split(':')[0] || '').trim();
-      const unsupportedCostText = costText
-        .replace(/\{[^}]+\}/g, ' ')
-        .replace(/[\s,]+/g, ' ')
-        .trim();
-      if (unsupportedCostText.length > 0) {
-        socket.emit('error', {
-          code: 'UNSUPPORTED_COST',
-          message: `Unsupported activation cost (${unsupportedCostText}).`,
-        });
-        return;
-      }
-
-      const manaSymbols = costText.match(/\{[^}]+\}/g) || [];
-      const manaOnly = manaSymbols.filter((symbol) => !/^\{T\}$/i.test(symbol)).join('');
-      if (manaOnly) {
-        const parsedCost = parseManaCost(manaOnly);
-        const pool = getOrInitManaPool(game.state, pid);
-        const totalAvailable = calculateTotalAvailableMana(pool, []);
-        const validationError = validateManaPayment(totalAvailable, parsedCost.colors, parsedCost.generic);
-        if (validationError) {
-          socket.emit('error', { code: 'INSUFFICIENT_MANA', message: validationError });
-          return;
-        }
-        consumeManaFromPool(pool, parsedCost.colors, parsedCost.generic, '[activateBattlefieldAbility:graveyard-to-library]');
-      }
-
-      const tappedPermanentsForCost = /\{T\}/i.test(costText) ? [String(permanentId)] : [];
-      if (tappedPermanentsForCost.length > 0) {
-        (permanent as any).tapped = true;
-      }
-
-      const targetFilterTypes = parseGraveyardToLibraryTypeFilter(scopedAbilityFullText);
-      const zonesAll = (game.state as any)?.zones || {};
-      const playersAll: any[] = Array.isArray((game.state as any)?.players) ? (game.state as any).players : [];
-      const graveyardTargets: any[] = [];
-
-      for (const p of playersAll) {
-        const pId = String(p?.id || '');
-        if (!pId) continue;
-        const pZones = zonesAll?.[pId];
-        const gy = pZones && Array.isArray(pZones.graveyard) ? pZones.graveyard : [];
-        for (const c of gy) {
-          if (!c || !c.id) continue;
-          const typeLine = String(c.type_line || '').toLowerCase();
-          if (Array.isArray(targetFilterTypes) && targetFilterTypes.length > 0 && !targetFilterTypes.some((typeName) => typeLine.includes(typeName))) {
-            continue;
-          }
-          graveyardTargets.push({
-            id: String(c.id),
-            label: `${String(c.name || 'Card')} (${getPlayerName(game, pId)})`,
-            description: String(c.type_line || 'Card'),
-            imageUrl: c.image_uris?.small || c.image_uris?.normal,
-          });
-        }
-      }
-
-      if (graveyardTargets.length === 0) {
-        socket.emit('error', {
-          code: 'NO_VALID_TARGETS',
-          message: 'No cards in any graveyard match this ability',
-        });
-        return;
-      }
-
-      const resolvedAbilityText = String(scopedAbilityText || `Put target card from a graveyard on the ${placement} of its owner's library.`).trim();
-      const resolvedActivatedAbilityText = String(scopedAbilityFullText || `${costText}: ${resolvedAbilityText}`).trim();
-
-      ResolutionQueueManager.addStep(gameId, {
-        type: ResolutionStepType.TARGET_SELECTION,
-        playerId: pid as any,
-        sourceId: permanentId,
-        sourceName: cardName,
-        sourceImage: (permanent as any)?.card?.image_uris?.small || (permanent as any)?.card?.image_uris?.normal,
-        description: `Choose a card to put on the ${placement} of its owner's library${costText ? ` (${costText})` : ''}`,
-        mandatory: true,
-        validTargets: graveyardTargets,
-        targetTypes: ['graveyard_card'],
-        minTargets: 1,
-        maxTargets: 1,
-        targetDescription: 'card in a graveyard',
-        battlefieldAbilityTargetSelection: true,
-        permanentId,
-        abilityId,
-        cardName,
-        abilityText: resolvedAbilityText,
-        activatedAbilityText: resolvedActivatedAbilityText,
-        tappedPermanentsForCost,
-      } as any);
-
-      if (typeof game.bumpSeq === 'function') {
-        game.bumpSeq();
-      }
-      broadcastGame(io, game, gameId);
-      debug(2, `[activateBattlefieldAbility] Graveyard-to-library ability on ${cardName}: queued TARGET_SELECTION (${graveyardTargets.length} targets)`);
-      return;
-    }
-    
     // Handle Control Change abilities (Humble Defector, etc.)
     // Check registry first, then fall back to pattern matching for unregistered cards
     const abilityConfig = getActivatedAbilityConfig(cardName);
@@ -7643,52 +7410,19 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
                   imageUrl: p.card?.image_uris?.small || p.card?.image_uris?.normal,
                 })));
               break;
-            case 'graveyard_card':
-            case 'graveyard_creature_card':
-            case 'graveyard_artifact_card':
-            case 'graveyard_enchantment_card':
-            case 'graveyard_land_card':
-            case 'graveyard_instant_card':
-            case 'graveyard_sorcery_card':
-            case 'graveyard_planeswalker_card':
-            case 'graveyard_nonland_card':
-            case 'graveyard_noncreature_card': {
+            default: {
+              if (!targetType.startsWith('graveyard_')) {
+                break;
+              }
               const graveyardOwnerIds = (targetReqs.graveyardScope === 'any'
                 ? players.filter((player: any) => player?.id).map((player: any) => String(player.id))
                 : [String(pid)]) as string[];
-              const matchesGraveyardCardType = (card: any): boolean => {
-                const typeLine = String(card?.type_line || '').toLowerCase();
-                switch (targetType.toLowerCase()) {
-                  case 'graveyard_card':
-                    return true;
-                  case 'graveyard_creature_card':
-                    return typeLine.includes('creature');
-                  case 'graveyard_artifact_card':
-                    return typeLine.includes('artifact');
-                  case 'graveyard_enchantment_card':
-                    return typeLine.includes('enchantment');
-                  case 'graveyard_land_card':
-                    return typeLine.includes('land');
-                  case 'graveyard_instant_card':
-                    return typeLine.includes('instant');
-                  case 'graveyard_sorcery_card':
-                    return typeLine.includes('sorcery');
-                  case 'graveyard_planeswalker_card':
-                    return typeLine.includes('planeswalker');
-                  case 'graveyard_nonland_card':
-                    return !typeLine.includes('land');
-                  case 'graveyard_noncreature_card':
-                    return !typeLine.includes('creature');
-                  default:
-                    return false;
-                }
-              };
               for (const ownerId of graveyardOwnerIds) {
                 const graveyard = Array.isArray((game.state as any)?.zones?.[ownerId]?.graveyard)
                   ? (game.state as any).zones[ownerId].graveyard
                   : [];
                 validTargets.push(...graveyard
-                  .filter((card: any) => matchesGraveyardCardType(card))
+                  .filter((card: any) => matchesSharedGraveyardCardTargetType(card, targetType))
                   .map((card: any) => ({
                     id: card.id,
                     kind: 'graveyard_card',

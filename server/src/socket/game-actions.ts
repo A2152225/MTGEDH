@@ -22,7 +22,7 @@ import { detectSpellCastTriggers, getBeginningOfCombatTriggers, getEndStepTrigge
 import { getOpponentSpellCastTriggers, type OpponentSpellCastTriggerType } from "../state/modules/triggers/index.js";
 import { isInterveningIfSatisfied } from "../state/modules/triggers/intervening-if";
 import { getUpkeepTriggersForPlayer, autoProcessCumulativeUpkeepMana, sacrificePermanent } from "../state/modules/upkeep-triggers";
-import { categorizeSpell, evaluateTargeting, requiresTargeting, parseTargetRequirements } from "../rules-engine/targeting";
+import { categorizeSpell, evaluateTargeting, matchesGraveyardCardTargetType as matchesSharedGraveyardCardTargetType, parseTargetRequirements, requiresTargeting } from "../rules-engine/targeting";
 import { recalculatePlayerEffects, hasMetalcraft, countArtifacts, calculateMaxLandsPerTurn, canPlayLandsFromTop, canCastFromTop } from "../state/modules/game-state-effects";
 import { PAY_X_LIFE_CARDS, getMaxPayableLife, validateLifePayment, uid, oracleTextReferencesCard } from "../state/utils";
 import { detectTutorEffect, parseSearchCriteria, type TutorInfo } from "./interaction";
@@ -693,31 +693,7 @@ function splitSpellTargetClauses(oracleText: string): string[] {
 }
 
 function matchesSpellGraveyardCardTargetType(card: any, targetType: string): boolean {
-  const typeLine = String(card?.type_line || '').toLowerCase();
-  switch (targetType) {
-    case 'graveyard_card':
-      return true;
-    case 'graveyard_creature_card':
-      return typeLine.includes('creature');
-    case 'graveyard_artifact_card':
-      return typeLine.includes('artifact');
-    case 'graveyard_enchantment_card':
-      return typeLine.includes('enchantment');
-    case 'graveyard_land_card':
-      return typeLine.includes('land');
-    case 'graveyard_instant_card':
-      return typeLine.includes('instant');
-    case 'graveyard_sorcery_card':
-      return typeLine.includes('sorcery');
-    case 'graveyard_planeswalker_card':
-      return typeLine.includes('planeswalker');
-    case 'graveyard_nonland_card':
-      return !typeLine.includes('land');
-    case 'graveyard_noncreature_card':
-      return !typeLine.includes('creature');
-    default:
-      return false;
-  }
+  return matchesSharedGraveyardCardTargetType(card, targetType);
 }
 
 function buildSpellTargetListFromRequirements(game: any, playerId: string, targetReqs: any): Array<{ id: string; kind: string; name: string; isOpponent?: boolean; controller?: string; imageUrl?: string; typeLine?: string; life?: number }> {

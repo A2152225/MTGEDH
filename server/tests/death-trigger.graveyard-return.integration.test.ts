@@ -274,7 +274,7 @@ describe('Death trigger graveyard returns (integration)', () => {
           id: 'reclaimer_card_1',
           name: 'Grave Reclaimer',
           type_line: 'Enchantment',
-          oracle_text: 'Whenever a creature you control dies, return target creature card from your graveyard to your hand.',
+          oracle_text: 'Whenever a creature you control dies, return target Dragon creature card from your graveyard to your hand.',
           zone: 'battlefield',
         },
       },
@@ -303,7 +303,16 @@ describe('Death trigger graveyard returns (integration)', () => {
         handCount: 0,
         graveyard: [
           {
-            id: 'gy_creature_1',
+            id: 'gy_dragon_1',
+            name: 'Reclaimed Dragon',
+            type_line: 'Creature - Dragon',
+            mana_cost: '{4}{R}',
+            zone: 'graveyard',
+            power: '4',
+            toughness: '4',
+          },
+          {
+            id: 'gy_non_dragon_1',
             name: 'Reclaimed Skeleton',
             type_line: 'Creature - Skeleton',
             mana_cost: '{1}{B}',
@@ -319,7 +328,7 @@ describe('Death trigger graveyard returns (integration)', () => {
             zone: 'graveyard',
           },
         ],
-        graveyardCount: 2,
+        graveyardCount: 3,
         exile: [],
         exileCount: 0,
         library: [],
@@ -341,6 +350,7 @@ describe('Death trigger graveyard returns (integration)', () => {
       targetDestination: 'hand',
       targetGraveyardScope: 'your',
       targetFilterTypes: ['creature'],
+      targetFilterRequiredTypeWords: ['dragon'],
     });
 
     const pushEvent = [...getEvents(gameId)].reverse().find((event: any) => event.type === 'pushTriggeredAbility') as any;
@@ -352,6 +362,7 @@ describe('Death trigger graveyard returns (integration)', () => {
       targetDestination: 'hand',
       targetGraveyardScope: 'your',
       targetFilterTypes: ['creature'],
+      targetFilterRequiredTypeWords: ['dragon'],
     });
 
     game.resolveTopOfStack();
@@ -362,7 +373,7 @@ describe('Death trigger graveyard returns (integration)', () => {
     expect(step.type).toBe('graveyard_selection');
     expect(step.targetPlayerId).toBe(playerId);
     expect(step.destination).toBe('hand');
-    expect(step.validTargets.map((target: any) => String(target.id)).sort()).toEqual(['gy_creature_1', 'victim_card_1']);
+    expect(step.validTargets.map((target: any) => String(target.id))).toEqual(['gy_dragon_1']);
 
     const emitted: Array<{ room?: string; event: string; payload: any }> = [];
     const { socket, handlers } = createMockSocket(playerId, emitted);
@@ -376,16 +387,144 @@ describe('Death trigger graveyard returns (integration)', () => {
     await handlers.submitResolutionResponse({
       gameId,
       stepId: step.id,
-      selections: ['gy_creature_1'],
+      selections: ['gy_dragon_1'],
     });
 
     const playerZones = (game.state as any).zones?.[playerId];
-    expect((playerZones?.graveyard || []).some((card: any) => String(card?.id || '') === 'gy_creature_1')).toBe(false);
-    expect((playerZones?.hand || []).some((card: any) => String(card?.id || '') === 'gy_creature_1')).toBe(true);
+    expect((playerZones?.graveyard || []).some((card: any) => String(card?.id || '') === 'gy_dragon_1')).toBe(false);
+    expect((playerZones?.hand || []).some((card: any) => String(card?.id || '') === 'gy_dragon_1')).toBe(true);
 
     const confirmEvent = [...getEvents(gameId)].reverse().find((event: any) => event.type === 'confirmGraveyardTargets') as any;
-    expect(confirmEvent?.payload?.selectedCardIds).toEqual(['gy_creature_1']);
+    expect(confirmEvent?.payload?.selectedCardIds).toEqual(['gy_dragon_1']);
     expect(String(confirmEvent?.payload?.destination || '')).toBe('hand');
+  });
+
+  it('routes Junji death modal reanimation through MODAL_CHOICE and excludes Dragon creature cards', async () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const playerId = 'p1';
+    (game.state as any).players = [{ id: playerId, name: 'P1', spectator: false, life: 40 }];
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).pendingDelayedGraveyardReturns = [];
+    (game.state as any).battlefield = [
+      {
+        id: 'junji_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        counters: {},
+        basePower: 5,
+        baseToughness: 5,
+        card: {
+          id: 'junji_card_1',
+          name: 'Junji, the Midnight Sky',
+          type_line: 'Legendary Creature - Dragon Spirit',
+          oracle_text: 'Flying, menace\nWhen Junji, the Midnight Sky dies, choose one —\n• Each opponent discards two cards and loses 2 life.\n• Put target non-Dragon creature card from a graveyard onto the battlefield under your control.',
+          zone: 'battlefield',
+          power: '5',
+          toughness: '5',
+        },
+      },
+    ];
+    (game.state as any).zones = {
+      [playerId]: {
+        hand: [],
+        handCount: 0,
+        graveyard: [
+          {
+            id: 'gy_dragon_1',
+            name: 'Ancient Whelp',
+            type_line: 'Creature - Dragon',
+            mana_cost: '{4}{R}',
+            zone: 'graveyard',
+            power: '4',
+            toughness: '4',
+          },
+          {
+            id: 'gy_bear_1',
+            name: 'Returned Bear',
+            type_line: 'Creature - Bear',
+            mana_cost: '{2}{G}',
+            zone: 'graveyard',
+            power: '2',
+            toughness: '2',
+          },
+        ],
+        graveyardCount: 2,
+        exile: [],
+        exileCount: 0,
+        library: [],
+        libraryCount: 0,
+      },
+    };
+
+    expect(movePermanentToGraveyard(game as any, 'junji_1')).toBe(true);
+
+    const triggerStack = (game.state as any).stack || [];
+    expect(triggerStack).toHaveLength(1);
+    expect(triggerStack[0]).toMatchObject({
+      type: 'triggered_ability',
+      source: 'junji_1',
+      sourceName: 'Junji, the Midnight Sky',
+      triggerType: 'creature_dies',
+      requiresChoice: true,
+    });
+    expect((triggerStack[0] as any).modalOptions).toEqual([
+      'each opponent discards two cards and loses 2 life.',
+      'put target non-dragon creature card from a graveyard onto the battlefield under your control.',
+    ]);
+
+    game.resolveTopOfStack();
+
+    const queue = ResolutionQueueManager.getQueue(gameId);
+    expect(queue.steps).toHaveLength(1);
+    const modalStep = queue.steps[0] as any;
+    expect(modalStep.type).toBe('modal_choice');
+    expect(modalStep.options.map((option: any) => String(option.id))).toEqual(['option_1', 'option_2']);
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(playerId, emitted);
+    socket.rooms.add(gameId);
+    const io = createMockIo(emitted, [socket]);
+
+    registerResolutionHandlers(io as any, socket as any);
+    registerInteractionHandlers(io as any, socket as any);
+
+    await handlers.submitResolutionResponse({
+      gameId,
+      stepId: modalStep.id,
+      selections: ['option_2'],
+    });
+
+    const updatedQueue = ResolutionQueueManager.getQueue(gameId);
+    expect(updatedQueue.steps).toHaveLength(1);
+    const graveyardStep = updatedQueue.steps[0] as any;
+    expect(graveyardStep.type).toBe('graveyard_selection');
+    expect(graveyardStep.destination).toBe('battlefield');
+    expect(graveyardStep.validTargets.map((target: any) => String(target.id))).toEqual(['gy_bear_1']);
+
+    await handlers.submitResolutionResponse({
+      gameId,
+      stepId: graveyardStep.id,
+      selections: ['gy_bear_1'],
+    });
+
+    const playerZones = (game.state as any).zones?.[playerId];
+    expect((playerZones?.graveyard || []).some((card: any) => String(card?.id || '') === 'gy_bear_1')).toBe(false);
+
+    const confirmEvent = [...getEvents(gameId)].reverse().find((event: any) => event.type === 'confirmGraveyardTargets') as any;
+    const createdPermanentId = String(confirmEvent?.payload?.createdPermanentIds?.[0] || '');
+    expect(createdPermanentId).not.toBe('');
+
+    const reanimatedPermanent = (((game.state as any).battlefield || []) as any[]).find(
+      (permanent: any) => String(permanent?.id || '') === createdPermanentId,
+    );
+    expect(reanimatedPermanent).toBeDefined();
+    expect(String(reanimatedPermanent?.controller || '')).toBe(playerId);
+    expect(String(reanimatedPermanent?.card?.id || '')).toBe('gy_bear_1');
   });
 
   it('schedules bound self-return at the next end step instead of moving immediately', async () => {
