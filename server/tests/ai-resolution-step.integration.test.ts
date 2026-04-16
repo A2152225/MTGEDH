@@ -665,6 +665,61 @@ describe('AI resolution-step integration', () => {
     expect(completed?.response?.selections).toEqual(['Elf']);
   });
 
+  it('routes active kynaios-choice steps through AI priority handling and chooses to play a land when available', async () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [
+      { id: playerId, name: 'AI', spectator: false, life: 40, isAI: true },
+    ];
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).phase = 'main';
+    (game.state as any).step = 'precombat_main';
+    (game.state as any).stack = [];
+    (game.state as any).zones = {
+      [playerId]: {
+        hand: [
+          {
+            id: 'forest_1',
+            name: 'Forest',
+            type_line: 'Basic Land — Forest',
+            oracle_text: '{T}: Add {G}.',
+          },
+        ],
+        handCount: 1,
+        library: [],
+        graveyard: [],
+        exile: [],
+      },
+    };
+    (game.state as any).battlefield = [];
+
+    registerAIPlayer(gameId, playerId as any);
+
+    const step = ResolutionQueueManager.addStep(gameId, {
+      type: ResolutionStepType.KYNAIOS_CHOICE,
+      playerId: playerId as any,
+      description: 'Kynaios choice',
+      mandatory: true,
+      landPlayOrFallbackIsController: true,
+      landPlayOrFallbackSourceController: playerId,
+      landPlayOrFallbackCanPlayLand: true,
+      landPlayOrFallbackLandsInHand: [{ id: 'forest_1', name: 'Forest' }],
+      landPlayOrFallbackOptions: ['play_land', 'decline'],
+    } as any);
+
+    ResolutionQueueManager.activateStep(gameId, step.id);
+
+    await handleAIPriority(createNoopIo(), gameId, playerId as any);
+
+    const queue = ResolutionQueueManager.getQueue(gameId);
+    expect(queue.steps.some((entry: any) => String(entry.id) === String(step.id))).toBe(false);
+    const completed = queue.completedSteps.find((entry: any) => String(entry.id) === String(step.id));
+    expect(completed?.response?.selections).toEqual({ choice: 'play_land', landCardId: 'forest_1' });
+  });
+
   it('routes active card-name-choice steps through AI priority handling and selects a visible opposing threat from the candidate list', async () => {
     createGameIfNotExists(gameId, 'commander', 40);
     const game = ensureGame(gameId);
@@ -3023,6 +3078,98 @@ describe('AI resolution-step integration', () => {
     }
   });
 
+  it('auto-resolves AI gift cast choice from the shared resolution queue handler and resumes the promised-gift cast flow', async () => {
+    const io = createNoopIo();
+    const aiHandler = initializeAIResolutionHandler(io as any);
+
+    try {
+      createGameIfNotExists(gameId, 'commander', 40);
+      const game = ensureGame(gameId);
+      if (!game) throw new Error('ensureGame returned undefined');
+
+      (game.state as any).players = [
+        { id: playerId, name: 'AI', spectator: false, life: 40, isAI: true },
+        { id: 'opp1', name: 'Opponent', spectator: false, life: 40 },
+      ];
+      (game.state as any).startingLife = 40;
+      (game.state as any).life = { [playerId]: 40, opp1: 40 };
+      (game.state as any).phase = 'precombatMain';
+      (game.state as any).turnPlayer = playerId;
+      (game.state as any).priority = playerId;
+      (game.state as any).stack = [
+        {
+          id: 'stack_creature',
+          type: 'spell',
+          controller: 'opp1',
+          card: { id: 'stack_creature_card', name: 'Runeclaw Bear', type_line: 'Creature — Bear', oracle_text: '' },
+        },
+        {
+          id: 'stack_artifact',
+          type: 'spell',
+          controller: 'opp1',
+          card: { id: 'stack_artifact_card', name: 'Sol Ring', type_line: 'Artifact', oracle_text: '' },
+        },
+      ];
+      (game.state as any).zones = {
+        [playerId]: {
+          hand: [
+            {
+              id: 'long_river_pull_1',
+              name: "Long River's Pull",
+              mana_cost: '{U}{U}',
+              type_line: 'Instant',
+              oracle_text: 'Gift a card (You may promise an opponent a gift as you cast this spell. If you do, they draw a card before its other effects.)\nCounter target creature spell. If the gift was promised, instead counter target spell.',
+              image_uris: { small: 'https://example.com/long-river-pull.jpg' },
+            },
+          ],
+          handCount: 1,
+          exile: [],
+          exileCount: 0,
+          graveyard: [],
+          graveyardCount: 0,
+        },
+        opp1: { hand: [], handCount: 0, library: [], graveyard: [], exile: [] },
+      };
+
+      const step = ResolutionQueueManager.addStep(gameId, {
+        type: ResolutionStepType.OPTION_CHOICE,
+        playerId: playerId as any,
+        sourceId: 'long_river_pull_1',
+        sourceName: "Long River's Pull",
+        description: "Choose whether to promise a gift as you cast Long River's Pull.",
+        mandatory: true,
+        options: [
+          { id: 'gift:none', label: 'Cast without promising a gift' },
+          { id: 'gift:opp1', label: 'Promise a card to Opponent' },
+        ],
+        minSelections: 1,
+        maxSelections: 1,
+        giftCastChoice: true,
+        giftCardId: 'long_river_pull_1',
+        giftCardName: "Long River's Pull",
+        giftType: 'a card',
+        giftFromZone: 'hand',
+      } as any);
+
+      await vi.waitFor(() => {
+        const queue = ResolutionQueueManager.getQueue(gameId);
+        expect(queue.steps.some((entry: any) => String(entry.id) === String(step.id))).toBe(false);
+
+        const completed = queue.completedSteps.find((entry: any) => String(entry.id) === String(step.id));
+        expect(completed?.response?.selections).toEqual(['gift:opp1']);
+
+        const completedTargetStep = queue.completedSteps.find((entry: any) => entry.type === 'target_selection') as any;
+        expect(completedTargetStep).toBeDefined();
+        expect((completedTargetStep.validTargets || []).map((entry: any) => String(entry?.id || ''))).toEqual(
+          expect.arrayContaining(['stack_creature', 'stack_artifact']),
+        );
+        expect((completedTargetStep.response?.selections || []).length).toBeGreaterThan(0);
+      });
+    } finally {
+      ResolutionQueueManager.off(aiHandler);
+    }
+  });
+
   it('auto-resolves AI spell-cast X selections and continues the cast', async () => {
     const io = createNoopIo();
     const aiHandler = initializeAIResolutionHandler(io as any);
@@ -3122,6 +3269,460 @@ describe('AI resolution-step integration', () => {
 
         const stackNames = (((game.state as any).stack) || []).map((entry: any) => String(entry?.card?.name || entry?.sourceName || ''));
         expect(stackNames).toContain('Martial Coup');
+      });
+    } finally {
+      ResolutionQueueManager.off(aiHandler);
+    }
+  });
+
+  it('auto-resolves AI mode-selection steps from the shared resolution queue handler using the live overload heuristic', async () => {
+    const io = createNoopIo();
+    const aiHandler = initializeAIResolutionHandler(io as any);
+
+    try {
+      createGameIfNotExists(gameId, 'commander', 40);
+      const game = ensureGame(gameId);
+      if (!game) throw new Error('ensureGame returned undefined');
+
+      (game.state as any).players = [
+        { id: playerId, name: 'AI', spectator: false, life: 40, isAI: true },
+        { id: 'opp1', name: 'Opponent', spectator: false, life: 40 },
+      ];
+      (game.state as any).turnPlayer = playerId;
+      (game.state as any).priority = playerId;
+      (game.state as any).phase = 'precombatMain';
+      (game.state as any).step = 'MAIN1';
+      (game.state as any).stack = [];
+      (game.state as any).manaPool = {
+        [playerId]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+        opp1: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+      };
+      (game.state as any).battlefield = [
+        {
+          id: 'mountain_1',
+          controller: playerId,
+          owner: playerId,
+          tapped: false,
+          summoningSickness: false,
+          counters: {},
+          card: {
+            id: 'mountain_card_1',
+            name: 'Mountain',
+            type_line: 'Basic Land — Mountain',
+            oracle_text: '{T}: Add {R}.',
+          },
+        },
+        {
+          id: 'mountain_2',
+          controller: playerId,
+          owner: playerId,
+          tapped: false,
+          summoningSickness: false,
+          counters: {},
+          card: {
+            id: 'mountain_card_2',
+            name: 'Mountain',
+            type_line: 'Basic Land — Mountain',
+            oracle_text: '{T}: Add {R}.',
+          },
+        },
+        {
+          id: 'mountain_3',
+          controller: playerId,
+          owner: playerId,
+          tapped: false,
+          summoningSickness: false,
+          counters: {},
+          card: {
+            id: 'mountain_card_3',
+            name: 'Mountain',
+            type_line: 'Basic Land — Mountain',
+            oracle_text: '{T}: Add {R}.',
+          },
+        },
+        {
+          id: 'mountain_4',
+          controller: playerId,
+          owner: playerId,
+          tapped: false,
+          summoningSickness: false,
+          counters: {},
+          card: {
+            id: 'mountain_card_4',
+            name: 'Mountain',
+            type_line: 'Basic Land — Mountain',
+            oracle_text: '{T}: Add {R}.',
+          },
+        },
+        {
+          id: 'mountain_5',
+          controller: playerId,
+          owner: playerId,
+          tapped: false,
+          summoningSickness: false,
+          counters: {},
+          card: {
+            id: 'mountain_card_5',
+            name: 'Mountain',
+            type_line: 'Basic Land — Mountain',
+            oracle_text: '{T}: Add {R}.',
+          },
+        },
+        {
+          id: 'artifact_1',
+          controller: 'opp1',
+          owner: 'opp1',
+          tapped: false,
+          summoningSickness: false,
+          counters: {},
+          card: {
+            id: 'artifact_card_1',
+            name: 'Sol Ring',
+            type_line: 'Artifact',
+            oracle_text: '',
+          },
+        },
+        {
+          id: 'artifact_2',
+          controller: 'opp1',
+          owner: 'opp1',
+          tapped: false,
+          summoningSickness: false,
+          counters: {},
+          card: {
+            id: 'artifact_card_2',
+            name: 'Arcane Signet',
+            type_line: 'Artifact',
+            oracle_text: '',
+          },
+        },
+      ];
+      (game.state as any).zones = {
+        [playerId]: {
+          hand: [
+            {
+              id: 'vandalblast_1',
+              name: 'Vandalblast',
+              mana_cost: '{R}',
+              manaCost: '{R}',
+              type_line: 'Sorcery',
+              oracle_text: "Destroy target artifact you don't control.\nOverload {4}{R}",
+            },
+          ],
+          handCount: 1,
+          library: [],
+          graveyard: [],
+          exile: [],
+        },
+        opp1: { hand: [], handCount: 0, library: [], graveyard: [], exile: [] },
+      };
+
+      const step = ResolutionQueueManager.addStep(gameId, {
+        type: ResolutionStepType.MODE_SELECTION,
+        playerId: playerId as any,
+        description: 'Choose normal or overload.',
+        mandatory: true,
+        sourceId: 'vandalblast_1',
+        sourceName: 'Vandalblast',
+        modes: [
+          { id: 'normal', label: 'Normal' },
+          { id: 'overload', label: 'Overload' },
+        ],
+        minModes: 1,
+        maxModes: 1,
+        allowDuplicates: false,
+        modeSelectionPurpose: 'overload',
+        castSpellFromHandArgs: {
+          cardId: 'vandalblast_1',
+          fromZone: 'hand',
+        },
+      } as any);
+
+      await vi.waitFor(() => {
+        const queue = ResolutionQueueManager.getQueue(gameId);
+        expect(queue.steps.some((entry: any) => String(entry.id) === String(step.id))).toBe(false);
+
+        const completed = queue.completedSteps.find((entry: any) => String(entry.id) === String(step.id));
+        expect(completed?.response?.selections).toEqual(['overload']);
+        expect(completed?.response?.cancelled).toBe(false);
+      });
+    } finally {
+      ResolutionQueueManager.off(aiHandler);
+    }
+  });
+
+  it('auto-resolves AI player-choice steps from the shared resolution queue handler using the live threat heuristic', async () => {
+    const io = createNoopIo();
+    const aiHandler = initializeAIResolutionHandler(io as any);
+
+    try {
+      createGameIfNotExists(gameId, 'commander', 40);
+      const game = ensureGame(gameId);
+      if (!game) throw new Error('ensureGame returned undefined');
+
+      (game.state as any).players = [
+        { id: playerId, name: 'AI', spectator: false, life: 40, isAI: true },
+        { id: 'opp1', name: 'Opponent One', spectator: false, life: 40 },
+        { id: 'opp2', name: 'Opponent Two', spectator: false, life: 40 },
+      ];
+      (game.state as any).turnPlayer = playerId;
+      (game.state as any).priority = playerId;
+      (game.state as any).phase = 'main';
+      (game.state as any).step = 'precombat_main';
+      (game.state as any).stack = [];
+      (game.state as any).zones = {
+        [playerId]: { hand: [], library: [], exile: [], graveyard: [] },
+        opp1: { hand: [], library: [], exile: [], graveyard: [] },
+        opp2: { hand: [], library: [], exile: [], graveyard: [] },
+      };
+      (game.state as any).battlefield = [
+        {
+          id: 'combo_piece',
+          controller: 'opp2',
+          owner: 'opp2',
+          tapped: false,
+          summoningSickness: false,
+          counters: {},
+          card: {
+            id: 'combo_piece_card',
+            name: 'Isochron Scepter',
+            type_line: 'Artifact',
+            oracle_text: 'Imprint — When Isochron Scepter enters the battlefield, you may exile an instant card with mana value 2 or less from your hand.',
+          },
+        },
+      ];
+
+      const step = ResolutionQueueManager.addStep(gameId, {
+        type: ResolutionStepType.PLAYER_CHOICE,
+        playerId: playerId as any,
+        description: 'Choose an opponent.',
+        mandatory: true,
+        sourceId: 'humble_1',
+        sourceName: 'Humble Defector',
+        opponentOnly: true,
+        players: [
+          { id: 'opp1', name: 'Opponent One', isOpponent: true, isSelf: false },
+          { id: 'opp2', name: 'Opponent Two', isOpponent: true, isSelf: false },
+        ],
+      } as any);
+
+      await vi.waitFor(() => {
+        const queue = ResolutionQueueManager.getQueue(gameId);
+        expect(queue.steps.some((entry: any) => String(entry.id) === String(step.id))).toBe(false);
+
+        const completed = queue.completedSteps.find((entry: any) => String(entry.id) === String(step.id));
+        expect(completed?.response?.selections).toEqual(['opp2']);
+      });
+    } finally {
+      ResolutionQueueManager.off(aiHandler);
+    }
+  });
+
+  it('auto-resolves AI color-choice steps from the shared resolution queue handler using the live mana heuristic', async () => {
+    const io = createNoopIo();
+    const aiHandler = initializeAIResolutionHandler(io as any);
+
+    try {
+      createGameIfNotExists(gameId, 'commander', 40);
+      const game = ensureGame(gameId);
+      if (!game) throw new Error('ensureGame returned undefined');
+
+      (game.state as any).players = [
+        { id: playerId, name: 'AI', spectator: false, life: 40, isAI: true },
+      ];
+      (game.state as any).turnPlayer = playerId;
+      (game.state as any).priority = playerId;
+      (game.state as any).phase = 'main';
+      (game.state as any).step = 'precombat_main';
+      (game.state as any).stack = [];
+      (game.state as any).manaPool = {
+        [playerId]: { white: 0, blue: 0, black: 2, red: 0, green: 0, colorless: 0 },
+      };
+      (game.state as any).zones = {
+        [playerId]: { hand: [], library: [], exile: [], graveyard: [] },
+      };
+      (game.state as any).battlefield = [];
+
+      const step = ResolutionQueueManager.addStep(gameId, {
+        type: ResolutionStepType.COLOR_CHOICE,
+        playerId: playerId as any,
+        description: 'Choose a color.',
+        mandatory: true,
+        permanentId: 'gauntlet_1',
+        cardName: 'Gauntlet of Power',
+        colors: ['blue', 'black'],
+      } as any);
+
+      await vi.waitFor(() => {
+        const queue = ResolutionQueueManager.getQueue(gameId);
+        expect(queue.steps.some((entry: any) => String(entry.id) === String(step.id))).toBe(false);
+
+        const completed = queue.completedSteps.find((entry: any) => String(entry.id) === String(step.id));
+        expect(completed?.response?.selections).toEqual(['blue']);
+      });
+    } finally {
+      ResolutionQueueManager.off(aiHandler);
+    }
+  });
+
+  it('auto-resolves AI creature-type-choice steps from the shared resolution queue handler using the live tribe heuristic', async () => {
+    const io = createNoopIo();
+    const aiHandler = initializeAIResolutionHandler(io as any);
+
+    try {
+      createGameIfNotExists(gameId, 'commander', 40);
+      const game = ensureGame(gameId);
+      if (!game) throw new Error('ensureGame returned undefined');
+
+      (game.state as any).players = [
+        { id: playerId, name: 'AI', spectator: false, life: 40, isAI: true },
+      ];
+      (game.state as any).turnPlayer = playerId;
+      (game.state as any).priority = playerId;
+      (game.state as any).phase = 'main';
+      (game.state as any).step = 'precombat_main';
+      (game.state as any).stack = [];
+      (game.state as any).zones = {
+        [playerId]: {
+          hand: [
+            {
+              id: 'elf_hand_1',
+              name: 'Llanowar Elves',
+              type_line: 'Creature — Elf Druid',
+              oracle_text: '{T}: Add {G}.',
+            },
+          ],
+          library: [
+            {
+              id: 'elf_lib_1',
+              name: 'Elvish Mystic',
+              type_line: 'Creature — Elf Druid',
+              oracle_text: '{T}: Add {G}.',
+            },
+            {
+              id: 'elf_lib_2',
+              name: 'Elvish Archdruid',
+              type_line: 'Creature — Elf Druid',
+              oracle_text: 'Other Elf creatures you control get +1/+1.',
+            },
+            {
+              id: 'goblin_lib_1',
+              name: 'Goblin Piker',
+              type_line: 'Creature — Goblin Warrior',
+              oracle_text: '',
+            },
+          ],
+          graveyard: [],
+          exile: [],
+        },
+      };
+      (game.state as any).battlefield = [
+        {
+          id: 'elf_battlefield_1',
+          controller: playerId,
+          owner: playerId,
+          tapped: false,
+          summoningSickness: false,
+          counters: {},
+          card: {
+            id: 'elf_battlefield_card_1',
+            name: 'Elvish Visionary',
+            type_line: 'Creature — Elf Shaman',
+            oracle_text: 'When Elvish Visionary enters, draw a card.',
+            power: '1',
+            toughness: '1',
+          },
+        },
+      ];
+
+      const step = ResolutionQueueManager.addStep(gameId, {
+        type: ResolutionStepType.CREATURE_TYPE_CHOICE,
+        playerId: playerId as any,
+        description: 'Choose a creature type for Cavern of Souls.',
+        mandatory: true,
+        sourceId: 'cavern_1',
+        sourceName: 'Cavern of Souls',
+        permanentId: 'cavern_1',
+        cardName: 'Cavern of Souls',
+      } as any);
+
+      await vi.waitFor(() => {
+        const queue = ResolutionQueueManager.getQueue(gameId);
+        expect(queue.steps.some((entry: any) => String(entry.id) === String(step.id))).toBe(false);
+
+        const completed = queue.completedSteps.find((entry: any) => String(entry.id) === String(step.id));
+        expect(completed?.response?.selections).toEqual(['Elf']);
+      });
+    } finally {
+      ResolutionQueueManager.off(aiHandler);
+    }
+  });
+
+  it('auto-resolves AI kynaios-choice steps from the shared resolution queue handler and plays the available land', async () => {
+    const io = createNoopIo();
+    const aiHandler = initializeAIResolutionHandler(io as any);
+
+    try {
+      createGameIfNotExists(gameId, 'commander', 40);
+      const game = ensureGame(gameId);
+      if (!game) throw new Error('ensureGame returned undefined');
+
+      (game.state as any).players = [
+        { id: playerId, name: 'AI', spectator: false, life: 40, isAI: true },
+      ];
+      (game.state as any).startingLife = 40;
+      (game.state as any).life = { [playerId]: 40 };
+      (game.state as any).turnPlayer = playerId;
+      (game.state as any).priority = playerId;
+      (game.state as any).phase = 'main';
+      (game.state as any).step = 'precombat_main';
+      (game.state as any).stack = [];
+      (game.state as any).zones = {
+        [playerId]: {
+          graveyard: [],
+          graveyardCount: 0,
+          exile: [],
+          exileCount: 0,
+          hand: [
+            {
+              id: 'forest_1',
+              name: 'Forest',
+              type_line: 'Basic Land — Forest',
+              oracle_text: '{T}: Add {G}.',
+            },
+          ],
+          handCount: 1,
+          library: [],
+          libraryCount: 0,
+        },
+      };
+      (game.state as any).battlefield = [];
+
+      const step = ResolutionQueueManager.addStep(gameId, {
+        type: ResolutionStepType.KYNAIOS_CHOICE,
+        playerId: playerId as any,
+        description: 'Kynaios choice',
+        mandatory: true,
+        kynaiosBatchId: 'batch_kynaios_shared_ai',
+        landPlayOrFallbackIsController: true,
+        landPlayOrFallbackSourceController: playerId,
+        landPlayOrFallbackCanPlayLand: true,
+        landPlayOrFallbackLandsInHand: [{ id: 'forest_1', name: 'Forest' }],
+        landPlayOrFallbackOptions: ['play_land', 'decline'],
+      } as any);
+
+      await vi.waitFor(() => {
+        const queue = ResolutionQueueManager.getQueue(gameId);
+        expect(queue.steps.some((entry: any) => String(entry.id) === String(step.id))).toBe(false);
+
+        const completed = queue.completedSteps.find((entry: any) => String(entry.id) === String(step.id));
+        expect(completed?.response?.selections).toEqual({ choice: 'play_land', landCardId: 'forest_1' });
+
+        const handIds = (((game.state as any).zones?.[playerId]?.hand) || []).map((card: any) => String(card?.id || ''));
+        expect(handIds).not.toContain('forest_1');
+
+        const battlefieldNames = (((game.state as any).battlefield) || []).map((perm: any) => String(perm?.card?.name || ''));
+        expect(battlefieldNames).toContain('Forest');
       });
     } finally {
       ResolutionQueueManager.off(aiHandler);
@@ -3686,6 +4287,71 @@ describe('AI resolution-step integration', () => {
     const completed = queue.completedSteps.find((entry: any) => String(entry.id) === String(step.id));
     expect(completed?.response?.selections).toEqual(['no']);
     expect(completed?.response?.cancelled).toBe(true);
+  });
+
+  it('routes active gift cast option-choice steps through AI priority handling and promises the gift to an opponent', async () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [
+      { id: playerId, name: 'AI', spectator: false, life: 40 },
+      { id: 'opp1', name: 'Opponent', spectator: false, life: 40 },
+    ];
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).phase = 'main';
+    (game.state as any).step = 'precombat_main';
+    (game.state as any).stack = [];
+    (game.state as any).zones = {
+      [playerId]: {
+        hand: [
+          {
+            id: 'long_river_pull_1',
+            name: "Long River's Pull",
+            mana_cost: '{U}{U}',
+            type_line: 'Instant',
+            oracle_text: 'Gift a card (You may promise an opponent a gift as you cast this spell. If you do, they draw a card before its other effects.)\nCounter target creature spell. If the gift was promised, instead counter target spell.',
+          },
+        ],
+        library: [],
+        graveyard: [],
+        exile: [],
+      },
+      opp1: { hand: [], library: [], graveyard: [], exile: [] },
+    };
+
+    registerAIPlayer(gameId, playerId as any);
+
+    const step = ResolutionQueueManager.addStep(gameId, {
+      type: ResolutionStepType.OPTION_CHOICE,
+      playerId: playerId as any,
+      description: "Choose whether to promise a gift as you cast Long River's Pull.",
+      mandatory: true,
+      sourceId: 'long_river_pull_1',
+      sourceName: "Long River's Pull",
+      options: [
+        { id: 'gift:none', label: 'Cast without promising a gift' },
+        { id: 'gift:opp1', label: 'Promise a card to Opponent' },
+      ],
+      minSelections: 1,
+      maxSelections: 1,
+      giftCastChoice: true,
+      giftCardId: 'long_river_pull_1',
+      giftCardName: "Long River's Pull",
+      giftType: 'a card',
+      giftFromZone: 'hand',
+    } as any);
+
+    ResolutionQueueManager.activateStep(gameId, step.id);
+
+    await handleAIPriority(createNoopIo(), gameId, playerId as any);
+
+    const queue = ResolutionQueueManager.getQueue(gameId);
+    expect(queue.steps.some((entry: any) => String(entry.id) === String(step.id))).toBe(false);
+    const completed = queue.completedSteps.find((entry: any) => String(entry.id) === String(step.id));
+    expect(completed?.response?.selections).toEqual(['gift:opp1']);
+    expect(completed?.response?.cancelled).toBe(false);
   });
 
   it('plays shock lands through the shared option-choice flow instead of pre-paying life inline', async () => {

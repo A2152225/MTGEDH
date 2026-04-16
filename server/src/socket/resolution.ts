@@ -45,6 +45,10 @@ import { cardManaValue, parsePT, uid, calculateVariablePT, validateLifePayment }
 import { debug, debugWarn, debugError } from "../utils/debug.js";
 import { filterLibraryCardsForSearch } from "./library-search.js";
 import {
+  chooseAIKynaiosChoiceSelection,
+  chooseAIPlayerChoiceId,
+  chooseAIModeSelectionsForStep,
+  chooseAIOptionSelectionsForStep,
   handleBounceLandETB,
   chooseAICardNameSelection,
   chooseAILibrarySearchCards,
@@ -86,6 +90,7 @@ import { clearMayCallback, clearMayCallbacks, consumeMayCallback, queueMayAbilit
 import { consumeOptionalPaymentCallback, getOptionalPaymentValidationFailure, isOptionalPaymentPayChoice, isOptionalPaymentPromptStep, queueOptionalPaymentStep, queueShockLandPaymentStep } from './optional-payment-prompts.js';
 import { flushPendingDamageTriggersAfterStepAdvance } from "./step-advance.js";
 import { lookupLocalCardByNameSync } from "../services/localCardLookup.js";
+import { getDominantCreatureType } from "./creature-type.js";
 import {
   detectManaModifiers,
   getCreatureCountManaAmount,
@@ -2371,41 +2376,13 @@ async function handleAIResolutionStep(
       }
 
       case ResolutionStepType.MODE_SELECTION: {
-        const stepData = step as any;
-        const modes: any[] = Array.isArray(stepData.modes) ? stepData.modes : [];
-        if (modes.length === 0) {
-          response = {
-            stepId: step.id,
-            playerId: step.playerId,
-            selections: [],
-            cancelled: true,
-            timestamp: Date.now(),
-          };
-          break;
-        }
-
-        const minModes = Math.max(1, Number(stepData.minModes ?? 1));
-        const maxModes = Number(stepData.maxModes ?? 1);
-        const desiredCount = maxModes < 0 ? minModes : Math.min(minModes, Math.max(1, maxModes));
-
-        // Prefer a conservative default when present.
-        const first = modes.find(m => String(m?.id) === 'normal') || modes[0];
-        const picked: string[] = [];
-
-        if (first && String(first?.id || '')) picked.push(String(first.id));
-        for (const m of modes) {
-          const id = String(m?.id || '');
-          if (!id) continue;
-          if (picked.includes(id)) continue;
-          picked.push(id);
-          if (picked.length >= desiredCount) break;
-        }
+        const modeDecision = chooseAIModeSelectionsForStep(game, step.playerId as any, step as any);
 
         response = {
           stepId: step.id,
           playerId: step.playerId,
-          selections: picked,
-          cancelled: false,
+          selections: modeDecision.selections,
+          cancelled: modeDecision.cancelled,
           timestamp: Date.now(),
         };
         break;
@@ -2678,9 +2655,37 @@ async function handleAIResolutionStep(
       }
       
       case ResolutionStepType.COLOR_CHOICE: {
-        // AI chooses a random color (could be improved based on deck/situation)
-        const colors = ['white', 'blue', 'black', 'red', 'green'];
-        const chosenColor = colors[Math.floor(Math.random() * colors.length)];
+        const stepData = step as any;
+        const rawColors = Array.isArray(stepData.colors) ? stepData.colors : [];
+        const colorCodes = rawColors
+          .map((color: any) => String(color || '').trim().toUpperCase())
+          .map((color: string) => {
+            if (['W', 'U', 'B', 'R', 'G', 'C'].includes(color)) return color;
+            const byName: Record<string, string> = {
+              WHITE: 'W',
+              BLUE: 'U',
+              BLACK: 'B',
+              RED: 'R',
+              GREEN: 'G',
+              COLORLESS: 'C',
+            };
+            return byName[color] || '';
+          })
+          .filter(Boolean);
+        const chosenCode = chooseAIManaColorForActivation(
+          game,
+          step.playerId as any,
+          colorCodes.length > 0 ? colorCodes : ['W', 'U', 'B', 'R', 'G'],
+        );
+        const codeToColorName: Record<string, string> = {
+          W: 'white',
+          U: 'blue',
+          B: 'black',
+          R: 'red',
+          G: 'green',
+          C: 'colorless',
+        };
+        const chosenColor = codeToColorName[chosenCode] || 'colorless';
         
         response = {
           stepId: step.id,
@@ -2694,9 +2699,7 @@ async function handleAIResolutionStep(
       }
       
       case ResolutionStepType.CREATURE_TYPE_CHOICE: {
-        // AI chooses a common/strong creature type
-        const commonTypes = ['Human', 'Soldier', 'Warrior', 'Elf', 'Goblin', 'Dragon', 'Angel'];
-        const chosenType = commonTypes[Math.floor(Math.random() * commonTypes.length)];
+        const chosenType = String(getDominantCreatureType(game, String(step.playerId)) || 'Shapeshifter').trim() || 'Shapeshifter';
         
         response = {
           stepId: step.id,
@@ -2725,87 +2728,28 @@ async function handleAIResolutionStep(
       
       case ResolutionStepType.OPTION_CHOICE:
       case ResolutionStepType.MODAL_CHOICE: {
-        const optionStep = step as any;
-        if (optionStep.mayAbilityPrompt === true) {
-          const effectText: string = String(optionStep.effectText || '').toLowerCase();
-          const playerId = step.playerId;
-          const playerState = (game.state?.players || []).find((p: any) => p.id === playerId);
-
-          let shouldAccept = true;
-          if (effectText.includes('draw') || effectText.includes('draws')) {
-            const libraryZone = (game.state as any)?.zones?.[playerId]?.library
-              ?? (game.state as any)?.libraries?.[playerId]
-              ?? (playerState as any)?.library ?? [];
-            const deckSize = Array.isArray(libraryZone) ? libraryZone.length : 0;
-            if (deckSize <= 3) {
-              shouldAccept = false;
-              debug(2, `[Resolution] AI MAY_ABILITY: declining draw - near empty library (${deckSize} cards)`);
-            }
-          }
-
-          response = {
-            stepId: step.id,
-            playerId: step.playerId,
-            selections: [shouldAccept ? 'yes' : 'no'],
-            cancelled: !shouldAccept,
-            timestamp: Date.now(),
-          };
-          debug(2, `[Resolution] AI MAY_ABILITY: ${shouldAccept ? 'accepting' : 'declining'} "${effectText}"`);
-          break;
-        }
-
-        const options = optionStep.options || [];
-        if (options.length > 0) {
-          const firstOption = options[0];
-          const selection = firstOption.id || firstOption.value || firstOption;
-
-          response = {
-            stepId: step.id,
-            playerId: step.playerId,
-            selections: [selection],
-            cancelled: false,
-            timestamp: Date.now(),
-          };
-          debug(2, `[Resolution] AI option/modal choice: selected first option`);
-        } else {
-          response = {
-            stepId: step.id,
-            playerId: step.playerId,
-            selections: ['decline'],
-            cancelled: false,
-            timestamp: Date.now(),
-          };
-          debug(2, `[Resolution] AI option/modal choice: no options, declining`);
-        }
+        const optionDecision = chooseAIOptionSelectionsForStep(game, step.playerId as any, step as any);
+        response = {
+          stepId: step.id,
+          playerId: step.playerId,
+          selections: optionDecision.selections,
+          cancelled: optionDecision.cancelled,
+          timestamp: Date.now(),
+        };
+        debug(2, `[Resolution] AI option/modal choice: selected ${JSON.stringify(optionDecision.selections)}`);
         break;
       }
       
       case ResolutionStepType.PLAYER_CHOICE: {
-        // AI chooses a random opponent
-        const activePlayers = (game.state?.players || [])
-          .filter((p: any) => p.id !== step.playerId && !p.eliminated);
-        
-        if (activePlayers.length > 0) {
-          const chosenPlayer = activePlayers[Math.floor(Math.random() * activePlayers.length)];
-          response = {
-            stepId: step.id,
-            playerId: step.playerId,
-            selections: [chosenPlayer.id], // Wrap in array for type compatibility
-            cancelled: false,
-            timestamp: Date.now(),
-          };
-          debug(2, `[Resolution] AI player choice: chose ${chosenPlayer.id}`);
-        } else {
-          // No valid players - this shouldn't happen but handle gracefully
-          response = {
-            stepId: step.id,
-            playerId: step.playerId,
-            selections: [step.playerId], // Wrap in array for type compatibility
-            cancelled: false,
-            timestamp: Date.now(),
-          };
-          debug(2, `[Resolution] AI player choice: no opponents, chose self`);
-        }
+        const selectedPlayerId = chooseAIPlayerChoiceId(game, step.playerId as any, step as any);
+        response = {
+          stepId: step.id,
+          playerId: step.playerId,
+          selections: selectedPlayerId ? [selectedPlayerId] : [],
+          cancelled: false,
+          timestamp: Date.now(),
+        };
+        debug(2, `[Resolution] AI player choice: chose ${selectedPlayerId || 'none'}`);
         break;
       }
       
@@ -2924,29 +2868,16 @@ async function handleAIResolutionStep(
       }
       
       case ResolutionStepType.KYNAIOS_CHOICE: {
-        // AI chooses to draw a card (simple strategy)
-        const kynaiosStep = step as any;
-        const isController = kynaiosStep.landPlayOrFallbackIsController ?? kynaiosStep.isController;
-        const options = kynaiosStep.landPlayOrFallbackOptions || kynaiosStep.options || [];
-        
-        // Controller: prefer draw if available, otherwise decline
-        // Opponent: prefer draw over giving controller benefit
-        let choice = 'decline';
-        if (options.includes('draw_card')) {
-          choice = 'draw_card';
-        } else if (options.includes('play_land') && isController) {
-          // Controller might want to play land
-          choice = 'decline'; // But conservative AI declines
-        }
+        const selection = chooseAIKynaiosChoiceSelection(step as any);
         
         response = {
           stepId: step.id,
           playerId: step.playerId,
-          selections: { choice },
+          selections: selection,
           cancelled: false,
           timestamp: Date.now(),
         };
-        debug(2, `[Resolution] AI Kynaios choice: ${choice}`);
+        debug(2, `[Resolution] AI Kynaios choice: ${selection.choice}${selection.landCardId ? `:${selection.landCardId}` : ''}`);
         break;
       }
       

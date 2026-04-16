@@ -2418,6 +2418,52 @@ export function chooseAIOptionSelectionsForStep(
     return chooseAIPutFromHandSelectionsForStep(game, playerId, step, options);
   }
 
+  if (step?.giftCastChoice === true) {
+    const noneOptionId = options
+      .map((option: any) => resolveOptionId(option))
+      .find((id: string) => id === 'gift:none') || 'gift:none';
+    const giftPlayerIds = options
+      .map((option: any) => resolveOptionId(option))
+      .filter((id: string) => id.startsWith('gift:') && id !== 'gift:none')
+      .map((id: string) => id.slice('gift:'.length))
+      .filter(Boolean);
+
+    if (giftPlayerIds.length === 0) {
+      return { selections: [noneOptionId], cancelled: false };
+    }
+
+    const fromZone = step?.giftFromZone === 'exile' || step?.giftFromZone === 'graveyard' ? step.giftFromZone : 'hand';
+    const zones = (game?.state as any)?.zones?.[playerId];
+    const sourceCards: any[] = fromZone === 'exile'
+      ? (Array.isArray(zones?.exile) ? zones.exile : [])
+      : fromZone === 'graveyard'
+        ? (Array.isArray(zones?.graveyard) ? zones.graveyard : [])
+        : (Array.isArray(zones?.hand) ? zones.hand : []);
+    const cardId = String(step?.giftCardId || step?.sourceId || '').trim();
+    const sourceCard = sourceCards.find((entry: any) => String(entry?.id || '') === cardId);
+    const oracleText = String(sourceCard?.oracle_text || '').toLowerCase();
+
+    let promiseScore = 0;
+    if (oracleText.includes('if the gift was promised')) promiseScore += 10;
+    if (oracleText.includes("if the gift wasn't promised") || oracleText.includes('if the gift was not promised')) promiseScore += 12;
+    if (/(counter target spell|counter target|destroy|exile|draw seven|draw [a-z0-9]+ cards|search your library|create [^\n]*token)/i.test(oracleText)) promiseScore += 4;
+    if (/(each other player|each opponent|opponents? (?:draw|create|gain|return|shuffle))/i.test(oracleText)) promiseScore += 6;
+
+    if (promiseScore <= 0) {
+      return { selections: [noneOptionId], cancelled: false };
+    }
+
+    const chosenPlayerId = chooseAIPlayerChoiceId(game, playerId, {
+      players: giftPlayerIds.map((id: string) => ({ id })),
+      opponentOnly: true,
+    }) || giftPlayerIds[0];
+
+    return {
+      selections: [`gift:${chosenPlayerId}`],
+      cancelled: false,
+    };
+  }
+
   const minSelections = Math.max(1, Number(step?.minSelections ?? 1));
   const maxSelections = Math.max(minSelections, Number(step?.maxSelections ?? minSelections));
   const desired = Math.min(options.length, Math.max(minSelections, Math.min(maxSelections, 1)));
@@ -2526,6 +2572,40 @@ export function chooseAIModeSelectionsForStep(
   }
 
   return { selections, cancelled: false };
+}
+
+export function chooseAIKynaiosChoiceSelection(step: any): { choice: string; landCardId?: string } {
+  const isController = Boolean(step?.landPlayOrFallbackIsController ?? step?.isController);
+  const canPlayLand = (step?.landPlayOrFallbackCanPlayLand ?? step?.canPlayLand) !== false;
+  const landsInHand = Array.isArray(step?.landPlayOrFallbackLandsInHand)
+    ? step.landPlayOrFallbackLandsInHand
+    : (Array.isArray(step?.landsInHand) ? step.landsInHand : []);
+  const options = Array.isArray(step?.landPlayOrFallbackOptions)
+    ? step.landPlayOrFallbackOptions
+    : (Array.isArray(step?.options) ? step.options : ['play_land', 'draw_card', 'decline']);
+
+  if (isController && canPlayLand && landsInHand.length > 0 && options.includes('play_land')) {
+    const chosenLand = landsInHand.find((land: any) => String(land?.id || '').trim().length > 0) || landsInHand[0];
+    return {
+      choice: 'play_land',
+      landCardId: String(chosenLand?.id || '').trim() || undefined,
+    };
+  }
+
+  if (!isController && options.includes('draw_card')) {
+    return { choice: 'draw_card' };
+  }
+
+  if (options.includes('decline')) {
+    return { choice: 'decline' };
+  }
+
+  if (options.includes('draw_card')) {
+    return { choice: 'draw_card' };
+  }
+
+  const firstOption = options.find((option: any) => String(option || '').trim().length > 0);
+  return { choice: String(firstOption || 'decline') };
 }
 
 function getPermanentForTarget(game: any, target: TargetRef): any | null {
@@ -3678,7 +3758,7 @@ export function chooseAIManaColorForActivation(game: any, playerId: PlayerID, pr
   })[0] || 'C';
 }
 
-function chooseAIPlayerChoiceId(game: any, playerId: PlayerID, step: any): string | undefined {
+export function chooseAIPlayerChoiceId(game: any, playerId: PlayerID, step: any): string | undefined {
   const listedPlayers = Array.isArray(step?.players) ? step.players : [];
   const candidateIds = listedPlayers.length > 0
     ? listedPlayers
@@ -8561,24 +8641,9 @@ async function handleAIResolutionStep(
       }
       
       case 'kynaios_choice': {
-        // AI handles Kynaios and Tiro choice - play a land if available, otherwise decline/draw
-        const isController = step.isController;
-        const landsInHand = step.landsInHand || [];
-        
-        if (landsInHand.length > 0) {
-          // Play the first land
-          const landToPlay = landsInHand[0];
-          ResolutionQueueManager.completeStep(gameId, step.id, createResponse({ choice: 'play_land', landCardId: landToPlay.id }));
-          debug(1, `[AI] Kynaios: Playing land ${landToPlay.name}`);
-        } else if (isController) {
-          // Controller declines
-          ResolutionQueueManager.completeStep(gameId, step.id, createResponse({ choice: 'decline' }));
-          debug(1, `[AI] Kynaios: Declining (controller)`);
-        } else {
-          // Opponent draws a card
-          ResolutionQueueManager.completeStep(gameId, step.id, createResponse({ choice: 'draw_card' }));
-          debug(1, `[AI] Kynaios: Drawing a card (opponent)`);
-        }
+        const selection = chooseAIKynaiosChoiceSelection(step);
+        ResolutionQueueManager.completeStep(gameId, step.id, createResponse(selection));
+        debug(1, `[AI] Kynaios: ${selection.choice}${selection.landCardId ? `:${selection.landCardId}` : ''}`);
         break;
       }
       
