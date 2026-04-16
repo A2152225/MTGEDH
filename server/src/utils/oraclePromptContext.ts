@@ -159,6 +159,32 @@ function normalizeForModalParse(text: string): string {
     .trim();
 }
 
+function extractInlineModalOptionsFromHeader(header: string): string[] {
+  const headerMatch = String(header || '').match(/^choose\s+(one(?:\s+or\s+(?:both|more))?|two|three|four|any number)\b\s*-\s*(.+)$/i);
+  if (!headerMatch) return [];
+
+  const tail = String(headerMatch[2] || '').trim();
+  if (!tail) return [];
+
+  const bulletOptions = tail
+    .split(/\s*(?:•|\*)\s*/)
+    .map((option) => option.trim())
+    .filter(Boolean);
+  if (bulletOptions.length >= 2) {
+    return bulletOptions;
+  }
+
+  const orSeparatedOptions = tail
+    .split(/\s*;\s*or\s+/i)
+    .map((option) => option.trim().replace(/[.;]\s*$/g, ''))
+    .filter(Boolean);
+  if (orSeparatedOptions.length >= 2) {
+    return orSeparatedOptions;
+  }
+
+  return [];
+}
+
 /**
  * Best-effort extraction of modal "Choose one —" blocks.
  * This is intended for prompt ordering (mode selection before targets), not full rules execution.
@@ -218,6 +244,10 @@ export function extractModalModesFromOracleText(oracleText: string): OracleModal
     if (!bulletMatch) break;
     const opt = bulletMatch[1].trim();
     if (opt) rawOptions.push(opt);
+  }
+
+  if (rawOptions.length === 0) {
+    rawOptions.push(...extractInlineModalOptionsFromHeader(header));
   }
 
   if (rawOptions.length < 2) return undefined;

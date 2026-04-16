@@ -2474,6 +2474,28 @@ export function getDeathTriggers(
   const dyingCard = dyingCreature?.card;
   const dyingCardName = String(dyingCard?.name || 'Unknown');
   const lowerDyingCardName = dyingCardName.toLowerCase();
+  const extractChooseOneModalOptions = (effectText: string): string[] | undefined => {
+    const effect = String(effectText || '').trim();
+    if (!/^choose one\b/i.test(effect)) return undefined;
+
+    const modalBody = effect.replace(/^choose one\s*[—:.-]\s*/i, '').trim();
+    const hasBulletOptions = /(?:^|\n)\s*[•]\s*/.test(modalBody);
+    const bulletOptions = hasBulletOptions
+      ? modalBody
+          .split(/(?:^|\n)\s*[•]\s*/)
+          .map((option) => option.trim())
+          .filter(Boolean)
+      : [];
+    if (bulletOptions.length > 0) {
+      return bulletOptions;
+    }
+
+    const inlineOptions = modalBody
+      .split(/\s*;\s*or\s+/i)
+      .map((option) => option.trim())
+      .filter(Boolean);
+    return inlineOptions.length > 0 ? inlineOptions : undefined;
+  };
   const selfDiesPattern = new RegExp(
     `when(?:ever)?\\s+(?:~|this creature|${escapeCardNameForRegex(dyingCardName)})\\s+dies,?\\s*([^.]+)`,
     'ig'
@@ -2508,24 +2530,7 @@ export function getDeathTriggers(
       const effectKey = effect.toLowerCase();
       if (seenSelfEffects.has(effectKey)) continue;
       seenSelfEffects.add(effectKey);
-      const modalOptions = (() => {
-        if (!/^choose one\b/i.test(effect)) return undefined;
-        const modalBody = effect.replace(/^choose one\s*[—:-]\s*/i, '').trim();
-        const hasBulletOptions = /(?:^|\n)\s*[•]\s*/.test(modalBody);
-        const bulletOptions = hasBulletOptions
-          ? modalBody
-              .split(/(?:^|\n)\s*[•]\s*/)
-              .map((option) => option.trim())
-              .filter(Boolean)
-          : [];
-        if (bulletOptions.length > 0) {
-          return bulletOptions;
-        }
-        return modalBody
-          .split(/\s*;\s*or\s+/i)
-          .map((option) => option.trim())
-          .filter(Boolean);
-      })();
+      const modalOptions = extractChooseOneModalOptions(effect);
       results.push({
         source: {
           permanentId: String(dyingCreature?.id || ''),
@@ -2547,6 +2552,7 @@ export function getDeathTriggers(
     }
 
     const effect = String(info.effect || '').trim();
+    const modalOptions = extractChooseOneModalOptions(effect);
     results.push({
       source: {
         permanentId: String(dyingCreature?.id || ''),
@@ -2554,6 +2560,7 @@ export function getDeathTriggers(
         controllerId: String(dyingCreatureController || ''),
       },
       effect,
+      ...(Array.isArray(modalOptions) && modalOptions.length > 0 ? { requiresChoice: true, modalOptions } : null),
       requiresSacrificeSelection: effect.toLowerCase().includes('sacrifice'),
     });
   }

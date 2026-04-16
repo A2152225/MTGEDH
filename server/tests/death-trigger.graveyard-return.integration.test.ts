@@ -617,6 +617,93 @@ describe('Death trigger graveyard returns (integration)', () => {
     expect(String(reanimatedPermanent?.card?.id || '')).toBe('gy_bear_1');
   });
 
+  it('uses known death-trigger fallback modal parsing for Junji when oracle text is unavailable', async () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const playerId = 'p1';
+    (game.state as any).players = [{ id: playerId, name: 'P1', spectator: false, life: 40 }];
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).pendingDelayedGraveyardReturns = [];
+    (game.state as any).battlefield = [
+      {
+        id: 'junji_fallback_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        counters: {},
+        basePower: 5,
+        baseToughness: 5,
+        card: {
+          id: 'junji_fallback_card_1',
+          name: 'Junji, the Midnight Sky',
+          type_line: 'Legendary Creature - Dragon Spirit',
+          oracle_text: '',
+          zone: 'battlefield',
+          power: '5',
+          toughness: '5',
+        },
+      },
+    ];
+    (game.state as any).zones = {
+      [playerId]: {
+        hand: [],
+        handCount: 0,
+        graveyard: [
+          {
+            id: 'gy_fallback_dragon_1',
+            name: 'Ancient Whelp',
+            type_line: 'Creature - Dragon',
+            mana_cost: '{4}{R}',
+            zone: 'graveyard',
+            power: '4',
+            toughness: '4',
+          },
+          {
+            id: 'gy_fallback_bear_1',
+            name: 'Returned Bear',
+            type_line: 'Creature - Bear',
+            mana_cost: '{2}{G}',
+            zone: 'graveyard',
+            power: '2',
+            toughness: '2',
+          },
+        ],
+        graveyardCount: 2,
+        exile: [],
+        exileCount: 0,
+        library: [],
+        libraryCount: 0,
+      },
+    };
+
+    expect(movePermanentToGraveyard(game as any, 'junji_fallback_1')).toBe(true);
+
+    const triggerStack = (game.state as any).stack || [];
+    expect(triggerStack).toHaveLength(1);
+    expect(triggerStack[0]).toMatchObject({
+      type: 'triggered_ability',
+      source: 'junji_fallback_1',
+      sourceName: 'Junji, the Midnight Sky',
+      triggerType: 'creature_dies',
+      requiresChoice: true,
+    });
+    expect((triggerStack[0] as any).modalOptions).toEqual([
+      'Target opponent discards two cards and loses 2 life',
+      'put target non-Dragon creature card from a graveyard onto the battlefield under your control',
+    ]);
+
+    game.resolveTopOfStack();
+
+    const queue = ResolutionQueueManager.getQueue(gameId);
+    expect(queue.steps).toHaveLength(1);
+    const modalStep = queue.steps[0] as any;
+    expect(modalStep.type).toBe('modal_choice');
+    expect(modalStep.options.map((option: any) => String(option.id))).toEqual(['option_1', 'option_2']);
+  });
+
   it('schedules bound self-return at the next end step instead of moving immediately', async () => {
     createGameIfNotExists(gameId, 'commander', 40);
     const game = ensureGame(gameId);

@@ -46,6 +46,7 @@ import { debug, debugWarn, debugError } from "../utils/debug.js";
 import { filterLibraryCardsForSearch } from "./library-search.js";
 import {
   handleBounceLandETB,
+  chooseAICardNameSelection,
   chooseAILibrarySearchCards,
   chooseAIGraveyardSelectionIds,
   chooseAIManaColorForActivation,
@@ -2141,6 +2142,22 @@ async function handleAIResolutionStep(
         break;
       }
 
+      case ResolutionStepType.MUTATE_TARGET_SELECTION: {
+        const stepData = step as any;
+        const validTargets: any[] = Array.isArray(stepData.validTargets) ? stepData.validTargets : [];
+        const targetPermanentId = String(validTargets[0]?.id || '').trim();
+
+        response = {
+          stepId: step.id,
+          playerId: step.playerId,
+          selections: { targetPermanentId, onTop: true },
+          cancelled: !targetPermanentId,
+          timestamp: Date.now(),
+        };
+        debug(2, `[Resolution] AI MUTATE_TARGET_SELECTION: chose ${targetPermanentId || 'no target'}`);
+        break;
+      }
+
       case ResolutionStepType.COUNTER_MOVEMENT: {
         const stepData = step as any;
         const battlefield = game.state?.battlefield || [];
@@ -2391,6 +2408,26 @@ async function handleAIResolutionStep(
           cancelled: false,
           timestamp: Date.now(),
         };
+        break;
+      }
+
+      case ResolutionStepType.OPENING_HAND_ACTIONS: {
+        const hand = Array.isArray((game.state as any)?.zones?.[step.playerId]?.hand)
+          ? (game.state as any).zones[step.playerId].hand
+          : [];
+        const selectedCardIds = hand
+          .filter((card: any) => isOpeningHandBattlefieldCard(card, String(step.playerId), game.state))
+          .map((card: any) => String(card?.id || ''))
+          .filter(Boolean);
+
+        response = {
+          stepId: step.id,
+          playerId: step.playerId,
+          selections: selectedCardIds,
+          cancelled: false,
+          timestamp: Date.now(),
+        };
+        debug(2, `[Resolution] AI OPENING_HAND_ACTIONS: chose ${selectedCardIds.length} card(s)`);
         break;
       }
       
@@ -2669,6 +2706,20 @@ async function handleAIResolutionStep(
           timestamp: Date.now(),
         };
         debug(2, `[Resolution] AI creature type choice: chose ${chosenType}`);
+        break;
+      }
+
+      case ResolutionStepType.CARD_NAME_CHOICE: {
+        const chosenName = chooseAICardNameSelection(game, step.playerId as any, step as any);
+
+        response = {
+          stepId: step.id,
+          playerId: step.playerId,
+          selections: [chosenName],
+          cancelled: false,
+          timestamp: Date.now(),
+        };
+        debug(2, `[Resolution] AI card name choice: chose ${chosenName}`);
         break;
       }
       

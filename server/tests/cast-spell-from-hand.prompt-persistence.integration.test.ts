@@ -325,6 +325,67 @@ describe('castSpellFromHand prompt persistence (integration)', () => {
     expect(queuedCastEvent?.payload?.queuedResolutionStep?.modeSelectionPurpose).toBe('modalSpell');
   });
 
+  it('queues mode selection before graveyard targeting for single-line modal spells', async () => {
+    const testGameId = `${gameId}_modal_single_line`;
+    const game = await setupBaseGame(testGameId, playerId, opponentId);
+    (game.state as any).battlefield = [];
+    (game.state as any).zones = {
+      [playerId]: {
+        hand: [
+          {
+            id: 'crypt_choice_1',
+            name: 'Crypt Choice',
+            mana_cost: '{1}{B}',
+            manaCost: '{1}{B}',
+            type_line: 'Sorcery',
+            oracle_text: 'Choose one - Return target creature card with mana value 3 or less from your graveyard to your hand; or draw two cards.',
+            image_uris: { small: 'https://example.com/crypt-choice.jpg' },
+          },
+        ],
+        handCount: 1,
+        graveyard: [
+          {
+            id: 'grave_creature_3',
+            name: 'Reassembling Skeleton',
+            type_line: 'Creature — Skeleton Warrior',
+            oracle_text: '{1}{B}: Return Reassembling Skeleton from your graveyard to the battlefield tapped.',
+            mana_value: 2,
+            cmc: 2,
+          },
+        ],
+        graveyardCount: 1,
+        exile: [],
+        exileCount: 0,
+        library: [],
+        libraryCount: 0,
+      },
+      [opponentId]: {
+        hand: [],
+        handCount: 0,
+        exile: [],
+        exileCount: 0,
+        graveyard: [],
+        graveyardCount: 0,
+      },
+    };
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(playerId, testGameId, emitted);
+    registerGameActions(createNoopIo() as any, socket as any);
+
+    await handlers.castSpellFromHand({ gameId: testGameId, cardId: 'crypt_choice_1' });
+
+    const queue = ResolutionQueueManager.getQueue(testGameId);
+    const modeStep = queue.steps.find((entry: any) => entry.type === 'mode_selection') as any;
+    expect(modeStep?.modeSelectionPurpose).toBe('modalSpell');
+    expect(queue.steps.some((entry: any) => entry.type === 'target_selection')).toBe(false);
+
+    const queuedCastEvent = [...getEvents(testGameId)].reverse().find((event: any) => event.type === 'castSpellContinuation') as any;
+    expect(queuedCastEvent?.payload?.cardId).toBe('crypt_choice_1');
+    expect(queuedCastEvent?.payload?.queuedResolutionStep?.type).toBe('mode_selection');
+    expect(queuedCastEvent?.payload?.queuedResolutionStep?.modeSelectionPurpose).toBe('modalSpell');
+  });
+
   it('persists direct multi-target prompts as an ordered continuation list', async () => {
     const testGameId = `${gameId}_target_multi`;
     const game = await setupBaseGame(testGameId, playerId, opponentId);

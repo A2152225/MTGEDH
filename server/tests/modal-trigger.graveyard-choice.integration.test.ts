@@ -190,6 +190,110 @@ describe('Triggered modal choice graveyard targeting (integration)', () => {
     expect(String(reanimatedPermanent?.card?.id || '')).toBe('gy_creature_mv1');
   });
 
+  it('queues Abiding Grace modal choices from the end-step trigger table when oracle text is unavailable', async () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const playerId = 'p1';
+    (game.state as any).players = [{ id: playerId, name: 'P1', spectator: false, life: 40 }];
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).activePlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).phase = 'postcombatMain';
+    (game.state as any).step = 'MAIN2';
+    (game.state as any).battlefield = [
+      {
+        id: 'abiding_grace_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        counters: {},
+        card: {
+          id: 'abiding_grace_card_1',
+          name: 'Abiding Grace',
+          type_line: 'Enchantment',
+          oracle_text: '',
+        },
+      },
+    ];
+    (game.state as any).zones = {
+      [playerId]: {
+        hand: [],
+        handCount: 0,
+        graveyard: [
+          {
+            id: 'gy_creature_mv1',
+            name: 'Careful Pup',
+            type_line: 'Creature - Dog',
+            mana_cost: '{W}',
+            power: '1',
+            toughness: '1',
+            zone: 'graveyard',
+          },
+          {
+            id: 'gy_creature_mv2',
+            name: 'Watchful Fox',
+            type_line: 'Creature - Fox',
+            mana_cost: '{1}{W}',
+            power: '2',
+            toughness: '1',
+            zone: 'graveyard',
+          },
+        ],
+        graveyardCount: 2,
+        exile: [],
+        exileCount: 0,
+        library: [],
+        libraryCount: 0,
+      },
+    };
+    (game.state as any).life = { [playerId]: 40 };
+    (game.state as any).stack = [];
+
+    game.nextStep();
+
+    expect((game.state as any).step).toBe('END');
+    expect((game.state as any).stack).toHaveLength(1);
+    expect((game.state as any).stack[0]).toMatchObject({
+      sourceName: 'Abiding Grace',
+      triggerType: 'end_step',
+      requiresChoice: true,
+      modalOptions: [
+        'You gain 1 life',
+        'Return target creature card with mana value 1 from your graveyard to the battlefield',
+      ],
+    });
+
+    game.resolveTopOfStack();
+
+    const queue = ResolutionQueueManager.getQueue(gameId);
+    expect(queue.steps).toHaveLength(1);
+    const modalStep = queue.steps[0] as any;
+    expect(modalStep.type).toBe('modal_choice');
+    expect(modalStep.options.map((option: any) => String(option.id))).toEqual(['option_1', 'option_2']);
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(playerId, emitted);
+    socket.rooms.add(gameId);
+    const io = createMockIo(emitted, [socket]);
+
+    registerResolutionHandlers(io as any, socket as any);
+    registerInteractionHandlers(io as any, socket as any);
+
+    await handlers.submitResolutionResponse({
+      gameId,
+      stepId: modalStep.id,
+      selections: ['option_2'],
+    });
+
+    const updatedQueue = ResolutionQueueManager.getQueue(gameId);
+    expect(updatedQueue.steps).toHaveLength(1);
+    const graveyardStep = updatedQueue.steps[0] as any;
+    expect(graveyardStep.type).toBe('graveyard_selection');
+    expect(graveyardStep.validTargets.map((target: any) => String(target.id))).toEqual(['gy_creature_mv1']);
+  });
+
   it('uses source-power graveyard mana thresholds when a modal trigger option references the source name', async () => {
     createGameIfNotExists(gameId, 'commander', 40);
     const game = ensureGame(gameId);

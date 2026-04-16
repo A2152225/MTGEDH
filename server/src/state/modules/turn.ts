@@ -4632,6 +4632,7 @@ export function nextStep(ctx: GameContext) {
                     mandatory: trigger.mandatory !== false,
                     imageUrl: trigger.imageUrl,
                     requiresChoice: trigger.requiresChoice,
+                    modalOptions: Array.isArray(trigger.modalOptions) ? trigger.modalOptions : undefined,
                     stackItem: trigger.stackItem,
                   };
                 });
@@ -4651,6 +4652,7 @@ export function nextStep(ctx: GameContext) {
                     mandatory: item.mandatory,
                     effect: item.effect,
                     requiresChoice: item.requiresChoice,
+                    ...(Array.isArray(item.modalOptions) ? { modalOptions: item.modalOptions } : null),
                     triggeringPlayer: turnPlayer,
                   });
                 }
@@ -4691,6 +4693,7 @@ export function nextStep(ctx: GameContext) {
                 mandatory: trigger.mandatory !== false,
                 effect: trigger.effect,
                 requiresChoice: trigger.requiresChoice,  // Preserve modal choice flag
+                ...(Array.isArray(trigger.modalOptions) ? { modalOptions: trigger.modalOptions } : null),
                 triggeringPlayer: turnPlayer,
               });
               debug(2, `${ts()} [nextStep] ⚡ Pushed ${triggerType} trigger: ${trigger.cardName} - ${trigger.description || trigger.effect}${trigger.requiresChoice ? ' (modal)' : ''}`);

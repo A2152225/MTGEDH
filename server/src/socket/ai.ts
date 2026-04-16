@@ -15,14 +15,14 @@ import type { Server, Socket } from "socket.io";
 import { movePermanentToGraveyard } from "../state/modules/counters_tokens.js";
 import { AIEngine, AIStrategy, AIDecisionType, type AIDecisionContext, type AIPlayerConfig } from "../../../rules-engine/src/AIEngine.js";
 import { cardAnalyzer, CardCategory, SynergyArchetype, type DeckArchetypeProfile } from "../../../rules-engine/src/CardAnalyzer.js";
-import { calculateManaProduction, ensureGame, broadcastGame, getPlayerName, getOrInitManaPool, validateManaPayment } from "./util.js";
+import { calculateManaProduction, ensureGame, broadcastGame, getEffectivePower, getEffectiveToughness, getPlayerName, getOrInitManaPool, validateManaPayment } from "./util.js";
 import { appendEvent, gameExistsInDb, isGameCreator } from "../db/index.js";
 import { getDeck, listDecks } from "../db/decks.js";
 import { parseDecklist } from "../services/scryfall.js";
 import { resolveDeckList } from '../services/deckImport.js';
 import type { PlayerID } from "../../../shared/src/types.js";
 import { parseNumberFromText, parseSacrificeCost } from "../../../shared/src/textUtils.js";
-import { categorizeSpell, evaluateTargeting, type SpellSpec, type TargetRef } from "../rules-engine/targeting.js";
+import { canPermanentBeTargetedByPlayer, categorizeSpell, evaluateTargeting, type SpellSpec, type TargetRef } from "../rules-engine/targeting.js";
 import { GameManager } from "../GameManager.js";
 import {
   getAvailableMana,
@@ -40,6 +40,7 @@ import { getPendingInteractions } from "../state/modules/turn.js";
 import { debug, debugWarn, debugError } from "../utils/debug.js";
 import { runSBA } from "../state/modules/counters_tokens.js";
 import { isOpeningHandBattlefieldCard } from "./opening-hand.js";
+import { getDominantCreatureType } from "./creature-type.js";
 import { handlePlayLandRequest, requestCastSpellForSocket, runPostResolutionPermanentPromptChecks } from "./game-actions.js";
 import { flushPendingDamageTriggersAfterStepAdvance } from "./step-advance.js";
 
@@ -1982,6 +1983,98 @@ export function chooseAIGraveyardSelectionIds(
     .map((entry) => entry.id);
 }
 
+function chooseAIUpkeepSacrificeSelection(
+  game: any,
+  playerId: PlayerID,
+  step: any,
+): { type: 'creature' | 'source'; creatureId?: string } | [] {
+  const creatures = Array.isArray(step?.creatures) ? step.creatures : [];
+  const allowSourceSacrifice = step?.allowSourceSacrifice !== false;
+  const battlefield = Array.isArray(game?.state?.battlefield) ? game.state.battlefield : [];
+
+  const scoredCandidates = creatures
+    .map((candidate: any) => {
+      const candidateId = String(candidate?.id || '').trim();
+      if (!candidateId) return null;
+
+      const permanent = battlefield.find((entry: any) => String(entry?.id || '') === candidateId);
+      const fallbackPower = Number(candidate?.power || 0) || 0;
+      const fallbackToughness = Number(candidate?.toughness || 0) || 0;
+      const fallbackScore =
+        ((candidate as any)?.isCommander ? 1000 : 0) +
+        ((candidate as any)?.isToken ? -150 : 0) +
+        fallbackPower + fallbackToughness;
+      const combatStats = permanent ? getPermanentCombatStats(permanent) : { power: fallbackPower, toughness: fallbackToughness };
+
+      return {
+        id: candidateId,
+        score: permanent
+          ? scoreAISacrificePermanentForManaAbility(game, playerId, permanent)
+          : fallbackScore,
+        power: combatStats.power,
+        toughness: combatStats.toughness,
+      };
+    })
+    .filter((entry): entry is { id: string; score: number; power: number; toughness: number } => Boolean(entry));
+
+  if (scoredCandidates.length > 0) {
+    scoredCandidates.sort((left, right) => {
+      const scoreDelta = left.score - right.score;
+      if (scoreDelta !== 0) return scoreDelta;
+
+      const statDelta = (left.power + left.toughness) - (right.power + right.toughness);
+      if (statDelta !== 0) return statDelta;
+
+      return left.id.localeCompare(right.id);
+    });
+
+    return {
+      type: 'creature',
+      creatureId: scoredCandidates[0].id,
+    };
+  }
+
+  if (allowSourceSacrifice) {
+    return { type: 'source' };
+  }
+
+  return [];
+}
+
+function chooseAIReturnControlledPermanentId(
+  game: any,
+  playerId: PlayerID,
+  step: any,
+): string {
+  const options = Array.isArray(step?.returnControlledPermanentOptions) ? step.returnControlledPermanentOptions : [];
+  const battlefield = Array.isArray(game?.state?.battlefield) ? game.state.battlefield : [];
+  const sourceId = String(step?.sourceId || '').trim();
+
+  const scoredOptions = options
+    .map((option: any) => {
+      const permanentId = String(option?.permanentId || '').trim();
+      if (!permanentId) return null;
+
+      const permanent = battlefield.find((entry: any) => String(entry?.id || '') === permanentId);
+      if (!permanent) {
+        return {
+          permanentId,
+          score: 0,
+        };
+      }
+
+      let score = scoreAISacrificePermanentForManaAbility(game, playerId, permanent);
+      if (permanent.tapped) score -= 20;
+      if (sourceId && permanentId === sourceId) score += 30;
+
+      return { permanentId, score };
+    })
+    .filter((entry): entry is { permanentId: string; score: number } => Boolean(entry));
+
+  scoredOptions.sort((left, right) => left.score - right.score || left.permanentId.localeCompare(right.permanentId));
+  return scoredOptions[0]?.permanentId || '';
+}
+
 function getProtectedStackItem(game: any, step: any): any | null {
   const triggeredBy = String(step?.wardTriggeredBy || step?.sourceId || '').trim();
   if (!triggeredBy) return null;
@@ -3583,6 +3676,147 @@ export function chooseAIManaColorForActivation(game: any, playerId: PlayerID, pr
     if (leftCount !== rightCount) return leftCount - rightCount;
     return AI_MANA_COLOR_PRIORITY.indexOf(left) - AI_MANA_COLOR_PRIORITY.indexOf(right);
   })[0] || 'C';
+}
+
+function chooseAIPlayerChoiceId(game: any, playerId: PlayerID, step: any): string | undefined {
+  const listedPlayers = Array.isArray(step?.players) ? step.players : [];
+  const candidateIds = listedPlayers.length > 0
+    ? listedPlayers
+        .map((player: any) => String(player?.id || '').trim())
+        .filter(Boolean)
+    : (game?.state?.players || [])
+        .map((player: any) => String(player?.id || '').trim())
+        .filter(Boolean);
+
+  if (candidateIds.length === 0) return undefined;
+
+  const opponentOnly = step?.opponentOnly === true;
+  const comboWarning = aiEngine.detectOpponentCombo(game.state as any, playerId);
+  const threatAssessment = aiEngine.assessBattlefieldThreats(game.state as any, playerId);
+  const battlefield = game?.state?.battlefield || [];
+
+  const ranked = candidateIds
+    .filter((candidateId) => !opponentOnly || candidateId !== String(playerId))
+    .map((candidateId) => {
+      let score = candidateId === String(playerId) ? -50 : 25;
+      if (threatAssessment.highestThreatPlayer === candidateId) score += 20;
+      if (comboWarning.comboPlayers.includes(candidateId)) {
+        score += comboWarning.comboThreat === 'imminent' ? 30 : 15;
+      }
+
+      const battlefieldPressure = battlefield
+        .filter((permanent: any) => String(permanent?.controller || '') === candidateId)
+        .reduce((total: number, permanent: any) => {
+          const analysis = cardAnalyzer.analyzeCard(permanent?.card);
+          let permanentScore = analysis.comboPotential * 12;
+
+          if (analysis.categories.includes(CardCategory.TUTOR)) permanentScore += 8;
+          if (analysis.categories.includes(CardCategory.REMOVAL)) permanentScore += 6;
+          if (analysis.categories.includes(CardCategory.DRAW)) permanentScore += 4;
+          if (analysis.categories.includes(CardCategory.FINISHER)) permanentScore += 6;
+
+          const power = Number(permanent?.card?.power || 0);
+          if (Number.isFinite(power)) permanentScore += Math.max(0, power) * 2;
+
+          return total + permanentScore;
+        }, 0);
+
+      score += battlefieldPressure;
+      return { candidateId, score };
+    })
+    .sort((left, right) => right.score - left.score);
+
+  if (ranked.length > 0) {
+    return ranked[0].candidateId;
+  }
+
+  return candidateIds[0];
+}
+
+function scoreVisibleCardNameCandidate(game: any, playerId: PlayerID, candidateName: string): number {
+  const normalizedCandidate = String(candidateName || '').trim().toLowerCase();
+  if (!normalizedCandidate) return -9999;
+
+  const battlefield = game?.state?.battlefield || [];
+  const stack = game?.state?.stack || [];
+  const threatAssessment = aiEngine.assessBattlefieldThreats(game.state as any, playerId);
+
+  let score = 0;
+
+  for (const permanent of battlefield) {
+    if (!permanent?.card) continue;
+    if (String(permanent?.card?.name || '').trim().toLowerCase() !== normalizedCandidate) continue;
+
+    const analysis = cardAnalyzer.analyzeCard(permanent.card);
+    let permanentScore = permanent.controller === playerId ? -20 : 35;
+    permanentScore += analysis.comboPotential * 12;
+    if (analysis.categories.includes(CardCategory.TUTOR)) permanentScore += 10;
+    if (analysis.categories.includes(CardCategory.REMOVAL)) permanentScore += 8;
+    if (analysis.categories.includes(CardCategory.DRAW)) permanentScore += 5;
+    if (analysis.categories.includes(CardCategory.FINISHER)) permanentScore += 8;
+
+    const power = Number(permanent?.card?.power || 0);
+    if (Number.isFinite(power)) permanentScore += Math.max(0, power) * 2;
+    if (threatAssessment.highestThreatPlayer === permanent.controller) permanentScore += 12;
+
+    score += permanentScore;
+  }
+
+  for (const stackItem of stack) {
+    if (!stackItem?.card) continue;
+    if (String(stackItem?.card?.name || '').trim().toLowerCase() !== normalizedCandidate) continue;
+
+    const analysis = cardAnalyzer.analyzeCard(stackItem.card);
+    let stackScore = stackItem.controller === playerId ? -25 : 40;
+    stackScore += analysis.comboPotential * 10;
+    if (analysis.categories.includes(CardCategory.TUTOR)) stackScore += 10;
+    if (analysis.categories.includes(CardCategory.REMOVAL)) stackScore += 8;
+    if (analysis.categories.includes(CardCategory.DRAW)) stackScore += 5;
+    if (analysis.categories.includes(CardCategory.FINISHER)) stackScore += 8;
+
+    score += stackScore;
+  }
+
+  return score;
+}
+
+export function chooseAICardNameSelection(game: any, playerId: PlayerID, step: any): string {
+  const candidateNames = Array.isArray(step?.candidateNames)
+    ? step.candidateNames
+        .map((candidate: any) => String(candidate || '').trim())
+        .filter(Boolean)
+    : [];
+
+  if (candidateNames.length > 0) {
+    return candidateNames
+      .map((candidateName: string) => ({
+        candidateName,
+        score: scoreVisibleCardNameCandidate(game, playerId, candidateName),
+      }))
+      .sort((left, right) => right.score - left.score)[0]?.candidateName || candidateNames[0];
+  }
+
+  const visibleOpponentNames = [
+    ...((game?.state?.battlefield || []) as any[])
+      .filter((permanent: any) => permanent?.controller !== playerId && permanent?.card?.name)
+      .map((permanent: any) => String(permanent.card.name || '').trim()),
+    ...((game?.state?.stack || []) as any[])
+      .filter((stackItem: any) => stackItem?.controller !== playerId && stackItem?.card?.name)
+      .map((stackItem: any) => String(stackItem.card.name || '').trim()),
+  ].filter(Boolean);
+
+  if (visibleOpponentNames.length > 0) {
+    return visibleOpponentNames
+      .map((candidateName: string) => ({
+        candidateName,
+        score: scoreVisibleCardNameCandidate(game, playerId, candidateName),
+      }))
+      .sort((left, right) => right.score - left.score)[0]?.candidateName || visibleOpponentNames[0];
+  }
+
+  const restrictionText = String(step?.restrictionText || '').toLowerCase();
+  if (restrictionText.includes('land')) return 'Forest';
+  return 'Sol Ring';
 }
 
 function applyAIManaLifeLoss(game: any, playerId: PlayerID, amount: number, trackDamage: boolean): void {
@@ -8297,11 +8531,11 @@ async function handleAIResolutionStep(
   
   try {
     // Helper to create a properly typed response
-    const createResponse = (selections: any) => ({
+    const createResponse = (selections: any, cancelled = false) => ({
       stepId: step.id,
       playerId,
       selections,
-      cancelled: false,
+      cancelled,
       timestamp: Date.now(),
     });
     
@@ -8374,6 +8608,19 @@ async function handleAIResolutionStep(
         break;
       }
 
+      case 'mutate_target_selection': {
+        const validTargets: any[] = Array.isArray((step as any)?.validTargets) ? (step as any).validTargets : [];
+        const targetPermanentId = String(validTargets[0]?.id || '').trim();
+
+        ResolutionQueueManager.completeStep(
+          gameId,
+          step.id,
+          createResponse({ targetPermanentId, onTop: true }, !targetPermanentId),
+        );
+        debug(1, `[AI] Mutate target selection: ${targetPermanentId || 'no valid target found'}`);
+        break;
+      }
+
       case 'option_choice':
       case 'modal_choice': {
         const optionDecision = chooseAIOptionSelectionsForStep(game, playerId, step);
@@ -8426,6 +8673,78 @@ async function handleAIResolutionStep(
         );
         ResolutionQueueManager.completeStep(gameId, step.id, createResponse(selections));
         debug(1, `[AI] library_search: Selected ${selections.join(', ') || 'none'}`);
+        break;
+      }
+
+      case 'player_choice': {
+        const selectedPlayerId = chooseAIPlayerChoiceId(game, playerId, step);
+        const selections = selectedPlayerId ? [selectedPlayerId] : [];
+        ResolutionQueueManager.completeStep(gameId, step.id, createResponse(selections));
+        debug(1, `[AI] player_choice: Selected ${selectedPlayerId || 'none'}`);
+        break;
+      }
+
+      case 'color_choice': {
+        const rawColors = Array.isArray((step as any)?.colors) ? (step as any).colors : [];
+        const colorCodes = rawColors
+          .map((color: any) => String(color || '').trim().toUpperCase())
+          .map((color: string) => {
+            if (['W', 'U', 'B', 'R', 'G', 'C'].includes(color)) return color;
+            const byName: Record<string, string> = {
+              WHITE: 'W',
+              BLUE: 'U',
+              BLACK: 'B',
+              RED: 'R',
+              GREEN: 'G',
+              COLORLESS: 'C',
+            };
+            return byName[color] || '';
+          })
+          .filter(Boolean);
+        const chosenCode = chooseAIManaColorForActivation(
+          game,
+          playerId,
+          colorCodes.length > 0 ? colorCodes : ['W', 'U', 'B', 'R', 'G'],
+        );
+        const codeToColorName: Record<string, string> = {
+          W: 'white',
+          U: 'blue',
+          B: 'black',
+          R: 'red',
+          G: 'green',
+          C: 'colorless',
+        };
+        const colorName = codeToColorName[chosenCode] || 'colorless';
+        ResolutionQueueManager.completeStep(gameId, step.id, createResponse([colorName]));
+        debug(1, `[AI] color_choice: Selected ${colorName}`);
+        break;
+      }
+
+      case 'creature_type_choice': {
+        const chosenType = String(getDominantCreatureType(game, String(playerId)) || 'Shapeshifter').trim() || 'Shapeshifter';
+        ResolutionQueueManager.completeStep(gameId, step.id, createResponse([chosenType]));
+        debug(1, `[AI] creature_type_choice: Selected ${chosenType}`);
+        break;
+      }
+
+      case 'card_name_choice': {
+        const chosenName = chooseAICardNameSelection(game, playerId, step);
+        ResolutionQueueManager.completeStep(gameId, step.id, createResponse([chosenName]));
+        debug(1, `[AI] card_name_choice: Selected ${chosenName}`);
+        break;
+      }
+
+      case 'opening_hand_actions': {
+        const hand = Array.isArray((game.state as any)?.zones?.[playerId]?.hand)
+          ? (game.state as any).zones[playerId].hand
+          : [];
+        const selectedCardIds = hand
+          .filter((card: any) => isOpeningHandBattlefieldCard(card, String(playerId), game.state))
+          .map((card: any) => String(card?.id || ''))
+          .filter(Boolean);
+
+        ResolutionQueueManager.completeStep(gameId, step.id, createResponse(selectedCardIds));
+        debug(1, `[AI] opening_hand_actions: Selected ${selectedCardIds.length} card(s)`);
         break;
       }
 
@@ -8493,6 +8812,579 @@ async function handleAIResolutionStep(
 
         debug(1, `[AI] Discard selection: discarding ${cardIds.length} card(s)`);
         ResolutionQueueManager.completeStep(gameId, step.id, createResponse(cardIds));
+        break;
+      }
+
+      case 'scry': {
+        const cards = Array.isArray((step as any)?.cards) ? (step as any).cards : [];
+        ResolutionQueueManager.completeStep(gameId, step.id, createResponse({
+          keepTopOrder: cards,
+          bottomOrder: [],
+        }));
+        debug(1, `[AI] scry: keeping ${cards.length} card(s) on top`);
+        break;
+      }
+
+      case 'surveil': {
+        const cards = Array.isArray((step as any)?.cards) ? (step as any).cards : [];
+        const keepTopOrder: any[] = [];
+        const toGraveyard: any[] = [];
+
+        for (const card of cards) {
+          const typeLine = String(card?.type_line || '').toLowerCase();
+          if (typeLine.includes('land')) {
+            toGraveyard.push(card);
+          } else {
+            keepTopOrder.push(card);
+          }
+        }
+
+        ResolutionQueueManager.completeStep(gameId, step.id, createResponse({
+          keepTopOrder,
+          toGraveyard,
+        }));
+        debug(1, `[AI] surveil: keeping ${keepTopOrder.length} on top, ${toGraveyard.length} to graveyard`);
+        break;
+      }
+
+      case 'bottom_order': {
+        const cards = Array.isArray((step as any)?.cards) ? (step as any).cards : [];
+        ResolutionQueueManager.completeStep(gameId, step.id, createResponse({
+          bottomOrder: cards,
+        }));
+        debug(1, `[AI] bottom_order: preserving order for ${cards.length} card(s)`);
+        break;
+      }
+
+      case 'lim_duls_vault': {
+        const cards = Array.isArray((step as any)?.cards) ? (step as any).cards : [];
+        ResolutionQueueManager.completeStep(gameId, step.id, createResponse({
+          action: 'finish',
+          orderedIds: cards.map((card: any) => String(card?.id || '')).filter(Boolean),
+        }));
+        debug(1, `[AI] lim_duls_vault: finishing with current order of ${cards.length} card(s)`);
+        break;
+      }
+
+      case 'dance_with_calamity': {
+        const exiledCards = Array.isArray((step as any)?.exiledCards) ? (step as any).exiledCards : [];
+        const totalManaValue = Number((step as any)?.totalManaValue || 0);
+        const hasSpell = exiledCards.some((card: any) => !String(card?.type_line || '').toLowerCase().includes('land'));
+        const shouldContinue = (step as any)?.canContinue === true && (!hasSpell || totalManaValue <= 8);
+
+        ResolutionQueueManager.completeStep(gameId, step.id, createResponse({
+          action: shouldContinue ? 'continue' : 'stop',
+        }));
+        debug(1, `[AI] dance_with_calamity: ${shouldContinue ? 'continue' : 'stop'} at total mana value ${totalManaValue}`);
+        break;
+      }
+
+      case 'dance_with_calamity_cast': {
+        const spellCards = Array.isArray((step as any)?.spellCards) ? (step as any).spellCards : [];
+        const orderedSpellIds = [...spellCards]
+          .sort((left: any, right: any) => (Number(right?.cmc || 0) || 0) - (Number(left?.cmc || 0) || 0))
+          .map((card: any) => String(card?.id || ''))
+          .filter(Boolean);
+
+        ResolutionQueueManager.completeStep(gameId, step.id, createResponse({
+          orderedSpellIds,
+        }));
+        debug(1, `[AI] dance_with_calamity_cast: selected ${orderedSpellIds.length} spell(s)`);
+        break;
+      }
+
+      case 'hand_to_bottom': {
+        const cardsToBottom = Number((step as any)?.cardsToBottom || 0);
+        const hand = Array.isArray((step as any)?.hand)
+          ? (step as any).hand
+          : (Array.isArray((game.state as any)?.zones?.[playerId]?.hand)
+              ? (game.state as any).zones[playerId].hand
+              : []);
+        const selectedIds = hand
+          .map((card: any) => String(card?.id || ''))
+          .filter(Boolean)
+          .slice(-Math.max(0, cardsToBottom));
+
+        ResolutionQueueManager.completeStep(gameId, step.id, createResponse(selectedIds));
+        debug(1, `[AI] hand_to_bottom: selected ${selectedIds.length} card(s)`);
+        break;
+      }
+
+      case 'join_forces': {
+        ResolutionQueueManager.completeStep(gameId, step.id, createResponse(0));
+        debug(1, `[AI] join_forces: declining to contribute mana`);
+        break;
+      }
+
+      case 'fight_target': {
+        const battlefield = Array.isArray((game.state as any)?.battlefield) ? (game.state as any).battlefield : [];
+        const stepData = step as any;
+        const sourceId = String(step.sourceId || stepData.sourceId || '');
+        const targetFilter = stepData.targetFilter || {};
+        const controllerFilter: 'you' | 'opponent' | 'any' = targetFilter.controller || 'any';
+        const excludeSource = targetFilter.excludeSource !== false;
+
+        const selectedId = battlefield
+          .filter((perm: any) => {
+            if (!perm || typeof perm.id !== 'string') return false;
+            if (excludeSource && String(perm.id) === sourceId) return false;
+            const typeLine = String(perm.card?.type_line || '').toLowerCase();
+            if (!typeLine.includes('creature')) return false;
+            if (controllerFilter === 'you' && String(perm.controller) !== String(playerId)) return false;
+            if (controllerFilter === 'opponent' && String(perm.controller) === String(playerId)) return false;
+            return canPermanentBeTargetedByPlayer(perm, game.state as any, playerId as any);
+          })
+          .map((perm: any) => String(perm.id))
+          .find(Boolean);
+
+        ResolutionQueueManager.completeStep(gameId, step.id, createResponse(selectedId ? [selectedId] : [], !selectedId));
+        debug(1, `[AI] fight_target: selected ${selectedId || 'none'}`);
+        break;
+      }
+
+      case 'tap_untap_target': {
+        const battlefield = Array.isArray((game.state as any)?.battlefield) ? (game.state as any).battlefield : [];
+        const stepData = step as any;
+        const sourceId = String(step.sourceId || stepData.sourceId || '');
+        const targetCount = Math.max(1, Number(stepData.targetCount || 1));
+        const targetFilter = stepData.targetFilter || {};
+        const controllerFilter: 'you' | 'opponent' | 'any' = targetFilter.controller || 'any';
+        const tapStatus: 'tapped' | 'untapped' | 'any' = targetFilter.tapStatus || 'any';
+        const excludeSource = targetFilter.excludeSource === true;
+        const requireAllTypes = targetFilter.requireAllTypes === true;
+        const minPower = targetFilter.minPower !== undefined ? Number(targetFilter.minPower) : undefined;
+        const maxPower = targetFilter.maxPower !== undefined ? Number(targetFilter.maxPower) : undefined;
+        const minToughness = targetFilter.minToughness !== undefined ? Number(targetFilter.minToughness) : undefined;
+        const maxToughness = targetFilter.maxToughness !== undefined ? Number(targetFilter.maxToughness) : undefined;
+
+        const chosenIds = battlefield
+          .filter((perm: any) => {
+            if (!perm || typeof perm.id !== 'string') return false;
+            if (excludeSource && String(perm.id) === sourceId) return false;
+
+            const types = Array.isArray(targetFilter.types) ? targetFilter.types : [];
+            if (types.length > 0) {
+              const typeLine = String(perm.card?.type_line || '').toLowerCase();
+              if (requireAllTypes) {
+                if (!types.every((type: any) => typeLine.includes(String(type).toLowerCase()))) return false;
+              } else if (!types.some((type: any) => typeLine.includes(String(type).toLowerCase()))) {
+                return false;
+              }
+            }
+
+            if (minPower !== undefined || maxPower !== undefined) {
+              const power = getEffectivePower(perm);
+              if (minPower !== undefined && power < minPower) return false;
+              if (maxPower !== undefined && power > maxPower) return false;
+            }
+            if (minToughness !== undefined || maxToughness !== undefined) {
+              const toughness = getEffectiveToughness(perm);
+              if (minToughness !== undefined && toughness < minToughness) return false;
+              if (maxToughness !== undefined && toughness > maxToughness) return false;
+            }
+
+            if (controllerFilter === 'you' && String(perm.controller) !== String(playerId)) return false;
+            if (controllerFilter === 'opponent' && String(perm.controller) === String(playerId)) return false;
+            if (tapStatus === 'tapped' && !perm.tapped) return false;
+            if (tapStatus === 'untapped' && perm.tapped) return false;
+
+            return true;
+          })
+          .slice(0, targetCount)
+          .map((perm: any) => String(perm.id));
+
+        ResolutionQueueManager.completeStep(
+          gameId,
+          step.id,
+          createResponse({ targetIds: chosenIds, action: stepData.action === 'untap' ? 'untap' : 'tap' }, chosenIds.length < targetCount),
+        );
+        debug(1, `[AI] tap_untap_target: selected ${chosenIds.length} target(s)`);
+        break;
+      }
+
+      case 'counter_movement': {
+        const battlefield = Array.isArray((game.state as any)?.battlefield) ? (game.state as any).battlefield : [];
+        const stepData = step as any;
+        const sourceFilter = stepData.sourceFilter || {};
+        const targetFilter = stepData.targetFilter || {};
+
+        const source = battlefield.find((perm: any) => {
+          if (!perm || typeof perm.id !== 'string') return false;
+          if (sourceFilter.controller === 'you' && String(perm.controller) !== String(playerId)) return false;
+          const counters = perm.counters || {};
+          return Object.keys(counters).some((key) => Number(counters[key] || 0) > 0);
+        });
+
+        const counterType = source
+          ? Object.keys(source.counters || {}).find((key) => Number(source.counters[key] || 0) > 0) || ''
+          : '';
+
+        const target = battlefield.find((perm: any) => {
+          if (!perm || typeof perm.id !== 'string') return false;
+          if (targetFilter.controller === 'you' && String(perm.controller) !== String(playerId)) return false;
+          if (targetFilter.excludeSource && String(perm.id) === String(source?.id || '')) return false;
+          return true;
+        });
+
+        const selections = source && target && counterType
+          ? {
+              sourcePermanentId: String(source.id),
+              targetPermanentId: String(target.id),
+              counterType: String(counterType),
+            }
+          : { sourcePermanentId: '', targetPermanentId: '', counterType: '' };
+
+        ResolutionQueueManager.completeStep(gameId, step.id, createResponse(selections, !(source && target && counterType)));
+        debug(1, `[AI] counter_movement: source=${selections.sourcePermanentId || 'none'} target=${selections.targetPermanentId || 'none'} counter=${selections.counterType || 'none'}`);
+        break;
+      }
+
+      case 'counter_target': {
+        const validTargets = Array.isArray((step as any)?.validTargets) ? (step as any).validTargets : [];
+        const selectedId = String(validTargets[0]?.id || '');
+        ResolutionQueueManager.completeStep(gameId, step.id, createResponse(selectedId ? [selectedId] : []));
+        debug(1, `[AI] counter_target: selected ${selectedId || 'none'}`);
+        break;
+      }
+
+      case 'station_creature_selection': {
+        const creatures = Array.isArray((step as any)?.tapForCountersCreatures)
+          ? (step as any).tapForCountersCreatures
+          : (Array.isArray((step as any)?.creatures) ? (step as any).creatures : []);
+        const selectedId = [...creatures]
+          .sort((left: any, right: any) => Number(right?.power || 0) - Number(left?.power || 0))
+          .map((creature: any) => String(creature?.id || ''))
+          .find(Boolean);
+
+        ResolutionQueueManager.completeStep(gameId, step.id, createResponse(selectedId ? [selectedId] : []));
+        debug(1, `[AI] station_creature_selection: selected ${selectedId || 'none'}`);
+        break;
+      }
+
+      case 'life_payment': {
+        const minPayment = Number((step as any)?.minPayment ?? 0);
+        const maxPayment = Number((step as any)?.maxPayment ?? minPayment);
+        const chosen = Number.isFinite(minPayment) ? minPayment : 0;
+        const safeChosen = Math.max(0, Math.min(chosen, Number.isFinite(maxPayment) ? maxPayment : chosen));
+
+        ResolutionQueueManager.completeStep(gameId, step.id, createResponse(safeChosen));
+        debug(1, `[AI] life_payment: selected ${safeChosen}`);
+        break;
+      }
+
+      case 'additional_cost_payment': {
+        const amount = Math.max(0, Number((step as any)?.amount ?? 0));
+        const costType = String((step as any)?.costType || 'discard');
+        const pool = costType === 'sacrifice'
+          ? (Array.isArray((step as any)?.availableTargets) ? (step as any).availableTargets : [])
+          : (Array.isArray((step as any)?.availableCards) ? (step as any).availableCards : []);
+        const selectedIds = pool
+          .slice(0, amount)
+          .map((entry: any) => String(entry?.id || ''))
+          .filter(Boolean);
+
+        ResolutionQueueManager.completeStep(gameId, step.id, createResponse(selectedIds));
+        debug(1, `[AI] additional_cost_payment: selected ${selectedIds.length} item(s)`);
+        break;
+      }
+
+      case 'squad_cost_payment': {
+        ResolutionQueueManager.completeStep(gameId, step.id, createResponse(0));
+        debug(1, `[AI] squad_cost_payment: chose 0 additional squad payments`);
+        break;
+      }
+
+      case 'explore_decision': {
+        const permanentId = String((step as any)?.permanentId || step.sourceId || '');
+        const isLand = Boolean((step as any)?.isLand);
+        ResolutionQueueManager.completeStep(gameId, step.id, createResponse({
+          permanentId,
+          toGraveyard: !isLand,
+        }));
+        debug(1, `[AI] explore_decision: ${isLand ? 'keeping land on top' : 'binning nonland'}`);
+        break;
+      }
+
+      case 'batch_explore_decision': {
+        const explores = Array.isArray((step as any)?.explores) ? (step as any).explores : [];
+        const decisions = explores
+          .map((entry: any) => ({
+            permanentId: String(entry?.permanentId || ''),
+            toGraveyard: !Boolean(entry?.isLand),
+          }))
+          .filter((entry: any) => Boolean(entry.permanentId));
+
+        ResolutionQueueManager.completeStep(gameId, step.id, createResponse({ decisions }));
+        debug(1, `[AI] batch_explore_decision: selected ${decisions.length} explore decision(s)`);
+        break;
+      }
+
+      case 'mana_payment_choice': {
+        const stepData = step as any;
+        if (stepData.spellPaymentRequired === true || stepData.sacrificeUnlessPayChoice === true) {
+          const selections = await chooseAISpellPaymentSelections(io as any, gameId, game, playerId as any, stepData);
+          ResolutionQueueManager.completeStep(
+            gameId,
+            step.id,
+            selections ? createResponse(selections) : createResponse({ payment: [] }, true),
+          );
+          debug(1, `[AI] mana_payment_choice: ${selections ? 'assembled payment' : 'could not assemble payment'}`);
+          break;
+        }
+
+        ResolutionQueueManager.completeStep(gameId, step.id, createResponse({ payment: [] }, true));
+        debug(1, `[AI] mana_payment_choice: unsupported payment prompt, cancelling`);
+        break;
+      }
+
+      case 'tempting_offer': {
+        ResolutionQueueManager.completeStep(gameId, step.id, createResponse(false));
+        debug(1, `[AI] tempting_offer: declining offer`);
+        break;
+      }
+
+      case 'activated_ability': {
+        ResolutionQueueManager.completeStep(gameId, step.id, createResponse([]));
+        debug(1, `[AI] activated_ability: auto-resolving without selections`);
+        break;
+      }
+
+      case 'cascade': {
+        const shouldCast = Boolean((step as any)?.hitCard);
+        ResolutionQueueManager.completeStep(gameId, step.id, createResponse(shouldCast));
+        debug(1, `[AI] cascade: ${shouldCast ? 'casting' : 'declining'} hit card`);
+        break;
+      }
+
+      case 'ponder_effect': {
+        const cards = Array.isArray((step as any)?.cards) ? (step as any).cards : [];
+        ResolutionQueueManager.completeStep(gameId, step.id, createResponse({
+          newOrder: cards.map((card: any) => String(card?.id || '')).filter(Boolean),
+          shouldShuffle: false,
+        }));
+        debug(1, `[AI] ponder_effect: keeping ${cards.length} card(s) in order`);
+        break;
+      }
+
+      case 'devour_selection': {
+        ResolutionQueueManager.completeStep(gameId, step.id, createResponse([]));
+        debug(1, `[AI] devour_selection: not sacrificing any creatures`);
+        break;
+      }
+
+      case 'proliferate': {
+        const availableTargets = Array.isArray((step as any)?.availableTargets) ? (step as any).availableTargets : [];
+        const selectedTargetIds = availableTargets
+          .filter((target: any) => {
+            const counters = target?.counters || {};
+            const isOwnPermanent = !target?.isPlayer && String(target?.controller || '') === String(playerId);
+            const isOpponentPlayer = target?.isPlayer === true && String(target?.id || '') !== String(playerId);
+
+            if (isOwnPermanent && Number(counters['+1/+1'] || 0) > 0) return true;
+            if (isOpponentPlayer && Number(counters.poison || 0) > 0) return true;
+            if (!target?.isPlayer && String(target?.controller || '') !== String(playerId) && Number(counters['-1/-1'] || 0) > 0) return true;
+            return false;
+          })
+          .map((target: any) => String(target?.id || ''))
+          .filter(Boolean);
+
+        ResolutionQueueManager.completeStep(gameId, step.id, createResponse(selectedTargetIds));
+        debug(1, `[AI] proliferate: selected ${selectedTargetIds.length} target(s)`);
+        break;
+      }
+
+      case 'fateseal': {
+        const cards = Array.isArray((step as any)?.cards) ? (step as any).cards : [];
+        ResolutionQueueManager.completeStep(gameId, step.id, createResponse({
+          keepTopOrder: cards,
+          bottomOrder: [],
+        }));
+        debug(1, `[AI] fateseal: keeping ${cards.length} card(s) on top`);
+        break;
+      }
+
+      case 'clash': {
+        ResolutionQueueManager.completeStep(gameId, step.id, createResponse({
+          putOnBottom: false,
+        }));
+        debug(1, `[AI] clash: keeping revealed card on top`);
+        break;
+      }
+
+      case 'vote': {
+        const choices = Array.isArray((step as any)?.choices) ? (step as any).choices : [];
+        const choice = typeof choices[0] === 'string' ? choices[0] : 'decline';
+        ResolutionQueueManager.completeStep(gameId, step.id, createResponse({
+          choice,
+          voteCount: 1,
+        }));
+        debug(1, `[AI] vote: selected ${choice}`);
+        break;
+      }
+
+      case 'two_pile_split': {
+        const items = Array.isArray((step as any)?.items) ? (step as any).items : [];
+        const pileA: string[] = [];
+        const pileB: string[] = [];
+
+        items.forEach((item: any, index: number) => {
+          const id = String(item?.id || '');
+          if (!id) return;
+          (index % 2 === 0 ? pileA : pileB).push(id);
+        });
+
+        ResolutionQueueManager.completeStep(gameId, step.id, createResponse({
+          pileA,
+          pileB,
+        }));
+        debug(1, `[AI] two_pile_split: pileA=${pileA.length}, pileB=${pileB.length}`);
+        break;
+      }
+
+      case 'riot_choice': {
+        ResolutionQueueManager.completeStep(gameId, step.id, createResponse(['counter']));
+        debug(1, `[AI] riot_choice: chose +1/+1 counter`);
+        break;
+      }
+
+      case 'unleash_choice': {
+        ResolutionQueueManager.completeStep(gameId, step.id, createResponse(['counter']));
+        debug(1, `[AI] unleash_choice: chose +1/+1 counter`);
+        break;
+      }
+
+      case 'fabricate_choice': {
+        const value = Number((step as any)?.value || 1);
+        const choice = value >= 2 ? 'tokens' : 'counters';
+        ResolutionQueueManager.completeStep(gameId, step.id, createResponse([choice]));
+        debug(1, `[AI] fabricate_choice: chose ${choice}`);
+        break;
+      }
+
+      case 'tribute_choice': {
+        ResolutionQueueManager.completeStep(gameId, step.id, createResponse(['decline']));
+        debug(1, `[AI] tribute_choice: declined tribute`);
+        break;
+      }
+
+      case 'extort_payment': {
+        ResolutionQueueManager.completeStep(gameId, step.id, createResponse(['skip']));
+        debug(1, `[AI] extort_payment: skipping payment`);
+        break;
+      }
+
+      case 'keyword_choice': {
+        const options = Array.isArray((step as any)?.options) ? (step as any).options : [];
+        const firstOption = options[0];
+        const selected = typeof firstOption === 'string'
+          ? firstOption
+          : String(firstOption?.id ?? firstOption?.value ?? '');
+        ResolutionQueueManager.completeStep(gameId, step.id, createResponse(selected ? [selected] : []));
+        debug(1, `[AI] keyword_choice: selected ${selected || 'none'}`);
+        break;
+      }
+
+      case 'exploit_choice': {
+        const creatures = Array.isArray((step as any)?.creatures) ? (step as any).creatures : [];
+        const selectedId = [...creatures]
+          .sort((left: any, right: any) => {
+            const leftValue = (parseInt(left?.power, 10) || 0) + (parseInt(left?.toughness, 10) || 0);
+            const rightValue = (parseInt(right?.power, 10) || 0) + (parseInt(right?.toughness, 10) || 0);
+            return leftValue - rightValue;
+          })
+          .map((creature: any) => String(creature?.id || ''))
+          .find(Boolean);
+
+        ResolutionQueueManager.completeStep(gameId, step.id, createResponse(selectedId ? [selectedId] : []));
+        debug(1, `[AI] exploit_choice: selected ${selectedId || 'none'}`);
+        break;
+      }
+
+      case 'backup_choice': {
+        const targets = Array.isArray((step as any)?.targets) ? (step as any).targets : [];
+        const sourceId = String((step as any)?.sourceId || '');
+        const selectedId = [...targets]
+          .filter((target: any) => String(target?.id || '') !== sourceId)
+          .sort((left: any, right: any) => {
+            const leftValue = (parseInt(left?.power, 10) || 0) + (parseInt(left?.toughness, 10) || 0);
+            const rightValue = (parseInt(right?.power, 10) || 0) + (parseInt(right?.toughness, 10) || 0);
+            return rightValue - leftValue;
+          })
+          .map((target: any) => String(target?.id || ''))
+          .find(Boolean)
+          || sourceId;
+
+        ResolutionQueueManager.completeStep(gameId, step.id, createResponse(selectedId ? [selectedId] : []));
+        debug(1, `[AI] backup_choice: selected ${selectedId || 'none'}`);
+        break;
+      }
+
+      case 'mentor_target': {
+        const targets = Array.isArray((step as any)?.targets) ? (step as any).targets : [];
+        const selectedId = [...targets]
+          .sort((left: any, right: any) => (parseInt(left?.power, 10) || 0) - (parseInt(right?.power, 10) || 0))
+          .map((target: any) => String(target?.id || ''))
+          .find(Boolean);
+
+        ResolutionQueueManager.completeStep(gameId, step.id, createResponse(selectedId ? [selectedId] : []));
+        debug(1, `[AI] mentor_target: selected ${selectedId || 'none'}`);
+        break;
+      }
+
+      case 'enlist_choice': {
+        const creatures = Array.isArray((step as any)?.creatures) ? (step as any).creatures : [];
+        const selectedId = [...creatures]
+          .sort((left: any, right: any) => (parseInt(right?.power, 10) || 0) - (parseInt(left?.power, 10) || 0))
+          .map((creature: any) => String(creature?.id || ''))
+          .find(Boolean);
+
+        ResolutionQueueManager.completeStep(gameId, step.id, createResponse(selectedId ? [selectedId] : []));
+        debug(1, `[AI] enlist_choice: selected ${selectedId || 'none'}`);
+        break;
+      }
+
+      case 'modular_choice': {
+        const targets = Array.isArray((step as any)?.targets) ? (step as any).targets : [];
+        const selectedId = [...targets]
+          .sort((left: any, right: any) => {
+            const leftValue = (parseInt(left?.power, 10) || 0) + (parseInt(left?.toughness, 10) || 0);
+            const rightValue = (parseInt(right?.power, 10) || 0) + (parseInt(right?.toughness, 10) || 0);
+            return rightValue - leftValue;
+          })
+          .map((target: any) => String(target?.id || ''))
+          .find(Boolean);
+
+        ResolutionQueueManager.completeStep(gameId, step.id, createResponse(selectedId ? [selectedId] : []));
+        debug(1, `[AI] modular_choice: selected ${selectedId || 'none'}`);
+        break;
+      }
+
+      case 'soulshift_target': {
+        const spirits = Array.isArray((step as any)?.spirits) ? (step as any).spirits : [];
+        const selectedId = [...spirits]
+          .sort((left: any, right: any) => (Number(right?.cmc || 0) || 0) - (Number(left?.cmc || 0) || 0))
+          .map((spirit: any) => String(spirit?.id || ''))
+          .find(Boolean);
+
+        ResolutionQueueManager.completeStep(gameId, step.id, createResponse(selectedId ? [selectedId] : []));
+        debug(1, `[AI] soulshift_target: selected ${selectedId || 'none'}`);
+        break;
+      }
+
+      case 'upkeep_sacrifice': {
+        const selection = chooseAIUpkeepSacrificeSelection(game, playerId, step);
+        ResolutionQueueManager.completeStep(gameId, step.id, createResponse(selection));
+        debug(
+          1,
+          `[AI] upkeep_sacrifice: selected ${typeof selection === 'object' && !Array.isArray(selection) ? `${selection.type}${selection.creatureId ? `:${selection.creatureId}` : ''}` : 'none'}`,
+        );
+        break;
+      }
+
+      case 'return_controlled_permanent_choice': {
+        const permanentId = chooseAIReturnControlledPermanentId(game, playerId, step);
+        ResolutionQueueManager.completeStep(gameId, step.id, createResponse(permanentId));
+        debug(1, `[AI] return_controlled_permanent_choice: selected ${permanentId || 'none'}`);
         break;
       }
       
@@ -10011,6 +10903,7 @@ export function cleanupGameAI(gameId: string): void {
   if (gameAIs) {
     for (const playerId of gameAIs.keys()) {
       aiEngine.unregisterAI(playerId);
+      aiActionsInProgress.delete(getAIActionKey(gameId, playerId));
     }
     aiPlayers.delete(gameId);
     debug(1, '[AI] Cleaned up AI players for game:', gameId);

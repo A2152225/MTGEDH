@@ -17,6 +17,7 @@
 
 import type { GameContext } from "../../context.js";
 import { isInterveningIfSatisfied } from "./intervening-if.js";
+import { KNOWN_END_STEP_TRIGGERS } from "./card-data-tables.js";
 
 // ============================================================================
 // Type Definitions for Turn Phase Triggers
@@ -35,6 +36,7 @@ export interface EndStepTrigger {
   effect?: string;
   mandatory: boolean;
   requiresChoice?: boolean;
+  modalOptions?: string[];
   affectsAllPlayers?: boolean;
   triggersOnOpponentEndStep?: boolean;  // For cards like Keeper of the Accord
 }
@@ -88,9 +90,29 @@ function getActivePermanentCardFace(card: any, permanent: any): { cardName: stri
 export function detectEndStepTriggers(card: any, permanent: any): EndStepTrigger[] {
   const triggers: EndStepTrigger[] = [];
   const { cardName, oracleText } = getActivePermanentCardFace(card, permanent);
+  const lowerName = cardName.toLowerCase();
   const lowerOracle = oracleText.toLowerCase();
   const permanentId = permanent?.id || "";
   const controllerId = permanent?.controller || "";
+
+  for (const [knownName, info] of Object.entries(KNOWN_END_STEP_TRIGGERS)) {
+    if (!lowerName.includes(knownName)) continue;
+
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerType: 'end_step_effect',
+      description: info.effect,
+      effect: info.effect,
+      mandatory: info.mandatory,
+      requiresChoice: info.requiresChoice,
+      modalOptions: Array.isArray(info.modalOptions) ? [...info.modalOptions] : undefined,
+      affectsAllPlayers: info.affectsAllPlayers,
+      triggersOnOpponentEndStep: info.triggersOnOpponentEndStep,
+    });
+    return triggers;
+  }
   
   // Pattern for "each opponent's end step" (Keeper of the Accord style)
   const opponentEndStepMatch = oracleText.match(/at the beginning of each opponent['']?s end step,?\s*([^.]+)/i);
