@@ -23,6 +23,7 @@ import { calculateMaxLandsPerTurn, canCastFromTop, canPlayLandsFromTop, getActiv
 import { detectActivatedAbilityConditionRequirement } from "./activated-ability-conditions";
 import { creatureHasHaste } from "../../socket/game-actions.js";
 import { debug, debugWarn, debugError } from "../../utils/debug.js";
+import { getCurrentGoaders } from "./goad-effects.js";
 import { isAbilityActivationProhibitedByChosenName, isSpellCastingProhibitedByChosenName } from "./chosen-name-restrictions.js";
 
 function cardHasSplitSecond(card: any): boolean {
@@ -2008,30 +2009,8 @@ function canCastCommanderFromCommandZone(ctx: GameContext, playerId: PlayerID): 
  * Check if a creature is goaded (Rule 701.15)
  * Goaded creatures must attack each combat if able.
  */
-function isCreatureGoaded(permanent: any, currentTurn?: number): boolean {
-  if (!permanent) return false;
-  
-  const goadedBy = permanent.goadedBy;
-  if (!goadedBy || !Array.isArray(goadedBy) || goadedBy.length === 0) {
-    return false;
-  }
-  
-  // If no turn tracking, just check if goaded by anyone
-  if (currentTurn === undefined) {
-    return true;
-  }
-  
-  // Check if any goad effects are still active
-  const goadedUntil = permanent.goadedUntil;
-  if (!goadedUntil) {
-    return true; // Has goad but no expiration tracking, assume active
-  }
-  
-  // Check if any goad is still active
-  return goadedBy.some((playerId: string) => {
-    const expiryTurn = goadedUntil[playerId];
-    return expiryTurn === undefined || expiryTurn > currentTurn;
-  });
+function isCreatureGoaded(permanent: any, battlefield: any[], currentTurn?: number): boolean {
+  return getCurrentGoaders(permanent, battlefield, currentTurn).length > 0;
 }
 
 /**
@@ -2056,7 +2035,7 @@ function hasGoadedCreaturesThatMustAttack(ctx: GameContext, playerId: PlayerID):
       if (!typeLine.includes("creature")) continue;
       
       // Check if this creature is goaded
-      if (!isCreatureGoaded(permanent, currentTurn)) continue;
+      if (!isCreatureGoaded(permanent, battlefield, currentTurn)) continue;
       
       // Can't attack if tapped
       if (permanent.tapped) continue;

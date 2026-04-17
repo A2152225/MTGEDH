@@ -2222,6 +2222,56 @@ describe('canAct', () => {
     expect(canAct(ctx, 'p1' as PlayerID)).toBe(true);
   });
 
+  it('should treat a creature equipped by Bloodthirsty Blade as goaded during its controller combat step', () => {
+    const ctx = createTestContext({
+      battlefield: [
+        {
+          id: 'bloodthirsty_blade_1',
+          controller: 'p1',
+          owner: 'p1',
+          attachedTo: 'opponent_creature_1',
+          card: {
+            id: 'bloodthirsty_blade_card_1',
+            name: 'Bloodthirsty Blade',
+            type_line: 'Artifact — Equipment',
+            oracle_text: 'Equipped creature gets +2/+0 and is goaded. (It attacks each combat if able and attacks a player other than you if able.)\n{1}: Attach this Equipment to target creature an opponent controls. Activate only as a sorcery.',
+          },
+        },
+        {
+          id: 'opponent_creature_1',
+          controller: 'p2',
+          owner: 'p2',
+          tapped: false,
+          enteredThisTurn: false,
+          basePower: 3,
+          baseToughness: 3,
+          attachedEquipment: ['bloodthirsty_blade_1'],
+          isEquipped: true,
+          card: {
+            id: 'opponent_creature_card_1',
+            name: 'Opposition Bruiser',
+            type_line: 'Creature — Ogre Warrior',
+            power: '3',
+            toughness: '3',
+            oracle_text: '',
+          },
+        },
+      ],
+      players: [{ id: 'p1' }, { id: 'p2' }],
+      manaPool: {
+        p1: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+        p2: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+      },
+      step: 'BEGIN_COMBAT',
+      turn: 5,
+      turnPlayer: 'p2',
+      priority: 'p2',
+      stack: [],
+    });
+
+    expect(canAct(ctx, 'p2' as PlayerID)).toBe(true);
+  });
+
   it('should return true when a modal DFC has a spell face and a land face in hand', () => {
     const ctx = createTestContext({
       zones: {

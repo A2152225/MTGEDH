@@ -10867,6 +10867,10 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
               return false;
             }
 
+            if (parsedBattlefieldAbilityTargeting.opponentOnly && String(target.controller || '') === String(pid)) {
+              return false;
+            }
+
             if (parsedBattlefieldAbilityTargeting.excludeSource && String(target.id || '') === String(permanentId)) {
               return false;
             }

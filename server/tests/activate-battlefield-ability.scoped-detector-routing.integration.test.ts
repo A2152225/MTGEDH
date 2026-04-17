@@ -6,6 +6,7 @@ import '../src/state/modules/priority.js';
 import { registerInteractionHandlers } from '../src/socket/interaction.js';
 import { initializePriorityResolutionHandler, registerResolutionHandlers } from '../src/socket/resolution.js';
 import { ResolutionQueueManager } from '../src/state/resolution/index.js';
+import { calculateEquipmentBonus } from '../src/state/utils.js';
 import { games } from '../src/socket/socket.js';
 
 function createNoopIo() {
@@ -67,6 +68,7 @@ describe('activateBattlefieldAbility detector routing uses selected ability text
     `${gameId}_crew`,
     `${gameId}_station`,
     `${gameId}_equip`,
+    `${gameId}_bloodthirsty_blade`,
     `${gameId}_grant_ability`,
     `${gameId}_graveyard_exile`,
     `${gameId}_graveyard_exile_resolve`,
@@ -567,6 +569,141 @@ describe('activateBattlefieldAbility detector routing uses selected ability text
 
     const equipment = (game.state as any).battlefield.find((permanent: any) => permanent.id === 'equipment_1');
     expect(Boolean(equipment?.tapped)).toBe(true);
+  });
+
+  it('attaches Bloodthirsty Blade to an opponent creature through its non-equip activated ability', async () => {
+    const bloodthirstyBladeGameId = `${gameId}_bloodthirsty_blade`;
+    await resetGame(bloodthirstyBladeGameId);
+
+    createGameIfNotExists(bloodthirstyBladeGameId, 'commander', 40);
+    const game = ensureGame(bloodthirstyBladeGameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const playerId = 'p1';
+    const opponentId = 'p2';
+    (game.state as any).players = [
+      { id: playerId, name: 'P1', spectator: false, life: 40 },
+      { id: opponentId, name: 'P2', spectator: false, life: 40 },
+    ];
+    (game.state as any).startingLife = 40;
+    (game.state as any).life = { [playerId]: 40, [opponentId]: 40 };
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).manaPool = {
+      [playerId]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 1 },
+      [opponentId]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+    };
+    (game.state as any).zones = {
+      [playerId]: {
+        hand: [],
+        handCount: 0,
+        graveyard: [],
+        graveyardCount: 0,
+        library: [],
+        libraryCount: 0,
+      },
+      [opponentId]: {
+        hand: [],
+        handCount: 0,
+        graveyard: [],
+        graveyardCount: 0,
+        library: [],
+        libraryCount: 0,
+      },
+    };
+    (game.state as any).battlefield = [
+      {
+        id: 'bloodthirsty_blade_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        card: {
+          id: 'bloodthirsty_blade_card_1',
+          name: 'Bloodthirsty Blade',
+          type_line: 'Artifact — Equipment',
+          oracle_text: 'Equipped creature gets +2/+0 and is goaded. (It attacks each combat if able and attacks a player other than you if able.)\n{1}: Attach this Equipment to target creature an opponent controls. Activate only as a sorcery.',
+        },
+      },
+      {
+        id: 'friendly_creature_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        basePower: 2,
+        baseToughness: 2,
+        card: {
+          id: 'friendly_creature_card_1',
+          name: 'Friendly Squire',
+          type_line: 'Creature — Human Soldier',
+          oracle_text: '',
+        },
+      },
+      {
+        id: 'opponent_creature_1',
+        controller: opponentId,
+        owner: opponentId,
+        tapped: false,
+        basePower: 3,
+        baseToughness: 3,
+        card: {
+          id: 'opponent_creature_card_1',
+          name: 'Opposition Bruiser',
+          type_line: 'Creature — Ogre Warrior',
+          oracle_text: '',
+        },
+      },
+    ];
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(playerId, emitted);
+    socket.rooms.add(bloodthirstyBladeGameId);
+    const io = createMockIo(emitted, [socket]);
+
+    registerResolutionHandlers(io as any, socket as any);
+    registerInteractionHandlers(io as any, socket as any);
+
+    await handlers['activateBattlefieldAbility']({
+      gameId: bloodthirstyBladeGameId,
+      permanentId: 'bloodthirsty_blade_1',
+      abilityId: 'bloodthirsty_blade_1-ability-0',
+    });
+
+    const queue = ResolutionQueueManager.getQueue(bloodthirstyBladeGameId);
+    expect(queue.steps).toHaveLength(1);
+    expect(queue.steps[0]).toEqual(
+      expect.objectContaining({
+        type: 'target_selection',
+        battlefieldAbilityTargetSelection: true,
+        targetDescription: 'target creature an opponent controls',
+      })
+    );
+    expect(((queue.steps[0] as any).validTargets || []).map((target: any) => String(target?.id))).toEqual([
+      'opponent_creature_1',
+    ]);
+
+    await handlers['submitResolutionResponse']({
+      gameId: bloodthirstyBladeGameId,
+      stepId: String((queue.steps[0] as any).id),
+      selections: ['opponent_creature_1'],
+      cancelled: false,
+    });
+
+    const stack = (game.state as any).stack || [];
+    expect(stack).toHaveLength(1);
+    expect(String(stack[0]?.description || '').toLowerCase()).toContain('attach this equipment to target creature an opponent controls');
+
+    game.resolveTopOfStack();
+
+    const blade = (game.state as any).battlefield.find((permanent: any) => permanent.id === 'bloodthirsty_blade_1');
+    const opponentCreature = (game.state as any).battlefield.find((permanent: any) => permanent.id === 'opponent_creature_1');
+
+    expect(String(blade?.attachedTo || '')).toBe('opponent_creature_1');
+    expect((opponentCreature?.attachedEquipment || []).map((id: any) => String(id))).toContain('bloodthirsty_blade_1');
+    expect(Boolean(opponentCreature?.isEquipped)).toBe(true);
+
+    const equipmentBonus = calculateEquipmentBonus(opponentCreature, (game.state as any).battlefield || [], game.state as any);
+    expect(equipmentBonus.power).toBe(2);
+    expect(equipmentBonus.toughness).toBe(0);
   });
 
   it('does not let a later grant-ability ability hijack an earlier generic ability activation', async () => {

@@ -3683,6 +3683,7 @@ export function detectAnotherTargetRestriction(oracleText: string): boolean {
 export function parseAbilityTargeting(oracleText: string): {
   targetType: 'creature' | 'permanent' | 'player' | 'any';
   controllerOnly: boolean;
+  opponentOnly: boolean;
   excludeSource: boolean;
   description: string;
 } | null {
@@ -3694,6 +3695,7 @@ export function parseAbilityTargeting(oracleText: string): {
     return {
       targetType: 'creature',
       controllerOnly: true,
+      opponentOnly: false,
       excludeSource: true,
       description: 'another target creature you control',
     };
@@ -3704,8 +3706,20 @@ export function parseAbilityTargeting(oracleText: string): {
     return {
       targetType: 'permanent',
       controllerOnly: true,
+      opponentOnly: false,
       excludeSource: true,
       description: 'another target permanent you control',
+    };
+  }
+
+  // Check for "another target creature an opponent controls"
+  if (/another target creature an opponent controls/.test(text)) {
+    return {
+      targetType: 'creature',
+      controllerOnly: false,
+      opponentOnly: true,
+      excludeSource: true,
+      description: 'another target creature an opponent controls',
     };
   }
   
@@ -3714,8 +3728,20 @@ export function parseAbilityTargeting(oracleText: string): {
     return {
       targetType: 'creature',
       controllerOnly: false,
+      opponentOnly: false,
       excludeSource: true,
       description: 'another target creature',
+    };
+  }
+
+  // Check for "target creature an opponent controls" (without "another")
+  if (/target creature an opponent controls/.test(text) && !/another/.test(text)) {
+    return {
+      targetType: 'creature',
+      controllerOnly: false,
+      opponentOnly: true,
+      excludeSource: false,
+      description: 'target creature an opponent controls',
     };
   }
   
@@ -3724,6 +3750,7 @@ export function parseAbilityTargeting(oracleText: string): {
     return {
       targetType: 'creature',
       controllerOnly: true,
+      opponentOnly: false,
       excludeSource: false,
       description: 'target creature you control',
     };
@@ -3734,6 +3761,7 @@ export function parseAbilityTargeting(oracleText: string): {
     return {
       targetType: 'creature',
       controllerOnly: false,
+      opponentOnly: false,
       excludeSource: false,
       description: 'target creature',
     };

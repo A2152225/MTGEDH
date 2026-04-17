@@ -166,6 +166,70 @@ export function removeExpiredGoads(
   });
 }
 
+export function getCurrentGoaders(
+  creature: BattlefieldPermanent | any,
+  battlefield: BattlefieldPermanent[] | any[] = [],
+  currentTurn?: number
+): PlayerID[] {
+  if (!creature) return [];
+
+  const goaders = new Set<PlayerID>();
+  const goadedUntil = (creature as any).goadedUntil || {};
+
+  const trackedGoaders = Array.isArray((creature as any).goadedBy)
+    ? (creature as any).goadedBy
+    : [];
+  for (const trackedGoader of trackedGoaders) {
+    const goaderId = String(trackedGoader || '').trim() as PlayerID;
+    if (!goaderId) continue;
+
+    if (currentTurn !== undefined) {
+      const expiryTurn = Number(goadedUntil[goaderId]);
+      if (Number.isFinite(expiryTurn) && expiryTurn <= currentTurn) {
+        continue;
+      }
+    }
+
+    goaders.add(goaderId);
+  }
+
+  if ((creature as any).goaded && typeof (creature as any).goaded === 'object') {
+    for (const legacyGoader of Object.keys((creature as any).goaded)) {
+      const goaderId = String(legacyGoader || '').trim() as PlayerID;
+      if (goaderId) {
+        goaders.add(goaderId);
+      }
+    }
+  }
+
+  const staticGoadedBy = Array.isArray((creature as any).staticGoadedBy)
+    ? (creature as any).staticGoadedBy
+    : [];
+  for (const staticGoader of staticGoadedBy) {
+    const goaderId = String(staticGoader || '').trim() as PlayerID;
+    if (goaderId) {
+      goaders.add(goaderId);
+    }
+  }
+
+  if (Array.isArray(battlefield)) {
+    for (const permanent of battlefield) {
+      if (!permanent || !permanent.card) continue;
+      if (String((permanent as any).attachedTo || '') !== String((creature as any).id || '')) continue;
+
+      const oracleText = String((permanent as any).card?.oracle_text || '');
+      if (!/(?:enchanted|equipped) creature\b[^.]*\bis goaded\b/i.test(oracleText)) continue;
+
+      const goaderId = String((permanent as any).controller || '').trim() as PlayerID;
+      if (goaderId) {
+        goaders.add(goaderId);
+      }
+    }
+  }
+
+  return Array.from(goaders);
+}
+
 /**
  * Check if a permanent is currently a creature
  * (Simplified version - uses type line check)

@@ -10975,6 +10975,83 @@ export function executeTriggerEffect(
   debug(2, `[executeTriggerEffect] Unhandled trigger effect: "${description}" from ${sourceName}`);
 }
 
+function attachEquipmentToCreature(
+  ctx: GameContext,
+  state: any,
+  controller: PlayerID,
+  options: {
+    equipmentId: string;
+    targetCreatureId: string;
+    sourceName?: string;
+    equipmentName?: string;
+    targetCreatureName?: string;
+  }
+): boolean {
+  const battlefield = state.battlefield || [];
+  const equipmentId = String(options.equipmentId || '').trim();
+  const targetCreatureId = String(options.targetCreatureId || '').trim();
+  const equipment = battlefield.find((permanent: any) => permanent?.id === equipmentId);
+  const targetCreature = battlefield.find((permanent: any) => permanent?.id === targetCreatureId);
+  const equipmentName = options.equipmentName || options.sourceName || 'Equipment';
+  const targetCreatureName = options.targetCreatureName || targetCreature?.card?.name || 'creature';
+
+  if (!equipment) {
+    debug(2, `[resolveTopOfStack] Equipment ${equipmentName || equipmentId} no longer on battlefield`);
+    return false;
+  }
+
+  if (!targetCreature) {
+    debug(2, `[resolveTopOfStack] Target creature ${targetCreatureName || targetCreatureId} no longer on battlefield`);
+    return false;
+  }
+
+  if (!isCreatureNow(targetCreature)) {
+    debug(2, `[resolveTopOfStack] Target ${targetCreatureName || targetCreatureId} is no longer a creature`);
+    return false;
+  }
+
+  if (equipment.attachedTo) {
+    const previousTarget = battlefield.find((permanent: any) => permanent?.id === equipment.attachedTo);
+    if (previousTarget && previousTarget.attachedEquipment) {
+      previousTarget.attachedEquipment = (previousTarget.attachedEquipment as string[]).filter(
+        (id: string) => id !== equipmentId
+      );
+      if (previousTarget.attachedEquipment.length === 0) {
+        previousTarget.isEquipped = false;
+      }
+    }
+  }
+
+  equipment.attachedTo = targetCreatureId;
+
+  if (!targetCreature.attachedEquipment) {
+    targetCreature.attachedEquipment = [];
+  }
+  if (!targetCreature.attachedEquipment.includes(equipmentId)) {
+    targetCreature.attachedEquipment.push(equipmentId);
+  }
+
+  targetCreature.isEquipped = true;
+
+  try {
+    const gameId = String((ctx as any).gameId || '').trim();
+    if (gameId) {
+      appendEvent(gameId, (state as any).seq ?? 0, 'equipPermanent', {
+        playerId: controller,
+        equipmentId,
+        equipmentName,
+        targetCreatureId,
+        targetCreatureName,
+      });
+    }
+  } catch (err) {
+    debugWarn(1, '[resolveTopOfStack] appendEvent(equipPermanent) failed:', err);
+  }
+
+  debug(2, `[resolveTopOfStack] ${equipmentName || 'Equipment'} equipped to ${targetCreatureName || 'creature'}`);
+  return true;
+}
+
 /* Resolve the top item - moves permanent spells to battlefield */
 export function resolveTopOfStack(ctx: GameContext) {
   const item = popStackItem(ctx);
@@ -11486,74 +11563,13 @@ export function resolveTopOfStack(ctx: GameContext) {
         return;
       }
       
-      // Find the equipment and target creature on the battlefield
-      const battlefield = state.battlefield || [];
-      const equipment = battlefield.find((p: any) => p.id === equipmentId);
-      const targetCreature = battlefield.find((p: any) => p.id === targetCreatureId);
-      
-      if (!equipment) {
-        debug(2, `[resolveTopOfStack] Equipment ${equipmentName || equipmentId} no longer on battlefield`);
-        bumpSeq();
-        return;
-      }
-      
-      if (!targetCreature) {
-        debug(2, `[resolveTopOfStack] Target creature ${targetCreatureName || targetCreatureId} no longer on battlefield`);
-        bumpSeq();
-        return;
-      }
-      
-      // Verify target is still a legal creature
-      if (!isCreatureNow(targetCreature)) {
-        debug(2, `[resolveTopOfStack] Target ${targetCreatureName || targetCreatureId} is no longer a creature`);
-        bumpSeq();
-        return;
-      }
-      
-      // Remove equipment from previous target (if any)
-      if (equipment.attachedTo) {
-        const previousTarget = battlefield.find((p: any) => p?.id === equipment.attachedTo);
-        if (previousTarget && previousTarget.attachedEquipment) {
-          previousTarget.attachedEquipment = (previousTarget.attachedEquipment as string[]).filter(
-            (id: string) => id !== equipmentId
-          );
-          // Remove equipped badge if no equipment remains
-          if (previousTarget.attachedEquipment.length === 0) {
-            previousTarget.isEquipped = false;
-          }
-        }
-      }
-      
-      // Attach equipment to new target
-      equipment.attachedTo = targetCreatureId;
-      
-      // Add equipment to creature's attachedEquipment array
-      if (!targetCreature.attachedEquipment) {
-        targetCreature.attachedEquipment = [];
-      }
-      if (!targetCreature.attachedEquipment.includes(equipmentId)) {
-        targetCreature.attachedEquipment.push(equipmentId);
-      }
-      
-      // Add equipped badge/marker
-      targetCreature.isEquipped = true;
-
-      try {
-        const gameId = String((ctx as any).gameId || '').trim();
-        if (gameId) {
-          appendEvent(gameId, (state as any).seq ?? 0, 'equipPermanent', {
-            playerId: controller,
-            equipmentId,
-            equipmentName: equipmentName || sourceName || 'Equipment',
-            targetCreatureId,
-            targetCreatureName: targetCreatureName || targetCreature?.card?.name || 'Creature',
-          });
-        }
-      } catch (err) {
-        debugWarn(1, '[resolveTopOfStack] appendEvent(equipPermanent) failed:', err);
-      }
-      
-      debug(2, `[resolveTopOfStack] ${equipmentName || 'Equipment'} equipped to ${targetCreatureName || 'creature'}`);
+      attachEquipmentToCreature(ctx, state, controller, {
+        equipmentId,
+        targetCreatureId,
+        sourceName,
+        equipmentName,
+        targetCreatureName,
+      });
       bumpSeq();
       return;
     }
@@ -11756,9 +11772,37 @@ export function resolveTopOfStack(ctx: GameContext) {
       return;
     }
     
+    const description = (item as any).description || '';
+    const battlefield = state.battlefield || [];
+    const sourcePermanentId = String((item as any).source || '').trim();
+    const sourcePermanent = sourcePermanentId
+      ? battlefield.find((permanent: any) => permanent?.id === sourcePermanentId)
+      : null;
+    const isEquipmentAttachAbility =
+      Boolean(sourcePermanent) &&
+      /\bequipment\b/i.test(String((sourcePermanent as any)?.card?.type_line || '')) &&
+      /^attach(?:\s+(?:this equipment|[a-z0-9 ,.'’\-]+))?\s+to\s+target creature(?:\s+you control|\s+an opponent controls)?\.?$/i.test(String(description || '').trim());
+
+    if (isEquipmentAttachAbility) {
+      const targetCreatureId = String((item as any).targets?.[0] || '').trim();
+      if (!targetCreatureId) {
+        debugWarn(2, `[resolveTopOfStack] Activated attachment ability from ${sourceName} is missing a target creature`);
+        bumpSeq();
+        return;
+      }
+
+      attachEquipmentToCreature(ctx, state, controller, {
+        equipmentId: sourcePermanentId,
+        targetCreatureId,
+        sourceName,
+        equipmentName: sourceName || String((sourcePermanent as any)?.card?.name || 'Equipment'),
+      });
+      bumpSeq();
+      return;
+    }
+
     // Handle other activated abilities - execute their effects
     // Use the same effect execution logic as triggered abilities
-    const description = (item as any).description || '';
     debug(2, `[resolveTopOfStack] Executing activated ability from ${sourceName} for ${controller}: ${description}`);
     
     // Execute the ability effect (handles life gain, draw, damage, etc.)

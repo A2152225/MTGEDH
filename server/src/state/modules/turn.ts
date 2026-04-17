@@ -1679,20 +1679,20 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
       // Regular damage phase: all creatures deal damage EXCEPT first strike-only (they already dealt)
       //   Double strike creatures deal damage in BOTH phases
       const hasFirstStrike = keywords.firstStrike || keywords.doubleStrike;
-      const hasDoubleStrike = keywords.doubleStrike;
+      let attackerDealsDamageThisPhase = true;
       
       if (isFirstStrikePhase === true) {
         // First strike phase - only first strike or double strike creatures deal damage
         if (!hasFirstStrike) {
           debug(2, `${ts()} [dealCombatDamage] Skipping ${card.name || attacker.id} in first strike phase (no first/double strike)`);
-          continue;
+          attackerDealsDamageThisPhase = false;
         }
       } else if (isFirstStrikePhase === false) {
         // Regular damage phase after first strike - skip first strike-only creatures
         // but double strike creatures deal damage again
         if (keywords.firstStrike && !keywords.doubleStrike) {
           debug(2, `${ts()} [dealCombatDamage] Skipping ${card.name || attacker.id} in regular phase (first strike only, already dealt)`);
-          continue;
+          attackerDealsDamageThisPhase = false;
         }
       }
       // If isFirstStrikePhase is undefined, this is a normal combat with no first strikers, all creatures deal damage
@@ -1700,13 +1700,16 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
       // Check if this attacker is blocked
       const blockedBy = attacker.blockedBy || [];
       const isBlocked = blockedBy.length > 0;
-      
-      if (attackerPower <= 0) {
-        // 0 or negative power deals no damage
-        continue;
-      }
+      const attackerCanAssignDamage = attackerDealsDamageThisPhase && attackerPower > 0;
       
       if (!isBlocked) {
+        if (!attackerCanAssignDamage) {
+          if (attackerPower <= 0) {
+            debug(2, `${ts()} [dealCombatDamage] Skipping ${card.name || attacker.id} - power ${attackerPower} deals no combat damage`);
+          }
+          continue;
+        }
+
         if (isPlaneswalkerTarget && defendingPermanent) {
           const damageResult = applyCombatDamageToPlaneswalker(defendingPermanent, attackerPower);
 
@@ -1878,166 +1881,170 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
           }
         }
       } else {
-        // BLOCKED ATTACKER: Deal damage to blockers
-        let remainingDamage = attackerPower;
-        
-        for (const blockerId of blockedBy) {
-          const blocker = battlefield.find((p: any) => p?.id === blockerId);
-          if (!blocker) continue;
+        if (attackerCanAssignDamage) {
+          // BLOCKED ATTACKER: Deal damage to blockers
+          let remainingDamage = attackerPower;
           
-          const blockerCard = blocker.card || {};
-          const blockerStats = getCombatCreatureStats(ctx, blocker);
-          const blockerToughness = blockerStats.toughness;
-          const blockerDamage = blocker.markedDamage || 0;
-          const remainingToughness = Math.max(0, blockerToughness - blockerDamage);
-          
-          // Calculate damage to assign to this blocker
-          // MTG Rule 510.1c: When assigning damage, attacker must assign at least lethal damage
-          // to each blocker in order before moving to the next (unless attacker has deathtouch,
-          // in which case 1 damage counts as lethal for assignment purposes)
-          // 
-          // DEATHTOUCH + TRAMPLE INTERACTION (Rule 702.2b + 702.19c):
-          // When a creature has both deathtouch and trample, it only needs to assign 1 damage
-          // to each blocker (since that's lethal with deathtouch), and all excess tramples through.
-          let lethalDamage: number;
-          if (keywords.deathtouch) {
-            // With deathtouch, 1 damage is considered lethal for damage assignment
-            // If blocker already has lethal damage marked, no need to assign more
-            lethalDamage = remainingToughness > 0 ? 1 : 0;
-          } else {
-            // Without deathtouch, need to assign enough to kill (remaining toughness)
-            lethalDamage = remainingToughness;
-          }
-          
-          // If blocker already has lethal damage, skip assigning more (relevant for trample)
-          if (lethalDamage <= 0) {
-            debug(1, `${ts()} [dealCombatDamage] Blocker ${blockerCard.name || blockerId} already has lethal damage, skipping`);
-            continue;
-          }
-          
-          // Assign lethal damage (or all remaining damage if less than lethal)
-          const damageToBlocker = Math.min(lethalDamage, remainingDamage);
-          
-          if (damageToBlocker > 0) {
-            if (isCombatDamagePreventedForPermanent(blocker)) {
-              remainingDamage -= damageToBlocker;
-              debug(2, `${ts()} [dealCombatDamage] Combat damage to blocker ${blockerCard.name || blockerId} was prevented`);
+          for (const blockerId of blockedBy) {
+            const blocker = battlefield.find((p: any) => p?.id === blockerId);
+            if (!blocker) continue;
+            
+            const blockerCard = blocker.card || {};
+            const blockerStats = getCombatCreatureStats(ctx, blocker);
+            const blockerToughness = blockerStats.toughness;
+            const blockerDamage = blocker.markedDamage || 0;
+            const remainingToughness = Math.max(0, blockerToughness - blockerDamage);
+            
+            // Calculate damage to assign to this blocker
+            // MTG Rule 510.1c: When assigning damage, attacker must assign at least lethal damage
+            // to each blocker in order before moving to the next (unless attacker has deathtouch,
+            // in which case 1 damage counts as lethal for assignment purposes)
+            // 
+            // DEATHTOUCH + TRAMPLE INTERACTION (Rule 702.2b + 702.19c):
+            // When a creature has both deathtouch and trample, it only needs to assign 1 damage
+            // to each blocker (since that's lethal with deathtouch), and all excess tramples through.
+            let lethalDamage: number;
+            if (keywords.deathtouch) {
+              // With deathtouch, 1 damage is considered lethal for damage assignment
+              // If blocker already has lethal damage marked, no need to assign more
+              lethalDamage = remainingToughness > 0 ? 1 : 0;
+            } else {
+              // Without deathtouch, need to assign enough to kill (remaining toughness)
+              lethalDamage = remainingToughness;
+            }
+            
+            // If blocker already has lethal damage, skip assigning more (relevant for trample)
+            if (lethalDamage <= 0) {
+              debug(1, `${ts()} [dealCombatDamage] Blocker ${blockerCard.name || blockerId} already has lethal damage, skipping`);
               continue;
             }
-            if (applyVigorDamageReplacement(ctx, blocker, damageToBlocker, card)) {
-              remainingDamage -= damageToBlocker;
-              continue;
-            }
-            const damageResult = applyDamageToPermanentWithCounterEffects(blocker, damageToBlocker, 'markedDamage');
-            if (damageResult.prevented) {
-              continue;
-            }
-            // Track damage dealt to this permanent this turn (for intervening-if clauses).
-            blocker.damageThisTurn = (blocker.damageThisTurn || 0) + damageToBlocker;
-            blocker.combatDamageThisTurn = (blocker.combatDamageThisTurn || 0) + damageToBlocker;
-            blocker.tookDamageThisTurn = true;
-
-            // Best-effort: track creature damaged by this creature this turn (for intervening-if templates).
-            try {
-              const stateAny = (ctx as any).state as any;
-              const srcId = String(attacker?.id || '').trim();
-              const victimId = String(blocker?.id || '').trim();
-              if (srcId && victimId) {
-                stateAny.creaturesDamagedByThisCreatureThisTurn = stateAny.creaturesDamagedByThisCreatureThisTurn || {};
-                stateAny.creaturesDamagedByThisCreatureThisTurn[srcId] = stateAny.creaturesDamagedByThisCreatureThisTurn[srcId] || {};
-                stateAny.creaturesDamagedByThisCreatureThisTurn[srcId][victimId] = true;
+            
+            // Assign lethal damage (or all remaining damage if less than lethal)
+            const damageToBlocker = Math.min(lethalDamage, remainingDamage);
+            
+            if (damageToBlocker > 0) {
+              if (isCombatDamagePreventedForPermanent(blocker)) {
+                remainingDamage -= damageToBlocker;
+                debug(2, `${ts()} [dealCombatDamage] Combat damage to blocker ${blockerCard.name || blockerId} was prevented`);
+                continue;
               }
-            } catch {
-              // best-effort only
-            }
-            remainingDamage -= damageToBlocker;
-            
-            debug(2, `${ts()} [dealCombatDamage] ${card.name || 'Attacker'} dealt ${damageToBlocker} damage to blocker ${blockerCard.name || blockerId}`);
-            
-            // Check for damage-received triggers (Brash Taunter, Boros Reckoner, etc.)
-            queueDamageReceivedTrigger(ctx, blocker, damageToBlocker);
-            
-            // Check if blocker dies
-            const totalDamageOnBlocker = blocker.markedDamage || 0;
-            const isDead = totalDamageOnBlocker >= blockerToughness || (keywords.deathtouch && totalDamageOnBlocker > 0);
-            
-            if (isDead) {
-              result.creaturesDestroyed.push(blockerId);
-              debug(1, `${ts()} [dealCombatDamage] Blocker ${blockerCard.name || blockerId} received lethal damage`);
-            }
-            
-            // Lifelink for damage dealt to blocker
-            if (keywords.lifelink) {
-              const lifeGainResult = applyLifeGainViaProcessLifeChange(ctx, attackerController as PlayerID, damageToBlocker, `${card.name || 'Attacker'} (lifelink)`);
+              if (applyVigorDamageReplacement(ctx, blocker, damageToBlocker, card)) {
+                remainingDamage -= damageToBlocker;
+                continue;
+              }
+              const damageResult = applyDamageToPermanentWithCounterEffects(blocker, damageToBlocker, 'markedDamage');
+              if (damageResult.prevented) {
+                continue;
+              }
+              // Track damage dealt to this permanent this turn (for intervening-if clauses).
+              blocker.damageThisTurn = (blocker.damageThisTurn || 0) + damageToBlocker;
+              blocker.combatDamageThisTurn = (blocker.combatDamageThisTurn || 0) + damageToBlocker;
+              blocker.tookDamageThisTurn = true;
+
+              // Best-effort: track creature damaged by this creature this turn (for intervening-if templates).
+              try {
+                const stateAny = (ctx as any).state as any;
+                const srcId = String(attacker?.id || '').trim();
+                const victimId = String(blocker?.id || '').trim();
+                if (srcId && victimId) {
+                  stateAny.creaturesDamagedByThisCreatureThisTurn = stateAny.creaturesDamagedByThisCreatureThisTurn || {};
+                  stateAny.creaturesDamagedByThisCreatureThisTurn[srcId] = stateAny.creaturesDamagedByThisCreatureThisTurn[srcId] || {};
+                  stateAny.creaturesDamagedByThisCreatureThisTurn[srcId][victimId] = true;
+                }
+              } catch {
+                // best-effort only
+              }
+              remainingDamage -= damageToBlocker;
               
-              result.lifeGainForPlayers[attackerController] = 
-                (result.lifeGainForPlayers[attackerController] || 0) + lifeGainResult.actualChange;
-            }
-          }
-          
-          if (remainingDamage <= 0 && !keywords.trample) break;
-        }
-        
-        // Trample: Excess damage goes to defending player or planeswalker
-        if (keywords.trample && remainingDamage > 0) {
-          if (isPlaneswalkerTarget && defendingPermanent) {
-            const damageResult = applyCombatDamageToPlaneswalker(defendingPermanent, remainingDamage);
-
-            if (damageResult.appliedAmount > 0) {
-              debug(2, `${ts()} [dealCombatDamage] ${card.name || 'Attacker'} trample: dealt ${damageResult.appliedAmount} excess damage to planeswalker ${defendingPermanent.card?.name || defendingPermanent.id} (${damageResult.remainingLoyalty} loyalty remaining)`);
-
+              debug(2, `${ts()} [dealCombatDamage] ${card.name || 'Attacker'} dealt ${damageToBlocker} damage to blocker ${blockerCard.name || blockerId}`);
+              
+              // Check for damage-received triggers (Brash Taunter, Boros Reckoner, etc.)
+              queueDamageReceivedTrigger(ctx, blocker, damageToBlocker);
+              
+              // Check if blocker dies
+              const totalDamageOnBlocker = blocker.markedDamage || 0;
+              const isDead = totalDamageOnBlocker >= blockerToughness || (keywords.deathtouch && totalDamageOnBlocker > 0);
+              
+              if (isDead) {
+                result.creaturesDestroyed.push(blockerId);
+                debug(1, `${ts()} [dealCombatDamage] Blocker ${blockerCard.name || blockerId} received lethal damage`);
+              }
+              
+              // Lifelink for damage dealt to blocker
               if (keywords.lifelink) {
-                const lifeGainResult = applyLifeGainViaProcessLifeChange(ctx, attackerController as PlayerID, damageResult.appliedAmount, `${card.name || 'Attacker'} (lifelink trample)`);
-
-                result.lifeGainForPlayers[attackerController] =
+                const lifeGainResult = applyLifeGainViaProcessLifeChange(ctx, attackerController as PlayerID, damageToBlocker, `${card.name || 'Attacker'} (lifelink)`);
+                
+                result.lifeGainForPlayers[attackerController] = 
                   (result.lifeGainForPlayers[attackerController] || 0) + lifeGainResult.actualChange;
               }
-            } else if (damageResult.prevented) {
-              debug(2, `${ts()} [dealCombatDamage] ${card.name || 'Attacker'}'s ${remainingDamage} trample damage to planeswalker ${defendingPermanent.card?.name || defendingPermanent.id} was prevented`);
             }
-          } else if (!isPermanentCombatTarget && defendingTarget) {
-            const defendingPlayerId = defendingTarget;
-            const currentLife = life[defendingPlayerId] ?? startingLife;
-            life[defendingPlayerId] = currentLife - remainingDamage;
+            
+            if (remainingDamage <= 0 && !keywords.trample) break;
+          }
+          
+          // Trample: Excess damage goes to defending player or planeswalker
+          if (keywords.trample && remainingDamage > 0) {
+            if (isPlaneswalkerTarget && defendingPermanent) {
+              const damageResult = applyCombatDamageToPlaneswalker(defendingPermanent, remainingDamage);
 
-            // Track damage dealt to each player this turn.
-            try {
-              (state as any).damageTakenThisTurnByPlayer = (state as any).damageTakenThisTurnByPlayer || {};
-              (state as any).damageTakenThisTurnByPlayer[defendingPlayerId] =
-                ((state as any).damageTakenThisTurnByPlayer[defendingPlayerId] || 0) + remainingDamage;
-            } catch {}
+              if (damageResult.appliedAmount > 0) {
+                debug(2, `${ts()} [dealCombatDamage] ${card.name || 'Attacker'} trample: dealt ${damageResult.appliedAmount} excess damage to planeswalker ${defendingPermanent.card?.name || defendingPermanent.id} (${damageResult.remainingLoyalty} loyalty remaining)`);
 
-            // Track life lost this turn for common oracle checks.
-            try {
-              state.lifeLostThisTurn = state.lifeLostThisTurn || {};
-              state.lifeLostThisTurn[defendingPlayerId] = (state.lifeLostThisTurn[defendingPlayerId] || 0) + remainingDamage;
-            } catch {}
-            
-            result.damageToPlayers[defendingPlayerId] = 
-              (result.damageToPlayers[defendingPlayerId] || 0) + remainingDamage;
-            
-            // Track which attacker dealt damage to which player (for batched triggers)
-            if (!result.attackersThatDealtDamage[defendingPlayerId]) {
-              result.attackersThatDealtDamage[defendingPlayerId] = new Set();
-            }
-            result.attackersThatDealtDamage[defendingPlayerId].add(attacker.id);
-            
-            debug(2, `${ts()} [dealCombatDamage] ${card.name || 'Attacker'} trample: dealt ${remainingDamage} excess damage to ${defendingPlayerId}`);
-            
-            // Track commander trample damage (Rule 903.10a)
-            trackCommanderDamage(ctx, attackerController, card, attacker, defendingPlayerId, remainingDamage);
-            
-            // Track that this creature dealt damage to this player this turn (for Reciprocate-style effects)
-            trackCreatureDamageToPlayer(ctx, attacker.id, card.name || 'Unknown Creature', defendingPlayerId, remainingDamage);
-            
-            // Lifelink for trample damage
-            if (keywords.lifelink) {
-              const lifeGainResult = applyLifeGainViaProcessLifeChange(ctx, attackerController as PlayerID, remainingDamage, `${card.name || 'Attacker'} (lifelink trample)`);
+                if (keywords.lifelink) {
+                  const lifeGainResult = applyLifeGainViaProcessLifeChange(ctx, attackerController as PlayerID, damageResult.appliedAmount, `${card.name || 'Attacker'} (lifelink trample)`);
+
+                  result.lifeGainForPlayers[attackerController] =
+                    (result.lifeGainForPlayers[attackerController] || 0) + lifeGainResult.actualChange;
+                }
+              } else if (damageResult.prevented) {
+                debug(2, `${ts()} [dealCombatDamage] ${card.name || 'Attacker'}'s ${remainingDamage} trample damage to planeswalker ${defendingPermanent.card?.name || defendingPermanent.id} was prevented`);
+              }
+            } else if (!isPermanentCombatTarget && defendingTarget) {
+              const defendingPlayerId = defendingTarget;
+              const currentLife = life[defendingPlayerId] ?? startingLife;
+              life[defendingPlayerId] = currentLife - remainingDamage;
+
+              // Track damage dealt to each player this turn.
+              try {
+                (state as any).damageTakenThisTurnByPlayer = (state as any).damageTakenThisTurnByPlayer || {};
+                (state as any).damageTakenThisTurnByPlayer[defendingPlayerId] =
+                  ((state as any).damageTakenThisTurnByPlayer[defendingPlayerId] || 0) + remainingDamage;
+              } catch {}
+
+              // Track life lost this turn for common oracle checks.
+              try {
+                state.lifeLostThisTurn = state.lifeLostThisTurn || {};
+                state.lifeLostThisTurn[defendingPlayerId] = (state.lifeLostThisTurn[defendingPlayerId] || 0) + remainingDamage;
+              } catch {}
               
-              result.lifeGainForPlayers[attackerController] = 
-                (result.lifeGainForPlayers[attackerController] || 0) + lifeGainResult.actualChange;
+              result.damageToPlayers[defendingPlayerId] = 
+                (result.damageToPlayers[defendingPlayerId] || 0) + remainingDamage;
+              
+              // Track which attacker dealt damage to which player (for batched triggers)
+              if (!result.attackersThatDealtDamage[defendingPlayerId]) {
+                result.attackersThatDealtDamage[defendingPlayerId] = new Set();
+              }
+              result.attackersThatDealtDamage[defendingPlayerId].add(attacker.id);
+              
+              debug(2, `${ts()} [dealCombatDamage] ${card.name || 'Attacker'} trample: dealt ${remainingDamage} excess damage to ${defendingPlayerId}`);
+              
+              // Track commander trample damage (Rule 903.10a)
+              trackCommanderDamage(ctx, attackerController, card, attacker, defendingPlayerId, remainingDamage);
+              
+              // Track that this creature dealt damage to this player this turn (for Reciprocate-style effects)
+              trackCreatureDamageToPlayer(ctx, attacker.id, card.name || 'Unknown Creature', defendingPlayerId, remainingDamage);
+              
+              // Lifelink for trample damage
+              if (keywords.lifelink) {
+                const lifeGainResult = applyLifeGainViaProcessLifeChange(ctx, attackerController as PlayerID, remainingDamage, `${card.name || 'Attacker'} (lifelink trample)`);
+                
+                result.lifeGainForPlayers[attackerController] = 
+                  (result.lifeGainForPlayers[attackerController] || 0) + lifeGainResult.actualChange;
+              }
             }
           }
+        } else if (attackerPower <= 0) {
+          debug(2, `${ts()} [dealCombatDamage] ${card.name || attacker.id} is blocked but assigns no combat damage because power is ${attackerPower}`);
         }
         
         // Blockers deal damage back to attackers

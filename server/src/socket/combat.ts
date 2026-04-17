@@ -14,6 +14,7 @@ import { buildTapTriggeredStackItem, serializeTapTriggeredStackItem } from "../s
 import { canExertAsItAttacks, getAttackTriggersForCreatures, getSupportedExertAttackReward } from "../state/modules/triggers/combat.js";
 import { isInterveningIfSatisfied } from "../state/modules/triggers/intervening-if.js";
 import { transformPermanentToFace } from "../state/modules/day-night.js";
+import { getCurrentGoaders } from "../state/modules/goad-effects.js";
 import { creatureHasHaste, permanentHasKeyword } from "./game-actions.js";
 import { debug, debugWarn, debugError } from "../utils/debug.js";
 import { ResolutionQueueManager, ResolutionStepType } from "../state/resolution/index.js";
@@ -243,39 +244,8 @@ function getCreatureGoadStatus(
   creatureController: PlayerID,
   currentTurn: number
 ): { isGoaded: boolean; goaders: PlayerID[] } {
-  const goaders: PlayerID[] = [];
-  
-  // Check for goadedBy tracking (from normal goad effects)
-  const goadedBy = creature.goadedBy;
-  const goadedUntil = creature.goadedUntil || {};
-  
-  if (goadedBy && Array.isArray(goadedBy) && goadedBy.length > 0) {
-    // Check if goad is still active
-    const activeGoaders = goadedBy.filter((goaderId: string) => {
-      const expiryTurn = goadedUntil[goaderId];
-      return expiryTurn === undefined || expiryTurn > currentTurn;
-    });
-    goaders.push(...activeGoaders);
-  }
-  
-  // Check for The Sound of Drums or similar auras that continuously goad
-  // Oracle text: "Enchanted creature is goaded."
-  for (const perm of battlefield) {
-    if (!perm || !perm.card) continue;
-    if (perm.attachedTo !== creature.id) continue;
-    
-    const cardName = (perm.card.name || '').toLowerCase();
-    const oracleText = (perm.card.oracle_text || '').toLowerCase();
-    
-    // The Sound of Drums - enchanted creature is goaded
-    if (cardName.includes('sound of drums') || oracleText.includes('enchanted creature is goaded')) {
-      const auraController = perm.controller;
-      if (!goaders.includes(auraController)) {
-        goaders.push(auraController);
-      }
-    }
-  }
-  
+  const goaders = getCurrentGoaders(creature, battlefield, currentTurn);
+
   return {
     isGoaded: goaders.length > 0,
     goaders
@@ -1188,11 +1158,11 @@ export async function executeDeclareAttackers(
     // Conservative: only mark `true` on positive evidence.
     try {
       const stateAny = game.state as any;
+      const currentTurn = Number((game.state as any).turn || 0);
       const isForced =
         Boolean((creature as any).mustAttackEachCombat) ||
         Boolean((creature as any).mustAttack) ||
-        (Array.isArray((creature as any).goadedBy) && (creature as any).goadedBy.length > 0) ||
-        (typeof (creature as any).goaded === 'object' && (creature as any).goaded !== null && Object.keys((creature as any).goaded).length > 0);
+        getCurrentGoaders(creature, battlefield, currentTurn).length > 0;
 
       if (isForced) {
         stateAny.mustAttackThisCombatByPermanentId = stateAny.mustAttackThisCombatByPermanentId || {};

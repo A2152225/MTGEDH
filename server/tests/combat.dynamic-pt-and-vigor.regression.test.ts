@@ -224,6 +224,100 @@ function setupCombatAgainstPlaneswalker(
   return { active, defending, planeswalkerId: planeswalker.id };
 }
 
+function setupBlockedCombatWithKeywordPhases(
+  game: ReturnType<typeof createInitialGameState>,
+  options: {
+    attacker: {
+      id: string;
+      name: string;
+      power: number;
+      toughness: number;
+      oracleText?: string;
+    };
+    blocker: {
+      id: string;
+      name: string;
+      power: number;
+      toughness: number;
+      oracleText?: string;
+    };
+  }
+) {
+  const p1 = 'p1' as PlayerID;
+  const p2 = 'p2' as PlayerID;
+
+  game.applyEvent({ type: 'join', playerId: p1, name: 'P1' });
+  game.applyEvent({ type: 'join', playerId: p2, name: 'P2' });
+  setupToMain1(game, p1, p2);
+
+  const active = game.state.turnPlayer as PlayerID;
+  const defending = active === p1 ? p2 : p1;
+
+  const attacker = {
+    id: options.attacker.id,
+    controller: active,
+    owner: active,
+    tapped: false,
+    counters: {},
+    summoningSickness: false,
+    basePower: options.attacker.power,
+    baseToughness: options.attacker.toughness,
+    card: {
+      id: `${options.attacker.id}_card`,
+      name: options.attacker.name,
+      type_line: 'Creature',
+      oracle_text: options.attacker.oracleText || '',
+      power: String(options.attacker.power),
+      toughness: String(options.attacker.toughness),
+    },
+  };
+
+  const blocker = {
+    id: options.blocker.id,
+    controller: defending,
+    owner: defending,
+    tapped: false,
+    counters: {},
+    summoningSickness: false,
+    basePower: options.blocker.power,
+    baseToughness: options.blocker.toughness,
+    card: {
+      id: `${options.blocker.id}_card`,
+      name: options.blocker.name,
+      type_line: 'Creature',
+      oracle_text: options.blocker.oracleText || '',
+      power: String(options.blocker.power),
+      toughness: String(options.blocker.toughness),
+    },
+  };
+
+  (game.state as any).battlefield = [attacker, blocker];
+
+  game.applyEvent({ type: 'nextStep' });
+  game.applyEvent({ type: 'nextStep' });
+  game.applyEvent({
+    type: 'declareAttackers',
+    playerId: active,
+    attackers: [{ attackerId: attacker.id, defendingPlayer: defending }],
+  });
+  game.applyEvent({ type: 'nextStep' });
+  game.applyEvent({
+    type: 'declareBlockers',
+    playerId: defending,
+    blockers: [{ blockerId: blocker.id, attackerId: attacker.id }],
+  });
+  (game.state as any).blockersDeclaredBy = [defending];
+
+  game.applyEvent({ type: 'nextStep' });
+
+  const currentStep = String((game.state as any).step || '').toLowerCase();
+  if (currentStep.includes('first_strike_damage')) {
+    game.applyEvent({ type: 'nextStep' });
+  }
+
+  return { active, defending, attackerId: attacker.id, blockerId: blocker.id };
+}
+
 describe('combat regression: dynamic P/T and Vigor', () => {
   it('uses Omnath\'s dynamic toughness when checking lethal combat damage', () => {
     const game = createInitialGameState('combat_dynamic_pt_omnath');
@@ -273,5 +367,57 @@ describe('combat regression: dynamic P/T and Vigor', () => {
     expect((game.state as any).life?.[defending]).toBe(40);
     expect((game.state as any).life?.[active]).toBe(45);
     expect((game.state as any).life?.[planeswalkerId]).toBeUndefined();
+  });
+
+  it('lets a first-strike blocker kill a normal attacker before the regular damage step', () => {
+    const game = createInitialGameState('combat_first_strike_blocker');
+    const { attackerId, blockerId } = setupBlockedCombatWithKeywordPhases(game, {
+      attacker: {
+        id: 'attacker_fs_bug',
+        name: 'Vanilla Attacker',
+        power: 3,
+        toughness: 3,
+      },
+      blocker: {
+        id: 'blocker_fs_bug',
+        name: 'First Strike Blocker',
+        power: 4,
+        toughness: 3,
+        oracleText: 'First strike',
+      },
+    });
+
+    const battlefield = (game.state as any).battlefield || [];
+    const blocker = battlefield.find((perm: any) => perm?.id === blockerId);
+
+    expect(battlefield.some((perm: any) => perm?.id === attackerId)).toBe(false);
+    expect(blocker).toBeTruthy();
+    expect(Number(blocker?.markedDamage || 0)).toBe(0);
+  });
+
+  it('lets a surviving normal blocker deal regular combat damage back to a first-strike attacker', () => {
+    const game = createInitialGameState('combat_first_strike_attacker');
+    const { attackerId, blockerId } = setupBlockedCombatWithKeywordPhases(game, {
+      attacker: {
+        id: 'attacker_first_strike_only',
+        name: 'First Strike Attacker',
+        power: 2,
+        toughness: 2,
+        oracleText: 'First strike',
+      },
+      blocker: {
+        id: 'blocker_regular',
+        name: 'Regular Blocker',
+        power: 3,
+        toughness: 3,
+      },
+    });
+
+    const battlefield = (game.state as any).battlefield || [];
+    const blocker = battlefield.find((perm: any) => perm?.id === blockerId);
+
+    expect(battlefield.some((perm: any) => perm?.id === attackerId)).toBe(false);
+    expect(blocker).toBeTruthy();
+    expect(Number(blocker?.markedDamage || 0)).toBe(2);
   });
 });
