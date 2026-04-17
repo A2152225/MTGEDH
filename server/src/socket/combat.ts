@@ -1177,6 +1177,7 @@ export async function executeDeclareAttackers(
           if (!tl.includes('creature')) return false;
           if (p.tapped) return false;
           if (p.attacking) return false;
+          if ((p as any).summoningSickness && !creatureHasHaste(p, battlefield as any, playerId)) return false;
           return true;
         })
         .map((p: any) => ({
@@ -1685,6 +1686,64 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
             });
           }
         }
+      }
+
+      // Enlist (702.153): as each enlisted creature attacks, its controller may tap another creature.
+      // The live declareAttackers socket path still has its own inline combat flow, so enqueue the
+      // optional enlist choice here as well to match executeDeclareAttackers used by AI and paid attacks.
+      try {
+        for (const attackerId of attackerIds) {
+          const attacker = battlefield.find((p: any) => p && String(p.id) === String(attackerId));
+          if (!attacker) continue;
+          const oracleText = String((attacker as any)?.card?.oracle_text || '');
+          if (!/\benlist\b/i.test(oracleText)) continue;
+
+          const valid = battlefield
+            .filter((p: any) => {
+              if (!p) return false;
+              if (String(p.controller || '') !== String(playerId)) return false;
+              if (String(p.id) === String(attackerId)) return false;
+              const tl = String(p.card?.type_line || '').toLowerCase();
+              if (!tl.includes('creature')) return false;
+              if (p.tapped) return false;
+              if (p.attacking) return false;
+              if ((p as any).summoningSickness && !creatureHasHaste(p, battlefield as any, playerId)) return false;
+              return true;
+            })
+            .map((p: any) => ({
+              id: String(p.id),
+              label: `${p.card?.name || 'Creature'} (${getEffectivePower(p)}/${getEffectiveToughness(p)})`,
+              description: String(p.card?.type_line || 'Creature'),
+              imageUrl: p.card?.image_uris?.small || p.card?.image_uris?.normal,
+            }));
+
+          if (valid.length === 0) continue;
+
+          const existing = ResolutionQueueManager
+            .getStepsForPlayer(gameId, playerId as any)
+            .find((s: any) => s?.type === ResolutionStepType.TARGET_SELECTION && (s as any)?.enlistChoice === true && String(s?.sourceId) === String(attackerId));
+
+          if (!existing) {
+            ResolutionQueueManager.addStep(gameId, {
+              type: ResolutionStepType.TARGET_SELECTION,
+              playerId: playerId as any,
+              sourceId: attackerId,
+              sourceName: String((attacker as any)?.card?.name || 'Enlist'),
+              sourceImage: (attacker as any)?.card?.image_uris?.small || (attacker as any)?.card?.image_uris?.normal,
+              description: 'Enlist — You may tap another untapped nonattacking creature you control.',
+              mandatory: false,
+              validTargets: valid,
+              targetTypes: ['enlist_creature'],
+              minTargets: 1,
+              maxTargets: 1,
+              targetDescription: 'creature to tap for enlist',
+              enlistChoice: true,
+              enlistAttackerId: attackerId,
+            } as any);
+          }
+        }
+      } catch (e) {
+        debugWarn(1, '[combat] Failed to enqueue enlist choice steps:', e);
       }
 
       // ========================================================================

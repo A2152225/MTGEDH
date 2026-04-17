@@ -33,7 +33,7 @@ import {
   applyExplore,
 } from "./zones";
 import { setCommander, castCommander, moveCommanderToCZ } from "./commander";
-import { exchangePermanentOracleText, parsePT } from "../utils";
+import { calculateAllPTBonuses, calculateVariablePT, exchangePermanentOracleText, parsePT } from "../utils";
 import { filterLibraryCardsForSearch } from "../../socket/library-search.js";
 import {
   updateCounters,
@@ -49,7 +49,7 @@ import {
   movePermanentToExile,
 } from "./counters_tokens";
 import { cleanupCardLeavingExile } from "./playable-from-exile";
-import { pushStack, resolveTopOfStack, playLand, castSpell, triggerETBEffectsForToken } from "./stack";
+import { applyMyriadTokenCopies, pushStack, resolveTopOfStack, playLand, castSpell, triggerETBEffectsForToken } from "./stack";
 import { exileEntireStack } from "./stack";
 import { permanentHasKeyword } from "./keyword-handlers";
 import { nextTurn, nextStep, passPriority } from "./turn";
@@ -196,6 +196,41 @@ function generateDeterministicId(ctx: any, prefix: string, cardId: string): stri
   // Fallback: use card ID with a counter (incremented on ctx)
   ctx._idCounter = (ctx._idCounter || 0) + 1;
   return `${prefix}_${cardId}_${ctx._idCounter}`;
+}
+
+function getCurrentCombatPowerSnapshot(permanent: any, state: any): number {
+  const card = permanent?.card || {};
+
+  let basePower = parsePT((permanent as any)?.basePower);
+  if (!Number.isFinite(basePower as number)) {
+    basePower = parsePT(card?.power);
+  }
+
+  if (!Number.isFinite(basePower as number)) {
+    const variablePT = calculateVariablePT({ ...(card || {}), controller: (permanent as any)?.controller }, state);
+    if (variablePT && Number.isFinite(variablePT.power)) {
+      basePower = Number(variablePT.power);
+    }
+  }
+
+  const plusCounters = Number((permanent as any)?.counters?.['+1/+1'] || 0);
+  const minusCounters = Number((permanent as any)?.counters?.['-1/-1'] || 0);
+  let otherCounterPower = 0;
+
+  if ((permanent as any)?.counters && typeof (permanent as any).counters === 'object') {
+    for (const [counterType, amountRaw] of Object.entries((permanent as any).counters)) {
+      if (counterType === '+1/+1' || counterType === '-1/-1') continue;
+      const counterMatch = String(counterType).match(/^([+-]?\d+)\/([+-]?\d+)$/);
+      if (!counterMatch) continue;
+      otherCounterPower += parseInt(counterMatch[1], 10) * Number(amountRaw || 0);
+    }
+  }
+
+  const allBonuses = calculateAllPTBonuses(permanent, state);
+  return Math.max(
+    0,
+    Number(basePower || 0) + plusCounters - minusCounters + otherCounterPower + Number(allBonuses.power || 0)
+  );
 }
 
 function clearReplayDanceWithCalamitySteps(gameId: string, playerId: string, effectId: string): void {
@@ -2929,11 +2964,16 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           const enlisted = battlefield.find((p: any) => p && String(p.id) === enlistedCreatureId);
           if (!attacker || !enlisted) break;
 
+          const enlistedPower = getCurrentCombatPowerSnapshot(enlisted, ctx.state);
+
           // Tap the enlisted creature and record that enlist was used.
           (enlisted as any).tapped = true;
           (attacker as any).enlistedThisCombat = true;
           (attacker as any).enlistedCreatureThisCombat = true;
           (attacker as any).enlistedCreatureIdThisCombat = enlistedCreatureId;
+          (attacker as any).temporaryPowerBoost = ((attacker as any).temporaryPowerBoost || 0) + enlistedPower;
+          delete (attacker as any).effectivePower;
+          delete (attacker as any).effectiveToughness;
 
           // Intervening-if support: track that this player tapped a nonland permanent this turn.
           if (pid) {
@@ -8592,6 +8632,9 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
         const triggeringStackItemId = (e as any).triggeringStackItemId;
         const triggeringPermanentId = (e as any).triggeringPermanentId;
         const effectData = (e as any).effectData;
+        const card = (e as any).card;
+        const sourcePermanentSnapshot = (e as any).sourcePermanentSnapshot;
+        const dyingCreature = (e as any).dyingCreature;
         
         try {
           // Check if this trigger is already on the stack (idempotency for replay)
@@ -8654,6 +8697,9 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
             ...(triggeringStackItemId ? { triggeringStackItemId } : null),
             ...(triggeringPermanentId ? { triggeringPermanentId } : null),
             ...(effectData && typeof effectData === 'object' ? { effectData } : null),
+            ...(card && typeof card === 'object' ? { card } : null),
+            ...(sourcePermanentSnapshot && typeof sourcePermanentSnapshot === 'object' ? { sourcePermanentSnapshot } : null),
+            ...(dyingCreature && typeof dyingCreature === 'object' ? { dyingCreature } : null),
           } as any);
           
           debug(2, `[applyEvent] Pushed triggered ability: ${sourceName} - ${description}`);
@@ -10365,6 +10411,50 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           ctx.bumpSeq();
         } catch (err) {
           debugWarn(1, "applyEvent(optionChoice): failed", err);
+        }
+        break;
+      }
+
+      case "myriadChoice": {
+        try {
+          const playerId = String((e as any).playerId || '').trim();
+          const selectedOpponentIds = Array.isArray((e as any).selectedOpponentIds)
+            ? ((e as any).selectedOpponentIds as any[])
+                .map((value: any) => String(value || '').trim())
+                .filter(Boolean)
+            : [];
+          const createdPermanentIds = Array.isArray((e as any).createdPermanentIds)
+            ? ((e as any).createdPermanentIds as any[])
+                .map((value: any) => String(value || '').trim())
+                .filter(Boolean)
+            : [];
+          const sourcePermanentSnapshot = (e as any).sourcePermanentSnapshot && typeof (e as any).sourcePermanentSnapshot === 'object'
+            ? JSON.parse(JSON.stringify((e as any).sourcePermanentSnapshot))
+            : null;
+          const sourceName = String((e as any).sourceName || sourcePermanentSnapshot?.card?.name || 'Myriad').trim() || 'Myriad';
+          const permanentId = String((e as any).permanentId || '').trim();
+          const battlefield = Array.isArray(ctx.state?.battlefield) ? ctx.state.battlefield : [];
+          const sourcePermanent = sourcePermanentSnapshot
+            || battlefield.find((permanent: any) => String(permanent?.id || '') === permanentId)
+            || null;
+
+          if (!playerId || !sourcePermanent) {
+            debugWarn(2, `[applyEvent] myriadChoice: missing source snapshot for ${permanentId || 'unknown permanent'}`);
+            ctx.bumpSeq();
+            break;
+          }
+
+          applyMyriadTokenCopies(
+            ctx as any,
+            sourcePermanent,
+            playerId as any,
+            selectedOpponentIds,
+            createdPermanentIds,
+            sourceName,
+          );
+          ctx.bumpSeq();
+        } catch (err) {
+          debugWarn(1, 'applyEvent(myriadChoice): failed', err);
         }
         break;
       }

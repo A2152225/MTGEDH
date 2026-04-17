@@ -4937,8 +4937,12 @@ export function getEffectivePower(permanent: any): number {
       }
     }
   }
+
+  const temporaryPower =
+    (typeof permanent.temporaryPowerBoost === 'number' ? permanent.temporaryPowerBoost : 0) +
+    (typeof permanent.powerBoost === 'number' ? permanent.powerBoost : 0);
   
-  return Math.max(0, basePower + counterDelta + otherCounterPower + modifierPower);
+  return Math.max(0, basePower + counterDelta + otherCounterPower + modifierPower + temporaryPower);
 }
 
 /**
@@ -4990,8 +4994,12 @@ export function getEffectiveToughness(permanent: any): number {
       }
     }
   }
+
+  const temporaryToughness =
+    (typeof permanent.temporaryToughnessBoost === 'number' ? permanent.temporaryToughnessBoost : 0) +
+    (typeof permanent.toughnessBoost === 'number' ? permanent.toughnessBoost : 0);
   
-  return Math.max(0, baseToughness + counterDelta + otherCounterToughness + modifierToughness);
+  return Math.max(0, baseToughness + counterDelta + otherCounterToughness + modifierToughness + temporaryToughness);
 }
 
 /**

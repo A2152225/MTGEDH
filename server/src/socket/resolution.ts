@@ -74,6 +74,7 @@ import { dispatchDamageReceivedTrigger, processDamageReceivedTriggers, resolveDa
 import { getTokenImageUrls } from "../services/tokens.js";
 import { normalizeCardName } from "../state/modules/chosen-name-restrictions.js";
 import {
+  applyMyriadTokenCopies,
   executeTriggerEffect,
   inferTriggeredAbilityTargetMetadata,
   queueSelfETBTriggersForPermanent,
@@ -3553,7 +3554,8 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
         (step as any)?.wardPayment === true ||
         (step as any)?.phyrexianManaChoice === true ||
         (step as any)?.sacrificeUnlessPayChoice === true
-      ));
+      )) ||
+      step.type === ResolutionStepType.EXTORT_PAYMENT;
 
     if (cancelled && step.mandatory && !isCancellableMandatoryStep) {
       socket.emit("error", { code: "STEP_MANDATORY", message: "This step is mandatory and cannot be cancelled" });
@@ -4467,6 +4469,45 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
             return;
           }
         }
+      }
+    }
+
+    if (step.type === ResolutionStepType.EXTORT_PAYMENT && !cancelled) {
+      const stepAny = step as any;
+      const manaCost = String(stepAny?.manaCost || '{W/B}').trim();
+      const validationGame = cloneGameForResolutionPaymentValidation(game, pid);
+      const payment = extractResolutionPaymentItems(response.selections as any);
+      const applied = applySelectedManaPaymentForResolutionCost(validationGame, pid, manaCost, payment);
+      if (!applied.ok) {
+        const appliedError = applied as { ok: false; code: string; message: string };
+        socket.emit('error', {
+          code: appliedError.code,
+          message: appliedError.message,
+        });
+        return;
+      }
+    }
+
+    if (step.type === ResolutionStepType.EXPLOIT_CHOICE && !cancelled) {
+      const stepAny = step as any;
+      const selectedId = String(extractResolutionChoiceId(response.selections) || '').trim();
+      const allowedCreatureIds = new Set(
+        (Array.isArray(stepAny?.creatures) ? stepAny.creatures : [])
+          .map((creature: any) => String(creature?.id || '').trim())
+          .filter(Boolean)
+      );
+      const battlefield = Array.isArray(game?.state?.battlefield) ? game.state.battlefield : [];
+      const selectedPermanent = battlefield.find((permanent: any) => String(permanent?.id || '').trim() === selectedId) || null;
+      const selectedTypeLine = String(selectedPermanent?.card?.type_line || '').toLowerCase();
+
+      if (!selectedId || !allowedCreatureIds.has(selectedId)) {
+        socket.emit('error', { code: 'INVALID_SELECTION', message: 'Invalid exploit sacrifice selection' });
+        return;
+      }
+
+      if (!selectedPermanent || String(selectedPermanent?.controller || '').trim() !== pid || !selectedTypeLine.includes('creature')) {
+        socket.emit('error', { code: 'INVALID_SELECTION', message: 'Selected exploit creature is no longer a legal sacrifice' });
+        return;
       }
     }
 
@@ -7861,6 +7902,37 @@ function getTypeSpecificFields(step: ResolutionStep): Record<string, any> {
       if ('targets' in step) fields.targets = (step as any).targets;
       if ('minSelections' in step) fields.minSelections = (step as any).minSelections;
       if ('maxSelections' in step) fields.maxSelections = (step as any).maxSelections;
+      break;
+
+    case ResolutionStepType.EXPLOIT_CHOICE:
+      if ('permanentId' in step) fields.permanentId = (step as any).permanentId;
+      if ('creatures' in step) fields.creatures = (step as any).creatures;
+      if ('minSelections' in step) fields.minSelections = (step as any).minSelections;
+      if ('maxSelections' in step) fields.maxSelections = (step as any).maxSelections;
+      break;
+
+    case ResolutionStepType.EXTORT_PAYMENT:
+      if ('permanentId' in step) fields.permanentId = (step as any).permanentId;
+      if ('cardName' in step) fields.cardName = (step as any).cardName;
+      if ('manaCost' in step) fields.manaCost = (step as any).manaCost;
+      if ('effectText' in step) fields.effectText = (step as any).effectText;
+      if ('confirmLabel' in step) fields.confirmLabel = (step as any).confirmLabel;
+      break;
+
+    case ResolutionStepType.MODULAR_CHOICE:
+      if ('permanentId' in step) fields.permanentId = (step as any).permanentId;
+      if ('targets' in step) fields.targets = (step as any).targets;
+      if ('minSelections' in step) fields.minSelections = (step as any).minSelections;
+      if ('maxSelections' in step) fields.maxSelections = (step as any).maxSelections;
+      if ('value' in step) fields.value = (step as any).value;
+      break;
+
+    case ResolutionStepType.SOULSHIFT_TARGET:
+      if ('permanentId' in step) fields.permanentId = (step as any).permanentId;
+      if ('spirits' in step) fields.spirits = (step as any).spirits;
+      if ('minSelections' in step) fields.minSelections = (step as any).minSelections;
+      if ('maxSelections' in step) fields.maxSelections = (step as any).maxSelections;
+      if ('value' in step) fields.value = (step as any).value;
       break;
       
     case ResolutionStepType.CASCADE:
@@ -12119,6 +12191,22 @@ async function handleStepResponse(
     case ResolutionStepType.MENTOR_TARGET:
       handleMentorTargetResponse(io, game, gameId, step, response);
       break;
+
+    case ResolutionStepType.EXPLOIT_CHOICE:
+      await handleExploitChoiceResponse(io, game, gameId, step, response);
+      break;
+
+    case ResolutionStepType.EXTORT_PAYMENT:
+      handleExtortPaymentResponse(io, game, gameId, step, response);
+      break;
+
+    case ResolutionStepType.MODULAR_CHOICE:
+      handleModularChoiceResponse(io, game, gameId, step, response);
+      break;
+
+    case ResolutionStepType.SOULSHIFT_TARGET:
+      handleSoulshiftTargetResponse(io, game, gameId, step, response);
+      break;
     
     case ResolutionStepType.UPKEEP_SACRIFICE:
       handleUpkeepSacrificeResponse(io, game, gameId, step, response);
@@ -12166,6 +12254,189 @@ function emitKeywordChoiceChat(io: Server, gameId: string, sourceName: string, m
     message: `${sourceName}: ${message}`,
     ts: Date.now(),
   });
+}
+
+function cloneResolutionPermanentSnapshot(permanent: any): any {
+  if (!permanent || typeof permanent !== 'object') {
+    return undefined;
+  }
+
+  return {
+    ...permanent,
+    ...(permanent.card && typeof permanent.card === 'object'
+      ? { card: { ...permanent.card } }
+      : null),
+    ...(permanent.counters && typeof permanent.counters === 'object'
+      ? { counters: { ...permanent.counters } }
+      : null),
+  };
+}
+
+function normalizeExploitTriggerText(value: string): string {
+  return String(value || '')
+    .replace(/[’]/g, "'")
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function extractSelfExploitTriggeredEffects(sourceCard: any, sourceName: string): Array<{ fullText: string; effectText: string }> {
+  const oracleText = String(sourceCard?.oracle_text || '').trim();
+  if (!oracleText) {
+    return [];
+  }
+
+  const normalizedName = normalizeExploitTriggerText(String(sourceCard?.name || sourceName || '')).toLowerCase();
+  const lines = oracleText
+    .split(/\r?\n/)
+    .map((line) => String(line || '').trim())
+    .filter(Boolean);
+
+  const effects: Array<{ fullText: string; effectText: string }> = [];
+  for (const line of lines) {
+    const normalizedLine = normalizeExploitTriggerText(line);
+    const lowerLine = normalizedLine.toLowerCase();
+    const selfPrefix = 'when this creature exploits a creature, ';
+    const namedPrefix = normalizedName ? `when ${normalizedName} exploits a creature, ` : '';
+
+    if (lowerLine.startsWith(selfPrefix)) {
+      const effectText = normalizedLine.slice(selfPrefix.length).trim();
+      if (effectText) {
+        effects.push({ fullText: normalizedLine, effectText });
+      }
+      continue;
+    }
+
+    if (namedPrefix && lowerLine.startsWith(namedPrefix)) {
+      const effectText = normalizedLine.slice(namedPrefix.length).trim();
+      if (effectText) {
+        effects.push({ fullText: normalizedLine, effectText });
+      }
+    }
+  }
+
+  return effects;
+}
+
+function extractControlledExploitTriggeredEffects(sourceCard: any): Array<{ fullText: string; effectText: string }> {
+  const oracleText = String(sourceCard?.oracle_text || '').trim();
+  if (!oracleText) {
+    return [];
+  }
+
+  const lines = oracleText
+    .split(/\r?\n/)
+    .map((line) => String(line || '').trim())
+    .filter(Boolean);
+  const prefix = 'whenever a creature you control exploits a creature, ';
+
+  return lines
+    .map((line) => normalizeExploitTriggerText(line))
+    .filter((line) => line.toLowerCase().startsWith(prefix))
+    .map((line) => ({
+      fullText: line,
+      effectText: line.slice(prefix.length).trim(),
+    }))
+    .filter((entry) => entry.effectText.length > 0);
+}
+
+function pushExploitTriggeredEffectOntoStack(
+  game: any,
+  gameId: string,
+  sourcePermanent: any,
+  sourceSnapshot: any,
+  controllerId: string,
+  sourceName: string,
+  trigger: { fullText: string; effectText: string },
+): void {
+  const sourceForMetadata = sourcePermanent || sourceSnapshot;
+  const metadata = inferTriggeredAbilityTargetMetadata(trigger.effectText, {
+    gameState: game.state,
+    controllerId,
+    sourceName,
+    sourcePermanent: sourceForMetadata,
+  });
+  const triggerId = uid('trigger');
+  const stackItem = {
+    id: triggerId,
+    type: 'triggered_ability',
+    controller: controllerId,
+    source: String(sourceForMetadata?.id || sourceSnapshot?.id || ''),
+    sourceName,
+    description: trigger.fullText,
+    triggerType: 'exploit',
+    effect: trigger.effectText,
+    mandatory: true,
+    ...(sourceForMetadata?.id ? { permanentId: String(sourceForMetadata.id) } : null),
+    ...(typeof metadata.requiresTarget === 'boolean' ? { requiresTarget: metadata.requiresTarget } : null),
+    ...(metadata.targetType ? { targetType: metadata.targetType } : null),
+    ...(metadata.targetConstraint ? { targetConstraint: metadata.targetConstraint } : null),
+    ...(metadata.requiresTarget ? { needsTargetSelection: true } : null),
+    ...(metadata.targetZone ? { targetZone: metadata.targetZone } : null),
+    ...(metadata.targetDestination ? { targetDestination: metadata.targetDestination } : null),
+    ...(metadata.targetGraveyardScope ? { targetGraveyardScope: metadata.targetGraveyardScope } : null),
+    ...(metadata.destinationUsesSelectedCardOwner === true ? { destinationUsesSelectedCardOwner: true } : null),
+    ...(metadata.battlefieldControllerMode ? { battlefieldControllerMode: metadata.battlefieldControllerMode } : null),
+    ...(metadata.battlefieldCounters ? { battlefieldCounters: metadata.battlefieldCounters } : null),
+    ...(metadata.targetAction ? { targetAction: metadata.targetAction } : null),
+    ...(Array.isArray(metadata.targetFilterTypes) ? { targetFilterTypes: metadata.targetFilterTypes } : null),
+    ...(Array.isArray(metadata.targetFilterRequiredTypeWords) ? { targetFilterRequiredTypeWords: metadata.targetFilterRequiredTypeWords } : null),
+    ...(Array.isArray(metadata.targetFilterExcludeTypes) ? { targetFilterExcludeTypes: metadata.targetFilterExcludeTypes } : null),
+    ...(metadata.targetFilterPermanentOnly === true ? { targetFilterPermanentOnly: true } : null),
+    ...(typeof metadata.targetFilterExactManaValue === 'number' ? { targetFilterExactManaValue: metadata.targetFilterExactManaValue } : null),
+    ...(typeof metadata.targetFilterMinManaValue === 'number' ? { targetFilterMinManaValue: metadata.targetFilterMinManaValue } : null),
+    ...(typeof metadata.targetFilterMaxManaValue === 'number' ? { targetFilterMaxManaValue: metadata.targetFilterMaxManaValue } : null),
+    ...(typeof metadata.targetTotalPowerLimit === 'number' ? { targetTotalPowerLimit: metadata.targetTotalPowerLimit } : null),
+    ...(metadata.targetCastWithoutPayingManaCost === true ? { targetCastWithoutPayingManaCost: true } : null),
+    ...(metadata.targetCastIsOptional === true ? { targetCastIsOptional: true } : null),
+    ...(typeof metadata.minTargets === 'number' ? { minTargets: metadata.minTargets } : null),
+    ...(typeof metadata.maxTargets === 'number' ? { maxTargets: metadata.maxTargets } : null),
+    ...(sourceForMetadata?.card && typeof sourceForMetadata.card === 'object' ? { card: { ...sourceForMetadata.card } } : null),
+    ...(sourceSnapshot && typeof sourceSnapshot === 'object' ? { sourcePermanentSnapshot: sourceSnapshot } : null),
+  } as any;
+
+  game.state.stack = Array.isArray(game.state?.stack) ? game.state.stack : [];
+  game.state.stack.push(stackItem);
+
+  try {
+    appendEvent(gameId, (game as any).seq ?? 0, 'pushTriggeredAbility', {
+      triggerId,
+      sourceId: String(sourceForMetadata?.id || sourceSnapshot?.id || ''),
+      ...(sourceForMetadata?.id ? { permanentId: String(sourceForMetadata.id) } : null),
+      sourceName,
+      controllerId,
+      description: trigger.fullText,
+      triggerType: 'exploit',
+      effect: trigger.effectText,
+      mandatory: true,
+      ...(typeof metadata.requiresTarget === 'boolean' ? { requiresTarget: metadata.requiresTarget } : null),
+      ...(metadata.targetType ? { targetType: metadata.targetType } : null),
+      ...(metadata.targetConstraint ? { targetConstraint: metadata.targetConstraint } : null),
+      ...(metadata.requiresTarget ? { needsTargetSelection: true } : null),
+      ...(metadata.targetZone ? { targetZone: metadata.targetZone } : null),
+      ...(metadata.targetDestination ? { targetDestination: metadata.targetDestination } : null),
+      ...(metadata.targetGraveyardScope ? { targetGraveyardScope: metadata.targetGraveyardScope } : null),
+      ...(metadata.destinationUsesSelectedCardOwner === true ? { destinationUsesSelectedCardOwner: true } : null),
+      ...(metadata.battlefieldControllerMode ? { battlefieldControllerMode: metadata.battlefieldControllerMode } : null),
+      ...(metadata.battlefieldCounters ? { battlefieldCounters: metadata.battlefieldCounters } : null),
+      ...(metadata.targetAction ? { targetAction: metadata.targetAction } : null),
+      ...(Array.isArray(metadata.targetFilterTypes) ? { targetFilterTypes: metadata.targetFilterTypes } : null),
+      ...(Array.isArray(metadata.targetFilterRequiredTypeWords) ? { targetFilterRequiredTypeWords: metadata.targetFilterRequiredTypeWords } : null),
+      ...(Array.isArray(metadata.targetFilterExcludeTypes) ? { targetFilterExcludeTypes: metadata.targetFilterExcludeTypes } : null),
+      ...(metadata.targetFilterPermanentOnly === true ? { targetFilterPermanentOnly: true } : null),
+      ...(typeof metadata.targetFilterExactManaValue === 'number' ? { targetFilterExactManaValue: metadata.targetFilterExactManaValue } : null),
+      ...(typeof metadata.targetFilterMinManaValue === 'number' ? { targetFilterMinManaValue: metadata.targetFilterMinManaValue } : null),
+      ...(typeof metadata.targetFilterMaxManaValue === 'number' ? { targetFilterMaxManaValue: metadata.targetFilterMaxManaValue } : null),
+      ...(typeof metadata.targetTotalPowerLimit === 'number' ? { targetTotalPowerLimit: metadata.targetTotalPowerLimit } : null),
+      ...(metadata.targetCastWithoutPayingManaCost === true ? { targetCastWithoutPayingManaCost: true } : null),
+      ...(metadata.targetCastIsOptional === true ? { targetCastIsOptional: true } : null),
+      ...(typeof metadata.minTargets === 'number' ? { minTargets: metadata.minTargets } : null),
+      ...(typeof metadata.maxTargets === 'number' ? { maxTargets: metadata.maxTargets } : null),
+      ...(sourceForMetadata?.card && typeof sourceForMetadata.card === 'object' ? { card: { ...sourceForMetadata.card } } : null),
+      ...(sourceSnapshot && typeof sourceSnapshot === 'object' ? { sourcePermanentSnapshot: sourceSnapshot } : null),
+    });
+  } catch (err) {
+    debugWarn(1, '[Resolution] Failed to persist exploit trigger pushTriggeredAbility:', err);
+  }
 }
 
 function handleRiotChoiceResponse(
@@ -12419,6 +12690,267 @@ function handleMentorTargetResponse(
     gameId,
     sourceName,
     `${getPlayerName(game, response.playerId)} put a +1/+1 counter on ${targetPermanent.card?.name || 'the target creature'} with mentor.`
+  );
+
+  if (typeof game.bumpSeq === 'function') {
+    game.bumpSeq();
+  }
+  broadcastGame(io, game, gameId);
+}
+
+async function handleExploitChoiceResponse(
+  io: Server,
+  game: any,
+  gameId: string,
+  step: ResolutionStep,
+  response: ResolutionStepResponse
+): Promise<void> {
+  if (response.cancelled) {
+    return;
+  }
+
+  const selectedPermanentId = String(extractResolutionChoiceId(response.selections) || '').trim();
+  const sourcePermanent = findKeywordChoicePermanent(game, step);
+  const sourceSnapshot = cloneResolutionPermanentSnapshot(sourcePermanent);
+  const controllerId = String(step.playerId || response.playerId || '').trim();
+  const validCreatureIds = new Set(
+    (Array.isArray((step as any)?.creatures) ? (step as any).creatures : [])
+      .map((creature: any) => String(creature?.id || '').trim())
+      .filter(Boolean)
+  );
+  const battlefield = Array.isArray(game?.state?.battlefield) ? game.state.battlefield : [];
+  const selectedPermanent = battlefield.find((permanent: any) => String(permanent?.id || '').trim() === selectedPermanentId) || null;
+  const sourceName = String(step.sourceName || sourcePermanent?.card?.name || sourceSnapshot?.card?.name || 'Exploit');
+
+  if (!selectedPermanentId || !validCreatureIds.has(selectedPermanentId) || !selectedPermanent) {
+    debugWarn(1, `[Resolution] Exploit choice could not be applied for step ${step.id}`);
+    return;
+  }
+
+  const ctx = {
+    gameId,
+    state: game.state,
+    zones: game.state?.zones,
+    libraries: (game as any).libraries,
+    commandZone: (game.state as any).commandZone || {},
+    bumpSeq: typeof (game as any).bumpSeq === 'function' ? (game as any).bumpSeq.bind(game) : (() => {}),
+  } as unknown as GameContext;
+
+  const { movePermanentToGraveyard } = await import('../state/modules/counters_tokens.js');
+  const moved = movePermanentToGraveyard(ctx, selectedPermanentId, true);
+  if (!moved) {
+    debugWarn(1, `[Resolution] Exploit sacrifice failed for step ${step.id}`);
+    return;
+  }
+
+  emitKeywordChoiceChat(
+    io,
+    gameId,
+    sourceName,
+    `${getPlayerName(game, controllerId)} sacrificed ${selectedPermanent?.card?.name || 'a creature'} for exploit.`
+  );
+
+  const currentBattlefield = Array.isArray(game?.state?.battlefield) ? game.state.battlefield : [];
+  const currentSourcePermanent = currentBattlefield.find((permanent: any) => String(permanent?.id || '').trim() === String((step as any)?.permanentId || step.sourceId || '').trim()) || null;
+  const sourceCard = currentSourcePermanent?.card || sourceSnapshot?.card;
+  const exploitTriggers = extractSelfExploitTriggeredEffects(sourceCard, sourceName);
+
+  for (const trigger of exploitTriggers) {
+    pushExploitTriggeredEffectOntoStack(
+      game,
+      gameId,
+      currentSourcePermanent,
+      sourceSnapshot,
+      controllerId,
+      sourceName,
+      trigger,
+    );
+  }
+
+  const exploitWatchers = currentBattlefield.filter((permanent: any) => String(permanent?.controller || '').trim() === controllerId);
+  for (const watcher of exploitWatchers) {
+    const watcherName = String(watcher?.card?.name || watcher?.id || 'Exploit');
+    const watcherTriggers = extractControlledExploitTriggeredEffects(watcher?.card);
+    for (const trigger of watcherTriggers) {
+      pushExploitTriggeredEffectOntoStack(
+        game,
+        gameId,
+        watcher,
+        cloneResolutionPermanentSnapshot(watcher),
+        controllerId,
+        watcherName,
+        trigger,
+      );
+    }
+  }
+
+  if (typeof game.bumpSeq === 'function') {
+    game.bumpSeq();
+  }
+  broadcastGame(io, game, gameId);
+}
+
+function handleExtortPaymentResponse(
+  io: Server,
+  game: any,
+  gameId: string,
+  step: ResolutionStep,
+  response: ResolutionStepResponse
+): void {
+  const stepData = step as any;
+  const choiceId = String(extractResolutionChoiceId(response.selections) || '').trim().toLowerCase();
+  if (response.cancelled || choiceId === 'skip') {
+    return;
+  }
+
+  const pid = String(response.playerId || step.playerId || '').trim();
+  const manaCost = String(stepData?.manaCost || '{W/B}').trim();
+  const payment = extractResolutionPaymentItems(response.selections as any);
+  const applied = applySelectedManaPaymentForResolutionCost(game, pid, manaCost, payment);
+  if (!applied.ok) {
+    const appliedError = applied as { ok: false; code: string; message: string };
+    emitToPlayer(io, pid as any, 'error', {
+      code: appliedError.code,
+      message: appliedError.message,
+    });
+    return;
+  }
+
+  const stateAny = game.state as any;
+  stateAny.life = stateAny.life || {};
+  const opponents = Array.isArray(stateAny.players)
+    ? stateAny.players.filter((player: any) => String(player?.id || '') !== pid)
+    : [];
+
+  let totalLifeLost = 0;
+  for (const opponent of opponents) {
+    const opponentId = String(opponent?.id || '').trim();
+    if (!opponentId) continue;
+
+    const currentLife = Number(stateAny.life?.[opponentId] ?? opponent?.life ?? stateAny.startingLife ?? 40);
+    const nextLife = Math.max(0, currentLife - 1);
+    const lifeLost = Math.max(0, currentLife - nextLife);
+
+    stateAny.life[opponentId] = nextLife;
+    if (opponent && typeof opponent === 'object') {
+      opponent.life = nextLife;
+    }
+    if (lifeLost > 0) {
+      totalLifeLost += lifeLost;
+      stateAny.lifeLostThisTurn = stateAny.lifeLostThisTurn || {};
+      stateAny.lifeLostThisTurn[opponentId] = Number(stateAny.lifeLostThisTurn[opponentId] || 0) + lifeLost;
+    }
+  }
+
+  const controllerPlayer = Array.isArray(stateAny.players)
+    ? stateAny.players.find((player: any) => String(player?.id || '') === pid)
+    : null;
+  const controllerLife = Number(stateAny.life?.[pid] ?? controllerPlayer?.life ?? stateAny.startingLife ?? 40);
+  stateAny.life[pid] = controllerLife + totalLifeLost;
+  stateAny.lifeGainedThisTurn = stateAny.lifeGainedThisTurn || {};
+  stateAny.lifeGainedThisTurn[pid] = Number(stateAny.lifeGainedThisTurn[pid] || 0) + totalLifeLost;
+  if (controllerPlayer && typeof controllerPlayer === 'object') {
+    controllerPlayer.life = stateAny.life[pid];
+  }
+
+  const sourceName = String(step.sourceName || stepData?.cardName || 'Extort');
+  broadcastManaPoolUpdate(io, gameId, pid, ((game.state as any)?.manaPool?.[pid] || {}) as any, `Paid ${manaCost} for ${sourceName}`, game);
+  emitKeywordChoiceChat(
+    io,
+    gameId,
+    sourceName,
+    `${getPlayerName(game, pid)} paid ${manaCost} for extort. Each opponent loses 1 life and ${getPlayerName(game, pid)} gains ${totalLifeLost} life.`
+  );
+
+  if (typeof game.bumpSeq === 'function') {
+    game.bumpSeq();
+  }
+  broadcastGame(io, game, gameId);
+}
+
+function handleModularChoiceResponse(
+  io: Server,
+  game: any,
+  gameId: string,
+  step: ResolutionStep,
+  response: ResolutionStepResponse
+): void {
+  const targetId = String(extractResolutionChoiceId(response.selections) || '').trim();
+  const battlefield = Array.isArray(game?.state?.battlefield) ? game.state.battlefield : [];
+  const targetPermanent = battlefield.find((permanent: any) => String(permanent?.id || '') === targetId) || null;
+  const validTargetIds = new Set(
+    (Array.isArray((step as any)?.targets) ? (step as any).targets : [])
+      .map((target: any) => String(target?.id || '').trim())
+      .filter(Boolean)
+  );
+  const amount = Math.max(1, Number((step as any).value || 1));
+
+  if (!targetPermanent || !targetId || !validTargetIds.has(targetId)) {
+    debugWarn(1, `[Resolution] Modular choice could not be applied for step ${step.id}`);
+    return;
+  }
+
+  updateCounters(game as any, String(targetPermanent.id), { '+1/+1': amount });
+
+  const sourceName = String(step.sourceName || 'Modular');
+  emitKeywordChoiceChat(
+    io,
+    gameId,
+    sourceName,
+    `${getPlayerName(game, response.playerId)} moved ${amount} +1/+1 counter${amount === 1 ? '' : 's'} onto ${targetPermanent.card?.name || 'the artifact creature'} with modular.`
+  );
+
+  if (typeof game.bumpSeq === 'function') {
+    game.bumpSeq();
+  }
+  broadcastGame(io, game, gameId);
+}
+
+function handleSoulshiftTargetResponse(
+  io: Server,
+  game: any,
+  gameId: string,
+  step: ResolutionStep,
+  response: ResolutionStepResponse
+): void {
+  const selectedCardId = String(extractResolutionChoiceId(response.selections) || '').trim();
+  const validTargetIds = new Set(
+    (Array.isArray((step as any)?.spirits) ? (step as any).spirits : [])
+      .map((target: any) => String(target?.id || '').trim())
+      .filter(Boolean)
+  );
+  const playerId = String(step.playerId || response.playerId || '').trim();
+  const zones = ((game.state as any).zones = (game.state as any).zones || {});
+  const playerZones = (zones[playerId] = zones[playerId] || {
+    hand: [],
+    handCount: 0,
+    graveyard: [],
+    graveyardCount: 0,
+    exile: [],
+    exileCount: 0,
+    library: [],
+    libraryCount: 0,
+  });
+  playerZones.hand = Array.isArray(playerZones.hand) ? playerZones.hand : [];
+  playerZones.graveyard = Array.isArray(playerZones.graveyard) ? playerZones.graveyard : [];
+
+  const graveyardIndex = playerZones.graveyard.findIndex((card: any) => String(card?.id || '') === selectedCardId);
+  if (!selectedCardId || !validTargetIds.has(selectedCardId) || graveyardIndex < 0) {
+    debugWarn(1, `[Resolution] Soulshift target could not be applied for step ${step.id}`);
+    return;
+  }
+
+  const [selectedCard] = playerZones.graveyard.splice(graveyardIndex, 1);
+  playerZones.hand.push(selectedCard);
+  playerZones.handCount = playerZones.hand.length;
+  playerZones.graveyardCount = playerZones.graveyard.length;
+
+  const sourceName = String(step.sourceName || 'Soulshift');
+  emitKeywordChoiceChat(
+    io,
+    gameId,
+    sourceName,
+    `${getPlayerName(game, response.playerId)} returned ${selectedCard?.name || 'a Spirit card'} from the graveyard to their hand with soulshift.`
   );
 
   if (typeof game.bumpSeq === 'function') {
@@ -14346,6 +14878,10 @@ async function handleTargetSelectionResponse(
     }
     if (enlisted.attacking) {
       debugWarn(1, `[Resolution] enlistChoice: creature is attacking: ${enlistedCreatureId}`);
+      return;
+    }
+    if ((enlisted as any).summoningSickness && !creatureHasHaste(enlisted, battlefield as any, pid)) {
+      debugWarn(1, `[Resolution] enlistChoice: creature has summoning sickness: ${enlistedCreatureId}`);
       return;
     }
     if (String(enlistedCreatureId) === String(attackerId)) {
@@ -22487,6 +23023,90 @@ async function handleOptionChoiceResponse(
     if (sel && typeof sel === 'object') return (sel as any).id || (sel as any).value || null;
     return null;
   };
+
+  if (stepData.myriadChoice === true) {
+    const battlefield = Array.isArray((game.state as any)?.battlefield) ? (game.state as any).battlefield : [];
+    const sourcePermanentId = String(stepData.permanentId || step.sourceId || '').trim();
+    const sourcePermanent = battlefield.find((permanent: any) => String(permanent?.id || '') === sourcePermanentId);
+    if (!sourcePermanent) {
+      emitToPlayer(io, playerId as any, 'error', {
+        code: 'PERMANENT_NOT_FOUND',
+        message: 'Myriad source is no longer on the battlefield.',
+      });
+      return;
+    }
+
+    const validOptionIds = new Set(
+      (Array.isArray(stepData.options) ? stepData.options : [])
+        .map((option: any) => String(option?.id || option?.value || option || '').trim())
+        .filter(Boolean),
+    );
+    const activeOpponentIds = new Set(
+      (Array.isArray((game.state as any)?.players) ? (game.state as any).players : [])
+        .filter((entry: any) => entry && entry.spectator !== true && entry.hasLost !== true)
+        .map((entry: any) => String(entry.id || '').trim())
+        .filter((id: string) => Boolean(id) && id !== String(playerId)),
+    );
+    const requestedSelections = (Array.isArray(selectedOption)
+      ? selectedOption
+      : selectedOption == null
+        ? []
+        : [selectedOption]
+    ) as any[];
+    const selectedOpponentIds = Array.from(new Set(
+      requestedSelections
+        .map((value: any) => String(extractId(value) || '').trim())
+        .filter((value: string) => validOptionIds.has(value) && activeOpponentIds.has(value)),
+    ));
+    const sourceName = String(step.sourceName || sourcePermanent?.card?.name || 'Myriad');
+    const sourcePermanentSnapshot = cloneResolutionPermanentSnapshot(sourcePermanent);
+    const generatedPermanentIds = selectedOpponentIds.map(() => uid('token_myriad'));
+    const ctx = {
+      state: game.state,
+      libraries: (game as any).libraries,
+      bumpSeq: typeof (game as any).bumpSeq === 'function' ? (game as any).bumpSeq.bind(game) : (() => {}),
+      rng: (game as any).rng,
+      gameId,
+    } as unknown as GameContext;
+    const createdPermanentIds = applyMyriadTokenCopies(
+      ctx,
+      sourcePermanentSnapshot,
+      String(sourcePermanent?.controller || playerId) as PlayerID,
+      selectedOpponentIds,
+      generatedPermanentIds,
+      sourceName,
+    );
+
+    try {
+      await appendEvent(gameId, (game as any).seq ?? 0, 'myriadChoice', {
+        playerId,
+        permanentId: sourcePermanentId,
+        sourceName,
+        sourcePermanentSnapshot,
+        selectedOpponentIds,
+        createdPermanentIds,
+      });
+    } catch (err) {
+      debugWarn(1, '[Resolution] Failed to persist myriadChoice event:', err);
+    }
+
+    const attackedPlayers = selectedOpponentIds.map((id: string) => getPlayerName(game, id));
+    io.to(gameId).emit('chat', {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: 'system',
+      message: createdPermanentIds.length > 0
+        ? `${getPlayerName(game, playerId)} creates ${createdPermanentIds.length} Myriad token cop${createdPermanentIds.length === 1 ? 'y' : 'ies'} of ${sourceName} attacking ${attackedPlayers.join(', ')}.`
+        : `${getPlayerName(game, playerId)} declines to create Myriad token copies for ${sourceName}.`,
+      ts: Date.now(),
+    });
+
+    if (typeof (game as any).bumpSeq === 'function') {
+      (game as any).bumpSeq();
+    }
+    broadcastGame(io, game, gameId);
+    return;
+  }
 
   if (stepData.giftCastChoice === true) {
     const choiceId = extractId(selectedOption) || 'gift:none';

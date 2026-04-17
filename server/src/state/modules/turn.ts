@@ -2512,6 +2512,17 @@ function endTemporaryEffects(ctx: GameContext) {
         delete permanent.tempToughnessMod;
         endedCount++;
       }
+      if (permanent.temporaryPowerBoost !== undefined) {
+        delete permanent.temporaryPowerBoost;
+        endedCount++;
+      }
+      if (permanent.temporaryToughnessBoost !== undefined) {
+        delete permanent.temporaryToughnessBoost;
+        endedCount++;
+      }
+
+      delete permanent.effectivePower;
+      delete permanent.effectiveToughness;
       
       // Clear temporary granted abilities
       if (permanent.tempAbilities && permanent.tempAbilities.length > 0) {

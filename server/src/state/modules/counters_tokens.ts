@@ -17,6 +17,7 @@ import { recordCardPutIntoGraveyardThisTurn } from "./turn-tracking.js";
 import { cleanupCardLeavingExile } from "./playable-from-exile.js";
 import { applyShieldCounterDamagePrevention, getCounterLeaveBattlefieldReplacement } from "./counter-common-effects.js";
 import { inferManaValueConstraintFromText } from "./graveyard-mana-value.js";
+import { detectKeywords } from "./keyword-detection.js";
 
 /**
  * Counter modification effects that double or halve counters
@@ -340,7 +341,19 @@ function pushDeathTriggerOntoStack(ctx: GameContext, trigger: any, dyingPermanen
   const state = ctx.state as any;
   const triggerId = uid('trigger');
   const effectText = String(trigger?.effect || '').trim();
-  const metadata = inferDeathTriggerStackMetadata(effectText, dyingPermanent, (ctx as any).state);
+  const metadata = trigger?.queueKeywordChoice === true
+    ? {}
+    : inferDeathTriggerStackMetadata(effectText, dyingPermanent, (ctx as any).state);
+  const sourcePermanentSnapshot = (() => {
+    const battlefield = Array.isArray(state?.battlefield) ? state.battlefield : [];
+    const sourceId = String(trigger?.source?.permanentId || '').trim();
+    if (!sourceId) return null;
+    if (String(dyingPermanent?.id || '').trim() === sourceId) {
+      return dyingPermanent;
+    }
+    return battlefield.find((permanent: any) => String(permanent?.id || '') === sourceId) || null;
+  })();
+  const sourceCard = sourcePermanentSnapshot?.card || null;
 
   const stackItem = {
     id: triggerId,
@@ -352,6 +365,10 @@ function pushDeathTriggerOntoStack(ctx: GameContext, trigger: any, dyingPermanen
     triggerType: 'creature_dies',
     effect: effectText,
     mandatory: true,
+    ...(typeof trigger?.value !== 'undefined' ? { value: trigger.value } : null),
+    ...(sourceCard ? { card: sourceCard } : null),
+    ...(sourcePermanentSnapshot ? { sourcePermanentSnapshot } : null),
+    ...(dyingPermanent ? { dyingCreature: dyingPermanent } : null),
     ...(trigger.requiresChoice === true ? { requiresChoice: true } : null),
     ...(Array.isArray(trigger.modalOptions) ? { modalOptions: trigger.modalOptions } : null),
     ...(metadata.requiresTarget ? { requiresTarget: true, needsTargetSelection: true } : null),
@@ -395,6 +412,10 @@ function pushDeathTriggerOntoStack(ctx: GameContext, trigger: any, dyingPermanen
       triggerType: 'creature_dies',
       effect: effectText,
       mandatory: true,
+      ...(typeof trigger?.value !== 'undefined' ? { value: trigger.value } : null),
+      ...(sourceCard ? { card: sourceCard } : null),
+      ...(sourcePermanentSnapshot ? { sourcePermanentSnapshot } : null),
+      ...(dyingPermanent ? { dyingCreature: dyingPermanent } : null),
       ...(trigger.requiresChoice === true ? { requiresChoice: true } : null),
       ...(Array.isArray(trigger.modalOptions) ? { modalOptions: trigger.modalOptions } : null),
       ...(metadata.requiresTarget ? { requiresTarget: true, needsTargetSelection: true } : null),
@@ -422,6 +443,60 @@ function pushDeathTriggerOntoStack(ctx: GameContext, trigger: any, dyingPermanen
   } catch (err) {
     debugWarn(1, '[movePermanentToGraveyard] appendEvent(pushTriggeredAbility death) failed:', err);
   }
+}
+
+function getKeywordDeathTriggersForPermanent(permanent: any, controllerId: string): any[] {
+  const card = permanent?.card;
+  if (!card) {
+    return [];
+  }
+
+  const detection = detectKeywords(String(card?.oracle_text || ''), String(card?.name || ''));
+  return detection.keywords
+    .filter((keyword) => keyword.timing === 'dies' && (keyword.category === 'triggered' || keyword.category === 'replacement'))
+    .map((keyword) => ({
+      source: {
+        permanentId: String(permanent?.id || ''),
+        cardName: String(card?.name || 'Permanent'),
+        controllerId: String(controllerId || ''),
+      },
+      effect: String(keyword.effect || ''),
+      triggerType: 'dies',
+      mandatory: keyword.mandatory !== false,
+      requiresChoice: keyword.requiresChoice === true,
+      queueKeywordChoice: keyword.requiresChoice === true,
+      value: keyword.value,
+    }))
+    .filter((trigger) => trigger.source.permanentId && trigger.effect);
+}
+
+function mergeDeathTriggers(baseTriggers: any[], keywordTriggers: any[]): any[] {
+  const merged: any[] = [];
+  const seen = new Map<string, number>();
+
+  for (const trigger of [...baseTriggers, ...keywordTriggers]) {
+    const key = [
+      String(trigger?.source?.permanentId || ''),
+      String(trigger?.triggerType || ''),
+      String(trigger?.effect || ''),
+      String(trigger?.value ?? ''),
+    ].join('::');
+    if (!key) continue;
+
+    const existingIndex = seen.get(key);
+    if (typeof existingIndex === 'number') {
+      const existing = merged[existingIndex];
+      if (trigger?.queueKeywordChoice === true && existing?.queueKeywordChoice !== true) {
+        merged[existingIndex] = trigger;
+      }
+      continue;
+    }
+
+    seen.set(key, merged.length);
+    merged.push(trigger);
+  }
+
+  return merged;
 }
 
 export function trackPermanentSacrificedThisTurn(state: any, permanent: any): void {
@@ -1229,7 +1304,10 @@ export function movePermanentToGraveyard(ctx: GameContext, permanentId: string, 
         }
       }
       
-      const deathTriggers = getDeathTriggers(ctx, perm, controller);
+      const deathTriggers = mergeDeathTriggers(
+        getDeathTriggers(ctx, perm, controller),
+        getKeywordDeathTriggersForPermanent(perm, controller),
+      );
       if (deathTriggers.length > 0) {
         debug(2, `[movePermanentToGraveyard] Found ${deathTriggers.length} death trigger(s) for ${isToken ? 'token ' : ''}${card?.name || perm.id}`);
         
@@ -1795,7 +1873,10 @@ export function runSBA(ctx: GameContext) {
               // best-effort only
             }
 
-            const deathTriggers = getDeathTriggers(ctx, destroyed, controller);
+            const deathTriggers = mergeDeathTriggers(
+              getDeathTriggers(ctx, destroyed, controller),
+              getKeywordDeathTriggersForPermanent(destroyed, controller),
+            );
             if (deathTriggers.length > 0) {
               debug(2, `[runSBA] Found ${deathTriggers.length} death trigger(s) for ${isToken ? 'token ' : ''}${(destroyed as any).card?.name || destroyed.id}`);
               

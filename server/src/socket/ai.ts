@@ -2576,6 +2576,15 @@ export function chooseAIOptionSelectionsForStep(
     };
   }
 
+  if (step?.myriadChoice === true) {
+    return {
+      selections: options
+        .map((option: any) => resolveOptionId(option))
+        .filter(Boolean),
+      cancelled: false,
+    };
+  }
+
   const minSelections = Math.max(1, Number(step?.minSelections ?? 1));
   const maxSelections = Math.max(minSelections, Number(step?.maxSelections ?? minSelections));
   const desired = Math.min(options.length, Math.max(minSelections, Math.min(maxSelections, 1)));

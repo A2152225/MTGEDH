@@ -911,14 +911,35 @@ function handleModular(ctx: KeywordTriggerContext, keyword: DetectedKeyword): Ke
   
   if (isDeath) {
     const counters = ctx.permanent?.counters?.['+1/+1'] || n;
+    const validTargets = (ctx.battlefield || []).filter((permanent: any) => {
+      if (!permanent) return false;
+      if (String(permanent?.id || '') === String(ctx.permanent?.id || '')) return false;
+      const typeLine = String(permanent?.card?.type_line || '').toLowerCase();
+      return typeLine.includes('artifact') && typeLine.includes('creature');
+    });
+
+    if (validTargets.length === 0) {
+      return {
+        keyword: 'modular',
+        processed: true,
+        chatMessage: `${cardName}'s Modular triggers but there are no valid artifact creature targets`,
+      };
+    }
+
     return {
       keyword: 'modular',
       processed: true,
       requiresPlayerChoice: {
         type: 'target_artifact_creature',
-        options: [], // Populated by socket handler
+        options: validTargets.map((target: any) => ({
+          id: target.id,
+          name: target.card?.name || 'Artifact Creature',
+          power: target.power ?? target.card?.power,
+          toughness: target.toughness ?? target.card?.toughness,
+        })),
         playerId: ctx.controller,
         permanentId: ctx.permanent?.id,
+        value: counters,
       },
       chatMessage: `${cardName}'s Modular triggers - you may put ${counters} +1/+1 counters on target artifact creature`,
     };
@@ -999,15 +1020,39 @@ function handleAfterlife(ctx: KeywordTriggerContext, keyword: DetectedKeyword): 
 function handleSoulshift(ctx: KeywordTriggerContext, keyword: DetectedKeyword): KeywordTriggerResult {
   const cardName = ctx.permanent?.card?.name || 'Creature';
   const n = keyword.value || 1;
+  const zones = (ctx.state as any)?.zones || {};
+  const controllerZones = zones?.[ctx.controller] || {};
+  const graveyard = Array.isArray(controllerZones?.graveyard) ? controllerZones.graveyard : [];
+  const validTargets = graveyard.filter((card: any) => {
+    const typeLine = String(card?.type_line || '').toLowerCase();
+    const manaValue = Number(card?.cmc ?? 0);
+    return typeLine.includes('spirit') && manaValue <= n;
+  });
+
+  if (validTargets.length === 0) {
+    return {
+      keyword: 'soulshift',
+      processed: true,
+      chatMessage: `${cardName}'s Soulshift ${n} triggers but there are no Spirit cards with mana value ${n} or less in your graveyard`,
+    };
+  }
   
   return {
     keyword: 'soulshift',
     processed: true,
     requiresPlayerChoice: {
       type: 'target_spirit',
-      options: [], // Populated by socket handler
+      options: validTargets.map((card: any) => ({
+        id: String(card?.id || ''),
+        name: String(card?.name || 'Spirit Card'),
+        typeLine: card?.type_line,
+        manaCost: card?.mana_cost,
+        imageUrl: card?.image_uris?.small || card?.image_uris?.normal || card?.imageUrl,
+        cmc: Number(card?.cmc ?? 0),
+      })),
       playerId: ctx.controller,
       permanentId: ctx.permanent?.id,
+      value: n,
     },
     chatMessage: `${cardName}'s Soulshift ${n} triggers - return target Spirit card with mana value ${n} or less from graveyard`,
   };

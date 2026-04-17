@@ -152,6 +152,158 @@ function repairReplayCardSourceZones(ctxOrState: any, playerId: PlayerID, cardId
   };
 }
 
+/**
+ * Build a tapped-and-attacking Myriad token copy from a source permanent snapshot.
+ */
+export function buildMyriadTokenCopy(
+  sourcePermanent: any,
+  tokenId: string,
+  controller: PlayerID,
+  targetPlayerId: string,
+): any {
+  const sourceCard = sourcePermanent?.card && typeof sourcePermanent.card === 'object'
+    ? JSON.parse(JSON.stringify(sourcePermanent.card))
+    : {};
+  const typeLine = String(sourceCard?.type_line || '').toLowerCase();
+  const isCreature = typeLine.includes('creature');
+  const keywords = Array.isArray(sourceCard?.keywords)
+    ? sourceCard.keywords.map((value: any) => String(value || ''))
+    : [];
+  const oracleText = String(sourceCard?.oracle_text || '');
+  const hasHaste = keywords.some((value: string) => /\bhaste\b/i.test(value)) || /\bhaste\b/i.test(oracleText);
+
+  return {
+    id: tokenId,
+      controller,
+      owner: controller,
+      tapped: true,
+      counters: {},
+      isToken: true,
+      summoningSickness: isCreature && !hasHaste,
+      attacking: targetPlayerId,
+      copiedFromPermanentId: String(sourcePermanent?.id || ''),
+      ...(isCreature
+        ? {
+            basePower: parsePT(sourceCard?.power),
+            baseToughness: parsePT(sourceCard?.toughness),
+          }
+        : null),
+      card: {
+        ...sourceCard,
+        id: `${tokenId}_card`,
+        zone: 'battlefield',
+      },
+  } as any;
+}
+
+  /**
+   * Create the token copies for a resolved Myriad choice and schedule their end-of-combat exile.
+   */
+  export function applyMyriadTokenCopies(
+    ctx: GameContext,
+    sourcePermanent: any,
+    controller: PlayerID,
+    targetPlayerIds: string[],
+    createdPermanentIds?: string[],
+    sourceName?: string,
+  ): string[] {
+    const stateAny = (ctx as any)?.state as any;
+    if (!stateAny || !sourcePermanent || !Array.isArray(targetPlayerIds) || targetPlayerIds.length === 0) {
+      return [];
+    }
+
+    stateAny.battlefield = Array.isArray(stateAny.battlefield) ? stateAny.battlefield : [];
+    stateAny.pendingExileAtEndOfCombat = Array.isArray(stateAny.pendingExileAtEndOfCombat)
+      ? stateAny.pendingExileAtEndOfCombat
+      : [];
+
+    const battlefield = stateAny.battlefield as any[];
+    const currentTurn = Number(stateAny?.turnNumber ?? stateAny?.turn ?? 0) || 0;
+    const currentPhase = String(stateAny?.phase ?? '').toLowerCase();
+    const currentStepUpper = String(stateAny?.step ?? '').toUpperCase();
+    const inEnding = currentPhase === 'ending' && (currentStepUpper === 'END' || currentStepUpper === 'CLEANUP');
+    const afterEndCombat =
+      inEnding ||
+      currentStepUpper === 'END_COMBAT' ||
+      currentStepUpper === 'MAIN2' ||
+      currentStepUpper === 'END' ||
+      currentStepUpper === 'CLEANUP';
+    const fireAtTurnNumber = afterEndCombat ? currentTurn + 1 : currentTurn;
+    const existingPermanentIds = new Set(
+      battlefield
+        .map((permanent: any) => String(permanent?.id || '').trim())
+        .filter(Boolean),
+    );
+    const createdIds: string[] = [];
+    const newTokens: any[] = [];
+
+    for (let index = 0; index < targetPlayerIds.length; index++) {
+      const targetPlayerId = String(targetPlayerIds[index] || '').trim();
+      if (!targetPlayerId) {
+        continue;
+      }
+
+      const tokenId = String(createdPermanentIds?.[index] || uid('token_myriad')).trim();
+      if (!tokenId) {
+        continue;
+      }
+
+      createdIds.push(tokenId);
+      if (existingPermanentIds.has(tokenId)) {
+        continue;
+      }
+
+      const token = buildMyriadTokenCopy(sourcePermanent, tokenId, controller, targetPlayerId);
+      newTokens.push(token);
+      existingPermanentIds.add(tokenId);
+    }
+
+    if (newTokens.length > 0) {
+      battlefield.push(...newTokens);
+    }
+
+    for (const tokenId of createdIds) {
+      const alreadyScheduled = (stateAny.pendingExileAtEndOfCombat as any[]).some(
+        (entry: any) => String(entry?.permanentId || '').trim() === tokenId,
+      );
+      if (alreadyScheduled) {
+        continue;
+      }
+
+      stateAny.pendingExileAtEndOfCombat.push({
+        permanentId: tokenId,
+        createdBy: String(controller),
+        fireAtTurnNumber,
+        sourceName: String(sourceName || sourcePermanent?.card?.name || 'Myriad'),
+      });
+    }
+
+    if (newTokens.length > 0) {
+      try {
+        const key = String(controller);
+        stateAny.tokensCreatedThisTurn = stateAny.tokensCreatedThisTurn || {};
+        stateAny.tokensCreatedThisTurn[key] = (stateAny.tokensCreatedThisTurn[key] || 0) + newTokens.length;
+
+        stateAny.tokenCreatedThisTurn = stateAny.tokenCreatedThisTurn || {};
+        stateAny.createdTokenThisTurn = stateAny.createdTokenThisTurn || {};
+        stateAny.tokenCreatedThisTurn[key] = (stateAny.tokenCreatedThisTurn[key] || 0) + newTokens.length;
+        stateAny.createdTokenThisTurn[key] = (stateAny.createdTokenThisTurn[key] || 0) + newTokens.length;
+      } catch {
+        // best-effort only
+      }
+
+      for (const token of newTokens) {
+        triggerETBEffectsForToken(ctx, token, controller);
+      }
+      runSBA(ctx);
+    }
+
+  return createdIds;
+}
+
+/**
+ * Queue and persist a single resolution prompt step.
+ */
 function queueResolveTopOfStackPrompt(
   ctx: GameContext,
   config: CreateResolutionStepConfig,
@@ -1272,6 +1424,31 @@ function enqueueSupportedKeywordChoiceStep(
     if (typeof keywordChoice.value === 'number' && Number.isFinite(keywordChoice.value)) {
       queueExtras.value = keywordChoice.value;
     }
+  } else if (result.keyword === 'exploit' && keywordChoice.type === 'sacrifice_creature') {
+    queueType = ResolutionStepType.EXPLOIT_CHOICE;
+    queueExtras.creatures = Array.isArray(ctx?.state?.battlefield)
+      ? ctx.state.battlefield
+          .filter((entry: any) => {
+            if (!entry) return false;
+            if (String(entry?.controller || '') !== String(keywordChoice.playerId || '')) return false;
+            const typeLine = String(entry?.card?.type_line || '').toLowerCase();
+            return typeLine.includes('creature');
+          })
+          .map((entry: any) => ({
+            id: String(entry?.id || ''),
+            name: String(entry?.card?.name || 'Creature'),
+            power: entry?.power ?? entry?.card?.power,
+            toughness: entry?.toughness ?? entry?.card?.toughness,
+            imageUrl:
+              entry?.card?.image_uris?.small ||
+              entry?.card?.image_uris?.normal ||
+              entry?.card?.imageUrl ||
+              undefined,
+            type: 'permanent',
+          }))
+          .filter((entry: any) => entry.id)
+      : [];
+    queueExtras.mandatory = false;
   } else if (result.keyword === 'mentor' && keywordChoice.type === 'target_creature') {
     queueType = ResolutionStepType.MENTOR_TARGET;
     queueExtras.targets = Array.isArray(keywordChoice.options)
@@ -1289,6 +1466,66 @@ function enqueueSupportedKeywordChoiceStep(
           })
           .filter(Boolean)
       : [];
+  } else if (result.keyword === 'modular' && keywordChoice.type === 'target_artifact_creature') {
+    queueType = ResolutionStepType.MODULAR_CHOICE;
+    queueExtras.targets = Array.isArray(keywordChoice.options)
+      ? keywordChoice.options
+          .map((option: any) => {
+            const id = String(option?.id ?? '').trim();
+            if (!id) return null;
+            return {
+              id,
+              name: String(option?.name ?? option?.label ?? 'Artifact Creature'),
+              power: option?.power,
+              toughness: option?.toughness,
+              type: 'permanent',
+            };
+          })
+          .filter(Boolean)
+      : [];
+    if (typeof keywordChoice.value === 'number' && Number.isFinite(keywordChoice.value)) {
+      queueExtras.value = keywordChoice.value;
+    }
+  } else if (result.keyword === 'extort' && keywordChoice.type === 'mana_payment') {
+    queueType = ResolutionStepType.EXTORT_PAYMENT;
+    queueExtras.manaCost = String(keywordChoice.options?.[0]?.cost || '{W/B}');
+    queueExtras.effectText = String(keywordChoice.options?.[0]?.effect || 'Each opponent loses 1 life and you gain that much life');
+    queueExtras.cardName = sourceName;
+    queueExtras.confirmLabel = 'Pay Extort';
+    queueExtras.mandatory = false;
+  } else if (result.keyword === 'soulshift' && keywordChoice.type === 'target_spirit') {
+    queueType = ResolutionStepType.SOULSHIFT_TARGET;
+    queueExtras.spirits = Array.isArray(keywordChoice.options)
+      ? keywordChoice.options
+          .map((option: any) => {
+            const id = String(option?.id ?? '').trim();
+            if (!id) return null;
+            return {
+              id,
+              name: String(option?.name ?? option?.label ?? 'Spirit Card'),
+              typeLine: option?.typeLine,
+              manaCost: option?.manaCost,
+              imageUrl: option?.imageUrl,
+              cmc: option?.cmc,
+              type: 'card',
+            };
+          })
+          .filter(Boolean)
+      : [];
+    if (typeof keywordChoice.value === 'number' && Number.isFinite(keywordChoice.value)) {
+      queueExtras.value = keywordChoice.value;
+    }
+  } else if (result.keyword === 'myriad' && keywordChoice.type === 'myriad_tokens') {
+    const opponentOptions = Array.isArray(keywordChoice.options) ? keywordChoice.options : [];
+    if (opponentOptions.length === 0) {
+      return true;
+    }
+
+    queueType = ResolutionStepType.OPTION_CHOICE;
+    queueExtras.description = `Choose any number of other opponents for ${sourceName}.`;
+    queueExtras.minSelections = 0;
+    queueExtras.maxSelections = opponentOptions.length;
+    queueExtras.myriadChoice = true;
   }
 
   if (!queueType || !keywordGameId || keywordGameId === 'unknown') {
@@ -3268,7 +3505,7 @@ function applyOracleIRFallbackForUncategorizedSpell(
             const cleaned = targetRemainder.replace(/\bpermanents?\b/, '').trim();
             if (!cleaned) break;
 
-            const parts = cleaned.split(/\s*(?:,|and\/or|and|or)\s*/i).filter(Boolean);
+            const parts = cleaned.split(/\s*(?:,|and(?:\/or)?|or)\s*/i).filter(Boolean);
             if (parts.length === 0) break;
 
             const allowed = new Set(['creature', 'artifact', 'enchantment', 'planeswalker', 'land', 'battle']);
@@ -5549,6 +5786,7 @@ export function executeTriggerEffect(
 ): void {
   const state = (ctx as any).state;
   if (!state) return;
+  const triggerCard = (triggerItem as any)?.card || {};
 
   let desc = String(description || "").replace(/[’]/g, "'").toLowerCase();
   const triggerSourceId = String(
@@ -6823,9 +7061,26 @@ export function executeTriggerEffect(
   let handled = false;
   
   // Pattern: "Draw a card" (standalone or as part of combined effect)
-  if (!isKynaiosEffect && (desc.includes('draw a card') || desc.includes('draw 1 card') || desc.match(/draw \d+ cards?/i))) {
-    const drawCountMatch = desc.match(/draw (\d+) cards?/i);
-    const drawCount = drawCountMatch ? parseInt(drawCountMatch[1], 10) : 1;
+  if (!isKynaiosEffect && (desc.includes('draw a card') || desc.includes('draw 1 card') || desc.match(/draw (\d+|a|an|one|two|three|four|five|six|seven|eight|nine|ten) cards?/i))) {
+    const drawCountMatch = desc.match(/draw (\d+|a|an|one|two|three|four|five|six|seven|eight|nine|ten) cards?/i);
+    const drawWordToNumber: Record<string, number> = {
+      a: 1,
+      an: 1,
+      one: 1,
+      two: 2,
+      three: 3,
+      four: 4,
+      five: 5,
+      six: 6,
+      seven: 7,
+      eight: 8,
+      nine: 9,
+      ten: 10,
+    };
+    const rawDrawCount = String(drawCountMatch?.[1] || '').toLowerCase();
+    const drawCount = drawCountMatch
+      ? (drawWordToNumber[rawDrawCount] || parseInt(rawDrawCount, 10) || 1)
+      : 1;
     
     drawCardsFromZone(ctx, controller, drawCount);
     debug(2, `[executeTriggerEffect] ${controller} draws ${drawCount} card(s) from ${sourceName}`);
@@ -6876,7 +7131,11 @@ export function executeTriggerEffect(
   
   // Pattern: "Each opponent loses X life"
   const opponentsLoseMatch = desc.match(/each opponent loses (\d+) life/i);
-  if (opponentsLoseMatch) {
+  const shouldDeferOptionalPaymentLifeDrain =
+    /\byou may pay\b/i.test(desc) &&
+    /\bif you do\b/i.test(desc) &&
+    /\bextort\b/i.test(String(triggerCard?.oracle_text || sourceName || ''));
+  if (opponentsLoseMatch && !shouldDeferOptionalPaymentLifeDrain) {
     const amount = parseInt(opponentsLoseMatch[1], 10);
     for (const opp of opponents) {
       modifyLife(opp.id, -amount);
@@ -9099,8 +9358,8 @@ export function executeTriggerEffect(
       const targets = Array.isArray(triggerItem.targets) ? triggerItem.targets : [];
       const targetId = String(targets[0] || '').trim();
       if (!targetId) {
-        return;
-      }
+        // Unresolved keyword target choices like soulshift should fall through to keyword handling.
+      } else {
 
       const zones = state.zones || {};
       let sourceOwnerId = '';
@@ -9159,6 +9418,7 @@ export function executeTriggerEffect(
       battlefield.push(permanent);
       debug(2, `[executeTriggerEffect] ${sourceName} returned ${card?.name || targetId} from ${sourceOwnerId}'s graveyard to the battlefield under ${battlefieldControllerId}'s control`);
       return;
+      }
     }
 
     // Pattern: "return target [type] card from a graveyard to its owner's hand"
@@ -9167,8 +9427,8 @@ export function executeTriggerEffect(
       const targets = Array.isArray(triggerItem.targets) ? triggerItem.targets : [];
       const targetId = String(targets[0] || '').trim();
       if (!targetId) {
-        return;
-      }
+        // Unresolved keyword target choices like soulshift should fall through to keyword handling.
+      } else {
 
       const zones = state.zones || {};
       for (const [ownerId, playerZones] of Object.entries(zones as Record<string, any>)) {
@@ -9186,6 +9446,7 @@ export function executeTriggerEffect(
         break;
       }
       return;
+      }
     }
   
   // Pattern: "return target creature to its owner's hand" (bounce)
@@ -9952,7 +10213,14 @@ export function executeTriggerEffect(
   // ===== KEYWORD-BASED FALLBACK =====
   // Try to detect and process keyword abilities dynamically using the keyword detection system
   // This handles keywords like prowess, dethrone, evolve, extort, etc.
-  const sourceCard = (triggerItem as any)?.card || {};
+  const battlefield = state.battlefield || [];
+  const sourceId = (triggerItem as any).source || (triggerItem as any).permanentId;
+  const permanent = battlefield.find((p: any) => p.id === sourceId)
+    || (triggerItem as any).sourcePermanentSnapshot
+    || (String((triggerItem as any)?.dyingCreature?.id || '') === String(sourceId || '')
+      ? (triggerItem as any).dyingCreature
+      : null);
+  const sourceCard = Object.keys(triggerCard).length > 0 ? triggerCard : (permanent?.card || {});
   const oracleText = sourceCard.oracle_text || description;
   const cardNameForKeyword = sourceCard.name || sourceName;
   
@@ -9965,22 +10233,17 @@ export function executeTriggerEffect(
     const triggerType = (triggerItem as any).triggerType;
     let timing: 'attacks' | 'etb' | 'dies' | 'combat_damage' | 'cast' | 'noncreature_cast' = 'cast';
     
-    if (triggerType === 'attacks' || triggerType === 'creature_attacks') {
+    if (triggerType === 'attacks' || triggerType === 'creature_attacks' || triggerType === 'myriad') {
       timing = 'attacks';
     } else if (triggerType === 'etb' || triggerType === 'etb_self') {
       timing = 'etb';
-    } else if (triggerType === 'dies' || triggerType === 'death') {
+    } else if (triggerType === 'dies' || triggerType === 'death' || triggerType === 'creature_dies' || triggerType === 'any_creature_dies') {
       timing = 'dies';
     } else if (triggerType === 'combat_damage' || triggerType === 'deals_combat_damage') {
       timing = 'combat_damage';
     } else if (triggerType === 'cast' || triggerType === 'spell_cast') {
       timing = 'cast';
     }
-    
-    // Get the permanent from the battlefield
-    const battlefield = state.battlefield || [];
-    const sourceId = (triggerItem as any).source || (triggerItem as any).permanentId;
-    const permanent = battlefield.find((p: any) => p.id === sourceId);
     
     if (permanent) {
       // Build trigger context
@@ -9995,6 +10258,7 @@ export function executeTriggerEffect(
         defendingPlayer: (triggerItem as any).defendingPlayer,
         attackingCreatures: (triggerItem as any).attackingCreatures,
         spellCast: (triggerItem as any).spellCast,
+        dyingCreature: (triggerItem as any).dyingCreature,
       };
       
       // Process keywords for this timing
@@ -10868,7 +11132,7 @@ export function resolveTopOfStack(ctx: GameContext) {
           textForEval = `Whenever ~ deals combat damage to a player, ${textForEval}`;
         } else if (triggerType === 'tap') {
           textForEval = `Whenever ~ becomes tapped, ${textForEval}`;
-        } else if (triggerType === 'attacks' || triggerType === 'attack') {
+        } else if (triggerType === 'attacks' || triggerType === 'attack' || triggerType === 'myriad') {
           textForEval = `Whenever ~ attacks, ${textForEval}`;
         } else if (triggerType === 'blocks') {
           textForEval = `Whenever ~ blocks, ${textForEval}`;

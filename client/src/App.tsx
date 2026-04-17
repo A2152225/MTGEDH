@@ -2652,6 +2652,20 @@ export function App() {
         setCastSpellModalOpen(true);
       }
 
+      else if (step.type === 'extort_payment') {
+        setSpellToCast({
+          cardId: String((step as any).cardId || step.sourceId || ''),
+          cardName: String((step as any).cardName || step.sourceName || 'Extort'),
+          manaCost: String((step as any).manaCost || '{W/B}'),
+          oracleText: String((step as any).effectText || step.description || ''),
+          paymentStepId: String(step.id),
+          title: `Pay Extort for ${String((step as any).cardName || step.sourceName || 'Extort')}`,
+          confirmLabel: String((step as any).confirmLabel || 'Pay Extort'),
+          manualFloatingManaSelection: true,
+        } as any);
+        setCastSpellModalOpen(true);
+      }
+
       // Phyrexian mana payment choice via Resolution Queue
       else if (step.type === 'mana_payment_choice' && step.phyrexianManaChoice === true) {
         setPhyrexianManaModalData({
@@ -2687,9 +2701,12 @@ export function App() {
       }
 
       // Graveyard card selection via Resolution Queue
-      else if (step.type === 'graveyard_selection') {
-        const validTargets: GraveyardCard[] = Array.isArray(step.validTargets)
-          ? step.validTargets.map((t: any) => ({
+      else if (step.type === 'graveyard_selection' || step.type === 'soulshift_target') {
+        const rawTargets = step.type === 'soulshift_target'
+          ? ((step as any).spirits || [])
+          : (Array.isArray(step.validTargets) ? step.validTargets : []);
+        const validTargets: GraveyardCard[] = Array.isArray(rawTargets)
+          ? rawTargets.map((t: any) => ({
               id: String(t?.id || ''),
               name: String(t?.name || 'Unknown'),
               typeLine: t?.typeLine,
@@ -2701,7 +2718,7 @@ export function App() {
         setGraveyardSelectionModalData({
           stepId: String(step.id),
           mandatory: step.mandatory !== false,
-          title: String(step.title || step.cardName || step.sourceName || 'Select from Graveyard'),
+          title: String(step.title || step.cardName || step.sourceName || (step.type === 'soulshift_target' ? 'Select a Spirit Card' : 'Select from Graveyard')),
           description: String(step.description || ''),
           sourceCard: {
             name: String(step.cardName || step.sourceName || 'Effect'),
@@ -3304,7 +3321,7 @@ export function App() {
         });
       }
       // Handle target selection via resolution queue (spell casting, planeswalker abilities, etc.)
-      else if (step.type === 'target_selection' || step.type === 'mentor_target') {
+      else if (step.type === 'target_selection' || step.type === 'mentor_target' || step.type === 'modular_choice' || step.type === 'exploit_choice') {
         const selectedModeRaw = (step as any).selectedMode as { label?: string; description?: string } | undefined;
         const selectedModeUi = selectedModeRaw ? {
           name: String(selectedModeRaw.label || 'Selected mode'),
@@ -3312,8 +3329,10 @@ export function App() {
         } : undefined;
 
         // Convert resolution queue step to target modal format
-        const rawTargets = step.type === 'mentor_target'
+        const rawTargets = (step.type === 'mentor_target' || step.type === 'modular_choice')
           ? ((step as any).targets || [])
+          : step.type === 'exploit_choice'
+            ? ((step as any).creatures || [])
           : (step.validTargets || []);
         const validTargets: TargetOption[] = rawTargets.map((t: any) => ({
           id: t.id,
@@ -3335,7 +3354,13 @@ export function App() {
           title: step.description || `Choose target`,
           description: (selectedModeUi?.description && (!step.targetDescription || step.targetDescription === 'target')
             ? selectedModeUi.description
-            : (step.targetDescription || (step.type === 'mentor_target' ? 'Choose an attacking creature with lesser power.' : ''))),
+            : (step.targetDescription || (step.type === 'mentor_target'
+              ? 'Choose an attacking creature with lesser power.'
+              : step.type === 'modular_choice'
+                ? 'Choose an artifact creature to receive the modular counters.'
+                : step.type === 'exploit_choice'
+                  ? 'Choose a creature you control to sacrifice.'
+                : ''))),
           contextSteps: (step.oracleContext?.steps || step.spellCastContext?.oracleContext?.steps || undefined) as any,
           selectedMode: selectedModeUi,
           targets: validTargets,
