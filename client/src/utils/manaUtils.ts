@@ -37,9 +37,18 @@ export interface ManaPaymentSource {
   name: string;
   label?: string;
   options: Color[];
+  producedColors?: Color[];
   amount?: number;
   consumable?: boolean;
   sacrificeCost?: ManaSourceSacrificeCost;
+}
+
+function normalizeProducedColors(producedColors?: readonly string[]): Color[] {
+  if (!Array.isArray(producedColors)) return [];
+
+  return producedColors.filter((color): color is Color =>
+    MANA_COLORS.includes(String(color || '').toUpperCase() as Color)
+  );
 }
 
 /**
@@ -102,6 +111,14 @@ export function parseManaCost(manaCost?: string): ParsedManaCost {
  */
 export function paymentToPool(payment: PaymentItem[]): Record<Color, number> {
   return payment.reduce<Record<Color, number>>((acc, p) => {
+    const producedColors = normalizeProducedColors((p as any).producedColors);
+    if (producedColors.length > 0) {
+      for (const color of producedColors) {
+        acc[color] = (acc[color] || 0) + 1;
+      }
+      return acc;
+    }
+
     const amount = p.count ?? 1;
     acc[p.mana] = (acc[p.mana] || 0) + amount;
     return acc;

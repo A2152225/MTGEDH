@@ -26,6 +26,12 @@ type InlineSelectedPaymentAbility = {
   requiresTarget?: boolean;
 };
 
+type RepresentableManaEffect = {
+  options: ManaColor[];
+  amount: number;
+  producedColors?: ManaColor[];
+};
+
 function escapeRegExp(text: string): string {
   return String(text || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
@@ -60,7 +66,7 @@ function supportsInlineSelectedPaymentAbility(ability: InlineSelectedPaymentAbil
   return true;
 }
 
-function parseRepresentableManaEffect(effectText: string): { options: ManaColor[]; amount: number } | null {
+function parseRepresentableManaEffect(effectText: string): RepresentableManaEffect | null {
   const effect = String(effectText || '').trim();
   if (!effect) return null;
 
@@ -141,12 +147,40 @@ function parseRepresentableManaEffect(effectText: string): { options: ManaColor[
     return uniqueOptions.length > 0 ? { options: uniqueOptions, amount: 1 } : null;
   }
 
-  const uniqueColors = new Set(symbolMatches);
-  if (uniqueColors.size > 1) {
-    return null;
+  return {
+    options: symbolMatches,
+    amount: symbolMatches.length,
+    producedColors: symbolMatches,
+  };
+}
+
+function expandProducedColorsToAmount(producedColors: ManaColor[] | undefined, amount: number): ManaColor[] | undefined {
+  const normalized = Array.isArray(producedColors)
+    ? producedColors.filter((color): color is ManaColor => ['W', 'U', 'B', 'R', 'G', 'C'].includes(String(color || '').toUpperCase()))
+    : [];
+
+  if (normalized.length === 0) return undefined;
+
+  const normalizedAmount = Math.max(1, Number(amount || normalized.length));
+  if (normalized.length === normalizedAmount) {
+    return [...normalized];
   }
 
-  return { options: symbolMatches, amount: symbolMatches.length };
+  if (normalized.length === 1) {
+    return Array.from({ length: normalizedAmount }, () => normalized[0]);
+  }
+
+  if (normalizedAmount % normalized.length !== 0) {
+    return undefined;
+  }
+
+  const repeats = normalizedAmount / normalized.length;
+  const expanded: ManaColor[] = [];
+  for (let index = 0; index < repeats; index += 1) {
+    expanded.push(...normalized);
+  }
+
+  return expanded;
 }
 
 function abilitySelfSacrificesSource(cardName: string, costText: string, ability: InlineSelectedPaymentAbility): boolean {
@@ -410,6 +444,11 @@ function buildInlineManaSourcesForPermanent(
       parsedEffect.options,
       Math.max(parsedEffect.amount, amountFromPermanent || 0) || undefined,
     );
+    const producedColors = expandProducedColorsToAmount(parsedEffect.producedColors, computedAmount);
+    const isMixedFixedBundle = Array.isArray(parsedEffect.producedColors) && new Set(parsedEffect.producedColors).size > 1;
+    if (isMixedFixedBundle && !producedColors) {
+      continue;
+    }
     const actualSourceId = String(perm.id || '');
     const sourceBaseId = `${actualSourceId}::${normalizedAbilityId}`;
     const instanceCount = Math.max(1, repeatCount);
@@ -424,6 +463,7 @@ function buildInlineManaSourcesForPermanent(
         name: card.name,
         label: ability.label,
         options: parsedEffect.options,
+        ...(Array.isArray(producedColors) && producedColors.length > 0 ? { producedColors } : {}),
         ...(typeof consumable === 'boolean' ? { consumable } : {}),
         ...(sacrificeCost ? { sacrificeCost } : {}),
         ...(computedAmount > 1 ? { amount: computedAmount } : {}),
@@ -469,6 +509,7 @@ export function createPaymentItemFromSource(
     ...(source.id !== actualPermanentId ? { paymentSourceId: source.id } : {}),
     ...(source.abilityId ? { abilityId: source.abilityId } : {}),
     mana,
+    ...(Array.isArray(source.producedColors) && source.producedColors.length > 0 ? { producedColors: source.producedColors } : {}),
     count,
     ...(Array.isArray(sacrificedPermanentIds) && sacrificedPermanentIds.length > 0 ? { sacrificedPermanentIds } : {}),
   };

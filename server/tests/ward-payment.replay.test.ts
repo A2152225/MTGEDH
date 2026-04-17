@@ -15,6 +15,7 @@ function resetGame(gameId: string) {
 describe('ward payment replay semantics', () => {
   beforeEach(() => {
     resetGame('t_target_selection_ward_prompt_replay');
+    resetGame('t_ward_payment_resolve_replay');
   });
 
   it('replays targetSelectionWardPrompt by restoring stack targets and queued ward prompts', () => {
@@ -102,5 +103,107 @@ describe('ward payment replay semantics', () => {
     expect(String((queue.steps[1] as any)?.id || '')).toBe('queued_ward_payment_2');
     expect((queue.steps[0] as any)?.wardPaymentType).toBe('mana');
     expect((queue.steps[1] as any)?.wardPaymentType).toBe('life');
+  });
+
+  it('replays wardPaymentResolve by clearing the queued prompt and restoring Treasure-backed payment evidence', () => {
+    const gameId = 't_ward_payment_resolve_replay';
+
+    const game = createInitialGameState(gameId);
+    const p1 = 'p1' as PlayerID;
+    const p2 = 'p2' as PlayerID;
+    addPlayer(game, p1, 'P1');
+    addPlayer(game, p2, 'P2');
+
+    (game.state as any).manaPool = {
+      [p1]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 1 },
+      [p2]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+    };
+    (game.state as any).zones = {
+      [p1]: { hand: [], handCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0 },
+      [p2]: { hand: [], handCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0 },
+    };
+    (game.state as any).battlefield = [
+      {
+        id: 'treasure_1',
+        controller: p1,
+        owner: p1,
+        tapped: false,
+        isToken: true,
+        card: {
+          id: 'treasure_card_1',
+          name: 'Treasure',
+          type_line: 'Token Artifact — Treasure',
+          oracle_text: '{T}, Sacrifice this artifact: Add one mana of any color.',
+          zone: 'battlefield',
+        },
+      },
+    ];
+    (game.state as any).stack = [
+      {
+        id: 'spell_1',
+        type: 'spell',
+        controller: p1,
+        sourceName: 'Twin Barrage',
+        targets: [],
+        card: {
+          id: 'spell_card_1',
+          name: 'Twin Barrage',
+          type_line: 'Instant',
+          oracle_text: 'Twin Barrage deals 2 damage divided as you choose among one or two targets.',
+          zone: 'stack',
+        },
+      },
+    ];
+
+    game.applyEvent({
+      type: 'targetSelectionWardPrompt',
+      playerId: p1,
+      sourceId: 'spell_1',
+      targets: ['ward_perm_1'],
+      queuedResolutionStep: {
+        id: 'queued_ward_payment_1',
+        type: ResolutionStepType.MANA_PAYMENT_CHOICE,
+        playerId: p1,
+        sourceId: 'spell_1',
+        sourceName: 'Guarded Bear',
+        description: 'Guarded Bear has ward {2}. Pay {2} or the spell/ability will be countered.',
+        mandatory: false,
+        cardName: 'Guarded Bear Ward',
+        manaCost: '{2}',
+        wardPayment: true,
+        wardPaymentType: 'mana',
+        wardCost: '{2}',
+        wardPermanentId: 'ward_perm_1',
+        wardPermanentName: 'Guarded Bear',
+        wardPermanentController: p2,
+        wardTriggeredBy: 'spell_1',
+      },
+    } as any);
+
+    let queue = ResolutionQueueManager.getQueue(gameId);
+    expect(queue.steps).toHaveLength(1);
+    expect(String((queue.steps[0] as any)?.id || '')).toBe('queued_ward_payment_1');
+
+    game.applyEvent({
+      type: 'wardPaymentResolve',
+      playerId: p1,
+      stepId: 'queued_ward_payment_1',
+      sourceId: 'spell_1',
+      wardCost: '{2}',
+      wardPermanentId: 'ward_perm_1',
+      wardPermanentName: 'Guarded Bear',
+      wardPaymentType: 'mana',
+      tappedPermanents: ['treasure_1'],
+      sacrificedPermanents: ['treasure_1'],
+      paymentManaDelta: { colorless: -1 },
+    } as any);
+
+    queue = ResolutionQueueManager.getQueue(gameId);
+    expect(queue.steps).toHaveLength(0);
+    const stackItem = ((game.state as any).stack || []).find((item: any) => item.id === 'spell_1');
+    expect(stackItem?.targets).toEqual(['ward_perm_1']);
+    expect(((game.state as any).battlefield || []).some((entry: any) => entry?.id === 'treasure_1')).toBe(false);
+    expect((((game.state as any).zones?.[p1]?.graveyard) || []).some((card: any) => card?.name === 'Treasure')).toBe(true);
+    expect((game.state as any).manaPool?.[p1]).toEqual({ white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 });
   });
 });

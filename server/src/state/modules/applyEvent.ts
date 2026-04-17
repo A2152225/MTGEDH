@@ -2893,6 +2893,102 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
         break;
       }
 
+      case "wardPaymentResolve": {
+        try {
+          const replayGameId = String((ctx as any).gameId || '').trim();
+          const playerId = String((e as any).playerId || '').trim();
+          const stepId = String((e as any).stepId || '').trim();
+
+          if (replayGameId && stepId) {
+            clearReplayQueuedSteps(replayGameId, (step: any) => String((step as any)?.id || '').trim() === stepId);
+          }
+
+          try {
+            const tapped = Array.isArray((e as any).tappedPermanents)
+              ? ((e as any).tappedPermanents as any[]).map((id: any) => String(id)).filter(Boolean)
+              : [];
+            if (tapped.length > 0) {
+              const battlefield = Array.isArray(ctx.state.battlefield) ? ctx.state.battlefield : [];
+              const tappedSet = new Set(tapped);
+              for (const permanent of battlefield as any[]) {
+                if (permanent && tappedSet.has(String((permanent as any).id || ''))) {
+                  (permanent as any).tapped = true;
+                }
+              }
+            }
+          } catch {
+            // best-effort only
+          }
+
+          try {
+            const manaDelta = (e as any).paymentManaDelta;
+            if (playerId && manaDelta && typeof manaDelta === 'object' && !Array.isArray(manaDelta)) {
+              const pool = getOrInitManaPool(ctx.state as any, playerId as any) as any;
+              for (const [poolKey, rawAmount] of Object.entries(manaDelta as Record<string, unknown>)) {
+                const amount = Number(rawAmount || 0);
+                if (!Number.isFinite(amount) || amount === 0) continue;
+                pool[poolKey] = Number(pool[poolKey] || 0) + amount;
+              }
+            }
+          } catch {
+            // best-effort only
+          }
+
+          try {
+            const sacrificed = Array.isArray((e as any).sacrificedPermanents)
+              ? ((e as any).sacrificedPermanents as any[]).map((id: any) => String(id)).filter(Boolean)
+              : [];
+            if (sacrificed.length > 0) {
+              for (const permanentId of sacrificed) {
+                const battlefield = Array.isArray(ctx.state?.battlefield) ? ctx.state.battlefield : [];
+                const permanent = battlefield.find((entry: any) => entry && String((entry as any).id || '') === permanentId) as any;
+                if (!permanent) continue;
+
+                const tokenGraveyardSnapshot = permanent?.isToken && permanent?.card
+                  ? { ...(permanent.card || {}), zone: 'graveyard' }
+                  : null;
+                const graveyardOwnerId = String(permanent?.owner || permanent?.controller || playerId || '').trim();
+                movePermanentToGraveyard(ctx as any, permanentId, true);
+
+                if (tokenGraveyardSnapshot && graveyardOwnerId) {
+                  const zones = ((ctx.state as any).zones = (ctx.state as any).zones || {});
+                  const playerZones = (zones[graveyardOwnerId] = zones[graveyardOwnerId] || {
+                    hand: [],
+                    handCount: 0,
+                    libraryCount: 0,
+                    graveyard: [],
+                    graveyardCount: 0,
+                    exile: [],
+                    exileCount: 0,
+                  });
+                  playerZones.graveyard = Array.isArray(playerZones.graveyard) ? playerZones.graveyard : [];
+
+                  const alreadyPresent = (playerZones.graveyard as any[]).some((card: any) => {
+                    if (!card) return false;
+                    const cardId = String((card as any).id || '').trim();
+                    const snapshotId = String((tokenGraveyardSnapshot as any).id || '').trim();
+                    if (cardId && snapshotId) return cardId === snapshotId;
+                    return String((card as any).name || '').trim() === String((tokenGraveyardSnapshot as any).name || '').trim();
+                  });
+
+                  if (!alreadyPresent) {
+                    (playerZones.graveyard as any[]).push(tokenGraveyardSnapshot);
+                    playerZones.graveyardCount = (playerZones.graveyard as any[]).length;
+                  }
+                }
+              }
+            }
+          } catch {
+            // best-effort only
+          }
+
+          ctx.bumpSeq();
+        } catch (err) {
+          debugWarn(1, 'applyEvent(wardPaymentResolve): failed', err);
+        }
+        break;
+      }
+
       case "targetSelectionTapUntapPrompt": {
         try {
           const replayGameId = String((ctx as any).gameId || '').trim();
@@ -5607,8 +5703,40 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
                 if (!id) continue;
                 // Best-effort: only move if still on battlefield.
                 const bf = Array.isArray(ctx.state?.battlefield) ? ctx.state.battlefield : [];
-                if (!bf.some((p: any) => p && String(p.id) === id)) continue;
+                const permanent = bf.find((p: any) => p && String(p.id) === id) as any;
+                if (!permanent) continue;
+                const tokenGraveyardSnapshot = permanent?.isToken && permanent?.card
+                  ? { ...(permanent.card || {}), zone: 'graveyard' }
+                  : null;
+                const graveyardOwnerId = String(permanent?.owner || permanent?.controller || playerId || '').trim();
                 movePermanentToGraveyard(ctx as any, id, true);
+
+                if (tokenGraveyardSnapshot && graveyardOwnerId) {
+                  const zones = ((ctx.state as any).zones = (ctx.state as any).zones || {});
+                  const playerZones = (zones[graveyardOwnerId] = zones[graveyardOwnerId] || {
+                    hand: [],
+                    handCount: 0,
+                    libraryCount: 0,
+                    graveyard: [],
+                    graveyardCount: 0,
+                    exile: [],
+                    exileCount: 0,
+                  });
+                  playerZones.graveyard = Array.isArray(playerZones.graveyard) ? playerZones.graveyard : [];
+
+                  const alreadyPresent = (playerZones.graveyard as any[]).some((card: any) => {
+                    if (!card) return false;
+                    const cardId = String((card as any).id || '').trim();
+                    const snapshotId = String((tokenGraveyardSnapshot as any).id || '').trim();
+                    if (cardId && snapshotId) return cardId === snapshotId;
+                    return String((card as any).name || '').trim() === String((tokenGraveyardSnapshot as any).name || '').trim();
+                  });
+
+                  if (!alreadyPresent) {
+                    (playerZones.graveyard as any[]).push(tokenGraveyardSnapshot);
+                    playerZones.graveyardCount = (playerZones.graveyard as any[]).length;
+                  }
+                }
               }
             }
           } catch {

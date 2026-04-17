@@ -180,6 +180,223 @@ describe('ward mana payment flow', () => {
     expect(spellPaymentStep).toBeDefined();
   });
 
+  it('lets ward payment use a fixed mixed-color bundle from a signet-style source', async () => {
+    createGameIfNotExists(gameId, 'commander', 40, undefined, casterId);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [
+      { id: casterId, name: 'Caster', spectator: false, life: 40 },
+      { id: defenderId, name: 'Defender', spectator: false, life: 40 },
+    ];
+    (game.state as any).startingLife = 40;
+    (game.state as any).life = { [casterId]: 40, [defenderId]: 40 };
+    (game.state as any).phase = 'precombatMain';
+    (game.state as any).turnPlayer = casterId;
+    (game.state as any).priority = casterId;
+    (game.state as any).manaPool = {
+      [casterId]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 1 },
+      [defenderId]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+    };
+    (game.state as any).battlefield = [
+      {
+        id: 'signet_1',
+        controller: casterId,
+        tapped: false,
+        card: { name: 'Rakdos Signet', type_line: 'Artifact', oracle_text: '{1}, {T}: Add {B}{R}.' },
+      },
+      {
+        id: 'ward_creature',
+        controller: defenderId,
+        tapped: false,
+        card: {
+          name: 'Rakdos Shieldbearer',
+          type_line: 'Creature — Warrior',
+          oracle_text: 'Ward {B}{R}',
+        },
+      },
+    ];
+    (game.state as any).zones = {
+      [casterId]: {
+        hand: [
+          {
+            id: 'bolt_1',
+            name: 'Lightning Bolt',
+            mana_cost: '{R}',
+            manaCost: '{R}',
+            type_line: 'Instant',
+            oracle_text: 'Lightning Bolt deals 3 damage to any target.',
+            image_uris: { small: 'https://example.com/bolt.jpg' },
+          },
+        ],
+        handCount: 1,
+        graveyard: [],
+        graveyardCount: 0,
+        exile: [],
+        exileCount: 0,
+      },
+      [defenderId]: {
+        hand: [],
+        handCount: 0,
+        graveyard: [],
+        graveyardCount: 0,
+        exile: [],
+        exileCount: 0,
+      },
+    };
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(casterId, emitted, gameId);
+    const io = createMockIo(emitted, [socket]);
+
+    registerResolutionHandlers(io as any, socket as any);
+    registerGameActions(io as any, socket as any);
+
+    await handlers['requestCastSpell']({ gameId, cardId: 'bolt_1' });
+
+    const targetStep = ResolutionQueueManager.getQueue(gameId).steps.find((entry: any) => entry.type === 'target_selection') as any;
+    expect(targetStep).toBeDefined();
+
+    await handlers['submitResolutionResponse']({
+      gameId,
+      stepId: String(targetStep.id),
+      selections: ['ward_creature'],
+    });
+
+    const wardStep = ResolutionQueueManager.getQueue(gameId).steps.find((entry: any) => entry.type === 'mana_payment_choice' && (entry as any).wardPayment === true) as any;
+    expect(wardStep).toBeDefined();
+    expect(wardStep.wardCost).toBe('{B}{R}');
+
+    await handlers['submitResolutionResponse']({
+      gameId,
+      stepId: String(wardStep.id),
+      selections: {
+        payment: [{ permanentId: 'signet_1', mana: 'B', producedColors: ['B', 'R'] }],
+      },
+    });
+
+    expect(emitted.find((event) => event.event === 'error')).toBeUndefined();
+    expect((game.state as any).battlefield.find((entry: any) => entry.id === 'signet_1')?.tapped).toBe(true);
+    expect(Number((game.state as any).manaPool[casterId].colorless || 0)).toBe(0);
+    expect(Number((game.state as any).manaPool[casterId].black || 0)).toBe(0);
+    expect(Number((game.state as any).manaPool[casterId].red || 0)).toBe(0);
+
+    const spellPaymentStep = ResolutionQueueManager.getQueue(gameId).steps.find((entry: any) => entry.type === 'mana_payment_choice' && (entry as any).spellPaymentRequired === true) as any;
+    expect(spellPaymentStep).toBeDefined();
+  });
+
+  it('persists mana ward payment evidence for Treasure-backed payments', async () => {
+    createGameIfNotExists(gameId, 'commander', 40, undefined, casterId);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [
+      { id: casterId, name: 'Caster', spectator: false, life: 40 },
+      { id: defenderId, name: 'Defender', spectator: false, life: 40 },
+    ];
+    (game.state as any).startingLife = 40;
+    (game.state as any).life = { [casterId]: 40, [defenderId]: 40 };
+    (game.state as any).phase = 'precombatMain';
+    (game.state as any).turnPlayer = casterId;
+    (game.state as any).priority = casterId;
+    (game.state as any).manaPool = {
+      [casterId]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 1 },
+      [defenderId]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+    };
+    (game.state as any).battlefield = [
+      {
+        id: 'treasure_1',
+        controller: casterId,
+        owner: casterId,
+        tapped: false,
+        isToken: true,
+        card: { name: 'Treasure', type_line: 'Token Artifact - Treasure', oracle_text: '{T}, Sacrifice this artifact: Add one mana of any color.' },
+      },
+      {
+        id: 'ward_creature',
+        controller: defenderId,
+        tapped: false,
+        card: {
+          name: 'Guarded Bear',
+          type_line: 'Creature — Bear',
+          oracle_text: 'Ward {2}',
+        },
+      },
+    ];
+    (game.state as any).zones = {
+      [casterId]: {
+        hand: [
+          {
+            id: 'bolt_1',
+            name: 'Lightning Bolt',
+            mana_cost: '{R}',
+            manaCost: '{R}',
+            type_line: 'Instant',
+            oracle_text: 'Lightning Bolt deals 3 damage to any target.',
+            image_uris: { small: 'https://example.com/bolt.jpg' },
+          },
+        ],
+        handCount: 1,
+        graveyard: [],
+        graveyardCount: 0,
+        exile: [],
+        exileCount: 0,
+      },
+      [defenderId]: {
+        hand: [],
+        handCount: 0,
+        graveyard: [],
+        graveyardCount: 0,
+        exile: [],
+        exileCount: 0,
+      },
+    };
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(casterId, emitted, gameId);
+    const io = createMockIo(emitted, [socket]);
+
+    registerResolutionHandlers(io as any, socket as any);
+    registerGameActions(io as any, socket as any);
+
+    await handlers['requestCastSpell']({ gameId, cardId: 'bolt_1' });
+
+    const targetStep = ResolutionQueueManager.getQueue(gameId).steps.find((entry: any) => entry.type === 'target_selection') as any;
+    expect(targetStep).toBeDefined();
+
+    await handlers['submitResolutionResponse']({
+      gameId,
+      stepId: String(targetStep.id),
+      selections: ['ward_creature'],
+    });
+
+    const wardStep = ResolutionQueueManager.getQueue(gameId).steps.find((entry: any) => entry.type === 'mana_payment_choice' && (entry as any).wardPayment === true) as any;
+    expect(wardStep).toBeDefined();
+    expect(wardStep.wardCost).toBe('{2}');
+
+    await handlers['submitResolutionResponse']({
+      gameId,
+      stepId: String(wardStep.id),
+      selections: {
+        payment: [
+          { permanentId: '__pool__:colorless', mana: 'C', count: 1 },
+          { permanentId: 'treasure_1', mana: 'W' },
+        ],
+      },
+    });
+
+    expect(emitted.find((event) => event.event === 'error')).toBeUndefined();
+    expect(((game.state as any).battlefield || []).some((entry: any) => entry?.id === 'treasure_1')).toBe(false);
+    expect((((game.state as any).zones?.[casterId]?.graveyard) || []).some((card: any) => card?.name === 'Treasure')).toBe(true);
+    expect((game.state as any).manaPool?.[casterId]).toEqual({ white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 });
+
+    const wardResolveEvent = [...getEvents(gameId)].reverse().find((event: any) => event.type === 'wardPaymentResolve') as any;
+    expect(wardResolveEvent?.payload?.stepId).toBe(String(wardStep.id));
+    expect(wardResolveEvent?.payload?.paymentManaDelta).toEqual({ colorless: -1 });
+    expect((wardResolveEvent?.payload?.tappedPermanents || []).map(String)).toContain('treasure_1');
+    expect((wardResolveEvent?.payload?.sacrificedPermanents || []).map(String)).toContain('treasure_1');
+  });
+
   it('leaves an uncounterable pending spell intact when ward is declined', async () => {
     createGameIfNotExists(gameId, 'commander', 40, undefined, casterId);
     const game = ensureGame(gameId);

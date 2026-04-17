@@ -371,6 +371,7 @@ describe('activateManaAbility replay semantics', () => {
     } as any);
 
     expect((game.state as any).battlefield).toHaveLength(0);
+    expect((((game.state as any).zones?.[p1]?.graveyard) || []).some((card: any) => card?.name === 'Treasure')).toBe(true);
     expect((game.state as any).manaPool?.[p1]).toEqual({ white: 0, blue: 0, black: 0, red: 0, green: 1, colorless: 0 });
   });
 

@@ -108,6 +108,7 @@ const REPLAY_GUARDED_EVENT_TYPES = new Set([
   'targetSelectionTapUntapPrompt',
   'triggerOrderResponse',
   'untapPermanent',
+  'wardPaymentResolve',
   'ventureChooseDungeonResolve',
   'ventureChooseRoomResolve',
   'voteSubmit',

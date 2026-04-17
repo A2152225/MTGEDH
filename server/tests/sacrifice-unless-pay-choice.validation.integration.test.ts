@@ -429,7 +429,7 @@ describe('sacrificeUnlessPayChoice validate-before-complete (integration)', () =
     expect(Number((game.state as any).manaPool[p1].colorless || 0)).toBe(0);
   });
 
-  it('rejects a selected costed mana line even when another line on the source is simple', async () => {
+  it('accepts a selected simple mana-cost mixed bundle and leaves the excess mana floating', async () => {
     const gameId = createGameId();
     ResolutionQueueManager.removeQueue(gameId);
     games.delete(gameId as any);
@@ -463,6 +463,7 @@ describe('sacrificeUnlessPayChoice validate-before-complete (integration)', () =
         },
       },
     ]);
+    (game.state as any).manaPool[p1].colorless = 1;
     queuePromenadeManaPaymentChoice(gameId, p1);
 
     const emitted: Array<{ room?: string; event: string; payload: any }> = [];
@@ -480,7 +481,72 @@ describe('sacrificeUnlessPayChoice validate-before-complete (integration)', () =
       gameId,
       stepId: String((step as any).id),
       selections: {
-        payment: [{ permanentId: 'relay_1', mana: 'U', count: 1, abilityId: 'relay_card_1-ability-1' }],
+        payment: [{ permanentId: 'relay_1', mana: 'U', abilityId: 'relay_card_1-ability-1', producedColors: ['U', 'R'] }],
+      },
+      cancelled: false,
+    });
+
+    expect(emitted.find((event) => event.event === 'error')).toBeUndefined();
+    expect(ResolutionQueueManager.getQueue(gameId).steps.some((s: any) => String(s.id) === String((step as any).id))).toBe(false);
+    expect((game.state as any).battlefield.find((p: any) => p.id === 'relay_1')?.tapped).toBe(true);
+    expect((game.state as any).battlefield.some((p: any) => p.id === 'promenade_1')).toBe(true);
+    expect(Number((game.state as any).manaPool[p1].blue || 0)).toBe(0);
+    expect(Number((game.state as any).manaPool[p1].red || 0)).toBe(1);
+    expect(Number((game.state as any).manaPool[p1].colorless || 0)).toBe(0);
+  });
+
+  it('rejects a selected line with unsupported non-mana additional costs even when another line on the source is simple', async () => {
+    const gameId = createGameId();
+    ResolutionQueueManager.removeQueue(gameId);
+    games.delete(gameId as any);
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const p1 = 'p1';
+    initializePromenadePaymentGame(game, p1, [
+      {
+        id: 'promenade_1',
+        controller: p1,
+        owner: p1,
+        tapped: false,
+        card: {
+          name: 'Transguild Promenade',
+          type_line: 'Land',
+          oracle_text: 'When Transguild Promenade enters the battlefield, sacrifice it unless you pay {1}.',
+        },
+      },
+      {
+        id: 'relay_1',
+        controller: p1,
+        owner: p1,
+        tapped: false,
+        card: {
+          id: 'relay_card_1',
+          name: 'Choice Relay',
+          type_line: 'Artifact',
+          oracle_text: '{T}: Add {C}.\nPay 1 life, {T}: Add {U}{R}.',
+        },
+      },
+    ]);
+    queuePromenadeManaPaymentChoice(gameId, p1);
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(p1, emitted);
+    socket.rooms.add(gameId);
+
+    const io = createMockIo(emitted, [socket]);
+    registerResolutionHandlers(io as any, socket as any);
+
+    const queue = ResolutionQueueManager.getQueue(gameId);
+    const step = queue.steps.find((s: any) => s.type === 'mana_payment_choice' && (s as any).sacrificeUnlessPayChoice === true);
+    expect(step).toBeDefined();
+
+    await handlers['submitResolutionResponse']({
+      gameId,
+      stepId: String((step as any).id),
+      selections: {
+        payment: [{ permanentId: 'relay_1', mana: 'U', abilityId: 'relay_card_1-ability-1', producedColors: ['U', 'R'] }],
       },
       cancelled: false,
     });
@@ -492,6 +558,7 @@ describe('sacrificeUnlessPayChoice validate-before-complete (integration)', () =
     expect((game.state as any).battlefield.find((p: any) => p.id === 'relay_1')?.tapped).toBe(false);
     expect((game.state as any).battlefield.some((p: any) => p.id === 'promenade_1')).toBe(true);
     expect(Number((game.state as any).manaPool[p1].blue || 0)).toBe(0);
+    expect(Number((game.state as any).manaPool[p1].red || 0)).toBe(0);
     expect(Number((game.state as any).manaPool[p1].colorless || 0)).toBe(0);
   });
 

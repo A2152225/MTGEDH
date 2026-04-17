@@ -494,6 +494,90 @@ describe('mana payment choice selection flow', () => {
     expect((((replayGame.state as any).stack) || []).some((entry: any) => String(entry?.card?.name || '') === 'Ponder')).toBe(true);
   });
 
+  it('lets spell payment use a fixed mixed-color bundle from a signet', async () => {
+    createGameIfNotExists(signetGameId, 'commander', 40);
+    const game = ensureGame(signetGameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    Object.assign((game.state as any), buildSignetBaseline(playerId));
+    (game.state as any).manaPool = {
+      [playerId]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 1 },
+    };
+    (game.state as any).zones = {
+      [playerId]: {
+        hand: [
+          {
+            id: 'rakdos_shred_freak_1',
+            name: 'Rakdos Shred-Freak',
+            mana_cost: '{B}{R}',
+            manaCost: '{B}{R}',
+            type_line: 'Creature - Human Berserker',
+            oracle_text: 'Haste',
+            power: '2',
+            toughness: '1',
+            image_uris: { small: 'https://example.com/rakdos-shred-freak.jpg' },
+          },
+        ],
+        handCount: 1,
+        graveyard: [],
+        graveyardCount: 0,
+        exile: [],
+        exileCount: 0,
+      },
+    };
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(playerId, emitted, signetGameId);
+    const io = createMockIo(emitted, [socket]);
+
+    registerResolutionHandlers(io as any, socket as any);
+    registerGameActions(io as any, socket as any);
+
+    await handlers['requestCastSpell']({ gameId: signetGameId, cardId: 'rakdos_shred_freak_1' });
+
+    const paymentStep = ResolutionQueueManager
+      .getQueue(signetGameId)
+      .steps
+      .find((entry: any) => entry.type === 'mana_payment_choice' && (entry as any).spellPaymentRequired === true) as any;
+    expect(paymentStep).toBeDefined();
+    expect(paymentStep.manaCost).toBe('{B}{R}');
+
+    emitted.length = 0;
+    await handlers['submitResolutionResponse']({
+      gameId: signetGameId,
+      stepId: String(paymentStep.id),
+      selections: {
+        payment: [{
+          permanentId: 'signet_1',
+          mana: 'B',
+          count: 2,
+          abilityId: 'signet_card_1-ability-0',
+          producedColors: ['B', 'R'],
+        }],
+      },
+    });
+
+    expect(emitted.some((event) => event.event === 'castSpellFromHandContinue')).toBe(false);
+    expect(emitted.find((event) => event.event === 'error')).toBeUndefined();
+    expect((game.state as any).battlefield.find((entry: any) => entry.id === 'signet_1')?.tapped).toBe(true);
+    expect((game.state as any).manaPool[playerId]).toEqual({
+      white: 0,
+      blue: 0,
+      black: 0,
+      red: 0,
+      green: 0,
+      colorless: 0,
+    });
+
+    const handIds = ((((game.state as any).zones?.[playerId]?.hand) || []) as any[]).map((card: any) => card.id);
+    expect(handIds).not.toContain('rakdos_shred_freak_1');
+    expect((((game.state as any).stack) || []).some((entry: any) => String(entry?.card?.name || '') === 'Rakdos Shred-Freak')).toBe(true);
+
+    const castEvent = [...getEvents(signetGameId)].reverse().find((event: any) => String(event?.type || '') === 'castSpell') as any;
+    expect(castEvent?.payload?.tappedPermanents).toEqual(['signet_1']);
+    expect(castEvent?.payload?.paymentManaDelta).toEqual({ colorless: -1 });
+  });
+
   it('lets altar mana payment sacrifice chosen creatures while casting a spell', async () => {
     createGameIfNotExists(altarSpellGameId, 'commander', 40);
     const game = ensureGame(altarSpellGameId);

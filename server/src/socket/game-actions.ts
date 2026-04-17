@@ -330,7 +330,7 @@ function paymentActivationCostHasUnsupportedAdditionalCosts(activationCost?: str
   if (!normalizedCost) return false;
 
   let residue = normalizedCost;
-  residue = residue.replace(/\{[^}]+\}/g, ' ');
+  residue = residue.replace(/\{(?:[tq]|\d+|[wubrgc])\}/gi, ' ');
   residue = residue.replace(/sacrifice\s+[^,;:]*/gi, ' ');
   residue = residue.replace(/[().]/g, ' ');
   residue = residue.replace(/,/g, ' ');
@@ -344,12 +344,11 @@ function getSupportedPaymentActivationManaCost(activationCost?: string | null): 
   if (!normalizedCost) return undefined;
 
   const parsedCost = parseManaCost(normalizedCost);
-  const hybridOptions = Array.isArray((parsedCost as any).hybrid) ? (parsedCost as any).hybrid : [];
   const hasValue = Number(parsedCost.generic || 0) > 0
     || Object.values(parsedCost.colors || {}).some((value) => Number(value || 0) > 0);
 
   if (!hasValue) return undefined;
-  if (parsedCost.hasX || hybridOptions.length > 0) return undefined;
+  if (parsedCost.hasX || parsedCost.hybrids.length > 0) return undefined;
 
   return parsedCost;
 }
@@ -363,6 +362,89 @@ function snapshotCastSpellManaPool(poolLike: any): Record<string, number> {
     green: Number(poolLike?.green || 0),
     colorless: Number(poolLike?.colorless || 0),
   };
+}
+
+const CAST_SPELL_PAYMENT_MANA_KEYS = ['white', 'blue', 'black', 'red', 'green', 'colorless'] as const;
+
+function createEmptyCastSpellManaTotals(): Record<string, number> {
+  return snapshotCastSpellManaPool(undefined);
+}
+
+function getPaymentItemProducedManaTotals(
+  mana?: string | null,
+  count?: number | null,
+  producedColors?: readonly string[] | null,
+): Record<string, number> {
+  const totals = createEmptyCastSpellManaTotals();
+  const normalizedProducedColors = Array.isArray(producedColors)
+    ? producedColors
+        .map((color) => String(color || '').trim().toUpperCase())
+        .filter((color): color is keyof typeof MANA_COLOR_NAMES => Object.prototype.hasOwnProperty.call(MANA_COLOR_NAMES, color))
+    : [];
+
+  if (normalizedProducedColors.length > 0) {
+    for (const color of normalizedProducedColors) {
+      const poolKey = MANA_COLOR_NAMES[color];
+      if (poolKey) {
+        totals[poolKey] = (totals[poolKey] || 0) + 1;
+      }
+    }
+    return totals;
+  }
+
+  const poolKey = MANA_COLOR_NAMES[String(mana || '').trim().toUpperCase() as keyof typeof MANA_COLOR_NAMES];
+  const amount = Math.max(1, Number(count || 1));
+  if (poolKey && amount > 0) {
+    totals[poolKey] = (totals[poolKey] || 0) + amount;
+  }
+
+  return totals;
+}
+
+function addCastSpellManaTotals(target: any, delta: any): void {
+  for (const key of CAST_SPELL_PAYMENT_MANA_KEYS) {
+    const amount = Number(delta?.[key] || 0);
+    if (amount > 0) {
+      target[key] = Number(target?.[key] || 0) + amount;
+    }
+  }
+}
+
+function consumeExplicitSelectedCastSpellMana(
+  pool: any,
+  selectedAvailable: Record<string, number>,
+  coloredCost: Record<string, number>,
+  genericCost: number,
+): { consumed: Record<string, number> } | { error: string } {
+  const selectedPool = snapshotCastSpellManaPool(selectedAvailable);
+  const validationError = validateManaPayment(selectedPool, coloredCost, genericCost);
+  if (validationError) {
+    return { error: validationError };
+  }
+
+  const manaConsumption = consumeManaFromPool(
+    selectedPool,
+    coloredCost,
+    genericCost,
+    '[castSpellFromHand][selectedPayment]',
+  );
+
+  for (const key of CAST_SPELL_PAYMENT_MANA_KEYS) {
+    const amount = Number((manaConsumption.consumed as any)?.[key] || 0);
+    if (amount <= 0) continue;
+    if (Number(pool?.[key] || 0) < amount) {
+      return { error: `Selected payment used more ${key} mana than is available.` };
+    }
+  }
+
+  for (const key of CAST_SPELL_PAYMENT_MANA_KEYS) {
+    const amount = Number((manaConsumption.consumed as any)?.[key] || 0);
+    if (amount > 0) {
+      pool[key] = Number(pool?.[key] || 0) - amount;
+    }
+  }
+
+  return { consumed: manaConsumption.consumed };
 }
 
 function calculateCastSpellPaymentManaDelta(before: any, after: any): Record<string, number> | undefined {
@@ -7029,7 +7111,7 @@ export function registerGameActions(io: Server, socket: Socket) {
       
       // Add mana from payment sources, using calculateManaProduction for accurate amounts
       if (payment && payment.length > 0) {
-        for (const { permanentId, mana, count, abilityId } of payment) {
+        for (const { permanentId, mana, count, abilityId, producedColors } of payment) {
           const floatingPoolKey = getFloatingPaymentPoolKey(String(permanentId || ''), String(mana || ''));
           if (floatingPoolKey) {
             const amount = Math.max(1, Number(count || 1));
@@ -7058,6 +7140,11 @@ export function registerGameActions(io: Server, socket: Socket) {
             } else {
               const manaInfo = calculateManaProduction(game.state, permanent, playerId, mana, abilityId);
               manaAmount = manaInfo.totalAmount;
+            }
+
+            if (Array.isArray(producedColors) && producedColors.length > 0) {
+              addCastSpellManaTotals(totalAvailable, getPaymentItemProducedManaTotals(mana, manaAmount, producedColors));
+              continue;
             }
             
             const colorKey = MANA_COLOR_NAMES[mana];
@@ -7208,7 +7295,7 @@ export function registerGameActions(io: Server, socket: Socket) {
       const producedTreasureByColor: Record<string, number> = { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 };
       const producedNonTreasureByColor: Record<string, number> = { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 };
 
-      const selectedPaymentTotals: Record<string, number> = { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 };
+      const selectedPaymentAvailableTotals: Record<string, number> = { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 };
       const tappedPaymentPermanents = new Set<string>();
       const sacrificedPaymentPermanents = new Set<string>();
 
@@ -7222,11 +7309,11 @@ export function registerGameActions(io: Server, socket: Socket) {
         }
         
         // Process each payment item: apply the mana ability cost, then add mana to pool
-        for (const { permanentId, mana, count, abilityId, sacrificedPermanentIds } of payment) {
+        for (const { permanentId, mana, count, abilityId, sacrificedPermanentIds, producedColors } of payment) {
           const floatingPoolKey = getFloatingPaymentPoolKey(String(permanentId || ''), String(mana || ''));
           if (floatingPoolKey) {
             const amount = Math.max(1, Number(count || 1));
-            selectedPaymentTotals[floatingPoolKey] = (selectedPaymentTotals[floatingPoolKey] || 0) + amount;
+            selectedPaymentAvailableTotals[floatingPoolKey] = (selectedPaymentAvailableTotals[floatingPoolKey] || 0) + amount;
             continue;
           }
 
@@ -7416,14 +7503,48 @@ export function registerGameActions(io: Server, socket: Socket) {
           const producedAmount = count !== undefined && count !== null
             ? Math.max(Number(count) || 0, Number(manaInfo.totalAmount || 0))
             : Number(manaInfo.totalAmount || 0);
-          const spentAmount = count !== undefined && count !== null
-            ? Math.max(Number(count) || 0, 0)
-            : producedAmount;
+          const explicitProducedManaTotals = Array.isArray(producedColors) && producedColors.length > 0
+            ? getPaymentItemProducedManaTotals(mana, producedAmount, producedColors)
+            : undefined;
           
           const poolKey = manaColorMap[mana];
-          if (poolKey && producedAmount > 0) {
+          if (explicitProducedManaTotals) {
+            const explicitProducedAmount = Object.values(explicitProducedManaTotals).reduce(
+              (sum: number, value) => sum + (typeof value === 'number' ? value : 0),
+              0,
+            );
+
+            if (explicitProducedAmount <= 0) {
+              socket.emit('error', {
+                code: 'INVALID_PAYMENT_SOURCE_OUTPUT',
+                message: `${permCard.name || 'Permanent'} did not produce any usable mana for spell payment.`,
+              });
+              return;
+            }
+
+            addCastSpellManaTotals(game.state.manaPool[playerId], explicitProducedManaTotals);
+            addCastSpellManaTotals(selectedPaymentAvailableTotals, explicitProducedManaTotals);
+
+            for (const [explicitPoolKey, amount] of Object.entries(explicitProducedManaTotals)) {
+              if (amount <= 0) continue;
+              if (manaGrantsCreatureSpellHasteUntilEndOfTurn) {
+                recordCreatureSpellHasteManaProduced(game.state, String(playerId), String(explicitPoolKey) as any, amount);
+              }
+              if (isSnowSource) {
+                producedSnowByColor[explicitPoolKey] = (producedSnowByColor[explicitPoolKey] || 0) + amount;
+              } else {
+                producedNonSnowByColor[explicitPoolKey] = (producedNonSnowByColor[explicitPoolKey] || 0) + amount;
+              }
+              if (isTreasureSource) {
+                producedTreasureByColor[explicitPoolKey] = (producedTreasureByColor[explicitPoolKey] || 0) + amount;
+              } else {
+                producedNonTreasureByColor[explicitPoolKey] = (producedNonTreasureByColor[explicitPoolKey] || 0) + amount;
+              }
+              debug(2, `[castSpellFromHand] Added ${amount} ${explicitPoolKey} mana to ${playerId}'s pool from ${(permanent as any).card?.name || permanentId}`);
+            }
+          } else if (poolKey && producedAmount > 0) {
             (game.state.manaPool[playerId] as any)[poolKey] += producedAmount;
-            selectedPaymentTotals[poolKey] = (selectedPaymentTotals[poolKey] || 0) + spentAmount;
+            selectedPaymentAvailableTotals[poolKey] = (selectedPaymentAvailableTotals[poolKey] || 0) + producedAmount;
             if (manaGrantsCreatureSpellHasteUntilEndOfTurn) {
               recordCreatureSpellHasteManaProduced(game.state, String(playerId), String(poolKey) as any, producedAmount);
             }
@@ -7441,12 +7562,17 @@ export function registerGameActions(io: Server, socket: Socket) {
           }
 
           for (const bonus of Array.isArray(manaInfo.bonusMana) ? manaInfo.bonusMana : []) {
+            if (explicitProducedManaTotals) {
+              continue;
+            }
+
             const bonusPoolKey = manaColorMap[bonus.color];
             if (!bonusPoolKey || bonus.amount <= 0 || ((count !== undefined && count !== null) && bonusPoolKey === poolKey)) {
               continue;
             }
 
             (game.state.manaPool[playerId] as any)[bonusPoolKey] += bonus.amount;
+            selectedPaymentAvailableTotals[bonusPoolKey] = (selectedPaymentAvailableTotals[bonusPoolKey] || 0) + bonus.amount;
             if (manaGrantsCreatureSpellHasteUntilEndOfTurn) {
               recordCreatureSpellHasteManaProduced(game.state, String(playerId), String(bonusPoolKey) as any, bonus.amount);
             }
@@ -7475,24 +7601,21 @@ export function registerGameActions(io: Server, socket: Socket) {
         ? { consumed: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 } }
         : explicitPaymentSelected
           ? (() => {
-              for (const [poolKey, amount] of Object.entries(selectedPaymentTotals)) {
-                if (amount <= 0) continue;
-                if (Number((pool as any)[poolKey] || 0) < amount) {
-                  socket.emit('error', {
-                    code: 'INSUFFICIENT_MANA',
-                    message: `Selected payment used more ${poolKey} mana than is available.`,
-                  });
-                  return null as any;
-                }
+              const selectedConsumption = consumeExplicitSelectedCastSpellMana(
+                pool,
+                selectedPaymentAvailableTotals,
+                totalColored,
+                totalGeneric,
+              );
+              if ('error' in selectedConsumption) {
+                socket.emit('error', {
+                  code: 'INSUFFICIENT_MANA',
+                  message: selectedConsumption.error,
+                });
+                return null as any;
               }
 
-              for (const [poolKey, amount] of Object.entries(selectedPaymentTotals)) {
-                if (amount > 0) {
-                  (pool as any)[poolKey] = Number((pool as any)[poolKey] || 0) - amount;
-                }
-              }
-
-              return { consumed: { ...selectedPaymentTotals } };
+              return { consumed: { ...selectedConsumption.consumed } };
             })()
           : consumeManaFromPool(pool, totalColored, totalGeneric, '[castSpellFromHand]');
 

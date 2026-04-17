@@ -74,7 +74,7 @@ describe('buildAvailableManaSourcesForPlayer', () => {
     }));
   });
 
-  it('includes simple mana-cost lines when their output is representable but still omits mixed-color bundles', () => {
+  it('includes fixed mixed-color bundles when their output stays exact', () => {
     const battlefield = [
       createPermanent({
         id: 'priced_dynamo_1',
@@ -107,6 +107,14 @@ describe('buildAvailableManaSourcesForPlayer', () => {
         sourcePermanentId: 'priced_dynamo_1',
         abilityId: 'priced_dynamo_card_1-ability-0',
         options: ['U', 'U'],
+        producedColors: ['U', 'U'],
+        amount: 2,
+      }),
+      expect.objectContaining({
+        sourcePermanentId: 'izzet_signet_1',
+        abilityId: 'izzet_signet_card_1-ability-0',
+        options: ['U', 'R'],
+        producedColors: ['U', 'R'],
         amount: 2,
       }),
     ]);

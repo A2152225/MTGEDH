@@ -60,7 +60,6 @@ describe('Blackblade Reforged legendary equip (integration)', () => {
   beforeAll(async () => {
     await initDb();
     initializePriorityResolutionHandler(createNoopIo() as any);
-    await new Promise(resolve => setTimeout(resolve, 0));
   });
 
   beforeEach(async () => {
@@ -207,6 +206,207 @@ describe('Blackblade Reforged legendary equip (integration)', () => {
     expect(stack[0]?.equipParams?.targetCreatureId).toBe('commander_1');
   });
 
+  it('persists sacrificed payment sources for queued equip activations so replay removes them', async () => {
+    const treasureGameId = `${gameId}_treasure_${Math.random().toString(36).slice(2, 10)}`;
+    trackedGameIds.push(treasureGameId);
+    await resetGame(treasureGameId);
+
+    createGameIfNotExists(treasureGameId, 'commander', 40);
+    const game = ensureGame(treasureGameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const playerId = 'p1';
+    (game.state as any).players = [{ id: playerId, name: 'P1', spectator: false, life: 40 }];
+    (game.state as any).startingLife = 40;
+    (game.state as any).life = { [playerId]: 40 };
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).manaPool = {
+      [playerId]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 2 },
+    };
+    (game.state as any).battlefield = [
+      {
+        id: 'blackblade_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        card: {
+          id: 'blackblade_card_1',
+          name: 'Blackblade Reforged',
+          type_line: 'Legendary Artifact - Equipment',
+          oracle_text: 'Equipped creature gets +1/+1 for each land you control. Equip legendary creature {3}. Equip {7}',
+        },
+      },
+      {
+        id: 'commander_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        isCommander: true,
+        card: {
+          id: 'commander_card_1',
+          name: 'Baeloth Barrityl, Entertainer',
+          type_line: 'Legendary Creature - Elf Shaman',
+          oracle_text: 'Choose a Background',
+        },
+      },
+      {
+        id: 'treasure_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        isToken: true,
+        card: {
+          id: 'treasure_card_1',
+          name: 'Treasure',
+          type_line: 'Token Artifact - Treasure',
+          oracle_text: '{T}, Sacrifice this artifact: Add one mana of any color.',
+        },
+      },
+    ];
+    (game.state as any).zones = {
+      [playerId]: {
+        hand: [],
+        handCount: 0,
+        graveyard: [],
+        graveyardCount: 0,
+        exile: [],
+        exileCount: 0,
+      },
+    };
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(playerId, emitted);
+    socket.rooms.add(treasureGameId);
+    const io = createMockIo(emitted, [socket]);
+
+    registerResolutionHandlers(io as any, socket as any);
+    registerInteractionHandlers(io as any, socket as any);
+
+    await handlers['activateBattlefieldAbility']({
+      gameId: treasureGameId,
+      permanentId: 'blackblade_1',
+      abilityId: 'blackblade_card_1-equip-0',
+    });
+
+    const targetStep = ResolutionQueueManager.getQueue(treasureGameId).steps[0] as any;
+    expect(targetStep.type).toBe('target_selection');
+
+    await handlers['submitResolutionResponse']({
+      gameId: treasureGameId,
+      stepId: String(targetStep.id),
+      selections: ['commander_1'],
+    });
+
+    const paymentStep = ResolutionQueueManager.getQueue(treasureGameId).steps[0] as any;
+    expect(paymentStep.type).toBe('mana_payment_choice');
+    expect(paymentStep.activationPaymentChoice).toBe(true);
+    expect(paymentStep.manaCost).toBe('{3}');
+
+    await handlers['submitResolutionResponse']({
+      gameId: treasureGameId,
+      stepId: String(paymentStep.id),
+      selections: {
+        payment: [
+          { permanentId: '__pool__:colorless', mana: 'C', count: 2 },
+          { permanentId: 'treasure_1', mana: 'W' },
+        ],
+      },
+    });
+
+    expect(emitted.find((entry) => entry.event === 'error')).toBeUndefined();
+    expect(((game.state as any).battlefield || []).some((entry: any) => entry?.id === 'treasure_1')).toBe(false);
+    expect(((game.state as any).zones?.[playerId]?.graveyard || []).some((card: any) => card?.name === 'Treasure')).toBe(true);
+    expect((game.state as any).manaPool?.[playerId]).toEqual({ white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 });
+
+    const stack = (game.state as any).stack || [];
+    expect(stack).toHaveLength(1);
+    expect(stack[0]?.abilityType).toBe('equip');
+    expect(stack[0]?.equipParams?.targetCreatureId).toBe('commander_1');
+
+    const activationEvent = [...getEvents(treasureGameId)].reverse().find((event: any) => event.type === 'activateBattlefieldAbility') as any;
+    expect(activationEvent?.payload?.paymentManaDelta).toEqual({ colorless: -2 });
+    expect((activationEvent?.payload?.sacrificedPermanents || []).map(String)).toContain('treasure_1');
+
+    const replayGame = createInitialGameState('test_blackblade_reforged_legendary_equip_treasure_replay');
+    (replayGame.state as any).players = [{ id: playerId, name: 'P1', spectator: false, life: 40 }];
+    (replayGame.state as any).startingLife = 40;
+    (replayGame.state as any).life = { [playerId]: 40 };
+    (replayGame.state as any).turnPlayer = playerId;
+    (replayGame.state as any).priority = playerId;
+    (replayGame.state as any).manaPool = {
+      [playerId]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 2 },
+    };
+    (replayGame.state as any).battlefield = [
+      {
+        id: 'blackblade_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        card: {
+          id: 'blackblade_card_1',
+          name: 'Blackblade Reforged',
+          type_line: 'Legendary Artifact - Equipment',
+          oracle_text: 'Equipped creature gets +1/+1 for each land you control. Equip legendary creature {3}. Equip {7}',
+          zone: 'battlefield',
+        },
+      },
+      {
+        id: 'commander_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        isCommander: true,
+        card: {
+          id: 'commander_card_1',
+          name: 'Baeloth Barrityl, Entertainer',
+          type_line: 'Legendary Creature - Elf Shaman',
+          oracle_text: 'Choose a Background',
+          zone: 'battlefield',
+        },
+      },
+      {
+        id: 'treasure_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        isToken: true,
+        card: {
+          id: 'treasure_card_1',
+          name: 'Treasure',
+          type_line: 'Token Artifact - Treasure',
+          oracle_text: '{T}, Sacrifice this artifact: Add one mana of any color.',
+          zone: 'battlefield',
+        },
+      },
+    ];
+    (replayGame.state as any).zones = {
+      [playerId]: {
+        hand: [],
+        handCount: 0,
+        graveyard: [],
+        graveyardCount: 0,
+        exile: [],
+        exileCount: 0,
+      },
+    };
+
+    replayGame.applyEvent({ type: 'activateBattlefieldAbility', ...(activationEvent?.payload || {}) } as any);
+    console.log('DEBUG_REPLAY_BATTLEFIELD', JSON.stringify((replayGame.state as any).battlefield, null, 2));
+    console.log('DEBUG_REPLAY_GRAVEYARD', JSON.stringify((replayGame.state as any).zones?.[playerId]?.graveyard, null, 2));
+
+    expect(((replayGame.state as any).battlefield || []).some((entry: any) => entry?.id === 'treasure_1')).toBe(false);
+    expect(((replayGame.state as any).zones?.[playerId]?.graveyard || []).some((card: any) => card?.name === 'Treasure')).toBe(true);
+    expect((replayGame.state as any).manaPool?.[playerId]).toEqual({ white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 });
+
+    const replayStack = (replayGame.state as any).stack || [];
+    console.log('DEBUG_REPLAY_STACK', JSON.stringify(replayStack, null, 2));
+    console.log('DEBUG_REPLAY_STACK', JSON.stringify(replayStack, null, 2));
+    expect(replayStack).toHaveLength(1);
+    expect(replayStack[0]?.abilityType).toBe('equip');
+    expect(replayStack[0]?.equipParams?.targetCreatureId).toBe('commander_1');
+  });
+
   it('persists resolved equip attachments so restore rebuilds attached and equipped state', async () => {
     const persistentGameId = `${gameId}_persisted_attach_${Math.random().toString(36).slice(2, 10)}`;
     trackedGameIds.push(persistentGameId);
@@ -305,6 +505,8 @@ describe('Blackblade Reforged legendary equip (integration)', () => {
 
     const replayGame = createInitialGameState(`${persistentGameId}_replay`);
     replayGame.applyEvent({ type: 'join', playerId, name: 'P1' } as any);
+    console.log('DEBUG_REPLAY_BATTLEFIELD', JSON.stringify((replayGame.state as any).battlefield, null, 2));
+    console.log('DEBUG_REPLAY_GRAVEYARD', JSON.stringify((replayGame.state as any).zones?.[playerId]?.graveyard, null, 2));
     (replayGame.state as any).battlefield = [
       {
         id: 'equipment_1',
@@ -339,6 +541,8 @@ describe('Blackblade Reforged legendary equip (integration)', () => {
     ];
 
     replayGame.applyEvent({ type: 'equipPermanent', ...(persisted.payload || {}) } as any);
+    console.log('DEBUG_REPLAY_BATTLEFIELD', JSON.stringify((replayGame.state as any).battlefield, null, 2));
+    console.log('DEBUG_REPLAY_GRAVEYARD', JSON.stringify((replayGame.state as any).zones?.[playerId]?.graveyard, null, 2));
 
     const replayEquipment = (replayGame.state as any).battlefield.find((entry: any) => entry.id === 'equipment_1');
     const replayCreature = (replayGame.state as any).battlefield.find((entry: any) => entry.id === 'creature_1');
@@ -464,6 +668,8 @@ describe('Blackblade Reforged legendary equip (integration)', () => {
 
     const replayGame = createInitialGameState(`${persistentGameId}_replay`);
     replayGame.applyEvent({ type: 'join', playerId, name: 'P1' } as any);
+    console.log('DEBUG_REPLAY_BATTLEFIELD', JSON.stringify((replayGame.state as any).battlefield, null, 2));
+    console.log('DEBUG_REPLAY_GRAVEYARD', JSON.stringify((replayGame.state as any).zones?.[playerId]?.graveyard, null, 2));
     (replayGame.state as any).battlefield = [
       {
         id: 'equipment_1',
@@ -526,6 +732,8 @@ describe('Blackblade Reforged legendary equip (integration)', () => {
     ];
 
     replayGame.applyEvent({ type: 'activateBattlefieldAbility', ...(persisted?.payload || {}) } as any);
+    console.log('DEBUG_REPLAY_BATTLEFIELD', JSON.stringify((replayGame.state as any).battlefield, null, 2));
+    console.log('DEBUG_REPLAY_GRAVEYARD', JSON.stringify((replayGame.state as any).zones?.[playerId]?.graveyard, null, 2));
 
     const replayWastes1 = (replayGame.state as any).battlefield.find((entry: any) => entry.id === 'wastes_1');
     const replayWastes2 = (replayGame.state as any).battlefield.find((entry: any) => entry.id === 'wastes_2');

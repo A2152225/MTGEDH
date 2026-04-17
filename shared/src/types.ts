@@ -930,6 +930,8 @@ export interface PaymentItem {
   paymentSourceId?: string;
   mana: ManaColor;
   abilityId?: string;
+  /** Exact mana symbols produced by this selected source, preserving fixed mixed bundles like {U}{R}. */
+  producedColors?: ManaColor[];
   /** Number of mana produced by this tap (default 1, e.g., Sol Ring produces 2) */
   count?: number;
   /** Permanents sacrificed to pay a mana ability activation cost. */

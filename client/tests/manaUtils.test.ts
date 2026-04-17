@@ -1,8 +1,26 @@
 import { describe, expect, it } from 'vitest';
 
-import { calculateSuggestedPayment } from '../src/utils/manaUtils';
+import { calculateSuggestedPayment, paymentToPool } from '../src/utils/manaUtils';
 
 describe('calculateSuggestedPayment', () => {
+  it('counts exact produced color bundles in selected payment pools', () => {
+    expect(paymentToPool([
+      {
+        permanentId: 'signet_1',
+        mana: 'B',
+        count: 2,
+        producedColors: ['B', 'R'],
+      },
+    ])).toEqual({
+      W: 0,
+      U: 0,
+      B: 1,
+      R: 1,
+      G: 0,
+      C: 0,
+    });
+  });
+
   it('uses boosted source amounts to assign exact payment counts', () => {
     const suggestion = calculateSuggestedPayment(
       {
