@@ -105,6 +105,7 @@ describe('castSpellContinuation replay semantics', () => {
         owner: p1,
         tapped: false,
         counters: {},
+        isToken: true,
         card: {
           id: 'treasure_card_1',
           name: 'Treasure',

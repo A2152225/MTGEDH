@@ -182,6 +182,65 @@ describe('castSpell via applyEvent', () => {
     expect(stackItem.card.entersBattlefieldWithCounters).toEqual({ '+1/+1': 1 });
   });
 
+  it('should preserve a sacrificed token payment source in graveyard during cast replay', () => {
+    const g = createInitialGameState('cast_token_payment_source_apply');
+
+    const p1 = 'p1' as PlayerID;
+
+    g.applyEvent({ type: 'join', playerId: p1, name: 'Player 1' });
+
+    const cards: Array<Pick<KnownCardRef, 'id' | 'name' | 'type_line' | 'oracle_text' | 'mana_cost' | 'image_uris'>> = [
+      {
+        id: 'spell_token_pay_1',
+        name: 'Opt',
+        type_line: 'Instant',
+        oracle_text: 'Scry 1. Draw a card.',
+        mana_cost: '{U}',
+        image_uris: undefined,
+      },
+    ];
+
+    g.importDeckResolved(p1, cards as any);
+    g.drawCards(p1, 1);
+
+    (g.state as any).phase = GamePhase.PRECOMBAT_MAIN;
+    (g.state as any).turnPlayer = p1;
+    (g.state as any).priority = p1;
+    (g.state as any).zones[p1].graveyard = [];
+    (g.state as any).zones[p1].graveyardCount = 0;
+    (g.state as any).battlefield = [
+      {
+        id: 'treasure_1',
+        controller: p1,
+        owner: p1,
+        tapped: false,
+        isToken: true,
+        counters: {},
+        card: {
+          id: 'treasure_card_1',
+          name: 'Treasure',
+          type_line: 'Token Artifact - Treasure',
+          oracle_text: '{T}, Sacrifice this artifact: Add one mana of any color.',
+          zone: 'battlefield',
+        },
+      },
+    ];
+
+    g.applyEvent({
+      type: 'castSpell',
+      playerId: p1,
+      cardId: 'spell_token_pay_1',
+      targets: [],
+      sacrificedPermanents: ['treasure_1'],
+    } as any);
+
+    expect((g.state as any).battlefield).toHaveLength(0);
+    expect((((g.state as any).zones?.[p1]?.graveyard) || []).map((card: any) => card.name)).toEqual(['Treasure']);
+    expect((g.state as any).zones?.[p1]?.graveyardCount).toBe(1);
+    expect((g.state as any).stack).toHaveLength(1);
+    expect(((g.state as any).stack[0] as any)?.card?.id).toBe('spell_token_pay_1');
+  });
+
   it('should restore haste-from-spent-mana metadata and resolve it into temporary haste', () => {
     const g = createInitialGameState('cast_haste_from_mana_apply');
 

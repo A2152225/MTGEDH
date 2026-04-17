@@ -155,6 +155,64 @@ describe('activateFetchland persistence (integration)', () => {
     expect(persisted?.payload?.searchParams?.entersTapped).toBe(false);
   });
 
+  it('keeps a sacrificed token fetchland copy visible in graveyard during live activation', async () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const p1 = 'p1';
+    (game.state as any).players = [{ id: p1, name: 'P1', spectator: false, life: 40 }];
+    (game.state as any).startingLife = 40;
+    (game.state as any).life = { [p1]: 40 };
+    (game.state as any).turnPlayer = p1;
+    (game.state as any).priority = p1;
+    (game.state as any).manaPool = {
+      [p1]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+    };
+    (game.state as any).zones = {
+      [p1]: {
+        hand: [],
+        handCount: 0,
+        graveyard: [],
+        graveyardCount: 0,
+        library: [],
+        libraryCount: 0,
+      },
+    };
+    (game.state as any).battlefield = [
+      {
+        id: 'token_delta_1',
+        controller: p1,
+        owner: p1,
+        tapped: false,
+        isToken: true,
+        card: {
+          id: 'token_delta_card',
+          name: 'Polluted Delta',
+          type_line: 'Land',
+          oracle_text: '{T}, Pay 1 life, Sacrifice Polluted Delta: Search your library for an Island or Swamp card, put it onto the battlefield, then shuffle.',
+        },
+      },
+    ];
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(p1, emitted);
+    socket.rooms.add(gameId);
+    const io = createMockIo(emitted, [socket]);
+    registerInteractionHandlers(io as any, socket as any);
+
+    await handlers['activateBattlefieldAbility']({ gameId, permanentId: 'token_delta_1', abilityId: 'fetch-land' });
+
+    expect((game.state as any).life[p1]).toBe(39);
+    expect((game.state as any).battlefield).toHaveLength(0);
+    expect((((game.state as any).zones?.[p1]?.graveyard) || []).map((card: any) => card.name)).toEqual(['Polluted Delta']);
+
+    const persisted = [...getEvents(gameId)].reverse().find((event: any) => event?.type === 'activateFetchland') as any;
+    expect(persisted).toBeDefined();
+    expect(String(persisted?.payload?.permanentId || '')).toBe('token_delta_1');
+    expect(String(persisted?.payload?.activatedAbilityText || '').toLowerCase()).toContain('pay 1 life');
+  });
+
   it('persists mana-cost fetch activation metadata for exact replay reconstruction', async () => {
     createGameIfNotExists(gameId, 'commander', 40);
     const game = ensureGame(gameId);

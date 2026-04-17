@@ -41,7 +41,8 @@ async function resetGame(gameId: string) {
 describe('sacrificePermanent live tracking (integration)', () => {
   const clueGameId = 'test_sacrifice_permanent_clue_integration';
   const foodGameId = 'test_sacrifice_permanent_food_integration';
-  const resetGameIds = [clueGameId, foodGameId];
+  const clueReplayGameId = `${clueGameId}_replay`;
+  const resetGameIds = [clueGameId, clueReplayGameId, foodGameId];
 
   beforeAll(async () => {
     await initDb();
@@ -112,6 +113,46 @@ describe('sacrificePermanent live tracking (integration)', () => {
     const persisted = [...getEvents(clueGameId)].reverse().find((event: any) => event?.type === 'sacrificePermanent') as any;
     expect(persisted?.payload?.playerId).toBe(p1);
     expect(persisted?.payload?.permanentId).toBe('clue_1');
+
+    const replayGameId = clueReplayGameId;
+    await resetGame(replayGameId);
+    createGameIfNotExists(replayGameId, 'commander', 40);
+    const replayGame = ensureGame(replayGameId);
+    if (!replayGame) throw new Error('ensureGame returned undefined');
+
+    (replayGame.state as any).players = [{ id: p1, name: 'P1', spectator: false, life: 40 }];
+    (replayGame.state as any).life = { [p1]: 40 };
+    (replayGame.state as any).zones = {
+      [p1]: {
+        hand: [],
+        handCount: 0,
+        graveyard: [],
+        graveyardCount: 0,
+        library: [],
+        libraryCount: 0,
+      },
+    };
+    (replayGame.state as any).battlefield = [
+      {
+        id: 'clue_1',
+        controller: p1,
+        owner: p1,
+        isToken: true,
+        tapped: false,
+        card: {
+          id: 'clue_token',
+          name: 'Clue',
+          type_line: 'Artifact Token - Clue',
+          oracle_text: '{2}, Sacrifice this artifact: Draw a card.',
+          zone: 'battlefield',
+        },
+      },
+    ];
+
+    replayGame.applyEvent({ type: 'sacrificePermanent', ...(persisted?.payload || {}) } as any);
+
+    expect((replayGame.state as any).battlefield).toHaveLength(0);
+    expect((((replayGame.state as any).zones?.[p1]?.graveyard) || []).map((card: any) => card.name)).toEqual(['Clue']);
   });
 
   it('tracks sacrificed Foods in live play and non-token Foods go to the graveyard', async () => {

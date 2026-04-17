@@ -4881,8 +4881,38 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       
       // Remove from battlefield (sacrifice - part of cost, paid immediately)
       {
+        const tokenGraveyardSnapshot = (permanent as any)?.isToken && (permanent as any)?.card
+          ? { ...(((permanent as any).card || {}) as any), zone: 'graveyard' }
+          : null;
+        const graveyardOwnerId = String((permanent as any)?.owner || (permanent as any)?.controller || pid || '').trim();
         const { movePermanentToGraveyard } = await import('../state/modules/counters_tokens.js');
-        movePermanentToGraveyard(game as any, String(permanentId), true);
+        const moved = movePermanentToGraveyard(game as any, String(permanentId), true);
+        if (moved && tokenGraveyardSnapshot && graveyardOwnerId) {
+          const zones = (((game.state as any).zones = (game.state as any).zones || {}) as any);
+          const playerZones = (zones[graveyardOwnerId] = zones[graveyardOwnerId] || {
+            hand: [],
+            handCount: 0,
+            libraryCount: 0,
+            graveyard: [],
+            graveyardCount: 0,
+            exile: [],
+            exileCount: 0,
+          });
+          playerZones.graveyard = Array.isArray(playerZones.graveyard) ? playerZones.graveyard : [];
+
+          const alreadyPresent = (playerZones.graveyard as any[]).some((card: any) => {
+            if (!card) return false;
+            const cardId = String((card as any).id || '').trim();
+            const snapshotId = String((tokenGraveyardSnapshot as any).id || '').trim();
+            if (cardId && snapshotId) return cardId === snapshotId;
+            return String((card as any).name || '').trim() === String((tokenGraveyardSnapshot as any).name || '').trim();
+          });
+
+          if (!alreadyPresent) {
+            (playerZones.graveyard as any[]).push(tokenGraveyardSnapshot);
+            playerZones.graveyardCount = (playerZones.graveyard as any[]).length;
+          }
+        }
       }
       
       // Parse what land types this fetch can find

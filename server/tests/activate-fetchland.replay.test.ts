@@ -155,6 +155,71 @@ describe('activateFetchland replay semantics', () => {
     expect(String(stack[0]?.description || '')).toContain('up to 2');
   });
 
+  it('replays a token fetchland by preserving the graveyard snapshot and rebuilding the unresolved stack item', () => {
+    const game = createInitialGameState('t_activate_fetchland_token_replay');
+    const p1 = 'p1' as PlayerID;
+
+    addPlayer(game, p1, 'P1');
+
+    (game.state as any).life = { [p1]: 40 };
+    (game.state as any).zones = {
+      [p1]: {
+        hand: [],
+        handCount: 0,
+        graveyard: [],
+        graveyardCount: 0,
+        exile: [],
+        exileCount: 0,
+        libraryCount: 0,
+      },
+    };
+    (game.state as any).battlefield = [
+      {
+        id: 'token_delta_1',
+        controller: p1,
+        owner: p1,
+        tapped: false,
+        isToken: true,
+        counters: {},
+        card: {
+          id: 'token_delta_card',
+          name: 'Polluted Delta',
+          type_line: 'Land',
+          oracle_text: '{T}, Pay 1 life, Sacrifice Polluted Delta: Search your library for an Island or Swamp card, put it onto the battlefield, then shuffle.',
+          zone: 'battlefield',
+        },
+      },
+    ];
+
+    game.applyEvent({
+      type: 'activateFetchland',
+      playerId: p1,
+      permanentId: 'token_delta_1',
+      abilityId: 'token_delta_1-ability-0',
+      cardName: 'Polluted Delta',
+      stackId: 'stack_fetch_token_delta_1',
+      activatedAbilityText: '{T}, Pay 1 life, Sacrifice Polluted Delta: Search your library for an Island or Swamp card, put it onto the battlefield, then shuffle.',
+      lifePaidForCost: 1,
+      searchParams: {
+        filter: { types: ['land'], subtypes: ['Island', 'Swamp'] },
+        searchDescription: 'Search for a Island or Swamp card',
+        isTrueFetch: true,
+        maxSelections: 1,
+        entersTapped: false,
+      },
+    } as any);
+
+    expect((game.state as any).life[p1]).toBe(39);
+    expect((game.state as any).battlefield).toHaveLength(0);
+    expect((((game.state as any).zones?.[p1]?.graveyard) || []).map((card: any) => card.name)).toEqual(['Polluted Delta']);
+
+    const stack = (game.state as any).stack || [];
+    expect(stack).toHaveLength(1);
+    expect(String(stack[0]?.id || '')).toBe('stack_fetch_token_delta_1');
+    expect(String(stack[0]?.abilityType || '')).toBe('fetch-land');
+    expect(String(stack[0]?.description || '')).toContain('Island or Swamp');
+  });
+
   it('drops the resolved fetch-land stack item when the search result is replayed', () => {
     const game = createInitialGameState('t_activate_fetchland_resolved_replay_cleanup');
     const p1 = 'p1' as PlayerID;

@@ -672,6 +672,11 @@ function applyReplaySacrificedPermanent(ctx: GameContext, permanentId: string): 
   const permanent = battlefield.find((entry: any) => entry && String(entry.id || '') === normalizedPermanentId);
   if (!permanent) return;
 
+  const tokenGraveyardSnapshot = permanent?.isToken && permanent?.card
+    ? { ...(permanent.card || {}), zone: 'graveyard' }
+    : null;
+  const graveyardOwnerId = String(permanent?.owner || permanent?.controller || '').trim();
+
   try {
     trackPermanentSacrificedThisTurn(ctx.state, permanent);
   } catch {
@@ -679,6 +684,33 @@ function applyReplaySacrificedPermanent(ctx: GameContext, permanentId: string): 
   }
 
   movePermanentToGraveyard(ctx as any, normalizedPermanentId, true);
+
+  if (tokenGraveyardSnapshot && graveyardOwnerId) {
+    const zones = ((ctx.state as any).zones = (ctx.state as any).zones || {});
+    const playerZones = (zones[graveyardOwnerId] = zones[graveyardOwnerId] || {
+      hand: [],
+      handCount: 0,
+      libraryCount: 0,
+      graveyard: [],
+      graveyardCount: 0,
+      exile: [],
+      exileCount: 0,
+    });
+    playerZones.graveyard = Array.isArray(playerZones.graveyard) ? playerZones.graveyard : [];
+
+    const alreadyPresent = (playerZones.graveyard as any[]).some((card: any) => {
+      if (!card) return false;
+      const cardId = String((card as any).id || '').trim();
+      const snapshotId = String((tokenGraveyardSnapshot as any).id || '').trim();
+      if (cardId && snapshotId) return cardId === snapshotId;
+      return String((card as any).name || '').trim() === String((tokenGraveyardSnapshot as any).name || '').trim();
+    });
+
+    if (!alreadyPresent) {
+      (playerZones.graveyard as any[]).push(tokenGraveyardSnapshot);
+      playerZones.graveyardCount = (playerZones.graveyard as any[]).length;
+    }
+  }
 }
 
 function applyRecordedPlayLandReplayState(ctx: GameContext, event: any): void {
@@ -2309,11 +2341,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
             ? ((e as any).sacrificedPermanents as any[]).map((id: any) => String(id)).filter(Boolean)
             : [];
           for (const permanentId of sacrificedPermanents) {
-            const stillOnBattlefield = Array.isArray(ctx.state.battlefield)
-              ? (ctx.state.battlefield as any[]).some((entry: any) => entry && String(entry.id || '') === permanentId)
-              : false;
-            if (!stillOnBattlefield) continue;
-            movePermanentToGraveyard(ctx as any, permanentId, true);
+            applyReplaySacrificedPermanent(ctx, permanentId);
           }
         } catch {
           // best-effort only
@@ -4615,7 +4643,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
             // best-effort only
           }
 
-          movePermanentToGraveyard(ctx as any, permId, true);
+          applyReplaySacrificedPermanent(ctx, String(permId || ''));
         } catch (err) {
           debugWarn(1, "applyEvent(sacrificePermanent): failed", err);
         }
@@ -4665,7 +4693,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
               // best-effort only
             }
 
-            movePermanentToGraveyard(ctx as any, permId, true);
+            applyReplaySacrificedPermanent(ctx, String(permId || ''));
           }
         } catch (err) {
           debugWarn(1, "applyEvent(sacrificeSelected): failed", err);
@@ -5166,7 +5194,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
               }
             }
 
-            movePermanentToGraveyard(ctx as any, permId, true);
+            applyReplaySacrificedPermanent(ctx, permId);
 
             if (playerId && replayAbilityText) {
               const persistedSearchParams = ((e as any).searchParams || {}) as any;
