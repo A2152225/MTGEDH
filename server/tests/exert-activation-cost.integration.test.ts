@@ -431,4 +431,125 @@ describe('activated exert costs (integration)', () => {
     const returnedCard = ((game.state as any).zones?.[playerId]?.hand || []).find((card: any) => card?.id === 'graveyard_target') as any;
     expect(returnedCard).toBeDefined();
   });
+
+  it('supports Exert this creature when a tap-untap prompt defers completion', async () => {
+    const gameId = createGameId();
+    trackedGameIds.add(gameId);
+    const playerId = 'p1' as PlayerID;
+    const opponentId = 'p2' as PlayerID;
+    const game = seedGame(gameId, playerId, opponentId);
+
+    (game.state as any).battlefield = [
+      createCreature(
+        'hope_tender',
+        playerId,
+        'Hope Tender',
+        "{1}, {T}: Untap target land.\n{1}, {T}, Exert this creature: Untap two target lands. (An exerted creature won't untap during your next untap step.)",
+        2,
+        2,
+      ),
+      createCreature(
+        'trueheart_twins',
+        playerId,
+        'Trueheart Twins',
+        "You may exert this creature as it attacks. (It won't untap during your next untap step.)\nWhenever you exert a creature, creatures you control get +1/+0 until end of turn.",
+        4,
+        4,
+      ),
+      {
+        id: 'forest_a',
+        controller: playerId,
+        owner: playerId,
+        tapped: true,
+        card: { id: 'forest_a_card', name: 'Forest A', type_line: 'Basic Land — Forest', oracle_text: '' },
+      },
+      {
+        id: 'forest_b',
+        controller: playerId,
+        owner: playerId,
+        tapped: true,
+        card: { id: 'forest_b_card', name: 'Forest B', type_line: 'Basic Land — Forest', oracle_text: '' },
+      },
+    ];
+
+    (game.state as any).manaPool[playerId].colorless = 1;
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket: playerSocket, handlers } = createMockSocket(playerId, emitted, gameId);
+    const io = createMockIo(emitted, [playerSocket]);
+
+    registerResolutionHandlers(io as any, playerSocket as any);
+    registerInteractionHandlers(io as any, playerSocket as any);
+
+    const eventStart = getEvents(gameId).length;
+    await handlers.activateBattlefieldAbility({
+      gameId,
+      permanentId: 'hope_tender',
+      abilityId: 'hope_tender-ability-1',
+    });
+
+    const tapUntapStep = ResolutionQueueManager.getStepsForPlayer(gameId, playerId).find(
+      (step: any) => step.type === ResolutionStepType.TAP_UNTAP_TARGET,
+    ) as any;
+    expect(tapUntapStep).toBeDefined();
+    expect(tapUntapStep.requiresSelfExertForCost).toBe(true);
+
+    await handlers.submitResolutionResponse({
+      gameId,
+      stepId: String(tapUntapStep.id),
+      selections: { targetIds: ['forest_a', 'forest_b'] },
+    });
+
+    const hopeTender = ((game.state as any).battlefield || []).find((permanent: any) => permanent?.id === 'hope_tender') as any;
+    const twins = ((game.state as any).battlefield || []).find((permanent: any) => permanent?.id === 'trueheart_twins') as any;
+    const forestA = ((game.state as any).battlefield || []).find((permanent: any) => permanent?.id === 'forest_a') as any;
+    const forestB = ((game.state as any).battlefield || []).find((permanent: any) => permanent?.id === 'forest_b') as any;
+
+    expect(hopeTender?.tapped).toBe(true);
+    expect(hopeTender?.doesntUntapNextTurn).toBe(true);
+    expect(hopeTender?.exertedThisTurn).toBe(true);
+    expect(forestA?.tapped).toBe(true);
+    expect(forestB?.tapped).toBe(true);
+
+    const stack = (((game.state as any).stack || []) as any[]);
+    expect(stack).toHaveLength(2);
+    expect(stack[0]).toEqual(expect.objectContaining({
+      source: 'hope_tender',
+      description: 'untap two target lands. (an exerted creature won\'t untap during your next untap step.)',
+      targets: ['forest_a', 'forest_b'],
+      tapUntapAction: 'untap',
+    }));
+    expect(stack[1]).toEqual(expect.objectContaining({
+      source: 'trueheart_twins',
+      permanentId: 'trueheart_twins',
+      triggerType: 'whenever_you_exert',
+      effect: 'creatures you control get +1/+0 until end of turn.',
+    }));
+
+    const events = getEvents(gameId).slice(eventStart);
+    expect(events.some((event: any) =>
+      event?.type === 'activateBattlefieldAbility' &&
+      event?.payload?.permanentId === 'hope_tender' &&
+      event?.payload?.exertedPermanentIdForCost === 'hope_tender' &&
+      Array.isArray(event?.payload?.targets) &&
+      event.payload.targets.includes('forest_a') &&
+      event.payload.targets.includes('forest_b'),
+    )).toBe(true);
+
+    game.applyEvent({ type: 'resolveTopOfStack' } as any);
+
+    expect(hopeTender.temporaryPTMods).toEqual([
+      expect.objectContaining({ power: 1, toughness: 0, expiresAt: 'end_of_turn' }),
+    ]);
+    expect(twins.temporaryPTMods).toEqual([
+      expect.objectContaining({ power: 1, toughness: 0, expiresAt: 'end_of_turn' }),
+    ]);
+    expect(forestA?.tapped).toBe(true);
+    expect(forestB?.tapped).toBe(true);
+
+    game.applyEvent({ type: 'resolveTopOfStack' } as any);
+
+    expect(forestA?.tapped).toBe(false);
+    expect(forestB?.tapped).toBe(false);
+  });
 });

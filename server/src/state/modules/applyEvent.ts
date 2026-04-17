@@ -5960,6 +5960,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
             const retargetMaxTargets = Number((e as any).copyRetargetMaxTargets ?? NaN);
             const retargetTargetDescription = String((e as any).copyRetargetTargetDescription || '');
             const persistedTargets = Array.isArray((e as any).targets) ? (e as any).targets : null;
+            const persistedTapUntapAction = String((e as any).tapUntapAction || '').trim().toLowerCase();
             const persistedAbilityType = String((e as any).abilityType || (e as any).abilityId || '').trim().toLowerCase();
             const isEquipActivation = persistedAbilityType === 'equip';
             const isFortifyActivation = persistedAbilityType === 'fortify';
@@ -6044,6 +6045,9 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
 
                 if (persistedTargets) {
                   rebuiltStackItem.targets = persistedTargets.map((id: any) => String(id));
+                }
+                if (persistedTapUntapAction === 'tap' || persistedTapUntapAction === 'untap') {
+                  rebuiltStackItem.tapUntapAction = persistedTapUntapAction;
                 }
                 if (retargetValidTargets) {
                   rebuiltStackItem.copyRetargetValidTargets = retargetValidTargets.map((target: any) => ({ ...target }));
@@ -6140,6 +6144,9 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
                   if (abilityText && String(item.description || '') !== abilityText) continue;
                   if (persistedTargets) {
                     (item as any).targets = persistedTargets.map((id: any) => String(id));
+                  }
+                  if (persistedTapUntapAction === 'tap' || persistedTapUntapAction === 'untap') {
+                    (item as any).tapUntapAction = persistedTapUntapAction;
                   }
                   if (typeof (e as any).xValue === 'number') {
                     (item as any).xValue = (e as any).xValue;

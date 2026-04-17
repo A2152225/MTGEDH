@@ -655,6 +655,7 @@ export function parseTapUntapAbilityText(text: string): {
 function parseActivationCost(oracleText: string, abilityPattern: RegExp): {
   requiresTap: boolean;
   manaCost: string;
+  costText: string;
 } {
   const costMatch = oracleText.match(new RegExp(`([^:]+?):\\s*${abilityPattern.source}`, 'i'));
   const costStr = costMatch ? costMatch[1].trim() : "";
@@ -663,7 +664,7 @@ function parseActivationCost(oracleText: string, abilityPattern: RegExp): {
   const manaCostMatch = costStr.match(/\{[^}]+\}/g);
   const manaCost = manaCostMatch ? manaCostMatch.filter(c => !c.includes('T')).join('') : "";
   
-  return { requiresTap, manaCost };
+  return { requiresTap, manaCost, costText: costStr };
 }
 
 function costRequiresSelfExert(costText: string): boolean {
@@ -6125,7 +6126,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     
     if (isTapUntapAbility && tapUntapParams) {
       // Parse the cost
-      const { requiresTap, manaCost } = parseActivationCost(scopedAbilityFullText, /(?:tap|untap)/i);
+      const { requiresTap, manaCost, costText } = parseActivationCost(scopedAbilityFullText, /(?:tap|untap)/i);
       let manaPoolBeforePayment: Record<string, number> | undefined;
       let poolAfterPayment: any;
       
@@ -6159,6 +6160,13 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         (permanent as any).tapped = true;
       }
 
+      const tapUntapAbilityText = String(
+        scopedAbilityFullText.includes(':')
+          ? scopedAbilityFullText.split(':').slice(1).join(':')
+          : scopedAbilityFullText,
+      ).trim();
+      const tapUntapRequiresSelfExert = costRequiresSelfExert(costText);
+
       // Queue tap/untap target selection via Resolution Queue
       const tapUntapStep = ResolutionQueueManager.addStep(gameId, {
         type: ResolutionStepType.TAP_UNTAP_TARGET,
@@ -6177,18 +6185,20 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         },
         targetCount: tapUntapParams.count,
         title: cardName,
+        battlefieldAbilityTapUntapSelection: true,
+        permanentId,
+        abilityId,
+        cardName,
+        abilityText: tapUntapAbilityText || String(scopedAbilityFullText || '').trim(),
+        activatedAbilityText: String(scopedAbilityFullText || '').trim(),
+        tappedPermanentsForCost: requiresTap ? [String(permanentId)] : [],
+        ...(tapUntapRequiresSelfExert ? { requiresSelfExertForCost: true } : null),
       });
       
       debug(2, `[activateBattlefieldAbility] Tap/Untap ability on ${cardName}: ${manaCost ? `paid ${manaCost}, ` : ''}prompting for ${tapUntapParams.count} target(s)`);
       if (typeof game.bumpSeq === 'function') {
         game.bumpSeq();
       }
-      const tapUntapAbilityText = String(
-        scopedAbilityFullText.includes(':')
-          ? scopedAbilityFullText.split(':').slice(1).join(':')
-          : scopedAbilityFullText,
-      ).trim();
-      const tapUntapRequiresSelfExert = costRequiresSelfExert(manaCost);
       persistQueuedBattlefieldAbilityStepActivation({
         gameId,
         game,

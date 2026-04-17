@@ -8601,6 +8601,7 @@ async function handleStepResponse(
       const payload = response.selections as any;
 
       const isTapOtherAsActivationCost = (stepData as any)?.tapOtherAbilityAsCost === true;
+      const isBattlefieldAbilityTapUntapSelection = (stepData as any)?.battlefieldAbilityTapUntapSelection === true;
 
       const targetIds: string[] = Array.isArray(payload)
         ? payload.map((x: any) => String(x))
@@ -8725,6 +8726,76 @@ async function handleStepResponse(
         }
 
         targets.push(perm);
+      }
+
+      if (isBattlefieldAbilityTapUntapSelection) {
+        const controllerId = String(pid);
+        const permanentId = String(stepData?.permanentId || step.sourceId || '').trim();
+        const abilityId = String(stepData?.abilityId || '').trim();
+        const cardName = String(stepData?.cardName || step.sourceName || 'Ability');
+        const abilityText = String(stepData?.abilityText || step.description || '').trim();
+        const activatedAbilityText = String(stepData?.activatedAbilityText || '').trim();
+        const tappedPermanentsForCost = Array.isArray(stepData?.tappedPermanentsForCost)
+          ? stepData.tappedPermanentsForCost.map((id: any) => String(id)).filter(Boolean)
+          : [];
+        const lifePaidForCost = Number(stepData?.lifePaidForCost || 0);
+
+        const stackItem = {
+          id: `ability_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+          type: 'ability' as const,
+          controller: controllerId,
+          source: permanentId,
+          sourceName: cardName,
+          description: abilityText,
+          activatedAbilityText: activatedAbilityText || undefined,
+          targets: [...targetIds],
+          tapUntapAction: action,
+        } as any;
+
+        game.state.stack = game.state.stack || [];
+        game.state.stack.push(stackItem);
+        fireBattlefieldAbilityActivatedTriggers(game, controllerId, permanentId, abilityText, gameId, stackItem.id);
+
+        const exertedPermanentIdForCost = finalizeBattlefieldAbilitySelfExertCost(
+          game,
+          gameId,
+          controllerId,
+          permanentId,
+          stepData?.requiresSelfExertForCost === true,
+        );
+
+        io.to(gameId).emit('chat', {
+          id: `m_${Date.now()}`,
+          gameId,
+          from: 'system',
+          message: `⚡ ${getPlayerName(game, controllerId)} activated ${cardName}. Ability on the stack.`,
+          ts: Date.now(),
+        });
+
+        if (typeof game.bumpSeq === 'function') {
+          game.bumpSeq();
+        }
+
+        try {
+          appendEvent(gameId, (game as any).seq ?? 0, 'activateBattlefieldAbility', {
+            playerId: controllerId,
+            permanentId,
+            abilityId: abilityId || undefined,
+            cardName,
+            abilityText,
+            activatedAbilityText: activatedAbilityText || undefined,
+            targets: [...targetIds],
+            tappedPermanents: tappedPermanentsForCost,
+            lifePaidForCost: Number.isFinite(lifePaidForCost) && lifePaidForCost > 0 ? lifePaidForCost : undefined,
+            exertedPermanentIdForCost,
+            tapUntapAction: action,
+          });
+        } catch {
+          // ignore persistence failures
+        }
+
+        broadcastGame(io, game, gameId);
+        break;
       }
 
       // Normal TAP_UNTAP_TARGET use (effects) emits chat + persists a tap/untap event.

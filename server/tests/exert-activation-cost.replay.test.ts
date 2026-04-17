@@ -230,4 +230,74 @@ describe('activated exert costs replay coverage', () => {
     const ritualist = ((game.state as any).battlefield || []).find((permanent: any) => permanent?.id === 'oasis_ritualist') as any;
     expect(ritualist?.tapped).toBe(true);
   });
+
+  it('replays stacked Hope Tender exert activations with selected lands intact', () => {
+    const gameId = createGameId();
+    trackedGameIds.add(gameId);
+    const playerId = 'p1' as PlayerID;
+    const opponentId = 'p2' as PlayerID;
+    const game = seedGame(gameId, playerId, opponentId);
+
+    (game.state as any).battlefield = [
+      createCreature(
+        'hope_tender',
+        playerId,
+        'Hope Tender',
+        "{1}, {T}: Untap target land.\n{1}, {T}, Exert this creature: Untap two target lands. (An exerted creature won't untap during your next untap step.)",
+        2,
+        2,
+      ),
+      {
+        id: 'forest_a',
+        controller: playerId,
+        owner: playerId,
+        tapped: true,
+        card: { id: 'forest_a_card', name: 'Forest A', type_line: 'Basic Land — Forest', oracle_text: '' },
+      },
+      {
+        id: 'forest_b',
+        controller: playerId,
+        owner: playerId,
+        tapped: true,
+        card: { id: 'forest_b_card', name: 'Forest B', type_line: 'Basic Land — Forest', oracle_text: '' },
+      },
+    ];
+
+    game.applyEvent({
+      type: 'activateBattlefieldAbility',
+      playerId,
+      permanentId: 'hope_tender',
+      abilityId: 'hope_tender-ability-1',
+      cardName: 'Hope Tender',
+      abilityText: "Untap two target lands. (An exerted creature won't untap during your next untap step.)",
+      activatedAbilityText: "{1}, {T}, Exert this creature: Untap two target lands. (An exerted creature won't untap during your next untap step.)",
+      targets: ['forest_a', 'forest_b'],
+      tappedPermanents: ['hope_tender'],
+      exertedPermanentIdForCost: 'hope_tender',
+      tapUntapAction: 'untap',
+    } as any);
+
+    const stack = (((game.state as any).stack || []) as any[]);
+    expect(stack).toHaveLength(1);
+    expect(stack[0]).toEqual(expect.objectContaining({
+      source: 'hope_tender',
+      description: "Untap two target lands. (An exerted creature won't untap during your next untap step.)",
+      targets: ['forest_a', 'forest_b'],
+      tapUntapAction: 'untap',
+    }));
+
+    const hopeTender = ((game.state as any).battlefield || []).find((permanent: any) => permanent?.id === 'hope_tender') as any;
+    const forestA = ((game.state as any).battlefield || []).find((permanent: any) => permanent?.id === 'forest_a') as any;
+    const forestB = ((game.state as any).battlefield || []).find((permanent: any) => permanent?.id === 'forest_b') as any;
+    expect(hopeTender?.tapped).toBe(true);
+    expect(hopeTender?.doesntUntapNextTurn).toBe(true);
+    expect(hopeTender?.exertedThisTurn).toBe(true);
+    expect(forestA?.tapped).toBe(true);
+    expect(forestB?.tapped).toBe(true);
+
+    game.applyEvent({ type: 'resolveTopOfStack' } as any);
+
+    expect(forestA?.tapped).toBe(false);
+    expect(forestB?.tapped).toBe(false);
+  });
 });
