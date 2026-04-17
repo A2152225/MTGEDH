@@ -36,6 +36,20 @@ function escapeRegExp(text: string): string {
   return String(text || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+function normalizeAbilitySentence(sentence: string): string {
+  const trimmed = String(sentence || '').trim();
+  if (trimmed.length < 2) return trimmed;
+
+  if (trimmed.startsWith('(') && trimmed.endsWith(')')) {
+    const inner = trimmed.slice(1, -1).trim();
+    if (/^(?:\{[^}]+\}|Sacrifice|Discard|Pay|Exile|Remove|Tap|Untap)/i.test(inner)) {
+      return inner;
+    }
+  }
+
+  return trimmed;
+}
+
 function isKnownBattlefieldCard(card: BattlefieldPermanent['card']): card is NonNullable<BattlefieldPermanent['card']> & { name: string } {
   return Boolean(card && typeof card === 'object' && 'name' in card && (card as any).name);
 }
@@ -324,7 +338,7 @@ function buildExplicitInlineManaAbilities(card: NonNullable<BattlefieldPermanent
   const textOnlyActivatedAbilityPattern = /^((?:Sacrifice|Discard|Pay|Exile|Remove|Tap|Untap)[^:]*?)\s*:\s*(.+)$/i;
   const lines = oracleText
     .split(/\r?\n/)
-    .map((line) => String(line || '').trim())
+    .map((line) => normalizeAbilitySentence(line))
     .filter(Boolean);
 
   const abilities: InlineSelectedPaymentAbility[] = [];

@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 
 import type { PlayerID } from '../../shared/src/index.js';
 import { executeTriggerEffect } from '../src/state/modules/stack.js';
+import { getAttackTriggersForCreatures } from '../src/state/modules/triggers/combat.js';
 import { ResolutionQueueManager } from '../src/state/resolution/index.js';
 
 describe('generic stack resolution regressions', () => {
@@ -151,5 +152,98 @@ describe('generic stack resolution regressions', () => {
     expect(step.nonSelectableCards).toHaveLength(5);
     expect(step.remainderDestination).toBe('bottom');
     expect(step.remainderRandomOrder).toBe(true);
+  });
+
+  it('grants firebending without front-loading reminder-text mana', () => {
+    const ctx: any = {
+      gameId,
+      state: {
+        players: [{ id: playerId }, { id: opponentId }],
+        startingLife: 40,
+        life: { [playerId]: 40, [opponentId]: 40 },
+        battlefield: [
+          {
+            id: 'target_creature',
+            controller: playerId,
+            owner: playerId,
+            tapped: false,
+            temporaryAbilities: [],
+            card: {
+              name: 'Runeclaw Bear',
+              type_line: 'Creature — Bear',
+              oracle_text: '',
+              power: '2',
+              toughness: '2',
+            },
+          },
+        ],
+        manaPool: {
+          [playerId]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+        },
+        zones: {
+          [playerId]: { hand: [], handCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0 },
+          [opponentId]: { hand: [], handCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0 },
+        },
+      },
+      libraries: new Map(),
+    };
+
+    executeTriggerEffect(
+      ctx,
+      playerId,
+      'Fire Nation Palace',
+      'target creature you control gains firebending 4 until end of turn. (whenever it attacks, add {r}{r}{r}{r}. this mana lasts until end of combat.)',
+      {
+        sourceName: 'Fire Nation Palace',
+        targets: ['target_creature'],
+      }
+    );
+
+    const targetCreature = (ctx.state.battlefield as any[]).find((perm) => perm.id === 'target_creature');
+    expect(ctx.state.manaPool[playerId].red).toBe(0);
+    expect(Array.isArray(targetCreature?.temporaryAbilities)).toBe(true);
+    expect(targetCreature?.temporaryAbilities).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ ability: 'firebending 4', source: 'Fire Nation Palace', expiresAt: 'end_of_turn' }),
+      ])
+    );
+  });
+
+  it('stacks native and granted firebending attack triggers', () => {
+    const ozai: any = {
+      id: 'ozai_perm',
+      controller: playerId,
+      owner: playerId,
+      tapped: false,
+      temporaryAbilities: [
+        {
+          ability: 'firebending 4',
+          source: 'Fire Nation Palace',
+          expiresAt: 'end_of_turn',
+          turnApplied: 1,
+        },
+      ],
+      card: {
+        id: 'ozai_card',
+        name: 'Ozai, the Phoenix King',
+        type_line: 'Legendary Creature — Human Noble',
+        oracle_text: 'Trample, firebending 4, haste\nIf you would lose unspent mana, that mana becomes red instead.\nOzai has flying and indestructible as long as you have six or more unspent mana.',
+        power: '7',
+        toughness: '7',
+      },
+    };
+
+    const ctx: any = {
+      state: {
+        battlefield: [ozai],
+        players: [{ id: playerId }, { id: opponentId }],
+      },
+    };
+
+    const firebendingTriggers = getAttackTriggersForCreatures(ctx, [ozai], playerId, opponentId)
+      .filter((trigger: any) => trigger?.triggerType === 'firebending');
+
+    expect(firebendingTriggers).toHaveLength(2);
+    expect(firebendingTriggers.map((trigger: any) => trigger.value)).toEqual([4, 4]);
   });
 });

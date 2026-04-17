@@ -45,7 +45,7 @@ import { removeExpiredGoads } from "./goad-effects.js";
 import { tryAutoPass } from "./priority.js";
 import { ResolutionQueueManager, ResolutionStepType } from "../resolution/index.js";
 import { debug, debugWarn, debugError } from "../../utils/debug.js";
-import { setDayNightState } from "./day-night.js";
+import { ensureInitialDayNightDesignationFromBattlefield, setDayNightState } from "./day-night.js";
 
 /** Small helper to prepend ISO timestamp to debug logs */
 function ts() {
@@ -3734,6 +3734,12 @@ export function nextTurn(ctx: GameContext) {
       (ctx as any).state.dayNightChangedThisTurn = false;
       delete (ctx as any).state.dayNightChangedFrom;
       delete (ctx as any).state.dayNightChangedTo;
+    } catch {}
+
+    // Day/Night bootstrap: if the game already has a daybound/nightbound permanent on the
+    // battlefield but no designation (for example after replay/load), initialize it now.
+    try {
+      ensureInitialDayNightDesignationFromBattlefield((ctx as any).state);
     } catch {}
 
     // Day/Night (701.26) — minimal authoritative state.

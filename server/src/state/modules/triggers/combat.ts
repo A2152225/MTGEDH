@@ -512,10 +512,15 @@ export function detectAttackTriggers(card: any, permanent: any): CombatTriggered
 
   const optionalManaPaymentPattern = /you may pay (\{[^}]+\}(?:\{[^}]+\})*)\.\s*if you do,?\s*(.+)/i;
   
-  // Also check grantedAbilities on the permanent for temporary abilities
-  // These are abilities granted by other cards (e.g., "gains firebending 4 until end of turn")
+  // Also check granted and temporary abilities on the permanent.
+  // These are abilities granted by other cards (e.g., "gains firebending 4 until end of turn").
   const grantedAbilities = Array.isArray(permanent?.grantedAbilities) ? permanent.grantedAbilities : [];
-  const grantedText = grantedAbilities.join('\n').toLowerCase();
+  const temporaryAbilities = Array.isArray(permanent?.temporaryAbilities)
+    ? permanent.temporaryAbilities
+        .map((entry: any) => (typeof entry === 'string' ? entry : entry?.ability))
+        .filter((ability: any) => typeof ability === 'string' && ability.trim().length > 0)
+    : [];
+  const supplementalAbilityText = [...grantedAbilities, ...temporaryAbilities].map((ability) => String(ability || '')).join('\n').toLowerCase();
   
   // ===== DYNAMIC DETECTION (Primary) =====
   
@@ -534,11 +539,15 @@ export function detectAttackTriggers(card: any, permanent: any): CombatTriggered
     });
   }
   
-  // Firebending N - Avatar set mechanic
-  // Check both oracle text AND granted abilities (for creatures that "gain firebending N")
-  const firebendingMatch = oracleText.match(/firebending\s+(\d+)/i) || grantedText.match(/firebending\s+(\d+)/i);
-  if (firebendingMatch) {
-    const n = parseInt(firebendingMatch[1], 10);
+  // Firebending N - Avatar set mechanic.
+  // Check native text plus granted/temporary abilities, and allow multiple instances to stack.
+  const firebendingMatches = [
+    ...oracleText.matchAll(/firebending\s+(\d+)/gi),
+    ...supplementalAbilityText.matchAll(/firebending\s+(\d+)/gi),
+  ];
+  for (const firebendingMatch of firebendingMatches) {
+    const n = parseInt(String(firebendingMatch[1] || '0'), 10);
+    if (!(n > 0)) continue;
     triggers.push({
       permanentId,
       cardName,

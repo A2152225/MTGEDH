@@ -44,6 +44,57 @@ describe('Day/Night state tracking', () => {
     expect((g.state as any).dayNightChangedTo).toBe('day');
   });
 
+  it('bootstraps day/night from an existing battlefield permanent when the cycle was never initialized', () => {
+    const g = createInitialGameState('t_day_night_bootstrap_existing_battlefield');
+    const p1 = 'p1' as PlayerID;
+    const p2 = 'p2' as PlayerID;
+    g.applyEvent({ type: 'join', playerId: p1, name: 'P1' });
+    g.applyEvent({ type: 'join', playerId: p2, name: 'P2' });
+
+    delete (g.state as any).dayNight;
+    (g.state as any).turnPlayer = p1;
+    (g.state as any).spellsCastLastTurnCount = 1;
+    (g.state as any).spellsCastLastTurnByActivePlayerCount = 1;
+    (g.state as any).battlefield.push({
+      id: 'daybound_existing',
+      controller: p1,
+      owner: p1,
+      transformed: false,
+      card: {
+        id: 'daybound_existing_card',
+        name: 'Ill-Tempered Loner',
+        layout: 'transform',
+        type_line: 'Creature — Human Werewolf',
+        oracle_text: 'Daybound',
+        power: '3',
+        toughness: '3',
+        card_faces: [
+          {
+            name: 'Ill-Tempered Loner',
+            type_line: 'Creature — Human Werewolf',
+            oracle_text: 'Daybound',
+            power: '3',
+            toughness: '3',
+          },
+          {
+            name: 'Howlpack Avenger',
+            type_line: 'Creature — Werewolf',
+            oracle_text: 'Nightbound',
+            power: '4',
+            toughness: '4',
+          },
+        ],
+      },
+      tapped: false,
+    });
+
+    nextTurn(g as any);
+
+    expect((g.state as any).dayNight).toBe('day');
+    expect((g.state as any).dayNightChangedThisTurn).toBe(true);
+    expect((g.state as any).dayNightChangedTo).toBe('day');
+  });
+
   it('applies explicit "it becomes day" / "it becomes night" during resolution', () => {
     const g = createInitialGameState('t_day_night_explicit_effects');
     const p1 = 'p1' as PlayerID;

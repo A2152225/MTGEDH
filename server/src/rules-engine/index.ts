@@ -125,6 +125,32 @@ function getEffectiveStatsForSBA(
   };
 }
 
+function oracleTextGrantsNativeIndestructible(oracleTextRaw: string): boolean {
+  const lines = String(oracleTextRaw || '')
+    .split(/\n+/)
+    .map((line) => line.trim().toLowerCase())
+    .filter(Boolean);
+
+  for (const line of lines) {
+    if (!line.includes('indestructible')) continue;
+
+    // Native keyword lines are often just "Indestructible" or mixed with other keywords.
+    if (/^(?:[a-z ,'-]+,\s*)*indestructible(?:\s*,\s*[a-z ,'-]+)*$/i.test(line)) {
+      return true;
+    }
+
+    // Static self-grants like "CARDNAME is indestructible." should count, but
+    // conditional and temporary clauses are handled elsewhere.
+    if ((/\bis indestructible\b/.test(line) || /\bhas indestructible\b/.test(line)) &&
+        !/\bas long as\b/.test(line) &&
+        !/\buntil end of turn\b/.test(line)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 /**
  * Check if a permanent has the indestructible ability
  * Rule 702.12: A permanent with indestructible can't be destroyed.
@@ -136,7 +162,7 @@ function hasIndestructible(state: Readonly<GameState>, perm: BattlefieldPermanen
   const counters = (perm as any)?.counters || {};
   
   // Check oracle text
-  if (oracleText.includes('indestructible')) {
+  if (oracleTextGrantsNativeIndestructible(oracleText)) {
     return true;
   }
   

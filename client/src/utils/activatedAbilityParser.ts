@@ -142,6 +142,20 @@ function parseThresholdGatedAbilityLine(
   return null;
 }
 
+function normalizeAbilitySentence(sentence: string): string {
+  const trimmed = sentence.trim();
+  if (trimmed.length < 2) return trimmed;
+
+  if (trimmed.startsWith('(') && trimmed.endsWith(')')) {
+    const inner = trimmed.slice(1, -1).trim();
+    if (/^(?:\{[^}]+\}|Sacrifice|Discard|Pay|Exile|Remove|Tap|Untap)/i.test(inner)) {
+      return inner;
+    }
+  }
+
+  return trimmed;
+}
+
 export function getThresholdActivationStatus(
   ability: Pick<ParsedActivatedAbility, 'isStationAbility' | 'stationThreshold'>,
   permanent?: { counters?: Record<string, number> | undefined }
@@ -760,9 +774,10 @@ export function parseActivatedAbilities(card: KnownCardRef, grantedAbilities?: r
   
   // Split oracle text by newlines and process each line/sentence
   const sentences = nativeOracleText.split(/\n/);
-  for (const sentence of sentences) {
+  for (const rawSentence of sentences) {
+    const sentence = normalizeAbilitySentence(rawSentence);
     const thresholdAbility = parseThresholdGatedAbilityLine(
-      sentence.trim(),
+      sentence,
       activatedAbilityPattern,
       textOnlyActivatedAbilityPattern
     );
@@ -986,7 +1001,8 @@ export function parseActivatedAbilities(card: KnownCardRef, grantedAbilities?: r
 
   // Parse activated abilities with non-braced text-only costs such as
   // "Sacrifice Commander's Sphere: Draw a card."
-  for (const sentence of sentences) {
+  for (const rawSentence of sentences) {
+    const sentence = normalizeAbilitySentence(rawSentence);
     const abilityMatch = sentence.match(textOnlyActivatedAbilityPattern);
     if (!abilityMatch) continue;
 

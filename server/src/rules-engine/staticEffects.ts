@@ -1,5 +1,7 @@
 import type { GameState, BattlefieldPermanent, PlayerID } from '../../../shared/src';
 
+import { getTotalManaFromPool } from '../state/modules/mana-check.js';
+
 /**
  * Lightweight continuous effect scanner.
  * Supports additive constant buffs and keyword grants from simple oracle text templates:
@@ -29,6 +31,30 @@ const ABILITIES = [
   'deathtouch', 'lifelink', 'haste', 'menace', 'reach', 'first strike', 
   'double strike', 'protection', 'ward', 'wither', 'infect'
 ];
+
+const SMALL_NUMBER_WORDS: Record<string, number> = {
+  'one': 1,
+  'two': 2,
+  'three': 3,
+  'four': 4,
+  'five': 5,
+  'six': 6,
+  'seven': 7,
+  'eight': 8,
+  'nine': 9,
+  'ten': 10,
+  'a': 1,
+  'an': 1,
+};
+
+function parseCardCountWord(raw: string): number | undefined {
+  const lower = String(raw || '').toLowerCase();
+  if (SMALL_NUMBER_WORDS[lower] !== undefined) {
+    return SMALL_NUMBER_WORDS[lower];
+  }
+  const parsed = parseInt(lower, 10);
+  return Number.isNaN(parsed) ? undefined : parsed;
+}
 
 interface EffectAggregate {
   pDelta: number;
@@ -444,15 +470,7 @@ export function computeContinuousEffects(state: GameState): ContinuousEffectResu
       const requiredType = conditionalIndestructibleMatch[2].toLowerCase();
       
       // Convert word to number (common number words for MTG card text)
-      const countMap: Record<string, number> = {
-        'one': 1, 'two': 2, 'three': 3, 'four': 4, 'five': 5, 
-        'six': 6, 'seven': 7, 'eight': 8, 'nine': 9, 'ten': 10,
-        'a': 1, 'an': 1
-      };
-      // Try number word first, then numeric parsing, log warning if neither works
-      const parsedFromWord = countMap[countWord];
-      const parsedFromInt = parseInt(countWord, 10);
-      const requiredCount = parsedFromWord ?? (isNaN(parsedFromInt) ? undefined : parsedFromInt);
+      const requiredCount = parseCardCountWord(countWord);
       
       if (requiredCount === undefined) {
         // Skip this effect if we couldn't parse the count - better than silent wrong behavior
@@ -480,6 +498,34 @@ export function computeContinuousEffects(state: GameState): ContinuousEffectResu
           const agg = perPermanent.get(source.id);
           if (agg) {
             agg.abilities.add('indestructible');
+          }
+        }
+      }
+    }
+
+    // ============================================
+    // CONDITIONAL SELF ABILITIES BASED ON UNSPENT MANA (Ozai)
+    // ============================================
+    // Pattern: "[Card] has flying and indestructible as long as you have six or more unspent mana."
+    const manaThresholdAbilitiesMatch = oracle.match(/has ([^.]+?) as long as you have (\w+) or more unspent mana/i);
+    if (manaThresholdAbilitiesMatch) {
+      const requiredCount = parseCardCountWord(manaThresholdAbilitiesMatch[2]);
+      if (requiredCount !== undefined) {
+        const manaPool = ((state as any).manaPool || {})[String(controller)] || {};
+        const totalUnspentMana = getTotalManaFromPool(manaPool);
+        if (totalUnspentMana >= requiredCount) {
+          const abilities = resolveGrantedAbilities(source, manaThresholdAbilitiesMatch[1]);
+          if (abilities.length > 0) {
+            const permAbilities = permanentAbilities.get(source.id);
+            if (permAbilities) {
+              for (const ability of abilities) permAbilities.add(ability);
+            }
+            if (isCreature(source)) {
+              const agg = perPermanent.get(source.id);
+              if (agg) {
+                for (const ability of abilities) agg.abilities.add(ability);
+              }
+            }
           }
         }
       }

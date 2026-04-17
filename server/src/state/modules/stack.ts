@@ -9260,8 +9260,8 @@ export function executeTriggerEffect(
   }
 
   const creatureGainsMatch =
-    desc.match(/(?:up to (?:one|two|three|four|five|\d+) )?target creatures? gains? (.+?) until end of turn\.?/i) ||
-    desc.match(/(?:until end of turn,?\s*)(?:up to (?:one|two|three|four|five|\d+) )?target creatures? gains? (.+?)\.?$/i);
+    desc.match(/(?:up to (?:one|two|three|four|five|\d+) )?target creatures?(?: you control| an opponent controls)? gains? (.+?) until end of turn\.?/i) ||
+    desc.match(/(?:until end of turn,?\s*)(?:up to (?:one|two|three|four|five|\d+) )?target creatures?(?: you control| an opponent controls)? gains? (.+?)\.?$/i);
   if (creatureGainsMatch && (triggerItem as any).targets?.length > 0) {
     const gainedAbilities = splitGrantedTemporaryAbilities(creatureGainsMatch[1]);
     const targets = (triggerItem as any).targets || [];

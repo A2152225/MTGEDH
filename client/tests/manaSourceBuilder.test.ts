@@ -165,6 +165,48 @@ describe('buildAvailableManaSourcesForPlayer', () => {
       }),
     ]);
   });
+
+  it('keeps parenthesized basic land reminder mana text available for spell payment', () => {
+    const battlefield = [
+      createPermanent({
+        id: 'mountain_1',
+        controller: 'p1',
+        owner: 'p1',
+        card: {
+          id: 'mountain_card_1',
+          name: 'Mountain',
+          type_line: 'Basic Land — Mountain',
+          oracle_text: '({T}: Add {R}.)',
+        },
+      }),
+      createPermanent({
+        id: 'swamp_1',
+        controller: 'p1',
+        owner: 'p1',
+        card: {
+          id: 'swamp_card_1',
+          name: 'Swamp',
+          type_line: 'Basic Land — Swamp',
+          oracle_text: '({T}: Add {B}.)',
+        },
+      }),
+    ];
+
+    const sources = buildAvailableManaSourcesForPlayer('p1', battlefield);
+
+    expect(sources).toEqual([
+      expect.objectContaining({
+        sourcePermanentId: 'mountain_1',
+        abilityId: 'mountain_card_1-ability-0',
+        options: ['R'],
+      }),
+      expect.objectContaining({
+        sourcePermanentId: 'swamp_1',
+        abilityId: 'swamp_card_1-ability-0',
+        options: ['B'],
+      }),
+    ]);
+  });
 });
 
 describe('createPaymentItemFromSource', () => {
