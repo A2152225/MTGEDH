@@ -125,6 +125,105 @@ function setupCombatWithBlockedOmnath(game: ReturnType<typeof createInitialGameS
   return { attackerId: attacker.id, omnathId: omnath.id };
 }
 
+function setupCombatAgainstPlaneswalker(
+  game: ReturnType<typeof createInitialGameState>,
+  options?: { includeBlocker?: boolean }
+) {
+  const p1 = 'p1' as PlayerID;
+  const p2 = 'p2' as PlayerID;
+
+  game.applyEvent({ type: 'join', playerId: p1, name: 'P1' });
+  game.applyEvent({ type: 'join', playerId: p2, name: 'P2' });
+  setupToMain1(game, p1, p2);
+
+  const active = game.state.turnPlayer as PlayerID;
+  const defending = active === p1 ? p2 : p1;
+  const includeBlocker = options?.includeBlocker === true;
+
+  const attacker = {
+    id: 'attacker_pw_1',
+    controller: active,
+    owner: active,
+    tapped: false,
+    counters: {},
+    summoningSickness: false,
+    basePower: includeBlocker ? 5 : 3,
+    baseToughness: includeBlocker ? 5 : 3,
+    card: {
+      id: 'attacker_pw_card_1',
+      name: includeBlocker ? 'Trampling Lifedrinker' : 'Lifedrinker Adept',
+      type_line: 'Creature — Angel',
+      oracle_text: includeBlocker ? 'Trample\nLifelink' : 'Lifelink',
+      power: includeBlocker ? '5' : '3',
+      toughness: includeBlocker ? '5' : '3',
+    },
+  };
+
+  const planeswalker = {
+    id: 'walker_1',
+    controller: defending,
+    owner: defending,
+    tapped: false,
+    counters: { loyalty: includeBlocker ? 4 : 2 },
+    loyalty: includeBlocker ? 4 : 2,
+    baseLoyalty: includeBlocker ? 4 : 2,
+    summoningSickness: false,
+    card: {
+      id: 'walker_card_1',
+      name: 'Test Walker',
+      type_line: 'Legendary Planeswalker — Test',
+      oracle_text: '',
+      loyalty: includeBlocker ? '4' : '2',
+    },
+  };
+
+  const battlefield: any[] = [attacker, planeswalker];
+  if (includeBlocker) {
+    battlefield.push({
+      id: 'blocker_pw_1',
+      controller: defending,
+      owner: defending,
+      tapped: false,
+      counters: {},
+      summoningSickness: false,
+      basePower: 2,
+      baseToughness: 2,
+      card: {
+        id: 'blocker_pw_card_1',
+        name: 'Faithful Guard',
+        type_line: 'Creature — Soldier',
+        oracle_text: '',
+        power: '2',
+        toughness: '2',
+      },
+    });
+  }
+
+  (game.state as any).battlefield = battlefield;
+
+  game.applyEvent({ type: 'nextStep' });
+  game.applyEvent({ type: 'nextStep' });
+  game.applyEvent({
+    type: 'declareAttackers',
+    playerId: active,
+    attackers: [{ attackerId: 'attacker_pw_1', targetPermanentId: 'walker_1' }],
+  });
+  game.applyEvent({ type: 'nextStep' });
+
+  if (includeBlocker) {
+    game.applyEvent({
+      type: 'declareBlockers',
+      playerId: defending,
+      blockers: [{ blockerId: 'blocker_pw_1', attackerId: 'attacker_pw_1' }],
+    });
+  }
+  (game.state as any).blockersDeclaredBy = [defending];
+
+  game.applyEvent({ type: 'nextStep' });
+
+  return { active, defending, planeswalkerId: planeswalker.id };
+}
+
 describe('combat regression: dynamic P/T and Vigor', () => {
   it('uses Omnath\'s dynamic toughness when checking lethal combat damage', () => {
     const game = createInitialGameState('combat_dynamic_pt_omnath');
@@ -144,5 +243,35 @@ describe('combat regression: dynamic P/T and Vigor', () => {
     expect(omnath).toBeTruthy();
     expect(Number(omnath?.markedDamage || 0)).toBe(0);
     expect(Number(omnath?.counters?.['+1/+1'] || 0)).toBe(2);
+  });
+
+  it('applies unblocked combat damage to an attacked planeswalker with a normal permanent id and grants lifelink', () => {
+    const game = createInitialGameState('combat_planeswalker_unblocked');
+    const { active, defending, planeswalkerId } = setupCombatAgainstPlaneswalker(game);
+
+    const battlefield = (game.state as any).battlefield || [];
+    const graveyard = (game.state as any).zones?.[defending]?.graveyard || [];
+
+    expect(battlefield.some((perm: any) => perm?.id === planeswalkerId)).toBe(false);
+    expect(graveyard.some((card: any) => String(card?.name || '') === 'Test Walker')).toBe(true);
+    expect((game.state as any).life?.[defending]).toBe(40);
+    expect((game.state as any).life?.[active]).toBe(43);
+    expect((game.state as any).life?.[planeswalkerId]).toBeUndefined();
+  });
+
+  it('applies trample excess combat damage to an attacked planeswalker and keeps player life unchanged', () => {
+    const game = createInitialGameState('combat_planeswalker_trample');
+    const { active, defending, planeswalkerId } = setupCombatAgainstPlaneswalker(game, { includeBlocker: true });
+
+    const battlefield = (game.state as any).battlefield || [];
+    const planeswalker = battlefield.find((perm: any) => perm?.id === planeswalkerId);
+
+    expect(planeswalker).toBeTruthy();
+    expect(Number(planeswalker?.counters?.loyalty || 0)).toBe(1);
+    expect(Number(planeswalker?.loyalty || 0)).toBe(1);
+    expect(battlefield.some((perm: any) => perm?.id === 'blocker_pw_1')).toBe(false);
+    expect((game.state as any).life?.[defending]).toBe(40);
+    expect((game.state as any).life?.[active]).toBe(45);
+    expect((game.state as any).life?.[planeswalkerId]).toBeUndefined();
   });
 });

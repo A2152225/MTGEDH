@@ -103,6 +103,14 @@ export function hasValidTargetsForSpell(
     return battlefield.some((p: any) => matchesBattlefieldTargetType(p, auraTargetType));
   }
 
+  // Other permanent spells do not choose targets as part of being cast.
+  // Later triggered/activated abilities on the permanent may target, but that
+  // must not suppress castability or auto-pass checks.
+  const isPermanentSpell = /\b(creature|artifact|enchantment|planeswalker|battle)\b/i.test(typeLine);
+  if (isPermanentSpell) {
+    return true;
+  }
+
   // Quick exit for spells that don't require targeting.
   if (!requiresTargeting(oracleTextRaw)) {
     return true;

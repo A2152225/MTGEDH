@@ -36,7 +36,7 @@ import { getUpkeepTriggersForPlayer, autoProcessCumulativeUpkeepMana } from "./u
 import { isInterveningIfSatisfied } from "./triggers/intervening-if.js";
 import { parseCreatureKeywords } from "./combat-mechanics.js";
 import { runSBA, createToken, updateCounters } from "./counters_tokens.js";
-import { applyDamageToPermanentWithCounterEffects } from "./counter-common-effects.js";
+import { applyDamageToPermanentWithCounterEffects, applyShieldCounterDamagePrevention } from "./counter-common-effects.js";
 import { calculateAllPTBonuses, calculateVariablePT, parsePT, uid, triggerLifeGainEffects } from "../utils.js";
 import { canAct, canRespond } from "./can-respond.js";
 import { cleanupCardLeavingExile } from "./playable-from-exile.js";
@@ -79,6 +79,29 @@ function isCombatDamagePreventedForPermanent(permanent: any): boolean {
     .filter(Boolean);
 
   return abilityTexts.some((entry) => /prevent all combat damage that would be dealt to (?:it|this creature) this turn/.test(entry));
+}
+
+function applyCombatDamageToPlaneswalker(permanent: any, amount: number): {
+  prevented: boolean;
+  appliedAmount: number;
+  remainingLoyalty: number;
+} {
+  const normalizedAmount = Math.max(0, Number(amount || 0));
+  const currentLoyalty = Number((permanent as any)?.counters?.loyalty ?? (permanent as any)?.loyalty ?? (permanent as any)?.card?.loyalty ?? 0) || 0;
+
+  if (!permanent || normalizedAmount <= 0) {
+    return { prevented: false, appliedAmount: 0, remainingLoyalty: currentLoyalty };
+  }
+
+  if (isCombatDamagePreventedForPermanent(permanent) || applyShieldCounterDamagePrevention(permanent)) {
+    return { prevented: true, appliedAmount: 0, remainingLoyalty: currentLoyalty };
+  }
+
+  const nextLoyalty = currentLoyalty - normalizedAmount;
+  (permanent as any).counters = { ...((permanent as any).counters || {}), loyalty: nextLoyalty };
+  (permanent as any).loyalty = nextLoyalty;
+
+  return { prevented: false, appliedAmount: normalizedAmount, remainingLoyalty: nextLoyalty };
 }
 
 function removeExpiredUntilNextTurnEffects(ctx: GameContext, currentPlayerId: PlayerID, currentTurn: number): void {
@@ -1645,7 +1668,11 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
       debug(2, `${ts()} [dealCombatDamage] ${card?.name || attacker.id} combat stats: power=${attackerStats.power}, toughness=${attackerStats.toughness}`);
       
       const attackerController = attacker.controller;
-      const defendingTarget = attacker.attacking; // Player ID or planeswalker ID
+      const defendingTarget = attacker.attacking; // Player ID or attacked permanent ID
+      const defendingPermanent = battlefield.find((perm: any) => perm && String(perm.id || '') === String(defendingTarget || ''));
+      const defendingTypeLine = String(defendingPermanent?.card?.type_line || defendingPermanent?.type_line || '').toLowerCase();
+      const isPlaneswalkerTarget = defendingTypeLine.includes('planeswalker');
+      const isPermanentCombatTarget = Boolean(defendingPermanent);
       
       // Check if this attacker should deal damage in this phase based on first strike rules
       // First strike phase: only first strike and double strike creatures deal damage
@@ -1680,11 +1707,27 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
       }
       
       if (!isBlocked) {
-        // UNBLOCKED ATTACKER: Deal damage to defending player
-        // Get the defending player ID (stored in attacker.attacking)
-        const defendingPlayerId = defendingTarget;
-        
-        if (defendingPlayerId && !defendingPlayerId.startsWith('perm_')) {
+        if (isPlaneswalkerTarget && defendingPermanent) {
+          const damageResult = applyCombatDamageToPlaneswalker(defendingPermanent, attackerPower);
+
+          if (damageResult.appliedAmount > 0) {
+            debug(2, `${ts()} [dealCombatDamage] ${card.name || 'Attacker'} dealt ${damageResult.appliedAmount} combat damage to planeswalker ${defendingPermanent.card?.name || defendingPermanent.id} (${damageResult.remainingLoyalty} loyalty remaining)`);
+
+            if (keywords.lifelink) {
+              const lifeGainResult = applyLifeGainViaProcessLifeChange(ctx, attackerController as PlayerID, damageResult.appliedAmount, `${card.name || 'Attacker'} (lifelink)`);
+
+              result.lifeGainForPlayers[attackerController] =
+                (result.lifeGainForPlayers[attackerController] || 0) + lifeGainResult.actualChange;
+
+              debug(2, `${ts()} [dealCombatDamage] ${card.name || 'Attacker'} lifelink: ${lifeGainResult.message}`);
+            }
+          } else if (damageResult.prevented) {
+            debug(2, `${ts()} [dealCombatDamage] ${card.name || 'Attacker'}'s ${attackerPower} combat damage to planeswalker ${defendingPermanent.card?.name || defendingPermanent.id} was prevented`);
+          }
+        } else if (!isPermanentCombatTarget && defendingTarget) {
+          // UNBLOCKED ATTACKER: Deal damage to defending player
+          const defendingPlayerId = defendingTarget;
+
           // Check for combat damage replacement effects (The Mindskinner, etc.)
           const replacementResult = applyCombatDamageReplacement(
             ctx, card, attacker, attackerController, attackerPower, defendingPlayerId
@@ -1834,7 +1877,6 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
             debug(2, `${ts()} [dealCombatDamage] ${card.name || 'Attacker'}'s ${attackerPower} combat damage was prevented`);
           }
         }
-        // TODO: Handle attacking planeswalkers (defendingTarget starts with 'perm_')
       } else {
         // BLOCKED ATTACKER: Deal damage to blockers
         let remainingDamage = attackerPower;
@@ -1936,11 +1978,25 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
           if (remainingDamage <= 0 && !keywords.trample) break;
         }
         
-        // Trample: Excess damage goes to defending player
+        // Trample: Excess damage goes to defending player or planeswalker
         if (keywords.trample && remainingDamage > 0) {
-          const defendingPlayerId = defendingTarget;
-          
-          if (defendingPlayerId && !defendingPlayerId.startsWith('perm_')) {
+          if (isPlaneswalkerTarget && defendingPermanent) {
+            const damageResult = applyCombatDamageToPlaneswalker(defendingPermanent, remainingDamage);
+
+            if (damageResult.appliedAmount > 0) {
+              debug(2, `${ts()} [dealCombatDamage] ${card.name || 'Attacker'} trample: dealt ${damageResult.appliedAmount} excess damage to planeswalker ${defendingPermanent.card?.name || defendingPermanent.id} (${damageResult.remainingLoyalty} loyalty remaining)`);
+
+              if (keywords.lifelink) {
+                const lifeGainResult = applyLifeGainViaProcessLifeChange(ctx, attackerController as PlayerID, damageResult.appliedAmount, `${card.name || 'Attacker'} (lifelink trample)`);
+
+                result.lifeGainForPlayers[attackerController] =
+                  (result.lifeGainForPlayers[attackerController] || 0) + lifeGainResult.actualChange;
+              }
+            } else if (damageResult.prevented) {
+              debug(2, `${ts()} [dealCombatDamage] ${card.name || 'Attacker'}'s ${remainingDamage} trample damage to planeswalker ${defendingPermanent.card?.name || defendingPermanent.id} was prevented`);
+            }
+          } else if (!isPermanentCombatTarget && defendingTarget) {
+            const defendingPlayerId = defendingTarget;
             const currentLife = life[defendingPlayerId] ?? startingLife;
             life[defendingPlayerId] = currentLife - remainingDamage;
 
@@ -2746,6 +2802,7 @@ function hasEndTurnActivatedAbility(cardName: string, oracleText: string): boole
     if (triggerIndex > colonIndex) {
       return false;
     }
+
   }
   
   return true;

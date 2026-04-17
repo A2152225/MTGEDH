@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { canCastAnySpell, canActivateAnyAbility, canRespond, canAct, canPlayLand, getCastableCommanderCandidates } from '../src/state/modules/can-respond';
+import { canCastAnySpell, canActivateAnyAbility, canRespond, canAct, canPlayLand, getCastableCommanderCandidates, getCastableSpellCandidates } from '../src/state/modules/can-respond';
 import type { GameContext } from '../src/state/context';
 import type { PlayerID } from '../../shared/src';
 
@@ -2157,6 +2157,68 @@ describe('canAct', () => {
       stack: [],
     });
     
+    expect(canAct(ctx, 'p1' as PlayerID)).toBe(true);
+  });
+
+  it('should surface permanent spells whose later abilities target after a second land drop', () => {
+    const ctx = createTestContext({
+      zones: {
+        p1: {
+          hand: [
+            {
+              id: 'bloodthirsty_blade',
+              name: 'Bloodthirsty Blade',
+              type_line: 'Artifact — Equipment',
+              mana_cost: '{2}',
+              oracle_text: 'Equipped creature gets +2/+0 and is goaded. (It attacks each combat if able and attacks a player other than you if able.)\nEquip {1} ({1}: Attach to target creature you control. Equip only as a sorcery.)\n{2}: Attach Bloodthirsty Blade to target creature an opponent controls. Activate only as a sorcery.',
+            },
+            {
+              id: 'grenzo_havoc_raiser',
+              name: 'Grenzo, Havoc Raiser',
+              type_line: 'Legendary Creature — Goblin Rogue',
+              mana_cost: '{R}{R}',
+              oracle_text: "Whenever a creature you control deals combat damage to a player, choose one —\n• Goad target creature that player controls.\n• Exile the top card of that player's library. Until end of turn, you may cast that card and you may spend mana as though it were mana of any color to cast that spell.",
+            },
+          ],
+        },
+      },
+      battlefield: [
+        {
+          id: 'mountain_1',
+          controller: 'p1',
+          tapped: false,
+          card: {
+            name: 'Mountain',
+            type_line: 'Basic Land — Mountain',
+            oracle_text: '{T}: Add {R}.',
+          },
+        },
+        {
+          id: 'fire_nation_palace_1',
+          controller: 'p1',
+          tapped: false,
+          card: {
+            name: 'Fire Nation Palace',
+            type_line: 'Land',
+            oracle_text: 'This land enters tapped unless you control a basic land.\n{T}: Add {R}.\n{1}{R}, {T}: Target creature you control gains firebending 4 until end of turn. (Whenever it attacks, add {R}{R}{R}{R}. This mana lasts until end of combat.)',
+          },
+        },
+      ],
+      players: [{ id: 'p1' }, { id: 'p2' }],
+      manaPool: {
+        p1: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+      },
+      step: 'MAIN1',
+      turnPlayer: 'p1',
+      priority: 'p1',
+      stack: [],
+    });
+
+    const candidates = getCastableSpellCandidates(ctx, 'p1' as PlayerID, { mode: 'main' });
+    const candidateNames = candidates.map(candidate => String(candidate.castCard?.name || candidate.card?.name || ''));
+
+    expect(candidateNames).toContain('Bloodthirsty Blade');
+    expect(candidateNames).toContain('Grenzo, Havoc Raiser');
     expect(canAct(ctx, 'p1' as PlayerID)).toBe(true);
   });
 
