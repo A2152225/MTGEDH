@@ -319,6 +319,24 @@ function matchesDungeonRoomPaymentStep(step: any, event: any): boolean {
   );
 }
 
+function matchesSacrificeSelectionResolveStep(step: any, event: any): boolean {
+  if (!step || !event || step?.sacrificeSelection !== true) return false;
+
+  const stepPlayerId = String(step?.playerId || '').trim();
+  const eventPlayerId = String(event?.playerId || '').trim();
+  if (stepPlayerId !== eventPlayerId) return false;
+
+  const stepSourceId = String(step?.sourceId || '').trim();
+  const eventSourceId = String(event?.sourceId || '').trim();
+  if (stepSourceId && eventSourceId && stepSourceId !== eventSourceId) return false;
+
+  const stepSourceName = String(step?.sacrificeSourceName || step?.sourceName || '').trim();
+  const eventSourceName = String(event?.sourceName || '').trim();
+  if (stepSourceName && eventSourceName && stepSourceName !== eventSourceName) return false;
+
+  return String(step?.sacrificePermanentType || 'permanent').trim() === String(event?.permanentType || 'permanent').trim();
+}
+
 function matchesDungeonRoomFreeCastChoiceStep(step: any, event: any): boolean {
   const stepChoice = step?.dungeonRoomFreeCastFromHandChoice;
   if (!stepChoice || !event) return false;
@@ -8898,6 +8916,37 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           ctx.bumpSeq();
         } catch (err) {
           debugWarn(1, 'applyEvent(choosePileFromSplitResolve): failed', err);
+        }
+        break;
+      }
+
+      case "sacrificeSelectionResolve": {
+        try {
+          const gameId = String((ctx as any).gameId || '').trim();
+          const resolvedStepId = String((e as any).resolvedStepId || '').trim();
+          const permanentIds = Array.isArray((e as any).permanentIds)
+            ? ((e as any).permanentIds as any[]).map((value: any) => String(value || '').trim()).filter(Boolean)
+            : [];
+
+          if (gameId) {
+            clearReplayQueuedSteps(gameId, (step: any) => {
+              if (!step) return false;
+              if (resolvedStepId && String(step?.id || '').trim() === resolvedStepId) return true;
+              return matchesSacrificeSelectionResolveStep(step, e as any);
+            });
+          }
+
+          for (const permanentId of permanentIds) {
+            const stillOnBattlefield = Array.isArray(ctx.state?.battlefield)
+              ? (ctx.state.battlefield as any[]).some((entry: any) => entry && String(entry.id || '') === permanentId)
+              : false;
+            if (!stillOnBattlefield) continue;
+            movePermanentToGraveyard(ctx as any, permanentId, true);
+          }
+
+          ctx.bumpSeq();
+        } catch (err) {
+          debugWarn(1, 'applyEvent(sacrificeSelectionResolve): failed', err);
         }
         break;
       }

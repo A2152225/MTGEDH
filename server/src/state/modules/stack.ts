@@ -1515,6 +1515,46 @@ function enqueueSupportedKeywordChoiceStep(
     if (typeof keywordChoice.value === 'number' && Number.isFinite(keywordChoice.value)) {
       queueExtras.value = keywordChoice.value;
     }
+  } else if (result.keyword === 'annihilator' && keywordChoice.type === 'sacrifice_permanents') {
+    const requiredCount = Math.max(0, Number((result as any)?.sacrifice?.count || 0));
+    const eligiblePermanents = Array.isArray(ctx?.state?.battlefield)
+      ? ctx.state.battlefield
+          .filter((entry: any) => {
+            if (!entry) return false;
+            return String(entry?.controller || '') === String(keywordChoice.playerId || '');
+          })
+          .map((entry: any) => ({
+            id: String(entry?.id || ''),
+            label: String(entry?.card?.name || 'Permanent'),
+            description: 'permanent',
+            imageUrl:
+              entry?.card?.image_uris?.small ||
+              entry?.card?.image_uris?.normal ||
+              entry?.card?.imageUrl ||
+              undefined,
+            typeLine: entry?.card?.type_line,
+          }))
+          .filter((entry: any) => entry.id)
+      : [];
+
+    if (eligiblePermanents.length === 0 || requiredCount <= 0) {
+      return true;
+    }
+
+    const effectiveCount = Math.min(requiredCount, eligiblePermanents.length);
+    queueType = ResolutionStepType.TARGET_SELECTION;
+    queueExtras.description = `${sourceName}: Choose ${effectiveCount} permanent${effectiveCount !== 1 ? 's' : ''} to sacrifice.`;
+    queueExtras.validTargets = eligiblePermanents;
+    queueExtras.targetTypes = ['permanent'];
+    queueExtras.minTargets = effectiveCount;
+    queueExtras.maxTargets = effectiveCount;
+    queueExtras.targetDescription = 'permanent to sacrifice';
+    queueExtras.sacrificeSelection = true;
+    queueExtras.sacrificePermanentType = 'permanent';
+    queueExtras.sacrificeCount = effectiveCount;
+    queueExtras.sacrificeReason = `${sourceName}'s Annihilator ${requiredCount} triggered`;
+    queueExtras.sacrificeSourceName = sourceName;
+    queueExtras.annihilatorChoice = true;
   } else if (result.keyword === 'myriad' && keywordChoice.type === 'myriad_tokens') {
     const opponentOptions = Array.isArray(keywordChoice.options) ? keywordChoice.options : [];
     if (opponentOptions.length === 0) {
@@ -10233,7 +10273,7 @@ export function executeTriggerEffect(
     const triggerType = (triggerItem as any).triggerType;
     let timing: 'attacks' | 'etb' | 'dies' | 'combat_damage' | 'cast' | 'noncreature_cast' = 'cast';
     
-    if (triggerType === 'attacks' || triggerType === 'creature_attacks' || triggerType === 'myriad') {
+    if (triggerType === 'attacks' || triggerType === 'creature_attacks' || triggerType === 'myriad' || triggerType === 'annihilator') {
       timing = 'attacks';
     } else if (triggerType === 'etb' || triggerType === 'etb_self') {
       timing = 'etb';

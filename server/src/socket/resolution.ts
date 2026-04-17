@@ -14931,6 +14931,7 @@ async function handleTargetSelectionResponse(
     const permanentType = String(stepAny?.sacrificePermanentType || 'permanent');
     const sourceName = String(stepAny?.sacrificeSourceName || step.sourceName || 'Effect');
     const reason = String(stepAny?.sacrificeReason || step.description || '').trim();
+    const resolvedStepId = String(step?.id || '').trim();
 
     const ctx = {
       state: game.state,
@@ -14944,6 +14945,7 @@ async function handleTargetSelectionResponse(
 
     const battlefield = Array.isArray(game.state?.battlefield) ? game.state.battlefield : [];
     const sacrificedNames: string[] = [];
+    const sacrificedPermanentIds: string[] = [];
 
     for (const permanentId of selections) {
       const perm = battlefield.find((p: any) => p && String(p.id) === String(permanentId));
@@ -14960,7 +14962,24 @@ async function handleTargetSelectionResponse(
 
       const name = String(perm.card?.name || 'permanent');
       const ok = movePermanentToGraveyard(ctx, String(permanentId), true);
-      if (ok) sacrificedNames.push(name);
+      if (ok) {
+        sacrificedNames.push(name);
+        sacrificedPermanentIds.push(String(permanentId));
+      }
+    }
+
+    try {
+      appendEvent(gameId, (game as any).seq ?? 0, 'sacrificeSelectionResolve', {
+        resolvedStepId,
+        playerId: pid,
+        sourceId: String(step?.sourceId || '').trim(),
+        sourceName,
+        permanentType,
+        permanentIds: sacrificedPermanentIds,
+        reason,
+      });
+    } catch (err) {
+      debugWarn(1, '[Resolution] Failed to persist sacrificeSelectionResolve:', err);
     }
 
     io.to(gameId).emit('chat', {
