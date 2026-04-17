@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
 import type { BattlefieldPermanent } from '../../shared/src';
-import { buildAvailableManaSourcesForPlayer, createPaymentItemFromSource } from '../src/utils/manaSourceBuilder';
+import {
+  buildAvailableManaSourcesForPlayer,
+  createPaymentItemFromSource,
+  createSuggestedPaymentItem,
+} from '../src/utils/manaSourceBuilder';
 
 function createPermanent(permanent: Partial<BattlefieldPermanent> & { id: string; controller: string; owner: string; card: any }): BattlefieldPermanent {
   return {
@@ -184,6 +188,37 @@ describe('createPaymentItemFromSource', () => {
       abilityId: 'azure_dynamo_card_1-ability-1',
       mana: 'U',
       count: 2,
+    });
+  });
+});
+
+describe('createSuggestedPaymentItem', () => {
+  it('converts composite suggested source ids into structured payment items', () => {
+    const sourceId = 'fire_nation_palace_1::fire_nation_palace_card_1-ability-0';
+    const payment = createSuggestedPaymentItem(
+      sourceId,
+      { color: 'R', count: 1 },
+      new Map([
+        [
+          sourceId,
+          {
+            id: sourceId,
+            sourcePermanentId: 'fire_nation_palace_1',
+            abilityId: 'fire_nation_palace_card_1-ability-0',
+            name: 'Fire Nation Palace',
+            label: 'Add {R}',
+            options: ['R'],
+          },
+        ],
+      ]),
+    );
+
+    expect(payment).toEqual({
+      permanentId: 'fire_nation_palace_1',
+      paymentSourceId: 'fire_nation_palace_1::fire_nation_palace_card_1-ability-0',
+      abilityId: 'fire_nation_palace_card_1-ability-0',
+      mana: 'R',
+      count: 1,
     });
   });
 });

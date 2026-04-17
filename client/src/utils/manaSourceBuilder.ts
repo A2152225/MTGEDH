@@ -514,3 +514,20 @@ export function createPaymentItemFromSource(
     ...(Array.isArray(sacrificedPermanentIds) && sacrificedPermanentIds.length > 0 ? { sacrificedPermanentIds } : {}),
   };
 }
+
+export function createSuggestedPaymentItem(
+  sourceId: string,
+  selection: { color: ManaColor; count: number },
+  sourceById: ReadonlyMap<string, ManaPaymentSource>,
+): PaymentItem {
+  const source = sourceById.get(sourceId);
+  if (!source) {
+    return {
+      permanentId: sourceId,
+      mana: selection.color,
+      count: selection.count,
+    };
+  }
+
+  return createPaymentItemFromSource(source, selection.color);
+}

@@ -3,6 +3,7 @@ import type { CardRef, KnownCardRef } from '../../../shared/src';
 import { showCardPreview, hideCardPreview } from './CardPreviewLayer';
 import type { AppearanceSettings } from '../utils/appearanceSettings';
 import { getPlayableCardHighlight } from '../utils/appearanceSettings';
+import { getPrimaryCardImageUrl } from '../utils/cardImages';
 
 /**
  * Cost adjustment info for a card (includes both reductions and increases)
@@ -243,7 +244,7 @@ export function HandGallery(props: HandGalleryProps) {
         const kc = isKnown ? c as KnownCardRef : null;
         const name = kc?.name || 'Card';
         const tl = kc ? getTypeLine(kc) : undefined;
-        const img = kc?.image_uris?.[imagePref] || kc?.image_uris?.normal || kc?.image_uris?.small;
+        const img = kc ? getPrimaryCardImageUrl(kc, imagePref) : null;
 
         const cantPlayLand = kc && isLand(tl) && reasonCannotPlayLand ? reasonCannotPlayLand(kc) : null;
         const cantCast = kc && reasonCannotCast ? reasonCannotCast(kc) : null;

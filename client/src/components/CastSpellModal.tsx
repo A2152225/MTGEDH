@@ -13,6 +13,7 @@ import {
   type OtherCardInfo,
   type ManaPool,
 } from '../utils/manaUtils';
+import { createSuggestedPaymentItem } from '../utils/manaSourceBuilder';
 
 /**
  * Represents an alternate casting cost option
@@ -661,12 +662,12 @@ export function CastSpellModal({
   };
 
   const suggestedPaymentItems = useMemo(() => {
-    return Array.from(suggestedPayment.entries()).map(([permanentId, selection]) => ({
-      permanentId,
-      mana: selection.color,
-      count: selection.count,
-    }));
-  }, [suggestedPayment]);
+    const sourceById = new Map(effectiveSuggestedSources.map((source) => [source.id, source]));
+
+    return Array.from(suggestedPayment.entries()).map(([sourceId, selection]) =>
+      createSuggestedPaymentItem(sourceId, selection, sourceById)
+    );
+  }, [effectiveSuggestedSources, suggestedPayment]);
 
   useEffect(() => {
     if (!open) return;
