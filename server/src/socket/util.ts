@@ -2967,10 +2967,43 @@ export function consumeManaFromPool(
     return normalized.replace(/[\s,]+/g, ' ').trim().length === 0;
   }
 
+  function hasSelfSacrificeActivationCost(permanent: any, activationCost: unknown): boolean {
+    const costText = String(activationCost || '').trim();
+    if (!costText) return false;
+
+    const cardName = String(permanent?.card?.name || '').trim();
+    return [
+      /\bsacrifice\s+(?:this|~|it)\b/i,
+      cardName ? new RegExp(`\\bsacrifice\\s+${escapeRegExp(cardName)}\\b`, 'i') : null,
+    ].some((pattern) => Boolean(pattern && pattern.test(costText)));
+  }
+
+  function isTapAndOrSelfSacrificeActivationCost(permanent: any, activationCost: unknown): boolean {
+    const costText = String(activationCost || '').trim();
+    if (!costText) return false;
+
+    const cardName = String(permanent?.card?.name || '').trim();
+    let normalized = costText;
+    for (const pattern of [
+      /\bsacrifice\s+(?:this|~|it)\b[^,]*/gi,
+      cardName ? new RegExp(`\\bsacrifice\\s+${escapeRegExp(cardName)}\\b[^,]*`, 'gi') : null,
+    ]) {
+      if (!pattern) continue;
+      normalized = normalized.replace(pattern, ' ');
+    }
+
+    normalized = normalized
+      .replace(/\{t\}/gi, ' ')
+      .replace(/[\s,]+/g, ' ')
+      .trim();
+
+    return normalized.length === 0;
+  }
+
   function supportsGenericAutoPaymentActivationCost(permanent: any, activationCost: unknown): boolean {
     const costText = String(activationCost || '').trim();
     if (!costText) return true;
-    if (isPureSelfSacrificeActivationCost(permanent, costText)) return true;
+    if (isTapAndOrSelfSacrificeActivationCost(permanent, costText)) return true;
 
     const manaSymbols = costText.match(/\{[^}]+\}/g) || [];
     if (manaSymbols.some((symbol) => !/^\{t\}$/i.test(symbol))) {
@@ -3015,7 +3048,7 @@ export function consumeManaFromPool(
 
       const candidate = {
         amount: Math.max(1, amount),
-        sacrificesSelf: isPureSelfSacrificeActivationCost(permanent, resolvedLine.costText),
+        sacrificesSelf: hasSelfSacrificeActivationCost(permanent, resolvedLine.costText),
       };
 
       if (!bestOption || candidate.amount > bestOption.amount) {
@@ -3042,7 +3075,7 @@ export function consumeManaFromPool(
 
       const candidate = {
         amount: Math.max(1, amount),
-        sacrificesSelf: isPureSelfSacrificeActivationCost(permanent, ability?.cost)
+        sacrificesSelf: hasSelfSacrificeActivationCost(permanent, ability?.cost)
           || (!ability?.cost && isSelfSacrificeManaSource(permanent)),
       };
 
@@ -3062,9 +3095,41 @@ export function consumeManaFromPool(
 
     return {
       amount: Math.max(1, amount),
-      sacrificesSelf: isPureSelfSacrificeActivationCost(permanent, production?.activationCost)
+      sacrificesSelf: hasSelfSacrificeActivationCost(permanent, production?.activationCost)
         || (!production?.activationCost && isSelfSacrificeManaSource(permanent)),
     };
+  }
+
+  function recordTokenGraveyardSnapshot(gameState: any, ownerId: string, permanent: any): void {
+    const tokenGraveyardSnapshot = permanent?.isToken && permanent?.card
+      ? { ...(permanent.card || {}), zone: 'graveyard' }
+      : null;
+    if (!tokenGraveyardSnapshot || !ownerId) return;
+
+    const zones = (gameState.zones = gameState.zones || {});
+    const playerZones = (zones[ownerId] = zones[ownerId] || {
+      hand: [],
+      handCount: 0,
+      libraryCount: 0,
+      graveyard: [],
+      graveyardCount: 0,
+      exile: [],
+      exileCount: 0,
+    });
+    playerZones.graveyard = Array.isArray(playerZones.graveyard) ? playerZones.graveyard : [];
+
+    const alreadyPresent = (playerZones.graveyard as any[]).some((card: any) => {
+      if (!card) return false;
+      const cardId = String((card as any).id || '').trim();
+      const snapshotId = String((tokenGraveyardSnapshot as any).id || '').trim();
+      if (cardId && snapshotId) return cardId === snapshotId;
+      return String((card as any).name || '').trim() === String((tokenGraveyardSnapshot as any).name || '').trim();
+    });
+
+    if (!alreadyPresent) {
+      (playerZones.graveyard as any[]).push(tokenGraveyardSnapshot);
+      playerZones.graveyardCount = (playerZones.graveyard as any[]).length;
+    }
   }
 
   function getGenericAutoPaymentCandidates(
@@ -3184,6 +3249,7 @@ export function consumeManaFromPool(
         if (!permanent || permanent.tapped) continue;
 
         if (entry.sacrificesSelf) {
+          const graveyardOwnerId = String(permanent?.owner || permanent?.controller || playerId || '').trim();
           const sacrificed = movePermanentToGraveyard({
             state: gameState,
             libraries: new Map(),
@@ -3192,6 +3258,7 @@ export function consumeManaFromPool(
             gameId: '',
           } as any, String(permanent.id || ''), true);
           if (!sacrificed) continue;
+          recordTokenGraveyardSnapshot(gameState, graveyardOwnerId, permanent);
           sacrificedPermanents.push(String(permanent.id || ''));
         } else {
           permanent.tapped = true;

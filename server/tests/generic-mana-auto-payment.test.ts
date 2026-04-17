@@ -62,4 +62,24 @@ describe('generic mana auto-payment candidates', () => {
 
     expect(getMaxGenericManaAvailable(gameState, 'player1')).toBe(1);
   });
+
+  it('counts tap-plus-self-sacrifice mana sources like Treasure', () => {
+    const gameState = {
+      battlefield: [
+        {
+          id: 'treasure-1',
+          controller: 'player1',
+          tapped: false,
+          card: {
+            name: 'Treasure',
+            type_line: 'Token Artifact — Treasure',
+            oracle_text: '{T}, Sacrifice this artifact: Add one mana of any color.',
+          },
+        },
+      ],
+      manaPool: {},
+    };
+
+    expect(getMaxGenericManaAvailable(gameState, 'player1')).toBe(1);
+  });
 });

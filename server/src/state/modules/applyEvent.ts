@@ -4711,6 +4711,53 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
             // best-effort only
           }
 
+          try {
+            const sacrificed = Array.isArray((e as any).sacrificedPermanents)
+              ? ((e as any).sacrificedPermanents as any[]).map((id: any) => String(id)).filter(Boolean)
+              : [];
+            if (sacrificed.length > 0) {
+              for (const permanentId of sacrificed) {
+                const permanent = battlefield.find((entry: any) => entry && String((entry as any).id || '') === permanentId) as any;
+                if (!permanent) continue;
+
+                const tokenGraveyardSnapshot = permanent?.isToken && permanent?.card
+                  ? { ...(permanent.card || {}), zone: 'graveyard' }
+                  : null;
+                const graveyardOwnerId = String(permanent?.owner || permanent?.controller || playerId || '').trim();
+                movePermanentToGraveyard(ctx as any, permanentId, true);
+
+                if (tokenGraveyardSnapshot && graveyardOwnerId) {
+                  const zones = ((ctx.state as any).zones = (ctx.state as any).zones || {});
+                  const playerZones = (zones[graveyardOwnerId] = zones[graveyardOwnerId] || {
+                    hand: [],
+                    handCount: 0,
+                    libraryCount: 0,
+                    graveyard: [],
+                    graveyardCount: 0,
+                    exile: [],
+                    exileCount: 0,
+                  });
+                  playerZones.graveyard = Array.isArray(playerZones.graveyard) ? playerZones.graveyard : [];
+
+                  const alreadyPresent = (playerZones.graveyard as any[]).some((card: any) => {
+                    if (!card) return false;
+                    const cardId = String((card as any).id || '').trim();
+                    const snapshotId = String((tokenGraveyardSnapshot as any).id || '').trim();
+                    if (cardId && snapshotId) return cardId === snapshotId;
+                    return String((card as any).name || '').trim() === String((tokenGraveyardSnapshot as any).name || '').trim();
+                  });
+
+                  if (!alreadyPresent) {
+                    (playerZones.graveyard as any[]).push(tokenGraveyardSnapshot);
+                    playerZones.graveyardCount = (playerZones.graveyard as any[]).length;
+                  }
+                }
+              }
+            }
+          } catch {
+            // best-effort only
+          }
+
           // Best-effort combat trackers consumed by intervening-if.
           try {
             const stateAny = ctx.state as any;
