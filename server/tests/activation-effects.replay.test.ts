@@ -219,6 +219,79 @@ describe('activation effect replay semantics', () => {
     expect(String((queue.steps[0] as any)?.availableCards?.[0]?.id || '')).toBe('forest_1');
   });
 
+  it('replays activateTutorAbility for a sacrificed token source by preserving the graveyard snapshot and rebuilding the search queue', () => {
+    const game = createInitialGameState('t_activate_tutor_token_replay');
+    const p1 = 'p1' as PlayerID;
+    addPlayer(game, p1, 'P1');
+
+    game.importDeckResolved(p1, [
+      {
+        id: 'forest_token_1',
+        name: 'Forest',
+        type_line: 'Basic Land — Forest',
+        oracle_text: '({T}: Add {G}.)',
+      },
+    ] as any);
+
+    (game.state as any).manaPool = {
+      [p1]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+    };
+    (game.state as any).zones = {
+      [p1]: {
+        hand: [],
+        handCount: 0,
+        graveyard: [],
+        graveyardCount: 0,
+        library: [{ id: 'forest_token_1', name: 'Forest', type_line: 'Basic Land — Forest', zone: 'library' }],
+        libraryCount: 1,
+      },
+    };
+    (game.state as any).battlefield = [
+      {
+        id: 'token_tutor_1',
+        controller: p1,
+        owner: p1,
+        tapped: false,
+        counters: {},
+        isToken: true,
+        card: {
+          id: 'token_tutor_card_1',
+          name: 'Treasure Atlas',
+          type_line: 'Token Artifact',
+          oracle_text: 'Sacrifice this artifact: Search your library for a Forest card, put that card onto the battlefield tapped, then shuffle.',
+          zone: 'battlefield',
+        },
+      },
+    ];
+
+    game.applyEvent({
+      type: 'activateTutorAbility',
+      playerId: p1,
+      permanentId: 'token_tutor_1',
+      abilityId: 'token_tutor_1-ability-0',
+      cardName: 'Treasure Atlas',
+      stackId: 'tutor_stack_token_1',
+    } as any);
+
+    expect((game.state as any).battlefield).toHaveLength(0);
+    expect((((game.state as any).zones?.[p1]?.graveyard) || []).map((card: any) => card.name)).toEqual(['Treasure Atlas']);
+
+    const stack = (game.state as any).stack || [];
+    expect(stack).toHaveLength(1);
+    expect(String(stack[0]?.id || '')).toBe('tutor_stack_token_1');
+    expect(String(stack[0]?.abilityType || '')).toBe('tutor');
+    expect(String(stack[0]?.description || '')).toContain('search your library for a forest card');
+
+    const queue = ResolutionQueueManager.getQueue('t_activate_tutor_token_replay');
+    expect(queue.steps).toHaveLength(1);
+    expect(String(queue.steps[0]?.type || '')).toBe('library_search');
+    expect(String((queue.steps[0] as any)?.searchCriteria || '')).toBe('forest card');
+    expect(Boolean((queue.steps[0] as any)?.entersTapped)).toBe(true);
+    expect(Array.isArray((queue.steps[0] as any)?.availableCards)).toBe(true);
+    expect((queue.steps[0] as any)?.availableCards).toHaveLength(1);
+    expect(String((queue.steps[0] as any)?.availableCards?.[0]?.id || '')).toBe('forest_token_1');
+  });
+
   it('replays reconfigure unattach battlefield activations by rebuilding the unresolved stack item', () => {
     const game = createInitialGameState('t_activate_reconfigure_unattach_replay');
     const p1 = 'p1' as PlayerID;

@@ -340,7 +340,7 @@ describe('choose pile from split choice (integration)', () => {
     };
     (game.state as any).battlefield = [
       { id: 'perm1', controller: p1, owner: p1, card: { name: 'Perm 1', type_line: 'Creature' } },
-      { id: 'perm2', controller: p1, owner: p1, card: { name: 'Perm 2', type_line: 'Artifact' } },
+      { id: 'perm2', controller: p1, owner: p1, isToken: true, card: { id: 'perm2_card', name: 'Perm 2', type_line: 'Artifact' } },
       { id: 'perm3', controller: p1, owner: p1, card: { name: 'Perm 3', type_line: 'Enchantment' } },
     ];
 
@@ -373,6 +373,7 @@ describe('choose pile from split choice (integration)', () => {
     await handlers['submitResolutionResponse']({ gameId, stepId: step.id, selections: 'pileB' });
 
     expect(((game.state as any).battlefield || []).map((perm: any) => perm.id)).toEqual(['perm1', 'perm3']);
+    expect((((game.state as any).zones?.[p1]?.graveyard) || []).map((card: any) => card.name)).toEqual(['Perm 2']);
 
     const resolveEvent = [...getEvents(gameId)].reverse().find((event: any) => event.type === 'choosePileFromSplitResolve') as any;
     expect(resolveEvent).toBeDefined();
@@ -392,10 +393,11 @@ describe('choose pile from split choice (integration)', () => {
     };
     (replayGame.state as any).battlefield = [
       { id: 'perm1', controller: p1, owner: p1, card: { name: 'Perm 1', type_line: 'Creature' } },
-      { id: 'perm2', controller: p1, owner: p1, card: { name: 'Perm 2', type_line: 'Artifact' } },
+      { id: 'perm2', controller: p1, owner: p1, isToken: true, card: { id: 'perm2_card', name: 'Perm 2', type_line: 'Artifact' } },
       { id: 'perm3', controller: p1, owner: p1, card: { name: 'Perm 3', type_line: 'Enchantment' } },
     ];
     replayGame.applyEvent({ type: 'choosePileFromSplitResolve', ...(resolveEvent.payload || {}) } as any);
     expect(((replayGame.state as any).battlefield || []).map((perm: any) => perm.id)).toEqual(['perm1', 'perm3']);
+    expect((((replayGame.state as any).zones?.[p1]?.graveyard) || []).map((card: any) => card.name)).toEqual(['Perm 2']);
   });
 });

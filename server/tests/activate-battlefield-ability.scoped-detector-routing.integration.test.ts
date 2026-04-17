@@ -89,6 +89,7 @@ describe('activateBattlefieldAbility detector routing uses selected ability text
     `${gameId}_graveyard_battlefield_mana_value`,
     `${gameId}_graveyard_battlefield_total_power`,
     `${gameId}_control_change`,
+    `${gameId}_token_tutor`,
   ];
 
   beforeAll(async () => {
@@ -641,6 +642,75 @@ describe('activateBattlefieldAbility detector routing uses selected ability text
     expect(stack).toHaveLength(1);
     expect(String(stack[0]?.description || '').toLowerCase()).toContain('draw a card');
     expect(String(stack[0]?.description || '').toLowerCase()).not.toContain('gains flying');
+  });
+
+  it('keeps a sacrificed token tutor source visible in graveyard while queueing the tutor search', async () => {
+    const tokenTutorGameId = `${gameId}_token_tutor`;
+    await resetGame(tokenTutorGameId);
+
+    createGameIfNotExists(tokenTutorGameId, 'commander', 40);
+    const game = ensureGame(tokenTutorGameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const playerId = 'p1';
+    (game.state as any).players = [{ id: playerId, name: 'P1', spectator: false, life: 40 }];
+    (game.state as any).startingLife = 40;
+    (game.state as any).life = { [playerId]: 40 };
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).manaPool = {
+      [playerId]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+    };
+    (game.state as any).zones = {
+      [playerId]: {
+        hand: [],
+        handCount: 0,
+        graveyard: [],
+        graveyardCount: 0,
+        library: [
+          { id: 'forest_token_tutor_1', name: 'Forest', type_line: 'Basic Land — Forest', zone: 'library' },
+        ],
+        libraryCount: 1,
+      },
+    };
+    (game.state as any).battlefield = [
+      {
+        id: 'token_tutor_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        isToken: true,
+        card: {
+          id: 'token_tutor_card_1',
+          name: 'Treasure Atlas',
+          type_line: 'Token Artifact',
+          oracle_text: 'Sacrifice this artifact: Search your library for a Forest card, put that card onto the battlefield tapped, then shuffle.',
+        },
+      },
+    ];
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(playerId, emitted);
+    socket.rooms.add(tokenTutorGameId);
+    const io = createMockIo(emitted, [socket]);
+
+    registerResolutionHandlers(io as any, socket as any);
+    registerInteractionHandlers(io as any, socket as any);
+
+    await handlers['activateBattlefieldAbility']({ gameId: tokenTutorGameId, permanentId: 'token_tutor_1', abilityId: 'token_tutor_1-ability-0' });
+
+    expect(((game.state as any).battlefield || []).some((permanent: any) => permanent.id === 'token_tutor_1')).toBe(false);
+    expect((((game.state as any).zones?.[playerId]?.graveyard) || []).map((card: any) => card.name)).toEqual(['Treasure Atlas']);
+
+    const stack = (game.state as any).stack || [];
+    expect(stack).toHaveLength(1);
+    expect(String(stack[0]?.description || '').toLowerCase()).toContain('search your library for a forest card');
+
+    const queue = ResolutionQueueManager.getQueue(tokenTutorGameId);
+    expect(queue.steps).toHaveLength(1);
+    expect(String(queue.steps[0]?.type || '')).toBe('library_search');
+    expect(String((queue.steps[0] as any)?.searchCriteria || '')).toBe('forest card');
+    expect(Boolean((queue.steps[0] as any)?.entersTapped)).toBe(true);
   });
 
   it('does not let a later graveyard-exile ability hijack an earlier generic ability activation', async () => {
