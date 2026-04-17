@@ -62,6 +62,35 @@ function getCardColorSymbols(card: any): string[] {
   return COLOR_SYMBOL_ORDER.filter((color) => colors.has(color));
 }
 
+function parseSpelledOutManaAmount(rawAmount: string): number | undefined {
+  const normalized = String(rawAmount || '').trim().toLowerCase();
+  if (!normalized) {
+    return undefined;
+  }
+
+  if (/^\d+$/.test(normalized)) {
+    const parsed = Number.parseInt(normalized, 10);
+    return Number.isFinite(parsed) && parsed >= 0 ? parsed : undefined;
+  }
+
+  const wordToAmount: Record<string, number> = {
+    a: 1,
+    an: 1,
+    one: 1,
+    two: 2,
+    three: 3,
+    four: 4,
+    five: 5,
+    six: 6,
+    seven: 7,
+    eight: 8,
+    nine: 9,
+    ten: 10,
+  };
+
+  return wordToAmount[normalized];
+}
+
 export function isMoxAmberConditionalManaSource(cardName: string, text: string): boolean {
   const normalizedName = String(cardName || '').trim().toLowerCase();
   const normalizedText = String(text || '').trim().toLowerCase();
@@ -1172,9 +1201,75 @@ export function getManaAbilitiesForPermanent(
           abilities.push({ id: 'native_c', cost: '{T}', produces: ['C'] });
         }
       }
+      let handledExplicitAnyColorChoice = false;
+      const nativeOracleLines = nativeOracleText
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter(Boolean);
+      for (const line of nativeOracleLines) {
+        const anyColorMatch = line.match(/^((?:\{[^}]+\}|[^:])*?)\s*:\s*add\s+(a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+mana\s+of\s+any(?:\s+one)?\s+color/i);
+        if (!anyColorMatch) {
+          continue;
+        }
+
+        const cost = String(anyColorMatch[1] || '{T}').trim() || '{T}';
+        const amount = parseSpelledOutManaAmount(String(anyColorMatch[2] || 'one')) || 1;
+
+        if (isMoxAmberConditionalManaSource(cardName, line)) {
+          const produces = getMoxAmberAvailableColors(gameState, playerId);
+          if (produces.length > 0) {
+            abilities.push({
+              id: `native_any_${abilities.length}`,
+              cost,
+              produces,
+              ...(amount > 1 ? { amount } : null),
+            });
+            handledExplicitAnyColorChoice = true;
+          }
+          continue;
+        }
+
+        const isCommanderRestricted = /commander'?s?\s+color\s+identity|color\s+identity.*commander/i.test(line);
+        if (isCommanderRestricted) {
+          const commanderColors = getCommanderColorIdentity(gameState, playerId);
+          if (commanderColors.size > 0) {
+            const produces: string[] = [];
+            for (const colorKey of commanderColors) {
+              const colorSymbol = {
+                white: 'W',
+                blue: 'U',
+                black: 'B',
+                red: 'R',
+                green: 'G',
+              }[colorKey];
+              if (colorSymbol) {
+                produces.push(colorSymbol);
+              }
+            }
+            if (produces.length > 0) {
+              abilities.push({
+                id: `native_commander_any_${abilities.length}`,
+                cost,
+                produces,
+                ...(amount > 1 ? { amount } : null),
+              });
+              handledExplicitAnyColorChoice = true;
+            }
+          }
+          continue;
+        }
+
+        abilities.push({
+          id: `native_any_${abilities.length}`,
+          cost,
+          produces: ['W', 'U', 'B', 'R', 'G'],
+          ...(amount > 1 ? { amount } : null),
+        });
+        handledExplicitAnyColorChoice = true;
+      }
       // Check for "any color" mana (Birds of Paradise, Arcane Signet, etc.) - but not variable amounts.
       // Support additional costs in the activation cost, e.g. "{T}, Pay 2 life, Sacrifice this: Add one mana of any color."
-      if (nativeOracleText.match(/\{t\}[^:]*:\s*add\s+one\s+mana\s+of\s+any\s+color/i)) {
+      if (!handledExplicitAnyColorChoice && nativeOracleText.match(/\{t\}[^:]*:\s*add\s+one\s+mana\s+of\s+any\s+color/i)) {
         if (isMoxAmberConditionalManaSource(cardName, nativeOracleText)) {
           const produces = getMoxAmberAvailableColors(gameState, playerId);
           if (produces.length > 0) {

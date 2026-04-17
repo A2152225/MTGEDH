@@ -227,6 +227,35 @@ function ts() {
   return new Date().toISOString();
 }
 
+function parseSpelledOutAmount(rawAmount: string): number | undefined {
+  const normalized = String(rawAmount || '').trim().toLowerCase();
+  if (!normalized) {
+    return undefined;
+  }
+
+  if (/^\d+$/.test(normalized)) {
+    const parsed = Number.parseInt(normalized, 10);
+    return Number.isFinite(parsed) && parsed >= 0 ? parsed : undefined;
+  }
+
+  const wordToAmount: Record<string, number> = {
+    a: 1,
+    an: 1,
+    one: 1,
+    two: 2,
+    three: 3,
+    four: 4,
+    five: 5,
+    six: 6,
+    seven: 7,
+    eight: 8,
+    nine: 9,
+    ten: 10,
+  };
+
+  return wordToAmount[normalized];
+}
+
 function repairMissingPriorityIfStuck(
   game: InMemoryGame,
   gameId: string,
@@ -3941,6 +3970,10 @@ export function calculateManaProduction(
     ))
     : [];
   const hasSelectedLegacyManaAbility = !!selectedLegacyManaAbility;
+  const spelledAnyColorAmount = (() => {
+    const match = manaOracleText.match(/\badd\s+(a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+mana of any(?: one)? color\b/i);
+    return match ? parseSpelledOutAmount(String(match[1] || '')) : undefined;
+  })();
   
   const result: ManaProductionInfo = {
     colors: [],
@@ -4016,6 +4049,9 @@ export function calculateManaProduction(
   );
 
   if (hasGrantedAnyColorMana) {
+    if (typeof spelledAnyColorAmount === 'number' && spelledAnyColorAmount > 0) {
+      result.baseAmount = spelledAnyColorAmount;
+    }
     if (normalizedChosenColor && ['W', 'U', 'B', 'R', 'G'].includes(normalizedChosenColor)) {
       result.colors = [normalizedChosenColor];
       result.requiresColorChoice = false;
@@ -4049,6 +4085,9 @@ export function calculateManaProduction(
   }
   // Check for "any color" patterns
   else if (!hasSelectedLegacyManaAbility && (manaOracleText.includes('any color') || manaOracleText.includes('mana of any color'))) {
+    if (typeof spelledAnyColorAmount === 'number' && spelledAnyColorAmount > 0) {
+      result.baseAmount = spelledAnyColorAmount;
+    }
     if (normalizedChosenColor && ['W', 'U', 'B', 'R', 'G'].includes(normalizedChosenColor)) {
       result.colors = [normalizedChosenColor];
       result.requiresColorChoice = false;
@@ -4069,7 +4108,9 @@ export function calculateManaProduction(
 
   if (hasSelectedLegacyManaAbility) {
     const explicitAmount = Number(selectedLegacyManaAbility?.amount || 0);
-    if (Number.isFinite(explicitAmount) && explicitAmount > 0) {
+    if (typeof spelledAnyColorAmount === 'number' && spelledAnyColorAmount > 0) {
+      result.baseAmount = spelledAnyColorAmount;
+    } else if (Number.isFinite(explicitAmount) && explicitAmount > 0) {
       result.baseAmount = explicitAmount;
     }
 

@@ -30,6 +30,7 @@ import { getActivatedAbilityConfig } from "../../../rules-engine/src/cards/activ
 import { creatureHasHaste } from "./game-actions.js";
 import { debug, debugWarn, debugError } from "../utils/debug.js";
 import { filterLibraryCardsForSearch } from "./library-search.js";
+import { pushWheneverYouExertTriggersOntoStack } from "./exert-triggers.js";
 import { registerManaHandlers } from "./mana-handlers.js";
 import { matchesGraveyardCardTargetType as matchesSharedGraveyardCardTargetType, parseTargetRequirements } from "../rules-engine/targeting.js";
 import { requestPlayerSelection } from "./player-selection.js";
@@ -663,6 +664,10 @@ function parseActivationCost(oracleText: string, abilityPattern: RegExp): {
   const manaCost = manaCostMatch ? manaCostMatch.filter(c => !c.includes('T')).join('') : "";
   
   return { requiresTap, manaCost };
+}
+
+function costRequiresSelfExert(costText: string): boolean {
+  return /\bexert\s+(?:this creature|~)\b/i.test(String(costText || ''));
 }
 
   function normalizeSelectedXValue(raw: unknown): number | undefined {
@@ -1689,6 +1694,41 @@ function normalizeManaAbilitySelectionText(text: string): string {
     .trim();
 }
 
+function parseSelectedManaChoiceAmount(rawAmount: string): number | undefined {
+  const normalized = String(rawAmount || '').trim().toLowerCase();
+  if (!normalized) {
+    return undefined;
+  }
+
+  if (/^\d+$/.test(normalized)) {
+    const parsed = Number.parseInt(normalized, 10);
+    return Number.isFinite(parsed) && parsed >= 0 ? parsed : undefined;
+  }
+
+  const wordToAmount: Record<string, number> = {
+    a: 1,
+    an: 1,
+    one: 1,
+    two: 2,
+    three: 3,
+    four: 4,
+    five: 5,
+    six: 6,
+    seven: 7,
+    eight: 8,
+    nine: 9,
+    ten: 10,
+  };
+
+  return wordToAmount[normalized];
+}
+
+function getExplicitSelectedAnyColorManaAmount(text: string): number | undefined {
+  const normalizedText = normalizeManaAbilitySelectionText(text);
+  const match = normalizedText.match(/\badd\s+(a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+mana\s+of\s+any(?:\s+one)?\s+color\b/i);
+  return match ? parseSelectedManaChoiceAmount(String(match[1] || '')) : undefined;
+}
+
 function normalizeManaAbilityProducedColors(rawColors: unknown): string[] {
   if (!Array.isArray(rawColors)) {
     return [];
@@ -1889,7 +1929,8 @@ export function resolveManaAbilityActivationShape(
   const produces = shouldPreferAbilityProduces
     ? abilityProduces
     : (calculatedProduces.length > 0 ? calculatedProduces : abilityProduces);
-  const rawBaseAmount = Number(manaProduction?.baseAmount || ability?.amount || 1);
+  const explicitSelectedChoiceAmount = getExplicitSelectedAnyColorManaAmount(selectedAbilityTextRaw || selectedAbilityFullTextRaw);
+  const rawBaseAmount = explicitSelectedChoiceAmount ?? Number(manaProduction?.baseAmount || ability?.amount || 1);
   const baseAmount = Number.isFinite(rawBaseAmount) && rawBaseAmount > 0 ? rawBaseAmount : 1;
   const producesAllAtOnce = (
     ability?.producesAllAtOnce === true ||
@@ -6142,6 +6183,12 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       if (typeof game.bumpSeq === 'function') {
         game.bumpSeq();
       }
+      const tapUntapAbilityText = String(
+        scopedAbilityFullText.includes(':')
+          ? scopedAbilityFullText.split(':').slice(1).join(':')
+          : scopedAbilityFullText,
+      ).trim();
+      const tapUntapRequiresSelfExert = costRequiresSelfExert(manaCost);
       persistQueuedBattlefieldAbilityStepActivation({
         gameId,
         game,
@@ -6170,6 +6217,14 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
           },
           targetCount: tapUntapParams.count,
           title: cardName,
+          battlefieldAbilityTapUntapSelection: true,
+          permanentId,
+          abilityId,
+          cardName,
+          abilityText: tapUntapAbilityText || String(scopedAbilityFullText || '').trim(),
+          activatedAbilityText: String(scopedAbilityFullText || '').trim(),
+          tappedPermanentsForCost: requiresTap ? [String(permanentId)] : [],
+          ...(tapUntapRequiresSelfExert ? { requiresSelfExertForCost: true } : null),
         },
       });
       broadcastGame(io, game, gameId);
@@ -7582,6 +7637,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     let abilityText = "";
     let requiresTap = false;
     let manaCost = "";
+    let requiresSelfExert = false;
     let sacrificeType: 'creature' | 'artifact' | 'enchantment' | 'land' | 'permanent' | 'self' | 'artifact_or_creature' | null = null;
     let sacrificeSubtype: string | undefined = undefined; // For creature subtypes like Soldier, Goblin, etc.
     let sacrificeCount = 1;
@@ -7625,6 +7681,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       // (or the old-style "Tap:" shorthand). Do NOT match "Tap an untapped creature you control" etc.
       requiresTap = /\{t\}/i.test(normalizedCost) || /^\s*tap\s*:/i.test(normalizedCost);
       manaCost = normalizedCost;
+      requiresSelfExert = costRequiresSelfExert(normalizedCost);
       requiredChargeCounters = thresholdRestrictedAbility?.threshold ?? null;
       
       // Detect sacrifice type from cost using shared utility
@@ -7662,6 +7719,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         abilityText = thresholdRestrictedAbility?.effect || ability.effect;
         requiresTap = /\{t\}/i.test(normalizedCost) || /^\s*tap\s*:/i.test(normalizedCost);
         manaCost = normalizedCost;
+        requiresSelfExert = costRequiresSelfExert(normalizedCost);
         requiredChargeCounters = thresholdRestrictedAbility?.threshold ?? null;
         
         const sacrificeInfo = parseSacrificeCost(normalizedCost);
@@ -8980,6 +9038,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
           // (We allow mana symbols inside braces and {T}/{Q}.)
           const remainingNonManaCostText = costStr
             .replace(/\{[^}]+\}/g, ' ')
+            .replace(/\bexert\s+(?:this creature|~)\b/gi, ' ')
             .replace(
               /\bpay\s+(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+life\b/gi,
               ' '
@@ -10611,6 +10670,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
               abilityText: resolvedAbilityText,
               activatedAbilityText: activatedAbilityTextForStack,
               tappedPermanentsForCost,
+              ...(requiresSelfExert ? { requiresSelfExertForCost: true } : null),
             }
           : {
               type: ResolutionStepType.TARGET_SELECTION,
@@ -10632,6 +10692,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
               abilityText: resolvedAbilityText,
               activatedAbilityText: activatedAbilityTextForStack,
               tappedPermanentsForCost,
+              ...(requiresSelfExert ? { requiresSelfExertForCost: true } : null),
             };
         const targetStep = ResolutionQueueManager.addStep(gameId, queuedStep as any);
 
@@ -10949,7 +11010,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
               creatureCountMana.color.startsWith('combination:')
             ) {
           // Resolution Queue: request a color choice from player
-          ResolutionQueueManager.addStep(gameId, {
+          const queuedManaChoiceStep = ResolutionQueueManager.addStep(gameId, {
             type: ResolutionStepType.MANA_COLOR_SELECTION,
             playerId: pid as PlayerID,
             sourceId: permanentId,
@@ -10961,6 +11022,8 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
             permanentId,
             abilityId,
             cardName,
+            abilityText: String(resolvedAbilityText || '').trim() || String(abilityText || '').trim(),
+            activatedAbilityText: String(resolvedActivatedAbilityText || '').trim(),
             amount: totalAmount,
             allowedColors: ['W', 'U', 'B', 'R', 'G'],
             dynamicAmountSource: (creatureCountMana as any).dynamicAmountSource,
@@ -10969,7 +11032,23 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
             lifeToPayForCost: pendingLifePaymentForCost || undefined,
             tappedPermanentsForCost: tappedPermanentsForCost,
             sacrificedPermanentsForCost: sacrificedPermanentsForCost,
+            ...(requiresSelfExert ? { requiresSelfExertForCost: true } : null),
           } as any);
+
+          try {
+            appendEvent(gameId, (game as any).seq ?? 0, 'activateBattlefieldAbility', {
+              playerId: pid,
+              permanentId,
+              abilityId,
+              cardName,
+              abilityText: String(resolvedAbilityText || '').trim() || String(abilityText || '').trim(),
+              activatedAbilityText: String(resolvedActivatedAbilityText || '').trim() || undefined,
+              tappedPermanents: tappedPermanentsForCost,
+              queuedResolutionStep: queuedManaChoiceStep,
+            });
+          } catch (err) {
+            debugWarn(1, '[activateBattlefieldAbility] appendEvent(exert mana color queued step) failed:', err);
+          }
           
           io.to(gameId).emit("chat", {
             id: `m_${Date.now()}`,
@@ -11068,7 +11147,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
             const totalExtra = extraMana.reduce((acc, e) => acc + e.amount, 0);
             const finalTotal = totalAmount + totalExtra;
 
-            ResolutionQueueManager.addStep(gameId, {
+            const queuedManaChoiceStep = ResolutionQueueManager.addStep(gameId, {
               type: ResolutionStepType.MANA_COLOR_SELECTION,
               playerId: pid as PlayerID,
               sourceId: permanentId,
@@ -11080,6 +11159,8 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
               permanentId,
               abilityId,
               cardName,
+              abilityText: String(resolvedAbilityText || '').trim() || String(abilityText || '').trim(),
+              activatedAbilityText: String(resolvedActivatedAbilityText || '').trim(),
               amount: finalTotal,
               allowedColors: produces.filter((color) => ['W', 'U', 'B', 'R', 'G'].includes(String(color || '').toUpperCase())),
               lifeToPayForCost: pendingLifePaymentForCost || undefined,
@@ -11087,7 +11168,23 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
               sacrificedPermanentsForCost: sacrificedPermanentsForCost,
               manaLifeLossAmount: pendingManaLifeLossAmount > 0 ? pendingManaLifeLossAmount : undefined,
               manaLifeLossIsDamage: pendingManaLifeLossAmount > 0 ? pendingManaLifeLossIsDamage : undefined,
+              ...(requiresSelfExert ? { requiresSelfExertForCost: true } : null),
             } as any);
+
+            try {
+              appendEvent(gameId, (game as any).seq ?? 0, 'activateBattlefieldAbility', {
+                playerId: pid,
+                permanentId,
+                abilityId,
+                cardName,
+                abilityText: String(resolvedAbilityText || '').trim() || String(abilityText || '').trim(),
+                activatedAbilityText: String(resolvedActivatedAbilityText || '').trim() || undefined,
+                tappedPermanents: tappedPermanentsForCost,
+                queuedResolutionStep: queuedManaChoiceStep,
+              });
+            } catch (err) {
+              debugWarn(1, '[activateBattlefieldAbility] appendEvent(exert mana shape queued step) failed:', err);
+            }
 
             io.to(gameId).emit("chat", {
               id: `m_${Date.now()}`,
@@ -11253,6 +11350,22 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       }
     }
 
+    const exertedPermanentIdForCost = (() => {
+      if (!requiresSelfExert) {
+        return undefined;
+      }
+
+      const battlefieldNow = Array.isArray((game.state as any)?.battlefield) ? (game.state as any).battlefield : [];
+      const currentPermanent = battlefieldNow.find((entry: any) => entry && String(entry.id || '') === String(permanentId)) as any;
+      if (!currentPermanent) {
+        return undefined;
+      }
+
+      currentPermanent.doesntUntapNextTurn = true;
+      currentPermanent.exertedThisTurn = true;
+      return String(permanentId);
+    })();
+
     const activatedAbilityText = resolvedActivatedAbilityText;
     const persistedAbilityText = String(resolvedAbilityText || '').trim()
       || (activatedAbilityText.includes(':') ? activatedAbilityText.split(':').slice(1).join(':').trim() : activatedAbilityText);
@@ -11270,7 +11383,12 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       sacrificedPermanents: sacrificedPermanentsForCost,
       removedCountersForCost,
       lifePaidForCost: pendingLifePaymentForCost,
+      exertedPermanentIdForCost,
     });
+
+    if (exertedPermanentIdForCost) {
+      pushWheneverYouExertTriggersOntoStack(game as any, gameId, String(pid));
+    }
 
     if (Object.keys(recordedAddedMana).length > 0) {
       const poolKeyToManaColor: Record<string, string> = {

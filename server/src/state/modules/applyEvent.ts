@@ -5692,6 +5692,22 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
             // best-effort only
           }
 
+          // If the server persisted that activating this ability exerted the source as a cost,
+          // restore the next-untap restriction and turn-scoped exert marker during replay.
+          try {
+            const exertedPermanentId = String((e as any).exertedPermanentIdForCost || '').trim();
+            if (exertedPermanentId) {
+              const battlefield = Array.isArray(ctx.state?.battlefield) ? ctx.state.battlefield : [];
+              const permanent = battlefield.find((entry: any) => entry && String(entry.id || '') === exertedPermanentId) as any;
+              if (permanent) {
+                permanent.doesntUntapNextTurn = true;
+                permanent.exertedThisTurn = true;
+              }
+            }
+          } catch {
+            // best-effort only
+          }
+
           // If the server persisted the net mana-pool change caused by paying activation costs,
           // apply it during replay so exact floating-mana restoration survives undo/restart.
           try {
