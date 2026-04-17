@@ -176,7 +176,7 @@ function finalizeBattlefieldAbilitySelfExertCost(
   permanent.exertedThisTurn = true;
 
   try {
-    pushWheneverYouExertTriggersOntoStack(game, gameId, controllerId);
+    pushWheneverYouExertTriggersOntoStack(game, gameId, controllerId, String(permanentId));
   } catch (err) {
     debugWarn(1, '[Resolution] Failed to push deferred whenever-you-exert triggers:', err);
   }
@@ -7660,6 +7660,7 @@ function getTypeSpecificFields(step: ResolutionStep): Record<string, any> {
       if ('toBattlefield' in step) fields.toBattlefield = (step as any).toBattlefield;
       if ('toHand' in step) fields.toHand = (step as any).toHand;
       if ('lifeLoss' in step) fields.lifeLoss = (step as any).lifeLoss;
+      if ('attachSelectedEquipmentToPermanentId' in step) fields.attachSelectedEquipmentToPermanentId = (step as any).attachSelectedEquipmentToPermanentId;
       break;
     
     case ResolutionStepType.COLOR_CHOICE:
@@ -17232,24 +17233,35 @@ async function handleTargetSelectionResponse(
     return;
   }
 
-  // ===== GENERIC: Attach Equipment to target permanent (after selecting equipment) =====
-  if ((step as any)?.attachEquipmentToPermanentSelectEquipment === true) {
-    const controllerId = String((step as any).attachEquipmentToPermanentController || pid);
-    const targetPermanentId = String((step as any).attachEquipmentToPermanentTargetPermanentId || '');
-    const sourceName = String((step as any).attachEquipmentToPermanentSourceName || step.sourceName || 'Ability');
-    const targetName = String((step as any).attachEquipmentToPermanentTargetName || 'the permanent');
-    const equipPermanentId = String(selections[0] || '');
-
-    const battlefield = game.state?.battlefield || [];
-    const equipment = battlefield.find((p: any) => p?.id === equipPermanentId);
-    const targetPermanent = battlefield.find((p: any) => p?.id === targetPermanentId);
+  async function attachEquipmentToPermanentById(
+    ioRef: any,
+    gameRef: any,
+    currentGameId: string,
+    controllerId: string,
+    equipmentPermanentId: string,
+    targetPermanentId: string,
+    options?: {
+      sourceName?: string;
+      targetName?: string;
+      emitChat?: boolean;
+      persistEvent?: boolean;
+    },
+  ): Promise<boolean> {
+    const battlefield = Array.isArray(gameRef.state?.battlefield) ? gameRef.state.battlefield : [];
+    const equipment = battlefield.find((permanent: any) => permanent?.id === equipmentPermanentId);
+    const targetPermanent = battlefield.find((permanent: any) => permanent?.id === targetPermanentId);
     if (!equipment || !targetPermanent) {
       debugWarn(2, `[Resolution] attachEquipmentToPermanent: missing equipment or target permanent`);
-      return;
+      return false;
     }
 
-    // Detach from previous creature if needed
-    const equipmentId = String((equipment as any).id || equipPermanentId);
+    const equipmentTypeLine = String(equipment.card?.type_line || '').toLowerCase();
+    if (!equipmentTypeLine.includes('equipment')) {
+      debugWarn(2, `[Resolution] attachEquipmentToPermanent: ${equipment.card?.name || equipmentPermanentId} is not an Equipment`);
+      return false;
+    }
+
+    const equipmentId = String((equipment as any).id || equipmentPermanentId);
     for (const permanent of battlefield) {
       const attachedEquipment = Array.isArray((permanent as any)?.attachedEquipment)
         ? (permanent as any).attachedEquipment
@@ -17261,7 +17273,6 @@ async function handleTargetSelectionResponse(
       }
     }
 
-    // Attach
     equipment.attachedTo = targetPermanent.id;
     targetPermanent.attachedEquipment = Array.isArray(targetPermanent.attachedEquipment) ? targetPermanent.attachedEquipment : [];
     if (!targetPermanent.attachedEquipment.some((id: any) => String(id) === equipmentId)) {
@@ -17269,22 +17280,57 @@ async function handleTargetSelectionResponse(
     }
     targetPermanent.isEquipped = true;
 
-    io.to(gameId).emit('chat', {
-      id: `m_${Date.now()}`,
-      gameId,
-      from: 'system',
-      message: `${sourceName}: ${getPlayerName(game, controllerId)} attached ${equipment.card?.name || 'an Equipment'} to ${targetPermanent.card?.name || targetName}.`,
-      ts: Date.now(),
-    });
-
-    try {
-      await appendEvent(gameId, (game as any).seq ?? 0, 'equipPermanent', {
-        playerId: controllerId,
-        equipmentId,
-        targetCreatureId: targetPermanentId,
+    if (options?.emitChat !== false) {
+      const sourceName = String(options?.sourceName || 'Ability');
+      const targetName = String(options?.targetName || 'the permanent');
+      ioRef.to(currentGameId).emit('chat', {
+        id: `m_${Date.now()}`,
+        gameId: currentGameId,
+        from: 'system',
+        message: `${sourceName}: ${getPlayerName(gameRef, controllerId)} attached ${equipment.card?.name || 'an Equipment'} to ${targetPermanent.card?.name || targetName}.`,
+        ts: Date.now(),
       });
-    } catch (err) {
-      debugWarn(1, '[Resolution] Failed to persist equipPermanent event for attachEquipmentToPermanent:', err);
+    }
+
+    if (options?.persistEvent !== false) {
+      try {
+        await appendEvent(currentGameId, (gameRef as any).seq ?? 0, 'equipPermanent', {
+          playerId: controllerId,
+          equipmentId,
+          targetCreatureId: targetPermanentId,
+        });
+      } catch (err) {
+        debugWarn(1, '[Resolution] Failed to persist equipPermanent event for attachEquipmentToPermanent:', err);
+      }
+    }
+
+    return true;
+  }
+
+  // ===== GENERIC: Attach Equipment to target permanent (after selecting equipment) =====
+  if ((step as any)?.attachEquipmentToPermanentSelectEquipment === true) {
+    const controllerId = String((step as any).attachEquipmentToPermanentController || pid);
+    const targetPermanentId = String((step as any).attachEquipmentToPermanentTargetPermanentId || '');
+    const sourceName = String((step as any).attachEquipmentToPermanentSourceName || step.sourceName || 'Ability');
+    const targetName = String((step as any).attachEquipmentToPermanentTargetName || 'the permanent');
+    const equipPermanentId = String(selections[0] || '');
+
+    const attached = await attachEquipmentToPermanentById(
+      io,
+      game,
+      gameId,
+      controllerId,
+      equipPermanentId,
+      targetPermanentId,
+      {
+        sourceName,
+        targetName,
+        emitChat: true,
+        persistEvent: true,
+      },
+    );
+    if (!attached) {
+      return;
     }
 
     if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
@@ -21040,6 +21086,7 @@ async function handleLibrarySearchResponse(
   const destinationFaceDown = (searchStep as any).destinationFaceDown === true;
   const grantPlayableFromExileToController = (searchStep as any).grantPlayableFromExileToController === true;
   const playableFromExileTypeKey = String((searchStep as any).playableFromExileTypeKey || '').toLowerCase();
+  const attachSelectedEquipmentToPermanentId = String((searchStep as any).attachSelectedEquipmentToPermanentId || '').trim();
 
   // Optional override: treat this step as selecting cards from a different zone.
   // Default remains the library.
@@ -21456,6 +21503,45 @@ async function handleLibrarySearchResponse(
       });
     } catch {
       // Ignore persistence failures.
+    }
+  }
+
+  if (destination === 'battlefield' && attachSelectedEquipmentToPermanentId && createdPermanentIds.length > 0) {
+    const equipmentPermanentId = String(createdPermanentIds[0] || '').trim();
+    const battlefieldRef = Array.isArray(game.state?.battlefield) ? game.state.battlefield : [];
+    const equipment = battlefieldRef.find((permanent: any) => permanent?.id === equipmentPermanentId);
+    const targetPermanent = battlefieldRef.find((permanent: any) => permanent?.id === attachSelectedEquipmentToPermanentId);
+    const equipmentTypeLine = String(equipment?.card?.type_line || '').toLowerCase();
+
+    if (equipment && targetPermanent && equipmentTypeLine.includes('equipment')) {
+      const equipmentId = String((equipment as any).id || equipmentPermanentId);
+      for (const permanent of battlefieldRef) {
+        const attachedEquipment = Array.isArray((permanent as any)?.attachedEquipment)
+          ? (permanent as any).attachedEquipment
+          : null;
+        if (!attachedEquipment) continue;
+        (permanent as any).attachedEquipment = attachedEquipment.filter((id: any) => String(id) !== equipmentId);
+        if ((permanent as any).attachedEquipment.length === 0) {
+          (permanent as any).isEquipped = false;
+        }
+      }
+
+      (equipment as any).attachedTo = attachSelectedEquipmentToPermanentId;
+      targetPermanent.attachedEquipment = Array.isArray(targetPermanent.attachedEquipment) ? targetPermanent.attachedEquipment : [];
+      if (!targetPermanent.attachedEquipment.some((id: any) => String(id) === equipmentId)) {
+        targetPermanent.attachedEquipment.push(equipmentId);
+      }
+      targetPermanent.isEquipped = true;
+
+      try {
+        await appendEvent(gameId, (game as any).seq ?? 0, 'equipPermanent', {
+          playerId: String(pid),
+          equipmentId,
+          targetCreatureId: attachSelectedEquipmentToPermanentId,
+        });
+      } catch (err) {
+        debugWarn(1, '[Resolution] Failed to persist equipPermanent event for post-search Equipment attachment:', err);
+      }
     }
   }
 
@@ -23423,7 +23509,7 @@ async function handleOptionChoiceResponse(
       ts: Date.now(),
     });
 
-    pushWheneverYouExertTriggersOntoStack(game, gameId, String(playerId));
+    pushWheneverYouExertTriggersOntoStack(game, gameId, String(playerId), String(attackerId));
 
     const rewardDescription = String(stepData.exertRewardDescription || '').trim();
     if (rewardDescription) {
@@ -28196,7 +28282,6 @@ async function handleGraveyardSelectionResponse(
     } catch {
       // ignore persistence failures
     }
-
     if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
     broadcastGame(io, game, gameId);
     return;

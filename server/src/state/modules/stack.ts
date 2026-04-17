@@ -7154,6 +7154,76 @@ export function executeTriggerEffect(
     debug(2, `[executeTriggerEffect] ${controller} draws 1 card from ${sourceName}`);
     return;
   }
+
+  if (/^you may discard a card\. if you do, draw a card\.?$/i.test(String(desc || '').trim())) {
+    queueResolveTopOfStackPrompt(ctx, {
+      type: ResolutionStepType.OPTION_CHOICE,
+      playerId: controller as any,
+      description: `${sourceName}: You may discard a card. If you do, draw a card.`,
+      mandatory: true,
+      sourceId: String(triggerItem?.source || triggerItem?.permanentId || '').trim() || undefined,
+      sourceName,
+      options: [
+        { id: 'discard', label: 'Discard a card' },
+        { id: 'dont', label: "Don't discard" },
+      ],
+      minSelections: 1,
+      maxSelections: 1,
+      optionalDiscardThenDrawChoice: true,
+      optionalDiscardThenDrawPlayerId: controller,
+      optionalDiscardThenDrawSourceName: sourceName,
+      optionalDiscardThenDrawCount: 1,
+    } as any);
+    debug(2, `[executeTriggerEffect] Queued optional discard-then-draw choice for ${sourceName}`);
+    return;
+  }
+
+  if (
+    desc.includes('reveal cards from the top of your library until you reveal an equipment card') &&
+    desc.includes('put that card onto the battlefield attached to that creature') &&
+    desc.includes('put the rest on the bottom of your library in a random order')
+  ) {
+    const effectData = (triggerItem as any)?.effectData || {};
+    const attachTargetId = String(effectData?.exertedPermanentId || '').trim();
+    const lib = ((ctx as any).libraries as Map<string, any[]>)?.get(controller) || [];
+    const availableCards: any[] = [];
+    const nonSelectableCards: any[] = [];
+
+    for (const card of lib) {
+      const summary = summarizeLibraryCard(card);
+      const typeLine = String(card?.type_line || '').toLowerCase();
+      if (availableCards.length === 0 && typeLine.includes('equipment')) {
+        availableCards.push(summary);
+        break;
+      }
+      nonSelectableCards.push(summary);
+    }
+
+    queueResolveTopOfStackPrompt(ctx, {
+      type: ResolutionStepType.LIBRARY_SEARCH,
+      playerId: controller as any,
+      description: `${sourceName}: Reveal cards from the top of your library until you reveal an Equipment card. Put that card onto the battlefield attached to that creature, then put the rest on the bottom of your library in a random order.`,
+      mandatory: availableCards.length > 0,
+      sourceId: String(triggerItem?.source || triggerItem?.permanentId || '').trim() || undefined,
+      sourceName,
+      searchCriteria: 'Equipment card',
+      minSelections: availableCards.length > 0 ? 1 : 0,
+      maxSelections: availableCards.length > 0 ? 1 : 0,
+      destination: 'battlefield',
+      reveal: true,
+      shuffleAfter: false,
+      availableCards,
+      nonSelectableCards,
+      revealedCards: [...nonSelectableCards, ...availableCards],
+      remainderDestination: 'bottom',
+      remainderRandomOrder: true,
+      persistLibrarySearchResolve: true,
+      persistLibrarySearchResolveReason: 'stack_resolution',
+      ...(attachTargetId ? { attachSelectedEquipmentToPermanentId: attachTargetId } : null),
+    } as any);
+    debug(2, `[executeTriggerEffect] Queued reveal-until-equipment search for ${sourceName} with ${availableCards.length} matching card(s)`);
+    return;
+  }
   
   let handled = false;
   

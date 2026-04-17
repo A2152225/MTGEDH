@@ -11492,7 +11492,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     });
 
     if (exertedPermanentIdForCost) {
-      pushWheneverYouExertTriggersOntoStack(game as any, gameId, String(pid));
+      pushWheneverYouExertTriggersOntoStack(game as any, gameId, String(pid), String(exertedPermanentIdForCost));
     }
 
     if (Object.keys(recordedAddedMana).length > 0) {

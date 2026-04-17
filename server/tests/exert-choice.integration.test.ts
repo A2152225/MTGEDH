@@ -147,6 +147,57 @@ function findTargetSelectionStep(gameId: string, playerId: PlayerID, predicate?:
   return ResolutionQueueManager.getStepsForPlayer(gameId, playerId).find(matches);
 }
 
+function findOptionChoiceStep(gameId: string, playerId: PlayerID, predicate?: (entry: any) => boolean) {
+  const matches = (entry: any) =>
+    entry?.type === ResolutionStepType.OPTION_CHOICE &&
+    (predicate ? predicate(entry) : true);
+  const queue = ResolutionQueueManager.getQueue(gameId) as any;
+  const activeStep = queue?.activeStep;
+  if (
+    activeStep &&
+    String(activeStep?.playerId || '') === String(playerId) &&
+    matches(activeStep)
+  ) {
+    return activeStep;
+  }
+
+  return ResolutionQueueManager.getStepsForPlayer(gameId, playerId).find(matches);
+}
+
+function findDiscardSelectionStep(gameId: string, playerId: PlayerID, predicate?: (entry: any) => boolean) {
+  const matches = (entry: any) =>
+    entry?.type === ResolutionStepType.DISCARD_SELECTION &&
+    (predicate ? predicate(entry) : true);
+  const queue = ResolutionQueueManager.getQueue(gameId) as any;
+  const activeStep = queue?.activeStep;
+  if (
+    activeStep &&
+    String(activeStep?.playerId || '') === String(playerId) &&
+    matches(activeStep)
+  ) {
+    return activeStep;
+  }
+
+  return ResolutionQueueManager.getStepsForPlayer(gameId, playerId).find(matches);
+}
+
+function findLibrarySearchStep(gameId: string, playerId: PlayerID, predicate?: (entry: any) => boolean) {
+  const matches = (entry: any) =>
+    entry?.type === ResolutionStepType.LIBRARY_SEARCH &&
+    (predicate ? predicate(entry) : true);
+  const queue = ResolutionQueueManager.getQueue(gameId) as any;
+  const activeStep = queue?.activeStep;
+  if (
+    activeStep &&
+    String(activeStep?.playerId || '') === String(playerId) &&
+    matches(activeStep)
+  ) {
+    return activeStep;
+  }
+
+  return ResolutionQueueManager.getStepsForPlayer(gameId, playerId).find(matches);
+}
+
 function findGraveyardSelectionStep(gameId: string, playerId: PlayerID, predicate?: (entry: any) => boolean) {
   const matches = (entry: any) =>
     entry?.type === ResolutionStepType.GRAVEYARD_SELECTION &&
@@ -532,6 +583,291 @@ describe('supported exert attack automation (integration)', () => {
 
     expect((game.state as any).life[attackerId]).toBe(41);
     expect((game.state as any).life[defenderId]).toBe(39);
+  });
+
+  it('queues target selection for whenever-you-exert watchers like Vizier of the True and restricts targets to opposing creatures', async () => {
+    const gameId = createGameId();
+    trackedGameIds.add(gameId);
+    const attackerId = 'p1' as PlayerID;
+    const defenderId = 'p2' as PlayerID;
+    const game = seedCombatGame(gameId, attackerId, defenderId);
+
+    (game.state as any).battlefield = [
+      createAttacker(
+        'vizier_of_the_true',
+        attackerId,
+        'Vizier of the True',
+        "You may exert this creature as it attacks. (It won't untap during your next untap step.)\nWhenever you exert a creature, tap target creature an opponent controls.",
+        3,
+        2,
+      ),
+      createAttacker('friendly_ally', attackerId, 'Friendly Ally', '', 2, 2),
+      createAttacker('defender_wall', defenderId, 'Defender Wall', '', 0, 4),
+    ];
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket: attackerSocket, handlers: attackerHandlers } = createMockSocket(attackerId, emitted, gameId);
+    const { socket: defenderSocket } = createMockSocket(defenderId, emitted, gameId);
+    const io = createMockIo(emitted, [attackerSocket, defenderSocket]);
+    registerResolutionHandlers(io as any, attackerSocket as any);
+    registerResolutionHandlers(io as any, defenderSocket as any);
+    registerCombatHandlers(io as any, attackerSocket as any);
+
+    await attackerHandlers.declareAttackers({
+      gameId,
+      attackers: [{ creatureId: 'vizier_of_the_true', targetPlayerId: defenderId }],
+    });
+
+    const exertStep = findExertStep(gameId, attackerId) as any;
+    expect(exertStep).toBeDefined();
+
+    await attackerHandlers.submitResolutionResponse({
+      gameId,
+      stepId: String(exertStep.id),
+      selections: 'exert',
+    });
+
+    const stack = (((game.state as any).stack || []) as any[]);
+    expect(stack).toHaveLength(1);
+    expect(stack[0]).toEqual(expect.objectContaining({
+      source: 'vizier_of_the_true',
+      permanentId: 'vizier_of_the_true',
+      sourceName: 'Vizier of the True',
+      effect: 'tap target creature an opponent controls.',
+    }));
+
+    game.applyEvent({ type: 'resolveTopOfStack' } as any);
+
+    const targetStep = findTargetSelectionStep(gameId, attackerId, (entry: any) => entry?.targetedTriggeredAbility === true) as any;
+    expect(targetStep).toBeDefined();
+    expect((targetStep.validTargets || []).map((entry: any) => entry.id)).toContain('defender_wall');
+    expect((targetStep.validTargets || []).map((entry: any) => entry.id)).not.toContain('friendly_ally');
+    expect((targetStep.validTargets || []).map((entry: any) => entry.id)).not.toContain('vizier_of_the_true');
+
+    await attackerHandlers.submitResolutionResponse({
+      gameId,
+      stepId: String(targetStep.id),
+      selections: ['defender_wall'],
+    });
+
+    const battlefield = (((game.state as any).battlefield || []) as any[]);
+    const vizier = battlefield.find((permanent: any) => permanent?.id === 'vizier_of_the_true') as any;
+    const ally = battlefield.find((permanent: any) => permanent?.id === 'friendly_ally') as any;
+    const target = battlefield.find((permanent: any) => permanent?.id === 'defender_wall') as any;
+    expect(vizier?.doesntUntapNextTurn).toBe(true);
+    expect(vizier?.exertedThisTurn).toBe(true);
+    expect(target?.tapped).toBe(true);
+    expect(ally?.tapped).toBe(false);
+  });
+
+  it('queues discard-then-draw prompts for whenever-you-exert watchers like Battlefield Scavenger', async () => {
+    const gameId = createGameId();
+    trackedGameIds.add(gameId);
+    const attackerId = 'p1' as PlayerID;
+    const defenderId = 'p2' as PlayerID;
+    const game = seedCombatGame(gameId, attackerId, defenderId);
+
+    (game.state as any).battlefield = [
+      createAttacker(
+        'battlefield_scavenger',
+        attackerId,
+        'Battlefield Scavenger',
+        "You may exert this creature as it attacks. (It won't untap during your next untap step.)\nWhenever you exert a creature, you may discard a card. If you do, draw a card.",
+        2,
+        2,
+      ),
+    ];
+    (game.state as any).zones[attackerId].hand = [
+      { id: 'discard_spell', name: 'Discard Spell', type_line: 'Sorcery', oracle_text: '' },
+      { id: 'keep_spell', name: 'Keep Spell', type_line: 'Instant', oracle_text: '' },
+    ];
+    (game.state as any).zones[attackerId].handCount = 2;
+    (game.state as any).zones[attackerId].library = [
+      { id: 'draw_spell', name: 'Draw Spell', type_line: 'Creature - Beast', oracle_text: '', power: '2', toughness: '2' },
+    ];
+    (game.state as any).zones[attackerId].libraryCount = 1;
+    (game as any).libraries.set(attackerId, (game.state as any).zones[attackerId].library);
+    (game as any).libraries.set(defenderId, []);
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket: attackerSocket, handlers: attackerHandlers } = createMockSocket(attackerId, emitted, gameId);
+    const { socket: defenderSocket } = createMockSocket(defenderId, emitted, gameId);
+    const io = createMockIo(emitted, [attackerSocket, defenderSocket]);
+    registerResolutionHandlers(io as any, attackerSocket as any);
+    registerResolutionHandlers(io as any, defenderSocket as any);
+    registerCombatHandlers(io as any, attackerSocket as any);
+
+    await attackerHandlers.declareAttackers({
+      gameId,
+      attackers: [{ creatureId: 'battlefield_scavenger', targetPlayerId: defenderId }],
+    });
+
+    const exertStep = findExertStep(gameId, attackerId) as any;
+    expect(exertStep).toBeDefined();
+
+    await attackerHandlers.submitResolutionResponse({
+      gameId,
+      stepId: String(exertStep.id),
+      selections: 'exert',
+    });
+
+    expect((((game.state as any).stack || []) as any[])).toHaveLength(1);
+
+    game.applyEvent({ type: 'resolveTopOfStack' } as any);
+
+    const discardChoiceStep = findOptionChoiceStep(gameId, attackerId, (entry: any) => entry?.optionalDiscardThenDrawChoice === true) as any;
+    expect(discardChoiceStep).toBeDefined();
+    expect(discardChoiceStep).toMatchObject({
+      sourceName: 'Battlefield Scavenger',
+      optionalDiscardThenDrawChoice: true,
+      optionalDiscardThenDrawCount: 1,
+    });
+    expect((discardChoiceStep.options || []).map((option: any) => option.id)).toEqual(['discard', 'dont']);
+
+    const promptEvent = [...getEvents(gameId)].reverse().find((event: any) =>
+      event.type === 'resolveTopOfStackPrompt' &&
+      event.payload?.queuedResolutionStep?.optionalDiscardThenDrawChoice === true
+    ) as any;
+    expect(promptEvent).toBeDefined();
+
+    await attackerHandlers.submitResolutionResponse({
+      gameId,
+      stepId: String(discardChoiceStep.id),
+      selections: 'discard',
+    });
+
+    const discardStep = findDiscardSelectionStep(gameId, attackerId, (entry: any) => entry?.sourceName === 'Battlefield Scavenger') as any;
+    expect(discardStep).toBeDefined();
+    expect(discardStep?.afterDiscardDrawCount).toBe(1);
+    expect((discardStep.hand || []).map((card: any) => card.id)).toEqual(['discard_spell', 'keep_spell']);
+
+    await attackerHandlers.submitResolutionResponse({
+      gameId,
+      stepId: String(discardStep.id),
+      selections: ['discard_spell'],
+    });
+
+    const attackerZones = (game.state as any).zones[attackerId] as any;
+    expect((attackerZones.hand || []).map((card: any) => card.id)).toEqual(['keep_spell', 'draw_spell']);
+    expect((attackerZones.graveyard || []).map((card: any) => card.id)).toContain('discard_spell');
+    expect(attackerZones.handCount).toBe(2);
+    expect(attackerZones.libraryCount).toBe(0);
+  });
+
+  it('queues reveal-until-equipment searches for whenever-you-exert watchers like Rohirrim Chargers and attaches the found Equipment to the exerted creature', async () => {
+    const gameId = createGameId();
+    trackedGameIds.add(gameId);
+    const attackerId = 'p1' as PlayerID;
+    const defenderId = 'p2' as PlayerID;
+    const game = seedCombatGame(gameId, attackerId, defenderId);
+
+    (game.state as any).battlefield = [
+      createAttacker(
+        'rohirrim_chargers',
+        attackerId,
+        'Rohirrim Chargers',
+        "You may exert this creature as it attacks. (It won't untap during your next untap step.)\nWhenever you exert a creature, reveal cards from the top of your library until you reveal an Equipment card. Put that card onto the battlefield attached to that creature, then put the rest on the bottom of your library in a random order.",
+        4,
+        4,
+      ),
+    ];
+    (game.state as any).zones[attackerId].library = [
+      { id: 'miss_before', name: 'Miss Before', type_line: 'Creature - Human', oracle_text: '', power: '2', toughness: '2' },
+      { id: 'equipment_hit', name: 'Equipment Hit', type_line: 'Artifact - Equipment', oracle_text: 'Equipped creature gets +2/+0.' },
+      { id: 'miss_after', name: 'Miss After', type_line: 'Instant', oracle_text: '' },
+    ];
+    (game.state as any).zones[attackerId].libraryCount = 3;
+    (game as any).libraries.set(attackerId, (game.state as any).zones[attackerId].library);
+    (game as any).libraries.set(defenderId, []);
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket: attackerSocket, handlers: attackerHandlers } = createMockSocket(attackerId, emitted, gameId);
+    const { socket: defenderSocket } = createMockSocket(defenderId, emitted, gameId);
+    const io = createMockIo(emitted, [attackerSocket, defenderSocket]);
+    registerResolutionHandlers(io as any, attackerSocket as any);
+    registerResolutionHandlers(io as any, defenderSocket as any);
+    registerCombatHandlers(io as any, attackerSocket as any);
+
+    await attackerHandlers.declareAttackers({
+      gameId,
+      attackers: [{ creatureId: 'rohirrim_chargers', targetPlayerId: defenderId }],
+    });
+
+    const exertStep = findExertStep(gameId, attackerId) as any;
+    expect(exertStep).toBeDefined();
+
+    await attackerHandlers.submitResolutionResponse({
+      gameId,
+      stepId: String(exertStep.id),
+      selections: 'exert',
+    });
+
+    const stack = (((game.state as any).stack || []) as any[]);
+    expect(stack).toHaveLength(1);
+    expect(stack[0]).toEqual(expect.objectContaining({
+      source: 'rohirrim_chargers',
+      sourceName: 'Rohirrim Chargers',
+      effect: 'reveal cards from the top of your library until you reveal an Equipment card. Put that card onto the battlefield attached to that creature, then put the rest on the bottom of your library in a random order.',
+      effectData: expect.objectContaining({ exertedPermanentId: 'rohirrim_chargers' }),
+    }));
+
+    game.applyEvent({ type: 'resolveTopOfStack' } as any);
+
+    const searchStep = findLibrarySearchStep(gameId, attackerId, (entry: any) => entry?.sourceName === 'Rohirrim Chargers') as any;
+    expect(searchStep).toBeDefined();
+    expect(searchStep).toMatchObject({
+      destination: 'battlefield',
+      remainderDestination: 'bottom',
+      attachSelectedEquipmentToPermanentId: 'rohirrim_chargers',
+    });
+    expect((searchStep.availableCards || []).map((entry: any) => entry.id)).toEqual(['equipment_hit']);
+    expect((searchStep.nonSelectableCards || []).map((entry: any) => entry.id)).toEqual(['miss_before']);
+
+    const promptEvent = [...getEvents(gameId)].reverse().find((event: any) =>
+      event.type === 'resolveTopOfStackPrompt' &&
+      event.payload?.queuedResolutionStep?.type === ResolutionStepType.LIBRARY_SEARCH &&
+      event.payload?.queuedResolutionStep?.sourceName === 'Rohirrim Chargers'
+    ) as any;
+    expect(promptEvent).toBeDefined();
+    expect(promptEvent.payload?.queuedResolutionStep?.attachSelectedEquipmentToPermanentId).toBe('rohirrim_chargers');
+
+    await attackerHandlers.submitResolutionResponse({
+      gameId,
+      stepId: String(searchStep.id),
+      selections: ['equipment_hit'],
+    });
+
+    const battlefield = (((game.state as any).battlefield || []) as any[]);
+    const chargers = battlefield.find((permanent: any) => permanent?.id === 'rohirrim_chargers') as any;
+    const equipment = battlefield.find((permanent: any) => permanent?.card?.id === 'equipment_hit') as any;
+    expect(chargers?.doesntUntapNextTurn).toBe(true);
+    expect(chargers?.exertedThisTurn).toBe(true);
+    expect(equipment).toBeDefined();
+    expect(equipment?.attachedTo).toBe('rohirrim_chargers');
+    expect(chargers?.attachedEquipment || []).toContain(equipment.id);
+    expect(chargers?.isEquipped).toBe(true);
+
+    const resolvedSearchEvent = [...getEvents(gameId)].reverse().find((event: any) => event.type === 'librarySearchResolve') as any;
+    expect(resolvedSearchEvent).toBeDefined();
+    expect(resolvedSearchEvent.payload).toMatchObject({
+      playerId: attackerId,
+      sourceName: 'Rohirrim Chargers',
+      destination: 'battlefield',
+      selectedCardIds: ['equipment_hit'],
+      createdPermanentIds: [equipment.id],
+    });
+
+    const equipEvent = [...getEvents(gameId)].reverse().find((event: any) => event.type === 'equipPermanent') as any;
+    expect(equipEvent).toBeDefined();
+    expect(equipEvent.payload).toEqual({
+      playerId: attackerId,
+      equipmentId: equipment.id,
+      targetCreatureId: 'rohirrim_chargers',
+    });
+
+    const remainingLibraryIds = (((game.state as any).zones[attackerId] as any).library || []).map((card: any) => card.id).sort();
+    expect(remainingLibraryIds).toEqual(['miss_after', 'miss_before']);
+    expect((((game.state as any).zones[attackerId] as any).libraryCount)).toBe(2);
   });
 
   it('queues target selection for target-based exert rewards like Ahn-Crop Crasher and persists the chosen target on the reflexive trigger', async () => {

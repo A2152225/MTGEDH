@@ -4,9 +4,10 @@ import type { PlayerID } from '../../shared/src/index.js';
 import GameManager from '../src/GameManager.js';
 import { createGameIfNotExists, deleteGame, initDb } from '../src/db/index.js';
 import { registerCombatHandlers } from '../src/socket/combat.js';
+import { registerResolutionHandlers } from '../src/socket/resolution.js';
 import { games } from '../src/socket/socket.js';
 import { ensureGame } from '../src/socket/util.js';
-import { ResolutionQueueManager } from '../src/state/resolution/index.js';
+import { ResolutionQueueManager, ResolutionStepType } from '../src/state/resolution/index.js';
 
 async function resetGame(gameId: string) {
   ResolutionQueueManager.removeQueue(gameId);
@@ -253,6 +254,314 @@ describe('exertChoice replay coverage', () => {
 
     expect((game.state as any).life[attackerId]).toBe(41);
     expect((game.state as any).life[defenderId]).toBe(39);
+  });
+
+  it('replays targeted whenever-you-exert watcher triggers like Vizier of the True with persisted targets', () => {
+    const gameId = createGameId();
+    trackedGameIds.add(gameId);
+    const attackerId = 'p1' as PlayerID;
+    const defenderId = 'p2' as PlayerID;
+    const game = seedCombatGame(gameId, attackerId, defenderId);
+
+    (game.state as any).battlefield = [
+      {
+        id: 'vizier_of_the_true',
+        controller: attackerId,
+        owner: attackerId,
+        tapped: false,
+        summoningSickness: false,
+        counters: {},
+        basePower: 3,
+        baseToughness: 2,
+        card: {
+          id: 'vizier_of_the_true_card',
+          name: 'Vizier of the True',
+          type_line: 'Creature - Human Cleric',
+          oracle_text: "You may exert this creature as it attacks. (It won't untap during your next untap step.)\nWhenever you exert a creature, tap target creature an opponent controls.",
+          power: '3',
+          toughness: '2',
+        },
+      },
+      {
+        id: 'friendly_ally',
+        controller: attackerId,
+        owner: attackerId,
+        tapped: false,
+        summoningSickness: false,
+        counters: {},
+        basePower: 2,
+        baseToughness: 2,
+        card: {
+          id: 'friendly_ally_card',
+          name: 'Friendly Ally',
+          type_line: 'Creature - Warrior',
+          oracle_text: '',
+          power: '2',
+          toughness: '2',
+        },
+      },
+      {
+        id: 'defender_wall',
+        controller: defenderId,
+        owner: defenderId,
+        tapped: false,
+        summoningSickness: false,
+        counters: {},
+        basePower: 0,
+        baseToughness: 4,
+        card: {
+          id: 'defender_wall_card',
+          name: 'Defender Wall',
+          type_line: 'Creature - Wall',
+          oracle_text: '',
+          power: '0',
+          toughness: '4',
+        },
+      },
+    ];
+
+    game.applyEvent({
+      type: 'exertChoice',
+      playerId: attackerId,
+      attackerId: 'vizier_of_the_true',
+    } as any);
+
+    game.applyEvent({
+      type: 'pushTriggeredAbility',
+      triggerId: 'vizier_of_the_true_exert_replay',
+      sourceId: 'vizier_of_the_true',
+      permanentId: 'vizier_of_the_true',
+      sourceName: 'Vizier of the True',
+      controllerId: attackerId,
+      description: 'tap target creature an opponent controls.',
+      triggerType: 'whenever_you_exert',
+      effect: 'tap target creature an opponent controls.',
+      mandatory: true,
+      targets: ['defender_wall'],
+      card: { ...((game.state as any).battlefield[0] as any).card },
+    } as any);
+
+    game.applyEvent({ type: 'resolveTopOfStack' } as any);
+
+    const battlefield = ((game.state as any).battlefield || []) as any[];
+    const vizier = battlefield.find((permanent: any) => permanent?.id === 'vizier_of_the_true') as any;
+    const ally = battlefield.find((permanent: any) => permanent?.id === 'friendly_ally') as any;
+    const target = battlefield.find((permanent: any) => permanent?.id === 'defender_wall') as any;
+    expect(vizier?.doesntUntapNextTurn).toBe(true);
+    expect(vizier?.exertedThisTurn).toBe(true);
+    expect(target?.tapped).toBe(true);
+    expect(ally?.tapped).toBe(false);
+  });
+
+  it('replays discard-then-draw whenever-you-exert watcher triggers like Battlefield Scavenger through the queued prompt flow', async () => {
+    const gameId = createGameId();
+    trackedGameIds.add(gameId);
+    const attackerId = 'p1' as PlayerID;
+    const defenderId = 'p2' as PlayerID;
+    const game = seedCombatGame(gameId, attackerId, defenderId);
+
+    (game.state as any).battlefield = [
+      {
+        id: 'battlefield_scavenger',
+        controller: attackerId,
+        owner: attackerId,
+        tapped: false,
+        summoningSickness: false,
+        counters: {},
+        basePower: 2,
+        baseToughness: 2,
+        card: {
+          id: 'battlefield_scavenger_card',
+          name: 'Battlefield Scavenger',
+          type_line: 'Creature - Jackal Rogue',
+          oracle_text: "You may exert this creature as it attacks. (It won't untap during your next untap step.)\nWhenever you exert a creature, you may discard a card. If you do, draw a card.",
+          power: '2',
+          toughness: '2',
+        },
+      },
+    ];
+    (game.state as any).zones = {
+      [attackerId]: {
+        hand: [
+          { id: 'discard_spell', name: 'Discard Spell', type_line: 'Sorcery', oracle_text: '' },
+          { id: 'keep_spell', name: 'Keep Spell', type_line: 'Instant', oracle_text: '' },
+        ],
+        handCount: 2,
+        library: [
+          { id: 'draw_spell', name: 'Draw Spell', type_line: 'Creature - Beast', oracle_text: '', power: '2', toughness: '2' },
+        ],
+        libraryCount: 1,
+        graveyard: [],
+        graveyardCount: 0,
+        exile: [],
+        exileCount: 0,
+      },
+      [defenderId]: { hand: [], handCount: 0, library: [], libraryCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0 },
+    };
+    (game as any).libraries.set(attackerId, (game.state as any).zones[attackerId].library);
+    (game as any).libraries.set(defenderId, []);
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket: attackerSocket, handlers: attackerHandlers } = createMockSocket(attackerId, emitted, gameId);
+    const io = createMockIo(emitted, [attackerSocket]);
+    registerResolutionHandlers(io as any, attackerSocket as any);
+
+    game.applyEvent({
+      type: 'exertChoice',
+      playerId: attackerId,
+      attackerId: 'battlefield_scavenger',
+    } as any);
+
+    game.applyEvent({
+      type: 'pushTriggeredAbility',
+      triggerId: 'battlefield_scavenger_exert_replay',
+      sourceId: 'battlefield_scavenger',
+      permanentId: 'battlefield_scavenger',
+      sourceName: 'Battlefield Scavenger',
+      controllerId: attackerId,
+      description: 'you may discard a card. If you do, draw a card.',
+      triggerType: 'whenever_you_exert',
+      effect: 'you may discard a card. If you do, draw a card.',
+      mandatory: true,
+      card: { ...((game.state as any).battlefield[0] as any).card },
+    } as any);
+
+    game.applyEvent({ type: 'resolveTopOfStack' } as any);
+
+    const discardChoiceStep = ResolutionQueueManager.getStepsForPlayer(gameId, attackerId).find(
+      (entry: any) => entry?.type === ResolutionStepType.OPTION_CHOICE && entry?.optionalDiscardThenDrawChoice === true,
+    ) as any;
+    expect(discardChoiceStep).toBeDefined();
+    expect((discardChoiceStep.options || []).map((option: any) => option.id)).toEqual(['discard', 'dont']);
+
+    await attackerHandlers.submitResolutionResponse({
+      gameId,
+      stepId: String(discardChoiceStep.id),
+      selections: 'discard',
+    });
+
+    const discardStep = ResolutionQueueManager.getStepsForPlayer(gameId, attackerId).find(
+      (entry: any) => entry?.type === ResolutionStepType.DISCARD_SELECTION && entry?.sourceName === 'Battlefield Scavenger',
+    ) as any;
+    expect(discardStep).toBeDefined();
+    expect(discardStep?.afterDiscardDrawCount).toBe(1);
+
+    await attackerHandlers.submitResolutionResponse({
+      gameId,
+      stepId: String(discardStep.id),
+      selections: ['discard_spell'],
+    });
+
+    const scavenger = (((game.state as any).battlefield || []) as any[]).find((permanent: any) => permanent?.id === 'battlefield_scavenger') as any;
+    const attackerZones = (game.state as any).zones[attackerId] as any;
+    expect(scavenger?.doesntUntapNextTurn).toBe(true);
+    expect(scavenger?.exertedThisTurn).toBe(true);
+    expect((attackerZones.hand || []).map((card: any) => card.id)).toEqual(['keep_spell', 'draw_spell']);
+    expect((attackerZones.graveyard || []).map((card: any) => card.id)).toContain('discard_spell');
+    expect(attackerZones.handCount).toBe(2);
+    expect(attackerZones.libraryCount).toBe(0);
+  });
+
+  it('replays reveal-until-equipment whenever-you-exert watcher triggers like Rohirrim Chargers and attaches the found Equipment to the exerted creature', async () => {
+    const gameId = createGameId();
+    trackedGameIds.add(gameId);
+    const attackerId = 'p1' as PlayerID;
+    const defenderId = 'p2' as PlayerID;
+    const game = seedCombatGame(gameId, attackerId, defenderId);
+
+    (game.state as any).battlefield = [
+      {
+        id: 'rohirrim_chargers',
+        controller: attackerId,
+        owner: attackerId,
+        tapped: false,
+        summoningSickness: false,
+        counters: {},
+        basePower: 4,
+        baseToughness: 4,
+        card: {
+          id: 'rohirrim_chargers_card',
+          name: 'Rohirrim Chargers',
+          type_line: 'Creature - Human Knight',
+          oracle_text: "You may exert this creature as it attacks. (It won't untap during your next untap step.)\nWhenever you exert a creature, reveal cards from the top of your library until you reveal an Equipment card. Put that card onto the battlefield attached to that creature, then put the rest on the bottom of your library in a random order.",
+          power: '4',
+          toughness: '4',
+        },
+      },
+    ];
+    (game.state as any).zones = {
+      [attackerId]: {
+        hand: [],
+        handCount: 0,
+        library: [
+          { id: 'miss_before', name: 'Miss Before', type_line: 'Creature - Human', oracle_text: '', power: '2', toughness: '2' },
+          { id: 'equipment_hit', name: 'Equipment Hit', type_line: 'Artifact - Equipment', oracle_text: 'Equipped creature gets +2/+0.' },
+          { id: 'miss_after', name: 'Miss After', type_line: 'Instant', oracle_text: '' },
+        ],
+        libraryCount: 3,
+        graveyard: [],
+        graveyardCount: 0,
+        exile: [],
+        exileCount: 0,
+      },
+      [defenderId]: { hand: [], handCount: 0, library: [], libraryCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0 },
+    };
+    (game as any).libraries.set(attackerId, (game.state as any).zones[attackerId].library);
+    (game as any).libraries.set(defenderId, []);
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket: attackerSocket, handlers: attackerHandlers } = createMockSocket(attackerId, emitted, gameId);
+    const io = createMockIo(emitted, [attackerSocket]);
+    registerResolutionHandlers(io as any, attackerSocket as any);
+
+    game.applyEvent({
+      type: 'exertChoice',
+      playerId: attackerId,
+      attackerId: 'rohirrim_chargers',
+    } as any);
+
+    game.applyEvent({
+      type: 'pushTriggeredAbility',
+      triggerId: 'rohirrim_chargers_exert_replay',
+      sourceId: 'rohirrim_chargers',
+      permanentId: 'rohirrim_chargers',
+      sourceName: 'Rohirrim Chargers',
+      controllerId: attackerId,
+      description: 'reveal cards from the top of your library until you reveal an Equipment card. Put that card onto the battlefield attached to that creature, then put the rest on the bottom of your library in a random order.',
+      triggerType: 'whenever_you_exert',
+      effect: 'reveal cards from the top of your library until you reveal an Equipment card. Put that card onto the battlefield attached to that creature, then put the rest on the bottom of your library in a random order.',
+      mandatory: true,
+      effectData: { exertedPermanentId: 'rohirrim_chargers' },
+      card: { ...((game.state as any).battlefield[0] as any).card },
+    } as any);
+
+    game.applyEvent({ type: 'resolveTopOfStack' } as any);
+
+    const searchStep = ResolutionQueueManager.getStepsForPlayer(gameId, attackerId).find(
+      (entry: any) => entry?.type === ResolutionStepType.LIBRARY_SEARCH && entry?.sourceName === 'Rohirrim Chargers',
+    ) as any;
+    expect(searchStep).toBeDefined();
+    expect(searchStep.attachSelectedEquipmentToPermanentId).toBe('rohirrim_chargers');
+    expect((searchStep.availableCards || []).map((entry: any) => entry.id)).toEqual(['equipment_hit']);
+
+    await attackerHandlers.submitResolutionResponse({
+      gameId,
+      stepId: String(searchStep.id),
+      selections: ['equipment_hit'],
+    });
+
+    const battlefield = (((game.state as any).battlefield || []) as any[]);
+    const chargers = battlefield.find((permanent: any) => permanent?.id === 'rohirrim_chargers') as any;
+    const equipment = battlefield.find((permanent: any) => permanent?.card?.id === 'equipment_hit') as any;
+    const attackerZones = (game.state as any).zones[attackerId] as any;
+    expect(chargers?.doesntUntapNextTurn).toBe(true);
+    expect(chargers?.exertedThisTurn).toBe(true);
+    expect(equipment).toBeDefined();
+    expect(equipment?.attachedTo).toBe('rohirrim_chargers');
+    expect(chargers?.attachedEquipment || []).toContain(equipment.id);
+    expect(chargers?.isEquipped).toBe(true);
+    expect((attackerZones.library || []).map((card: any) => card.id).sort()).toEqual(['miss_after', 'miss_before']);
+    expect(attackerZones.libraryCount).toBe(2);
   });
 
   it('replays targeted exert triggers with persisted targets', () => {

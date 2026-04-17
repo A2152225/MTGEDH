@@ -46,8 +46,10 @@ export function pushWheneverYouExertTriggersOntoStack(
   game: any,
   gameId: string,
   controllerId: string,
+  exertedPermanentId?: string,
 ): void {
   const battlefield = Array.isArray((game.state as any)?.battlefield) ? (game.state as any).battlefield : [];
+  const normalizedExertedPermanentId = String(exertedPermanentId || '').trim();
 
   for (const permanent of battlefield) {
     if (!permanent || String(permanent.controller || '') !== controllerId) {
@@ -102,6 +104,7 @@ export function pushWheneverYouExertTriggersOntoStack(
         ...(metadata.targetCastIsOptional === true ? { targetCastIsOptional: true } : null),
         ...(typeof metadata.minTargets === 'number' ? { minTargets: metadata.minTargets } : null),
         ...(typeof metadata.maxTargets === 'number' ? { maxTargets: metadata.maxTargets } : null),
+        ...(normalizedExertedPermanentId ? { effectData: { exertedPermanentId: normalizedExertedPermanentId } } : null),
         ...(permanent?.card && typeof permanent.card === 'object' ? { card: { ...permanent.card } } : null),
         ...(sourceSnapshot && typeof sourceSnapshot === 'object' ? { sourcePermanentSnapshot: sourceSnapshot } : null),
       } as any;
