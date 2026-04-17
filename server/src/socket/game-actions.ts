@@ -1,6 +1,6 @@
 ﻿import type { Server, Socket } from "socket.io";
 import type { InMemoryGame } from "../state/types";
-import { ensureGame, broadcastGame, appendGameEvent, parseManaCost, getManaColorName, MANA_COLORS, MANA_COLOR_NAMES, consumeManaFromPool, getOrInitManaPool, calculateTotalAvailableMana, validateManaPayment, getPlayerName, emitToPlayer, calculateManaProduction, broadcastManaPoolUpdate, millUntilLand, suppressAutomationOnNextBroadcast, LAND_PLAY_AUTOMATION_SUPPRESSION_MS, clearHumanAutoPassPauseOnAction } from "./util";
+import { ensureGame, broadcastGame, appendGameEvent, parseManaCost, getManaColorName, MANA_COLORS, MANA_COLOR_NAMES, applyManaSpendToCreatureSpellHasteManaLowerBound, consumeManaFromPool, deriveCreatureSpellHasteFromManaSpent, getOrInitManaPool, calculateTotalAvailableMana, validateManaPayment, getPlayerName, emitToPlayer, calculateManaProduction, broadcastManaPoolUpdate, millUntilLand, snapshotCreatureSpellHasteManaLowerBound, suppressAutomationOnNextBroadcast, LAND_PLAY_AUTOMATION_SUPPRESSION_MS, clearHumanAutoPassPauseOnAction } from "./util";
 import { emitResolutionStepPrompt, processPendingBottomOrder, processPendingCascades, processPendingDanceWithCalamity, processPendingLimDulsVault, processPendingPonder, processPendingProliferate, processPendingScry, processPendingSurveil, queueMayAbilityStep } from "./resolution.js";
 import { appendEvent, isGameCreator } from "../db";
 import { GameManager } from "../GameManager.js";
@@ -2643,6 +2643,21 @@ export function creatureHasHaste(permanent: any, battlefield: any[], controller:
     if (Array.isArray(grantedAbilities) && grantedAbilities.some((a: string) => 
       a && a.toLowerCase().includes('haste')
     )) {
+      return true;
+    }
+
+    // 2b. Check temporary haste granted until end of turn.
+    const tempAbilities = [
+      ...(Array.isArray(permanent?.tempAbilities) ? permanent.tempAbilities : []),
+      ...(Array.isArray(permanent?.temporaryAbilities) ? permanent.temporaryAbilities : []),
+    ];
+    if (tempAbilities.some((entry: any) => {
+      if (typeof entry === 'string') {
+        return entry.toLowerCase().includes('haste');
+      }
+      const abilityText = String(entry?.ability || entry?.keyword || entry?.name || '').toLowerCase();
+      return abilityText.includes('haste');
+    })) {
       return true;
     }
     
@@ -7081,6 +7096,7 @@ export function registerGameActions(io: Server, socket: Socket) {
       // Handle mana payment: tap permanents to generate mana (adds to pool)
       // ======================================================================
       const poolBeforePayment = { ...getOrInitManaPool(game.state, playerId) } as any;
+      const creatureSpellHasteLowerBoundBeforePayment = snapshotCreatureSpellHasteManaLowerBound(game.state, playerId);
       const producedNonSnowByColor: Record<string, number> = { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 };
       const producedSnowByColor: Record<string, number> = { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 };
       const producedTreasureByColor: Record<string, number> = { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 };
@@ -7299,10 +7315,23 @@ export function registerGameActions(io: Server, socket: Socket) {
         return;
       }
 
+      if (explicitPaymentSelected) {
+        applyManaSpendToCreatureSpellHasteManaLowerBound(game.state, String(playerId), (manaConsumption as any).consumed);
+      }
+
       const manaSpentTotal = Object.values(manaConsumption.consumed as Record<string, number>).reduce(
         (sum: number, value) => sum + (typeof value === 'number' ? value : 0),
         0,
       );
+      const spellIsCreature = String(cardInHand?.type_line || '').toLowerCase().includes('creature');
+      let gainsHasteUntilEndOfTurnFromManaSpent = false;
+      if (spellIsCreature) {
+        gainsHasteUntilEndOfTurnFromManaSpent = deriveCreatureSpellHasteFromManaSpent(game.state, String(playerId), {
+          poolBeforePayment,
+          consumed: (manaConsumption as any).consumed,
+          creatureSpellHasteLowerBoundBeforePayment,
+        });
+      }
       
       // Calculate converge value (number of different mana colors spent)
       // This is used by cards like Bring to Light, Radiant Flames, etc.
@@ -7688,6 +7717,11 @@ export function registerGameActions(io: Server, socket: Socket) {
                     wasBargained,
                   }
                 : {}),
+              ...(gainsHasteUntilEndOfTurnFromManaSpent === true
+                ? {
+                    gainsHasteUntilEndOfTurnFromManaSpent: true,
+                  }
+                : {}),
               ...(snowManaSpentByColor
                 ? {
                     snowManaSpentByColor: { ...snowManaSpentByColor },
@@ -7831,6 +7865,13 @@ export function registerGameActions(io: Server, socket: Socket) {
                 (topStackItem as any).manaFromTreasureSpent = true;
                 if ((topStackItem as any).card && typeof (topStackItem as any).card === 'object') {
                   (topStackItem as any).card.manaFromTreasureSpent = true;
+                }
+              }
+
+              if (gainsHasteUntilEndOfTurnFromManaSpent === true) {
+                (topStackItem as any).gainsHasteUntilEndOfTurnFromManaSpent = true;
+                if ((topStackItem as any).card && typeof (topStackItem as any).card === 'object') {
+                  (topStackItem as any).card.gainsHasteUntilEndOfTurnFromManaSpent = true;
                 }
               }
 

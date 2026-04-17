@@ -162,7 +162,7 @@ import { processLifeChange } from "./game-state-effects";
 import { sacrificePermanent } from "./upkeep-triggers";
 import { ResolutionQueueManager, ResolutionStepType } from "../resolution/index.js";
 import { parseManaCost } from "./mana-check.js";
-import { calculateManaProduction, consumeManaFromPool, getOrInitManaPool, resolveManaCostForPoolPayment } from "../../socket/util.js";
+import { calculateManaProduction, consumeManaFromPool, getOrInitManaPool, recordCreatureSpellHasteManaProduced, resolveManaCostForPoolPayment } from "../../socket/util.js";
 import { parseUpgradeAbilities as parseCreatureUpgradeAbilities } from "../../../../rules-engine/src/creatureUpgradeAbilities.js";
 import { detectTutorEffect, getActivatedAbilityScopeText, parseSearchCriteria } from "../../socket/interaction.js";
 import { getOpponentMayPayDrawCount, getOpponentMayPayTreasureCount } from "./opponent-may-pay-utils.js";
@@ -2528,6 +2528,9 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
             }
             if ((e as any).entersBattlefieldWithCounters && typeof (e as any).entersBattlefieldWithCounters === 'object') {
               applyToStackItem('entersBattlefieldWithCounters', { ...(e as any).entersBattlefieldWithCounters });
+            }
+            if ((e as any).gainsHasteUntilEndOfTurnFromManaSpent === true) {
+              applyToStackItem('gainsHasteUntilEndOfTurnFromManaSpent', true);
             }
 
             // Positive-only evidence flags
@@ -5450,6 +5453,13 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
                 ? recordedMana
                 : (perm ? inferLegacyManaReplay(ctx.state, perm, playerId, manaColor, (e as any).abilityId) : {});
               applyRecordedManaToPool(ctx, playerId, manaToApply);
+              if ((e as any).manaGrantsCreatureSpellHasteUntilEndOfTurn === true) {
+                for (const [poolKey, rawAmount] of Object.entries(manaToApply || {})) {
+                  const amount = Number(rawAmount || 0);
+                  if (!Number.isFinite(amount) || amount <= 0) continue;
+                  recordCreatureSpellHasteManaProduced(ctx.state, String(playerId), String(poolKey) as any, amount);
+                }
+              }
 
               const explicitLifeLost = Number((e as any).lifeLost || 0);
               const explicitLifeLossIsDamage = typeof (e as any).lifeLossIsDamage === 'boolean'

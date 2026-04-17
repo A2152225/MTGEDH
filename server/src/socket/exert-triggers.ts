@@ -50,6 +50,15 @@ export function pushWheneverYouExertTriggersOntoStack(
 ): void {
   const battlefield = Array.isArray((game.state as any)?.battlefield) ? (game.state as any).battlefield : [];
   const normalizedExertedPermanentId = String(exertedPermanentId || '').trim();
+  if (normalizedExertedPermanentId) {
+    const exertedPermanent = battlefield.find((entry: any) => entry && String(entry.id || '') === normalizedExertedPermanentId) as any;
+    if (exertedPermanent) {
+      const exertedTypeLine = String(exertedPermanent?.card?.type_line || '').toLowerCase();
+      if (!exertedTypeLine.includes('creature')) {
+        return;
+      }
+    }
+  }
 
   for (const permanent of battlefield) {
     if (!permanent || String(permanent.controller || '') !== controllerId) {

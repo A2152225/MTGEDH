@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
+import { snapshotCreatureSpellHasteManaLowerBound } from '../src/socket/util.js';
 import { createInitialGameState } from '../src/state/gameState.js';
 import type { PlayerID } from '../../shared/src';
 
@@ -420,5 +421,49 @@ describe('activateManaAbility replay semantics', () => {
     expect(Boolean(permanent?.tapped)).toBe(true);
     expect(Number(permanent?.counters?.storage || 0)).toBe(0);
     expect((game.state as any).manaPool?.[p1]).toEqual({ white: 2, blue: 1, black: 0, red: 0, green: 0, colorless: 0 });
+  });
+
+  it('replays recorded Arena-style haste-granting mana provenance', () => {
+    const game = createInitialGameState('t_activate_mana_ability_haste_provenance_replay');
+    const p1 = 'p1' as PlayerID;
+    addPlayer(game, p1, 'P1');
+
+    (game.state as any).battlefield = [
+      {
+        id: 'arena_1',
+        controller: p1,
+        owner: p1,
+        tapped: false,
+        counters: {},
+        card: {
+          id: 'arena_card_1',
+          name: 'Arena of Glory',
+          type_line: 'Land',
+          oracle_text: 'This land enters tapped unless you control a Mountain.\n{T}: Add {R}.\n{R}, {T}, Exert this land: Add {R}{R}. If that mana is spent on a creature spell, it gains haste until end of turn. (An exerted permanent won\'t untap during your next untap step.)',
+          zone: 'battlefield',
+        },
+      },
+    ];
+
+    game.applyEvent({
+      type: 'activateManaAbility',
+      playerId: p1,
+      permanentId: 'arena_1',
+      abilityId: 'arena_1-ability-1',
+      manaColor: 'MULTI',
+      addedMana: { red: 2 },
+      manaGrantsCreatureSpellHasteUntilEndOfTurn: true,
+    } as any);
+
+    expect((game.state as any).battlefield[0]?.tapped).toBe(true);
+    expect((game.state as any).manaPool?.[p1]).toEqual({ white: 0, blue: 0, black: 0, red: 2, green: 0, colorless: 0 });
+    expect(snapshotCreatureSpellHasteManaLowerBound((game.state as any), p1)).toEqual({
+      white: 0,
+      blue: 0,
+      black: 0,
+      red: 2,
+      green: 0,
+      colorless: 0,
+    });
   });
 });

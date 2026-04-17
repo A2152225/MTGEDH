@@ -1,7 +1,7 @@
 import type { Server, Socket } from "socket.io";
 import type { PlayerID, BattlefieldPermanent } from "../../../shared/src/index.js";
 import crypto from "crypto";
-import { ensureGame, appendGameEvent, broadcastGame, getPlayerName, emitToPlayer, broadcastManaPoolUpdate, getEffectivePower, getEffectiveToughness, parseManaCost, getOrInitManaPool, calculateTotalAvailableMana, validateManaPayment, consumeManaFromPool, calculateManaProduction, recordTreasureManaProduced, validateAndConsumeManaCostFromPool, clearHumanAutoPassPauseOnAction } from "./util";
+import { ensureGame, appendGameEvent, broadcastGame, getPlayerName, emitToPlayer, broadcastManaPoolUpdate, getEffectivePower, getEffectiveToughness, parseManaCost, getOrInitManaPool, calculateTotalAvailableMana, validateManaPayment, consumeManaFromPool, calculateManaProduction, recordTreasureManaProduced, recordCreatureSpellHasteManaProduced, validateAndConsumeManaCostFromPool, clearHumanAutoPassPauseOnAction } from "./util";
 import { appendEvent } from "../db";
 import { games } from "./socket.js";
 import { 
@@ -668,7 +668,7 @@ function parseActivationCost(oracleText: string, abilityPattern: RegExp): {
 }
 
 function costRequiresSelfExert(costText: string): boolean {
-  return /\bexert\s+(?:this creature|~)\b/i.test(String(costText || ''));
+  return /\bexert\s+(?:this(?:\s+\w+)?|~|it)\b/i.test(String(costText || ''));
 }
 
   function normalizeSelectedXValue(raw: unknown): number | undefined {
@@ -1730,6 +1730,33 @@ function getExplicitSelectedAnyColorManaAmount(text: string): number | undefined
   return match ? parseSelectedManaChoiceAmount(String(match[1] || '')) : undefined;
 }
 
+function parseExplicitSelectedManaProduction(text: string): {
+  produces: string[];
+  baseAmount: number;
+  producesAllAtOnce: boolean;
+} | undefined {
+  const rawText = String(text || '');
+  if (!rawText.trim()) {
+    return undefined;
+  }
+
+  const effectText = rawText.includes(':') ? rawText.split(':').slice(1).join(':') : rawText;
+  const directSymbolsMatch = effectText.match(/\badd\s+((?:\{[wubrgc]\}){1,})/i);
+  if (directSymbolsMatch) {
+    const manaSymbols = directSymbolsMatch[1].match(/\{([wubrgc])\}/gi) || [];
+    const produces = [...new Set(manaSymbols.map((symbol) => symbol.replace(/[{}]/g, '').toUpperCase()))];
+    if (produces.length > 0) {
+      return {
+        produces,
+        baseAmount: manaSymbols.length,
+        producesAllAtOnce: manaSymbols.length > 1,
+      };
+    }
+  }
+
+  return undefined;
+}
+
 function normalizeManaAbilityProducedColors(rawColors: unknown): string[] {
   if (!Array.isArray(rawColors)) {
     return [];
@@ -1918,7 +1945,8 @@ export function resolveManaAbilityActivationShape(
     selectedCostTextRaw,
   ) || manaAbilities[0];
   const manaProduction = calculateManaProduction(gameState, permanent, playerId, undefined, abilityIdRaw || undefined);
-  const calculatedProduces = normalizeManaAbilityProducedColors(manaProduction?.colors);
+  const explicitSelectedManaProduction = parseExplicitSelectedManaProduction(selectedAbilityFullTextRaw || selectedAbilityTextRaw);
+  const calculatedProduces = explicitSelectedManaProduction?.produces || normalizeManaAbilityProducedColors(manaProduction?.colors);
   const abilityProduces = normalizeManaAbilityProducedColors(ability?.produces);
   const normalizedSelectedAbilityText = normalizeManaAbilitySelectionText(selectedAbilityTextRaw || selectedAbilityFullTextRaw);
   const shouldPreferAbilityProduces = abilityProduces.length > 1 && (
@@ -1931,12 +1959,14 @@ export function resolveManaAbilityActivationShape(
     ? abilityProduces
     : (calculatedProduces.length > 0 ? calculatedProduces : abilityProduces);
   const explicitSelectedChoiceAmount = getExplicitSelectedAnyColorManaAmount(selectedAbilityTextRaw || selectedAbilityFullTextRaw);
-  const rawBaseAmount = explicitSelectedChoiceAmount ?? Number(manaProduction?.baseAmount || ability?.amount || 1);
+  const rawBaseAmount = explicitSelectedChoiceAmount
+    ?? explicitSelectedManaProduction?.baseAmount
+    ?? Number(manaProduction?.baseAmount || ability?.amount || 1);
   const baseAmount = Number.isFinite(rawBaseAmount) && rawBaseAmount > 0 ? rawBaseAmount : 1;
-  const producesAllAtOnce = (
+  const producesAllAtOnce = explicitSelectedManaProduction?.producesAllAtOnce ?? ((
     ability?.producesAllAtOnce === true ||
     (!ability && manaProduction?.requiresColorChoice !== true && produces.length > 1 && baseAmount === produces.length)
-  ) && produces.length > 1;
+  ) && produces.length > 1);
 
   return {
     ability,
@@ -7750,6 +7780,32 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     const selectedAbilityFullText = selectedAbilityIndex < abilities.length
       ? String(abilities[selectedAbilityIndex]?.fullText || `${abilities[selectedAbilityIndex]?.cost || ''}: ${abilities[selectedAbilityIndex]?.effect || ''}`).trim()
       : String(abilityOracleText || '').trim();
+    const selectedAbilityOracleLine = (() => {
+      const rawLines = String(abilityOracleText || '')
+        .split(/\r?\n/)
+        .map((line) => String(line || '').trim())
+        .filter((line) => line.length > 0);
+      const activatedLines = rawLines.filter((line) => {
+        const colonIndex = line.indexOf(':');
+        if (colonIndex <= 0) {
+          return false;
+        }
+        const costLower = line.slice(0, colonIndex).toLowerCase();
+        return (
+          costLower.includes('{') ||
+          costLower.includes('tap') ||
+          costLower.includes('sacrifice') ||
+          costLower.includes('discard') ||
+          (costLower.includes('remove') && costLower.includes('counter')) ||
+          (costLower.includes('pay') && costLower.includes('life')) ||
+          costLower.includes('exile') ||
+          costLower.includes('return')
+        );
+      });
+      return selectedAbilityIndex < activatedLines.length
+        ? String(activatedLines[selectedAbilityIndex] || '').trim()
+        : selectedAbilityFullText;
+    })();
     const selectedAbilityMatchIndex = selectedAbilityIndex < abilities.length
       ? (() => {
           const parsedFullText = String(abilities[selectedAbilityIndex]?.fullText || '').trim();
@@ -9001,6 +9057,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     // activations apply the same side effects.
     let pendingManaLifeLossAmount = 0;
     let pendingManaLifeLossIsDamage = false;
+    let manaGrantsCreatureSpellHasteUntilEndOfTurn = false;
     const recordedAddedMana: Record<string, number> = {};
     const recordAddedMana = (poolKey: string, amount: number) => {
       if (!poolKey) return;
@@ -11060,6 +11117,9 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       
       const isLand = typeLine.includes("land");
       const isBasic = typeLine.includes("basic");
+      manaGrantsCreatureSpellHasteUntilEndOfTurn = /if that mana is spent on a creature spell, it gains haste until end of turn/i.test(
+        String(selectedAbilityOracleLine || selectedAbilityFullText || resolvedActivatedAbilityText || resolvedAbilityText || abilityText || ''),
+      );
       
       // Check for devotion-based mana abilities (Karametra's Acolyte, etc.)
       const devotionMana = getDevotionManaAmount(game.state, permanent, pid);
@@ -11092,6 +11152,9 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         const poolKey = colorToPoolKey[devotionMana.color] || 'green';
         (game.state.manaPool[pid] as any)[poolKey] += totalAmount;
         recordAddedMana(poolKey, totalAmount);
+        if (manaGrantsCreatureSpellHasteUntilEndOfTurn) {
+          recordCreatureSpellHasteManaProduced(game.state, String(pid), String(poolKey) as any, totalAmount);
+        }
         
         io.to(gameId).emit("chat", {
           id: `m_${Date.now()}`,
@@ -11171,6 +11234,9 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
           const poolKey = colorToPoolKey[creatureCountMana.color] || 'green';
           (game.state.manaPool[pid] as any)[poolKey] += totalAmount;
           recordAddedMana(poolKey, totalAmount);
+          if (manaGrantsCreatureSpellHasteUntilEndOfTurn) {
+            recordCreatureSpellHasteManaProduced(game.state, String(pid), String(poolKey) as any, totalAmount);
+          }
           
           io.to(gameId).emit("chat", {
             id: `m_${Date.now()}`,
@@ -11227,6 +11293,9 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
               const poolKey = colorToPoolKey[manaColor] || 'colorless';
               (game.state.manaPool[pid] as any)[poolKey] += amountPerColor * effectiveMultiplier;
               recordAddedMana(poolKey, amountPerColor * effectiveMultiplier);
+              if (manaGrantsCreatureSpellHasteUntilEndOfTurn) {
+                recordCreatureSpellHasteManaProduced(game.state, String(pid), String(poolKey) as any, amountPerColor * effectiveMultiplier);
+              }
               manaAdded.push(`{${manaColor}}`);
             }
 
@@ -11311,11 +11380,17 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
               const extraPoolKey = colorToPoolKey[extra.color] || poolKey;
               (game.state.manaPool[pid] as any)[extraPoolKey] += extra.amount;
               recordAddedMana(extraPoolKey, extra.amount);
+              if (manaGrantsCreatureSpellHasteUntilEndOfTurn) {
+                recordCreatureSpellHasteManaProduced(game.state, String(pid), String(extraPoolKey) as any, extra.amount);
+              }
               totalAmount += extra.amount;
             }
 
             (game.state.manaPool[pid] as any)[poolKey] += baseAmount * effectiveMultiplier;
             recordAddedMana(poolKey, baseAmount * effectiveMultiplier);
+            if (manaGrantsCreatureSpellHasteUntilEndOfTurn) {
+              recordCreatureSpellHasteManaProduced(game.state, String(pid), String(poolKey) as any, baseAmount * effectiveMultiplier);
+            }
 
             let message = `${getPlayerName(game, pid)} tapped ${cardName}`;
             if (effectiveMultiplier > 1 && extraMana.length > 0) {
@@ -11514,6 +11589,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         abilityId,
         manaColor,
         addedMana: { ...recordedAddedMana },
+        ...(manaGrantsCreatureSpellHasteUntilEndOfTurn ? { manaGrantsCreatureSpellHasteUntilEndOfTurn: true } : null),
         lifeLost: pendingManaLifeLossAmount > 0 ? pendingManaLifeLossAmount : undefined,
         lifeLossIsDamage: pendingManaLifeLossAmount > 0 ? pendingManaLifeLossIsDamage === true : undefined,
       });

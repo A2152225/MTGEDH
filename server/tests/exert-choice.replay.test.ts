@@ -256,6 +256,153 @@ describe('exertChoice replay coverage', () => {
     expect((game.state as any).life[defenderId]).toBe(39);
   });
 
+  it('replays named self-reference exert rewards like Anep, Vizier of Hazoret by exiling the top two cards and marking them playable through your next turn', () => {
+    const gameId = createGameId();
+    trackedGameIds.add(gameId);
+    const attackerId = 'p1' as PlayerID;
+    const defenderId = 'p2' as PlayerID;
+    const game = seedCombatGame(gameId, attackerId, defenderId);
+
+    (game.state as any).battlefield = [
+      {
+        id: 'anep_vizier_of_hazoret',
+        controller: attackerId,
+        owner: attackerId,
+        tapped: false,
+        summoningSickness: false,
+        counters: {},
+        basePower: 4,
+        baseToughness: 2,
+        card: {
+          id: 'anep_vizier_of_hazoret_card',
+          name: 'Anep, Vizier of Hazoret',
+          type_line: 'Legendary Creature - Jackal Warrior',
+          oracle_text: "Trample\nYou may exert Anep as it attacks. When you do, exile the top two cards of your library. Until the end of your next turn, you may play those cards. (An exerted creature won't untap during your next untap step.)",
+          power: '4',
+          toughness: '2',
+        },
+      },
+    ];
+    (game.state as any).zones = {
+      [attackerId]: {
+        hand: [],
+        handCount: 0,
+        library: [
+          { id: 'anep_top_land', name: 'Mountain', type_line: 'Basic Land - Mountain', oracle_text: '', colors: [] },
+          { id: 'anep_top_spell', name: 'Anep Top Spell', type_line: 'Sorcery', oracle_text: '', colors: ['R'] },
+        ],
+        libraryCount: 2,
+        graveyard: [],
+        graveyardCount: 0,
+        exile: [],
+        exileCount: 0,
+      },
+      [defenderId]: { hand: [], handCount: 0, library: [], libraryCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0 },
+    };
+    (game as any).libraries.set(attackerId, (game.state as any).zones[attackerId].library);
+    (game as any).libraries.set(defenderId, []);
+
+    game.applyEvent({
+      type: 'exertChoice',
+      playerId: attackerId,
+      attackerId: 'anep_vizier_of_hazoret',
+    } as any);
+
+    game.applyEvent({
+      type: 'pushTriggeredAbility',
+      triggerId: 'anep_vizier_of_hazoret_exert_replay',
+      sourceId: 'anep_vizier_of_hazoret',
+      permanentId: 'anep_vizier_of_hazoret',
+      sourceName: 'Anep, Vizier of Hazoret',
+      controllerId: attackerId,
+      description: 'exile the top two cards of your library. Until the end of your next turn, you may play those cards.',
+      triggerType: 'exert',
+      effect: 'exile the top two cards of your library. Until the end of your next turn, you may play those cards.',
+      mandatory: true,
+      card: { ...((game.state as any).battlefield[0] as any).card },
+    } as any);
+
+    game.applyEvent({ type: 'resolveTopOfStack' } as any);
+
+    const anep = (((game.state as any).battlefield || []) as any[]).find((permanent: any) => permanent?.id === 'anep_vizier_of_hazoret') as any;
+    const attackerZones = (game.state as any).zones[attackerId] as any;
+    const exiledIds = (attackerZones.exile || []).map((card: any) => card.id);
+    const pendingImpulse = ((game.state as any).pendingImpulseDraws?.[attackerId] || []) as any[];
+    expect(anep?.doesntUntapNextTurn).toBe(true);
+    expect(anep?.exertedThisTurn).toBe(true);
+    expect(exiledIds).toEqual(['anep_top_land', 'anep_top_spell']);
+    expect(attackerZones.exileCount).toBe(2);
+    expect(attackerZones.libraryCount).toBe(0);
+    expect((game.state as any).playableFromExile?.[attackerId]?.anep_top_land).toBe(2);
+    expect((game.state as any).playableFromExile?.[attackerId]?.anep_top_spell).toBe(2);
+    expect(attackerZones.exile).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'anep_top_land', canBePlayedBy: attackerId, playableUntilTurn: 2 }),
+      expect.objectContaining({ id: 'anep_top_spell', canBePlayedBy: attackerId, playableUntilTurn: 2 }),
+    ]));
+    expect(pendingImpulse).toEqual(expect.arrayContaining([
+      expect.objectContaining({ cardId: 'anep_top_land', playableUntilTurn: 2 }),
+      expect.objectContaining({ cardId: 'anep_top_spell', playableUntilTurn: 2 }),
+    ]));
+  });
+
+  it('replays pronoun-based exert rewards like Themberchaud by granting flying until end of turn', () => {
+    const gameId = createGameId();
+    trackedGameIds.add(gameId);
+    const attackerId = 'p1' as PlayerID;
+    const defenderId = 'p2' as PlayerID;
+    const game = seedCombatGame(gameId, attackerId, defenderId);
+
+    (game.state as any).battlefield = [
+      {
+        id: 'themberchaud',
+        controller: attackerId,
+        owner: attackerId,
+        tapped: false,
+        summoningSickness: false,
+        counters: {},
+        basePower: 5,
+        baseToughness: 5,
+        card: {
+          id: 'themberchaud_card',
+          name: 'Themberchaud',
+          type_line: 'Legendary Creature - Dragon',
+          oracle_text: "Trample\nWhen Themberchaud enters, he deals X damage to each other creature without flying and each player, where X is the number of Mountains you control.\nYou may exert Themberchaud as he attacks. When you do, he gains flying until end of turn. (An exerted creature won't untap during your next untap step.)",
+          power: '5',
+          toughness: '5',
+        },
+      },
+    ];
+
+    game.applyEvent({
+      type: 'exertChoice',
+      playerId: attackerId,
+      attackerId: 'themberchaud',
+    } as any);
+
+    game.applyEvent({
+      type: 'pushTriggeredAbility',
+      triggerId: 'themberchaud_exert_replay',
+      sourceId: 'themberchaud',
+      permanentId: 'themberchaud',
+      sourceName: 'Themberchaud',
+      controllerId: attackerId,
+      description: 'he gains flying until end of turn.',
+      triggerType: 'exert',
+      effect: 'he gains flying until end of turn.',
+      mandatory: true,
+      card: { ...((game.state as any).battlefield[0] as any).card },
+    } as any);
+
+    game.applyEvent({ type: 'resolveTopOfStack' } as any);
+
+    const themberchaud = (((game.state as any).battlefield || []) as any[]).find((permanent: any) => permanent?.id === 'themberchaud') as any;
+    expect(themberchaud?.doesntUntapNextTurn).toBe(true);
+    expect(themberchaud?.exertedThisTurn).toBe(true);
+    expect(themberchaud?.temporaryAbilities).toEqual([
+      expect.objectContaining({ ability: 'flying', expiresAt: 'end_of_turn' }),
+    ]);
+  });
+
   it('replays targeted whenever-you-exert watcher triggers like Vizier of the True with persisted targets', () => {
     const gameId = createGameId();
     trackedGameIds.add(gameId);

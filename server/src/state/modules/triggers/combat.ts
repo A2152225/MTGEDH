@@ -23,6 +23,7 @@ import { debug, debugWarn, debugError } from "../../../utils/debug.js";
 import { permanentHasCreatureType } from "../../../../../shared/src/creatureTypes.js";
 import { isInterveningIfSatisfied } from "./intervening-if.js";
 import { detectKeywords } from "../keyword-detection.js";
+import { normalizeCardNameForOracleText } from "../../utils.js";
 
 // ============================================================================
 // Trigger Doubling (Roaming Throne, Isshin, Teysa Karlov, etc.)
@@ -240,6 +241,21 @@ function normalizeOracleTextForInlineMatching(oracleText: string): string {
   return getOracleLines(oracleText).join(' ').replace(/\s+/g, ' ').trim();
 }
 
+function buildExertSelfReferencePattern(card: any): string {
+  const variants = ['this creature', 'it'];
+  const fullName = String(card?.name || '').trim();
+  const oracleShortName = normalizeCardNameForOracleText(fullName);
+
+  if (oracleShortName) {
+    variants.push(escapeCardNameForRegex(oracleShortName));
+  }
+  if (fullName && fullName.toLowerCase() !== oracleShortName.toLowerCase()) {
+    variants.push(escapeCardNameForRegex(fullName));
+  }
+
+  return `(?:${Array.from(new Set(variants)).join('|')})`;
+}
+
 function isSupportedExertAttackRewardDescription(description: string): boolean {
   const normalized = String(description || '').trim();
   if (!normalized) return false;
@@ -250,13 +266,14 @@ function isSupportedExertAttackRewardDescription(description: string): boolean {
   if (/put (?:a|an)(?: [\w,\s]+)? creature card from your hand onto the battlefield/i.test(normalized)) return true;
   if (/return target creature card(?: with mana value \d+ or less)? from your graveyard to the battlefield/i.test(normalized)) return true;
   if (/target creature gets \+X\/\+X(?: and gains .+?)? until end of turn, where X is the number of counters on permanents you control/i.test(normalized)) return true;
+  if (/exile the top \w+ cards? of your library\. until the end of your next turn, you may play those cards/i.test(normalized)) return true;
   if (/deals? \d+ damage to target/i.test(normalized)) return true;
-  if (/prevent all combat damage that would be dealt to (?:it|this creature) this turn/i.test(normalized)) return true;
-  if (/(?:it|this creature) can't be blocked by creatures with power 2 or less this turn/i.test(normalized)) return true;
+  if (/prevent all combat damage that would be dealt to (?:it|this creature|he|she) this turn/i.test(normalized)) return true;
+  if (/(?:it|this creature|he|she) can't be blocked by creatures with power 2 or less this turn/i.test(normalized)) return true;
   if (/create a tapped and attacking token that's a copy of target creature you control\. sacrifice the token at the beginning of the next end step/i.test(normalized)) return true;
-  if (/(?:it|this creature) can't be blocked this turn(?: and you scry \d+)?/i.test(normalized)) return true;
-  if (/(?:it|this creature) gets [+-]\d+\/[+-]\d+(?: and gains? .+?)? until end of turn/i.test(normalized)) return true;
-  if (/(?:it|this creature) gains .+? until end of turn/i.test(normalized)) return true;
+  if (/(?:it|this creature|he|she) can't be blocked this turn(?: and you scry \d+)?/i.test(normalized)) return true;
+  if (/(?:it|this creature|he|she) gets [+-]\d+\/[+-]\d+(?: and gains? .+?)? until end of turn/i.test(normalized)) return true;
+  if (/(?:it|this creature|he|she) gains .+? until end of turn/i.test(normalized)) return true;
   if (/target creature can't block this turn/i.test(normalized)) return true;
   return false;
 }
@@ -265,15 +282,19 @@ export function canExertAsItAttacks(card: any): boolean {
   const normalizedOracle = normalizeOracleTextForInlineMatching(String(card?.oracle_text || ''));
   if (!normalizedOracle) return false;
 
-  return /(?:if [^.]+,\s*)?you may exert (?:this creature|it) as it attacks\./i.test(normalizedOracle);
+  const selfReferencePattern = buildExertSelfReferencePattern(card);
+
+  return new RegExp(`(?:if [^.]+,\\s*)?you may exert ${selfReferencePattern} as (?:it|he|she) attacks\\.`, 'i').test(normalizedOracle);
 }
 
 export function getSupportedExertAttackReward(card: any): string | null {
   const normalizedOracle = normalizeOracleTextForInlineMatching(String(card?.oracle_text || ''));
   if (!normalizedOracle) return null;
 
+  const selfReferencePattern = buildExertSelfReferencePattern(card);
+
   const exertRewardMatch = normalizedOracle.match(
-    /(?:if [^.]+,\s*)?you may exert (?:this creature|it) as it attacks\. when you do, (.+?)(?:\s*\(an exerted creature won't untap during your next untap step\.?\))?$/i,
+    new RegExp(`(?:if [^.]+,\\s*)?you may exert ${selfReferencePattern} as (?:it|he|she) attacks\\. when you do, (.+?)(?:\\s*\\(an exerted creature won't untap during your next untap step\\.?\\))?$`, 'i'),
   );
   const rewardDescription = String(exertRewardMatch?.[1] || '')
     .replace(/\s*\([^)]*\)\s*$/i, '')

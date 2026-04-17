@@ -2310,6 +2310,156 @@ function resolveOracleWhoToPlayerIds(who: OraclePlayerSelector, caster: PlayerID
   }
 }
 
+function applyOracleIRImpulseExileTopStep(
+  ctx: GameContext,
+  caster: PlayerID,
+  spellName: string,
+  step: any,
+  xValue?: number,
+): number {
+  const count = resolveOracleQuantityToNumber((step as any).amount, xValue);
+  if (!count || count <= 0) return 0;
+
+  if ((step as any)?.who?.kind && (step as any).who.kind !== 'you') return 0;
+
+  const duration = (step as any).duration as 'this_turn' | 'until_end_of_next_turn' | undefined;
+  if (!duration) return 0;
+
+  const permission = (step as any).permission as 'play' | 'cast' | undefined;
+  if (!permission) return 0;
+
+  const condition = (step as any).condition as
+    | { kind: 'color'; color: 'W' | 'U' | 'B' | 'R' | 'G' }
+    | { kind: 'type'; type: 'land' | 'nonland' }
+    | undefined;
+
+  const stateAny: any = (ctx as any).state;
+  const libraries: any = (ctx as any).libraries;
+  if (!libraries || typeof libraries.get !== 'function' || typeof libraries.set !== 'function') return 0;
+
+  const playerIds = resolveOracleWhoToPlayerIds({ kind: 'you' } as any, caster, stateAny);
+  if (playerIds.length === 0) return 0;
+
+  let applied = 0;
+
+  for (const pid of playerIds) {
+    const lib = libraries.get(pid);
+    if (!Array.isArray(lib) || lib.length === 0) continue;
+
+    const take = Math.min(count, lib.length);
+    const exiledCards: any[] = [];
+    for (let i = 0; i < take; i++) {
+      const topCard = lib.shift();
+      if (topCard) exiledCards.push(topCard);
+    }
+    libraries.set(pid, lib);
+
+    const zones = stateAny.zones?.[pid];
+    if (zones) {
+      zones.libraryCount = lib.length;
+      zones.exile = Array.isArray((zones as any).exile) ? (zones as any).exile : ((zones as any).exile = []);
+    }
+
+    stateAny.playableFromExile = stateAny.playableFromExile || {};
+    stateAny.playableFromExile[pid] = stateAny.playableFromExile[pid] || {};
+
+    stateAny.pendingImpulseDraws = stateAny.pendingImpulseDraws || {};
+    stateAny.pendingImpulseDraws[pid] = stateAny.pendingImpulseDraws[pid] || [];
+
+    const playableUntilTurn =
+      duration === 'this_turn'
+        ? (stateAny.turnNumber || 0)
+        : (stateAny.turnNumber || 0) + 1;
+
+    let grantedCount = 0;
+
+    for (const c of exiledCards) {
+      const typeLineLower = String((c as any)?.type_line || '').toLowerCase();
+      const isLand = typeLineLower.includes('land');
+      const colors = Array.isArray((c as any)?.colors)
+        ? (c as any).colors.map((x: any) => String(x || '').toUpperCase())
+        : [];
+
+      const passesPermissionGate = permission === 'play' ? true : !isLand;
+      let passesConditionGate = true;
+      if (condition) {
+        if (condition.kind === 'type') {
+          passesConditionGate = condition.type === 'land' ? isLand : !isLand;
+        } else if (condition.kind === 'color') {
+          passesConditionGate = colors.includes(condition.color);
+        }
+      }
+
+      const grantPermission = passesPermissionGate && passesConditionGate;
+      const exiledCard = {
+        ...c,
+        zone: 'exile',
+        exiledBy: spellName,
+        ...(grantPermission ? { canBePlayedBy: pid, playableUntilTurn } : {}),
+      };
+
+      if (zones && Array.isArray((zones as any).exile)) {
+        (zones as any).exile.push(exiledCard);
+        (zones as any).exileCount = (zones as any).exile.length;
+      }
+
+      if (grantPermission) {
+        stateAny.playableFromExile[pid][String(c?.id)] = playableUntilTurn;
+        grantedCount++;
+      }
+
+      stateAny.pendingImpulseDraws[pid].push({
+        cardId: c?.id,
+        cardName: c?.name,
+        exiledBy: spellName,
+        ...(grantPermission ? { playableUntilTurn } : {}),
+      });
+      applied += 1;
+    }
+
+    if (typeof (ctx as any).bumpSeq === 'function') {
+      (ctx as any).bumpSeq();
+    }
+
+    debug(
+      2,
+      `[oracleIR] ${spellName}: exiled ${exiledCards.length} top card(s) from ${pid}'s library (impulse, ${duration}, granted=${grantedCount})`,
+    );
+  }
+
+  return applied;
+}
+
+function applyOracleIRFallbackForTriggeredEffect(
+  ctx: GameContext,
+  controller: PlayerID,
+  sourceName: string,
+  description: string,
+): number {
+  try {
+    const text = String(description || '').trim();
+    if (!text) return 0;
+
+    const lower = text.toLowerCase();
+    if (!(lower.includes('exile') && lower.includes('top') && lower.includes('library') && lower.includes('you may play'))) {
+      return 0;
+    }
+
+    const ir = parseOracleTextToIR(text, sourceName);
+    let applied = 0;
+    for (const ability of ir.abilities || []) {
+      for (const step of ability.steps || []) {
+        if (!step || step.kind !== 'impulse_exile_top') continue;
+        applied += applyOracleIRImpulseExileTopStep(ctx, controller, sourceName, step as any);
+      }
+    }
+
+    return applied;
+  } catch {
+    return 0;
+  }
+}
+
 const OPTIONAL_COPY_ABILITY_PAYMENT_PATTERN = /^you may pay (\{[^}]+\}(?:\{[^}]+\})*)\.\s*if you do,\s*copy that ability(?:\.|(?:\.\s*you may choose new targets for the copy\.))?$/i;
 const DIRECT_COPY_ABILITY_PATTERN = /^copy that ability(?:\.|(?:\.\s*you may choose new targets for the copy\.))?$/i;
 const OPPONENT_MAY_PAY_SPELL_CAST_TRIGGER_TYPES = new Set([
@@ -2939,118 +3089,7 @@ function applyOracleIRFallbackForUncategorizedSpell(
 
       switch (step.kind) {
         case 'impulse_exile_top': {
-          const count = resolveOracleQuantityToNumber((step as any).amount, xValue);
-          if (!count || count <= 0) break;
-
-          // For now, only support "you" (the caster/controller). Other selectors could be ambiguous.
-          if ((step as any)?.who?.kind && (step as any).who.kind !== 'you') break;
-
-          const duration = (step as any).duration as 'this_turn' | 'until_end_of_next_turn' | undefined;
-          if (!duration) break;
-
-          const permission = (step as any).permission as 'play' | 'cast' | undefined;
-          if (!permission) break;
-          const condition = (step as any).condition as
-            | { kind: 'color'; color: 'W' | 'U' | 'B' | 'R' | 'G' }
-            | { kind: 'type'; type: 'land' | 'nonland' }
-            | undefined;
-
-          const stateAny: any = (ctx as any).state;
-          const libraries: any = (ctx as any).libraries;
-          if (!libraries || typeof libraries.get !== 'function' || typeof libraries.set !== 'function') break;
-
-          const playerIds = resolveOracleWhoToPlayerIds({ kind: 'you' } as any, caster, stateAny);
-          if (playerIds.length === 0) break;
-
-          for (const pid of playerIds) {
-            const lib = libraries.get(pid);
-            if (!Array.isArray(lib) || lib.length === 0) continue;
-
-            const take = Math.min(count, lib.length);
-            const exiledCards: any[] = [];
-            for (let i = 0; i < take; i++) {
-              const topCard = lib.shift();
-              if (topCard) exiledCards.push(topCard);
-            }
-            libraries.set(pid, lib);
-
-            const zones = stateAny.zones?.[pid];
-            if (zones) {
-              zones.libraryCount = lib.length;
-            }
-
-            if (zones) {
-              zones.exile = Array.isArray((zones as any).exile) ? (zones as any).exile : ((zones as any).exile = []);
-            }
-
-            stateAny.playableFromExile = stateAny.playableFromExile || {};
-            stateAny.playableFromExile[pid] = stateAny.playableFromExile[pid] || {};
-
-            stateAny.pendingImpulseDraws = stateAny.pendingImpulseDraws || {};
-            stateAny.pendingImpulseDraws[pid] = stateAny.pendingImpulseDraws[pid] || [];
-
-            const playableUntilTurn =
-              duration === 'this_turn'
-                ? (stateAny.turnNumber || 0)
-                : (stateAny.turnNumber || 0) + 1;
-
-            let grantedCount = 0;
-
-            for (const c of exiledCards) {
-              const typeLineLower = String((c as any)?.type_line || '').toLowerCase();
-              const isLand = typeLineLower.includes('land');
-              const colors = Array.isArray((c as any)?.colors)
-                ? (c as any).colors.map((x: any) => String(x || '').toUpperCase())
-                : [];
-
-              const passesPermissionGate = permission === 'play' ? true : !isLand;
-              let passesConditionGate = true;
-              if (condition) {
-                if (condition.kind === 'type') {
-                  passesConditionGate = condition.type === 'land' ? isLand : !isLand;
-                } else if (condition.kind === 'color') {
-                  passesConditionGate = colors.includes(condition.color);
-                }
-              }
-
-              const grantPermission = passesPermissionGate && passesConditionGate;
-
-              const exiledCard = {
-                ...c,
-                zone: 'exile',
-                exiledBy: spellName,
-                ...(grantPermission ? { canBePlayedBy: pid, playableUntilTurn } : {}),
-              };
-              if (zones && Array.isArray((zones as any).exile)) {
-                (zones as any).exile.push(exiledCard);
-                (zones as any).exileCount = (zones as any).exile.length;
-              }
-
-              if (grantPermission) {
-                // Gate play/cast permissions (impulse draw) by turn number.
-                stateAny.playableFromExile[pid][String(c?.id)] = playableUntilTurn;
-                grantedCount++;
-              }
-
-              stateAny.pendingImpulseDraws[pid].push({
-                cardId: c?.id,
-                cardName: c?.name,
-                exiledBy: spellName,
-                ...(grantPermission ? { playableUntilTurn } : {}),
-              });
-              // Exiling itself is an applied effect, even if no permission was granted.
-              applied += 1;
-            }
-
-            if (typeof (ctx as any).bumpSeq === 'function') {
-              (ctx as any).bumpSeq();
-            }
-
-            debug(
-              2,
-              `[oracleIR] ${spellName}: exiled ${exiledCards.length} top card(s) from ${pid}'s library (impulse, ${duration}, granted=${grantedCount})`
-            );
-          }
+          applied += applyOracleIRImpulseExileTopStep(ctx, caster, spellName, step as any, xValue);
           break;
         }
         case 'add_mana': {
@@ -7224,6 +7263,11 @@ export function executeTriggerEffect(
     debug(2, `[executeTriggerEffect] Queued reveal-until-equipment search for ${sourceName} with ${availableCards.length} matching card(s)`);
     return;
   }
+
+  const triggeredOracleIRApplied = applyOracleIRFallbackForTriggeredEffect(ctx, controller, sourceName, description);
+  if (triggeredOracleIRApplied > 0) {
+    return;
+  }
   
   let handled = false;
   
@@ -8998,8 +9042,8 @@ export function executeTriggerEffect(
     : null;
 
   const selfGetsMatch =
-    desc.match(/(?:it|this creature) gets ([+-]\d+)\/([+-]\d+)(?: and gains (.+?))? until end of turn\.?$/i) ||
-    desc.match(/until end of turn,? (?:it|this creature) gets ([+-]\d+)\/([+-]\d+)(?: and gains (.+?))?\.?$/i);
+    desc.match(/(?:it|this creature|he|she) gets ([+-]\d+)\/([+-]\d+)(?: and gains (.+?))? until end of turn\.?$/i) ||
+    desc.match(/until end of turn,? (?:it|this creature|he|she) gets ([+-]\d+)\/([+-]\d+)(?: and gains (.+?))?\.?$/i);
   if (selfGetsMatch && sourcePermanent) {
     const powerMod = parseInt(selfGetsMatch[1], 10);
     const toughnessMod = parseInt(selfGetsMatch[2], 10);
@@ -9033,8 +9077,8 @@ export function executeTriggerEffect(
   }
 
   const selfGainsMatch =
-    desc.match(/(?:it|this creature) gains (.+?) until end of turn\.?$/i) ||
-    desc.match(/until end of turn,? (?:it|this creature) gains (.+?)\.?$/i);
+    desc.match(/(?:it|this creature|he|she) gains (.+?) until end of turn\.?$/i) ||
+    desc.match(/until end of turn,? (?:it|this creature|he|she) gains (.+?)\.?$/i);
   if (selfGainsMatch && sourcePermanent) {
     const gainedAbilities = splitGrantedTemporaryAbilities(selfGainsMatch[1]);
     sourcePermanent.temporaryAbilities = Array.isArray(sourcePermanent.temporaryAbilities) ? sourcePermanent.temporaryAbilities : [];
@@ -12586,7 +12630,14 @@ export function resolveTopOfStack(ctx: GameContext) {
     // Check if the creature has haste from any source (own text or battlefield effects)
     // Rule 702.10: Haste allows ignoring summoning sickness
     const battlefield = state.battlefield || [];
-    const hasHaste = isCreature && creatureWillHaveHaste(effectiveCard, controller, battlefield);
+    const gainsHasteUntilEndOfTurnFromManaSpent = isCreature && (
+      (item as any).gainsHasteUntilEndOfTurnFromManaSpent === true ||
+      (item as any).card?.gainsHasteUntilEndOfTurnFromManaSpent === true
+    );
+    const hasHaste = isCreature && (
+      gainsHasteUntilEndOfTurnFromManaSpent ||
+      creatureWillHaveHaste(effectiveCard, controller, battlefield)
+    );
     
     // Creatures have summoning sickness when they enter (unless they have haste)
     // Rule 302.6: A creature's activated ability with tap/untap symbol can't be
@@ -12736,6 +12787,18 @@ export function resolveTopOfStack(ctx: GameContext) {
     if (typeof (item as any).source === 'string' && (item as any).source.length > 0) {
       (newPermanent as any).castSourceZone = (item as any).source;
       (newPermanent.card as any).castSourceZone = (item as any).source;
+    }
+    if (gainsHasteUntilEndOfTurnFromManaSpent) {
+      (newPermanent as any).temporaryAbilities = Array.isArray((newPermanent as any).temporaryAbilities)
+        ? (newPermanent as any).temporaryAbilities
+        : [];
+      const alreadyHasTemporaryHaste = (newPermanent as any).temporaryAbilities.some((entry: any) =>
+        String(entry?.ability || entry?.keyword || entry?.name || '').toLowerCase() === 'haste'
+      );
+      if (!alreadyHasTemporaryHaste) {
+        (newPermanent as any).temporaryAbilities.push({ ability: 'haste', expiresAt: 'end_of_turn' });
+      }
+      newPermanent.summoningSickness = false;
     }
     
     // Store face-down information

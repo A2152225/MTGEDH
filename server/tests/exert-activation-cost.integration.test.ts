@@ -2,6 +2,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 import type { PlayerID } from '../../shared/src/index.js';
 import { createGameIfNotExists, deleteGame, getEvents, initDb } from '../src/db/index.js';
+import { registerGameActions } from '../src/socket/game-actions.js';
 import { registerInteractionHandlers } from '../src/socket/interaction.js';
 import { initializePriorityResolutionHandler, registerResolutionHandlers } from '../src/socket/resolution.js';
 import { games } from '../src/socket/socket.js';
@@ -881,5 +882,104 @@ describe('activated exert costs (integration)', () => {
       event?.payload?.permanentId === 'angel_of_condemnation' &&
       event?.payload?.exertedPermanentIdForCost === 'angel_of_condemnation',
     )).toBe(true);
+  });
+
+  it('supports Exert this land mana abilities like Arena of Glory and grants haste to creature spells cast with that mana', async () => {
+    const gameId = createGameId();
+    trackedGameIds.add(gameId);
+    const playerId = 'p1' as PlayerID;
+    const opponentId = 'p2' as PlayerID;
+    const game = seedGame(gameId, playerId, opponentId);
+
+    (game.state as any).phase = 'precombatMain';
+    (game.state as any).step = 'MAIN1';
+
+    (game.state as any).battlefield = [
+      {
+        id: 'arena_of_glory',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        card: {
+          id: 'arena_of_glory_card',
+          name: 'Arena of Glory',
+          type_line: 'Land',
+          oracle_text: 'This land enters tapped unless you control a Mountain.\n{T}: Add {R}.\n{R}, {T}, Exert this land: Add {R}{R}. If that mana is spent on a creature spell, it gains haste until end of turn. (An exerted permanent won\'t untap during your next untap step.)',
+        },
+      },
+      createCreature(
+        'trueheart_twins',
+        playerId,
+        'Trueheart Twins',
+        "You may exert this creature as it attacks. (It won't untap during your next untap step.)\nWhenever you exert a creature, creatures you control get +1/+0 until end of turn.",
+        4,
+        4,
+      ),
+    ];
+    (game.state as any).zones[playerId].hand = [
+      {
+        id: 'arena_raider',
+        name: 'Arena Raider',
+        mana_cost: '{1}{R}',
+        manaCost: '{1}{R}',
+        type_line: 'Creature - Warrior',
+        oracle_text: '',
+        power: '2',
+        toughness: '2',
+        image_uris: undefined,
+      },
+    ];
+    (game.state as any).zones[playerId].handCount = 1;
+    (game.state as any).manaPool[playerId].red = 1;
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket: playerSocket, handlers } = createMockSocket(playerId, emitted, gameId);
+    const io = createMockIo(emitted, [playerSocket]);
+
+    registerResolutionHandlers(io as any, playerSocket as any);
+    registerInteractionHandlers(io as any, playerSocket as any);
+    registerGameActions(io as any, playerSocket as any);
+
+    const eventStart = getEvents(gameId).length;
+    await handlers.activateBattlefieldAbility({
+      gameId,
+      permanentId: 'arena_of_glory',
+      abilityId: 'arena_of_glory-ability-1',
+    });
+
+    const arena = ((game.state as any).battlefield || []).find((permanent: any) => permanent?.id === 'arena_of_glory') as any;
+    expect(arena?.tapped).toBe(true);
+    expect(arena?.doesntUntapNextTurn).toBe(true);
+    expect(arena?.exertedThisTurn).toBe(true);
+    expect(Number((game.state as any).manaPool?.[playerId]?.red || 0)).toBe(2);
+    expect((((game.state as any).stack || []) as any[])).toHaveLength(0);
+
+    const activationEvents = getEvents(gameId).slice(eventStart);
+    expect(activationEvents.some((event: any) =>
+      event?.type === 'activateBattlefieldAbility' &&
+      event?.payload?.permanentId === 'arena_of_glory' &&
+      event?.payload?.exertedPermanentIdForCost === 'arena_of_glory',
+    )).toBe(true);
+    expect(activationEvents.some((event: any) =>
+      event?.type === 'activateManaAbility' &&
+      event?.payload?.permanentId === 'arena_of_glory' &&
+      event?.payload?.manaGrantsCreatureSpellHasteUntilEndOfTurn === true,
+    )).toBe(true);
+
+    await handlers.castSpellFromHand({ gameId, cardId: 'arena_raider', targets: [] });
+
+    const stack = (((game.state as any).stack || []) as any[]);
+    expect(stack).toHaveLength(1);
+    expect((stack[0] as any).gainsHasteUntilEndOfTurnFromManaSpent).toBe(true);
+
+    game.applyEvent({ type: 'resolveTopOfStack' } as any);
+
+    const raider = ((game.state as any).battlefield || []).find((permanent: any) => String(permanent?.card?.name || '') === 'Arena Raider') as any;
+    expect(raider).toBeDefined();
+    expect(raider?.summoningSickness).toBe(false);
+    expect(raider?.temporaryAbilities).toEqual([
+      expect.objectContaining({ ability: 'haste', expiresAt: 'end_of_turn' }),
+    ]);
+    expect(Number((game.state as any).manaPool?.[playerId]?.red || 0)).toBe(0);
   });
 });

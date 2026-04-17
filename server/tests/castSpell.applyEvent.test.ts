@@ -182,6 +182,52 @@ describe('castSpell via applyEvent', () => {
     expect(stackItem.card.entersBattlefieldWithCounters).toEqual({ '+1/+1': 1 });
   });
 
+  it('should restore haste-from-spent-mana metadata and resolve it into temporary haste', () => {
+    const g = createInitialGameState('cast_haste_from_mana_apply');
+
+    const p1 = 'p1' as PlayerID;
+
+    g.applyEvent({ type: 'join', playerId: p1, name: 'Player 1' });
+
+    const cards: Array<Pick<KnownCardRef, 'id' | 'name' | 'type_line' | 'oracle_text' | 'mana_cost' | 'image_uris'>> = [
+      {
+        id: 'raider_1',
+        name: 'Arena Raider',
+        type_line: 'Creature - Warrior',
+        oracle_text: '',
+        mana_cost: '{1}{R}',
+        image_uris: undefined,
+      },
+    ];
+
+    g.importDeckResolved(p1, cards as any);
+    g.drawCards(p1, 1);
+
+    (g.state as any).phase = GamePhase.PRECOMBAT_MAIN;
+    (g.state as any).turnPlayer = p1;
+    (g.state as any).priority = p1;
+
+    g.applyEvent({
+      type: 'castSpell',
+      playerId: p1,
+      cardId: 'raider_1',
+      targets: [],
+      gainsHasteUntilEndOfTurnFromManaSpent: true,
+    } as any);
+
+    expect(g.state.stack.length).toBe(1);
+    expect((g.state.stack[0] as any).gainsHasteUntilEndOfTurnFromManaSpent).toBe(true);
+
+    g.applyEvent({ type: 'resolveTopOfStack' } as any);
+
+    const permanent = (g.state.battlefield || []).find((entry: any) => String(entry?.card?.id || '') === 'raider_1') as any;
+    expect(permanent).toBeDefined();
+    expect(permanent.summoningSickness).toBe(false);
+    expect(permanent.temporaryAbilities).toEqual([
+      expect.objectContaining({ ability: 'haste', expiresAt: 'end_of_turn' }),
+    ]);
+  });
+
   it('should remove a library card and preserve library provenance when replaying a library-origin cast', () => {
     const g = createInitialGameState('cast_from_library_apply');
 
