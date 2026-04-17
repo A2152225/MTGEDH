@@ -48,6 +48,62 @@ describe('land choice replay semantics', () => {
     expect((game.state as any).manaPool[p1]).toEqual({ white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 });
   });
 
+  it('replays sacrifice-unless-pay with Treasure-backed auto-pay by preserving the token graveyard snapshot', () => {
+    const game = createInitialGameState('t_sacrifice_unless_pay_replay_treasure_pay');
+    const p1 = 'p1' as PlayerID;
+    addPlayer(game, p1, 'P1');
+
+    (game.state as any).manaPool = {
+      [p1]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+    };
+    (game.state as any).battlefield = [
+      {
+        id: 'promenade_1',
+        controller: p1,
+        owner: p1,
+        tapped: true,
+        card: {
+          id: 'promenade_card',
+          name: 'Transguild Promenade',
+          type_line: 'Land',
+          oracle_text: 'When Transguild Promenade enters the battlefield, sacrifice it unless you pay {1}.',
+        },
+      },
+      {
+        id: 'treasure_1',
+        controller: p1,
+        owner: p1,
+        tapped: false,
+        isToken: true,
+        card: {
+          id: 'treasure_card_1',
+          name: 'Treasure',
+          type_line: 'Token Artifact — Treasure',
+          oracle_text: '{T}, Sacrifice this artifact: Add one mana of any color.',
+          zone: 'battlefield',
+        },
+      },
+    ];
+    (game.state as any).zones = {
+      [p1]: { hand: [], handCount: 0, libraryCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0 },
+    };
+
+    game.applyEvent({
+      type: 'sacrificeUnlessPayChoice',
+      playerId: p1,
+      permanentId: 'promenade_1',
+      payMana: true,
+      manaCost: '{1}',
+      cardName: 'Transguild Promenade',
+      sacrificedPaymentPermanents: ['treasure_1'],
+      paymentManaDelta: {},
+    } as any);
+
+    expect(((game.state as any).battlefield || []).map((perm: any) => perm.id)).toEqual(['promenade_1']);
+    expect((((game.state as any).zones?.[p1]?.graveyard) || []).some((card: any) => card?.name === 'Treasure')).toBe(true);
+    expect((game.state as any).manaPool[p1]).toEqual({ white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 });
+  });
+
   it('replays sacrifice-unless-pay decline by moving the permanent to graveyard', () => {
     const game = createInitialGameState('t_sacrifice_unless_pay_replay_decline');
     const p1 = 'p1' as PlayerID;

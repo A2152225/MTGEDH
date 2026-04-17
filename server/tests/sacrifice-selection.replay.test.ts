@@ -87,4 +87,72 @@ describe('sacrificeSelectionResolve replay', () => {
     expect(queue.activeStep).toBeUndefined();
     expect(queue.steps).toEqual([]);
   });
+
+  it('replays sacrificed token permanents by preserving their graveyard snapshot', () => {
+    const step = ResolutionQueueManager.addStep(gameId, {
+      type: ResolutionStepType.TARGET_SELECTION,
+      playerId: 'p2',
+      sourceId: 'annihilator_attacker',
+      sourceName: 'Annihilator Attacker',
+      description: 'Choose a permanent to sacrifice.',
+      mandatory: true,
+      validTargets: [
+        { id: 'treasure_1', label: 'Treasure', description: 'permanent' },
+      ],
+      targetTypes: ['permanent'],
+      minTargets: 1,
+      maxTargets: 1,
+      targetDescription: 'permanent to sacrifice',
+      sacrificeSelection: true,
+      sacrificePermanentType: 'permanent',
+      sacrificeCount: 1,
+      sacrificeReason: 'Annihilator token test',
+      sacrificeSourceName: 'Annihilator Attacker',
+      annihilatorChoice: true,
+    } as any);
+
+    const ctx: any = {
+      gameId,
+      state: {
+        players: [{ id: 'p2', name: 'P2', spectator: false, life: 40 }],
+        battlefield: [
+          {
+            id: 'treasure_1',
+            controller: 'p2',
+            owner: 'p2',
+            isToken: true,
+            card: {
+              id: 'treasure_card_1',
+              name: 'Treasure',
+              type_line: 'Token Artifact — Treasure',
+              oracle_text: '{T}, Sacrifice this artifact: Add one mana of any color.',
+              zone: 'battlefield',
+            },
+          },
+        ],
+        zones: {
+          p2: { hand: [], handCount: 0, graveyard: [], graveyardCount: 0, library: [], libraryCount: 0, exile: [], exileCount: 0 },
+        },
+      },
+      bumpSeq() {},
+    };
+
+    applyEvent(ctx, {
+      type: 'sacrificeSelectionResolve',
+      resolvedStepId: step.id,
+      playerId: 'p2',
+      sourceId: 'annihilator_attacker',
+      sourceName: 'Annihilator Attacker',
+      permanentType: 'permanent',
+      permanentIds: ['treasure_1'],
+      reason: 'Annihilator token test',
+    } as any);
+
+    expect(((ctx.state as any).battlefield || []).map((perm: any) => perm.id)).toEqual([]);
+    expect((((ctx.state as any).zones?.p2?.graveyard) || []).map((card: any) => card.name)).toEqual(['Treasure']);
+
+    const queue = ResolutionQueueManager.getQueue(gameId) as any;
+    expect(queue.activeStep).toBeUndefined();
+    expect(queue.steps).toEqual([]);
+  });
 });
