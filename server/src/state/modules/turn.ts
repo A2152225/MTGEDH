@@ -2520,6 +2520,18 @@ function endTemporaryEffects(ctx: GameContext) {
         delete permanent.temporaryToughnessBoost;
         endedCount++;
       }
+      if (permanent.tempPowerBonus !== undefined) {
+        delete permanent.tempPowerBonus;
+        endedCount++;
+      }
+      if (permanent.tempToughnessBonus !== undefined) {
+        delete permanent.tempToughnessBonus;
+        endedCount++;
+      }
+      if (permanent.tempBonusExpires !== undefined) {
+        delete permanent.tempBonusExpires;
+        endedCount++;
+      }
 
       delete permanent.effectivePower;
       delete permanent.effectiveToughness;

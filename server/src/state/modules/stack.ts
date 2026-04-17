@@ -10273,7 +10273,17 @@ export function executeTriggerEffect(
     const triggerType = (triggerItem as any).triggerType;
     let timing: 'attacks' | 'etb' | 'dies' | 'combat_damage' | 'cast' | 'noncreature_cast' = 'cast';
     
-    if (triggerType === 'attacks' || triggerType === 'creature_attacks' || triggerType === 'myriad' || triggerType === 'annihilator') {
+    if (
+      triggerType === 'attacks' ||
+      triggerType === 'creature_attacks' ||
+      triggerType === 'myriad' ||
+      triggerType === 'annihilator' ||
+      triggerType === 'dethrone' ||
+      triggerType === 'melee' ||
+      triggerType === 'exalted' ||
+      triggerType === 'battle_cry' ||
+      triggerType === 'training'
+    ) {
       timing = 'attacks';
     } else if (triggerType === 'etb' || triggerType === 'etb_self') {
       timing = 'etb';
@@ -10314,7 +10324,19 @@ export function executeTriggerEffect(
         
         // Apply P/T modifications
         if (result.ptModification) {
-          applyKeywordPTMod(permanent, result);
+          const affectedPermanentIds = Array.isArray(result.affectedPermanentIds)
+            ? result.affectedPermanentIds.map((value: any) => String(value || '').trim()).filter(Boolean)
+            : [];
+
+          if (affectedPermanentIds.length > 0) {
+            for (const affectedPermanentId of affectedPermanentIds) {
+              const affectedPermanent = battlefield.find((entry: any) => entry && String(entry.id || '') === affectedPermanentId);
+              if (!affectedPermanent) continue;
+              applyKeywordPTMod(affectedPermanent, result);
+            }
+          } else {
+            applyKeywordPTMod(permanent, result);
+          }
         }
         
         // Handle player choices (will be processed by socket layer)

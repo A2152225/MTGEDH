@@ -33,6 +33,7 @@ export interface KeywordTriggerResult {
   damage?: { target: string; amount: number };
   sacrifice?: { player: string; count: number; type?: string };
   ptModification?: { power: number; toughness: number; duration: 'permanent' | 'end_of_turn' | 'end_of_combat' };
+  affectedPermanentIds?: string[];
   requiresPlayerChoice?: {
     type: string;
     options?: any[];
@@ -295,6 +296,20 @@ function processKeywordTrigger(
   }
 }
 
+function getAttackingCreatures(ctx: KeywordTriggerContext): any[] {
+  if (Array.isArray(ctx.attackingCreatures) && ctx.attackingCreatures.length > 0) {
+    return ctx.attackingCreatures.filter(Boolean);
+  }
+
+  return Array.isArray(ctx.battlefield)
+    ? ctx.battlefield.filter((entry: any) => {
+        if (!entry) return false;
+        const typeLine = String(entry?.card?.type_line || '').toLowerCase();
+        return typeLine.includes('creature') && Boolean(entry?.attacking);
+      })
+    : [];
+}
+
 // ============================================================================
 // Keyword-Specific Handlers
 // ============================================================================
@@ -380,7 +395,7 @@ function handleMelee(ctx: KeywordTriggerContext, keyword: DetectedKeyword): Keyw
   const cardName = ctx.permanent?.card?.name || 'Creature';
   
   // Count unique opponents being attacked
-  const attackingCreatures = ctx.attackingCreatures || [];
+  const attackingCreatures = getAttackingCreatures(ctx);
   const attackedOpponents = new Set<string>();
   
   for (const attacker of attackingCreatures) {
@@ -442,7 +457,7 @@ function handleMyriad(ctx: KeywordTriggerContext, keyword: DetectedKeyword): Key
  */
 function handleExalted(ctx: KeywordTriggerContext, keyword: DetectedKeyword): KeywordTriggerResult {
   const cardName = ctx.permanent?.card?.name || 'Permanent';
-  const attackingCreatures = ctx.attackingCreatures || [];
+  const attackingCreatures = getAttackingCreatures(ctx);
   
   // Only triggers when exactly one creature attacks
   const myAttackers = attackingCreatures.filter((c: any) => c.controller === ctx.controller);
@@ -450,11 +465,14 @@ function handleExalted(ctx: KeywordTriggerContext, keyword: DetectedKeyword): Ke
   if (myAttackers.length !== 1) {
     return { keyword: 'exalted', processed: true };
   }
+
+  const targetAttackerId = String(myAttackers[0]?.id || '').trim();
   
   return {
     keyword: 'exalted',
     processed: true,
     ptModification: { power: 1, toughness: 1, duration: 'end_of_turn' },
+    ...(targetAttackerId ? { affectedPermanentIds: [targetAttackerId] } : null),
     chatMessage: `${cardName}'s Exalted triggers - attacking creature gets +1/+1`,
   };
 }
@@ -464,7 +482,7 @@ function handleExalted(ctx: KeywordTriggerContext, keyword: DetectedKeyword): Ke
  */
 function handleBattleCry(ctx: KeywordTriggerContext, keyword: DetectedKeyword): KeywordTriggerResult {
   const cardName = ctx.permanent?.card?.name || 'Creature';
-  const attackingCreatures = ctx.attackingCreatures || [];
+  const attackingCreatures = getAttackingCreatures(ctx);
   const myAttackers = attackingCreatures.filter((c: any) => 
     c.controller === ctx.controller && c.id !== ctx.permanent?.id
   );
@@ -482,7 +500,7 @@ function handleBattleCry(ctx: KeywordTriggerContext, keyword: DetectedKeyword): 
  */
 function handleMentor(ctx: KeywordTriggerContext, keyword: DetectedKeyword): KeywordTriggerResult {
   const cardName = ctx.permanent?.card?.name || 'Creature';
-  const attackingCreatures = ctx.attackingCreatures || [];
+  const attackingCreatures = getAttackingCreatures(ctx);
   const mentorPower = ctx.permanent?.power ?? ctx.permanent?.card?.power ?? 0;
   
   // Find valid targets (attacking creatures with lesser power)
@@ -523,7 +541,7 @@ function handleMentor(ctx: KeywordTriggerContext, keyword: DetectedKeyword): Key
  */
 function handleTraining(ctx: KeywordTriggerContext, keyword: DetectedKeyword): KeywordTriggerResult {
   const cardName = ctx.permanent?.card?.name || 'Creature';
-  const attackingCreatures = ctx.attackingCreatures || [];
+  const attackingCreatures = getAttackingCreatures(ctx);
   const myPower = ctx.permanent?.power ?? ctx.permanent?.card?.power ?? 0;
   
   // Check if any other attacking creature has greater power
@@ -1506,12 +1524,17 @@ export function applyKeywordPTMod(
   
   permanent.tempPowerBonus = (permanent.tempPowerBonus || 0) + result.ptModification.power;
   permanent.tempToughnessBonus = (permanent.tempToughnessBonus || 0) + result.ptModification.toughness;
+  permanent.temporaryPowerBoost = (permanent.temporaryPowerBoost || 0) + result.ptModification.power;
+  permanent.temporaryToughnessBoost = (permanent.temporaryToughnessBoost || 0) + result.ptModification.toughness;
   
   if (result.ptModification.duration === 'end_of_turn') {
     permanent.tempBonusExpires = 'end_of_turn';
   } else if (result.ptModification.duration === 'end_of_combat') {
     permanent.tempBonusExpires = 'end_of_combat';
   }
+
+  delete permanent.effectivePower;
+  delete permanent.effectiveToughness;
   
   debug(2, `[KeywordHandlers] Applied +${result.ptModification.power}/+${result.ptModification.toughness} to ${permanent.card?.name}`);
 }
