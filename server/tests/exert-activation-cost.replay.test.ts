@@ -302,6 +302,128 @@ describe('activated exert costs replay coverage', () => {
     expect(forestB?.tapped).toBe(false);
   });
 
+  it('replays Fervent Paincaster exert damage activations with selected targets intact', () => {
+    const gameId = createGameId();
+    trackedGameIds.add(gameId);
+    const playerId = 'p1' as PlayerID;
+    const opponentId = 'p2' as PlayerID;
+    const game = seedGame(gameId, playerId, opponentId);
+
+    (game.state as any).battlefield = [
+      {
+        id: 'fervent_paincaster',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        summoningSickness: false,
+        counters: {},
+        basePower: 3,
+        baseToughness: 1,
+        card: {
+          id: 'fervent_paincaster_card',
+          name: 'Fervent Paincaster',
+          type_line: 'Creature — Human Wizard',
+          oracle_text: '{T}: This creature deals 1 damage to target player or planeswalker.\n{T}, Exert this creature: It deals 1 damage to target creature. (An exerted creature won\'t untap during your next untap step.)',
+          power: '3',
+          toughness: '1',
+        },
+      },
+      createCreature(
+        'target_creature',
+        opponentId,
+        'Target Creature',
+        '',
+        1,
+        1,
+      ),
+    ];
+
+    game.applyEvent({
+      type: 'activateBattlefieldAbility',
+      playerId,
+      permanentId: 'fervent_paincaster',
+      abilityId: 'fervent_paincaster-ability-1',
+      cardName: 'Fervent Paincaster',
+      abilityText: "It deals 1 damage to target creature. (An exerted creature won't untap during your next untap step.)",
+      activatedAbilityText: "{T}, Exert this creature: It deals 1 damage to target creature. (An exerted creature won't untap during your next untap step.)",
+      targets: ['target_creature'],
+      tappedPermanents: ['fervent_paincaster'],
+      exertedPermanentIdForCost: 'fervent_paincaster',
+    } as any);
+
+    const paincaster = ((game.state as any).battlefield || []).find((permanent: any) => permanent?.id === 'fervent_paincaster') as any;
+    expect(paincaster?.tapped).toBe(true);
+    expect(paincaster?.doesntUntapNextTurn).toBe(true);
+    expect(paincaster?.exertedThisTurn).toBe(true);
+    expect((((game.state as any).stack || []) as any[])).toHaveLength(1);
+
+    game.applyEvent({ type: 'resolveTopOfStack' } as any);
+
+    const targetCreature = (((game.state as any).battlefield || []) as any[]).find((permanent: any) => permanent?.id === 'target_creature') as any;
+    expect(targetCreature).toBeDefined();
+    expect(Number(targetCreature?.damageMarked || 0)).toBe(1);
+    expect(Number(targetCreature?.markedDamage || 0)).toBe(0);
+  });
+
+  it('replays Pride Sovereign exert token creation with lifelink cats intact', () => {
+    const gameId = createGameId();
+    trackedGameIds.add(gameId);
+    const playerId = 'p1' as PlayerID;
+    const opponentId = 'p2' as PlayerID;
+    const game = seedGame(gameId, playerId, opponentId);
+
+    (game.state as any).battlefield = [
+      {
+        id: 'pride_sovereign',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        summoningSickness: false,
+        counters: {},
+        basePower: 2,
+        baseToughness: 2,
+        card: {
+          id: 'pride_sovereign_card',
+          name: 'Pride Sovereign',
+          type_line: 'Creature — Cat',
+          oracle_text: 'This creature gets +1/+1 for each other Cat you control.\n{W}, {T}, Exert this creature: Create two 1/1 white Cat creature tokens with lifelink. (An exerted creature won\'t untap during your next untap step.)',
+          power: '2',
+          toughness: '2',
+        },
+      },
+    ];
+
+    game.applyEvent({
+      type: 'activateBattlefieldAbility',
+      playerId,
+      permanentId: 'pride_sovereign',
+      abilityId: 'pride_sovereign-ability-0',
+      cardName: 'Pride Sovereign',
+      abilityText: 'Create two 1/1 white Cat creature tokens with lifelink. (An exerted creature won\'t untap during your next untap step.)',
+      activatedAbilityText: '{W}, {T}, Exert this creature: Create two 1/1 white Cat creature tokens with lifelink. (An exerted creature won\'t untap during your next untap step.)',
+      usesStack: true,
+      tappedPermanents: ['pride_sovereign'],
+      exertedPermanentIdForCost: 'pride_sovereign',
+    } as any);
+
+    const sovereign = ((game.state as any).battlefield || []).find((permanent: any) => permanent?.id === 'pride_sovereign') as any;
+    expect(sovereign?.tapped).toBe(true);
+    expect(sovereign?.doesntUntapNextTurn).toBe(true);
+    expect(sovereign?.exertedThisTurn).toBe(true);
+    expect((((game.state as any).stack || []) as any[])).toHaveLength(1);
+
+    game.applyEvent({ type: 'resolveTopOfStack' } as any);
+
+    const catTokens = (((game.state as any).battlefield || []) as any[]).filter((permanent: any) =>
+      permanent?.id !== 'pride_sovereign' &&
+      String(permanent?.card?.type_line || '').toLowerCase().includes('cat'),
+    );
+    expect(catTokens).toHaveLength(2);
+    for (const token of catTokens) {
+      expect((token?.card?.keywords || []).map((entry: any) => String(entry))).toContain('Lifelink');
+    }
+  });
+
   it('replays Angel of Condemnation exert exile activations with return-on-leave intact', () => {
     const gameId = createGameId();
     trackedGameIds.add(gameId);

@@ -554,6 +554,203 @@ describe('activated exert costs (integration)', () => {
     expect(forestB?.tapped).toBe(false);
   });
 
+  it('supports Fervent Paincaster exert damage through target-selection completion', async () => {
+    const gameId = createGameId();
+    trackedGameIds.add(gameId);
+    const playerId = 'p1' as PlayerID;
+    const opponentId = 'p2' as PlayerID;
+    const game = seedGame(gameId, playerId, opponentId);
+
+    (game.state as any).battlefield = [
+      {
+        id: 'fervent_paincaster',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        summoningSickness: false,
+        counters: {},
+        basePower: 3,
+        baseToughness: 1,
+        card: {
+          id: 'fervent_paincaster_card',
+          name: 'Fervent Paincaster',
+          type_line: 'Creature — Human Wizard',
+          oracle_text: '{T}: This creature deals 1 damage to target player or planeswalker.\n{T}, Exert this creature: It deals 1 damage to target creature. (An exerted creature won\'t untap during your next untap step.)',
+          power: '3',
+          toughness: '1',
+        },
+      },
+      createCreature(
+        'trueheart_twins',
+        playerId,
+        'Trueheart Twins',
+        "You may exert this creature as it attacks. (It won't untap during your next untap step.)\nWhenever you exert a creature, creatures you control get +1/+0 until end of turn.",
+        4,
+        4,
+      ),
+      createCreature(
+        'target_creature',
+        opponentId,
+        'Target Creature',
+        '',
+        1,
+        1,
+      ),
+    ];
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket: playerSocket, handlers } = createMockSocket(playerId, emitted, gameId);
+    const io = createMockIo(emitted, [playerSocket]);
+
+    registerResolutionHandlers(io as any, playerSocket as any);
+    registerInteractionHandlers(io as any, playerSocket as any);
+
+    await handlers.activateBattlefieldAbility({
+      gameId,
+      permanentId: 'fervent_paincaster',
+      abilityId: 'fervent_paincaster-ability-1',
+    });
+
+    const targetStep = ResolutionQueueManager.getStepsForPlayer(gameId, playerId).find(
+      (step: any) => step.type === ResolutionStepType.TARGET_SELECTION,
+    ) as any;
+    expect(targetStep).toBeDefined();
+    expect(targetStep.requiresSelfExertForCost).toBe(true);
+    expect((targetStep.validTargets || []).map((target: any) => String(target?.id || ''))).toEqual(
+      expect.arrayContaining(['fervent_paincaster', 'trueheart_twins', 'target_creature']),
+    );
+
+    await handlers.submitResolutionResponse({
+      gameId,
+      stepId: String(targetStep.id),
+      selections: ['target_creature'],
+    });
+
+    const paincaster = ((game.state as any).battlefield || []).find((permanent: any) => permanent?.id === 'fervent_paincaster') as any;
+    const twins = ((game.state as any).battlefield || []).find((permanent: any) => permanent?.id === 'trueheart_twins') as any;
+    expect(paincaster?.tapped).toBe(true);
+    expect(paincaster?.doesntUntapNextTurn).toBe(true);
+    expect(paincaster?.exertedThisTurn).toBe(true);
+
+    const stack = (((game.state as any).stack || []) as any[]);
+    expect(stack).toHaveLength(2);
+    expect(stack[0]).toEqual(expect.objectContaining({
+      source: 'fervent_paincaster',
+      targets: ['target_creature'],
+    }));
+    expect(stack[1]).toEqual(expect.objectContaining({
+      source: 'trueheart_twins',
+      triggerType: 'whenever_you_exert',
+    }));
+
+    game.applyEvent({ type: 'resolveTopOfStack' } as any);
+
+    expect(paincaster?.temporaryPTMods).toEqual([
+      expect.objectContaining({ power: 1, toughness: 0, expiresAt: 'end_of_turn' }),
+    ]);
+    expect(twins?.temporaryPTMods).toEqual([
+      expect.objectContaining({ power: 1, toughness: 0, expiresAt: 'end_of_turn' }),
+    ]);
+
+    game.applyEvent({ type: 'resolveTopOfStack' } as any);
+
+    const targetCreature = (((game.state as any).battlefield || []) as any[]).find((permanent: any) => permanent?.id === 'target_creature') as any;
+    expect(targetCreature).toBeDefined();
+    expect(Number(targetCreature?.damageMarked || 0)).toBe(1);
+    expect(Number(targetCreature?.markedDamage || 0)).toBe(0);
+  });
+
+  it('supports Pride Sovereign exert token creation with lifelink cats', async () => {
+    const gameId = createGameId();
+    trackedGameIds.add(gameId);
+    const playerId = 'p1' as PlayerID;
+    const opponentId = 'p2' as PlayerID;
+    const game = seedGame(gameId, playerId, opponentId);
+
+    (game.state as any).battlefield = [
+      {
+        id: 'pride_sovereign',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        summoningSickness: false,
+        counters: {},
+        basePower: 2,
+        baseToughness: 2,
+        card: {
+          id: 'pride_sovereign_card',
+          name: 'Pride Sovereign',
+          type_line: 'Creature — Cat',
+          oracle_text: 'This creature gets +1/+1 for each other Cat you control.\n{W}, {T}, Exert this creature: Create two 1/1 white Cat creature tokens with lifelink. (An exerted creature won\'t untap during your next untap step.)',
+          power: '2',
+          toughness: '2',
+        },
+      },
+      createCreature(
+        'trueheart_twins',
+        playerId,
+        'Trueheart Twins',
+        "You may exert this creature as it attacks. (It won't untap during your next untap step.)\nWhenever you exert a creature, creatures you control get +1/+0 until end of turn.",
+        4,
+        4,
+      ),
+    ];
+    (game.state as any).manaPool[playerId].white = 1;
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket: playerSocket, handlers } = createMockSocket(playerId, emitted, gameId);
+    const io = createMockIo(emitted, [playerSocket]);
+
+    registerResolutionHandlers(io as any, playerSocket as any);
+    registerInteractionHandlers(io as any, playerSocket as any);
+
+    await handlers.activateBattlefieldAbility({
+      gameId,
+      permanentId: 'pride_sovereign',
+      abilityId: 'pride_sovereign-ability-0',
+    });
+
+    const sovereign = ((game.state as any).battlefield || []).find((permanent: any) => permanent?.id === 'pride_sovereign') as any;
+    const twins = ((game.state as any).battlefield || []).find((permanent: any) => permanent?.id === 'trueheart_twins') as any;
+    expect(sovereign?.tapped).toBe(true);
+    expect(sovereign?.doesntUntapNextTurn).toBe(true);
+    expect(sovereign?.exertedThisTurn).toBe(true);
+
+    const stack = (((game.state as any).stack || []) as any[]);
+    expect(stack).toHaveLength(2);
+    expect(stack[0]).toEqual(expect.objectContaining({
+      source: 'pride_sovereign',
+      description: 'create two 1/1 white cat creature tokens with lifelink.',
+    }));
+    expect(stack[1]).toEqual(expect.objectContaining({
+      source: 'trueheart_twins',
+      triggerType: 'whenever_you_exert',
+    }));
+
+    game.applyEvent({ type: 'resolveTopOfStack' } as any);
+
+    expect(sovereign?.temporaryPTMods).toEqual([
+      expect.objectContaining({ power: 1, toughness: 0, expiresAt: 'end_of_turn' }),
+    ]);
+    expect(twins?.temporaryPTMods).toEqual([
+      expect.objectContaining({ power: 1, toughness: 0, expiresAt: 'end_of_turn' }),
+    ]);
+
+    game.applyEvent({ type: 'resolveTopOfStack' } as any);
+
+    const catTokens = (((game.state as any).battlefield || []) as any[]).filter((permanent: any) =>
+      permanent?.id !== 'pride_sovereign' &&
+      permanent?.id !== 'trueheart_twins' &&
+      String(permanent?.card?.type_line || '').toLowerCase().includes('cat'),
+    );
+    expect(catTokens).toHaveLength(2);
+    for (const token of catTokens) {
+      expect(String(token?.card?.power || '')).toBe('1');
+      expect(String(token?.card?.toughness || '')).toBe('1');
+      expect((token?.card?.keywords || []).map((entry: any) => String(entry))).toContain('Lifelink');
+    }
+  });
+
   it('supports Angel of Condemnation exert exile through target-selection completion and returns the card when Angel leaves', async () => {
     const gameId = createGameId();
     trackedGameIds.add(gameId);

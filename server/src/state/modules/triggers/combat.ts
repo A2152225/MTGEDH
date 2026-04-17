@@ -249,6 +249,7 @@ function isSupportedExertAttackRewardDescription(description: string): boolean {
   if (/(?:other )?creatures you control get [+-]\d+\/[+-]\d+(?: and gains? .+?)? until end of turn/i.test(normalized)) return true;
   if (/put (?:a|an)(?: [\w,\s]+)? creature card from your hand onto the battlefield/i.test(normalized)) return true;
   if (/return target creature card(?: with mana value \d+ or less)? from your graveyard to the battlefield/i.test(normalized)) return true;
+  if (/target creature gets \+X\/\+X(?: and gains .+?)? until end of turn, where X is the number of counters on permanents you control/i.test(normalized)) return true;
   if (/deals? \d+ damage to target/i.test(normalized)) return true;
   if (/prevent all combat damage that would be dealt to (?:it|this creature) this turn/i.test(normalized)) return true;
   if (/(?:it|this creature) can't be blocked by creatures with power 2 or less this turn/i.test(normalized)) return true;

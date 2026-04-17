@@ -940,6 +940,99 @@ describe('exertChoice replay coverage', () => {
     expect(attacker?.blockedBy).toEqual(['large_blocker']);
   });
 
+  it('replays Hydra Trainer exert pumps using the total counters you control', () => {
+    const gameId = createGameId();
+    trackedGameIds.add(gameId);
+    const attackerId = 'p1' as PlayerID;
+    const defenderId = 'p2' as PlayerID;
+    const game = seedCombatGame(gameId, attackerId, defenderId);
+
+    (game.state as any).battlefield = [
+      {
+        id: 'hydra_trainer',
+        controller: attackerId,
+        owner: attackerId,
+        tapped: false,
+        summoningSickness: false,
+        counters: { '+1/+1': 2 },
+        basePower: 1,
+        baseToughness: 1,
+        attacking: defenderId,
+        card: {
+          id: 'hydra_trainer_card',
+          name: 'Hydra Trainer',
+          type_line: 'Creature - Human Warrior',
+          oracle_text: "You may exert this creature as it attacks. When you do, target creature gets +X/+X until end of turn, where X is the number of counters on permanents you control. (An exerted creature won't untap during your next untap step.)\n{2}{G}: Adapt 2. (If this creature has no +1/+1 counters on it, put two +1/+1 counters on it.)",
+          power: '1',
+          toughness: '1',
+        },
+      },
+      {
+        id: 'counter_target',
+        controller: attackerId,
+        owner: attackerId,
+        tapped: false,
+        summoningSickness: false,
+        counters: {},
+        basePower: 2,
+        baseToughness: 2,
+        card: {
+          id: 'counter_target_card',
+          name: 'Counter Target',
+          type_line: 'Creature - Hydra',
+          oracle_text: '',
+          power: '2',
+          toughness: '2',
+        },
+      },
+      {
+        id: 'charge_relic',
+        controller: attackerId,
+        owner: attackerId,
+        tapped: false,
+        summoningSickness: false,
+        counters: { charge: 1 },
+        card: {
+          id: 'charge_relic_card',
+          name: 'Charge Relic',
+          type_line: 'Artifact',
+          oracle_text: '',
+        },
+      },
+    ];
+
+    game.applyEvent({
+      type: 'exertChoice',
+      playerId: attackerId,
+      attackerId: 'hydra_trainer',
+    } as any);
+
+    game.applyEvent({
+      type: 'pushTriggeredAbility',
+      triggerId: 'exert_counter_scaled_pump_replay',
+      sourceId: 'hydra_trainer',
+      permanentId: 'hydra_trainer',
+      sourceName: 'Hydra Trainer',
+      controllerId: attackerId,
+      description: 'target creature gets +X/+X until end of turn, where X is the number of counters on permanents you control',
+      triggerType: 'exert',
+      effect: 'target creature gets +X/+X until end of turn, where X is the number of counters on permanents you control',
+      mandatory: true,
+      requiresTarget: true,
+      targetType: 'creature',
+      targetFilterTypes: ['creature'],
+      targets: ['counter_target'],
+      card: { ...((game.state as any).battlefield[0] as any).card },
+    } as any);
+
+    game.applyEvent({ type: 'resolveTopOfStack' } as any);
+
+    const target = (((game.state as any).battlefield || []) as any[]).find((permanent: any) => permanent?.id === 'counter_target') as any;
+    expect(target?.temporaryPTMods).toEqual([
+      expect.objectContaining({ power: 3, toughness: 3, expiresAt: 'end_of_turn' }),
+    ]);
+  });
+
   it('replays Sandstorm Crasher exert token copies with a defending-player snapshot', () => {
     const gameId = createGameId();
     trackedGameIds.add(gameId);

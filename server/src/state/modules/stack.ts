@@ -9030,6 +9030,59 @@ export function executeTriggerEffect(
     return;
   }
 
+    const creatureGetsCounterScaledMatch = desc.match(/(?:until end of turn,?\s*)?(?:another\s+)?(?:up to (?:one|two|three|four|five|\d+) )?target creatures?(?: you control)? gets? \+X\/\+X(?: and gains (.+?))?(?: until end of turn)?, where X is the number of counters on permanents you control/i);
+    if (creatureGetsCounterScaledMatch && (triggerItem as any).targets?.length > 0) {
+      const gainedAbilities = creatureGetsCounterScaledMatch[1] ? splitGrantedTemporaryAbilities(creatureGetsCounterScaledMatch[1]) : [];
+      const targets = (triggerItem as any).targets || [];
+      const battlefield = state.battlefield || [];
+      const xValue = battlefield.reduce((sum: number, permanent: any) => {
+        if (String(permanent?.controller || '') !== String(controller || '')) return sum;
+        const counters = permanent?.counters;
+        if (!counters || typeof counters !== 'object' || Array.isArray(counters)) return sum;
+        for (const amount of Object.values(counters)) {
+          const numericAmount = Number(amount || 0);
+          if (Number.isFinite(numericAmount) && numericAmount > 0) {
+            sum += numericAmount;
+          }
+        }
+        return sum;
+      }, 0);
+
+      for (const targetRef of targets) {
+        const targetId = typeof targetRef === 'string' ? targetRef : targetRef?.id;
+        const targetCreature = battlefield.find((p: any) => p.id === targetId);
+
+        if (targetCreature) {
+          targetCreature.temporaryPTMods = targetCreature.temporaryPTMods || [];
+          targetCreature.temporaryPTMods.push({
+            power: xValue,
+            toughness: xValue,
+            source: sourceName,
+            expiresAt: 'end_of_turn',
+            turnApplied: state.turnNumber || 0,
+          });
+
+          if (gainedAbilities.length > 0) {
+            targetCreature.temporaryAbilities = targetCreature.temporaryAbilities || [];
+            for (const ability of gainedAbilities) {
+              if (ability) {
+                targetCreature.temporaryAbilities.push({
+                  ability,
+                  source: sourceName,
+                  expiresAt: 'end_of_turn',
+                  turnApplied: state.turnNumber || 0,
+                });
+              }
+            }
+            debug(2, `[executeTriggerEffect] ${targetCreature.card?.name || targetId} gets +${xValue}/+${xValue} and gains ${gainedAbilities.join(', ')} until end of turn`);
+          } else {
+            debug(2, `[executeTriggerEffect] ${targetCreature.card?.name || targetId} gets +${xValue}/+${xValue} until end of turn`);
+          }
+        }
+      }
+      return;
+    }
+
   // ========================================================================
   // TARGET CREATURE GETS +X/+Y UNTIL END OF TURN
   // Common planeswalker pattern: "Target creature gets +X/+Y until end of turn"

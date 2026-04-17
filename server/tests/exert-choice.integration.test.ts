@@ -1161,6 +1161,86 @@ describe('supported exert attack automation (integration)', () => {
     expect(attacker?.blockedBy).toEqual(['large_blocker']);
   });
 
+  it('supports Hydra Trainer exert pumps based on the total counters you control', async () => {
+    const gameId = createGameId();
+    trackedGameIds.add(gameId);
+    const attackerId = 'p1' as PlayerID;
+    const defenderId = 'p2' as PlayerID;
+    const game = seedCombatGame(gameId, attackerId, defenderId);
+
+    (game.state as any).battlefield = [
+      {
+        ...createAttacker(
+          'hydra_trainer',
+          attackerId,
+          'Hydra Trainer',
+          "You may exert this creature as it attacks. When you do, target creature gets +X/+X until end of turn, where X is the number of counters on permanents you control. (An exerted creature won't untap during your next untap step.)\n{2}{G}: Adapt 2. (If this creature has no +1/+1 counters on it, put two +1/+1 counters on it.)",
+          1,
+          1,
+        ),
+        counters: { '+1/+1': 2 },
+      },
+      createAttacker('counter_target', attackerId, 'Counter Target', '', 2, 2),
+      {
+        id: 'charge_relic',
+        controller: attackerId,
+        owner: attackerId,
+        tapped: false,
+        summoningSickness: false,
+        counters: { charge: 1 },
+        card: {
+          id: 'charge_relic_card',
+          name: 'Charge Relic',
+          type_line: 'Artifact',
+          oracle_text: '',
+        },
+      },
+    ];
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket: attackerSocket, handlers: attackerHandlers } = createMockSocket(attackerId, emitted, gameId);
+    const { socket: defenderSocket } = createMockSocket(defenderId, emitted, gameId);
+    const io = createMockIo(emitted, [attackerSocket, defenderSocket]);
+    registerResolutionHandlers(io as any, attackerSocket as any);
+    registerResolutionHandlers(io as any, defenderSocket as any);
+    registerCombatHandlers(io as any, attackerSocket as any);
+
+    await attackerHandlers.declareAttackers({
+      gameId,
+      attackers: [{ creatureId: 'hydra_trainer', targetPlayerId: defenderId }],
+    });
+
+    const exertStep = findExertStep(gameId, attackerId) as any;
+    expect(exertStep).toBeDefined();
+
+    await attackerHandlers.submitResolutionResponse({
+      gameId,
+      stepId: String(exertStep.id),
+      selections: 'exert',
+    });
+
+    expect((((game.state as any).stack || []) as any[])).toHaveLength(1);
+
+    game.applyEvent({ type: 'resolveTopOfStack' } as any);
+
+    const targetStep = findTargetSelectionStep(gameId, attackerId, (entry: any) => entry?.targetedTriggeredAbility === true) as any;
+    expect(targetStep).toBeDefined();
+    expect((targetStep.validTargets || []).map((entry: any) => entry.id)).toEqual(
+      expect.arrayContaining(['hydra_trainer', 'counter_target']),
+    );
+
+    await attackerHandlers.submitResolutionResponse({
+      gameId,
+      stepId: String(targetStep.id),
+      selections: ['counter_target'],
+    });
+
+    const target = (((game.state as any).battlefield || []) as any[]).find((permanent: any) => permanent?.id === 'counter_target') as any;
+    expect(target?.temporaryPTMods).toEqual([
+      expect.objectContaining({ power: 3, toughness: 3, expiresAt: 'end_of_turn' }),
+    ]);
+  });
+
   it('creates a tapped and attacking copy for Sandstorm Crasher and schedules next-end-step sacrifice', async () => {
     const gameId = createGameId();
     trackedGameIds.add(gameId);
