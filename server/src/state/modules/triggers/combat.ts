@@ -236,6 +236,42 @@ function getOracleLines(oracleText: string): string[] {
     .filter(Boolean);
 }
 
+function normalizeOracleTextForInlineMatching(oracleText: string): string {
+  return getOracleLines(oracleText).join(' ').replace(/\s+/g, ' ').trim();
+}
+
+function isSupportedExertAttackRewardDescription(description: string): boolean {
+  const normalized = String(description || '').trim();
+  if (!normalized) return false;
+  if (/additional combat phase|extra combat phase/i.test(normalized)) return true;
+  if (/untap all other creatures you control/i.test(normalized)) return true;
+  if (/draw a card/i.test(normalized)) return true;
+  if (/(?:other )?creatures you control get [+-]\d+\/[+-]\d+(?: and gains? .+?)? until end of turn/i.test(normalized)) return true;
+  if (/put (?:a|an)(?: [\w,\s]+)? creature card from your hand onto the battlefield/i.test(normalized)) return true;
+  if (/(?:it|this creature) can't be blocked this turn(?: and you scry \d+)?/i.test(normalized)) return true;
+  if (/(?:it|this creature) gets [+-]\d+\/[+-]\d+(?: and gains? .+?)? until end of turn/i.test(normalized)) return true;
+  if (/(?:it|this creature) gains .+? until end of turn/i.test(normalized)) return true;
+  if (/target creature can't block this turn/i.test(normalized)) return true;
+  return false;
+}
+
+export function getSupportedExertAttackReward(card: any): string | null {
+  const normalizedOracle = normalizeOracleTextForInlineMatching(String(card?.oracle_text || ''));
+  if (!normalizedOracle) return null;
+
+  const exertRewardMatch = normalizedOracle.match(
+    /(?:if [^.]+,\s*)?you may exert (?:this creature|it) as it attacks\. when you do, (.+?)(?:\s*\(an exerted creature won't untap during your next untap step\.?\))?$/i,
+  );
+  const rewardDescription = String(exertRewardMatch?.[1] || '')
+    .replace(/\s*\([^)]*\)\s*$/i, '')
+    .trim();
+  if (!isSupportedExertAttackRewardDescription(rewardDescription)) {
+    return null;
+  }
+
+  return rewardDescription;
+}
+
 function findGenericAttackTriggerLine(oracleText: string, cardName: string): RegExpMatchArray | null {
   const cardNamePatternEscaped = escapeCardNameForRegex(cardName);
   const attacksPattern = new RegExp(
@@ -438,6 +474,7 @@ export function detectAttackTriggers(card: any, permanent: any): CombatTriggered
   const cardName = card?.name || "Unknown";
   const lowerName = cardName.toLowerCase();
   const permanentId = permanent?.id || "";
+  const supportedExertReward = getSupportedExertAttackReward(card);
 
   const optionalManaPaymentPattern = /you may pay (\{[^}]+\}(?:\{[^}]+\})*)\.\s*if you do,?\s*(.+)/i;
   
@@ -703,6 +740,10 @@ export function detectAttackTriggers(card: any, permanent: any): CombatTriggered
   // Only add if not already detected dynamically
   for (const [knownName, info] of Object.entries(KNOWN_ATTACK_TRIGGERS)) {
     if (lowerName.includes(knownName) && !triggers.some(t => t.triggerType === 'attacks')) {
+      if (supportedExertReward && /^exert\b/i.test(String(info.effect || ''))) {
+        continue;
+      }
+
       triggers.push({
         permanentId,
         cardName,

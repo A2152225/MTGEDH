@@ -11,7 +11,7 @@ import { appendEvent } from "../db/index.js";
 import type { PlayerID } from "../../../shared/src/types.js";
 import { getTapTriggers, type TriggeredAbility } from "../state/modules/triggered-abilities.js";
 import { buildTapTriggeredStackItem, serializeTapTriggeredStackItem } from "../state/modules/triggers/tap-untap.js";
-import { getAttackTriggersForCreatures } from "../state/modules/triggers/combat.js";
+import { getAttackTriggersForCreatures, getSupportedExertAttackReward } from "../state/modules/triggers/combat.js";
 import { isInterveningIfSatisfied } from "../state/modules/triggers/intervening-if.js";
 import { transformPermanentToFace } from "../state/modules/day-night.js";
 import { creatureHasHaste, permanentHasKeyword } from "./game-actions.js";
@@ -30,6 +30,54 @@ function persistTriggeredAbilityPush(
     appendEvent(gameId, (game as any).seq ?? 0, 'pushTriggeredAbility', payload);
   } catch (err) {
     debugWarn(1, `[combat] appendEvent(pushTriggeredAbility ${reason}) failed:`, err);
+  }
+}
+
+function enqueueSupportedExertChoiceSteps(
+  gameId: string,
+  battlefield: any[],
+  playerId: string,
+  attackerIds: string[],
+): void {
+  for (const attackerId of attackerIds) {
+    const attacker = battlefield.find((permanent: any) => permanent && String(permanent.id || '') === String(attackerId));
+    if (!attacker) continue;
+
+    const rewardDescription = getSupportedExertAttackReward((attacker as any)?.card);
+    if (!rewardDescription) continue;
+
+    const oracleText = String((attacker as any)?.card?.oracle_text || '');
+    if (/hasn't been exerted this turn/i.test(oracleText) && (attacker as any).exertedThisTurn === true) {
+      continue;
+    }
+
+    const existing = ResolutionQueueManager
+      .getStepsForPlayer(gameId, playerId as any)
+      .find((step: any) =>
+        step?.type === ResolutionStepType.OPTION_CHOICE &&
+        (step as any)?.exertChoice === true &&
+        String(step?.sourceId || '') === String(attackerId),
+      );
+    if (existing) continue;
+
+    ResolutionQueueManager.addStep(gameId, {
+      type: ResolutionStepType.OPTION_CHOICE,
+      playerId: playerId as any,
+      sourceId: String(attackerId),
+      sourceName: String((attacker as any)?.card?.name || 'Exert'),
+      sourceImage: (attacker as any)?.card?.image_uris?.small || (attacker as any)?.card?.image_uris?.normal,
+      description: 'Exert — You may exert this creature as it attacks.',
+      mandatory: false,
+      options: [
+        { id: 'exert', label: "Exert (won't untap during your next untap step)" },
+        { id: 'normal', label: 'Do not exert' },
+      ],
+      minSelections: 1,
+      maxSelections: 1,
+      exertChoice: true,
+      exertAttackerId: String(attackerId),
+      exertRewardDescription: rewardDescription,
+    } as any);
   }
 }
 
@@ -1161,6 +1209,8 @@ export async function executeDeclareAttackers(
   // We model this via optional Resolution Queue TARGET_SELECTION steps and persist the resulting
   // enlist action as its own event so replay is deterministic.
   try {
+    enqueueSupportedExertChoiceSteps(gameId, battlefield as any[], String(playerId), attackerIds.map((id) => String(id)));
+
     for (const attackerId of attackerIds) {
       const attacker = battlefield.find((p: any) => p && String(p.id) === String(attackerId));
       if (!attacker) continue;
@@ -1692,6 +1742,8 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
       // The live declareAttackers socket path still has its own inline combat flow, so enqueue the
       // optional enlist choice here as well to match executeDeclareAttackers used by AI and paid attacks.
       try {
+        enqueueSupportedExertChoiceSteps(gameId, battlefield as any[], String(playerId), attackerIds.map((id) => String(id)));
+
         for (const attackerId of attackerIds) {
           const attacker = battlefield.find((p: any) => p && String(p.id) === String(attackerId));
           if (!attacker) continue;

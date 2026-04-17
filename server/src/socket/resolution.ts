@@ -12439,6 +12439,79 @@ function pushExploitTriggeredEffectOntoStack(
   }
 }
 
+function pushExertTriggeredAbilityOntoStack(
+  game: any,
+  gameId: string,
+  sourcePermanent: any,
+  controllerId: string,
+  rewardDescription: string,
+  targets?: string[],
+): void {
+  const sourceSnapshot = cloneResolutionPermanentSnapshot(sourcePermanent);
+  const sourceForMetadata = sourcePermanent || sourceSnapshot;
+  const sourceName = String(sourcePermanent?.card?.name || sourceSnapshot?.card?.name || 'Exert').trim() || 'Exert';
+  const metadata = inferTriggeredAbilityTargetMetadata(rewardDescription, {
+    gameState: game.state,
+    controllerId,
+    sourceName,
+    sourcePermanent: sourceForMetadata,
+  });
+  const normalizedTargets = Array.isArray(targets)
+    ? targets.map((entry) => String(entry || '').trim()).filter(Boolean)
+    : [];
+  const triggerId = uid('trigger');
+  const payload = {
+    triggerId,
+    sourceId: String(sourcePermanent?.id || sourceSnapshot?.id || ''),
+    ...(sourcePermanent?.id || sourceSnapshot?.id ? { permanentId: String(sourcePermanent?.id || sourceSnapshot?.id || '') } : null),
+    sourceName,
+    controllerId,
+    description: rewardDescription,
+    triggerType: 'exert',
+    effect: rewardDescription,
+    mandatory: true,
+    ...(normalizedTargets.length > 0 ? { targets: normalizedTargets } : null),
+    ...(typeof metadata.requiresTarget === 'boolean' ? { requiresTarget: metadata.requiresTarget } : null),
+    ...(metadata.targetType ? { targetType: metadata.targetType } : null),
+    ...(metadata.targetConstraint ? { targetConstraint: metadata.targetConstraint } : null),
+    ...(metadata.requiresTarget === true && normalizedTargets.length === 0 ? { needsTargetSelection: true } : null),
+    ...(metadata.targetZone ? { targetZone: metadata.targetZone } : null),
+    ...(metadata.targetDestination ? { targetDestination: metadata.targetDestination } : null),
+    ...(metadata.targetGraveyardScope ? { targetGraveyardScope: metadata.targetGraveyardScope } : null),
+    ...(metadata.destinationUsesSelectedCardOwner === true ? { destinationUsesSelectedCardOwner: true } : null),
+    ...(metadata.battlefieldControllerMode ? { battlefieldControllerMode: metadata.battlefieldControllerMode } : null),
+    ...(metadata.battlefieldCounters ? { battlefieldCounters: metadata.battlefieldCounters } : null),
+    ...(metadata.targetAction ? { targetAction: metadata.targetAction } : null),
+    ...(Array.isArray(metadata.targetFilterTypes) ? { targetFilterTypes: metadata.targetFilterTypes } : null),
+    ...(Array.isArray(metadata.targetFilterRequiredTypeWords) ? { targetFilterRequiredTypeWords: metadata.targetFilterRequiredTypeWords } : null),
+    ...(Array.isArray(metadata.targetFilterExcludeTypes) ? { targetFilterExcludeTypes: metadata.targetFilterExcludeTypes } : null),
+    ...(metadata.targetFilterPermanentOnly === true ? { targetFilterPermanentOnly: true } : null),
+    ...(typeof metadata.targetFilterExactManaValue === 'number' ? { targetFilterExactManaValue: metadata.targetFilterExactManaValue } : null),
+    ...(typeof metadata.targetFilterMinManaValue === 'number' ? { targetFilterMinManaValue: metadata.targetFilterMinManaValue } : null),
+    ...(typeof metadata.targetFilterMaxManaValue === 'number' ? { targetFilterMaxManaValue: metadata.targetFilterMaxManaValue } : null),
+    ...(typeof metadata.targetTotalPowerLimit === 'number' ? { targetTotalPowerLimit: metadata.targetTotalPowerLimit } : null),
+    ...(metadata.targetCastWithoutPayingManaCost === true ? { targetCastWithoutPayingManaCost: true } : null),
+    ...(metadata.targetCastIsOptional === true ? { targetCastIsOptional: true } : null),
+    ...(typeof metadata.minTargets === 'number' ? { minTargets: metadata.minTargets } : null),
+    ...(typeof metadata.maxTargets === 'number' ? { maxTargets: metadata.maxTargets } : null),
+    ...(sourcePermanent?.card && typeof sourcePermanent.card === 'object' ? { card: { ...sourcePermanent.card } } : null),
+    ...(sourceSnapshot && typeof sourceSnapshot === 'object' ? { sourcePermanentSnapshot: sourceSnapshot } : null),
+  } as any;
+
+  if (typeof (game as any).applyEvent === 'function') {
+    (game as any).applyEvent({
+      type: 'pushTriggeredAbility',
+      ...payload,
+    });
+  }
+
+  try {
+    appendEvent(gameId, (game as any).seq ?? 0, 'pushTriggeredAbility', payload);
+  } catch (err) {
+    debugWarn(1, '[Resolution] Failed to persist exert trigger pushTriggeredAbility:', err);
+  }
+}
+
 function handleRiotChoiceResponse(
   io: Server,
   game: any,
@@ -14702,6 +14775,41 @@ async function handleTargetSelectionResponse(
     if (typeof (game as any).bumpSeq === 'function') {
       (game as any).bumpSeq();
     }
+    broadcastGame(io, game, gameId);
+    return;
+  }
+
+  if (stepAny?.exertTargetChoice === true) {
+    const attackerId = String(stepAny?.exertAttackerId || step.sourceId || '').trim();
+    const rewardDescription = String(stepAny?.exertRewardDescription || '').trim();
+    const battlefield = Array.isArray((game.state as any)?.battlefield) ? (game.state as any).battlefield : [];
+    const attacker = battlefield.find((permanent: any) => permanent && String(permanent.id || '') === attackerId)
+      || stepAny?.sourcePermanentSnapshot
+      || null;
+    if (!attacker || !rewardDescription) {
+      return;
+    }
+
+    pushExertTriggeredAbilityOntoStack(
+      game,
+      gameId,
+      attacker,
+      String(pid),
+      rewardDescription,
+      selections.map((value: any) => String(value)).filter(Boolean),
+    );
+
+    const targetName = Array.isArray(stepAny?.validTargets)
+      ? String(stepAny.validTargets.find((entry: any) => String(entry?.id || '') === String(selections[0] || ''))?.label || 'the chosen target')
+      : 'the chosen target';
+    io.to(gameId).emit('chat', {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: 'system',
+      message: `${getPlayerName(game, pid)} chooses ${targetName} for ${String(step.sourceName || attacker?.card?.name || 'Exert')}.`,
+      ts: Date.now(),
+    });
+
     broadcastGame(io, game, gameId);
     return;
   }
@@ -23042,6 +23150,122 @@ async function handleOptionChoiceResponse(
     if (sel && typeof sel === 'object') return (sel as any).id || (sel as any).value || null;
     return null;
   };
+
+  if (stepData.exertChoice === true) {
+    const attackerId = String(stepData.exertAttackerId || stepData.permanentId || step.sourceId || '').trim();
+    const choiceId = String(extractId(selectedOption) || '').trim().toLowerCase();
+    const sourceName = String(step.sourceName || 'Exert').trim() || 'Exert';
+    const battlefield = Array.isArray((game.state as any)?.battlefield) ? (game.state as any).battlefield : [];
+    const attacker = battlefield.find((permanent: any) => String(permanent?.id || '') === attackerId);
+
+    if (response.cancelled || choiceId === 'normal' || choiceId === 'decline' || !attackerId) {
+      broadcastGame(io, game, gameId);
+      return;
+    }
+
+    if (choiceId !== 'exert') {
+      emitToPlayer(io, playerId as any, 'error', {
+        code: 'INVALID_EXERT_CHOICE',
+        message: 'Choose whether to exert the attacking creature.',
+      });
+      return;
+    }
+
+    if (!attacker || String(attacker?.controller || '') !== String(playerId) || !attacker?.attacking) {
+      emitToPlayer(io, playerId as any, 'error', {
+        code: 'INVALID_EXERT_ATTACKER',
+        message: 'That creature is no longer attacking and cannot be exerted.',
+      });
+      return;
+    }
+
+    const oracleText = String(attacker?.card?.oracle_text || '');
+    if (/hasn't been exerted this turn/i.test(oracleText) && (attacker as any).exertedThisTurn === true) {
+      emitToPlayer(io, playerId as any, 'error', {
+        code: 'ALREADY_EXERTED_THIS_TURN',
+        message: `${sourceName} has already been exerted this turn.`,
+      });
+      return;
+    }
+
+    if (typeof (game as any).applyEvent === 'function') {
+      (game as any).applyEvent({
+        type: 'exertChoice',
+        playerId,
+        attackerId,
+      });
+    }
+
+    try {
+      await appendEvent(gameId, (game as any).seq ?? 0, 'exertChoice', {
+        playerId,
+        attackerId,
+      });
+    } catch (err) {
+      debugWarn(1, '[Resolution] Failed to persist exertChoice event:', err);
+    }
+
+    io.to(gameId).emit('chat', {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: 'system',
+      message: `${getPlayerName(game, playerId)} exerts ${String(attacker?.card?.name || sourceName)}.`,
+      ts: Date.now(),
+    });
+
+    const rewardDescription = String(stepData.exertRewardDescription || '').trim();
+    if (rewardDescription) {
+      if (/target creature can't block this turn/i.test(rewardDescription)) {
+        const validTargets = battlefield
+          .filter((permanent: any) => {
+            if (!permanent) return false;
+            const typeLine = String(permanent.card?.type_line || '').toLowerCase();
+            return typeLine.includes('creature');
+          })
+          .map((permanent: any) => ({
+            id: String(permanent.id),
+            label: String(permanent.card?.name || 'Creature'),
+            description: String(permanent.card?.type_line || 'Creature'),
+            imageUrl: permanent.card?.image_uris?.small || permanent.card?.image_uris?.normal,
+          }));
+
+        if (validTargets.length > 0) {
+          ResolutionQueueManager.addStep(gameId, {
+            type: ResolutionStepType.TARGET_SELECTION,
+            playerId: playerId as any,
+            sourceId: attackerId,
+            sourceName: String(attacker?.card?.name || sourceName),
+            sourceImage: attacker?.card?.image_uris?.small || attacker?.card?.image_uris?.normal,
+            description: `${String(attacker?.card?.name || sourceName)}: choose target creature that can't block this turn.`,
+            mandatory: true,
+            validTargets,
+            targetTypes: ['creature'],
+            minTargets: 1,
+            maxTargets: 1,
+            targetDescription: 'target creature',
+            exertTargetChoice: true,
+            exertAttackerId: attackerId,
+            exertRewardDescription: rewardDescription,
+            sourcePermanentSnapshot: cloneResolutionPermanentSnapshot(attacker),
+          } as any);
+
+          broadcastGame(io, game, gameId);
+          return;
+        }
+      }
+
+      pushExertTriggeredAbilityOntoStack(
+        game,
+        gameId,
+        attacker,
+        String(playerId),
+        rewardDescription,
+      );
+    }
+
+    broadcastGame(io, game, gameId);
+    return;
+  }
 
   if (stepData.myriadChoice === true) {
     const battlefield = Array.isArray((game.state as any)?.battlefield) ? (game.state as any).battlefield : [];

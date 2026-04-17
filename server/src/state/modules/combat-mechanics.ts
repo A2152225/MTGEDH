@@ -304,7 +304,9 @@ export function parseCreatureKeywords(card: any, permanent?: any, gameState?: an
       menace: hasKeywordOrGranted("menace"),
       skulk: hasKeywordOrGranted("skulk"),
       unblockable: oracleText.includes("can't be blocked") || 
-                    oracleText.includes("is unblockable"),
+                    oracleText.includes("is unblockable") ||
+                    hasPermanentAbility("can't be blocked") ||
+                    hasPermanentAbility("unblockable"),
       firstStrike: hasKeywordOrGranted("first strike") && !hasKeywordOrGranted("double strike"),
       doubleStrike: hasKeywordOrGranted("double strike"),
       lifelink: hasKeywordOrGranted("lifelink"),

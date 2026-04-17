@@ -3007,6 +3007,24 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
         break;
       }
 
+      case "exertChoice": {
+        try {
+          const attackerId = String((e as any).attackerId || (e as any).sourceId || '').trim();
+          if (!attackerId) break;
+
+          const battlefield = (ctx.state.battlefield || []) as any[];
+          const attacker = battlefield.find((permanent: any) => permanent && String(permanent.id || '') === attackerId);
+          if (!attacker) break;
+
+          (attacker as any).doesntUntapNextTurn = true;
+          (attacker as any).exertedThisTurn = true;
+          ctx.bumpSeq();
+        } catch (err) {
+          debugWarn(1, 'applyEvent(exertChoice): failed', err);
+        }
+        break;
+      }
+
       case "nextTurn": {
         nextTurn(ctx as any);
         break;
@@ -8650,6 +8668,9 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
         const triggeringStackItemId = (e as any).triggeringStackItemId;
         const triggeringPermanentId = (e as any).triggeringPermanentId;
         const effectData = (e as any).effectData;
+        const targets = Array.isArray((e as any).targets)
+          ? (e as any).targets.map((entry: any) => String(entry || '')).filter(Boolean)
+          : undefined;
         const card = (e as any).card;
         const sourcePermanentSnapshot = (e as any).sourcePermanentSnapshot;
         const dyingCreature = (e as any).dyingCreature;
@@ -8715,6 +8736,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
             ...(triggeringStackItemId ? { triggeringStackItemId } : null),
             ...(triggeringPermanentId ? { triggeringPermanentId } : null),
             ...(effectData && typeof effectData === 'object' ? { effectData } : null),
+            ...(Array.isArray(targets) ? { targets } : null),
             ...(card && typeof card === 'object' ? { card } : null),
             ...(sourcePermanentSnapshot && typeof sourcePermanentSnapshot === 'object' ? { sourcePermanentSnapshot } : null),
             ...(dyingCreature && typeof dyingCreature === 'object' ? { dyingCreature } : null),

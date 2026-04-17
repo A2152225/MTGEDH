@@ -8199,10 +8199,10 @@ export function executeTriggerEffect(
   // - "put a creature card from your hand onto the battlefield tapped and attacking"
   // Cards: Preeminent Captain (Soldier), Kaalia of the Vast (Angel/Demon/Dragon), Ilharg (creature), etc.
   const putFromHandPattern = desc.match(
-    /(?:you may )?put (?:a|an) ([\w,\s]+?) creature card from your hand onto the battlefield(?: tapped and attacking)?/i
+    /(?:you may )?put (?:a|an)(?: ([\w,\s]+?))? creature card from your hand onto the battlefield(?: tapped and attacking)?/i
   );
   if (putFromHandPattern && !desc.includes('search your library')) {
-    const creatureTypeRestriction = putFromHandPattern[1].toLowerCase().trim();
+    const creatureTypeRestriction = String(putFromHandPattern[1] || 'creature').toLowerCase().trim();
     const isTappedAndAttacking = desc.includes('tapped and attacking');
     const isOptionalPut = desc.toLowerCase().startsWith('you may');
     
@@ -8631,6 +8631,33 @@ export function executeTriggerEffect(
     }
     return;
   }
+
+  const selfCantBeBlockedMatch = desc.match(/(?:it|this creature) can't be blocked this turn(?: and you scry (\d+))?\.?$/i);
+  if (selfCantBeBlockedMatch) {
+    const unblockableSourceId = triggerItem.source || triggerItem.permanentId;
+    const sourcePermanent = unblockableSourceId
+      ? (state.battlefield || []).find((permanent: any) => permanent?.id === unblockableSourceId)
+      : null;
+
+    if (sourcePermanent) {
+      sourcePermanent.temporaryAbilities = Array.isArray(sourcePermanent.temporaryAbilities) ? sourcePermanent.temporaryAbilities : [];
+      sourcePermanent.temporaryAbilities.push({
+        ability: "can't be blocked",
+        source: sourceName,
+        expiresAt: 'end_of_turn',
+        turnApplied: state.turnNumber || 0,
+      });
+      debug(2, `[executeTriggerEffect] ${sourcePermanent.card?.name || unblockableSourceId} can't be blocked this turn`);
+    }
+
+    const scryCount = selfCantBeBlockedMatch[1] ? parseInt(selfCantBeBlockedMatch[1], 10) : 0;
+    if (scryCount > 0) {
+      state.pendingScry = state.pendingScry || {};
+      state.pendingScry[controller] = scryCount;
+      debug(2, `[executeTriggerEffect] ${controller} scries ${scryCount}`);
+    }
+    return;
+  }
   
   // Pattern: "scry X" or "scry 1"
   const scryMatch = desc.match(/scry (\d+)/i);
@@ -8778,7 +8805,116 @@ export function executeTriggerEffect(
     }
     return;
   }
+
+  const selfSourceId = triggerItem.source || triggerItem.permanentId;
   
+  const sourcePermanent = selfSourceId
+    ? (state.battlefield || []).find((permanent: any) => permanent?.id === selfSourceId)
+    : null;
+
+  const selfGetsMatch =
+    desc.match(/(?:it|this creature) gets ([+-]\d+)\/([+-]\d+)(?: and gains (.+?))? until end of turn\.?$/i) ||
+    desc.match(/until end of turn,? (?:it|this creature) gets ([+-]\d+)\/([+-]\d+)(?: and gains (.+?))?\.?$/i);
+  if (selfGetsMatch && sourcePermanent) {
+    const powerMod = parseInt(selfGetsMatch[1], 10);
+    const toughnessMod = parseInt(selfGetsMatch[2], 10);
+    const gainedAbilities = selfGetsMatch[3] ? splitGrantedTemporaryAbilities(selfGetsMatch[3]) : [];
+
+    sourcePermanent.temporaryPTMods = sourcePermanent.temporaryPTMods || [];
+    sourcePermanent.temporaryPTMods.push({
+      power: powerMod,
+      toughness: toughnessMod,
+      source: sourceName,
+      expiresAt: 'end_of_turn',
+      turnApplied: state.turnNumber || 0,
+    });
+
+    if (gainedAbilities.length > 0) {
+      sourcePermanent.temporaryAbilities = sourcePermanent.temporaryAbilities || [];
+      for (const ability of gainedAbilities) {
+        if (!ability) continue;
+        sourcePermanent.temporaryAbilities.push({
+          ability,
+          source: sourceName,
+          expiresAt: 'end_of_turn',
+          turnApplied: state.turnNumber || 0,
+        });
+      }
+      debug(2, `[executeTriggerEffect] ${sourcePermanent.card?.name || selfSourceId} gets ${powerMod >= 0 ? '+' : ''}${powerMod}/${toughnessMod >= 0 ? '+' : ''}${toughnessMod} and gains ${gainedAbilities.join(', ')} until end of turn`);
+    } else {
+      debug(2, `[executeTriggerEffect] ${sourcePermanent.card?.name || selfSourceId} gets ${powerMod >= 0 ? '+' : ''}${powerMod}/${toughnessMod >= 0 ? '+' : ''}${toughnessMod} until end of turn`);
+    }
+    return;
+  }
+
+  const selfGainsMatch =
+    desc.match(/(?:it|this creature) gains (.+?) until end of turn\.?$/i) ||
+    desc.match(/until end of turn,? (?:it|this creature) gains (.+?)\.?$/i);
+  if (selfGainsMatch && sourcePermanent) {
+    const gainedAbilities = splitGrantedTemporaryAbilities(selfGainsMatch[1]);
+    sourcePermanent.temporaryAbilities = Array.isArray(sourcePermanent.temporaryAbilities) ? sourcePermanent.temporaryAbilities : [];
+    for (const ability of gainedAbilities) {
+      sourcePermanent.temporaryAbilities.push({
+        ability,
+        source: sourceName,
+        expiresAt: 'end_of_turn',
+        turnApplied: state.turnNumber || 0,
+      });
+    }
+
+    if (gainedAbilities.length > 0) {
+      debug(2, `[executeTriggerEffect] ${sourcePermanent.card?.name || selfSourceId} gains ${gainedAbilities.join(', ')} until end of turn`);
+    }
+    return;
+  }
+
+  const yourCreaturesGetMatch = desc.match(/(?:(other)\s+)?creatures you control get ([+-]\d+)\/([+-]\d+)(?: and gains? (.+?))? until end of turn\.?$/i);
+  if (yourCreaturesGetMatch) {
+    const otherCreaturesOnly = Boolean(yourCreaturesGetMatch[1]);
+    const powerMod = parseInt(yourCreaturesGetMatch[2], 10);
+    const toughnessMod = parseInt(yourCreaturesGetMatch[3], 10);
+    const gainedAbilities = yourCreaturesGetMatch[4] ? splitGrantedTemporaryAbilities(yourCreaturesGetMatch[4]) : [];
+    const buffSourceId = triggerItem.source || triggerItem.permanentId;
+    const battlefield = state.battlefield || [];
+
+    for (const perm of battlefield) {
+      if (!perm) continue;
+      if (perm.controller !== controller) continue;
+      if (otherCreaturesOnly && String(perm.id || '') === String(buffSourceId || '')) continue;
+      const typeLine = (perm.card?.type_line || '').toLowerCase();
+      if (!typeLine.includes('creature')) continue;
+
+      perm.temporaryPTMods = perm.temporaryPTMods || [];
+      perm.temporaryPTMods.push({
+        power: powerMod,
+        toughness: toughnessMod,
+        source: sourceName,
+        expiresAt: 'end_of_turn',
+        turnApplied: state.turnNumber || 0,
+      });
+
+      if (gainedAbilities.length > 0) {
+        perm.temporaryAbilities = perm.temporaryAbilities || [];
+        for (const ability of gainedAbilities) {
+          if (!ability) continue;
+          perm.temporaryAbilities.push({
+            ability,
+            source: sourceName,
+            expiresAt: 'end_of_turn',
+            turnApplied: state.turnNumber || 0,
+          });
+        }
+      }
+
+      if (gainedAbilities.length > 0) {
+        debug(2, `[executeTriggerEffect] ${perm.card?.name || perm.id} gets ${powerMod >= 0 ? '+' : ''}${powerMod}/${toughnessMod >= 0 ? '+' : ''}${toughnessMod} and gains ${gainedAbilities.join(', ')} until end of turn`);
+      } else {
+        debug(2, `[executeTriggerEffect] ${perm.card?.name || perm.id} gets ${powerMod >= 0 ? '+' : ''}${powerMod}/${toughnessMod >= 0 ? '+' : ''}${toughnessMod} until end of turn`);
+      }
+    }
+    return;
+  }
+
   // ========================================================================
   // TARGET CREATURE GETS +X/+Y UNTIL END OF TURN
   // Common planeswalker pattern: "Target creature gets +X/+Y until end of turn"
@@ -8867,6 +9003,38 @@ export function executeTriggerEffect(
       if (gainedAbilities.length > 0) {
         debug(2, `[executeTriggerEffect] ${targetCreature.card?.name || targetId} gains ${gainedAbilities.join(', ')} until end of turn`);
       }
+    }
+    return;
+  }
+
+  const creatureCantBlockMatch = desc.match(/(?:up to (?:one|two|three|four|five|\d+) )?target creatures? can't block this turn\.?$/i);
+  if (creatureCantBlockMatch && (triggerItem as any).targets?.length > 0) {
+    const targets = (triggerItem as any).targets || [];
+    const battlefield = state.battlefield || [];
+
+    for (const targetRef of targets) {
+      const targetId = typeof targetRef === 'string' ? targetRef : targetRef?.id;
+      const targetCreature = battlefield.find((permanent: any) => permanent.id === targetId);
+      if (!targetCreature) continue;
+
+      targetCreature.temporaryAbilities = Array.isArray(targetCreature.temporaryAbilities)
+        ? targetCreature.temporaryAbilities
+        : [];
+
+      const alreadyCantBlock = targetCreature.temporaryAbilities.some((entry: any) => {
+        const abilityText = typeof entry === 'string' ? entry : entry?.ability;
+        return String(abilityText || '').toLowerCase().includes("can't block");
+      });
+      if (!alreadyCantBlock) {
+        targetCreature.temporaryAbilities.push({
+          ability: "can't block",
+          source: sourceName,
+          expiresAt: 'end_of_turn',
+          turnApplied: state.turnNumber || 0,
+        });
+      }
+
+      debug(2, `[executeTriggerEffect] ${targetCreature.card?.name || targetId} can't block this turn`);
     }
     return;
   }
@@ -9038,6 +9206,24 @@ export function executeTriggerEffect(
   }
   
   // Pattern: "untap all creatures you control" or "untap target creature"
+  if (desc.includes('untap all other creatures you control') && !desc.includes('combat phase')) {
+    const battlefield = state.battlefield || [];
+    const untapSourceId = triggerItem.source || triggerItem.permanentId;
+    for (const perm of battlefield) {
+      if (!perm) continue;
+      if (perm.controller !== controller) continue;
+      if (String(perm.id || '') === String(untapSourceId || '')) continue;
+      const typeLine = (perm.card?.type_line || '').toLowerCase();
+      if (!typeLine.includes('creature')) continue;
+
+      if (perm.tapped) {
+        perm.tapped = false;
+        debug(2, `[executeTriggerEffect] Untapped ${perm.card?.name || perm.id}`);
+      }
+    }
+    return;
+  }
+
   if (desc.includes('untap all creatures you control')) {
     const battlefield = state.battlefield || [];
     for (const perm of battlefield) {
@@ -11852,6 +12038,10 @@ export function resolveTopOfStack(ctx: GameContext) {
       const gameId = (ctx as any).gameId || 'unknown';
       const isReplaying = !!(ctx as any).isReplaying;
       const battlefield = state.battlefield || [];
+      const existingTargets = Array.isArray((item as any).targets)
+        ? (item as any).targets.map((entry: any) => String(entry || '')).filter(Boolean)
+        : [];
+      const hasLockedBattlefieldTargets = existingTargets.length > 0 && String((item as any).targetZone || '').toLowerCase() !== 'graveyard';
       const targetZone = String((item as any).targetZone || '').toLowerCase();
       const targetDestination = String((item as any).targetDestination || '').toLowerCase();
       const targetAction = String((item as any).targetAction || '').toLowerCase();
@@ -11970,7 +12160,7 @@ export function resolveTopOfStack(ctx: GameContext) {
         }
       }
 
-      if (!isReplaying && (PERMANENT_TRIGGER_TARGET_TYPES.has(String(targetType || '').toLowerCase()) || targetType === 'any')) {
+      if (!isReplaying && !hasLockedBattlefieldTargets && (PERMANENT_TRIGGER_TARGET_TYPES.has(String(targetType || '').toLowerCase()) || targetType === 'any')) {
         const validTargets = battlefield
           .filter((permanent: any) => {
             if (!permanent) return false;

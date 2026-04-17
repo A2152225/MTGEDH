@@ -2555,6 +2555,9 @@ function endTemporaryEffects(ctx: GameContext) {
       if (permanent.blockedThisTurn) {
         delete permanent.blockedThisTurn;
       }
+      if ((permanent as any).exertedThisTurn) {
+        delete (permanent as any).exertedThisTurn;
+      }
       
       // Clear Steel Hellkite combat damage tracking
       if (permanent.dealtCombatDamageTo) {

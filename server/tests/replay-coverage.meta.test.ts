@@ -54,6 +54,7 @@ const REPLAY_GUARDED_EVENT_TYPES = new Set([
   'dungeonTargetPlayerResolve',
   'equipPermanent',
   'enlist',
+  'exertChoice',
   'executeEffect',
   'fatesealResolve',
   'fight',
