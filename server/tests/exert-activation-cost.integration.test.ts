@@ -6,6 +6,7 @@ import { registerInteractionHandlers } from '../src/socket/interaction.js';
 import { initializePriorityResolutionHandler, registerResolutionHandlers } from '../src/socket/resolution.js';
 import { games } from '../src/socket/socket.js';
 import { ensureGame } from '../src/socket/util.js';
+import { movePermanentToGraveyard } from '../src/state/modules/counters_tokens.js';
 import { ResolutionQueueManager, ResolutionStepType } from '../src/state/resolution/index.js';
 
 async function resetGame(gameId: string) {
@@ -551,5 +552,137 @@ describe('activated exert costs (integration)', () => {
 
     expect(forestA?.tapped).toBe(false);
     expect(forestB?.tapped).toBe(false);
+  });
+
+  it('supports Angel of Condemnation exert exile through target-selection completion and returns the card when Angel leaves', async () => {
+    const gameId = createGameId();
+    trackedGameIds.add(gameId);
+    const playerId = 'p1' as PlayerID;
+    const opponentId = 'p2' as PlayerID;
+    const game = seedGame(gameId, playerId, opponentId);
+
+    (game.state as any).battlefield = [
+      {
+        id: 'angel_of_condemnation',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        summoningSickness: false,
+        counters: {},
+        basePower: 3,
+        baseToughness: 3,
+        card: {
+          id: 'angel_of_condemnation_card',
+          name: 'Angel of Condemnation',
+          type_line: 'Creature — Angel',
+          oracle_text: 'Flying, vigilance\n{2}{W}, {T}: Exile another target creature. Return that card to the battlefield under its owner\'s control at the beginning of the next end step.\n{2}{W}, {T}, Exert this creature: Exile another target creature until this creature leaves the battlefield. (An exerted creature won\'t untap during your next untap step.)',
+          power: '3',
+          toughness: '3',
+        },
+      },
+      createCreature(
+        'trueheart_twins',
+        playerId,
+        'Trueheart Twins',
+        "You may exert this creature as it attacks. (It won't untap during your next untap step.)\nWhenever you exert a creature, creatures you control get +1/+0 until end of turn.",
+        4,
+        4,
+      ),
+      createCreature(
+        'target_creature',
+        opponentId,
+        'Target Creature',
+        '',
+        2,
+        2,
+      ),
+    ];
+
+    (game.state as any).manaPool[playerId].white = 1;
+    (game.state as any).manaPool[playerId].colorless = 2;
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket: playerSocket, handlers } = createMockSocket(playerId, emitted, gameId);
+    const io = createMockIo(emitted, [playerSocket]);
+
+    registerResolutionHandlers(io as any, playerSocket as any);
+    registerInteractionHandlers(io as any, playerSocket as any);
+
+    const eventStart = getEvents(gameId).length;
+    await handlers.activateBattlefieldAbility({
+      gameId,
+      permanentId: 'angel_of_condemnation',
+      abilityId: 'angel_of_condemnation-ability-1',
+    });
+
+    const targetStep = ResolutionQueueManager.getStepsForPlayer(gameId, playerId).find(
+      (step: any) => step.type === ResolutionStepType.TARGET_SELECTION,
+    ) as any;
+    expect(targetStep).toBeDefined();
+    expect(targetStep.requiresSelfExertForCost).toBe(true);
+    expect((targetStep.validTargets || []).map((target: any) => String(target?.id || ''))).toEqual(
+      expect.arrayContaining(['trueheart_twins', 'target_creature']),
+    );
+    expect((targetStep.validTargets || []).map((target: any) => String(target?.id || ''))).not.toContain('angel_of_condemnation');
+
+    await handlers.submitResolutionResponse({
+      gameId,
+      stepId: String(targetStep.id),
+      selections: ['target_creature'],
+    });
+
+    const angel = ((game.state as any).battlefield || []).find((permanent: any) => permanent?.id === 'angel_of_condemnation') as any;
+    const twins = ((game.state as any).battlefield || []).find((permanent: any) => permanent?.id === 'trueheart_twins') as any;
+    expect(angel?.tapped).toBe(true);
+    expect(angel?.doesntUntapNextTurn).toBe(true);
+    expect(angel?.exertedThisTurn).toBe(true);
+
+    const stack = (((game.state as any).stack || []) as any[]);
+    expect(stack).toHaveLength(2);
+    expect(stack[0]).toEqual(expect.objectContaining({
+      source: 'angel_of_condemnation',
+      targets: ['target_creature'],
+    }));
+    expect(stack[1]).toEqual(expect.objectContaining({
+      source: 'trueheart_twins',
+      triggerType: 'whenever_you_exert',
+    }));
+
+    game.applyEvent({ type: 'resolveTopOfStack' } as any);
+
+    expect(angel.temporaryPTMods).toEqual([
+      expect.objectContaining({ power: 1, toughness: 0, expiresAt: 'end_of_turn' }),
+    ]);
+    expect(twins.temporaryPTMods).toEqual([
+      expect.objectContaining({ power: 1, toughness: 0, expiresAt: 'end_of_turn' }),
+    ]);
+
+    game.applyEvent({ type: 'resolveTopOfStack' } as any);
+
+    const battlefieldAfterExile = ((game.state as any).battlefield || []) as any[];
+    expect(battlefieldAfterExile.some((permanent: any) => permanent?.id === 'target_creature')).toBe(false);
+    expect((((game.state as any).zones?.[opponentId]?.exile || []) as any[]).some((card: any) => String(card?.name || '') === 'Target Creature')).toBe(true);
+    expect(((game.state as any).linkedExiles || [])).toEqual([
+      expect.objectContaining({
+        exilingPermanentId: 'angel_of_condemnation',
+        exiledCardName: 'Target Creature',
+        originalOwner: opponentId,
+      }),
+    ]);
+
+    expect(movePermanentToGraveyard(game as any, 'angel_of_condemnation')).toBe(true);
+
+    const battlefieldAfterReturn = ((game.state as any).battlefield || []) as any[];
+    const returnedCreature = battlefieldAfterReturn.find((permanent: any) => String(permanent?.card?.name || '') === 'Target Creature') as any;
+    expect(returnedCreature).toBeDefined();
+    expect(String(returnedCreature?.controller || '')).toBe(opponentId);
+    expect(((game.state as any).linkedExiles || [])).toEqual([]);
+
+    const events = getEvents(gameId).slice(eventStart);
+    expect(events.some((event: any) =>
+      event?.type === 'activateBattlefieldAbility' &&
+      event?.payload?.permanentId === 'angel_of_condemnation' &&
+      event?.payload?.exertedPermanentIdForCost === 'angel_of_condemnation',
+    )).toBe(true);
   });
 });

@@ -9553,7 +9553,7 @@ export function executeTriggerEffect(
             const ownerZones = state.zones?.[originalOwner];
             if (ownerZones) {
               ownerZones.exile = ownerZones.exile || [];
-              const sourceId = triggerItem.sourceId || triggerItem.permanentId;
+              const sourceId = triggerItem.sourceId || triggerItem.permanentId || triggerItem.source;
               const tagged = {
                 ...(exiledCard || {}),
                 zone: 'exile',
@@ -9564,7 +9564,7 @@ export function executeTriggerEffect(
             }
             
             // Register the linked exile so the card returns when source leaves
-            const sourceId = triggerItem.sourceId || triggerItem.permanentId;
+            const sourceId = triggerItem.sourceId || triggerItem.permanentId || triggerItem.source;
             registerLinkedExile(
               ctx,
               sourceId,
@@ -9602,7 +9602,7 @@ export function executeTriggerEffect(
           const oracleLower = String(triggerItem.card?.oracle_text || '').toLowerCase();
           const shouldTagExiledWith = oracleLower.includes('exiled with');
 
-          const sourceId = triggerItem.sourceId || triggerItem.permanentId;
+          const sourceId = triggerItem.sourceId || triggerItem.permanentId || triggerItem.source;
           const sourceOracleId = triggerItem.card?.id;
           if (shouldTagExiledWith) {
             movePermanentToExile(ctx, targetPerm.id, {
@@ -15617,10 +15617,6 @@ function executeSpellEffect(
         const destroyedName = String((target as any).card?.name || effect.id);
         destroyPermanent(ctx, destroyedPermanentId, true);
         debug(2, `[resolveSpell] ${spellName} destroyed ${destroyedName}`);
-
-        if (!(ctx.state.battlefield || []).some((p: any) => p && p.id === destroyedPermanentId)) {
-          processLinkedExileReturns(ctx, destroyedPermanentId);
-        }
       }
       break;
     }
@@ -15653,8 +15649,6 @@ function executeSpellEffect(
       if (!id) break;
       const moved = movePermanentToHand(ctx, id);
       if (moved) {
-        // If this was an Oblivion Ring-style permanent, return any cards it had exiled.
-        processLinkedExileReturns(ctx, id);
         debug(2, `[resolveSpell] ${spellName} returned ${id} to its owner's hand`);
       }
       break;

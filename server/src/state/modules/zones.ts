@@ -15,6 +15,7 @@ import { ResolutionQueueManager } from "../resolution/index.js";
 import { ResolutionStepType } from "../resolution/types.js";
 import { recordCardPutIntoGraveyardThisTurn, recordPermanentPutIntoHandFromBattlefieldThisTurn } from "./turn-tracking.js";
 import { cleanupCardLeavingExile } from "./playable-from-exile.js";
+import { processLinkedExileReturns } from "./triggers/linked-exile.js";
 
 /* ===== core zone operations ===== */
 
@@ -769,6 +770,7 @@ export function movePermanentToLibrary(
   if (idx < 0) return false;
   
   const perm = battlefield.splice(idx, 1)[0];
+  const removedPermanentId = String((perm as any)?.id || permanentId || '').trim();
   const owner = perm.owner as PlayerID;
   const card = perm.card;
 
@@ -828,6 +830,9 @@ export function movePermanentToLibrary(
       } as any,
     } as any);
     debug(2, `[movePermanentToLibrary] Commander ${cardAny.name || 'Unknown'} would go to library (${position}) - queued commander zone choice step`);
+    if (removedPermanentId) {
+      processLinkedExileReturns(ctx, removedPermanentId);
+    }
     bumpSeq();
     return true;
   }
@@ -856,6 +861,10 @@ export function movePermanentToLibrary(
   const z = zones[owner] || (zones[owner] = { hand: [], handCount: 0, libraryCount: 0, graveyard: [], graveyardCount: 0 } as any);
   z.libraryCount = lib.length;
   
+  if (removedPermanentId) {
+    processLinkedExileReturns(ctx, removedPermanentId);
+  }
+
   debug(2, `[movePermanentToLibrary] ${(card as any)?.name || permanentId} put ${position} of ${owner}'s library`);
   bumpSeq();
   return true;
@@ -877,6 +886,7 @@ export function movePermanentToHand(ctx: GameContext, permanentId: string): bool
   if (idx < 0) return false;
   
   const perm = battlefield.splice(idx, 1)[0];
+  const removedPermanentId = String((perm as any)?.id || permanentId || '').trim();
   const owner = perm.owner as PlayerID;
   const card = perm.card;
 
@@ -893,6 +903,9 @@ export function movePermanentToHand(ctx: GameContext, permanentId: string): bool
 
   // Tokens cease to exist when they leave the battlefield (Rule 111.7).
   if ((perm as any).isToken === true) {
+    if (removedPermanentId) {
+      processLinkedExileReturns(ctx, removedPermanentId);
+    }
     debug(2, `[movePermanentToHand] Token ${card?.name || permanentId} left battlefield -> ceased to exist (not moved to hand)`);
     bumpSeq();
     return true;
@@ -941,6 +954,9 @@ export function movePermanentToHand(ctx: GameContext, permanentId: string): bool
       } as any,
     } as any);
     debug(2, `[movePermanentToHand] Commander ${card.name} would go to hand - queued commander zone choice step`);
+    if (removedPermanentId) {
+      processLinkedExileReturns(ctx, removedPermanentId);
+    }
     bumpSeq();
     return true;
   }
@@ -953,6 +969,10 @@ export function movePermanentToHand(ctx: GameContext, permanentId: string): bool
   z.handCount = z.hand.length;
 
   recordPermanentPutIntoHandFromBattlefieldThisTurn(ctx, String(owner));
+
+  if (removedPermanentId) {
+    processLinkedExileReturns(ctx, removedPermanentId);
+  }
   
   debug(2, `[movePermanentToHand] ${card?.name || permanentId} returned to ${owner}'s hand`);
   bumpSeq();

@@ -5,6 +5,7 @@ import GameManager from '../src/GameManager.js';
 import { createGameIfNotExists, deleteGame, initDb } from '../src/db/index.js';
 import { games } from '../src/socket/socket.js';
 import { ensureGame } from '../src/socket/util.js';
+import { movePermanentToGraveyard } from '../src/state/modules/counters_tokens.js';
 import { ResolutionQueueManager, ResolutionStepType } from '../src/state/resolution/index.js';
 
 async function resetGame(gameId: string) {
@@ -299,5 +300,82 @@ describe('activated exert costs replay coverage', () => {
 
     expect(forestA?.tapped).toBe(false);
     expect(forestB?.tapped).toBe(false);
+  });
+
+  it('replays Angel of Condemnation exert exile activations with return-on-leave intact', () => {
+    const gameId = createGameId();
+    trackedGameIds.add(gameId);
+    const playerId = 'p1' as PlayerID;
+    const opponentId = 'p2' as PlayerID;
+    const game = seedGame(gameId, playerId, opponentId);
+
+    (game.state as any).battlefield = [
+      {
+        id: 'angel_of_condemnation',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        summoningSickness: false,
+        counters: {},
+        basePower: 3,
+        baseToughness: 3,
+        card: {
+          id: 'angel_of_condemnation_card',
+          name: 'Angel of Condemnation',
+          type_line: 'Creature — Angel',
+          oracle_text: 'Flying, vigilance\n{2}{W}, {T}: Exile another target creature. Return that card to the battlefield under its owner\'s control at the beginning of the next end step.\n{2}{W}, {T}, Exert this creature: Exile another target creature until this creature leaves the battlefield. (An exerted creature won\'t untap during your next untap step.)',
+          power: '3',
+          toughness: '3',
+        },
+      },
+      createCreature(
+        'target_creature',
+        opponentId,
+        'Target Creature',
+        '',
+        2,
+        2,
+      ),
+    ];
+
+    game.applyEvent({
+      type: 'activateBattlefieldAbility',
+      playerId,
+      permanentId: 'angel_of_condemnation',
+      abilityId: 'angel_of_condemnation-ability-1',
+      cardName: 'Angel of Condemnation',
+      abilityText: "Exile another target creature until this creature leaves the battlefield. (An exerted creature won't untap during your next untap step.)",
+      activatedAbilityText: "{2}{W}, {T}, Exert this creature: Exile another target creature until this creature leaves the battlefield. (An exerted creature won't untap during your next untap step.)",
+      targets: ['target_creature'],
+      tappedPermanents: ['angel_of_condemnation'],
+      exertedPermanentIdForCost: 'angel_of_condemnation',
+    } as any);
+
+    const angel = ((game.state as any).battlefield || []).find((permanent: any) => permanent?.id === 'angel_of_condemnation') as any;
+    expect(angel?.tapped).toBe(true);
+    expect(angel?.doesntUntapNextTurn).toBe(true);
+    expect(angel?.exertedThisTurn).toBe(true);
+    expect((((game.state as any).stack || []) as any[])).toHaveLength(1);
+
+    game.applyEvent({ type: 'resolveTopOfStack' } as any);
+
+    const battlefieldAfterExile = ((game.state as any).battlefield || []) as any[];
+    expect(battlefieldAfterExile.some((permanent: any) => permanent?.id === 'target_creature')).toBe(false);
+    expect((((game.state as any).zones?.[opponentId]?.exile || []) as any[]).some((card: any) => String(card?.name || '') === 'Target Creature')).toBe(true);
+    expect(((game.state as any).linkedExiles || [])).toEqual([
+      expect.objectContaining({
+        exilingPermanentId: 'angel_of_condemnation',
+        exiledCardName: 'Target Creature',
+        originalOwner: opponentId,
+      }),
+    ]);
+
+    expect(movePermanentToGraveyard(game as any, 'angel_of_condemnation')).toBe(true);
+
+    const battlefieldAfterReturn = ((game.state as any).battlefield || []) as any[];
+    const returnedCreature = battlefieldAfterReturn.find((permanent: any) => String(permanent?.card?.name || '') === 'Target Creature') as any;
+    expect(returnedCreature).toBeDefined();
+    expect(String(returnedCreature?.controller || '')).toBe(opponentId);
+    expect(((game.state as any).linkedExiles || [])).toEqual([]);
   });
 });

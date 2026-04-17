@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { createInitialGameState } from '../src/state/gameState';
 import { createContext } from '../src/state/context';
 import { processLinkedExileReturns } from '../src/state/modules/triggers/linked-exile';
+import { movePermanentToHand } from '../src/state/modules/zones';
 import type { PlayerID } from '../../shared/src';
 import { GamePhase } from '../../shared/src';
 
@@ -269,6 +270,89 @@ describe('playableFromExile lifecycle (server)', () => {
 
     const perm = (ctx.state as any).battlefield?.find((p: any) => p?.card?.id === cardId);
     expect(perm).toBeTruthy();
+    expect(perm.card?.canBePlayedBy).toBeUndefined();
+    expect(perm.card?.playableUntilTurn).toBeUndefined();
+  });
+
+  it('cleans up playableFromExile when a linked-exile source is bounced by the shared zone helper', () => {
+    const ctx = createContext('t_pfe_linked_exile_bounce') as any;
+
+    const p1 = 'p1' as PlayerID;
+    const p2 = 'p2' as PlayerID;
+    const exilingPermanentId = 'perm_exiler_2';
+    const cardId = 'exiled_2';
+
+    const exiledCard: any = {
+      id: cardId,
+      name: 'Silvercoat Lion',
+      type_line: 'Creature — Cat',
+      oracle_text: '',
+      power: '2',
+      toughness: '2',
+      zone: 'exile',
+      canBePlayedBy: [p1],
+      playableUntilTurn: 999,
+    };
+
+    (ctx.state as any).playableFromExile = { [p1]: { [cardId]: 999 } };
+    (ctx.state as any).zones = {
+      [p1]: {
+        hand: [],
+        handCount: 0,
+        exile: [],
+        exileCount: 0,
+        graveyard: [],
+        graveyardCount: 0,
+        libraryCount: 0,
+      },
+      [p2]: {
+        hand: [],
+        handCount: 0,
+        exile: [exiledCard],
+        exileCount: 1,
+        graveyard: [],
+        graveyardCount: 0,
+        libraryCount: 0,
+      },
+    };
+    (ctx.state as any).battlefield = [
+      {
+        id: exilingPermanentId,
+        controller: p1,
+        owner: p1,
+        card: {
+          id: 'oblivion_ring',
+          name: 'Oblivion Ring',
+          type_line: 'Enchantment',
+          oracle_text: 'When Oblivion Ring enters the battlefield, exile another target nonland permanent until Oblivion Ring leaves the battlefield.',
+        },
+      },
+    ];
+    (ctx.state as any).linkedExiles = [
+      {
+        id: 'le_2',
+        exilingPermanentId,
+        exilingPermanentName: 'Oblivion Ring',
+        exiledCardId: cardId,
+        exiledCard,
+        exiledCardName: exiledCard.name,
+        originalOwner: p2,
+        originalController: p2,
+        returnCondition: 'ltb',
+      },
+    ];
+
+    expect(movePermanentToHand(ctx, exilingPermanentId)).toBe(true);
+
+    expect((ctx.state as any).playableFromExile?.[p1]?.[cardId]).toBeUndefined();
+    expect((ctx.state as any).zones?.[p2]?.exile).toEqual([]);
+    expect((ctx.state as any).zones?.[p1]?.hand).toEqual([
+      expect.objectContaining({ id: 'oblivion_ring', zone: 'hand' }),
+    ]);
+
+    const perm = (ctx.state as any).battlefield?.find((p: any) => p?.card?.id === cardId);
+    expect(perm).toBeTruthy();
+    expect(perm.controller).toBe(p2);
     expect(perm.card?.canBePlayedBy).toBeUndefined();
     expect(perm.card?.playableUntilTurn).toBeUndefined();
   });

@@ -32,7 +32,7 @@ import { debug, debugWarn, debugError } from "../utils/debug.js";
 import { filterLibraryCardsForSearch } from "./library-search.js";
 import { pushWheneverYouExertTriggersOntoStack } from "./exert-triggers.js";
 import { registerManaHandlers } from "./mana-handlers.js";
-import { matchesGraveyardCardTargetType as matchesSharedGraveyardCardTargetType, parseTargetRequirements } from "../rules-engine/targeting.js";
+import { canPermanentBeTargetedByPlayer, matchesGraveyardCardTargetType as matchesSharedGraveyardCardTargetType, parseAbilityTargeting, parseTargetRequirements } from "../rules-engine/targeting.js";
 import { requestPlayerSelection } from "./player-selection.js";
 import { serializeAbilityActivatedTriggeredStackItem, triggerAbilityActivatedTriggers } from "../state/modules/triggers/ability-activated.js";
 import { isCreatureNow } from "../state/creatureTypeNow.js";
@@ -10704,6 +10704,101 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
               tappedPermanentsForCost,
               ...(requiresSelfExert ? { requiresSelfExertForCost: true } : null),
             };
+        const targetStep = ResolutionQueueManager.addStep(gameId, queuedStep as any);
+
+        if (typeof game.bumpSeq === 'function') {
+          game.bumpSeq();
+        }
+
+        persistQueuedBattlefieldAbilityStepActivation({
+          gameId,
+          game,
+          playerId: String(pid),
+          permanentId: String(permanentId),
+          abilityId: String(abilityId),
+          cardName,
+          abilityText: resolvedAbilityText,
+          activatedAbilityText: activatedAbilityTextForStack,
+          tappedPermanents: tappedPermanentsForCost,
+          queuedStep: {
+            ...queuedStep,
+            id: String((targetStep as any).id || ''),
+          },
+        });
+
+        broadcastGame(io, game, gameId);
+        return;
+      }
+
+      const parsedBattlefieldAbilityTargeting = parseAbilityTargeting(resolvedAbilityText);
+      if (parsedBattlefieldAbilityTargeting) {
+        const battlefield = Array.isArray(game.state?.battlefield) ? game.state.battlefield : [];
+        const validTargets = battlefield
+          .filter((target: any) => {
+            if (!target?.id || !target?.card) {
+              return false;
+            }
+
+            const typeLine = String(target.card?.type_line || '').toLowerCase();
+            if (parsedBattlefieldAbilityTargeting.targetType === 'creature' && !typeLine.includes('creature')) {
+              return false;
+            }
+
+            if (parsedBattlefieldAbilityTargeting.controllerOnly && String(target.controller || '') !== String(pid)) {
+              return false;
+            }
+
+            if (parsedBattlefieldAbilityTargeting.excludeSource && String(target.id || '') === String(permanentId)) {
+              return false;
+            }
+
+            return canPermanentBeTargetedByPlayer(target as any, game.state as any, pid as any);
+          })
+          .map((target: any) => ({
+            id: String(target.id),
+            label: target.card?.name || 'Permanent',
+            description: target.card?.type_line || 'Permanent',
+            imageUrl: target.card?.image_uris?.small || target.card?.image_uris?.normal,
+            type: 'permanent',
+            controller: target.controller,
+            tapped: target.tapped === true,
+            typeLine: target.card?.type_line,
+            oracleText: target.card?.oracle_text,
+            cmc: Number(target.card?.cmc ?? 0),
+            isToken: target.isToken === true,
+            isOpponent: String(target.controller || '') !== String(pid),
+          }));
+
+        if (validTargets.length === 0) {
+          socket.emit('error', {
+            code: 'NO_VALID_TARGETS',
+            message: `${cardName}'s ability has no legal ${parsedBattlefieldAbilityTargeting.description} targets.`,
+          });
+          return;
+        }
+
+        const queuedStep = {
+          type: ResolutionStepType.TARGET_SELECTION,
+          playerId: pid as PlayerID,
+          sourceId: permanentId,
+          sourceName: cardName,
+          sourceImage: (permanent as any).card?.image_uris?.small || (permanent as any).card?.image_uris?.normal,
+          description: `Choose ${parsedBattlefieldAbilityTargeting.description} for ${cardName}`,
+          mandatory: true,
+          validTargets,
+          targetTypes: [parsedBattlefieldAbilityTargeting.targetType],
+          minTargets: 1,
+          maxTargets: 1,
+          targetDescription: parsedBattlefieldAbilityTargeting.description,
+          battlefieldAbilityTargetSelection: true,
+          permanentId,
+          abilityId,
+          cardName,
+          abilityText: resolvedAbilityText,
+          activatedAbilityText: activatedAbilityTextForStack,
+          tappedPermanentsForCost,
+          ...(requiresSelfExert ? { requiresSelfExertForCost: true } : null),
+        };
         const targetStep = ResolutionQueueManager.addStep(gameId, queuedStep as any);
 
         if (typeof game.bumpSeq === 'function') {

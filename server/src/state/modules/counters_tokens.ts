@@ -5,7 +5,7 @@ import { applyStateBasedActions, evaluateAction } from "../../rules-engine";
 import { uid, parsePT, parseWordNumber } from "../utils";
 import { recalculatePlayerEffects } from "./game-state-effects.js";
 import { applyBeneficialReplacements, applyReplacementsCustomOrder, type ReplacementEffect } from "./game-state-effects.js";
-import { getDeathTriggers } from "./triggered-abilities.js";
+import { getDeathTriggers, processLinkedExileReturns } from "./triggered-abilities.js";
 import { isInterveningIfSatisfied } from "./triggers/intervening-if.js";
 import { getTokenImageUrls } from "../../services/tokens.js";
 import { debug, debugWarn, debugError } from "../../utils/debug.js";
@@ -1168,6 +1168,7 @@ export function movePermanentToGraveyard(ctx: GameContext, permanentId: string, 
   const zoneCard = ((perm as any).isFaceDown === true && (perm as any).faceUpCard)
     ? (perm as any).faceUpCard
     : card;
+  const removedPermanentId = String((perm as any).id || permanentId || '').trim();
   const isToken = (perm as any).isToken === true;
   const isCreature = (card?.type_line || '').toLowerCase().includes('creature');
 
@@ -1198,6 +1199,10 @@ export function movePermanentToGraveyard(ctx: GameContext, permanentId: string, 
         };
         (ownerZone as any).exile.push(exiledCard);
       }
+    }
+
+    if (removedPermanentId) {
+      processLinkedExileReturns(ctx, removedPermanentId);
     }
 
     bumpSeq();
@@ -1418,6 +1423,9 @@ export function movePermanentToGraveyard(ctx: GameContext, permanentId: string, 
   
   // Rule 111.7: Tokens cease to exist when in any zone other than battlefield
   if (isToken) {
+    if (removedPermanentId) {
+      processLinkedExileReturns(ctx, removedPermanentId);
+    }
     debug(2, `[movePermanentToGraveyard] Token ${card?.name || perm.id} ceased to exist (left battlefield)`);
     bumpSeq();
     return true; // Token ceased to exist (death triggers already fired above)
@@ -1457,6 +1465,10 @@ export function movePermanentToGraveyard(ctx: GameContext, permanentId: string, 
         }
       } catch {
         // best-effort only
+      }
+
+      if (removedPermanentId) {
+        processLinkedExileReturns(ctx, removedPermanentId);
       }
 
       bumpSeq();
@@ -1501,6 +1513,10 @@ export function movePermanentToGraveyard(ctx: GameContext, permanentId: string, 
       } as any,
     } as any);
     debug(2, `[movePermanentToGraveyard] Commander ${zoneCard.name} would go to graveyard - queued commander zone choice step`);
+
+    if (removedPermanentId) {
+      processLinkedExileReturns(ctx, removedPermanentId);
+    }
     
     // Remove from battlefield but DON'T add to graveyard yet - wait for player choice
     bumpSeq();
@@ -1524,6 +1540,10 @@ export function movePermanentToGraveyard(ctx: GameContext, permanentId: string, 
       recordCardPutIntoGraveyardThisTurn(ctx, String(owner), zoneCard, { fromBattlefield: true, controllerId: String(controller) });
       (ownerZone as any).graveyardCount = (ownerZone as any).graveyard.length;
     }
+  }
+
+  if (removedPermanentId) {
+    processLinkedExileReturns(ctx, removedPermanentId);
   }
   
   bumpSeq();
@@ -1561,6 +1581,7 @@ export function removePermanent(ctx: GameContext, permanentId: string) {
   const idx = state.battlefield.findIndex(p => p.id === permanentId);
   if (idx >= 0) {
     const perm = state.battlefield.splice(idx,1)[0];
+    const removedPermanentId = String((perm as any)?.id || permanentId || '').trim();
     try {
       const controller = (perm as any)?.controller || (perm as any)?.owner;
       if (controller) {
@@ -1569,6 +1590,9 @@ export function removePermanent(ctx: GameContext, permanentId: string) {
       }
     } catch {
       // best-effort tracking only
+    }
+    if (removedPermanentId) {
+      processLinkedExileReturns(ctx, removedPermanentId);
     }
     bumpSeq();
     runSBA(ctx);
@@ -1596,6 +1620,7 @@ export function movePermanentToExile(
   const idx = state.battlefield.findIndex(p => p.id === permanentId);
   if (idx < 0) return;
   const perm = state.battlefield.splice(idx,1)[0];
+  const removedPermanentId = String((perm as any)?.id || permanentId || '').trim();
   const owner = ((perm as any).owner || (perm as any).controller) as PlayerID;
   const controller = ((perm as any).controller || owner) as PlayerID;
   const card = perm.card as any;
@@ -1612,6 +1637,9 @@ export function movePermanentToExile(
 
   // Defensive: If we can't determine an owner/controller, don't write to zones[undefined].
   if (!owner) {
+    if (removedPermanentId) {
+      processLinkedExileReturns(ctx, removedPermanentId);
+    }
     bumpSeq();
     return;
   }
@@ -1637,6 +1665,9 @@ export function movePermanentToExile(
         isToken: true,
         zone: "exile",
       });
+    }
+    if (removedPermanentId) {
+      processLinkedExileReturns(ctx, removedPermanentId);
     }
     bumpSeq();
     return;
@@ -1692,6 +1723,10 @@ export function movePermanentToExile(
       } as any,
     } as any);
     debug(2, `[movePermanentToExile] Commander ${card.name} would go to exile - queued commander zone choice step`);
+
+    if (removedPermanentId) {
+      processLinkedExileReturns(ctx, removedPermanentId);
+    }
     
     bumpSeq();
     return; // Zone change deferred for commander - don't add to exile yet
@@ -1715,6 +1750,9 @@ export function movePermanentToExile(
   };
   (z as any).exile = (z as any).exile || [];
   (z as any).exile.push(kc);
+  if (removedPermanentId) {
+    processLinkedExileReturns(ctx, removedPermanentId);
+  }
   bumpSeq();
 }
 
