@@ -53,7 +53,8 @@ let atomicIndexCache: Map<string, LoadedCard> | null = null;
 const RUN_SLOW_LIVE_PRECON_FINISH = process.env.RUN_SLOW_LIVE_PRECON_FINISH === '1';
 const LIVE_PRECON_PROGRESS_LOG = process.env.LIVE_PRECON_PROGRESS_LOG === '1';
 const LIVE_PRECON_ENV_SEED = Number(process.env.LIVE_PRECON_SEED);
-const LIVE_PRECON_BASE_SEED = Number.isFinite(LIVE_PRECON_ENV_SEED) ? LIVE_PRECON_ENV_SEED : Date.now();
+const LIVE_PRECON_DEFAULT_SEED = 8;
+const LIVE_PRECON_BASE_SEED = Number.isFinite(LIVE_PRECON_ENV_SEED) ? LIVE_PRECON_ENV_SEED : LIVE_PRECON_DEFAULT_SEED;
 const LIVE_PRECON_REQUIRED_TURNS = Number(process.env.LIVE_PRECON_REQUIRED_TURNS || 10);
 const LIVE_PRECON_FAST_TICK_MS = Number(process.env.LIVE_PRECON_FAST_TICK_MS || 5_000);
 const LIVE_PRECON_FAST_MAX_TICKS = Number(process.env.LIVE_PRECON_FAST_MAX_TICKS || 300);
@@ -371,7 +372,7 @@ async function prepareLiveGame(gameId: string): Promise<PreparedLiveGame> {
   if (!game) throw new Error('ensureGame returned undefined');
 
   console.log(
-    `[precon-live] game=${gameId} rngSeed=${livePreconSeed}${Number.isFinite(LIVE_PRECON_ENV_SEED) ? ' (env override)' : ' (auto-generated)'}`,
+    `[precon-live] game=${gameId} rngSeed=${livePreconSeed}${Number.isFinite(LIVE_PRECON_ENV_SEED) ? ' (env override)' : ' (default regression seed)'}`,
   );
 
   if (typeof game.seedRng === 'function') {

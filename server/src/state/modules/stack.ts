@@ -10282,14 +10282,17 @@ export function executeTriggerEffect(
       triggerType === 'melee' ||
       triggerType === 'exalted' ||
       triggerType === 'battle_cry' ||
+      triggerType === 'mentor' ||
       triggerType === 'training'
     ) {
       timing = 'attacks';
     } else if (
       triggerType === 'blocks' ||
       triggerType === 'blocked' ||
+      triggerType === 'afflict' ||
       triggerType === 'flanking' ||
-      triggerType === 'bushido'
+      triggerType === 'bushido' ||
+      triggerType === 'rampage'
     ) {
       timing = 'blocks';
     } else if (triggerType === 'etb' || triggerType === 'etb_self') {
@@ -10318,7 +10321,9 @@ export function executeTriggerEffect(
         battlefield,
         players: state.players || [],
         activePlayer: state.activePlayer || controller,
-        defendingPlayer: (triggerItem as any).defendingPlayer,
+        defendingPlayer:
+          (triggerItem as any).defendingPlayer ||
+          (triggerItem as any)?.value?.defendingPlayer,
         attackingCreatures: (triggerItem as any).attackingCreatures,
         blockingCreatureIds,
         blockingCreatures: blockingCreatureIds.length > 0
@@ -10341,6 +10346,18 @@ export function executeTriggerEffect(
         // Apply counter modifications
         if (result.countersAdded) {
           applyKeywordCounters(permanent, result);
+        }
+
+        if (result.lifeChange) {
+          const targetPlayerId = String(result.lifeChange.player || '').trim();
+          const amount = Number(result.lifeChange.amount || 0);
+          if (targetPlayerId && Number.isFinite(amount) && amount !== 0) {
+            if (amount > 0) {
+              applyLifeGain(targetPlayerId, amount, `${sourceName} (${result.keyword})`);
+            } else {
+              modifyLife(targetPlayerId, amount);
+            }
+          }
         }
         
         // Apply P/T modifications

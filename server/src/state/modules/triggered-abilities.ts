@@ -523,6 +523,7 @@ export interface TriggeredAbility {
     | 'myriad'
     | 'exalted'
     | 'dethrone'
+    | 'mentor'
     | 'training'
     | 'bushido'
     | 'battle_cry'        // Battle cry - each other attacking creature gets +1/+0
@@ -877,8 +878,8 @@ export function detectAttackTriggers(card: any, permanent: any): TriggeredAbilit
     .split(/\r?\n/)
     .map((line) => line.trim())
     .filter(Boolean);
-  const attackKeywordReminderLinePattern = /^(?:annihilator\s+\d+|melee|myriad|exalted|battle cry|dethrone|training)\b/i;
-  const blockKeywordReminderLinePattern = /^(?:bushido\s+\d+|flanking|rampage\s+\d+)\b/i;
+  const attackKeywordReminderLinePattern = /^(?:annihilator\s+\d+|melee|myriad|exalted|battle cry|dethrone|mentor|training)\b/i;
+  const blockKeywordReminderLinePattern = /^(?:afflict\s+\d+|bushido\s+\d+|flanking|rampage\s+\d+)\b/i;
 
   const findGenericAttackTriggerLine = (): RegExpMatchArray | null => {
     const attacksPattern = /whenever\s+(?:~|this creature(?:\s+or\s+equipped creature)?)\s+attacks,?\s*(.+)$/i;
@@ -1017,6 +1018,18 @@ export function detectAttackTriggers(card: any, permanent: any): TriggeredAbilit
     });
   }
 
+  // Mentor
+  if (lowerOracle.includes("mentor")) {
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerType: 'mentor',
+      description: 'Put a +1/+1 counter on target attacking creature with lesser power',
+      mandatory: true,
+    });
+  }
+
   // Training
   if (lowerOracle.includes("training")) {
     triggers.push({
@@ -1108,7 +1121,7 @@ export function detectBlockTriggers(card: any, permanent: any): BlockTrigger[] {
     .split(/\r?\n/)
     .map((line) => line.trim())
     .filter(Boolean);
-  const blockKeywordReminderLinePattern = /^(?:bushido\s+\d+|flanking|rampage\s+\d+)\b/i;
+  const blockKeywordReminderLinePattern = /^(?:afflict\s+\d+|bushido\s+\d+|flanking|rampage\s+\d+)\b/i;
 
   const findGenericBlockTriggerLine = (): RegExpMatchArray | null => {
     const blocksPattern = /whenever\s+(?:~|this creature)\s+blocks(?:\s+a\s+creature)?,?\s*(.+)$/i;

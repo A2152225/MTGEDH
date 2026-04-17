@@ -226,8 +226,8 @@ export interface AttachmentAttackTrigger {
   createsToken?: boolean;
 }
 
-const ATTACK_KEYWORD_REMINDER_LINE_PATTERN = /^(?:annihilator\s+\d+|firebending\s+\d+|melee|myriad|exalted|battle cry|dethrone|training)\b/i;
-const BLOCK_KEYWORD_REMINDER_LINE_PATTERN = /^(?:bushido\s+\d+|flanking|rampage\s+\d+)\b/i;
+const ATTACK_KEYWORD_REMINDER_LINE_PATTERN = /^(?:annihilator\s+\d+|firebending\s+\d+|melee|myriad|exalted|battle cry|dethrone|mentor|training)\b/i;
+const BLOCK_KEYWORD_REMINDER_LINE_PATTERN = /^(?:afflict\s+\d+|bushido\s+\d+|flanking|rampage\s+\d+)\b/i;
 
 function getOracleLines(oracleText: string): string[] {
   return String(oracleText || '')
@@ -532,6 +532,17 @@ export function detectAttackTriggers(card: any, permanent: any): CombatTriggered
       triggerType: 'battle_cry',
       description: "Each other attacking creature gets +1/+0 until end of turn",
       effect: 'battle_cry_buff',
+      mandatory: true,
+    });
+  }
+
+  // Mentor keyword ability
+  if (lowerOracle.includes("mentor")) {
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'mentor',
+      description: 'Put a +1/+1 counter on target attacking creature with lesser power',
       mandatory: true,
     });
   }
@@ -1475,7 +1486,7 @@ function permanentHasKeyword(permanent: any, keywordName: string): boolean {
 
 /**
  * Get block triggers for attacking creatures that became blocked.
- * Covers keyword abilities like flanking and bushido that trigger on the attacker.
+ * Covers keyword abilities like afflict, flanking, bushido, and rampage that trigger on the attacker.
  */
 export function getBlockedTriggersForCreatures(
   ctx: GameContext,
@@ -1502,7 +1513,21 @@ export function getBlockedTriggersForCreatures(
       .filter(Boolean);
 
     for (const keyword of blockKeywords) {
-      if (keyword.keyword === 'flanking') {
+      if (keyword.keyword === 'afflict') {
+        triggers.push({
+          permanentId: attacker.id,
+          cardName: attacker.card?.name || 'Unknown',
+          controllerId: attacker.controller,
+          triggerType: 'afflict',
+          description: keyword.effect,
+          effect: keyword.effect,
+          mandatory: keyword.mandatory,
+          value: {
+            blockingCreatureIds: blockedByIds,
+            defendingPlayer,
+          },
+        });
+      } else if (keyword.keyword === 'flanking') {
         for (const blockingCreature of blockingCreatures) {
           if (permanentHasKeyword(blockingCreature, 'flanking')) continue;
           triggers.push({
@@ -1525,6 +1550,20 @@ export function getBlockedTriggersForCreatures(
           cardName: attacker.card?.name || 'Unknown',
           controllerId: attacker.controller,
           triggerType: 'bushido',
+          description: keyword.effect,
+          effect: keyword.effect,
+          mandatory: keyword.mandatory,
+          value: {
+            blockingCreatureIds: blockedByIds,
+            defendingPlayer,
+          },
+        });
+      } else if (keyword.keyword === 'rampage') {
+        triggers.push({
+          permanentId: attacker.id,
+          cardName: attacker.card?.name || 'Unknown',
+          controllerId: attacker.controller,
+          triggerType: 'rampage',
           description: keyword.effect,
           effect: keyword.effect,
           mandatory: keyword.mandatory,

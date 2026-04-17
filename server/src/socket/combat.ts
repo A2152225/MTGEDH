@@ -2027,42 +2027,6 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
                 broadcastManaPoolUpdate(io, gameId, playerId, game.state.manaPool[playerId] as any, `Firebending from ${trigger.cardName}`, game);
                 
                 debug(2, `[combat] Firebending trigger from ${trigger.cardName}: added ${manaAmount} red mana`);
-              } else if ((trigger.triggerType as string) === 'battle_cry') {
-                // Battle Cry - Each other attacking creature gets +1/+0 until end of turn
-                // Rule 702.91a: Apply +1/+0 to all OTHER attacking creatures
-                const attackerIds = (attackers as Array<{ creatureId: string; targetPlayerId?: string; targetPermanentId?: string }>).map(a => a.creatureId);
-                const otherAttackers = battlefield.filter((p: any) => 
-                  p && attackerIds.includes(p.id) && p.id !== trigger.permanentId
-                );
-                
-                for (const attacker of otherAttackers) {
-                  // Add the battle cry bonus as a temporary modifier
-                  (attacker as any).modifiers = (attacker as any).modifiers || [];
-                  (attacker as any).modifiers.push({
-                    type: 'battle_cry',
-                    power: 1,
-                    toughness: 0,
-                    source: trigger.permanentId,
-                    sourceName: trigger.cardName,
-                    expiresAt: 'end_of_turn',
-                  });
-                  
-                  // Also update the temporary power boost for immediate effect
-                  (attacker as any).temporaryPowerBoost = ((attacker as any).temporaryPowerBoost || 0) + 1;
-                }
-                
-                const buffedCount = otherAttackers.length;
-                if (buffedCount > 0) {
-                  io.to(gameId).emit("chat", {
-                    id: `m_${Date.now()}`,
-                    gameId,
-                    from: "system",
-                    message: `⚔️ ${trigger.cardName}'s battle cry gives ${buffedCount} other attacking creature${buffedCount !== 1 ? 's' : ''} +1/+0 until end of turn`,
-                    ts: Date.now(),
-                  });
-                  
-                  debug(2, `[combat] Battle cry from ${trigger.cardName}: buffed ${buffedCount} other attackers`);
-                }
               } else {
                 // Regular trigger - push onto stack immediately
                 game.state.stack = game.state.stack || [];
@@ -2570,7 +2534,7 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
                 const triggerTypeForEval = String((trigger as any).triggerType || 'blocks');
                 if (!hasTriggerPrefix && textForEval) {
                   const oracleLower = String(sourcePerm?.card?.oracle_text || '').toLowerCase();
-                  if (triggerTypeForEval === 'blocked' || triggerTypeForEval === 'flanking') {
+                  if (triggerTypeForEval === 'blocked' || triggerTypeForEval === 'afflict' || triggerTypeForEval === 'flanking' || triggerTypeForEval === 'rampage') {
                     textForEval = `Whenever ~ becomes blocked, ${textForEval}`;
                   } else if (triggerTypeForEval === 'bushido') {
                     textForEval = `Whenever ~ blocks or becomes blocked, ${textForEval}`;
@@ -2630,6 +2594,12 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
                 mandatory: trigger.mandatory,
                 value: trigger.value,
               };
+
+              const defendingPlayerId = String((trigger.value as any)?.defendingPlayer || '');
+              if (defendingPlayerId) {
+                stackItem.defendingPlayer = defendingPlayerId;
+                stackItem.targetPlayer = defendingPlayerId;
+              }
               
               game.state.stack.push(stackItem);
               persistTriggeredAbilityPush(gameId, game, {
@@ -2642,6 +2612,8 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
                 effect: trigger.description,
                 mandatory: trigger.mandatory,
                 ...(typeof trigger.value !== 'undefined' ? { value: trigger.value } : {}),
+                ...(stackItem.targetPlayer ? { targetPlayer: stackItem.targetPlayer } : {}),
+                ...(stackItem.defendingPlayer ? { defendingPlayer: stackItem.defendingPlayer } : {}),
               }, 'block trigger');
 
               io.to(gameId).emit("chat", {

@@ -167,12 +167,18 @@ function processKeywordTrigger(
       
     case 'annihilator':
       return handleAnnihilator(ctx, keyword);
+
+    case 'afflict':
+      return handleAfflict(ctx, keyword);
       
     case 'flanking':
       return handleFlanking(ctx, keyword);
       
     case 'bushido':
       return handleBushido(ctx, keyword);
+
+    case 'rampage':
+      return handleRampage(ctx, keyword);
       
     case 'enlist':
       return handleEnlist(ctx, keyword);
@@ -520,12 +526,26 @@ function handleBattleCry(ctx: KeywordTriggerContext, keyword: DetectedKeyword): 
   const myAttackers = attackingCreatures.filter((c: any) => 
     c.controller === ctx.controller && c.id !== ctx.permanent?.id
   );
+
+  const affectedPermanentIds = myAttackers
+    .map((creature: any) => String(creature?.id || '').trim())
+    .filter(Boolean);
+
+  if (affectedPermanentIds.length === 0) {
+    return {
+      keyword: 'battle_cry',
+      processed: true,
+      chatMessage: `${cardName}'s Battle Cry triggers but no other attacking creatures get +1/+0`,
+    };
+  }
   
   return {
     keyword: 'battle_cry',
     processed: true,
-    effect: `${myAttackers.length} creatures get +1/+0`,
-    chatMessage: `${cardName}'s Battle Cry triggers - ${myAttackers.length} other attacking creatures get +1/+0`,
+    ptModification: { power: 1, toughness: 0, duration: 'end_of_turn' },
+    affectedPermanentIds,
+    effect: `${affectedPermanentIds.length} creatures get +1/+0`,
+    chatMessage: `${cardName}'s Battle Cry triggers - ${affectedPermanentIds.length} other attacking creatures get +1/+0`,
   };
 }
 
@@ -625,6 +645,31 @@ function handleAnnihilator(ctx: KeywordTriggerContext, keyword: DetectedKeyword)
 }
 
 /**
+ * Afflict N - Defending player loses N life when this creature becomes blocked
+ */
+function handleAfflict(ctx: KeywordTriggerContext, keyword: DetectedKeyword): KeywordTriggerResult {
+  const cardName = ctx.permanent?.card?.name || 'Creature';
+  const n = keyword.value || 1;
+  const defendingPlayer = String(
+    ctx.defendingPlayer ||
+      (typeof ctx.permanent?.attacking === 'string' ? ctx.permanent.attacking : '') ||
+      ''
+  ).trim();
+
+  if (!defendingPlayer) {
+    return { keyword: 'afflict', processed: false };
+  }
+
+  return {
+    keyword: 'afflict',
+    processed: true,
+    lifeChange: { player: defendingPlayer, amount: -n },
+    effect: `Defending player loses ${n} life`,
+    chatMessage: `${cardName}'s Afflict ${n} triggers - defending player loses ${n} life`,
+  };
+}
+
+/**
  * Flanking - Blocking creature without flanking gets -1/-1
  */
 function handleFlanking(ctx: KeywordTriggerContext, keyword: DetectedKeyword): KeywordTriggerResult {
@@ -668,6 +713,32 @@ function handleBushido(ctx: KeywordTriggerContext, keyword: DetectedKeyword): Ke
     processed: true,
     ptModification: { power: n, toughness: n, duration: 'end_of_turn' },
     chatMessage: `${cardName}'s Bushido ${n} triggers - gets +${n}/+${n} until end of turn`,
+  };
+}
+
+/**
+ * Rampage N - +N/+N for each creature blocking beyond the first
+ */
+function handleRampage(ctx: KeywordTriggerContext, keyword: DetectedKeyword): KeywordTriggerResult {
+  const cardName = ctx.permanent?.card?.name || 'Creature';
+  const n = keyword.value || 1;
+  const blockingCreatureIds = getBlockingCreatureIds(ctx);
+  const extraBlockers = Math.max(0, blockingCreatureIds.length - 1);
+  const bonus = extraBlockers * n;
+
+  if (bonus <= 0) {
+    return {
+      keyword: 'rampage',
+      processed: true,
+      chatMessage: `${cardName}'s Rampage ${n} triggers but no bonus is applied`,
+    };
+  }
+
+  return {
+    keyword: 'rampage',
+    processed: true,
+    ptModification: { power: bonus, toughness: bonus, duration: 'end_of_turn' },
+    chatMessage: `${cardName}'s Rampage ${n} triggers - gets +${bonus}/+${bonus} until end of turn`,
   };
 }
 
