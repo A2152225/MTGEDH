@@ -413,6 +413,127 @@ describe('supported exert attack automation (integration)', () => {
     ]);
   });
 
+  it('allows plain attack-time exert and fires whenever-you-exert watchers like Trueheart Twins', async () => {
+    const gameId = createGameId();
+    trackedGameIds.add(gameId);
+    const attackerId = 'p1' as PlayerID;
+    const defenderId = 'p2' as PlayerID;
+    const game = seedCombatGame(gameId, attackerId, defenderId);
+
+    (game.state as any).battlefield = [
+      createAttacker(
+        'trueheart_twins',
+        attackerId,
+        'Trueheart Twins',
+        "You may exert this creature as it attacks. (It won't untap during your next untap step.)\nWhenever you exert a creature, creatures you control get +1/+0 until end of turn.",
+        4,
+        4,
+      ),
+      createAttacker(
+        'supporting_ally',
+        attackerId,
+        'Supporting Ally',
+        '',
+        2,
+        2,
+      ),
+    ];
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket: attackerSocket, handlers: attackerHandlers } = createMockSocket(attackerId, emitted, gameId);
+    const { socket: defenderSocket, handlers: defenderHandlers } = createMockSocket(defenderId, emitted, gameId);
+    const io = createMockIo(emitted, [attackerSocket, defenderSocket]);
+    registerResolutionHandlers(io as any, attackerSocket as any);
+    registerResolutionHandlers(io as any, defenderSocket as any);
+    registerCombatHandlers(io as any, attackerSocket as any);
+    registerCombatHandlers(io as any, defenderSocket as any);
+
+    await attackerHandlers.declareAttackers({
+      gameId,
+      attackers: [{ creatureId: 'trueheart_twins', targetPlayerId: defenderId }],
+    });
+
+    const step = findExertStep(gameId, attackerId) as any;
+    expect(step).toBeDefined();
+
+    await attackerHandlers.submitResolutionResponse({
+      gameId,
+      stepId: String(step.id),
+      selections: 'exert',
+    });
+
+    const stack = (((game.state as any).stack || []) as any[]);
+    expect(stack).toHaveLength(1);
+    expect(stack[0]).toEqual(expect.objectContaining({
+      source: 'trueheart_twins',
+      permanentId: 'trueheart_twins',
+      sourceName: 'Trueheart Twins',
+      effect: 'creatures you control get +1/+0 until end of turn.',
+    }));
+
+    game.applyEvent({ type: 'resolveTopOfStack' } as any);
+
+    const twins = ((game.state as any).battlefield || []).find((permanent: any) => permanent?.id === 'trueheart_twins') as any;
+    const ally = ((game.state as any).battlefield || []).find((permanent: any) => permanent?.id === 'supporting_ally') as any;
+    expect(twins.doesntUntapNextTurn).toBe(true);
+    expect(twins.exertedThisTurn).toBe(true);
+    expect(twins.temporaryPTMods).toEqual([
+      expect.objectContaining({ power: 1, toughness: 0, expiresAt: 'end_of_turn' }),
+    ]);
+    expect(ally.temporaryPTMods).toEqual([
+      expect.objectContaining({ power: 1, toughness: 0, expiresAt: 'end_of_turn' }),
+    ]);
+  });
+
+  it('fires damage-and-life whenever-you-exert watchers like Resolute Survivors', async () => {
+    const gameId = createGameId();
+    trackedGameIds.add(gameId);
+    const attackerId = 'p1' as PlayerID;
+    const defenderId = 'p2' as PlayerID;
+    const game = seedCombatGame(gameId, attackerId, defenderId);
+
+    (game.state as any).battlefield = [
+      createAttacker(
+        'resolute_survivors',
+        attackerId,
+        'Resolute Survivors',
+        "You may exert this creature as it attacks. (It won't untap during your next untap step.)\nWhenever you exert a creature, this creature deals 1 damage to each opponent and you gain 1 life.",
+        3,
+        3,
+      ),
+    ];
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket: attackerSocket, handlers: attackerHandlers } = createMockSocket(attackerId, emitted, gameId);
+    const { socket: defenderSocket, handlers: defenderHandlers } = createMockSocket(defenderId, emitted, gameId);
+    const io = createMockIo(emitted, [attackerSocket, defenderSocket]);
+    registerResolutionHandlers(io as any, attackerSocket as any);
+    registerResolutionHandlers(io as any, defenderSocket as any);
+    registerCombatHandlers(io as any, attackerSocket as any);
+    registerCombatHandlers(io as any, defenderSocket as any);
+
+    await attackerHandlers.declareAttackers({
+      gameId,
+      attackers: [{ creatureId: 'resolute_survivors', targetPlayerId: defenderId }],
+    });
+
+    const step = findExertStep(gameId, attackerId) as any;
+    expect(step).toBeDefined();
+
+    await attackerHandlers.submitResolutionResponse({
+      gameId,
+      stepId: String(step.id),
+      selections: 'exert',
+    });
+
+    expect((((game.state as any).stack || []) as any[])).toHaveLength(1);
+
+    game.applyEvent({ type: 'resolveTopOfStack' } as any);
+
+    expect((game.state as any).life[attackerId]).toBe(41);
+    expect((game.state as any).life[defenderId]).toBe(39);
+  });
+
   it('queues target selection for target-based exert rewards like Ahn-Crop Crasher and persists the chosen target on the reflexive trigger', async () => {
     const gameId = createGameId();
     trackedGameIds.add(gameId);

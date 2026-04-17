@@ -260,6 +260,13 @@ function isSupportedExertAttackRewardDescription(description: string): boolean {
   return false;
 }
 
+export function canExertAsItAttacks(card: any): boolean {
+  const normalizedOracle = normalizeOracleTextForInlineMatching(String(card?.oracle_text || ''));
+  if (!normalizedOracle) return false;
+
+  return /(?:if [^.]+,\s*)?you may exert (?:this creature|it) as it attacks\./i.test(normalizedOracle);
+}
+
 export function getSupportedExertAttackReward(card: any): string | null {
   const normalizedOracle = normalizeOracleTextForInlineMatching(String(card?.oracle_text || ''));
   if (!normalizedOracle) return null;

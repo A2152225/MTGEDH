@@ -121,6 +121,140 @@ describe('exertChoice replay coverage', () => {
     expect(attacker.exertedThisTurn).toBe(true);
   });
 
+  it('replays whenever-you-exert watcher triggers like Trueheart Twins', () => {
+    const gameId = createGameId();
+    trackedGameIds.add(gameId);
+    const attackerId = 'p1' as PlayerID;
+    const defenderId = 'p2' as PlayerID;
+    const game = seedCombatGame(gameId, attackerId, defenderId);
+
+    (game.state as any).battlefield = [
+      {
+        id: 'trueheart_twins',
+        controller: attackerId,
+        owner: attackerId,
+        tapped: false,
+        summoningSickness: false,
+        counters: {},
+        basePower: 4,
+        baseToughness: 4,
+        card: {
+          id: 'trueheart_twins_card',
+          name: 'Trueheart Twins',
+          type_line: 'Creature - Jackal Warrior',
+          oracle_text: "You may exert this creature as it attacks. (It won't untap during your next untap step.)\nWhenever you exert a creature, creatures you control get +1/+0 until end of turn.",
+          power: '4',
+          toughness: '4',
+        },
+      },
+      {
+        id: 'supporting_ally',
+        controller: attackerId,
+        owner: attackerId,
+        tapped: false,
+        summoningSickness: false,
+        counters: {},
+        basePower: 2,
+        baseToughness: 2,
+        card: {
+          id: 'supporting_ally_card',
+          name: 'Supporting Ally',
+          type_line: 'Creature - Warrior',
+          oracle_text: '',
+          power: '2',
+          toughness: '2',
+        },
+      },
+    ];
+
+    game.applyEvent({
+      type: 'exertChoice',
+      playerId: attackerId,
+      attackerId: 'trueheart_twins',
+    } as any);
+
+    game.applyEvent({
+      type: 'pushTriggeredAbility',
+      triggerId: 'trueheart_twins_exert_replay',
+      sourceId: 'trueheart_twins',
+      permanentId: 'trueheart_twins',
+      sourceName: 'Trueheart Twins',
+      controllerId: attackerId,
+      description: 'creatures you control get +1/+0 until end of turn.',
+      triggerType: 'whenever_you_exert',
+      effect: 'creatures you control get +1/+0 until end of turn.',
+      mandatory: true,
+      card: { ...((game.state as any).battlefield[0] as any).card },
+    } as any);
+
+    game.applyEvent({ type: 'resolveTopOfStack' } as any);
+
+    const twins = ((game.state as any).battlefield || []).find((permanent: any) => permanent?.id === 'trueheart_twins') as any;
+    const ally = ((game.state as any).battlefield || []).find((permanent: any) => permanent?.id === 'supporting_ally') as any;
+    expect(twins.doesntUntapNextTurn).toBe(true);
+    expect(twins.exertedThisTurn).toBe(true);
+    expect(twins.temporaryPTMods).toEqual([
+      expect.objectContaining({ power: 1, toughness: 0, expiresAt: 'end_of_turn' }),
+    ]);
+    expect(ally.temporaryPTMods).toEqual([
+      expect.objectContaining({ power: 1, toughness: 0, expiresAt: 'end_of_turn' }),
+    ]);
+  });
+
+  it('replays damage-and-life whenever-you-exert watcher triggers like Resolute Survivors', () => {
+    const gameId = createGameId();
+    trackedGameIds.add(gameId);
+    const attackerId = 'p1' as PlayerID;
+    const defenderId = 'p2' as PlayerID;
+    const game = seedCombatGame(gameId, attackerId, defenderId);
+
+    (game.state as any).battlefield = [
+      {
+        id: 'resolute_survivors',
+        controller: attackerId,
+        owner: attackerId,
+        tapped: false,
+        summoningSickness: false,
+        counters: {},
+        basePower: 3,
+        baseToughness: 3,
+        card: {
+          id: 'resolute_survivors_card',
+          name: 'Resolute Survivors',
+          type_line: 'Creature - Human Warrior',
+          oracle_text: "You may exert this creature as it attacks. (It won't untap during your next untap step.)\nWhenever you exert a creature, this creature deals 1 damage to each opponent and you gain 1 life.",
+          power: '3',
+          toughness: '3',
+        },
+      },
+    ];
+
+    game.applyEvent({
+      type: 'exertChoice',
+      playerId: attackerId,
+      attackerId: 'resolute_survivors',
+    } as any);
+
+    game.applyEvent({
+      type: 'pushTriggeredAbility',
+      triggerId: 'resolute_survivors_exert_replay',
+      sourceId: 'resolute_survivors',
+      permanentId: 'resolute_survivors',
+      sourceName: 'Resolute Survivors',
+      controllerId: attackerId,
+      description: 'this creature deals 1 damage to each opponent and you gain 1 life.',
+      triggerType: 'whenever_you_exert',
+      effect: 'this creature deals 1 damage to each opponent and you gain 1 life.',
+      mandatory: true,
+      card: { ...((game.state as any).battlefield[0] as any).card },
+    } as any);
+
+    game.applyEvent({ type: 'resolveTopOfStack' } as any);
+
+    expect((game.state as any).life[attackerId]).toBe(41);
+    expect((game.state as any).life[defenderId]).toBe(39);
+  });
+
   it('replays targeted exert triggers with persisted targets', () => {
     const gameId = createGameId();
     trackedGameIds.add(gameId);

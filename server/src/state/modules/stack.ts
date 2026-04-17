@@ -7192,10 +7192,21 @@ export function executeTriggerEffect(
     debug(2, `[executeTriggerEffect] ${controller} loses ${amount} life from ${sourceName}`);
     handled = true;
   }
+
+  const dealEachOpponentAndGainLifeMatch = desc.match(/deals? (\d+) damage to each opponent.*you gain (\d+) life/i);
+  if (dealEachOpponentAndGainLifeMatch) {
+    const damageAmount = parseInt(dealEachOpponentAndGainLifeMatch[1], 10);
+    const gainAmount = parseInt(dealEachOpponentAndGainLifeMatch[2], 10);
+    for (const opp of opponents) {
+      modifyLife(opp.id, -damageAmount);
+    }
+    modifyLife(controller, gainAmount);
+    handled = true;
+  }
   
   // Pattern: "you gain X life" (combined effect)
   const youGainLifeMatch = desc.match(/you gain (\d+) life/i);
-  if (youGainLifeMatch) {
+  if (youGainLifeMatch && !dealEachOpponentAndGainLifeMatch) {
     const amount = parseInt(youGainLifeMatch[1], 10);
     modifyLife(controller, amount);
     debug(2, `[executeTriggerEffect] ${controller} gains ${amount} life from ${sourceName}`);
@@ -7264,6 +7275,13 @@ export function executeTriggerEffect(
         // Defensive: do not block resolution on trigger queue failure.
       }
     }
+
+    const alsoGainMatch = desc.match(/you gain (\d+) life/i);
+    if (alsoGainMatch) {
+      const gainAmount = parseInt(alsoGainMatch[1], 10);
+      modifyLife(controller, gainAmount);
+    }
+
     return;
   }
   

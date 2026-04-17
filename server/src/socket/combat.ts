@@ -11,7 +11,7 @@ import { appendEvent } from "../db/index.js";
 import type { PlayerID } from "../../../shared/src/types.js";
 import { getTapTriggers, type TriggeredAbility } from "../state/modules/triggered-abilities.js";
 import { buildTapTriggeredStackItem, serializeTapTriggeredStackItem } from "../state/modules/triggers/tap-untap.js";
-import { getAttackTriggersForCreatures, getSupportedExertAttackReward } from "../state/modules/triggers/combat.js";
+import { canExertAsItAttacks, getAttackTriggersForCreatures, getSupportedExertAttackReward } from "../state/modules/triggers/combat.js";
 import { isInterveningIfSatisfied } from "../state/modules/triggers/intervening-if.js";
 import { transformPermanentToFace } from "../state/modules/day-night.js";
 import { creatureHasHaste, permanentHasKeyword } from "./game-actions.js";
@@ -43,8 +43,9 @@ function enqueueSupportedExertChoiceSteps(
     const attacker = battlefield.find((permanent: any) => permanent && String(permanent.id || '') === String(attackerId));
     if (!attacker) continue;
 
+    if (!canExertAsItAttacks((attacker as any)?.card)) continue;
+
     const rewardDescription = getSupportedExertAttackReward((attacker as any)?.card);
-    if (!rewardDescription) continue;
 
     const oracleText = String((attacker as any)?.card?.oracle_text || '');
     if (/hasn't been exerted this turn/i.test(oracleText) && (attacker as any).exertedThisTurn === true) {
