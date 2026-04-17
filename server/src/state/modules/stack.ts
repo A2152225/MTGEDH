@@ -990,6 +990,19 @@ export function inferTriggeredAbilityTargetMetadata(effectText: string, context?
     targetFilterMinManaValue = manaValueConstraint.targetFilterMinManaValue;
     targetFilterMaxManaValue = manaValueConstraint.targetFilterMaxManaValue;
 
+    if (!Array.isArray(targetFilterExcludeTypes) || targetFilterExcludeTypes.length === 0) {
+      const nonSubtypeCreatureMatch = lower.match(/target\s+non-([a-z0-9'-]+(?:\s+[a-z0-9'-]+)*)\s+creature\b/);
+      if (nonSubtypeCreatureMatch) {
+        targetFilterTypes = ['creature'];
+        targetFilterExcludeTypes = String(nonSubtypeCreatureMatch[1] || '')
+          .trim()
+          .toLowerCase()
+          .split(/\s+/)
+          .map((word) => word.trim())
+          .filter(Boolean);
+      }
+    }
+
     const totalPowerMatch = lower.match(/total power (\d+) or less/);
     if (totalPowerMatch) {
       const parsedTotalPowerLimit = Number.parseInt(String(totalPowerMatch[1] || ''), 10);
@@ -1090,6 +1103,7 @@ export function inferTriggeredAbilityTargetMetadata(effectText: string, context?
 
     if (lower.includes('target creature or planeswalker')) targetType = 'creature or planeswalker';
     else if (lower.includes('target noncreature artifact')) targetType = 'noncreature artifact';
+    else if (/target\s+non-[a-z0-9'-]+(?:\s+[a-z0-9'-]+)*\s+creature\b/.test(lower)) targetType = 'creature';
     else if (lower.includes('target creature')) targetType = 'creature';
     else if (lower.includes('target player') || lower.includes('target opponent')) targetType = 'player';
     else if (lower.includes('target permanent')) targetType = 'permanent';
@@ -1137,32 +1151,75 @@ export function inferTriggeredAbilityTargetMetadata(effectText: string, context?
   };
 }
 
-function matchesTriggeredBattlefieldTarget(targetType: string, typeLine: string): boolean {
+function matchesTriggeredBattlefieldTarget(targetType: string, typeLine: string, metadata?: {
+  targetFilterTypes?: string[];
+  targetFilterRequiredTypeWords?: string[];
+  targetFilterExcludeTypes?: string[];
+}): boolean {
+  let matchesBaseTargetType = false;
   switch (targetType) {
     case 'permanent':
     case 'any':
-      return true;
+      matchesBaseTargetType = true;
+      break;
     case 'creature':
-      return typeLine.includes('creature');
+      matchesBaseTargetType = typeLine.includes('creature');
+      break;
     case 'artifact':
-      return typeLine.includes('artifact');
+      matchesBaseTargetType = typeLine.includes('artifact');
+      break;
     case 'enchantment':
-      return typeLine.includes('enchantment');
+      matchesBaseTargetType = typeLine.includes('enchantment');
+      break;
     case 'land':
-      return typeLine.includes('land');
+      matchesBaseTargetType = typeLine.includes('land');
+      break;
     case 'planeswalker':
-      return typeLine.includes('planeswalker');
+      matchesBaseTargetType = typeLine.includes('planeswalker');
+      break;
     case 'creature or planeswalker':
-      return typeLine.includes('creature') || typeLine.includes('planeswalker');
+      matchesBaseTargetType = typeLine.includes('creature') || typeLine.includes('planeswalker');
+      break;
     case 'noncreature artifact':
-      return typeLine.includes('artifact') && !typeLine.includes('creature');
+      matchesBaseTargetType = typeLine.includes('artifact') && !typeLine.includes('creature');
+      break;
     case 'nonland permanent':
-      return !typeLine.includes('land');
+      matchesBaseTargetType = !typeLine.includes('land');
+      break;
     case 'noncreature permanent':
-      return !typeLine.includes('creature');
+      matchesBaseTargetType = !typeLine.includes('creature');
+      break;
     default:
-      return false;
+      matchesBaseTargetType = false;
+      break;
   }
+
+  if (!matchesBaseTargetType) {
+    return false;
+  }
+
+  if (Array.isArray(metadata?.targetFilterTypes) && metadata.targetFilterTypes.length > 0) {
+    const matchesIncludedType = metadata.targetFilterTypes.some((type) => typeLine.includes(String(type || '').toLowerCase()));
+    if (!matchesIncludedType) {
+      return false;
+    }
+  }
+
+  if (Array.isArray(metadata?.targetFilterRequiredTypeWords) && metadata.targetFilterRequiredTypeWords.length > 0) {
+    const matchesRequiredWords = metadata.targetFilterRequiredTypeWords.every((word) => typeLine.includes(String(word || '').toLowerCase()));
+    if (!matchesRequiredWords) {
+      return false;
+    }
+  }
+
+  if (Array.isArray(metadata?.targetFilterExcludeTypes) && metadata.targetFilterExcludeTypes.length > 0) {
+    const matchesExcludedType = metadata.targetFilterExcludeTypes.some((type) => typeLine.includes(String(type || '').toLowerCase()));
+    if (matchesExcludedType) {
+      return false;
+    }
+  }
+
+  return true;
 }
 
 function matchesTriggeredGraveyardTarget(card: any, metadata: {
@@ -8658,6 +8715,46 @@ export function executeTriggerEffect(
     }
     return;
   }
+
+  const selfPreventCombatDamageMatch = desc.match(/prevent all combat damage that would be dealt to (?:it|this creature) this turn\.?$/i);
+  if (selfPreventCombatDamageMatch) {
+    const preventionSourceId = triggerItem.source || triggerItem.permanentId;
+    const sourcePermanent = preventionSourceId
+      ? (state.battlefield || []).find((permanent: any) => permanent?.id === preventionSourceId)
+      : null;
+
+    if (sourcePermanent) {
+      sourcePermanent.temporaryAbilities = Array.isArray(sourcePermanent.temporaryAbilities) ? sourcePermanent.temporaryAbilities : [];
+      sourcePermanent.temporaryAbilities.push({
+        ability: 'prevent all combat damage that would be dealt to this creature this turn',
+        source: sourceName,
+        expiresAt: 'end_of_turn',
+        turnApplied: state.turnNumber || 0,
+      });
+      debug(2, `[executeTriggerEffect] Preventing all combat damage to ${sourcePermanent.card?.name || preventionSourceId} this turn`);
+    }
+    return;
+  }
+
+  const selfCantBeBlockedByLowPowerMatch = desc.match(/(?:it|this creature) can't be blocked by creatures with power 2 or less this turn\.?$/i);
+  if (selfCantBeBlockedByLowPowerMatch) {
+    const evasionSourceId = triggerItem.source || triggerItem.permanentId;
+    const sourcePermanent = evasionSourceId
+      ? (state.battlefield || []).find((permanent: any) => permanent?.id === evasionSourceId)
+      : null;
+
+    if (sourcePermanent) {
+      sourcePermanent.temporaryAbilities = Array.isArray(sourcePermanent.temporaryAbilities) ? sourcePermanent.temporaryAbilities : [];
+      sourcePermanent.temporaryAbilities.push({
+        ability: "can't be blocked by creatures with power 2 or less this turn",
+        source: sourceName,
+        expiresAt: 'end_of_turn',
+        turnApplied: state.turnNumber || 0,
+      });
+      debug(2, `[executeTriggerEffect] ${sourcePermanent.card?.name || evasionSourceId} can't be blocked by creatures with power 2 or less this turn`);
+    }
+    return;
+  }
   
   // Pattern: "scry X" or "scry 1"
   const scryMatch = desc.match(/scry (\d+)/i);
@@ -9036,6 +9133,75 @@ export function executeTriggerEffect(
 
       debug(2, `[executeTriggerEffect] ${targetCreature.card?.name || targetId} can't block this turn`);
     }
+    return;
+  }
+
+  const tappedAttackingCopyMatch = desc.match(/^create a tapped and attacking token that's a copy of target creature you control\. sacrifice the token at the beginning of the next end step\.?$/i);
+  if (tappedAttackingCopyMatch && (triggerItem as any).targets?.length > 0) {
+    const battlefield = Array.isArray(state.battlefield) ? state.battlefield : [];
+    const [targetRef] = (triggerItem as any).targets || [];
+    const targetId = typeof targetRef === 'string' ? targetRef : targetRef?.id;
+    const targetCreature = battlefield.find((permanent: any) => String(permanent?.id || '') === String(targetId || ''));
+    const sourcePermanentId = triggerItem.source || triggerItem.permanentId;
+    const sourcePermanent = battlefield.find((permanent: any) => String(permanent?.id || '') === String(sourcePermanentId || ''));
+    const defendingPlayerId = String(
+      (triggerItem as any).defendingPlayer ||
+      (sourcePermanent as any)?.attacking ||
+      (triggerItem as any)?.sourcePermanentSnapshot?.attacking ||
+      ''
+    ).trim();
+
+    if (!targetCreature || targetCreature.controller !== controller || !defendingPlayerId || defendingPlayerId.startsWith('perm_')) {
+      return;
+    }
+
+    const createdPermanentIds = applyMyriadTokenCopies(
+      ctx,
+      targetCreature,
+      controller as PlayerID,
+      [defendingPlayerId],
+      [uid('token_sandstorm')],
+      sourceName,
+    );
+
+    if (createdPermanentIds.length === 0) {
+      return;
+    }
+
+    const stateAny = state as any;
+    stateAny.pendingExileAtEndOfCombat = Array.isArray(stateAny.pendingExileAtEndOfCombat)
+      ? stateAny.pendingExileAtEndOfCombat.filter(
+          (entry: any) => !createdPermanentIds.includes(String(entry?.permanentId || '').trim()),
+        )
+      : [];
+    stateAny.pendingSacrificeAtNextEndStep = Array.isArray(stateAny.pendingSacrificeAtNextEndStep)
+      ? stateAny.pendingSacrificeAtNextEndStep
+      : [];
+
+    const currentTurn = Number(stateAny?.turnNumber ?? stateAny?.turn ?? 0) || 0;
+    const currentPhase = String(stateAny?.phase ?? '').toLowerCase();
+    const currentStepUpper = String(stateAny?.step ?? '').toUpperCase();
+    const inEnding = currentPhase === 'ending' && (currentStepUpper === 'END' || currentStepUpper === 'CLEANUP');
+    const fireAtTurnNumber = inEnding ? currentTurn + 1 : currentTurn;
+
+    for (const permanentId of createdPermanentIds) {
+      const alreadyScheduled = (stateAny.pendingSacrificeAtNextEndStep as any[]).some(
+        (entry: any) => String(entry?.permanentId || '').trim() === String(permanentId),
+      );
+      if (alreadyScheduled) {
+        continue;
+      }
+
+      stateAny.pendingSacrificeAtNextEndStep.push({
+        permanentId,
+        fireAtTurnNumber,
+        maxManaValue: 0,
+        sourceName,
+        createdBy: String(controller),
+      });
+    }
+
+    debug(2, `[executeTriggerEffect] ${sourceName}: created ${createdPermanentIds.length} tapped and attacking token copie(s) of ${targetCreature.card?.name || targetId} for ${defendingPlayerId}`);
     return;
   }
   
@@ -12038,11 +12204,12 @@ export function resolveTopOfStack(ctx: GameContext) {
       const gameId = (ctx as any).gameId || 'unknown';
       const isReplaying = !!(ctx as any).isReplaying;
       const battlefield = state.battlefield || [];
+      const targetZone = String((item as any).targetZone || '').toLowerCase();
       const existingTargets = Array.isArray((item as any).targets)
         ? (item as any).targets.map((entry: any) => String(entry || '')).filter(Boolean)
         : [];
-      const hasLockedBattlefieldTargets = existingTargets.length > 0 && String((item as any).targetZone || '').toLowerCase() !== 'graveyard';
-      const targetZone = String((item as any).targetZone || '').toLowerCase();
+      const hasPersistedLockedTargets = existingTargets.length > 0 && (item as any).preselectedTargetsPersisted === true;
+      const hasLockedBattlefieldTargets = existingTargets.length > 0 && (hasPersistedLockedTargets || targetZone !== 'graveyard');
       const targetDestination = String((item as any).targetDestination || '').toLowerCase();
       const targetAction = String((item as any).targetAction || '').toLowerCase();
       const lowerDescription = String(description || '').toLowerCase();
@@ -12051,7 +12218,7 @@ export function resolveTopOfStack(ctx: GameContext) {
         lowerDescription.includes('target creature you control') ||
         lowerDescription.includes('target permanent you control');
 
-      if (!isReplaying && targetZone === 'graveyard' && (targetDestination === 'hand' || targetDestination === 'battlefield' || targetDestination === 'library_top' || targetDestination === 'library_bottom' || targetAction === 'cast')) {
+      if (!isReplaying && !hasPersistedLockedTargets && targetZone === 'graveyard' && (targetDestination === 'hand' || targetDestination === 'battlefield' || targetDestination === 'library_top' || targetDestination === 'library_bottom' || targetAction === 'cast')) {
         const zones = (state.zones || {}) as Record<string, any>;
         const graveyardScope = String((item as any).targetGraveyardScope || 'your').toLowerCase();
         const graveyardOwners = graveyardScope === 'any'
@@ -12161,12 +12328,19 @@ export function resolveTopOfStack(ctx: GameContext) {
       }
 
       if (!isReplaying && !hasLockedBattlefieldTargets && (PERMANENT_TRIGGER_TARGET_TYPES.has(String(targetType || '').toLowerCase()) || targetType === 'any')) {
+        const targetFilterTypes = Array.isArray((item as any).targetFilterTypes) ? (item as any).targetFilterTypes : undefined;
+        const targetFilterRequiredTypeWords = Array.isArray((item as any).targetFilterRequiredTypeWords) ? (item as any).targetFilterRequiredTypeWords : undefined;
+        const targetFilterExcludeTypes = Array.isArray((item as any).targetFilterExcludeTypes) ? (item as any).targetFilterExcludeTypes : undefined;
         const validTargets = battlefield
           .filter((permanent: any) => {
             if (!permanent) return false;
             const typeLine = String(permanent.card?.type_line || '').toLowerCase();
             const normalizedTargetType = String(targetType || '').toLowerCase();
-            const matchesType = matchesTriggeredBattlefieldTarget(normalizedTargetType, typeLine);
+            const matchesType = matchesTriggeredBattlefieldTarget(normalizedTargetType, typeLine, {
+              targetFilterTypes,
+              targetFilterRequiredTypeWords,
+              targetFilterExcludeTypes,
+            });
             if (!matchesType) return false;
             if (String((item as any).targetConstraint || '').toLowerCase() === 'opponent') {
               return String(permanent.controller || '') !== String(triggerController);

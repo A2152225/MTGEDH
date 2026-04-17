@@ -12446,10 +12446,16 @@ function pushExertTriggeredAbilityOntoStack(
   controllerId: string,
   rewardDescription: string,
   targets?: string[],
+  options?: {
+    boundGraveyardCardId?: string;
+    boundGraveyardOwnerId?: string;
+    preselectedTargetsPersisted?: boolean;
+  },
 ): void {
   const sourceSnapshot = cloneResolutionPermanentSnapshot(sourcePermanent);
   const sourceForMetadata = sourcePermanent || sourceSnapshot;
   const sourceName = String(sourcePermanent?.card?.name || sourceSnapshot?.card?.name || 'Exert').trim() || 'Exert';
+  const defendingPlayerId = String(sourcePermanent?.attacking || sourceSnapshot?.attacking || '').trim();
   const metadata = inferTriggeredAbilityTargetMetadata(rewardDescription, {
     gameState: game.state,
     controllerId,
@@ -12471,6 +12477,7 @@ function pushExertTriggeredAbilityOntoStack(
     effect: rewardDescription,
     mandatory: true,
     ...(normalizedTargets.length > 0 ? { targets: normalizedTargets } : null),
+    ...(options?.preselectedTargetsPersisted === true ? { preselectedTargetsPersisted: true } : null),
     ...(typeof metadata.requiresTarget === 'boolean' ? { requiresTarget: metadata.requiresTarget } : null),
     ...(metadata.targetType ? { targetType: metadata.targetType } : null),
     ...(metadata.targetConstraint ? { targetConstraint: metadata.targetConstraint } : null),
@@ -12494,6 +12501,9 @@ function pushExertTriggeredAbilityOntoStack(
     ...(metadata.targetCastIsOptional === true ? { targetCastIsOptional: true } : null),
     ...(typeof metadata.minTargets === 'number' ? { minTargets: metadata.minTargets } : null),
     ...(typeof metadata.maxTargets === 'number' ? { maxTargets: metadata.maxTargets } : null),
+    ...(defendingPlayerId && !defendingPlayerId.startsWith('perm_') ? { defendingPlayer: defendingPlayerId } : null),
+    ...(options?.boundGraveyardCardId ? { boundGraveyardCardId: String(options.boundGraveyardCardId) } : null),
+    ...(options?.boundGraveyardOwnerId ? { boundGraveyardOwnerId: String(options.boundGraveyardOwnerId) } : null),
     ...(sourcePermanent?.card && typeof sourcePermanent.card === 'object' ? { card: { ...sourcePermanent.card } } : null),
     ...(sourceSnapshot && typeof sourceSnapshot === 'object' ? { sourcePermanentSnapshot: sourceSnapshot } : null),
   } as any;
@@ -12510,6 +12520,103 @@ function pushExertTriggeredAbilityOntoStack(
   } catch (err) {
     debugWarn(1, '[Resolution] Failed to persist exert trigger pushTriggeredAbility:', err);
   }
+}
+
+function matchesTriggeredGraveyardTargetForExert(card: any, metadata: ReturnType<typeof inferTriggeredAbilityTargetMetadata>): boolean {
+  const typeLine = String(card?.type_line || '').toLowerCase();
+  if (!typeLine) {
+    return false;
+  }
+
+  if (metadata.targetFilterPermanentOnly === true) {
+    const isPermanent = ['artifact', 'battle', 'creature', 'enchantment', 'land', 'planeswalker'].some((typeWord) => typeLine.includes(typeWord));
+    if (!isPermanent) {
+      return false;
+    }
+  }
+
+  if (Array.isArray(metadata.targetFilterTypes) && metadata.targetFilterTypes.length > 0) {
+    const matchesIncludedType = metadata.targetFilterTypes.some((typeWord) => typeLine.includes(String(typeWord || '').toLowerCase()));
+    if (!matchesIncludedType) {
+      return false;
+    }
+  }
+
+  if (Array.isArray(metadata.targetFilterRequiredTypeWords) && metadata.targetFilterRequiredTypeWords.length > 0) {
+    const matchesAllRequiredWords = metadata.targetFilterRequiredTypeWords.every((typeWord) => typeLine.includes(String(typeWord || '').toLowerCase()));
+    if (!matchesAllRequiredWords) {
+      return false;
+    }
+  }
+
+  if (Array.isArray(metadata.targetFilterExcludeTypes) && metadata.targetFilterExcludeTypes.length > 0) {
+    const matchesExcludedType = metadata.targetFilterExcludeTypes.some((typeWord) => typeLine.includes(String(typeWord || '').toLowerCase()));
+    if (matchesExcludedType) {
+      return false;
+    }
+  }
+
+  const manaValue = cardManaValue(card);
+  if (typeof metadata.targetFilterExactManaValue === 'number' && Number.isFinite(metadata.targetFilterExactManaValue) && manaValue !== metadata.targetFilterExactManaValue) {
+    return false;
+  }
+  if (typeof metadata.targetFilterMinManaValue === 'number' && Number.isFinite(metadata.targetFilterMinManaValue) && manaValue < metadata.targetFilterMinManaValue) {
+    return false;
+  }
+  if (typeof metadata.targetFilterMaxManaValue === 'number' && Number.isFinite(metadata.targetFilterMaxManaValue) && manaValue > metadata.targetFilterMaxManaValue) {
+    return false;
+  }
+
+  return true;
+}
+
+function buildExertTriggeredGraveyardSelectionData(game: any, controllerId: string, sourcePermanent: any, rewardDescription: string) {
+  const sourceName = String(sourcePermanent?.card?.name || 'Exert').trim() || 'Exert';
+  const metadata = inferTriggeredAbilityTargetMetadata(rewardDescription, {
+    gameState: game.state,
+    controllerId,
+    sourceName,
+    sourcePermanent,
+  });
+
+  if (metadata.requiresTarget !== true || String(metadata.targetZone || '').toLowerCase() !== 'graveyard') {
+    return null;
+  }
+
+  const targetDestination = String(metadata.targetDestination || '').toLowerCase();
+  if (targetDestination !== 'battlefield' && targetDestination !== 'hand' && targetDestination !== 'library_top' && targetDestination !== 'library_bottom') {
+    return null;
+  }
+
+  const zones = (game.state?.zones || {}) as Record<string, any>;
+  const graveyardScope = String(metadata.targetGraveyardScope || 'your').toLowerCase();
+  const graveyardOwners = graveyardScope === 'any'
+    ? Object.keys(zones).filter((playerId) => Array.isArray(zones[playerId]?.graveyard) && zones[playerId].graveyard.length > 0)
+    : graveyardScope === 'opponent'
+      ? Object.keys(zones).filter((playerId) => String(playerId) !== String(controllerId) && Array.isArray(zones[playerId]?.graveyard) && zones[playerId].graveyard.length > 0)
+      : [String(controllerId)];
+
+  const validTargets = graveyardOwners
+    .flatMap((graveyardOwner) => {
+      const graveyard = Array.isArray(zones[graveyardOwner]?.graveyard) ? zones[graveyardOwner].graveyard : [];
+      return graveyard
+        .filter((card: any) => matchesTriggeredGraveyardTargetForExert(card, metadata))
+        .map((card: any) => ({
+          id: String(card?.id || ''),
+          name: String(card?.name || card?.id || 'Card'),
+          typeLine: String(card?.type_line || ''),
+          manaCost: String(card?.mana_cost || ''),
+          imageUrl: card?.image_uris?.small || card?.image_uris?.normal,
+          zoneOwnerId: String(graveyardOwner),
+        }));
+    })
+    .filter((card: any) => Boolean(card.id));
+
+  return {
+    metadata,
+    validTargets,
+    graveyardOwners,
+  };
 }
 
 function handleRiotChoiceResponse(
@@ -23254,6 +23361,39 @@ async function handleOptionChoiceResponse(
         }
       }
 
+      const graveyardSelectionData = buildExertTriggeredGraveyardSelectionData(
+        game,
+        String(playerId),
+        attacker,
+        rewardDescription,
+      );
+      if (graveyardSelectionData && graveyardSelectionData.validTargets.length > 0) {
+        ResolutionQueueManager.addStep(gameId, {
+          type: ResolutionStepType.GRAVEYARD_SELECTION,
+          playerId: playerId as any,
+          sourceId: attackerId,
+          sourceName: String(attacker?.card?.name || sourceName),
+          sourceImage: attacker?.card?.image_uris?.small || attacker?.card?.image_uris?.normal,
+          description: `${String(attacker?.card?.name || sourceName)}: choose target card from your graveyard.`,
+          mandatory: true,
+          validTargets: graveyardSelectionData.validTargets,
+          minTargets: Number(graveyardSelectionData.metadata.minTargets ?? 1),
+          maxTargets: Number(graveyardSelectionData.metadata.maxTargets ?? 1),
+          targetPlayerId: graveyardSelectionData.graveyardOwners.length === 1 ? String(graveyardSelectionData.graveyardOwners[0] || '') : '',
+          destination: String(graveyardSelectionData.metadata.targetDestination || '').toLowerCase() || 'battlefield',
+          destinationUsesSelectedCardOwner: graveyardSelectionData.metadata.destinationUsesSelectedCardOwner === true,
+          battlefieldControllerMode: graveyardSelectionData.metadata.battlefieldControllerMode,
+          battlefieldCounters: graveyardSelectionData.metadata.battlefieldCounters,
+          exertGraveyardTargetChoice: true,
+          exertAttackerId: attackerId,
+          exertRewardDescription: rewardDescription,
+          sourcePermanentSnapshot: cloneResolutionPermanentSnapshot(attacker),
+        } as any);
+
+        broadcastGame(io, game, gameId);
+        return;
+      }
+
       pushExertTriggeredAbilityOntoStack(
         game,
         gameId,
@@ -27805,6 +27945,42 @@ async function handleGraveyardSelectionResponse(
 
     return null;
   };
+
+  if (stepData?.exertGraveyardTargetChoice === true) {
+    const selectedCardId = String(selectedCardIds[0] || '').trim();
+    const boundGraveyardOwnerId = selectedCardId ? findSelectedCardSourceOwner(selectedCardId) : null;
+    const attackerId = String(stepData?.exertAttackerId || step.sourceId || '').trim();
+    const rewardDescription = String(stepData?.exertRewardDescription || '').trim();
+    const battlefield = Array.isArray((game.state as any)?.battlefield) ? (game.state as any).battlefield : [];
+    const attacker = battlefield.find((permanent: any) => String(permanent?.id || '') === attackerId)
+      || (stepData?.sourcePermanentSnapshot ? { ...(stepData.sourcePermanentSnapshot as any) } : null);
+
+    if (!selectedCardId || !boundGraveyardOwnerId || !rewardDescription || !attacker) {
+      emitToPlayer(io, pid, 'error', {
+        code: 'INVALID_EXERT_GRAVEYARD_TARGET',
+        message: 'Choose a valid card from the graveyard for this Exert ability.',
+      });
+      return;
+    }
+
+    pushExertTriggeredAbilityOntoStack(
+      game,
+      gameId,
+      attacker,
+      String(pid),
+      rewardDescription,
+      [selectedCardId],
+      {
+        boundGraveyardCardId: selectedCardId,
+        boundGraveyardOwnerId,
+        preselectedTargetsPersisted: true,
+      },
+    );
+
+    if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
+    broadcastGame(io, game, gameId);
+    return;
+  }
 
   if (stepData?.battlefieldAbilityTargetSelection === true) {
     const controllerId = String(step.playerId || pid);

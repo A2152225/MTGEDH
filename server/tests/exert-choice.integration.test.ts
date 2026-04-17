@@ -147,6 +147,23 @@ function findTargetSelectionStep(gameId: string, playerId: PlayerID, predicate?:
   return ResolutionQueueManager.getStepsForPlayer(gameId, playerId).find(matches);
 }
 
+function findGraveyardSelectionStep(gameId: string, playerId: PlayerID, predicate?: (entry: any) => boolean) {
+  const matches = (entry: any) =>
+    entry?.type === ResolutionStepType.GRAVEYARD_SELECTION &&
+    (predicate ? predicate(entry) : true);
+  const queue = ResolutionQueueManager.getQueue(gameId) as any;
+  const activeStep = queue?.activeStep;
+  if (
+    activeStep &&
+    String(activeStep?.playerId || '') === String(playerId) &&
+    matches(activeStep)
+  ) {
+    return activeStep;
+  }
+
+  return ResolutionQueueManager.getStepsForPlayer(gameId, playerId).find(matches);
+}
+
 describe('supported exert attack automation (integration)', () => {
   const trackedGameIds = new Set<string>();
   const createGameId = () => `exert_choice_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
@@ -191,11 +208,12 @@ describe('supported exert attack automation (integration)', () => {
 
     const emitted: Array<{ room?: string; event: string; payload: any }> = [];
     const { socket: attackerSocket, handlers: attackerHandlers } = createMockSocket(attackerId, emitted, gameId);
-    const { socket: defenderSocket } = createMockSocket(defenderId, emitted, gameId);
+    const { socket: defenderSocket, handlers: defenderHandlers } = createMockSocket(defenderId, emitted, gameId);
     const io = createMockIo(emitted, [attackerSocket, defenderSocket]);
     registerResolutionHandlers(io as any, attackerSocket as any);
     registerResolutionHandlers(io as any, defenderSocket as any);
     registerCombatHandlers(io as any, attackerSocket as any);
+    registerCombatHandlers(io as any, defenderSocket as any);
 
     await attackerHandlers.declareAttackers({
       gameId,
@@ -244,11 +262,12 @@ describe('supported exert attack automation (integration)', () => {
 
     const emitted: Array<{ room?: string; event: string; payload: any }> = [];
     const { socket: attackerSocket, handlers: attackerHandlers } = createMockSocket(attackerId, emitted, gameId);
-    const { socket: defenderSocket } = createMockSocket(defenderId, emitted, gameId);
+    const { socket: defenderSocket, handlers: defenderHandlers } = createMockSocket(defenderId, emitted, gameId);
     const io = createMockIo(emitted, [attackerSocket, defenderSocket]);
     registerResolutionHandlers(io as any, attackerSocket as any);
     registerResolutionHandlers(io as any, defenderSocket as any);
     registerCombatHandlers(io as any, attackerSocket as any);
+    registerCombatHandlers(io as any, defenderSocket as any);
 
     await attackerHandlers.declareAttackers({
       gameId,
@@ -358,11 +377,12 @@ describe('supported exert attack automation (integration)', () => {
 
     const emitted: Array<{ room?: string; event: string; payload: any }> = [];
     const { socket: attackerSocket, handlers: attackerHandlers } = createMockSocket(attackerId, emitted, gameId);
-    const { socket: defenderSocket } = createMockSocket(defenderId, emitted, gameId);
+    const { socket: defenderSocket, handlers: defenderHandlers } = createMockSocket(defenderId, emitted, gameId);
     const io = createMockIo(emitted, [attackerSocket, defenderSocket]);
     registerResolutionHandlers(io as any, attackerSocket as any);
     registerResolutionHandlers(io as any, defenderSocket as any);
     registerCombatHandlers(io as any, attackerSocket as any);
+    registerCombatHandlers(io as any, defenderSocket as any);
 
     await attackerHandlers.declareAttackers({
       gameId,
@@ -414,11 +434,12 @@ describe('supported exert attack automation (integration)', () => {
 
     const emitted: Array<{ room?: string; event: string; payload: any }> = [];
     const { socket: attackerSocket, handlers: attackerHandlers } = createMockSocket(attackerId, emitted, gameId);
-    const { socket: defenderSocket } = createMockSocket(defenderId, emitted, gameId);
+    const { socket: defenderSocket, handlers: defenderHandlers } = createMockSocket(defenderId, emitted, gameId);
     const io = createMockIo(emitted, [attackerSocket, defenderSocket]);
     registerResolutionHandlers(io as any, attackerSocket as any);
     registerResolutionHandlers(io as any, defenderSocket as any);
     registerCombatHandlers(io as any, attackerSocket as any);
+    registerCombatHandlers(io as any, defenderSocket as any);
 
     await attackerHandlers.declareAttackers({
       gameId,
@@ -465,6 +486,18 @@ describe('supported exert attack automation (integration)', () => {
     expect(blockedCreature.temporaryAbilities).toEqual([
       expect.objectContaining({ ability: "can't block", expiresAt: 'end_of_turn' }),
     ]);
+
+    (game.state as any).step = 'declareBlockers';
+    const emitStart = emitted.length;
+    await defenderHandlers.declareBlockers({
+      gameId,
+      blockers: [{ blockerId: 'defender_wall', attackerId: 'ahn_crop_crasher' }],
+    });
+
+    const newEmits = emitted.slice(emitStart);
+    expect(newEmits.some((entry) => entry.event === 'error' && entry.payload?.code === 'CANT_BLOCK')).toBe(true);
+    const attacker = ((game.state as any).battlefield || []).find((permanent: any) => permanent?.id === 'ahn_crop_crasher') as any;
+    expect(attacker?.blockedBy).toBeUndefined();
   });
 
   it('supports untap-all-other exert rewards like Ahn-Crop Champion without untapping the exerted attacker itself', async () => {
@@ -685,5 +718,397 @@ describe('supported exert attack automation (integration)', () => {
       expect.objectContaining({ ability: "can't be blocked", expiresAt: 'end_of_turn' }),
     ]);
     expect((game.state as any).pendingScry?.[attackerId]).toBe(1);
+  });
+
+  it('queues graveyard selection for Devoted Crop-Mate and binds the selected card onto the reflexive trigger', async () => {
+    const gameId = createGameId();
+    trackedGameIds.add(gameId);
+    const attackerId = 'p1' as PlayerID;
+    const defenderId = 'p2' as PlayerID;
+    const game = seedCombatGame(gameId, attackerId, defenderId);
+
+    (game.state as any).battlefield = [
+      createAttacker(
+        'devoted_crop_mate',
+        attackerId,
+        'Devoted Crop-Mate',
+        "You may exert this creature as it attacks. When you do, return target creature card with mana value 2 or less from your graveyard to the battlefield. (An exerted creature won't untap during your next untap step.)",
+        3,
+        2,
+      ),
+    ];
+    (game.state as any).zones[attackerId].graveyard = [
+      {
+        id: 'cheap_return',
+        name: 'Cheap Return',
+        type_line: 'Creature - Cleric',
+        oracle_text: '',
+        mana_cost: '{1}{W}',
+        cmc: 2,
+        power: '2',
+        toughness: '2',
+      },
+      {
+        id: 'expensive_return',
+        name: 'Expensive Return',
+        type_line: 'Creature - Angel',
+        oracle_text: '',
+        mana_cost: '{3}{W}',
+        cmc: 4,
+        power: '4',
+        toughness: '4',
+      },
+    ];
+    (game.state as any).zones[attackerId].graveyardCount = 2;
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket: attackerSocket, handlers: attackerHandlers } = createMockSocket(attackerId, emitted, gameId);
+    const { socket: defenderSocket } = createMockSocket(defenderId, emitted, gameId);
+    const io = createMockIo(emitted, [attackerSocket, defenderSocket]);
+    registerResolutionHandlers(io as any, attackerSocket as any);
+    registerResolutionHandlers(io as any, defenderSocket as any);
+    registerCombatHandlers(io as any, attackerSocket as any);
+
+    await attackerHandlers.declareAttackers({
+      gameId,
+      attackers: [{ creatureId: 'devoted_crop_mate', targetPlayerId: defenderId }],
+    });
+
+    const exertStep = findExertStep(gameId, attackerId) as any;
+    expect(exertStep).toBeDefined();
+
+    await attackerHandlers.submitResolutionResponse({
+      gameId,
+      stepId: String(exertStep.id),
+      selections: 'exert',
+    });
+
+    const graveyardStep = findGraveyardSelectionStep(gameId, attackerId, (entry: any) => entry?.exertGraveyardTargetChoice === true) as any;
+    expect(graveyardStep).toBeDefined();
+    expect((graveyardStep.validTargets || []).map((entry: any) => entry.id)).toContain('cheap_return');
+    expect((graveyardStep.validTargets || []).map((entry: any) => entry.id)).not.toContain('expensive_return');
+
+    const eventStart = getEvents(gameId).length;
+    await attackerHandlers.submitResolutionResponse({
+      gameId,
+      stepId: String(graveyardStep.id),
+      selections: ['cheap_return'],
+    });
+
+    const stack = (((game.state as any).stack || []) as any[]);
+    expect(stack).toHaveLength(1);
+    expect(stack[0]).toMatchObject({
+      targets: ['cheap_return'],
+      boundGraveyardCardId: 'cheap_return',
+      boundGraveyardOwnerId: attackerId,
+      preselectedTargetsPersisted: true,
+    });
+
+    const events = getEvents(gameId).slice(eventStart);
+    expect(events.some((event: any) =>
+      event?.type === 'pushTriggeredAbility' &&
+      event?.payload?.triggerType === 'exert' &&
+      event?.payload?.boundGraveyardCardId === 'cheap_return' &&
+      event?.payload?.boundGraveyardOwnerId === attackerId,
+    )).toBe(true);
+
+    game.applyEvent({ type: 'resolveTopOfStack' } as any);
+
+    const returnedPermanent = (((game.state as any).battlefield || []) as any[]).find(
+      (permanent: any) => String(permanent?.card?.id || '') === 'cheap_return',
+    ) as any;
+    expect(returnedPermanent).toMatchObject({
+      controller: attackerId,
+      owner: attackerId,
+    });
+    expect(((game.state as any).zones[attackerId]?.graveyard || []).map((card: any) => card?.id)).toEqual(['expensive_return']);
+  });
+
+  it('filters non-Dragon targets for Glorybringer and applies the damage trigger to the chosen creature', async () => {
+    const gameId = createGameId();
+    trackedGameIds.add(gameId);
+    const attackerId = 'p1' as PlayerID;
+    const defenderId = 'p2' as PlayerID;
+    const game = seedCombatGame(gameId, attackerId, defenderId);
+
+    (game.state as any).battlefield = [
+      createAttacker(
+        'glorybringer',
+        attackerId,
+        'Glorybringer',
+        "You may exert this creature as it attacks. When you do, it deals 4 damage to target non-Dragon creature an opponent controls. (An exerted creature won't untap during your next untap step.)",
+        4,
+        4,
+      ),
+      {
+        ...createAttacker('dragon_target', defenderId, 'Dragon Target', '', 4, 4),
+        card: {
+          id: 'dragon_target_card',
+          name: 'Dragon Target',
+          type_line: 'Creature - Dragon',
+          oracle_text: '',
+          power: '4',
+          toughness: '4',
+        },
+      },
+      createAttacker('beast_target', defenderId, 'Beast Target', '', 2, 2),
+    ];
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket: attackerSocket, handlers: attackerHandlers } = createMockSocket(attackerId, emitted, gameId);
+    const { socket: defenderSocket } = createMockSocket(defenderId, emitted, gameId);
+    const io = createMockIo(emitted, [attackerSocket, defenderSocket]);
+    registerResolutionHandlers(io as any, attackerSocket as any);
+    registerResolutionHandlers(io as any, defenderSocket as any);
+    registerCombatHandlers(io as any, attackerSocket as any);
+
+    await attackerHandlers.declareAttackers({
+      gameId,
+      attackers: [{ creatureId: 'glorybringer', targetPlayerId: defenderId }],
+    });
+
+    const exertStep = findExertStep(gameId, attackerId) as any;
+    expect(exertStep).toBeDefined();
+
+    await attackerHandlers.submitResolutionResponse({
+      gameId,
+      stepId: String(exertStep.id),
+      selections: 'exert',
+    });
+
+    expect((((game.state as any).stack || []) as any[])).toHaveLength(1);
+
+    game.applyEvent({ type: 'resolveTopOfStack' } as any);
+
+    const targetStep = findTargetSelectionStep(gameId, attackerId, (entry: any) => entry?.targetedTriggeredAbility === true) as any;
+    expect(targetStep).toBeDefined();
+    expect((targetStep.validTargets || []).map((entry: any) => entry.id)).toContain('beast_target');
+    expect((targetStep.validTargets || []).map((entry: any) => entry.id)).not.toContain('dragon_target');
+
+    await attackerHandlers.submitResolutionResponse({
+      gameId,
+      stepId: String(targetStep.id),
+      selections: ['beast_target'],
+    });
+
+    const beastTarget = (((game.state as any).battlefield || []) as any[]).find((permanent: any) => permanent?.id === 'beast_target') as any;
+    const dragonTarget = (((game.state as any).battlefield || []) as any[]).find((permanent: any) => permanent?.id === 'dragon_target') as any;
+    expect(beastTarget?.damageMarked).toBe(4);
+    expect(dragonTarget?.damageMarked || 0).toBe(0);
+  });
+
+  it('prevents combat damage to Oketra\'s Avenger after the exert trigger resolves', async () => {
+    const gameId = createGameId();
+    trackedGameIds.add(gameId);
+    const attackerId = 'p1' as PlayerID;
+    const defenderId = 'p2' as PlayerID;
+    const game = seedCombatGame(gameId, attackerId, defenderId);
+
+    (game.state as any).battlefield = [
+      createAttacker(
+        'oketras_avenger',
+        attackerId,
+        "Oketra's Avenger",
+        "You may exert this creature as it attacks. When you do, prevent all combat damage that would be dealt to it this turn. (An exerted creature won't untap during your next untap step.)",
+        3,
+        1,
+      ),
+      createAttacker('large_blocker', defenderId, 'Large Blocker', '', 4, 4),
+    ];
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket: attackerSocket, handlers: attackerHandlers } = createMockSocket(attackerId, emitted, gameId);
+    const { socket: defenderSocket, handlers: defenderHandlers } = createMockSocket(defenderId, emitted, gameId);
+    const io = createMockIo(emitted, [attackerSocket, defenderSocket]);
+    registerResolutionHandlers(io as any, attackerSocket as any);
+    registerResolutionHandlers(io as any, defenderSocket as any);
+    registerCombatHandlers(io as any, attackerSocket as any);
+    registerCombatHandlers(io as any, defenderSocket as any);
+
+    await attackerHandlers.declareAttackers({
+      gameId,
+      attackers: [{ creatureId: 'oketras_avenger', targetPlayerId: defenderId }],
+    });
+
+    const exertStep = findExertStep(gameId, attackerId) as any;
+    expect(exertStep).toBeDefined();
+
+    await attackerHandlers.submitResolutionResponse({
+      gameId,
+      stepId: String(exertStep.id),
+      selections: 'exert',
+    });
+
+    expect((((game.state as any).stack || []) as any[])).toHaveLength(1);
+
+    game.applyEvent({ type: 'resolveTopOfStack' } as any);
+
+    const avengerBeforeBlocks = (((game.state as any).battlefield || []) as any[]).find((permanent: any) => permanent?.id === 'oketras_avenger') as any;
+    expect(avengerBeforeBlocks?.temporaryAbilities).toEqual([
+      expect.objectContaining({
+        ability: 'prevent all combat damage that would be dealt to this creature this turn',
+        expiresAt: 'end_of_turn',
+      }),
+    ]);
+
+    (game.state as any).step = 'declareBlockers';
+    await defenderHandlers.declareBlockers({
+      gameId,
+      blockers: [{ blockerId: 'large_blocker', attackerId: 'oketras_avenger' }],
+    });
+
+    game.applyEvent({ type: 'nextStep' } as any);
+
+    const battlefield = ((game.state as any).battlefield || []) as any[];
+    const avenger = battlefield.find((permanent: any) => permanent?.id === 'oketras_avenger') as any;
+    const blocker = battlefield.find((permanent: any) => permanent?.id === 'large_blocker') as any;
+    expect(Number(avenger?.markedDamage || 0)).toBe(0);
+    expect(Number(blocker?.markedDamage || 0)).toBe(3);
+    expect(avenger?.markedForDestruction).toBeUndefined();
+  });
+
+  it('prevents creatures with power 2 or less from blocking Rhonas\'s Stalwart after exerting', async () => {
+    const gameId = createGameId();
+    trackedGameIds.add(gameId);
+    const attackerId = 'p1' as PlayerID;
+    const defenderId = 'p2' as PlayerID;
+    const game = seedCombatGame(gameId, attackerId, defenderId);
+
+    (game.state as any).battlefield = [
+      createAttacker(
+        'rhonas_stalwart',
+        attackerId,
+        "Rhonas's Stalwart",
+        "You may exert this creature as it attacks. When you do, it can't be blocked by creatures with power 2 or less this turn. (An exerted creature won't untap during your next untap step.)",
+        2,
+        2,
+      ),
+      createAttacker('small_blocker', defenderId, 'Small Blocker', '', 2, 2),
+      createAttacker('large_blocker', defenderId, 'Large Blocker', '', 3, 3),
+    ];
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket: attackerSocket, handlers: attackerHandlers } = createMockSocket(attackerId, emitted, gameId);
+    const { socket: defenderSocket, handlers: defenderHandlers } = createMockSocket(defenderId, emitted, gameId);
+    const io = createMockIo(emitted, [attackerSocket, defenderSocket]);
+    registerResolutionHandlers(io as any, attackerSocket as any);
+    registerResolutionHandlers(io as any, defenderSocket as any);
+    registerCombatHandlers(io as any, attackerSocket as any);
+    registerCombatHandlers(io as any, defenderSocket as any);
+
+    await attackerHandlers.declareAttackers({
+      gameId,
+      attackers: [{ creatureId: 'rhonas_stalwart', targetPlayerId: defenderId }],
+    });
+
+    const exertStep = findExertStep(gameId, attackerId) as any;
+    expect(exertStep).toBeDefined();
+
+    await attackerHandlers.submitResolutionResponse({
+      gameId,
+      stepId: String(exertStep.id),
+      selections: 'exert',
+    });
+
+    game.applyEvent({ type: 'resolveTopOfStack' } as any);
+
+    const attackerBeforeBlocks = ((game.state as any).battlefield || []).find((permanent: any) => permanent?.id === 'rhonas_stalwart') as any;
+    expect(attackerBeforeBlocks?.temporaryAbilities).toEqual([
+      expect.objectContaining({ ability: "can't be blocked by creatures with power 2 or less this turn", expiresAt: 'end_of_turn' }),
+    ]);
+
+    (game.state as any).step = 'declareBlockers';
+    const emitStart = emitted.length;
+    await defenderHandlers.declareBlockers({
+      gameId,
+      blockers: [{ blockerId: 'small_blocker', attackerId: 'rhonas_stalwart' }],
+    });
+
+    const failedBlockEmits = emitted.slice(emitStart);
+    expect(failedBlockEmits.some((entry) => entry.event === 'error' && entry.payload?.code === 'CANT_BLOCK')).toBe(true);
+
+    const emitStartSuccess = emitted.length;
+    await defenderHandlers.declareBlockers({
+      gameId,
+      blockers: [{ blockerId: 'large_blocker', attackerId: 'rhonas_stalwart' }],
+    });
+
+    const successEmits = emitted.slice(emitStartSuccess);
+    expect(successEmits.some((entry) => entry.event === 'error')).toBe(false);
+
+    const attacker = ((game.state as any).battlefield || []).find((permanent: any) => permanent?.id === 'rhonas_stalwart') as any;
+    expect(attacker?.blockedBy).toEqual(['large_blocker']);
+  });
+
+  it('creates a tapped and attacking copy for Sandstorm Crasher and schedules next-end-step sacrifice', async () => {
+    const gameId = createGameId();
+    trackedGameIds.add(gameId);
+    const attackerId = 'p1' as PlayerID;
+    const defenderId = 'p2' as PlayerID;
+    const game = seedCombatGame(gameId, attackerId, defenderId);
+
+    (game.state as any).battlefield = [
+      createAttacker(
+        'sandstorm_crasher',
+        attackerId,
+        'Sandstorm Crasher',
+        "Trample\nYou may exert this creature as it attacks. When you do, create a tapped and attacking token that's a copy of target creature you control. Sacrifice the token at the beginning of the next end step. (An exerted creature won't untap during your next untap step.)",
+        3,
+        4,
+      ),
+      createAttacker('copy_source', attackerId, 'Copy Source', '', 5, 5),
+    ];
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket: attackerSocket, handlers: attackerHandlers } = createMockSocket(attackerId, emitted, gameId);
+    const { socket: defenderSocket } = createMockSocket(defenderId, emitted, gameId);
+    const io = createMockIo(emitted, [attackerSocket, defenderSocket]);
+    registerResolutionHandlers(io as any, attackerSocket as any);
+    registerResolutionHandlers(io as any, defenderSocket as any);
+    registerCombatHandlers(io as any, attackerSocket as any);
+
+    await attackerHandlers.declareAttackers({
+      gameId,
+      attackers: [{ creatureId: 'sandstorm_crasher', targetPlayerId: defenderId }],
+    });
+
+    const exertStep = findExertStep(gameId, attackerId) as any;
+    expect(exertStep).toBeDefined();
+
+    await attackerHandlers.submitResolutionResponse({
+      gameId,
+      stepId: String(exertStep.id),
+      selections: 'exert',
+    });
+
+    expect((((game.state as any).stack || []) as any[])).toHaveLength(1);
+
+    game.applyEvent({ type: 'resolveTopOfStack' } as any);
+
+    const targetStep = findTargetSelectionStep(gameId, attackerId, (entry: any) => entry?.targetedTriggeredAbility === true) as any;
+    expect(targetStep).toBeDefined();
+    expect((targetStep.validTargets || []).map((entry: any) => entry.id)).toContain('copy_source');
+
+    await attackerHandlers.submitResolutionResponse({
+      gameId,
+      stepId: String(targetStep.id),
+      selections: ['copy_source'],
+    });
+
+    const battlefield = ((game.state as any).battlefield || []) as any[];
+    const tokens = battlefield.filter((permanent: any) => permanent?.isToken === true);
+    const delayedSacrifice = ((game.state as any).pendingSacrificeAtNextEndStep || []) as any[];
+    const delayedExile = ((game.state as any).pendingExileAtEndOfCombat || []) as any[];
+
+    expect(tokens).toHaveLength(1);
+    expect(tokens[0]).toMatchObject({
+      attacking: defenderId,
+      tapped: true,
+      copiedFromPermanentId: 'copy_source',
+    });
+    expect(tokens[0]?.card?.name).toBe('Copy Source');
+    expect(delayedSacrifice).toHaveLength(1);
+    expect(delayedSacrifice[0]?.permanentId).toBe(tokens[0]?.id);
+    expect(delayedExile).toHaveLength(0);
   });
 });

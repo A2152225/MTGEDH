@@ -56,6 +56,31 @@ function isFiniteNumber(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value);
 }
 
+function isCombatDamagePreventedForPermanent(permanent: any): boolean {
+  if (!permanent) {
+    return false;
+  }
+
+  const abilityTexts = [
+    ...(Array.isArray((permanent as any).tempAbilities) ? (permanent as any).tempAbilities : []),
+    ...(Array.isArray((permanent as any).grantedAbilities) ? (permanent as any).grantedAbilities : []),
+    ...(Array.isArray((permanent as any).temporaryAbilities) ? (permanent as any).temporaryAbilities : []),
+  ]
+    .map((entry: any) => {
+      if (typeof entry === 'string') {
+        return entry;
+      }
+      if (entry && typeof entry === 'object' && typeof entry.ability === 'string') {
+        return entry.ability;
+      }
+      return '';
+    })
+    .map((entry: string) => entry.trim().toLowerCase())
+    .filter(Boolean);
+
+  return abilityTexts.some((entry) => /prevent all combat damage that would be dealt to (?:it|this creature) this turn/.test(entry));
+}
+
 function removeExpiredUntilNextTurnEffects(ctx: GameContext, currentPlayerId: PlayerID, currentTurn: number): void {
   const stateAny = (ctx as any).state as any;
   const battlefield = Array.isArray(stateAny?.battlefield) ? stateAny.battlefield : [];
@@ -1852,6 +1877,11 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
           const damageToBlocker = Math.min(lethalDamage, remainingDamage);
           
           if (damageToBlocker > 0) {
+            if (isCombatDamagePreventedForPermanent(blocker)) {
+              remainingDamage -= damageToBlocker;
+              debug(2, `${ts()} [dealCombatDamage] Combat damage to blocker ${blockerCard.name || blockerId} was prevented`);
+              continue;
+            }
             if (applyVigorDamageReplacement(ctx, blocker, damageToBlocker, card)) {
               remainingDamage -= damageToBlocker;
               continue;
@@ -1990,6 +2020,10 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
             };
           }
           
+            if (isCombatDamagePreventedForPermanent(attacker)) {
+              debug(2, `${ts()} [COMBAT_DAMAGE] Combat damage to attacker ${card.name || attacker.id} was prevented`);
+              continue;
+            }
           // Calculate effective blocker power including +1/+1 counters, modifiers, and static effects
           const blockerStats = getCombatCreatureStats(ctx, blocker);
           const blockerPower = blockerStats.power;
@@ -2539,6 +2573,22 @@ function endTemporaryEffects(ctx: GameContext) {
       // Clear temporary granted abilities
       if (permanent.tempAbilities && permanent.tempAbilities.length > 0) {
         permanent.tempAbilities = [];
+        endedCount++;
+      }
+
+      if (Array.isArray((permanent as any).temporaryAbilities) && (permanent as any).temporaryAbilities.length > 0) {
+        const remainingTemporaryAbilities = (permanent as any).temporaryAbilities.filter((entry: any) => {
+          if (typeof entry === 'string') {
+            return false;
+          }
+          return entry?.expiresAt && entry.expiresAt !== 'end_of_turn';
+        });
+
+        if (remainingTemporaryAbilities.length > 0) {
+          (permanent as any).temporaryAbilities = remainingTemporaryAbilities;
+        } else {
+          delete (permanent as any).temporaryAbilities;
+        }
         endedCount++;
       }
       

@@ -30,6 +30,24 @@ export function getPermanentTextFragments(permanent: BattlefieldPermanent | any)
     fragments.push((permanent as any).grantedAbilities.join('\n'));
   }
 
+  if (Array.isArray((permanent as any)?.tempAbilities) && (permanent as any).tempAbilities.length > 0) {
+    fragments.push((permanent as any).tempAbilities.join('\n'));
+  }
+
+  if (Array.isArray((permanent as any)?.temporaryAbilities) && (permanent as any).temporaryAbilities.length > 0) {
+    const temporaryAbilities = (permanent as any).temporaryAbilities
+      .map((entry: any) => {
+        if (typeof entry === 'string') {
+          return normalizeTextEntry(entry);
+        }
+        return normalizeTextEntry(entry?.ability);
+      })
+      .filter((value: string | null): value is string => Boolean(value));
+    if (temporaryAbilities.length > 0) {
+      fragments.push(temporaryAbilities.join('\n'));
+    }
+  }
+
   fragments.push(...getPermanentTemporaryEffectDescriptions(permanent));
   return fragments;
 }

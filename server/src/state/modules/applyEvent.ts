@@ -8651,6 +8651,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
         const targetCastIsOptional = (e as any).targetCastIsOptional;
         const minTargets = (e as any).minTargets;
         const maxTargets = (e as any).maxTargets;
+        const preselectedTargetsPersisted = (e as any).preselectedTargetsPersisted;
         const boundGraveyardCardId = (e as any).boundGraveyardCardId;
         const boundGraveyardOwnerId = (e as any).boundGraveyardOwnerId;
         const delayedReturnAt = (e as any).delayedReturnAt;
@@ -8719,6 +8720,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
             ...(targetCastIsOptional === true ? { targetCastIsOptional: true } : null),
             ...(typeof minTargets === 'number' ? { minTargets } : null),
             ...(typeof maxTargets === 'number' ? { maxTargets } : null),
+            ...(preselectedTargetsPersisted === true ? { preselectedTargetsPersisted: true } : null),
             ...(boundGraveyardCardId ? { boundGraveyardCardId } : null),
             ...(boundGraveyardOwnerId ? { boundGraveyardOwnerId } : null),
             ...(delayedReturnAt ? { delayedReturnAt } : null),

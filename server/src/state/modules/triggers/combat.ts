@@ -248,6 +248,11 @@ function isSupportedExertAttackRewardDescription(description: string): boolean {
   if (/draw a card/i.test(normalized)) return true;
   if (/(?:other )?creatures you control get [+-]\d+\/[+-]\d+(?: and gains? .+?)? until end of turn/i.test(normalized)) return true;
   if (/put (?:a|an)(?: [\w,\s]+)? creature card from your hand onto the battlefield/i.test(normalized)) return true;
+  if (/return target creature card(?: with mana value \d+ or less)? from your graveyard to the battlefield/i.test(normalized)) return true;
+  if (/deals? \d+ damage to target/i.test(normalized)) return true;
+  if (/prevent all combat damage that would be dealt to (?:it|this creature) this turn/i.test(normalized)) return true;
+  if (/(?:it|this creature) can't be blocked by creatures with power 2 or less this turn/i.test(normalized)) return true;
+  if (/create a tapped and attacking token that's a copy of target creature you control\. sacrifice the token at the beginning of the next end step/i.test(normalized)) return true;
   if (/(?:it|this creature) can't be blocked this turn(?: and you scry \d+)?/i.test(normalized)) return true;
   if (/(?:it|this creature) gets [+-]\d+\/[+-]\d+(?: and gains? .+?)? until end of turn/i.test(normalized)) return true;
   if (/(?:it|this creature) gains .+? until end of turn/i.test(normalized)) return true;

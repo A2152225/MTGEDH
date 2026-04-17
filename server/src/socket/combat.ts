@@ -752,6 +752,25 @@ function hasEffectiveAbility(
   return { hasAbility, isGranted, isRemoved: false, asThough };
 }
 
+function getTemporaryCombatAbilityTexts(permanent: any): string[] {
+  return [
+    ...(Array.isArray(permanent?.tempAbilities) ? permanent.tempAbilities : []),
+    ...(Array.isArray(permanent?.grantedAbilities) ? permanent.grantedAbilities : []),
+    ...(Array.isArray(permanent?.temporaryAbilities) ? permanent.temporaryAbilities : []),
+  ]
+    .map((entry: any) => {
+      if (typeof entry === 'string') {
+        return entry;
+      }
+      if (entry && typeof entry === 'object' && typeof entry.ability === 'string') {
+        return entry.ability;
+      }
+      return '';
+    })
+    .map((entry: string) => entry.trim().toLowerCase())
+    .filter(Boolean);
+}
+
 /**
  * Check if a permanent has counters that prevent it from attacking/blocking
  * Uses scalable pattern matching: "creatures with [X] counters on them can't attack/block"
@@ -902,6 +921,38 @@ function canBlockAttacker(
     return {
       canBlock: false,
       reason: 'Unleashed creature has a +1/+1 counter',
+    };
+  }
+
+  const blockerRestrictionTexts = getTemporaryCombatAbilityTexts(blocker);
+  if (blockerRestrictionTexts.some((entry) => entry === "can't block" || entry.includes("can't block this turn"))) {
+    return {
+      canBlock: false,
+      reason: "Blocker can't block this turn",
+    };
+  }
+
+  const attackerRestrictionTexts = getTemporaryCombatAbilityTexts(attacker);
+  if (attackerRestrictionTexts.some((entry) => entry === 'unblockable' || entry.includes("can't be blocked this turn"))) {
+    return {
+      canBlock: false,
+      reason: 'Attacker cannot be blocked this turn',
+    };
+  }
+
+  const blockerPower = getEffectivePower(blocker);
+  if (attackerRestrictionTexts.some((entry) => entry.includes("can't be blocked by creatures with power 2 or less")) && blockerPower <= 2) {
+    return {
+      canBlock: false,
+      reason: 'Attacker cannot be blocked by creatures with power 2 or less',
+    };
+  }
+
+  const attackerPower = getEffectivePower(attacker);
+  if (attackerRestrictionTexts.some((entry) => entry.includes("can't be blocked by creatures with greater power")) && blockerPower > attackerPower) {
+    return {
+      canBlock: false,
+      reason: 'Attacker cannot be blocked by creatures with greater power',
     };
   }
   
