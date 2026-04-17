@@ -57,6 +57,8 @@ export interface KeywordTriggerContext {
   activePlayer: string;
   defendingPlayer?: string;
   attackingCreatures?: any[];
+  blockingCreatures?: any[];
+  blockingCreatureIds?: string[];
   spellCast?: any;
   damageDealingCreature?: any;
   damageAmount?: number;
@@ -308,6 +310,38 @@ function getAttackingCreatures(ctx: KeywordTriggerContext): any[] {
         return typeLine.includes('creature') && Boolean(entry?.attacking);
       })
     : [];
+}
+
+function getBlockingCreatureIds(ctx: KeywordTriggerContext): string[] {
+  if (Array.isArray(ctx.blockingCreatureIds) && ctx.blockingCreatureIds.length > 0) {
+    return ctx.blockingCreatureIds
+      .map((value: any) => String(value || '').trim())
+      .filter(Boolean);
+  }
+
+  if (Array.isArray(ctx.blockingCreatures) && ctx.blockingCreatures.length > 0) {
+    return ctx.blockingCreatures
+      .map((entry: any) => String(entry?.id || '').trim())
+      .filter(Boolean);
+  }
+
+  const blockedBy = Array.isArray(ctx.permanent?.blockedBy)
+    ? ctx.permanent.blockedBy
+    : (ctx.permanent?.blockedBy ? [ctx.permanent.blockedBy] : []);
+
+  return blockedBy
+    .map((value: any) => String(value || '').trim())
+    .filter(Boolean);
+}
+
+function getBlockingCreatures(ctx: KeywordTriggerContext): any[] {
+  const blockingCreatureIds = getBlockingCreatureIds(ctx);
+  if (blockingCreatureIds.length === 0) return [];
+
+  const battlefield = Array.isArray(ctx.battlefield) ? ctx.battlefield : [];
+  return blockingCreatureIds
+    .map((blockingCreatureId) => battlefield.find((entry: any) => entry && String(entry.id || '') === blockingCreatureId))
+    .filter(Boolean);
 }
 
 // ============================================================================
@@ -595,12 +629,30 @@ function handleAnnihilator(ctx: KeywordTriggerContext, keyword: DetectedKeyword)
  */
 function handleFlanking(ctx: KeywordTriggerContext, keyword: DetectedKeyword): KeywordTriggerResult {
   const cardName = ctx.permanent?.card?.name || 'Creature';
+  const snapshotBlockingCreatureIds = Array.isArray(ctx.blockingCreatureIds) && ctx.blockingCreatureIds.length > 0
+    ? ctx.blockingCreatureIds.map((value: any) => String(value || '').trim()).filter(Boolean)
+    : [];
+  const blockingCreatureIds = snapshotBlockingCreatureIds.length > 0
+    ? snapshotBlockingCreatureIds
+    : getBlockingCreatures(ctx)
+        .filter((entry: any) => !permanentHasKeyword(entry, 'flanking'))
+        .map((entry: any) => String(entry?.id || '').trim())
+        .filter(Boolean);
+
+  if (blockingCreatureIds.length === 0) {
+    return {
+      keyword: 'flanking',
+      processed: true,
+    };
+  }
   
   return {
     keyword: 'flanking',
     processed: true,
+    ptModification: { power: -1, toughness: -1, duration: 'end_of_turn' },
+    affectedPermanentIds: blockingCreatureIds,
     effect: 'Blocking creature without flanking gets -1/-1 until end of turn',
-    chatMessage: `${cardName}'s Flanking triggers`,
+    chatMessage: `${cardName}'s Flanking triggers - blocking creature gets -1/-1 until end of turn`,
   };
 }
 

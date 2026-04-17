@@ -10271,7 +10271,7 @@ export function executeTriggerEffect(
     
     // Determine trigger timing from triggerType
     const triggerType = (triggerItem as any).triggerType;
-    let timing: 'attacks' | 'etb' | 'dies' | 'combat_damage' | 'cast' | 'noncreature_cast' = 'cast';
+    let timing: 'attacks' | 'blocks' | 'etb' | 'dies' | 'combat_damage' | 'cast' | 'noncreature_cast' = 'cast';
     
     if (
       triggerType === 'attacks' ||
@@ -10285,6 +10285,13 @@ export function executeTriggerEffect(
       triggerType === 'training'
     ) {
       timing = 'attacks';
+    } else if (
+      triggerType === 'blocks' ||
+      triggerType === 'blocked' ||
+      triggerType === 'flanking' ||
+      triggerType === 'bushido'
+    ) {
+      timing = 'blocks';
     } else if (triggerType === 'etb' || triggerType === 'etb_self') {
       timing = 'etb';
     } else if (triggerType === 'dies' || triggerType === 'death' || triggerType === 'creature_dies' || triggerType === 'any_creature_dies') {
@@ -10296,6 +10303,12 @@ export function executeTriggerEffect(
     }
     
     if (permanent) {
+      const blockingCreatureIds = Array.isArray((triggerItem as any)?.value?.blockingCreatureIds)
+        ? (triggerItem as any).value.blockingCreatureIds
+            .map((value: any) => String(value || '').trim())
+            .filter(Boolean)
+        : [];
+
       // Build trigger context
       const keywordCtx: KeywordTriggerContext = {
         gameId: (ctx as any).gameId || 'unknown',
@@ -10307,12 +10320,20 @@ export function executeTriggerEffect(
         activePlayer: state.activePlayer || controller,
         defendingPlayer: (triggerItem as any).defendingPlayer,
         attackingCreatures: (triggerItem as any).attackingCreatures,
+        blockingCreatureIds,
+        blockingCreatures: blockingCreatureIds.length > 0
+          ? battlefield.filter((entry: any) => entry && blockingCreatureIds.includes(String(entry.id || '')))
+          : undefined,
         spellCast: (triggerItem as any).spellCast,
         dyingCreature: (triggerItem as any).dyingCreature,
       };
       
       // Process keywords for this timing
-      const results = processKeywordTriggers(keywordCtx, timing);
+      const rawResults = processKeywordTriggers(keywordCtx, timing);
+      const requestedKeyword = typeof triggerType === 'string' ? String(triggerType).trim().toLowerCase() : '';
+      const results = requestedKeyword && rawResults.some((result) => result.keyword === requestedKeyword)
+        ? rawResults.filter((result) => result.keyword === requestedKeyword)
+        : rawResults;
       
       for (const result of results) {
         debug(2, `[executeTriggerEffect] Keyword ${result.keyword} processed: ${result.chatMessage || result.effect}`);

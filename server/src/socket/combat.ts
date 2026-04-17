@@ -2531,14 +2531,28 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
             }
           };
           
-          // Import block trigger function dynamically to avoid circular dependencies
-          const { getBlockTriggersForCreatures } = await import("../state/modules/triggers/index.js");
+          // Import block trigger functions dynamically to avoid circular dependencies
+          const { getBlockTriggersForCreatures, getBlockedTriggersForCreatures } = await import("../state/modules/triggers/index.js");
           
-          const triggers = getBlockTriggersForCreatures(
+          const blockTriggers = getBlockTriggersForCreatures(
             ctx as any,
             blockingCreatures,
             playerId
           );
+          const blockedCreatures = Array.from(
+            new Map(
+              resolvedBlockers
+                .map((blocker) => battlefield.find((perm: any) => perm?.id === blocker.attackerId && (perm as any).attacking))
+                .filter(Boolean)
+                .map((creature: any) => [String(creature.id || ''), creature])
+            ).values()
+          );
+          const blockedTriggers = getBlockedTriggersForCreatures(
+            ctx as any,
+            blockedCreatures,
+            playerId
+          );
+          const triggers = [...blockTriggers, ...blockedTriggers];
           
           // Push triggers to stack and notify clients
           if (triggers.length > 0) {
@@ -2553,9 +2567,14 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
                 const raw = String(trigger.description || trigger.effect || '').trim();
                 let textForEval = raw;
                 const hasTriggerPrefix = /^(?:when|whenever|at)\b/i.test(textForEval);
+                const triggerTypeForEval = String((trigger as any).triggerType || 'blocks');
                 if (!hasTriggerPrefix && textForEval) {
                   const oracleLower = String(sourcePerm?.card?.oracle_text || '').toLowerCase();
-                  if (oracleLower.includes('blocks a creature')) {
+                  if (triggerTypeForEval === 'blocked' || triggerTypeForEval === 'flanking') {
+                    textForEval = `Whenever ~ becomes blocked, ${textForEval}`;
+                  } else if (triggerTypeForEval === 'bushido') {
+                    textForEval = `Whenever ~ blocks or becomes blocked, ${textForEval}`;
+                  } else if (oracleLower.includes('blocks a creature')) {
                     textForEval = `Whenever ~ blocks a creature, ${textForEval}`;
                   } else {
                     textForEval = `Whenever ~ blocks, ${textForEval}`;
@@ -2599,6 +2618,7 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
               // Push onto stack
               game.state.stack = game.state.stack || [];
               const triggerId = `trigger_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+              const stackTriggerType = String((trigger as any).triggerType || 'blocks');
               const stackItem: any = {
                 id: triggerId,
                 type: 'triggered_ability',
@@ -2606,7 +2626,7 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
                 source: trigger.permanentId,
                 sourceName: trigger.cardName,
                 description: trigger.description,
-                triggerType: 'blocks',
+                triggerType: stackTriggerType,
                 mandatory: trigger.mandatory,
                 value: trigger.value,
               };
@@ -2618,7 +2638,7 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
                 sourceName: trigger.cardName,
                 controllerId: triggerControllerId,
                 description: trigger.description,
-                triggerType: 'blocks',
+                triggerType: stackTriggerType,
                 effect: trigger.description,
                 mandatory: trigger.mandatory,
                 ...(typeof trigger.value !== 'undefined' ? { value: trigger.value } : {}),

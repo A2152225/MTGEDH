@@ -22,6 +22,7 @@ import { escapeCardNameForRegex } from "./types.js";
 import { debug, debugWarn, debugError } from "../../../utils/debug.js";
 import { permanentHasCreatureType } from "../../../../../shared/src/creatureTypes.js";
 import { isInterveningIfSatisfied } from "./intervening-if.js";
+import { detectKeywords } from "../keyword-detection.js";
 
 // ============================================================================
 // Trigger Doubling (Roaming Throne, Isshin, Teysa Karlov, etc.)
@@ -223,6 +224,48 @@ export interface AttachmentAttackTrigger {
   searchesLibrary?: boolean;
   searchType?: string;
   createsToken?: boolean;
+}
+
+const ATTACK_KEYWORD_REMINDER_LINE_PATTERN = /^(?:annihilator\s+\d+|firebending\s+\d+|melee|myriad|exalted|battle cry|dethrone|training)\b/i;
+const BLOCK_KEYWORD_REMINDER_LINE_PATTERN = /^(?:bushido\s+\d+|flanking|rampage\s+\d+)\b/i;
+
+function getOracleLines(oracleText: string): string[] {
+  return String(oracleText || '')
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+}
+
+function findGenericAttackTriggerLine(oracleText: string, cardName: string): RegExpMatchArray | null {
+  const cardNamePatternEscaped = escapeCardNameForRegex(cardName);
+  const attacksPattern = new RegExp(
+    `whenever\\s+(?:~|this creature(?:\\s+or\\s+equipped creature)?|${cardNamePatternEscaped})\\s+attacks,?\\s*(.+)$`,
+    'i'
+  );
+
+  for (const line of getOracleLines(oracleText)) {
+    if (ATTACK_KEYWORD_REMINDER_LINE_PATTERN.test(line)) continue;
+    const match = line.match(attacksPattern);
+    if (match) return match;
+  }
+
+  return null;
+}
+
+function findGenericBlockTriggerLine(oracleText: string, cardName: string): RegExpMatchArray | null {
+  const cardNamePatternEscaped = escapeCardNameForRegex(cardName);
+  const blocksPattern = new RegExp(
+    `whenever\\s+(?:~|this creature|${cardNamePatternEscaped})\\s+blocks(?:\\s+a\\s+creature)?,?\\s*(.+)$`,
+    'i'
+  );
+
+  for (const line of getOracleLines(oracleText)) {
+    if (BLOCK_KEYWORD_REMINDER_LINE_PATTERN.test(line)) continue;
+    const match = line.match(blocksPattern);
+    if (match) return match;
+  }
+
+  return null;
 }
 
 // Re-export types from types.ts for consumers
@@ -469,6 +512,17 @@ export function detectAttackTriggers(card: any, permanent: any): CombatTriggered
       mandatory: true,
     });
   }
+
+  // Dethrone keyword ability
+  if (lowerOracle.includes("dethrone")) {
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'dethrone',
+      description: 'Put a +1/+1 counter on this creature if attacking the player with the most life',
+      mandatory: true,
+    });
+  }
   
   // Battle Cry keyword ability
   if (lowerOracle.includes("battle cry")) {
@@ -481,15 +535,23 @@ export function detectAttackTriggers(card: any, permanent: any): CombatTriggered
       mandatory: true,
     });
   }
+
+  // Training keyword ability
+  if (lowerOracle.includes("training")) {
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'training',
+      description: 'Put a +1/+1 counter on this creature if attacking with another creature with greater power',
+      mandatory: true,
+    });
+  }
   
   // Generic "whenever ~ attacks" - match ~, this creature, Tanuki-style
   // "this creature or equipped creature", or the actual card name
-  // Use consistent regex escaping approach
-  const cardNamePatternEscaped = escapeCardNameForRegex(cardName);
   // Capture the full ability line (including periods) so patterns like
   // "you may pay {1}{G}. If you do, ..." can be recognized.
-  const attacksPattern = new RegExp(`whenever\\s+(?:~|this creature(?:\\s+or\\s+equipped creature)?|${cardNamePatternEscaped})\\s+attacks,?\\s*([^\\n]+)`, 'i');
-  const attacksMatch = oracleText.match(attacksPattern);
+  const attacksMatch = findGenericAttackTriggerLine(oracleText, cardName);
   if (attacksMatch && !triggers.some(t => t.triggerType === 'attacks')) {
     const effectText = attacksMatch[1].trim();
     
@@ -1322,9 +1384,7 @@ export function detectBlockTriggers(card: any, permanent: any): BlockTrigger[] {
   
   // Generic "whenever ~ blocks" detection
   // Use consistent regex escaping approach
-  const blockCardNamePattern = escapeCardNameForRegex(cardName);
-  const blocksPattern = new RegExp(`whenever\\s+(?:~|this creature|${blockCardNamePattern})\\s+blocks(?:\\s+a\\s+creature)?,?\\s*([^.]+)`, 'i');
-  const blocksMatch = oracleText.match(blocksPattern);
+  const blocksMatch = findGenericBlockTriggerLine(oracleText, cardName);
   
   if (blocksMatch && !triggers.some(t => t.permanentId === permanentId)) {
     const effectText = blocksMatch[1].trim();
@@ -1359,6 +1419,10 @@ export function getBlockTriggersForCreatures(
   // Check each blocking creature for block triggers
   for (const blocker of blockingCreatures) {
     const blockerTriggers = detectBlockTriggers(blocker.card, blocker);
+    const keywordText = String(blocker?.card?.oracle_text || '') ||
+      (Array.isArray(blocker?.card?.keywords) ? (blocker?.card?.keywords || []).join('\n') : '');
+    const blockKeywordTriggers = detectKeywords(keywordText, blocker?.card?.name || 'Unknown').keywords
+      .filter((keyword) => keyword.timing === 'blocks' && keyword.keyword === 'bushido');
     
     for (const trigger of blockerTriggers) {
       triggers.push({
@@ -1374,8 +1438,105 @@ export function getBlockTriggersForCreatures(
         },
       });
     }
+
+    for (const keyword of blockKeywordTriggers) {
+      triggers.push({
+        permanentId: blocker.id,
+        cardName: blocker.card?.name || 'Unknown',
+        controllerId: blocker.controller,
+        triggerType: keyword.keyword,
+        description: keyword.effect,
+        effect: keyword.effect,
+        mandatory: keyword.mandatory,
+        value: {
+          blockedCreatureId: blocker.blocking?.[0],
+        },
+      });
+    }
   }
   
+  return triggers;
+}
+
+function permanentHasKeyword(permanent: any, keywordName: string): boolean {
+  const normalizedKeyword = String(keywordName || '').trim().toLowerCase();
+  if (!normalizedKeyword) return false;
+
+  const cardKeywords = Array.isArray(permanent?.card?.keywords)
+    ? permanent.card.keywords
+    : [];
+  if (cardKeywords.some((entry: any) => String(entry || '').trim().toLowerCase() === normalizedKeyword)) {
+    return true;
+  }
+
+  const oracleText = String(permanent?.card?.oracle_text || '').toLowerCase();
+  return oracleText.includes(normalizedKeyword);
+}
+
+/**
+ * Get block triggers for attacking creatures that became blocked.
+ * Covers keyword abilities like flanking and bushido that trigger on the attacker.
+ */
+export function getBlockedTriggersForCreatures(
+  ctx: GameContext,
+  blockedCreatures: any[],
+  defendingPlayer: string
+): CombatTriggeredAbility[] {
+  const triggers: CombatTriggeredAbility[] = [];
+  const battlefield = ctx.state?.battlefield || [];
+
+  for (const attacker of blockedCreatures) {
+    if (!attacker) continue;
+
+    const keywordText = String(attacker?.card?.oracle_text || '') ||
+      (Array.isArray(attacker?.card?.keywords) ? (attacker?.card?.keywords || []).join('\n') : '');
+    const blockKeywords = detectKeywords(keywordText, attacker?.card?.name || 'Unknown').keywords
+      .filter((keyword) => keyword.timing === 'blocks');
+    if (blockKeywords.length === 0) continue;
+
+    const blockedByIds = Array.isArray(attacker?.blockedBy)
+      ? attacker.blockedBy.map((value: any) => String(value || '').trim()).filter(Boolean)
+      : (attacker?.blockedBy ? [String(attacker.blockedBy).trim()] : []);
+    const blockingCreatures = blockedByIds
+      .map((blockingCreatureId) => battlefield.find((perm: any) => perm && String(perm.id || '') === blockingCreatureId))
+      .filter(Boolean);
+
+    for (const keyword of blockKeywords) {
+      if (keyword.keyword === 'flanking') {
+        for (const blockingCreature of blockingCreatures) {
+          if (permanentHasKeyword(blockingCreature, 'flanking')) continue;
+          triggers.push({
+            permanentId: attacker.id,
+            cardName: attacker.card?.name || 'Unknown',
+            controllerId: attacker.controller,
+            triggerType: 'flanking',
+            description: keyword.effect,
+            effect: keyword.effect,
+            mandatory: keyword.mandatory,
+            value: {
+              blockingCreatureIds: [String(blockingCreature.id || '')],
+              defendingPlayer,
+            },
+          });
+        }
+      } else if (keyword.keyword === 'bushido') {
+        triggers.push({
+          permanentId: attacker.id,
+          cardName: attacker.card?.name || 'Unknown',
+          controllerId: attacker.controller,
+          triggerType: 'bushido',
+          description: keyword.effect,
+          effect: keyword.effect,
+          mandatory: keyword.mandatory,
+          value: {
+            blockingCreatureIds: blockedByIds,
+            defendingPlayer,
+          },
+        });
+      }
+    }
+  }
+
   return triggers;
 }
 

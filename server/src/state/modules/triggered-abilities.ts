@@ -522,6 +522,9 @@ export interface TriggeredAbility {
     | 'melee'
     | 'myriad'
     | 'exalted'
+    | 'dethrone'
+    | 'training'
+    | 'bushido'
     | 'battle_cry'        // Battle cry - each other attacking creature gets +1/+0
     | 'firebending'       // Avatar set mechanic - add red mana when attacking
     | 'upkeep_create_copy'  // Progenitor Mimic style - create token copy at upkeep
@@ -569,6 +572,24 @@ export interface TriggeredAbility {
   putFromHand?: boolean;
   tappedAndAttacking?: boolean;
   putCreatureType?: string;
+}
+
+interface BlockTrigger {
+  permanentId: string;
+  cardName: string;
+  controllerId: string;
+  description: string;
+  effect?: string;
+  mandatory: boolean;
+  blockedCreatureId?: string;
+  createTokens?: {
+    count: number;
+    power: number;
+    toughness: number;
+    type: string;
+    color: string;
+    abilities?: string[];
+  };
 }
 
 // Note: KNOWN_DEATH_TRIGGERS, KNOWN_ATTACK_TRIGGERS, KNOWN_UNTAP_TRIGGERS, 
@@ -851,6 +872,33 @@ export function detectAttackTriggers(card: any, permanent: any): TriggeredAbilit
   const controllerId = permanent?.controller || "";
 
   const optionalManaPaymentPattern = /you may pay (\{[^}]+\}(?:\{[^}]+\})*)\.\s*if you do,?\s*(.+)/i;
+
+  const oracleLines = String(oracleText || '')
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const attackKeywordReminderLinePattern = /^(?:annihilator\s+\d+|melee|myriad|exalted|battle cry|dethrone|training)\b/i;
+  const blockKeywordReminderLinePattern = /^(?:bushido\s+\d+|flanking|rampage\s+\d+)\b/i;
+
+  const findGenericAttackTriggerLine = (): RegExpMatchArray | null => {
+    const attacksPattern = /whenever\s+(?:~|this creature(?:\s+or\s+equipped creature)?)\s+attacks,?\s*(.+)$/i;
+    for (const line of oracleLines) {
+      if (attackKeywordReminderLinePattern.test(line)) continue;
+      const match = line.match(attacksPattern);
+      if (match) return match;
+    }
+    return null;
+  };
+
+  const findGenericBlockTriggerLine = (): RegExpMatchArray | null => {
+    const blocksPattern = /whenever\s+(?:~|this creature)\s+blocks(?:\s+a\s+creature)?,?\s*(.+)$/i;
+    for (const line of oracleLines) {
+      if (blockKeywordReminderLinePattern.test(line)) continue;
+      const match = line.match(blocksPattern);
+      if (match) return match;
+    }
+    return null;
+  };
   
   // Check known cards
   for (const [knownName, info] of Object.entries(KNOWN_ATTACK_TRIGGERS)) {
@@ -944,9 +992,45 @@ export function detectAttackTriggers(card: any, permanent: any): TriggeredAbilit
       mandatory: true,
     });
   }
+
+  // Dethrone
+  if (lowerOracle.includes("dethrone")) {
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerType: 'dethrone',
+      description: 'Put a +1/+1 counter on this creature if attacking the player with the most life',
+      mandatory: true,
+    });
+  }
+
+  // Battle Cry
+  if (lowerOracle.includes("battle cry")) {
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerType: 'battle_cry',
+      description: 'Each other attacking creature gets +1/+0 until end of turn',
+      mandatory: true,
+    });
+  }
+
+  // Training
+  if (lowerOracle.includes("training")) {
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerType: 'training',
+      description: 'Put a +1/+1 counter on this creature if attacking with another creature with greater power',
+      mandatory: true,
+    });
+  }
   
   // Generic "whenever ~ attacks"
-  const attacksMatch = oracleText.match(/whenever\s+(?:~|this creature(?:\s+or\s+equipped creature)?)\s+attacks,?\s*([^\n]+)/i);
+  const attacksMatch = findGenericAttackTriggerLine();
   if (attacksMatch && !triggers.some(t => t.triggerType === 'attacks')) {
     const effectText = attacksMatch[1].trim();
     
@@ -1009,6 +1093,67 @@ export function detectAttackTriggers(card: any, permanent: any): TriggeredAbilit
     });
   }
   
+  return triggers;
+}
+
+export function detectBlockTriggers(card: any, permanent: any): BlockTrigger[] {
+  const triggers: BlockTrigger[] = [];
+  const oracleText = (card?.oracle_text || "");
+  const cardName = card?.name || "Unknown";
+  const lowerName = cardName.toLowerCase();
+  const permanentId = permanent?.id || "";
+  const controllerId = permanent?.controller || "";
+
+  const oracleLines = String(oracleText || '')
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const blockKeywordReminderLinePattern = /^(?:bushido\s+\d+|flanking|rampage\s+\d+)\b/i;
+
+  const findGenericBlockTriggerLine = (): RegExpMatchArray | null => {
+    const blocksPattern = /whenever\s+(?:~|this creature)\s+blocks(?:\s+a\s+creature)?,?\s*(.+)$/i;
+    for (const line of oracleLines) {
+      if (blockKeywordReminderLinePattern.test(line)) continue;
+      const match = line.match(blocksPattern);
+      if (match) return match;
+    }
+    return null;
+  };
+
+  // Brimaz, King of Oreskos: "Whenever Brimaz blocks a creature, create a 1/1 white Cat Soldier creature token with vigilance that's blocking that creature."
+  if (lowerName.includes("brimaz")) {
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      description: "Create a 1/1 white Cat Soldier creature token with vigilance that's blocking that creature",
+      effect: "Create a 1/1 white Cat Soldier creature token with vigilance that's blocking that creature",
+      mandatory: true,
+      createTokens: {
+        count: 1,
+        power: 1,
+        toughness: 1,
+        type: "Cat Soldier",
+        color: "white",
+        abilities: ["vigilance"],
+      },
+    });
+  }
+
+  const blocksMatch = findGenericBlockTriggerLine();
+
+  if (blocksMatch && !triggers.some(t => t.permanentId === permanentId)) {
+    const effectText = blocksMatch[1].trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      description: effectText,
+      effect: effectText,
+      mandatory: true,
+    });
+  }
+
   return triggers;
 }
 

@@ -61,6 +61,7 @@ export {
   // Block triggers
   detectBlockTriggers,
   getBlockTriggersForCreatures,
+  getBlockedTriggersForCreatures,
   type BlockTrigger,
   // Damage received triggers
   checkDamageReceivedTrigger,
