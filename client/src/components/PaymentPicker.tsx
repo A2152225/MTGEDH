@@ -15,6 +15,7 @@ import {
   type OtherCardInfo,
   type ManaPool,
 } from '../utils/manaUtils';
+import { createPaymentItemFromSource, getSourcePermanentId } from '../utils/manaSourceBuilder';
 import { SacrificeSelectionModal } from './SacrificeSelectionModal';
 
 function canPayEnhanced(cost: { colors: Record<Color, number>; generic: number; hybrids: Color[][] }, pool: Record<Color, number>): boolean {
@@ -195,8 +196,6 @@ export function PaymentPicker(props: PaymentPickerProps) {
   const remaining = useMemo(() => remainingAfter(costForPayment, pool), [costForPayment, pool]);
 
   const getPaymentItemKey = (item: PaymentItem) => String(item.paymentSourceId || item.permanentId || '');
-  const getSourcePermanentId = (source: ManaPaymentSource) => String(source.sourcePermanentId || source.id || '');
-
   const chosenById = useMemo(() => new Set(chosen.map(getPaymentItemKey)), [chosen]);
 
   const [pendingSacrificeSelection, setPendingSacrificeSelection] = React.useState<{
@@ -286,17 +285,8 @@ export function PaymentPicker(props: PaymentPickerProps) {
     return getTotalManaProduction(source.options);
   };
 
-  const createPaymentItem = (source: ManaPaymentSource, mana: Color, sacrificedPermanentIds?: string[]): PaymentItem => {
-    const count = getManaCountForSource(source.id);
-    const actualPermanentId = getSourcePermanentId(source);
-    return {
-      permanentId: actualPermanentId,
-      ...(source.id !== actualPermanentId ? { paymentSourceId: source.id } : {}),
-      mana,
-      count,
-      ...(Array.isArray(sacrificedPermanentIds) && sacrificedPermanentIds.length > 0 ? { sacrificedPermanentIds } : {}),
-    };
-  };
+  const createPaymentItem = (source: ManaPaymentSource, mana: Color, sacrificedPermanentIds?: string[]): PaymentItem =>
+    createPaymentItemFromSource({ ...source, amount: getManaCountForSource(source.id) }, mana, sacrificedPermanentIds);
 
   const add = (source: ManaPaymentSource, mana: Color) => {
     if (chosenById.has(source.id)) return;
@@ -447,7 +437,14 @@ export function PaymentPicker(props: PaymentPickerProps) {
               }}
             >
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                <div style={{ fontWeight: 600, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: '#111' }} title={s.name}>{s.name}</div>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontWeight: 600, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: '#111' }} title={s.name}>{s.name}</div>
+                  {s.label && s.label !== s.name && (
+                    <div style={{ fontSize: 11, color: '#555', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={s.label}>
+                      {s.label}
+                    </div>
+                  )}
+                </div>
                 {used ? (
                   <button onClick={() => remove(s.id)} style={{ fontSize: 11 }} title="Remove this payment">Remove</button>
                 ) : isSuggested ? (

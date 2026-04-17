@@ -1,6 +1,6 @@
 ﻿import type { Server, Socket } from "socket.io";
 import type { InMemoryGame } from "../state/types";
-import { ensureGame, broadcastGame, appendGameEvent, parseManaCost, getManaColorName, MANA_COLORS, MANA_COLOR_NAMES, applyManaSpendToCreatureSpellHasteManaLowerBound, consumeManaFromPool, deriveCreatureSpellHasteFromManaSpent, getOrInitManaPool, calculateTotalAvailableMana, validateManaPayment, getPlayerName, emitToPlayer, calculateManaProduction, broadcastManaPoolUpdate, millUntilLand, snapshotCreatureSpellHasteManaLowerBound, suppressAutomationOnNextBroadcast, LAND_PLAY_AUTOMATION_SUPPRESSION_MS, clearHumanAutoPassPauseOnAction } from "./util";
+import { ensureGame, broadcastGame, appendGameEvent, parseManaCost, getManaColorName, MANA_COLORS, MANA_COLOR_NAMES, applyManaSpendToCreatureSpellHasteManaLowerBound, consumeManaFromPool, deriveCreatureSpellHasteFromManaSpent, getOrInitManaPool, calculateTotalAvailableMana, validateManaPayment, getPlayerName, emitToPlayer, calculateManaProduction, broadcastManaPoolUpdate, millUntilLand, recordCreatureSpellHasteManaProduced, resolveActivatedAbilityLineById, snapshotCreatureSpellHasteManaLowerBound, suppressAutomationOnNextBroadcast, LAND_PLAY_AUTOMATION_SUPPRESSION_MS, clearHumanAutoPassPauseOnAction } from "./util";
 import { emitResolutionStepPrompt, processPendingBottomOrder, processPendingCascades, processPendingDanceWithCalamity, processPendingLimDulsVault, processPendingPonder, processPendingProliferate, processPendingScry, processPendingSurveil, queueMayAbilityStep } from "./resolution.js";
 import { appendEvent, isGameCreator } from "../db";
 import { GameManager } from "../GameManager.js";
@@ -281,7 +281,27 @@ function getTappedPaymentPermanentIds(payment?: PaymentItem[]): string[] {
   );
 }
 
-function getPaymentActivationCostInfo(activationCost?: string | null): {
+function escapeRegExpForPaymentCost(text: string): string {
+  return String(text || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function paymentActivationCostSelfSacrificesSource(permanent: any, activationCost?: string | null): boolean {
+  const normalizedCost = String(activationCost || '').trim();
+  if (!/\bsacrifice\b/i.test(normalizedCost)) return false;
+  const lowerCost = normalizedCost.toLowerCase();
+  if (lowerCost.includes('sacrifice ~') || lowerCost.includes('sacrifice this')) {
+    return true;
+  }
+
+  const cardName = String(permanent?.card?.name || '').trim();
+  if (!cardName) {
+    return false;
+  }
+
+  return new RegExp(`\\bsacrifice\\s+${escapeRegExpForPaymentCost(cardName)}\\b`, 'i').test(normalizedCost);
+}
+
+function getPaymentActivationCostInfo(permanent: any, activationCost?: string | null): {
   taps: boolean;
   selfSacrifices: boolean;
   sacrificeRequirement?: ReturnType<typeof parseSacrificeCost>;
@@ -289,15 +309,75 @@ function getPaymentActivationCostInfo(activationCost?: string | null): {
   const normalizedCost = String(activationCost || '').trim();
   const taps = /\{t\}/i.test(normalizedCost);
   const sacrificeInfo = parseSacrificeCost(normalizedCost);
+  const selfSacrifices = paymentActivationCostSelfSacrificesSource(permanent, normalizedCost)
+    || sacrificeInfo.sacrificeType === 'self';
   if (!sacrificeInfo.requiresSacrifice || !sacrificeInfo.sacrificeType) {
+    if (selfSacrifices) {
+      return { taps, selfSacrifices: true };
+    }
     return { taps, selfSacrifices: false };
   }
 
   return {
     taps,
-    selfSacrifices: sacrificeInfo.sacrificeType === 'self',
+    selfSacrifices,
     sacrificeRequirement: sacrificeInfo,
   };
+}
+
+function paymentActivationCostHasUnsupportedAdditionalCosts(activationCost?: string | null): boolean {
+  const normalizedCost = String(activationCost || '').trim();
+  if (!normalizedCost) return false;
+
+  let residue = normalizedCost;
+  residue = residue.replace(/\{[^}]+\}/g, ' ');
+  residue = residue.replace(/sacrifice\s+[^,;:]*/gi, ' ');
+  residue = residue.replace(/[().]/g, ' ');
+  residue = residue.replace(/,/g, ' ');
+  residue = residue.replace(/\s+/g, ' ').trim();
+
+  return residue.length > 0;
+}
+
+function getSupportedPaymentActivationManaCost(activationCost?: string | null): ReturnType<typeof parseManaCost> | undefined {
+  const normalizedCost = String(activationCost || '').trim();
+  if (!normalizedCost) return undefined;
+
+  const parsedCost = parseManaCost(normalizedCost);
+  const hybridOptions = Array.isArray((parsedCost as any).hybrid) ? (parsedCost as any).hybrid : [];
+  const hasValue = Number(parsedCost.generic || 0) > 0
+    || Object.values(parsedCost.colors || {}).some((value) => Number(value || 0) > 0);
+
+  if (!hasValue) return undefined;
+  if (parsedCost.hasX || hybridOptions.length > 0) return undefined;
+
+  return parsedCost;
+}
+
+function snapshotCastSpellManaPool(poolLike: any): Record<string, number> {
+  return {
+    white: Number(poolLike?.white || 0),
+    blue: Number(poolLike?.blue || 0),
+    black: Number(poolLike?.black || 0),
+    red: Number(poolLike?.red || 0),
+    green: Number(poolLike?.green || 0),
+    colorless: Number(poolLike?.colorless || 0),
+  };
+}
+
+function calculateCastSpellPaymentManaDelta(before: any, after: any): Record<string, number> | undefined {
+  const baseline = snapshotCastSpellManaPool(before);
+  const current = snapshotCastSpellManaPool(after);
+  const delta: Record<string, number> = {};
+
+  for (const key of ['white', 'blue', 'black', 'red', 'green', 'colorless']) {
+    const amount = Number(current[key] || 0) - Number(baseline[key] || 0);
+    if (amount !== 0) {
+      delta[key] = amount;
+    }
+  }
+
+  return Object.keys(delta).length > 0 ? delta : undefined;
 }
 
 function paymentSacrificeCandidateMatches(candidate: any, sourcePermanentId: string, playerId: string, sacrificeInfo: ReturnType<typeof parseSacrificeCost>): boolean {
@@ -403,6 +483,31 @@ function resolvePaymentManaAbilityActivationCost(permanent: any, selectedMana: s
   }
 
   return inferManaAbilityActivationCost(permanent, selectedMana);
+}
+
+function paymentManaAbilityGrantsCreatureSpellHasteUntilEndOfTurn(permanent: any, abilityId?: string | null): boolean {
+  const selectedAbilityLine = resolveActivatedAbilityLineById(permanent, abilityId);
+  if (selectedAbilityLine) {
+    return /if that mana is spent on a creature spell, it gains haste until end of turn/i.test(
+      String(selectedAbilityLine.lineText || ''),
+    );
+  }
+
+  const oracleText = String(permanent?.card?.oracle_text || '').trim();
+  if (!oracleText) {
+    return false;
+  }
+
+  const manaAbilityLines = oracleText
+    .split(/\r?\n/)
+    .map((line) => String(line || '').trim())
+    .filter((line) => line.length > 0)
+    .filter((line) => /:\s*add\b/i.test(line));
+  if (manaAbilityLines.length !== 1) {
+    return false;
+  }
+
+  return /if that mana is spent on a creature spell, it gains haste until end of turn/i.test(manaAbilityLines[0]);
 }
 
 export function finalizePlayedLand(
@@ -6936,6 +7041,7 @@ export function registerGameActions(io: Server, socket: Socket) {
           const permanent = globalBattlefield.find((p: any) => p?.id === permanentId && p?.controller === playerId);
           if (permanent) {
             const activationCostInfo = getPaymentActivationCostInfo(
+              permanent,
               resolvePaymentManaAbilityActivationCost(permanent, String(mana || ''), abilityId)
             );
             if ((permanent as any).tapped && activationCostInfo.taps) {
@@ -7138,9 +7244,23 @@ export function registerGameActions(io: Server, socket: Socket) {
           const permTypeLine = (permCard.type_line || "").toLowerCase();
           const permIsCreature = /\bcreature\b/.test(permTypeLine);
           const manaInfo = calculateManaProduction(game.state, permanent, playerId, mana, abilityId);
-          const activationCostInfo = getPaymentActivationCostInfo(
+          const activationCostText = String(
             manaInfo.activationCost || resolvePaymentManaAbilityActivationCost(permanent, String(mana || ''), abilityId)
+          ).trim();
+          const activationCostInfo = getPaymentActivationCostInfo(
+            permanent,
+            activationCostText
           );
+          const activationManaCost = getSupportedPaymentActivationManaCost(activationCostText);
+          const manaGrantsCreatureSpellHasteUntilEndOfTurn = paymentManaAbilityGrantsCreatureSpellHasteUntilEndOfTurn(permanent, abilityId);
+
+          if (paymentActivationCostHasUnsupportedAdditionalCosts(activationCostText)) {
+            socket.emit('error', {
+              code: 'UNSUPPORTED_PAYMENT_SOURCE_COST',
+              message: `${permCard.name || 'Permanent'} requires an unsupported additional activation cost for spell payment.`,
+            });
+            return;
+          }
 
           if (activationCostInfo.taps && (permanent as any).tapped) {
             socket.emit("error", {
@@ -7159,14 +7279,14 @@ export function registerGameActions(io: Server, socket: Socket) {
               });
               return;
             }
-
-            (permanent as any).tapped = true;
-            tappedPaymentPermanents.add(String(permanentId));
           }
+
+          const selectedSacrifices = activationCostInfo.sacrificeRequirement && activationCostInfo.selfSacrifices !== true
+            ? Array.from(new Set((Array.isArray(sacrificedPermanentIds) ? sacrificedPermanentIds : []).map((id) => String(id || '').trim()).filter(Boolean)))
+            : [];
 
           if (activationCostInfo.sacrificeRequirement && activationCostInfo.selfSacrifices !== true) {
             const requiredCount = Math.max(1, Number(activationCostInfo.sacrificeRequirement.sacrificeCount || 1));
-            const selectedSacrifices = Array.from(new Set((Array.isArray(sacrificedPermanentIds) ? sacrificedPermanentIds : []).map((id) => String(id || '').trim()).filter(Boolean)));
             if (selectedSacrifices.length !== requiredCount) {
               socket.emit('error', {
                 code: 'INVALID_PAYMENT_SACRIFICE_SELECTION',
@@ -7193,6 +7313,34 @@ export function registerGameActions(io: Server, socket: Socket) {
               }
             }
 
+            if (activationManaCost) {
+              const activationPool = getOrInitManaPool(game.state, playerId) as any;
+              const activationValidationError = validateManaPayment(
+                snapshotCastSpellManaPool(activationPool),
+                activationManaCost.colors,
+                activationManaCost.generic,
+              );
+              if (activationValidationError) {
+                socket.emit('error', {
+                  code: 'INSUFFICIENT_MANA',
+                  message: `${permCard.name || 'Permanent'} requires additional mana to activate. ${activationValidationError}`,
+                });
+                return;
+              }
+
+              consumeManaFromPool(
+                activationPool,
+                activationManaCost.colors,
+                activationManaCost.generic,
+                `[castSpellFromHand][paymentActivationCost:${permCard.name || permanentId}]`,
+              );
+            }
+
+            if (activationCostInfo.taps) {
+              (permanent as any).tapped = true;
+              tappedPaymentPermanents.add(String(permanentId));
+            }
+
             for (const sacrificedId of selectedSacrifices) {
               const sacrificedName = sacrificePermanent(game as any, sacrificedId, playerId);
               if (!sacrificedName) {
@@ -7203,6 +7351,34 @@ export function registerGameActions(io: Server, socket: Socket) {
                 return;
               }
               sacrificedPaymentPermanents.add(String(sacrificedId));
+            }
+          } else {
+            if (activationManaCost) {
+              const activationPool = getOrInitManaPool(game.state, playerId) as any;
+              const activationValidationError = validateManaPayment(
+                snapshotCastSpellManaPool(activationPool),
+                activationManaCost.colors,
+                activationManaCost.generic,
+              );
+              if (activationValidationError) {
+                socket.emit('error', {
+                  code: 'INSUFFICIENT_MANA',
+                  message: `${permCard.name || 'Permanent'} requires additional mana to activate. ${activationValidationError}`,
+                });
+                return;
+              }
+
+              consumeManaFromPool(
+                activationPool,
+                activationManaCost.colors,
+                activationManaCost.generic,
+                `[castSpellFromHand][paymentActivationCost:${permCard.name || permanentId}]`,
+              );
+            }
+
+            if (activationCostInfo.taps) {
+              (permanent as any).tapped = true;
+              tappedPaymentPermanents.add(String(permanentId));
             }
           }
 
@@ -7248,6 +7424,9 @@ export function registerGameActions(io: Server, socket: Socket) {
           if (poolKey && producedAmount > 0) {
             (game.state.manaPool[playerId] as any)[poolKey] += producedAmount;
             selectedPaymentTotals[poolKey] = (selectedPaymentTotals[poolKey] || 0) + spentAmount;
+            if (manaGrantsCreatureSpellHasteUntilEndOfTurn) {
+              recordCreatureSpellHasteManaProduced(game.state, String(playerId), String(poolKey) as any, producedAmount);
+            }
             if (isSnowSource) {
               producedSnowByColor[poolKey] = (producedSnowByColor[poolKey] || 0) + producedAmount;
             } else {
@@ -7268,6 +7447,9 @@ export function registerGameActions(io: Server, socket: Socket) {
             }
 
             (game.state.manaPool[playerId] as any)[bonusPoolKey] += bonus.amount;
+            if (manaGrantsCreatureSpellHasteUntilEndOfTurn) {
+              recordCreatureSpellHasteManaProduced(game.state, String(playerId), String(bonusPoolKey) as any, bonus.amount);
+            }
             if (isSnowSource) {
               producedSnowByColor[bonusPoolKey] = (producedSnowByColor[bonusPoolKey] || 0) + bonus.amount;
             } else {
@@ -7282,6 +7464,9 @@ export function registerGameActions(io: Server, socket: Socket) {
           }
         }
       }
+
+      const poolBeforeSpellPayment = { ...getOrInitManaPool(game.state, playerId) } as any;
+      const creatureSpellHasteLowerBoundBeforeSpellPayment = snapshotCreatureSpellHasteManaLowerBound(game.state, playerId);
       
       // Consume mana from pool to pay for the spell
       // This uses both floating mana and newly tapped mana, leaving unspent mana for subsequent spells
@@ -7315,6 +7500,11 @@ export function registerGameActions(io: Server, socket: Socket) {
         return;
       }
 
+      const paymentManaDelta = calculateCastSpellPaymentManaDelta(
+        poolBeforePayment,
+        getOrInitManaPool(game.state, playerId),
+      );
+
       if (explicitPaymentSelected) {
         applyManaSpendToCreatureSpellHasteManaLowerBound(game.state, String(playerId), (manaConsumption as any).consumed);
       }
@@ -7327,9 +7517,11 @@ export function registerGameActions(io: Server, socket: Socket) {
       let gainsHasteUntilEndOfTurnFromManaSpent = false;
       if (spellIsCreature) {
         gainsHasteUntilEndOfTurnFromManaSpent = deriveCreatureSpellHasteFromManaSpent(game.state, String(playerId), {
-          poolBeforePayment,
+          poolBeforePayment: explicitPaymentSelected ? poolBeforeSpellPayment : poolBeforePayment,
           consumed: (manaConsumption as any).consumed,
-          creatureSpellHasteLowerBoundBeforePayment,
+          creatureSpellHasteLowerBoundBeforePayment: explicitPaymentSelected
+            ? creatureSpellHasteLowerBoundBeforeSpellPayment
+            : creatureSpellHasteLowerBoundBeforePayment,
         });
       }
       
@@ -8242,6 +8434,9 @@ export function registerGameActions(io: Server, socket: Socket) {
           const counterImmunity = stackItem.counterImmunity ?? stackItem.card?.counterImmunity;
           const entersBattlefieldWithCounters =
             stackItem.entersBattlefieldWithCounters ?? stackItem.card?.entersBattlefieldWithCounters;
+          const gainsHasteUntilEndOfTurnFromManaSpent =
+            stackItem.gainsHasteUntilEndOfTurnFromManaSpent === true
+              || stackItem.card?.gainsHasteUntilEndOfTurnFromManaSpent === true;
 
           return {
             ...(manaPayment && typeof manaPayment === 'object'
@@ -8249,6 +8444,7 @@ export function registerGameActions(io: Server, socket: Socket) {
               : {}),
             ...(manaSpentColors && manaSpentColors.length > 0 ? { manaSpentColors } : {}),
             ...(manaColorsSpent && manaColorsSpent.length > 0 ? { manaColorsSpent } : {}),
+            ...(gainsHasteUntilEndOfTurnFromManaSpent ? { gainsHasteUntilEndOfTurnFromManaSpent: true } : {}),
             ...(stackItem.cantBeCountered === true || stackItem.card?.cantBeCountered === true
               ? { cantBeCountered: true }
               : {}),
@@ -8343,6 +8539,7 @@ export function registerGameActions(io: Server, socket: Socket) {
               }
             : {}),
           ...(manaFromTreasureSpent === true ? { manaFromTreasureSpent: true } : {}),
+          ...(paymentManaDelta ? { paymentManaDelta } : {}),
           ...persistedCastMetadata,
         });
       } catch (e) {

@@ -2319,6 +2319,21 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           // best-effort only
         }
 
+        try {
+          const playerId = String((e as any).playerId || '').trim();
+          const manaDelta = (e as any).paymentManaDelta;
+          if (playerId && manaDelta && typeof manaDelta === 'object' && !Array.isArray(manaDelta)) {
+            const pool = getOrInitManaPool(ctx.state as any, playerId as any) as any;
+            for (const [poolKey, rawAmount] of Object.entries(manaDelta as Record<string, unknown>)) {
+              const amount = Number(rawAmount || 0);
+              if (!Number.isFinite(amount) || amount === 0) continue;
+              pool[poolKey] = Number(pool[poolKey] || 0) + amount;
+            }
+          }
+        } catch {
+          // best-effort only
+        }
+
         const stackLengthBefore = ctx.state.stack?.length || 0;
 
         // Prefer full card object for replay (contains all card data)

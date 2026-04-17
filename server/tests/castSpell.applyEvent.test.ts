@@ -383,4 +383,64 @@ describe('castSpell via applyEvent', () => {
     expect(Boolean((forest as any)?.tapped)).toBe(true);
     expect(g.state.stack.length).toBe(1);
   });
+
+  it('should restore persisted castSpell payment mana deltas onto the mana pool', () => {
+    const g = createInitialGameState('cast_spell_replay_payment_delta');
+    const p1 = 'p1' as PlayerID;
+
+    g.applyEvent({ type: 'join', playerId: p1, name: 'Player 1' });
+
+    (g.state as any).manaPool = {
+      [p1]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 1 },
+    };
+    (g.state as any).battlefield = [
+      {
+        id: 'priced_dynamo_1',
+        controller: p1,
+        owner: p1,
+        tapped: false,
+        counters: {},
+        card: {
+          id: 'priced_dynamo_card_1',
+          name: 'Priced Dynamo',
+          type_line: 'Artifact',
+          oracle_text: '{1}, {T}: Add {U}{U}.',
+          zone: 'battlefield',
+        },
+      },
+    ];
+
+    const hand = g.state.zones?.[p1]?.hand as any[];
+    hand.push({
+      id: 'ponder_1',
+      name: 'Ponder',
+      type_line: 'Sorcery',
+      oracle_text: 'Look at the top three cards of your library, then put them back in any order. You may shuffle your library. Draw a card.',
+      mana_cost: '{U}',
+      zone: 'hand',
+    });
+    if (g.state.zones?.[p1]) {
+      g.state.zones[p1].handCount = hand.length;
+    }
+
+    g.applyEvent({
+      type: 'castSpell',
+      playerId: p1,
+      cardId: 'ponder_1',
+      targets: [],
+      tappedPermanents: ['priced_dynamo_1'],
+      paymentManaDelta: { blue: 1, colorless: -1 },
+    } as any);
+
+    expect((g.state as any).manaPool?.[p1]).toEqual({
+      white: 0,
+      blue: 1,
+      black: 0,
+      red: 0,
+      green: 0,
+      colorless: 0,
+    });
+    expect((g.state.battlefield || []).find((entry: any) => entry?.id === 'priced_dynamo_1')?.tapped).toBe(true);
+    expect(g.state.stack.length).toBe(1);
+  });
 });

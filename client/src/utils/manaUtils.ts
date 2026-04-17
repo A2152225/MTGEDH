@@ -33,7 +33,9 @@ export interface ManaSourceSacrificeCost {
 export interface ManaPaymentSource {
   id: string;
   sourcePermanentId?: string;
+  abilityId?: string;
   name: string;
+  label?: string;
   options: Color[];
   amount?: number;
   consumable?: boolean;

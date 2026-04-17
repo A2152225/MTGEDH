@@ -110,14 +110,18 @@ async function resetGame(gameId: string) {
 describe('mana payment choice selection flow', () => {
   const signetGameId = 'test_mana_payment_choice_signet';
   const spellGameId = 'test_mana_payment_choice_spell';
+  const pricedDynamoSpellGameId = 'test_mana_payment_choice_spell_priced_dynamo';
   const altarSpellGameId = 'test_mana_payment_choice_spell_altar';
+  const generatorServantSpellGameId = 'test_mana_payment_choice_spell_generator_servant';
   const reflectedSpellGameId = 'test_mana_payment_choice_spell_reflection';
   const mikokoroGameId = 'test_mana_payment_choice_mikokoro';
   const azureDynamoGameId = 'test_mana_payment_choice_azure_dynamo';
   const resetGameIds = [
     signetGameId,
     spellGameId,
+    pricedDynamoSpellGameId,
     altarSpellGameId,
+    generatorServantSpellGameId,
     reflectedSpellGameId,
     mikokoroGameId,
     azureDynamoGameId,
@@ -333,6 +337,163 @@ describe('mana payment choice selection flow', () => {
     expect(stackNames).toContain("Wayfarer's Bauble");
   });
 
+  it('lets spell payment spend a source activation mana cost before keeping excess produced mana', async () => {
+    createGameIfNotExists(pricedDynamoSpellGameId, 'commander', 40);
+    const game = ensureGame(pricedDynamoSpellGameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [{ id: playerId, name: 'P1', spectator: false, life: 40 }];
+    (game.state as any).startingLife = 40;
+    (game.state as any).life = { [playerId]: 40 };
+    (game.state as any).phase = 'precombatMain';
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).stack = [];
+    (game.state as any).manaPool = {
+      [playerId]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 1 },
+    };
+    (game.state as any).battlefield = [
+      {
+        id: 'priced_dynamo_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        card: {
+          id: 'priced_dynamo_card_1',
+          name: 'Priced Dynamo',
+          type_line: 'Artifact',
+          oracle_text: '{1}, {T}: Add {U}{U}.',
+        },
+      },
+    ];
+    (game.state as any).zones = {
+      [playerId]: {
+        hand: [
+          {
+            id: 'ponder_1',
+            name: 'Ponder',
+            mana_cost: '{U}',
+            manaCost: '{U}',
+            type_line: 'Sorcery',
+            oracle_text: 'Look at the top three cards of your library, then put them back in any order. You may shuffle your library. Draw a card.',
+            image_uris: { small: 'https://example.com/ponder.jpg' },
+          },
+        ],
+        handCount: 1,
+        graveyard: [],
+        graveyardCount: 0,
+        exile: [],
+        exileCount: 0,
+      },
+    };
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(playerId, emitted, pricedDynamoSpellGameId);
+    const io = createMockIo(emitted, [socket]);
+
+    registerResolutionHandlers(io as any, socket as any);
+    registerGameActions(io as any, socket as any);
+
+    await handlers['requestCastSpell']({ gameId: pricedDynamoSpellGameId, cardId: 'ponder_1' });
+
+    const paymentStep = ResolutionQueueManager
+      .getQueue(pricedDynamoSpellGameId)
+      .steps
+      .find((entry: any) => entry.type === 'mana_payment_choice' && (entry as any).spellPaymentRequired === true) as any;
+    expect(paymentStep).toBeDefined();
+    expect(paymentStep.manaCost).toBe('{U}');
+
+    emitted.length = 0;
+    await handlers['submitResolutionResponse']({
+      gameId: pricedDynamoSpellGameId,
+      stepId: String(paymentStep.id),
+      selections: {
+        payment: [{ permanentId: 'priced_dynamo_1', mana: 'U', count: 1, abilityId: 'priced_dynamo_card_1-ability-0' }],
+      },
+    });
+
+    expect(emitted.some((event) => event.event === 'castSpellFromHandContinue')).toBe(false);
+    expect(emitted.find((event) => event.event === 'error')).toBeUndefined();
+
+    expect((game.state as any).battlefield.find((entry: any) => entry.id === 'priced_dynamo_1')?.tapped).toBe(true);
+    expect((game.state as any).manaPool[playerId]).toEqual({
+      white: 0,
+      blue: 1,
+      black: 0,
+      red: 0,
+      green: 0,
+      colorless: 0,
+    });
+
+    const handIds = ((((game.state as any).zones?.[playerId]?.hand) || []) as any[]).map((card: any) => card.id);
+    expect(handIds).not.toContain('ponder_1');
+    expect((((game.state as any).stack) || []).some((entry: any) => String(entry?.card?.name || '') === 'Ponder')).toBe(true);
+
+    const castEvent = [...getEvents(pricedDynamoSpellGameId)].reverse().find((event: any) => String(event?.type || '') === 'castSpell') as any;
+    expect(castEvent?.payload?.tappedPermanents).toEqual(['priced_dynamo_1']);
+    expect(castEvent?.payload?.paymentManaDelta).toEqual({ blue: 1, colorless: -1 });
+
+    const replayGame = createInitialGameState('test_mana_payment_choice_spell_priced_dynamo_replay');
+    Object.assign((replayGame.state as any), {
+      players: [{ id: playerId, name: 'P1', spectator: false, life: 40 }],
+      startingLife: 40,
+      life: { [playerId]: 40 },
+      phase: 'precombatMain',
+      turnPlayer: playerId,
+      priority: playerId,
+      stack: [],
+      manaPool: {
+        [playerId]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 1 },
+      },
+      battlefield: [
+        {
+          id: 'priced_dynamo_1',
+          controller: playerId,
+          owner: playerId,
+          tapped: false,
+          card: {
+            id: 'priced_dynamo_card_1',
+            name: 'Priced Dynamo',
+            type_line: 'Artifact',
+            oracle_text: '{1}, {T}: Add {U}{U}.',
+          },
+        },
+      ],
+      zones: {
+        [playerId]: {
+          hand: [
+            {
+              id: 'ponder_1',
+              name: 'Ponder',
+              mana_cost: '{U}',
+              type_line: 'Sorcery',
+              oracle_text: 'Look at the top three cards of your library, then put them back in any order. You may shuffle your library. Draw a card.',
+            },
+          ],
+          handCount: 1,
+          graveyard: [],
+          graveyardCount: 0,
+          exile: [],
+          exileCount: 0,
+        },
+      },
+    });
+
+    replayGame.applyEvent({ type: 'castSpell', ...(castEvent?.payload || {}) } as any);
+
+    expect((replayGame.state as any).battlefield.find((entry: any) => entry.id === 'priced_dynamo_1')?.tapped).toBe(true);
+    expect((replayGame.state as any).manaPool[playerId]).toEqual({
+      white: 0,
+      blue: 1,
+      black: 0,
+      red: 0,
+      green: 0,
+      colorless: 0,
+    });
+    expect((((replayGame.state as any).zones?.[playerId]?.hand) || []).some((card: any) => String(card?.id || '') === 'ponder_1')).toBe(false);
+    expect((((replayGame.state as any).stack) || []).some((entry: any) => String(entry?.card?.name || '') === 'Ponder')).toBe(true);
+  });
+
   it('lets altar mana payment sacrifice chosen creatures while casting a spell', async () => {
     createGameIfNotExists(altarSpellGameId, 'commander', 40);
     const game = ensureGame(altarSpellGameId);
@@ -535,6 +696,125 @@ describe('mana payment choice selection flow', () => {
     expect(replayBattlefieldIds).toContain('altar_1');
     expect(replayBattlefieldIds).not.toContain('bear_1');
     expect(replayBattlefieldIds).not.toContain('elf_1');
+  });
+
+  it('lets Generator Servant grant haste to a creature spell through the queued spell-payment flow', async () => {
+    createGameIfNotExists(generatorServantSpellGameId, 'commander', 40);
+    const game = ensureGame(generatorServantSpellGameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [{ id: playerId, name: 'P1', spectator: false, life: 40 }];
+    (game.state as any).startingLife = 40;
+    (game.state as any).life = { [playerId]: 40 };
+    (game.state as any).phase = 'precombatMain';
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).stack = [];
+    (game.state as any).manaPool = {
+      [playerId]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+    };
+    (game.state as any).battlefield = [
+      {
+        id: 'generator_servant_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        summoningSickness: false,
+        card: {
+          id: 'generator_servant_card_1',
+          name: 'Generator Servant',
+          type_line: 'Creature - Elemental',
+          oracle_text: '{T}, Sacrifice Generator Servant: Add {C}{C}. If that mana is spent on a creature spell, it gains haste until end of turn.',
+          power: '2',
+          toughness: '1',
+        },
+      },
+    ];
+    (game.state as any).zones = {
+      [playerId]: {
+        hand: [
+          {
+            id: 'bronze_sable_1',
+            name: 'Bronze Sable',
+            mana_cost: '{2}',
+            manaCost: '{2}',
+            type_line: 'Artifact Creature - Sable',
+            oracle_text: '',
+            power: '2',
+            toughness: '1',
+            image_uris: { small: 'https://example.com/sable.jpg' },
+          },
+        ],
+        handCount: 1,
+        graveyard: [],
+        graveyardCount: 0,
+        exile: [],
+        exileCount: 0,
+      },
+    };
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(playerId, emitted, generatorServantSpellGameId);
+    const io = createMockIo(emitted, [socket]);
+
+    registerResolutionHandlers(io as any, socket as any);
+    registerGameActions(io as any, socket as any);
+
+    await handlers['requestCastSpell']({ gameId: generatorServantSpellGameId, cardId: 'bronze_sable_1' });
+
+    const paymentStep = ResolutionQueueManager
+      .getQueue(generatorServantSpellGameId)
+      .steps
+      .find((entry: any) => entry.type === 'mana_payment_choice' && (entry as any).spellPaymentRequired === true) as any;
+    expect(paymentStep).toBeDefined();
+    expect(paymentStep.manaCost).toBe('{2}');
+
+    emitted.length = 0;
+    await handlers['submitResolutionResponse']({
+      gameId: generatorServantSpellGameId,
+      stepId: String(paymentStep.id),
+      selections: {
+        payment: [
+          { permanentId: 'generator_servant_1', mana: 'C', count: 2 },
+        ],
+      },
+    });
+
+    expect(emitted.some((event) => event.event === 'castSpellFromHandContinue')).toBe(false);
+    expect(emitted.find((event) => event.event === 'error')).toBeUndefined();
+
+    const battlefieldIdsAfterCast = ((game.state as any).battlefield || []).map((entry: any) => entry.id);
+    expect(battlefieldIdsAfterCast).not.toContain('generator_servant_1');
+
+    const graveyardIds = ((((game.state as any).zones?.[playerId]?.graveyard) || []) as any[]).map((card: any) => card.id);
+    expect(graveyardIds).toContain('generator_servant_card_1');
+
+    expect((game.state as any).manaPool[playerId]).toEqual({
+      white: 0,
+      blue: 0,
+      black: 0,
+      red: 0,
+      green: 0,
+      colorless: 0,
+    });
+
+    const stack = ((game.state as any).stack || []) as any[];
+    expect(stack).toHaveLength(1);
+    expect(String(stack[0]?.card?.name || '')).toBe('Bronze Sable');
+    expect((stack[0] as any).gainsHasteUntilEndOfTurnFromManaSpent).toBe(true);
+
+    const castEvent = [...getEvents(generatorServantSpellGameId)].reverse().find((event: any) => String(event?.type || '') === 'castSpell') as any;
+    expect(castEvent?.payload?.sacrificedPermanents).toEqual(['generator_servant_1']);
+    expect(castEvent?.payload?.gainsHasteUntilEndOfTurnFromManaSpent).toBe(true);
+
+    game.applyEvent({ type: 'resolveTopOfStack' } as any);
+
+    const bronzeSable = ((game.state as any).battlefield || []).find((entry: any) => String(entry?.card?.name || '') === 'Bronze Sable') as any;
+    expect(bronzeSable).toBeDefined();
+    expect(bronzeSable?.summoningSickness).toBe(false);
+    expect(bronzeSable?.temporaryAbilities).toEqual([
+      expect.objectContaining({ ability: 'haste', expiresAt: 'end_of_turn' }),
+    ]);
   });
 
   it('lets exact spell payment spend only part of reflected land mana and keep the excess floating', async () => {

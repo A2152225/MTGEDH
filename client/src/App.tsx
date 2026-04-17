@@ -1,6 +1,5 @@
 import React, { useMemo, useRef, useState, useEffect } from "react";
 import { socket } from "./socket";
-import { parseSacrificeCost } from "../../shared/src";
 import type {
   ClientGameView,
   PlayerID,
@@ -88,7 +87,7 @@ import {
   getTextColorsForBackground,
 } from "./utils/appearanceSettings";
 import { prettyPhase, prettyStep, isLandTypeLine } from "./utils/gameDisplayHelpers";
-import { canCreatureAttackNow, canCreatureUseTapAbilityNow, isCurrentlyCreature } from "./utils/creatureUtils";
+import { canCreatureAttackNow, isCurrentlyCreature } from "./utils/creatureUtils";
 import { IgnoredTriggersPanel } from "./components/IgnoredTriggersPanel";
 import { PriorityModal } from "./components/PriorityModal";
 import { AutoPassSettingsPanel } from "./components/AutoPassSettingsPanel";
@@ -96,7 +95,7 @@ import { TriggerShortcutsPanel } from "./components/TriggerShortcutsPanel";
 import { DraggableSettingsPanel } from "./components/DraggableSettingsPanel";
 import { LoopShortcutPanel } from "./components/LoopShortcutPanel";
 import { debug, debugWarn, debugError } from "./utils/debug";
-import { getTotalManaProduction } from "./utils/manaUtils";
+import { buildAvailableManaSourcesForPlayer } from "./utils/manaSourceBuilder";
 import {
   buildResolutionResponsePayload,
   clearLoopShortcutDraft,
@@ -3919,133 +3918,6 @@ export function App() {
     return null;
   };
 
-  // Parse mana colors from oracle text for lands and mana-producing permanents
-  /**
-   * Parse mana colors from oracle text.
-   * Returns an array of colors - for cards that produce multiple mana of the same color
-   * (like Sol Ring which adds {C}{C}), the color will be duplicated.
-   */
-  const parseManaColorsFromOracleText = (oracleText: string): ManaColor[] => {
-    const colors: ManaColor[] = [];
-    const text = oracleText.toLowerCase();
-    
-    // Check for "any color" or "any one color" patterns (like Command Tower, City of Brass, etc.)
-    // This should be checked first as it's the most permissive
-    if (text.includes('any color') || text.includes('one mana of any color') || 
-        text.includes('mana of any color')) {
-      return ['W', 'U', 'B', 'R', 'G'];
-    }
-    
-    // Check for "any type" patterns (e.g., Reflecting Pool) - includes colorless
-    if (text.includes('any type')) {
-      return ['W', 'U', 'B', 'R', 'G', 'C'];
-    }
-    
-    // Parse mana production from oracle text - handles multiple patterns:
-    // 1. Consecutive symbols: "Add {C}{C}" (Sol Ring)
-    // 2. Choice patterns: "Add {R}, {G}, or {W}" (Jungle Shrine, tri-lands)
-    // 3. Two-color patterns: "Add {W} or {U}" (dual lands like Adarkar Wastes)
-    // 4. Multiple add abilities: "Add {C}. Add {B} or {G}." (Llanowar Wastes)
-    
-    // Find ALL "Add" statements in the oracle text (handles multiple mana abilities)
-    const addStatementMatches = text.matchAll(/add\s+([^.]+)/gi);
-    const colorSet = new Set<ManaColor>();
-    let hasMultiMana = false;
-    
-    for (const match of addStatementMatches) {
-      const addStatement = match[1];
-      
-      // Extract all mana symbols from this add statement
-      const symbolMatches = addStatement.match(/\{[wubrgc]\}/gi) || [];
-      
-      // Count each symbol type for multi-mana sources like Sol Ring
-      const symbolCounts: Record<string, number> = { w: 0, u: 0, b: 0, r: 0, g: 0, c: 0 };
-      for (const sym of symbolMatches) {
-        const color = sym.replace(/[{}]/g, '').toLowerCase();
-        if (color in symbolCounts) {
-          symbolCounts[color]++;
-        }
-      }
-      
-      // Check if this is a "choice" pattern (has "or" or commas between symbols)
-      // or a "multi-mana" pattern (consecutive symbols like {C}{C})
-      // Examples:
-      // - Choice: "{R}, {G}, or {W}" (Jungle Shrine), "{R} or {G}" (Temple of Abandon)
-      // - Multi-mana: "{C}{C}" (Sol Ring), "{G}{G}" (some enchantments)
-      const isChoicePattern = addStatement.includes(' or ') || 
-                              addStatement.includes(',');
-      
-      if (isChoicePattern) {
-        // For choice patterns, add each unique color once
-        if (symbolCounts.w > 0) colorSet.add('W');
-        if (symbolCounts.u > 0) colorSet.add('U');
-        if (symbolCounts.b > 0) colorSet.add('B');
-        if (symbolCounts.r > 0) colorSet.add('R');
-        if (symbolCounts.g > 0) colorSet.add('G');
-        if (symbolCounts.c > 0) colorSet.add('C');
-      } else {
-        // For multi-mana patterns (like Sol Ring {C}{C}), add each occurrence
-        // This means Sol Ring will have ['C', 'C'] to indicate 2 colorless mana
-        for (let i = 0; i < symbolCounts.w; i++) colorSet.add('W');
-        for (let i = 0; i < symbolCounts.u; i++) colorSet.add('U');
-        for (let i = 0; i < symbolCounts.b; i++) colorSet.add('B');
-        for (let i = 0; i < symbolCounts.r; i++) colorSet.add('R');
-        for (let i = 0; i < symbolCounts.g; i++) colorSet.add('G');
-        // For colorless multi-mana, we need to track duplicates
-        if (symbolCounts.c > 1) {
-          hasMultiMana = true;
-          // Add duplicates to colors array (colorSet only stores unique values)
-          for (let i = 0; i < symbolCounts.c; i++) colors.push('C');
-        } else if (symbolCounts.c > 0) {
-          colorSet.add('C');
-        }
-      }
-    }
-    
-    // Add all unique colors from the set (avoiding duplicates for choice patterns)
-    // But skip if we already added multi-mana colorless directly
-    for (const c of colorSet) {
-      if (!(c === 'C' && hasMultiMana)) {
-        colors.push(c);
-      }
-    }
-    
-    // If no mana symbols found in add patterns, check for basic patterns
-    if (colors.length === 0) {
-      if (text.includes('{w}') || text.includes('add {w}') || text.includes('white')) colors.push('W');
-      if (text.includes('{u}') || text.includes('add {u}') || text.includes('blue')) colors.push('U');
-      if (text.includes('{b}') || text.includes('add {b}') || text.includes('black')) colors.push('B');
-      if (text.includes('{r}') || text.includes('add {r}') || text.includes('red')) colors.push('R');
-      if (text.includes('{g}') || text.includes('add {g}') || text.includes('green')) colors.push('G');
-      if (text.includes('{c}') || text.includes('add {c}') || text.includes('colorless')) colors.push('C');
-    }
-    
-    return colors;
-  };
-
-  // Check if a card is a fetch land or other "sacrifice to search" land (not a mana source)
-  const isFetchLandOrSacrificeSearchLand = (oracleText: string): boolean => {
-    const text = oracleText.toLowerCase();
-    // Fetch lands typically say "sacrifice" and "search" in oracle text
-    // They don't produce mana directly
-    if (text.includes('sacrifice') && text.includes('search')) {
-      return true;
-    }
-    // Check for common fetch land patterns
-    if (text.includes('sacrifice') && text.includes('put it onto the battlefield')) {
-      return true;
-    }
-    return false;
-  };
-
-  // Check if a land actually produces mana (has "add" in its oracle text for mana)
-  const landProducesMana = (oracleText: string): boolean => {
-    const text = oracleText.toLowerCase();
-    // Look for patterns like "add {W}", "add one mana of any color", etc.
-    // Must have "add" AND either mana symbols or "mana"
-    return text.includes('add') && (text.includes('{') || text.includes('mana'));
-  };
-
   // Check if an artifact meets metalcraft requirement (3+ artifacts on battlefield)
   const checkMetalcraft = (playerId: string): boolean => {
     if (!safeView) return false;
@@ -4058,309 +3930,21 @@ export function App() {
     return artifactCount >= 3;
   };
 
-  /**
-   * Check if a creature permanent can use tap abilities (considering summoning sickness).
-   * Rule 302.6: A creature can't attack or use tap/untap abilities unless it's been 
-   * continuously controlled since the turn began, or it has haste.
-   * 
-   * @param perm The battlefield permanent to check
-   * @returns true if the creature can use tap abilities
-   */
-  const canCreatureUseTapAbility = (perm: BattlefieldPermanent): boolean => {
-    return canCreatureUseTapAbilityNow(perm, safeView?.battlefield || []);
-  };
-
-  // Color mapping for mana symbols - extracted as constant to avoid recreation
-  const MANA_COLOR_MAP: Record<string, ManaColor> = {
-    'W': 'W', 'U': 'U', 'B': 'B', 'R': 'R', 'G': 'G', 'C': 'C'
-  };
-
   // Get available mana sources (untapped lands and mana-producing artifacts/creatures)
   const getAvailableManaSourcesForPlayer = (playerId: string) => {
     if (!safeView) return [];
-    
-    const sources: Array<{
-      id: string;
-      sourcePermanentId?: string;
-      name: string;
-      options: ManaColor[];
-      amount?: number;
-      consumable?: boolean;
-      sacrificeCost?: {
-        count: number;
-        permanentType: 'creature' | 'artifact' | 'enchantment' | 'land' | 'permanent' | 'artifact_or_creature';
-        creatureSubtype?: string;
-        mustBeOther?: boolean;
-      };
-    }> = [];
-    const globalBattlefield = safeView.battlefield || [];
+    const battlefield = (safeView.battlefield || []) as BattlefieldPermanent[];
 
-    const isConsumableManaSource = (cardName: string, oracleText: string, typeLine: string): boolean => {
-      const normalizedOracle = String(oracleText || '').toLowerCase();
-      const normalizedTypeLine = String(typeLine || '').toLowerCase();
-      const escapedName = String(cardName || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      const selfSacrificePattern = new RegExp(`\\bsacrifice\\s+(?:this|${escapedName})\\b[^:]*:\\s*add\\b`, 'i');
-      return selfSacrificePattern.test(normalizedOracle) || /\btreasure\b/i.test(normalizedTypeLine);
-    };
-
-    const getSourceManaAmount = (perm: BattlefieldPermanent, options: ManaColor[], baseAmount?: number): number => {
-      const printedAmount = typeof baseAmount === 'number' && baseAmount > 0
-        ? baseAmount
-        : getTotalManaProduction(options as any);
-      const typeLine = String((perm.card?.type_line || '')).toLowerCase();
-      const isLand = typeLine.includes('land');
-      let multiplier = 1;
-      let additiveBonus = 0;
-
-      for (const effectPerm of globalBattlefield) {
-        const effectName = String((effectPerm as any)?.card?.name || '').toLowerCase();
-        const effectController = String((effectPerm as any)?.controller || '');
-
-        if (isLand) {
-          if (
-            effectName.includes('mana flare') ||
-            effectName.includes('heartbeat of spring') ||
-            effectName.includes('dictate of karametra')
-          ) {
-            additiveBonus += 1;
-          }
-
-          if (
-            effectController === playerId && (
-              effectName.includes('mirari\'s wake') ||
-              effectName.includes('zendikar resurgent') ||
-              effectName.includes('vorinclex, voice of hunger')
-            )
-          ) {
-            additiveBonus += 1;
-          }
-        }
-
-        if (effectController === playerId) {
-          if (effectName.includes('mana reflection')) {
-            multiplier *= 2;
-          }
-          if (effectName.includes('nyxbloom ancient')) {
-            multiplier *= 3;
-          }
-        }
-      }
-
-      return (printedAmount * multiplier) + additiveBonus;
-    };
-    
-    // Get player's battlefield permanents (filter global battlefield by controller)
-    const battlefield = globalBattlefield.filter(perm => perm.controller === playerId);
-
-    const matchesSacrificeRequirement = (candidate: BattlefieldPermanent, source: BattlefieldPermanent, sacrificeInfo: NonNullable<typeof sources[number]['sacrificeCost']>) => {
-      if (!candidate || !candidate.card) return false;
-      if (candidate.controller !== playerId) return false;
-      if (sacrificeInfo.mustBeOther && String(candidate.id || '') === String(source.id || '')) return false;
-
-      const typeLine = String((candidate.card as any)?.type_line || '').toLowerCase();
-      switch (sacrificeInfo.permanentType) {
-        case 'creature':
-          if (!typeLine.includes('creature')) return false;
-          if (sacrificeInfo.creatureSubtype) {
-            return typeLine.includes(String(sacrificeInfo.creatureSubtype).toLowerCase());
-          }
-          return true;
-        case 'artifact':
-          return typeLine.includes('artifact');
-        case 'enchantment':
-          return typeLine.includes('enchantment');
-        case 'land':
-          return typeLine.includes('land');
-        case 'permanent':
-          return true;
-        case 'artifact_or_creature':
-          return typeLine.includes('artifact') || typeLine.includes('creature');
-        default:
-          return false;
-      }
-    };
-
-    const getManaSourceSacrificeCost = (perm: BattlefieldPermanent) => {
-      const oracleText = String(((perm.card as any)?.oracle_text || '')).toLowerCase();
-      const manaAbilityMatch = oracleText.match(/([^:.\n]+):\s*add\s+([^.\n]+)/i);
-      if (!manaAbilityMatch) return undefined;
-
-      const sacrificeInfo = parseSacrificeCost(String(manaAbilityMatch[1] || ''));
-      if (!sacrificeInfo.requiresSacrifice || !sacrificeInfo.sacrificeType || sacrificeInfo.sacrificeType === 'self') {
-        return undefined;
-      }
-
-      return {
-        count: Math.max(1, Number(sacrificeInfo.sacrificeCount || 1)),
-        permanentType: sacrificeInfo.sacrificeType,
-        ...(sacrificeInfo.creatureSubtype ? { creatureSubtype: sacrificeInfo.creatureSubtype } : {}),
-        ...(sacrificeInfo.mustBeOther ? { mustBeOther: true } : {}),
-      };
-    };
-
-    const addSourceInstances = (
-      perm: BattlefieldPermanent,
-      name: string,
-      options: ManaColor[],
-      amount: number,
-      consumable: boolean,
-      sacrificeCost?: NonNullable<typeof sources[number]['sacrificeCost']>
-    ) => {
-      const actualSourceId = String(perm.id || '');
-      const eligibleSacrificeCount = sacrificeCost
-        ? battlefield.filter((candidate) => matchesSacrificeRequirement(candidate, perm, sacrificeCost)).length
-        : 0;
-      const repeatCount = sacrificeCost
-        ? Math.max(0, Math.floor(eligibleSacrificeCount / Math.max(1, sacrificeCost.count)))
-        : 1;
-
-      if (sacrificeCost && repeatCount <= 0) return;
-
-      const instanceCount = Math.max(1, repeatCount);
-      for (let index = 0; index < instanceCount; index++) {
-        const sourceId = instanceCount > 1 ? `${actualSourceId}#${index}` : actualSourceId;
-        sources.push({
-          id: sourceId,
-          ...(sourceId !== actualSourceId ? { sourcePermanentId: actualSourceId } : {}),
-          name,
-          options,
-          ...(consumable ? { consumable: true } : {}),
-          ...(sacrificeCost ? { sacrificeCost } : {}),
-          ...(amount > 1 ? { amount } : {}),
-        });
-      }
-    };
-    
-    for (const perm of battlefield) {
-      if (!perm || perm.tapped) continue; // Skip tapped permanents
-      
-      // Get card info from the permanent - skip hidden cards
-      const card = perm.card;
-      if (!card || !('name' in card) || !card.name) continue;
-      
-      const typeLine = (card.type_line || '').toLowerCase();
-      const oracleText = ((card as any).oracle_text || '').toLowerCase();
-      const name = card.name;
-      const consumable = isConsumableManaSource(name, oracleText, typeLine);
-      const sacrificeCost = getManaSourceSacrificeCost(perm);
-      
-      // Check if permanent has a special mana amount (from Priest of Titania, Bighorn Rancher, etc.)
-      const manaAmount = (perm as any).manaAmount;
-      const manaColor = (perm as any).manaColor;
-      
-      // Skip fetch lands and sacrifice-to-search lands - they don't produce mana
-      if (typeLine.includes('land') && isFetchLandOrSacrificeSearchLand(oracleText)) {
-        continue;
-      }
-      
-      // Collect colors based on basic land types (handles dual lands like Tropical Island)
-      const basicColors: ManaColor[] = [];
-      if (typeLine.includes('plains')) basicColors.push('W');
-      if (typeLine.includes('island')) basicColors.push('U');
-      if (typeLine.includes('swamp')) basicColors.push('B');
-      if (typeLine.includes('mountain')) basicColors.push('R');
-      if (typeLine.includes('forest')) basicColors.push('G');
-      
-      if (basicColors.length > 0) {
-        // Land has basic land types - use those colors
-        const amount = getSourceManaAmount(perm, basicColors);
-        sources.push({
-          id: perm.id,
-          name,
-          options: basicColors,
-          ...(consumable ? { consumable: true } : {}),
-          ...(amount > 1 ? { amount } : {}),
-        });
-      } else if (typeLine.includes('land')) {
-        // Non-basic land without basic land types - parse oracle text
-        // Only include if it actually produces mana
-        if (landProducesMana(oracleText)) {
-          const oracleColors = parseManaColorsFromOracleText(oracleText);
-          if (oracleColors.length > 0) {
-            const amount = getSourceManaAmount(perm, oracleColors);
-            sources.push({
-              id: perm.id,
-              name,
-              options: oracleColors,
-              ...(consumable ? { consumable: true } : {}),
-              ...(amount > 1 ? { amount } : {}),
-            });
-          } else {
-            // Default to colorless if we can't determine the colors but it does produce mana
-            const amount = getSourceManaAmount(perm, ['C']);
-            sources.push({
-              id: perm.id,
-              name,
-              options: ['C'],
-              ...(consumable ? { consumable: true } : {}),
-              ...(amount > 1 ? { amount } : {}),
-            });
-          }
-        }
-        // If land doesn't produce mana (e.g., fetch lands), skip it
-      } else if (typeLine.includes('artifact') || typeLine.includes('creature')) {
-        // For creatures, check summoning sickness - they can't use tap abilities if they have it
-        // unless they have haste. Rule 302.6.
-        const isCreature = typeLine.includes('creature');
-        if (isCreature && !canCreatureUseTapAbility(perm)) {
-          continue; // Skip creatures with summoning sickness and no haste
-        }
-        
-        // Check for mana-producing artifacts/creatures
-        // Must have a tap ability that produces mana: "{T}: Add {X}" or "{T}: Add one mana"
-        // Be careful not to match "in addition" or "add a counter" or "add it to your hand"
-        const hasTapManaAbility = (
-          // Pattern 1: {t}: add {X} where X is a mana symbol (single or multiple)
-          oracleText.match(/\{t\}:\s*add\s+\{[wubrgc]\}/i) ||
-          // Pattern 2: {t}: add {X}{Y} for multi-mana like Sol Ring {C}{C}
-          oracleText.match(/\{t\}:\s*add\s+\{[wubrgc]\}\{[wubrgc]\}/i) ||
-          // Pattern 3: {t}: add one mana of any color
-          oracleText.match(/\{t\}:\s*add\s+one\s+mana/i) ||
-          // Pattern 4: {t}: add X mana (for variable amounts)
-          oracleText.match(/\{t\}:\s*add\s+\w+\s+mana/i) ||
-          // Pattern 5: {t}: add an amount of {X} (Bighorner Rancher, Karametra's Acolyte)
-          oracleText.match(/\{t\}:\s*add\s+an\s+amount\s+of\s+\{[wubrgc]\}/i) ||
-          // Pattern 6: {t}, sacrifice: add (for treasure-like effects)
-          oracleText.match(/\{t\},\s*sacrifice[^:]*:\s*add\s+/i)
-        );
-        const hasSelfSacrificeManaAbility = (
-          oracleText.match(/\bsacrifice\s+this\b[^:]*:\s*add\s+/i) ||
-          oracleText.match(new RegExp(`\\bsacrifice\\s+${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b[^:]*:\\s*add\\s+`, 'i'))
-        );
-        const hasOtherSacrificeManaAbility = Boolean(sacrificeCost);
-        
-        if (hasTapManaAbility || hasSelfSacrificeManaAbility || hasOtherSacrificeManaAbility) {
-          // Check for Metalcraft requirement in oracle text (e.g., Mox Opal)
-          // Metalcraft - "as long as you control three or more artifacts"
-          if (oracleText.includes('metalcraft') || 
-              oracleText.includes('three or more artifacts') ||
-              oracleText.includes('3 or more artifacts')) {
-            if (!checkMetalcraft(playerId)) {
-              continue; // Skip if metalcraft not met
-            }
-          }
-          
-          // If this permanent has a special mana amount, use that specific color
-          if (manaAmount && manaAmount > 0 && manaColor) {
-            const mappedColor = MANA_COLOR_MAP[manaColor.toUpperCase()] || 'C';
-            const amount = getSourceManaAmount(perm, [mappedColor], manaAmount);
-            addSourceInstances(perm, name, [mappedColor], amount, consumable, sacrificeCost);
-          } else {
-            const artifactColors = parseManaColorsFromOracleText(oracleText);
-            if (artifactColors.length > 0) {
-              const amount = getSourceManaAmount(perm, artifactColors);
-              addSourceInstances(perm, name, artifactColors, amount, consumable, sacrificeCost);
-            } else {
-              // Default to colorless for mana artifacts without specific colors
-              const amount = getSourceManaAmount(perm, ['C']);
-              addSourceInstances(perm, name, ['C'], amount, consumable, sacrificeCost);
-            }
-          }
-        }
-      }
+    if (checkMetalcraft(playerId)) {
+      return buildAvailableManaSourcesForPlayer(playerId, battlefield);
     }
-    
-    return sources;
+
+    return buildAvailableManaSourcesForPlayer(playerId, battlefield).filter((source) => {
+      const sourcePermanent = battlefield.find((perm) => String(perm.id || '') === String(source.sourcePermanentId || source.id || ''));
+      const oracleText = String((sourcePermanent?.card as any)?.oracle_text || '').toLowerCase();
+      if (!oracleText.includes('metalcraft')) return true;
+      return false;
+    });
   };
 
   // Handle cast spell confirmation from modal - works for both hand and commander spells
