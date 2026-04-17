@@ -24,6 +24,7 @@ describe('AI activated ability replay semantics', () => {
       't_ai_humble_defector_fallback_replay',
       't_ai_fetchland_replay',
       't_ai_generic_ability_replay',
+      't_ai_legacy_activate_ability_token_replay',
     ]) {
       resetGame(gameId);
     }
@@ -312,5 +313,59 @@ describe('AI activated ability replay semantics', () => {
     expect(String(stack[0]?.source || '')).toBe('tome_1');
     expect(String(stack[0]?.description || '')).toBe('draw a card.');
     expect(String(stack[0]?.activatedAbilityText || '')).toBe('{3}, {T}: Draw a card.');
+  });
+
+  it('replays legacy activateAbility token sacrifices by preserving the graveyard snapshot and unresolved stack item', () => {
+    const game = createInitialGameState('t_ai_legacy_activate_ability_token_replay');
+    const p1 = 'p1' as PlayerID;
+    addPlayer(game, p1, 'P1');
+
+    (game.state as any).zones = {
+      [p1]: {
+        hand: [],
+        handCount: 0,
+        graveyard: [],
+        graveyardCount: 0,
+        libraryCount: 0,
+      },
+    };
+    (game.state as any).battlefield = [
+      {
+        id: 'clue_1',
+        controller: p1,
+        owner: p1,
+        tapped: false,
+        summoningSickness: false,
+        isToken: true,
+        counters: {},
+        card: {
+          id: 'clue_card',
+          name: 'Clue',
+          type_line: 'Artifact Token - Clue',
+          oracle_text: 'Sacrifice this artifact: Draw a card.',
+          zone: 'battlefield',
+        },
+      },
+    ];
+
+    game.applyEvent({
+      type: 'activateAbility',
+      playerId: p1,
+      permanentId: 'clue_1',
+      cardName: 'Clue',
+      abilityText: 'Draw a card.',
+      activatedAbilityText: 'Sacrifice this artifact: Draw a card.',
+      sacrificedPermanents: ['clue_1'],
+      usesStack: true,
+    } as any);
+
+    expect((game.state as any).battlefield).toHaveLength(0);
+    expect((((game.state as any).zones?.[p1]?.graveyard) || []).map((card: any) => card.name)).toEqual(['Clue']);
+
+    const stack = (game.state as any).stack || [];
+    expect(stack).toHaveLength(1);
+    expect(String(stack[0]?.type || '')).toBe('ability');
+    expect(String(stack[0]?.source || '')).toBe('clue_1');
+    expect(String(stack[0]?.activatedAbilityText || '')).toBe('Sacrifice this artifact: Draw a card.');
   });
 });

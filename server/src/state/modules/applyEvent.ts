@@ -906,11 +906,7 @@ function applyAIActivateAbilityReplay(ctx: GameContext, e: any): void {
     for (const rawId of sacrificed) {
       const id = String(rawId || '').trim();
       if (!id) continue;
-      const stillOnBattlefield = Array.isArray(ctx.state?.battlefield)
-        ? (ctx.state.battlefield as any[]).some((entry: any) => entry && String(entry.id || '') === id)
-        : false;
-      if (!stillOnBattlefield) continue;
-      movePermanentToGraveyard(ctx as any, id, true);
+      applyReplaySacrificedPermanent(ctx, id);
     }
   } catch {
     // best-effort only
