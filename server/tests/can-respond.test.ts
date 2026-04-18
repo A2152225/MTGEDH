@@ -1706,6 +1706,35 @@ describe('canRespond', () => {
     expect(canRespond(ctx, 'p1' as PlayerID)).toBe(false);
   });
 
+  it('should return false during untap even when a player has a castable instant', () => {
+    const ctx = createTestContext({
+      zones: {
+        p1: {
+          hand: [
+            {
+              id: 'card1',
+              name: 'Lightning Bolt',
+              type_line: 'Instant',
+              mana_cost: '{R}',
+            },
+          ],
+        },
+      },
+      battlefield: [],
+      manaPool: {
+        p1: { white: 0, blue: 0, black: 0, red: 1, green: 0, colorless: 0 },
+      },
+      phase: 'beginning',
+      step: 'UNTAP',
+      priority: 'p1',
+      turnPlayer: 'p2',
+      stack: [],
+    });
+
+    expect(canCastAnySpell(ctx, 'p1' as PlayerID)).toBe(true);
+    expect(canRespond(ctx, 'p1' as PlayerID)).toBe(false);
+  });
+
   it('should return true when player has instant with mana', () => {
     const ctx = createTestContext({
       zones: {
@@ -1997,6 +2026,34 @@ describe('canRespond', () => {
 });
 
 describe('canAct', () => {
+  it('should return false during untap even when the turn player has a castable instant', () => {
+    const ctx = createTestContext({
+      zones: {
+        p1: {
+          hand: [
+            {
+              id: 'card1',
+              name: 'Lightning Bolt',
+              type_line: 'Instant',
+              mana_cost: '{R}',
+            },
+          ],
+        },
+      },
+      battlefield: [],
+      manaPool: {
+        p1: { white: 0, blue: 0, black: 0, red: 1, green: 0, colorless: 0 },
+      },
+      phase: 'beginning',
+      step: 'UNTAP',
+      priority: 'p1',
+      turnPlayer: 'p1',
+      stack: [],
+    });
+
+    expect(canAct(ctx, 'p1' as PlayerID)).toBe(false);
+  });
+
   it('should return shared castable commander candidates with per-commander tax and cost adjustment applied', () => {
     const ctx = createTestContext({
       zones: {

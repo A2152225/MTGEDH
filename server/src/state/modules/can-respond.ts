@@ -1920,6 +1920,12 @@ export function canRespond(ctx: GameContext, playerId: PlayerID): boolean {
   try {
     debug(2, `[canRespond] ${playerId}: checking instant-speed responses only`);
 
+    const currentStep = String((ctx.state as any).step || '').toUpperCase();
+    if (currentStep === 'UNTAP') {
+      debug(2, `[canRespond] ${playerId}: no player receives priority during untap (returning false)`);
+      return false;
+    }
+
     // Split Second: no spells/stack abilities can be responded with.
     if (isSplitSecondLockActive(ctx.state)) {
       debug(2, `[canRespond] ${playerId}: Split Second lock active (returning false)`);
@@ -2203,6 +2209,11 @@ export function canAct(ctx: GameContext, playerId: PlayerID): boolean {
     const isMainPhase = currentStep === 'MAIN1' || currentStep === 'MAIN2' || currentStep === 'MAIN';
     const stackIsEmpty = !ctx.state.stack || ctx.state.stack.length === 0;
     const isTurnPlayer = (ctx.state as any).turnPlayer === playerId;
+
+    if (currentStep === 'UNTAP') {
+      debug(2, `[canAct] ${playerId}: no player receives priority during untap (returning false)`);
+      return false;
+    }
     
     debug(2, `[canAct] ${playerId}: step=${currentStep}, isMainPhase=${isMainPhase}, stackIsEmpty=${stackIsEmpty}, isTurnPlayer=${isTurnPlayer}`);
     
