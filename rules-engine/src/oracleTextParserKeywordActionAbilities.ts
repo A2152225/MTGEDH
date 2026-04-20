@@ -61,6 +61,70 @@ export function parseKeywordActionAbility(text: string): ParsedAbility | null {
     };
   }
 
+  if (/^partner with\s+[^()]+(?:\s*\([^)]*\))?$/i.test(cleaned)) {
+    return {
+      type: AbilityType.STATIC,
+      text,
+      effect: '',
+    };
+  }
+
+  if (/^partner(?:\s*[—-]\s*.+)?\.?$/i.test(cleaned)) {
+    return {
+      type: AbilityType.STATIC,
+      text,
+      effect: '',
+    };
+  }
+
+  if (/^friends forever\.?$/i.test(cleaned)) {
+    return {
+      type: AbilityType.STATIC,
+      text,
+      effect: '',
+    };
+  }
+
+  if (/^choose a background\.?$/i.test(cleaned)) {
+    return {
+      type: AbilityType.STATIC,
+      text,
+      effect: '',
+    };
+  }
+
+  if (/^doctor(?:'|’)s companion\.?$/i.test(cleaned)) {
+    return {
+      type: AbilityType.STATIC,
+      text,
+      effect: '',
+    };
+  }
+
+  if (/^you may look at the top card of your library (?:at )?any time\.?$/i.test(cleaned)) {
+    return {
+      type: AbilityType.STATIC,
+      text,
+      effect: '',
+    };
+  }
+
+  if (/^start your engines!(?:\s*\([^)]*\))?$/i.test(cleaned)) {
+    return {
+      type: AbilityType.STATIC,
+      text,
+      effect: '',
+    };
+  }
+
+  if (/^max speed\s+[—-]\s*.+$/i.test(cleaned)) {
+    return {
+      type: AbilityType.STATIC,
+      text,
+      effect: '',
+    };
+  }
+
   if (/^manifest the top card of (?:your|that player's|target player's|target opponent's) library\.?$/i.test(cleaned)) {
     return {
       type: AbilityType.STATIC,

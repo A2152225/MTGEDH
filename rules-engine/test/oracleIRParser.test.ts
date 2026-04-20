@@ -1285,6 +1285,126 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
     ]);
   });
 
+  it('prunes manifest reminder-only pseudo-steps from full reminder text', () => {
+    const ir = parseOracleTextToIR(
+      "Manifest the top card of your library. (To manifest a card, put it onto the battlefield face down as a 2/2 creature. Turn it face up any time for its mana cost if it's a creature card.)",
+      'Soul Summons'
+    );
+
+    expect(ir.abilities[0]?.steps).toEqual([
+      {
+        kind: 'move_zone',
+        what: { kind: 'raw', text: 'the top card of your library' },
+        to: 'battlefield',
+        toRaw: 'battlefield face down',
+        entersFaceDown: true,
+        raw: 'Manifest the top card of your library',
+      },
+    ]);
+  });
+
+  it('prunes cloak reminder-only pseudo-steps from full reminder text', () => {
+    const ir = parseOracleTextToIR(
+      "Cloak the top card of your library. (To cloak a card, put it onto the battlefield face down as a 2/2 creature with ward {2}. Turn it face up any time for its mana cost if it's a creature card.)",
+      'Cryptic Coat'
+    );
+
+    expect(ir.abilities[0]?.steps).toEqual([
+      {
+        kind: 'move_zone',
+        what: { kind: 'raw', text: 'the top card of your library' },
+        to: 'battlefield',
+        toRaw: 'battlefield face down',
+        entersFaceDown: true,
+        faceDownWardCost: '{2}',
+        raw: 'Cloak the top card of your library',
+      },
+    ]);
+  });
+
+  it('prunes manifest dread reminder-only pseudo-steps from full reminder text', () => {
+    const ir = parseOracleTextToIR(
+      'Manifest dread. (Look at the top two cards of your library. Manifest one of them, then put the rest into your graveyard.)',
+      'Abhorrent Oculus'
+    );
+
+    expect(ir.abilities[0]?.steps).toEqual([
+      {
+        kind: 'manifest_dread',
+        who: { kind: 'you' },
+        raw: 'Manifest dread',
+      },
+    ]);
+  });
+
+  it('parses partner-with reminder text into a non-executable static ability without reminder steps', () => {
+    const ir = parseOracleTextToIR(
+      'Partner with Lore Weaver (When this creature enters the battlefield, target player may put Lore Weaver into their hand from their library, then shuffle.)',
+      'Ley Weaver'
+    );
+
+    expect(ir.abilities).toHaveLength(1);
+    expect(ir.abilities[0]).toMatchObject({
+      type: 'static',
+      effectText: '',
+    });
+    expect(ir.abilities[0]?.steps).toEqual([]);
+  });
+
+  it('parses top-of-library visibility text into a non-executable static ability without reminder steps', () => {
+    const ir = parseOracleTextToIR('You may look at the top card of your library any time.', 'Mystic Forge');
+
+    expect(ir.abilities).toHaveLength(1);
+    expect(ir.abilities[0]).toMatchObject({
+      type: 'static',
+      effectText: '',
+    });
+    expect(ir.abilities[0]?.steps).toEqual([]);
+  });
+
+  it('prunes split Map-token reminder steps from create-token abilities', () => {
+    const ir = parseOracleTextToIR(
+      'When this creature enters, create a Map token. (It\'s an artifact with "{1}, {T}, Sacrifice this token: Target creature you control explores. Activate only as a sorcery.")',
+      'Topography Tracker'
+    );
+
+    expect(ir.abilities).toHaveLength(1);
+    expect(ir.abilities[0]?.steps).toEqual([
+      {
+        kind: 'create_token',
+        who: { kind: 'you' },
+        amount: { kind: 'number', value: 1 },
+        token: 'Map',
+        raw: 'create a Map token',
+      },
+    ]);
+  });
+
+  it('parses start-your-engines reminder text into a non-executable static ability without reminder steps', () => {
+    const ir = parseOracleTextToIR(
+      'Start your engines! (If you have no speed, it starts at 1. It can increase once on each of your turns when an opponent loses life and decreases only if you lose life. Max speed is 4.)',
+      'Road Rage'
+    );
+
+    expect(ir.abilities).toHaveLength(1);
+    expect(ir.abilities[0]).toMatchObject({
+      type: 'static',
+      effectText: '',
+    });
+    expect(ir.abilities[0]?.steps).toEqual([]);
+  });
+
+  it('parses max-speed lines into non-executable static abilities without reminder steps', () => {
+    const ir = parseOracleTextToIR('Max speed — This creature has menace.', 'Road Rage');
+
+    expect(ir.abilities).toHaveLength(1);
+    expect(ir.abilities[0]).toMatchObject({
+      type: 'static',
+      effectText: '',
+    });
+    expect(ir.abilities[0]?.steps).toEqual([]);
+  });
+
   it('parses Forage keyword lines into a choose-mode step', () => {
     const ir = parseOracleTextToIR('Forage', 'Camellia, the Seedmiser');
 
@@ -5598,7 +5718,14 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
       "Glassblower's Puzzleknot"
     );
 
-    expect(ir.abilities.some((ability) => String(ability.text || '').includes('To scry 2'))).toBe(false);
+    expect(
+      ir.abilities.some(
+        (ability) =>
+          ability.steps.length > 0 &&
+          ability.steps.every((step: any) => step.kind === 'unknown') &&
+          String(ability.text || '').includes('To scry 2')
+      )
+    ).toBe(false);
     expect(
       ir.abilities.some((ability) =>
         ability.steps.some((step: any) => String(step?.raw || '').includes('put any number of them on the bottom and the rest on top in any order'))
@@ -8346,6 +8473,19 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
     ]);
   });
 
+  it('parses bare target-spell copy lines into copy_spell steps with retarget support', () => {
+    const ir = parseOracleTextToIR('Copy target spell. You may choose new targets for the copy.', 'See Double');
+
+    expect(ir.abilities[0]?.steps).toEqual([
+      expect.objectContaining({
+        kind: 'copy_spell',
+        subject: 'target_spell',
+        target: { kind: 'raw', text: 'target spell' },
+        allowNewTargets: true,
+      }),
+    ]);
+  });
+
   it('parses Melek, Izzet Paragon copy-it triggers into target_spell copy steps', () => {
     const ir = parseOracleTextToIR(
       'Play with the top card of your library revealed.\nYou may cast instant and sorcery spells from the top of your library.\nWhenever you cast an instant or sorcery spell from your library, copy it. You may choose new targets for the copy.',
@@ -8376,6 +8516,54 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
       expect.objectContaining({
         kind: 'unknown',
         raw: expect.stringContaining('You may choose new targets for the copy'),
+      })
+    );
+  });
+
+  it('merges retarget tails onto unmodeled spell-or-ability copy clauses', () => {
+    const ir = parseOracleTextToIR(
+      'Whenever you cast an instant or sorcery spell that targets only Bill Potts or activate an ability that targets only Bill Potts, copy that spell or ability. You may choose new targets for the copy. This ability triggers only once each turn.',
+      'Bill Potts'
+    );
+
+    const copyAbility = ir.abilities.find((ability) => ability.type === 'triggered');
+    expect(copyAbility?.steps.some((step: any) => String(step?.raw || '').trim() === 'You may choose new targets for the copy')).toBe(false);
+    expect(copyAbility?.steps[0]).toEqual(
+      expect.objectContaining({
+        kind: 'unknown',
+        raw: expect.stringContaining('You may choose new targets for the copy'),
+      })
+    );
+  });
+
+  it('merges retarget tails onto deferred next-spell copy clauses', () => {
+    const ir = parseOracleTextToIR(
+      'Whenever this creature deals combat damage to a player, copy the next instant or sorcery spell you cast this turn when you cast it. You may choose new targets for the copy.',
+      'Tzaangor Shaman'
+    );
+
+    const copyAbility = ir.abilities.find((ability) => ability.type === 'triggered');
+    expect(copyAbility?.steps.some((step: any) => String(step?.raw || '').trim() === 'You may choose new targets for the copy')).toBe(false);
+    expect(copyAbility?.steps[0]).toEqual(
+      expect.objectContaining({
+        kind: 'unknown',
+        raw: expect.stringContaining('You may choose new targets for the copy'),
+      })
+    );
+  });
+
+  it('merges retarget tails onto replicate multi-copy clauses', () => {
+    const ir = parseOracleTextToIR(
+      'Replicate {1} (When you cast this spell, copy it for each time you paid its replicate cost. You may choose new targets for the copies.)',
+      'Consign to Memory'
+    );
+
+    expect(ir.abilities).toHaveLength(1);
+    expect(ir.abilities[0]?.steps.some((step: any) => String(step?.raw || '').trim() === 'You may choose new targets for the copies')).toBe(false);
+    expect(ir.abilities[0]?.steps[1]).toEqual(
+      expect.objectContaining({
+        kind: 'unknown',
+        raw: expect.stringContaining('You may choose new targets for the copies'),
       })
     );
   });
@@ -8906,13 +9094,27 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
     );
 
     expect(ir.abilities).toHaveLength(1);
-    expect(String(ir.abilities[0]?.text || '')).toContain('Foretell {1}{U}');
-    expect(ir.abilities[0]?.steps).toEqual([
-      {
-        kind: 'unknown',
-        raw: 'Foretell {1}{U} (During your turn, you may pay {2} and exile this card from your hand face down',
-      },
-    ]);
+    expect(ir.abilities[0]).toMatchObject({
+      type: 'keyword',
+      cost: '{1}{U}',
+      effectText: '',
+    });
+    expect(ir.abilities[0]?.steps).toEqual([]);
+  });
+
+  it('normalizes suspend reminder text into a structured keyword ability without raw reminder steps', () => {
+    const ir = parseOracleTextToIR(
+      "Suspend 3-{1}{U} (Rather than cast this card from your hand, pay {1}{U} and exile it with three time counters on it. At the beginning of your upkeep, remove a time counter. When the last is removed, cast it without paying its mana cost. If it's a creature, it has haste.)",
+      'Lotus Bloom'
+    );
+
+    expect(ir.abilities).toHaveLength(1);
+    expect(ir.abilities[0]).toMatchObject({
+      type: 'keyword',
+      cost: '3-{1}{U}',
+      effectText: '',
+    });
+    expect(ir.abilities[0]?.steps).toEqual([]);
   });
 
   it('parses Megamorph keyword lines into a turn-face-up plus counter sequence', () => {

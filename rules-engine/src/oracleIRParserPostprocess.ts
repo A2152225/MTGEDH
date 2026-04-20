@@ -2455,6 +2455,69 @@ export function pruneForetellReminderAbilities(
   });
 }
 
+function normalizeReminderStepRaw(step: OracleEffectStep): string {
+  return normalizeOracleText(String(step.raw || ''))
+    .replace(/^[()\s]+/, '')
+    .replace(/[.)\s]+$/g, '')
+    .trim();
+}
+
+function isRedundantManifestOrCloakReminderStep(step: OracleEffectStep): boolean {
+  if (step.kind !== 'unknown') return false;
+
+  const normalized = normalizeReminderStepRaw(step);
+  if (!normalized) return false;
+
+  return (
+    /^to (?:manifest|cloak) a card, put it onto the battlefield face down as a 2\/2 creature(?: with ward \{2\})?$/i.test(normalized) ||
+    /^turn it face up any time for its mana cost if it(?:'|’)s a creature card$/i.test(normalized)
+  );
+}
+
+function isRedundantManifestDreadReminderStep(step: OracleEffectStep): boolean {
+  const normalized = normalizeReminderStepRaw(step);
+  if (!normalized) return false;
+
+  if (step.kind === 'unknown') {
+    return /^look at the top two cards of your library$/i.test(normalized) || /^manifest one of them$/i.test(normalized);
+  }
+
+  return step.kind === 'move_zone' && /^then put the rest into your graveyard$/i.test(normalized);
+}
+
+export function pruneRedundantFaceDownReminderUnknownAbilities(
+  abilities: readonly OracleIRAbility[]
+): OracleIRAbility[] {
+  return abilities.map((ability) => {
+    const normalizedText = normalizeOracleText(String(ability.text || ability.effectText || ''))
+      .replace(/\s+/g, ' ')
+      .trim()
+      .toLowerCase();
+    const hasFaceDownMove = ability.steps.some(
+      (step) => step.kind === 'move_zone' && step.to === 'battlefield' && step.entersFaceDown === true
+    );
+    const hasManifestDread = ability.steps.some((step) => step.kind === 'manifest_dread');
+    const hasManifestReminderText = /\(to manifest a card, put it onto the battlefield face down as a 2\/2 creature\.?/i.test(normalizedText);
+    const hasCloakReminderText = /\(to cloak a card, put it onto the battlefield face down as a 2\/2 creature with ward \{2\}\.?/i.test(normalizedText);
+    const hasManifestDreadReminderText = /^manifest dread\.?\s*\(look at the top two cards of your library\. manifest one of them, then put the rest into your graveyard\.\)$/i.test(normalizedText);
+    if (!hasFaceDownMove && !hasManifestDread && !hasManifestReminderText && !hasCloakReminderText && !hasManifestDreadReminderText) {
+      return ability;
+    }
+
+    const nextSteps = ability.steps.filter((step) => {
+      if ((hasManifestDread || hasManifestDreadReminderText) && isRedundantManifestDreadReminderStep(step)) {
+        return false;
+      }
+      if ((hasFaceDownMove || hasManifestReminderText || hasCloakReminderText) && isRedundantManifestOrCloakReminderStep(step)) {
+        return false;
+      }
+      return true;
+    });
+
+    return nextSteps.length === ability.steps.length ? ability : { ...ability, steps: nextSteps };
+  });
+}
+
 export function pruneConvokeReminderAbilities(
   abilities: readonly OracleIRAbility[]
 ): OracleIRAbility[] {
@@ -2640,7 +2703,13 @@ export function pruneRedundantArtifactTokenReminderUnknownAbilities(
       return ability;
     }
 
-    const nextSteps = ability.steps.filter(step => !isRedundantArtifactTokenReminderUnknownStep(step));
+    const hasSplitReminderLead = ability.steps.some(isArtifactTokenReminderLeadUnknownStep);
+    const nextSteps = ability.steps.filter(step => {
+      if (isRedundantArtifactTokenReminderUnknownStep(step)) return false;
+      if (hasSplitReminderLead && isArtifactTokenReminderLeadUnknownStep(step)) return false;
+      if (hasSplitReminderLead && isArtifactTokenReminderTailUnknownStep(step)) return false;
+      return true;
+    });
     return nextSteps.length === ability.steps.length ? ability : { ...ability, steps: nextSteps };
   });
 }
@@ -3625,8 +3694,36 @@ function normalizeUnknownStepText(step: OracleEffectStep | undefined): string {
   if (step?.kind !== 'unknown') return '';
   return normalizeOracleText(String(step.raw || ''))
     .replace(/^then\b\s*/i, '')
-    .replace(/[.;]\s*$/g, '')
     .trim();
+}
+
+function isArtifactTokenReminderLeadUnknownStep(step: OracleEffectStep): boolean {
+  if (step.kind !== 'unknown') return false;
+
+  const normalized = normalizeOracleText(String(step.raw || ''))
+    .replace(/^then\b\s*/i, '')
+    .replace(/^[()\s]+/, '')
+    .replace(/[.)\s]+$/g, '')
+    .trim();
+  if (!normalized) return false;
+
+  return (
+    /^(?:it(?:'|’)s|it is)\s+an artifact with\s+"[^"]*$/i.test(normalized) ||
+    /^(?:they(?:'|’)re|they are)\s+artifacts with\s+"[^"]*$/i.test(normalized)
+  );
+}
+
+function isArtifactTokenReminderTailUnknownStep(step: OracleEffectStep): boolean {
+  if (step.kind !== 'unknown') return false;
+
+  const normalized = normalizeOracleText(String(step.raw || ''))
+    .replace(/^then\b\s*/i, '')
+    .replace(/^[()\s"']+/, '')
+    .replace(/[.)\s"']+$/g, '')
+    .trim();
+  if (!normalized) return false;
+
+  return /^activate only as a sorcery$/i.test(normalized);
 }
 
 function stripInlineCopyRetargetTail(text: string): { readonly body: string; readonly allowNewTargets: boolean } {
@@ -3685,12 +3782,16 @@ function isCopyAbilityUnknownStep(step: OracleEffectStep | undefined): boolean {
   if (step?.kind !== 'unknown') return false;
 
   const stripped = stripInlineCopyRetargetTail(String(step.raw || ''));
-  const normalized = stripped.body;
+  const normalized = stripped.body.replace(/^[•·●◦▪▫►➤\uFFFD]+\s*/u, '').trim();
   if (!normalized) return false;
 
   return /^(?:you may\s+)?copy\s+(?:that ability|the ability|target triggered ability(?: you control)?|target activated or triggered ability(?: you control)?(?: from .+)?)$/i.test(
     normalized
-  );
+  ) ||
+    /^(?:you may\s+)?copy that spell or ability$/i.test(normalized) ||
+    /^(?:you may\s+)?copy the next .+ spell you cast this turn when you cast it$/i.test(normalized) ||
+    /^(?:if you do,\s+)?when you next cast .+?,\s+copy it$/i.test(normalized) ||
+    /^(?:when you cast this spell,\s+)?copy\b.+$/i.test(normalized);
 }
 
 function parseCopySpellUnknownStep(
@@ -3699,7 +3800,7 @@ function parseCopySpellUnknownStep(
 ): OracleEffectStep | null {
   const retargetTail = parseCopySpellRetargetTail(nextStep);
   const stripped = stripInlineCopyRetargetTail(String(step.raw || ''));
-  const normalized = stripped.body;
+  const normalized = stripped.body.replace(/^[•·●◦▪▫►➤\uFFFD]+\s*/u, '').trim();
   if (!normalized) return null;
   const allowNewTargets = stripped.allowNewTargets || retargetTail !== null;
   const rawRetargetTail = retargetTail ?? (stripped.allowNewTargets ? 'You may choose new targets for the copy' : null);
@@ -3788,7 +3889,7 @@ function parseCopySpellUnknownStep(
     };
   }
 
-  const targetedSpellMatch = normalized.match(/^(?:you may\s+)?copy\s+(target\s+.+?\s+spell(?:\s+.+)?)$/i);
+  const targetedSpellMatch = normalized.match(/^(?:you may\s+)?copy\s+(target(?:\s+.+?)?\s+spell(?:\s+.+)?)$/i);
   if (targetedSpellMatch) {
     const targetText = String(targetedSpellMatch[1] || '').trim();
     return {

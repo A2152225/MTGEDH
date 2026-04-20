@@ -158,6 +158,12 @@ export function expandKeywordCostAbility(
         cleanCost,
         'You may cast this card from your graveyard for its flashback cost. Then exile it.'
       );
+    case 'foretell':
+      return buildExpandedKeywordAbility(
+        text,
+        cleanCost,
+        ''
+      );
     case 'fortify':
       return buildExpandedKeywordAbility(
         text,
@@ -229,6 +235,12 @@ export function expandKeywordCostAbility(
         text,
         `${cleanCost}, Exile this card from your graveyard`,
         "Put X +1/+1 counters on target creature, where X is this card's power. Activate only as a sorcery."
+      );
+    case 'suspend':
+      return buildExpandedKeywordAbility(
+        text,
+        cleanCost,
+        ''
       );
     case 'transmute':
       return buildExpandedKeywordAbility(

@@ -74,6 +74,7 @@ import {
   pruneConvokeReminderAbilities,
   pruneMadnessReminderAbilities,
   pruneMorphReminderAbilities,
+  pruneRedundantFaceDownReminderUnknownAbilities,
   pruneRedundantAttackRequirementAbilities,
   pruneRedundantArtifactTokenReminderUnknownAbilities,
   pruneRedundantBestowReminderUnknownAbilities,
@@ -1270,6 +1271,7 @@ export function parseOracleTextToIR(oracleText: string, cardName?: string): Orac
   abilities = pruneMadnessReminderAbilities(abilities);
   abilities = pruneForetellReminderAbilities(abilities);
   abilities = pruneMorphReminderAbilities(abilities);
+  abilities = pruneRedundantFaceDownReminderUnknownAbilities(abilities);
   abilities = pruneRedundantAttackRequirementAbilities(abilities);
   abilities = pruneRedundantCrewReminderAbilities(abilities);
   abilities = pruneRedundantArtifactTokenReminderUnknownAbilities(abilities);

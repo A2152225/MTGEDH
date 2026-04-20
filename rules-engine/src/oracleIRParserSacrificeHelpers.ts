@@ -136,7 +136,7 @@ export function normalizeLeadingConditionalCondition(rawText: string, cardName?:
 }
 
 export function abilityEffectText(ability: ParsedAbility): string {
-  return String(ability.effect || ability.text || '').trim();
+  return String(ability.effect ?? ability.text ?? '').trim();
 }
 
 export function inferZoneFromDestination(destination: string): OracleZone {

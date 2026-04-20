@@ -15,8 +15,19 @@ import {
   hasReplacementEffect,
   AbilityType,
 } from '../src/oracleTextParser';
+import { splitOracleTextIntoParseLines } from '../src/oracleTextParserPreprocess';
 
 describe('Oracle Text Parser', () => {
+  it('keeps reminder text inside parentheses on one parse line', () => {
+    const lines = splitOracleTextIntoParseLines(
+      'Embalm {3}{W} ( {3}{W}, Exile this card from your graveyard: Create a token that\'s a copy of it, except it\'s a white Zombie creature with no mana cost. Embalm only as a sorcery.)'
+    );
+
+    expect(lines).toEqual([
+      'Embalm {3}{W} ( {3}{W}, Exile this card from your graveyard: Create a token that\'s a copy of it, except it\'s a white Zombie creature with no mana cost. Embalm only as a sorcery.)',
+    ]);
+  });
+
   it('normalizes exact card name references without corrupting containing words', () => {
     const result = parseOracleText(
       'Target creature gets +X/+0 until end of turn where X is the greatest power among creatures you control.',
@@ -25,6 +36,51 @@ describe('Oracle Text Parser', () => {
 
     expect(result.abilities[0]?.effect).toContain('greatest power among creatures you control');
     expect(result.abilities[0]?.effect).not.toContain('greathis permanent');
+  });
+
+  it('parses partner-with reminder text as a non-executable keyword line', () => {
+    const result = parseOracleText(
+      'Partner with Lore Weaver (When this creature enters the battlefield, target player may put Lore Weaver into their hand from their library, then shuffle.)'
+    );
+
+    expect(result.abilities).toHaveLength(1);
+    expect(result.abilities[0]).toMatchObject({
+      type: AbilityType.STATIC,
+      effect: '',
+    });
+    expect(result.keywords).toContain('partner with');
+  });
+
+  it('parses top-of-library visibility text as a non-executable static permission', () => {
+    const result = parseOracleText('You may look at the top card of your library any time.');
+
+    expect(result.abilities).toHaveLength(1);
+    expect(result.abilities[0]).toMatchObject({
+      type: AbilityType.STATIC,
+      effect: '',
+    });
+  });
+
+  it('parses start-your-engines reminder text as a non-executable static keyword line', () => {
+    const result = parseOracleText(
+      'Start your engines! (If you have no speed, it starts at 1. It can increase once on each of your turns when an opponent loses life and decreases only if you lose life. Max speed is 4.)'
+    );
+
+    expect(result.abilities).toHaveLength(1);
+    expect(result.abilities[0]).toMatchObject({
+      type: AbilityType.STATIC,
+      effect: '',
+    });
+  });
+
+  it('parses max-speed lines as non-executable static keyword lines', () => {
+    const result = parseOracleText('Max speed — This creature has menace.');
+
+    expect(result.abilities).toHaveLength(1);
+    expect(result.abilities[0]).toMatchObject({
+      type: AbilityType.STATIC,
+      effect: '',
+    });
   });
 
   describe('parseActivatedAbility', () => {
@@ -142,6 +198,19 @@ describe('Oracle Text Parser', () => {
       expect(result?.targets).toContain('creature');
     });
 
+    it('parses full scavenge reminder text as a single keyword ability', () => {
+      const result = parseOracleText(
+        'Scavenge {2}{G} ({2}{G}, Exile this card from your graveyard: Put a number of +1/+1 counters equal to this card\'s power on target creature. Scavenge only as a sorcery.)'
+      );
+
+      expect(result.abilities).toHaveLength(1);
+      expect(result.abilities[0]).toMatchObject({
+        type: AbilityType.KEYWORD,
+        cost: '{2}{G}, Exile this card from your graveyard',
+        effect: "Put X +1/+1 counters on target creature, where X is this card's power. Activate only as a sorcery.",
+      });
+    });
+
     it('parses embalm into an explicit graveyard exile token-copy activation', () => {
       const result = parseActivatedAbility('Embalm {3}{W}');
       expect(result).not.toBeNull();
@@ -150,6 +219,20 @@ describe('Oracle Text Parser', () => {
       expect(result?.effect).toBe(
         "Create a token that's a copy of it, except it's white, it has no mana cost, and it's a Zombie in addition to its other types. Activate only as a sorcery."
       );
+    });
+
+    it('parses full embalm reminder text as a single keyword ability', () => {
+      const result = parseOracleText(
+        'Embalm {3}{W} ( {3}{W}, Exile this card from your graveyard: Create a token that\'s a copy of it, except it\'s a white Zombie creature with no mana cost. Embalm only as a sorcery.)'
+      );
+
+      expect(result.abilities).toHaveLength(1);
+      expect(result.abilities[0]).toMatchObject({
+        type: AbilityType.KEYWORD,
+        cost: '{3}{W}, Exile this card from your graveyard',
+        effect:
+          "Create a token that's a copy of it, except it's white, it has no mana cost, and it's a Zombie in addition to its other types. Activate only as a sorcery.",
+      });
     });
 
     it('parses eternalize into an explicit graveyard exile token-copy activation', () => {
@@ -178,6 +261,19 @@ describe('Oracle Text Parser', () => {
       expect(result?.type).toBe(AbilityType.KEYWORD);
       expect(result?.cost).toBe('{1}{W}, {T}');
       expect(result?.effect).toBe('Put a +1/+1 counter on this creature. Activate only as a sorcery.');
+    });
+
+    it('parses full outlast reminder text as a single keyword ability', () => {
+      const result = parseOracleText(
+        'Outlast {1}{W} ({1}{W}, {T}: Put a +1/+1 counter on this creature. Outlast only as a sorcery.)'
+      );
+
+      expect(result.abilities).toHaveLength(1);
+      expect(result.abilities[0]).toMatchObject({
+        type: AbilityType.KEYWORD,
+        cost: '{1}{W}, {T}',
+        effect: 'Put a +1/+1 counter on this creature. Activate only as a sorcery.',
+      });
     });
 
     it('parses level up into an explicit activation', () => {
@@ -212,6 +308,30 @@ describe('Oracle Text Parser', () => {
       expect(result?.type).toBe(AbilityType.KEYWORD);
       expect(result?.cost).toBe('{3}{G}');
       expect(result?.effect).toBe('Turn this permanent face up.');
+    });
+
+    it('parses disguise into a turn-face-up special action', () => {
+      const result = parseActivatedAbility('Disguise {2}{G}');
+      expect(result).not.toBeNull();
+      expect(result?.type).toBe(AbilityType.KEYWORD);
+      expect(result?.cost).toBe('{2}{G}');
+      expect(result?.effect).toBe('Turn this permanent face up.');
+    });
+
+    it('parses foretell into a structured keyword ability without reminder text stubs', () => {
+      const result = parseActivatedAbility('Foretell {1}{U}');
+      expect(result).not.toBeNull();
+      expect(result?.type).toBe(AbilityType.KEYWORD);
+      expect(result?.cost).toBe('{1}{U}');
+      expect(result?.effect).toBe('');
+    });
+
+    it('parses suspend into a structured keyword ability without reminder text stubs', () => {
+      const result = parseActivatedAbility('Suspend 3-{1}{U}');
+      expect(result).not.toBeNull();
+      expect(result?.type).toBe(AbilityType.KEYWORD);
+      expect(result?.cost).toBe('3-{1}{U}');
+      expect(result?.effect).toBe('');
     });
 
     it('parses megamorph into a turn-face-up plus counter action', () => {

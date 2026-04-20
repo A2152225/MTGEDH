@@ -91,6 +91,46 @@ export function mergeContinuationSentences(sentences: string[]): string[] {
   return merged;
 }
 
+function splitAbilityLineIntoSentences(line: string): string[] {
+  const sentences: string[] = [];
+  let buffer = '';
+  let parenthesisDepth = 0;
+
+  const flush = (): void => {
+    const trimmed = buffer.trim();
+    if (trimmed) sentences.push(trimmed);
+    buffer = '';
+  };
+
+  for (let index = 0; index < line.length; index += 1) {
+    const current = line[index];
+    buffer += current;
+
+    if (current === '(') {
+      parenthesisDepth += 1;
+      continue;
+    }
+
+    if (current === ')') {
+      parenthesisDepth = Math.max(0, parenthesisDepth - 1);
+      continue;
+    }
+
+    if ((current === '.' || current === '!') && parenthesisDepth === 0) {
+      const next = line[index + 1] ?? '';
+      if (!next || /\s/.test(next)) {
+        flush();
+        while (index + 1 < line.length && /\s/.test(line[index + 1])) {
+          index += 1;
+        }
+      }
+    }
+  }
+
+  flush();
+  return sentences;
+}
+
 export function normalizeOracleTextSelfReferences(oracleText: string, cardName?: string): string {
   return buildSelfReferenceAliases(cardName).reduce((text, alias) => {
     const pattern = new RegExp(`(^|[^a-z0-9])(${escapeRegex(alias)})(?=[^a-z0-9]|$)`, 'gi');
@@ -132,7 +172,7 @@ export function splitOracleTextIntoParseLines(oracleText: string): string[] {
       continue;
     }
 
-    const sentences = abilityLine.split(/(?<=[.!])\s+/).filter(sentence => sentence.trim());
+    const sentences = splitAbilityLineIntoSentences(abilityLine);
     lines.push(...mergeContinuationSentences(sentences));
   }
 
