@@ -110,6 +110,12 @@ export function expandKeywordCostAbility(
         `${cleanCost}, Discard this card`,
         'Draw a card.'
       );
+    case 'disguise':
+      return buildExpandedKeywordAbility(
+        text,
+        cleanCost,
+        'Turn this permanent face up.'
+      );
     case 'disturb':
       return buildExpandedKeywordAbility(
         text,

@@ -711,6 +711,10 @@ export function evaluateConditionalWrapperCondition(params: {
     return typeof ctx.wonCoinFlip === 'boolean' ? ctx.wonCoinFlip : null;
   }
 
+  if (normalizedRaw === 'you lose the flip') {
+    return typeof ctx.wonCoinFlip === 'boolean' ? !ctx.wonCoinFlip : null;
+  }
+
   if (
     normalizedRaw === 'you win' ||
     normalizedRaw === 'you win the clash' ||

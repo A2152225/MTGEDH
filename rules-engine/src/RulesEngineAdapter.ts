@@ -67,6 +67,9 @@ import {
   consumeFutureSpellCastAdjustments,
   previewFutureSpellCastAdjustments,
 } from './futureSpellEffects';
+import { normalizeCounterName } from './oracleIRParserSacrificeHelpers';
+import { parseQuantity } from './oracleIRParserUtils';
+import { normalizeOracleTextSelfReferences } from './oracleTextParserPreprocess';
 
 /** Simple mana pool interface for checking mana availability (doesn't need restricted mana info) */
 interface SimpleManaPool {
@@ -2673,6 +2676,13 @@ export class RulesEngineAdapter {
   private buildCastSpellMetadata(action: any, sourceCard: any): Record<string, unknown> {
     const metadata: Record<string, unknown> = {};
 
+    const explicitEntryCounters = this.getCastMetadataValue(action, sourceCard, 'entersBattlefieldWithCounters');
+    const derivedEntryCounters = this.deriveSelfEntryCounterMetadata(action, sourceCard);
+    const mergedEntryCounters = this.mergeEntryCounterMaps(explicitEntryCounters, derivedEntryCounters);
+    if (mergedEntryCounters) {
+      metadata.entersBattlefieldWithCounters = mergedEntryCounters;
+    }
+
     const manaPayment = this.normalizeManaPaymentRecord(this.getCastMetadataValue(action, sourceCard, 'manaPayment'));
     if (manaPayment) {
       metadata.manaPayment = manaPayment;
@@ -2716,6 +2726,48 @@ export class RulesEngineAdapter {
     }
 
     return metadata;
+  }
+
+  private deriveSelfEntryCounterMetadata(action: any, sourceCard: any): Record<string, number> | undefined {
+    const cardName = String(action?.cardName || action?.card?.name || sourceCard?.name || '').trim();
+    const rawOracleText = String(
+      action?.oracleText || action?.card?.oracle_text || sourceCard?.oracle_text || ''
+    ).trim();
+    if (!rawOracleText) return undefined;
+
+    const normalizedOracleText = normalizeOracleTextSelfReferences(rawOracleText, cardName || undefined);
+    const lines = normalizedOracleText
+      .split(/\r?\n/)
+      .map((line) => String(line || '').trim())
+      .filter(Boolean);
+
+    for (const line of lines) {
+      const normalizedLine = String(line).replace(/[.;]\s*$/g, '').trim();
+      const match = normalizedLine.match(
+        /^this\s+[^.;]+?\s+enters(?: the battlefield)?\s+with\s+(a|an|\d+|x|[a-z]+)\s+(.+?)\s+counters?\s+on\s+it$/i
+      );
+      if (!match) continue;
+
+      const amount = parseQuantity(String(match[1] || '').trim());
+      let numericAmount: number | null = null;
+      if (amount.kind === 'number') {
+        numericAmount = amount.value;
+      } else if (amount.kind === 'x') {
+        const xValue = Number(action?.xValue);
+        if (Number.isFinite(xValue)) {
+          numericAmount = Math.max(0, Math.floor(xValue));
+        }
+      }
+
+      if (!Number.isFinite(numericAmount) || numericAmount === null || numericAmount <= 0) continue;
+
+      const counter = normalizeCounterName(String(match[2] || '').trim());
+      if (!counter) continue;
+
+      return { [counter]: numericAmount };
+    }
+
+    return undefined;
   }
 
   private normalizeTypePhrase(value: unknown): string {

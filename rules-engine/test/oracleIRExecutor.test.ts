@@ -20976,6 +20976,48 @@ describe('Oracle IR Executor', () => {
     expect((p1?.hand || [])).toHaveLength(3);
   });
 
+  it('applies lose-the-flip damage branches when the runtime context says the flip was lost', () => {
+    const ir = parseOracleTextToIR(
+      '{3}, {T}: Flip a coin. If you lose the flip, this artifact deals 3 damage to you.',
+      'Goblin Lyre'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        },
+      ] as any,
+      battlefield: [
+        {
+          id: 'lyre-source',
+          controller: 'p1',
+          owner: 'p1',
+          card: { id: 'lyre-source-card', name: 'Goblin Lyre', type_line: 'Artifact' },
+        },
+      ] as any,
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceId: 'lyre-source',
+      sourceName: 'Goblin Lyre',
+      wonCoinFlip: false,
+    });
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+
+    expect(result.appliedSteps.some(s => s.kind === 'deal_damage')).toBe(true);
+    expect(p1?.life).toBe(37);
+  });
+
   it('applies vote-result conditional sacrifice wrappers when the runtime context provides the winning vote', () => {
     const ir = parseOracleTextToIR(
       'If carnage gets more votes, sacrifice this artifact and destroy all nonland permanents.',

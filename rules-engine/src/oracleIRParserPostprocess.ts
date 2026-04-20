@@ -2442,7 +2442,7 @@ export function pruneMorphReminderAbilities(
 ): OracleIRAbility[] {
   return abilities.filter((ability) => {
     const normalizedText = normalizeOracleText(String(ability.text || '')).trim().toLowerCase();
-    return !/^turn it face up any time for its mana cost if it's a creature card[.)]*$/i.test(normalizedText);
+    return !/^turn it face up any time for (?:its mana cost if it's a creature card|its disguise cost)[.)]*$/i.test(normalizedText);
   });
 }
 
@@ -2846,6 +2846,75 @@ export function pruneRedundantBestowReminderUnknownAbilities(
   });
 }
 
+function parseSelfEntryCounterReplacement(rawText: string): {
+  readonly counter: string;
+  readonly amount: ReturnType<typeof parseQuantity>;
+  readonly raw: string;
+} | null {
+  const normalized = normalizeOracleText(String(rawText || ''))
+    .replace(/^[()\s]+/, '')
+    .replace(/[.)\s]+$/g, '')
+    .trim();
+  if (!normalized) return null;
+
+  const shortMatch = normalized.match(/^with\s+(a|an|\d+|x|[a-z]+)\s+(.+?)\s+counters?\s+on\s+it$/i);
+  const fullMatch = normalized.match(
+    /^this\s+[^.;]+?\s+enters(?: the battlefield)?\s+with\s+(a|an|\d+|x|[a-z]+)\s+(.+?)\s+counters?\s+on\s+it$/i
+  );
+  const match = shortMatch || fullMatch;
+  if (!match) return null;
+
+  const amount = parseQuantity(String(match[1] || '').trim());
+  if (amount.kind !== 'number' && amount.kind !== 'x') return null;
+
+  const counter = normalizeCounterName(String(match[2] || '').trim());
+  if (!counter) return null;
+
+  return {
+    counter,
+    amount,
+    raw: String(rawText || '').trim() || normalized,
+  };
+}
+
+export function lowerSelfEntryCounterReplacementAbilities(
+  abilities: readonly OracleIRAbility[]
+): OracleIRAbility[] {
+  return abilities.map((ability) => {
+    if (ability.type !== AbilityType.REPLACEMENT) return ability;
+
+    const parsed = parseSelfEntryCounterReplacement(String(ability.effectText || ability.text || ''));
+    if (!parsed) return ability;
+
+    const hasAddCounterStep = ability.steps.some((step) => step.kind === 'add_counter');
+    let removedMatchingUnknown = false;
+    const nextSteps = ability.steps.filter((step) => {
+      if (step.kind !== 'unknown') return true;
+      if (!parseSelfEntryCounterReplacement(String(step.raw || ''))) return true;
+      removedMatchingUnknown = true;
+      return false;
+    });
+
+    if (hasAddCounterStep) {
+      return removedMatchingUnknown ? { ...ability, steps: nextSteps } : ability;
+    }
+
+    return {
+      ...ability,
+      steps: [
+        ...nextSteps,
+        {
+          kind: 'add_counter',
+          target: { kind: 'raw', text: 'this permanent' },
+          counter: parsed.counter,
+          amount: parsed.amount,
+          raw: parsed.raw,
+        },
+      ],
+    };
+  });
+}
+
 function isRedundantEntersTappedReplacementUnknownStep(step: OracleEffectStep): boolean {
   if (step.kind !== 'unknown') return false;
 
@@ -2889,6 +2958,70 @@ export function pruneRedundantInfectKeywordUnknownAbilities(
         .replace(/[.)\s]+$/g, '')
         .trim();
       return !/^infect(?:\s*\(this creature deals damage to creatures in the form of -1\/-1 counters and to players in the form of poison counters)?$/i.test(normalized);
+    });
+    return nextSteps.length === ability.steps.length ? ability : { ...ability, steps: nextSteps };
+  });
+}
+
+function isRedundantCoinFlipLeadUnknownStep(step: OracleEffectStep | undefined): boolean {
+  if (step?.kind !== 'unknown') return false;
+
+  const normalized = normalizeOracleText(String(step.raw || ''))
+    .replace(/[.)\s]+$/g, '')
+    .trim();
+  return /^flip a coin$/i.test(normalized);
+}
+
+function isCoinFlipConditionalStep(step: OracleEffectStep | undefined): boolean {
+  if (step?.kind !== 'conditional') return false;
+
+  const normalized = normalizeOracleText(String(step.condition?.raw || ''))
+    .replace(/[.)\s]+$/g, '')
+    .trim();
+  return normalized === 'you win the flip' || normalized === 'you lose the flip';
+}
+
+export function pruneRedundantCoinFlipLeadUnknownAbilities(
+  abilities: readonly OracleIRAbility[]
+): OracleIRAbility[] {
+  return abilities.map((ability) => {
+    if (!isRedundantCoinFlipLeadUnknownStep(ability.steps[0])) return ability;
+    if (!ability.steps.slice(1).some((step) => isCoinFlipConditionalStep(step))) return ability;
+    return {
+      ...ability,
+      steps: ability.steps.slice(1),
+    };
+  });
+}
+
+function isRedundantLandwalkKeywordText(text: string | undefined): boolean {
+  const normalized = normalizeOracleText(String(text || ''))
+    .replace(/[.)\s]+$/g, '')
+    .trim();
+  if (
+    /^(?:plainswalk|islandwalk|swampwalk|mountainwalk|forestwalk)\s*\(this creature can't be blocked as long as defending player controls an? (?:plains|island|swamp|mountain|forest)$/i.test(
+      normalized
+    )
+  ) {
+    return true;
+  }
+
+  return /^(?:plainswalk|islandwalk|swampwalk|mountainwalk|forestwalk)(?:,\s*(?:plainswalk|islandwalk|swampwalk|mountainwalk|forestwalk))*$/i.test(
+    normalized
+  );
+}
+
+export function pruneRedundantLandwalkKeywordUnknownAbilities(
+  abilities: readonly OracleIRAbility[]
+): OracleIRAbility[] {
+  return abilities.map((ability) => {
+    if (!isRedundantLandwalkKeywordText(String(ability.text || ability.effectText || ''))) {
+      return ability;
+    }
+
+    const nextSteps = ability.steps.filter((step) => {
+      if (step.kind !== 'unknown') return true;
+      return !isRedundantLandwalkKeywordText(step.raw);
     });
     return nextSteps.length === ability.steps.length ? ability : { ...ability, steps: nextSteps };
   });

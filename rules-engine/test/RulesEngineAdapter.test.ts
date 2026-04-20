@@ -933,6 +933,46 @@ describe('RulesEngineAdapter', () => {
       expect(stackObjects[0].card.entersBattlefieldWithCounters).toEqual({ '+1/+1': 1 });
     });
 
+    it('should derive self X entry counters from the cast spell oracle text', () => {
+      const stateWithXCreature: any = {
+        ...testGameState,
+        phase: 'precombatMain' as any,
+        step: 'main' as any,
+        players: testGameState.players.map(p =>
+          p.id === 'player1'
+            ? {
+                ...(p as any),
+                hand: [
+                  {
+                    id: 'walker-x-1',
+                    name: 'Test Walker',
+                    type_line: 'Artifact Creature - Construct',
+                    mana_cost: '{X}',
+                    oracle_text: 'This artifact creature enters with X +1/+1 counters on it.',
+                  },
+                ],
+              }
+            : p
+        ),
+      };
+
+      adapter.initializeGame('test-game', stateWithXCreature);
+      const result = adapter.executeAction('test-game', {
+        type: 'castSpell',
+        playerId: 'player1',
+        cardId: 'walker-x-1',
+        manaCost: '{3}',
+        xValue: 3,
+        targets: [],
+      });
+
+      expect(result.log).toContain('player1 announces Test Walker');
+      const stackObjects = ((adapter as any).stacks.get('test-game')?.objects || []) as any[];
+      expect(stackObjects).toHaveLength(1);
+      expect(stackObjects[0].entersBattlefieldWithCounters).toEqual({ '+1/+1': 3 });
+      expect(stackObjects[0].card.entersBattlefieldWithCounters).toEqual({ '+1/+1': 3 });
+    });
+
     it('should infer uncounterable metadata from a tapped Cavern of Souls for a matching creature spell', () => {
       const stateWithCavern: any = {
         ...testGameState,

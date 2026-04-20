@@ -41,7 +41,7 @@ const PLAYER_SUBJECT_PREFIX =
   "(?:(you|each player|each opponent|each of those opponents|target player|target opponent|that player|that opponent|defending player|the defending player|he or she|they|its controller|its owner|that [a-z0-9][a-z0-9 ,.'’-]*?(?:'s|’s)? (?:controller|owner))\\s+)?";
 
 const SELF_DAMAGE_SOURCE_SUBJECT_PATTERN =
-  "(?:it|this (?:permanent|spell|creature|card|emblem)|that [a-z0-9][a-z0-9 ,.'’-]*|target [a-z0-9][a-z0-9 ,.'’-]*|another target [a-z0-9][a-z0-9 ,.'’-]*)";
+  "(?:it|this (?:permanent|spell|creature|artifact|enchantment|planeswalker|battle|land|card|emblem|token)|that [a-z0-9][a-z0-9 ,.'’-]*|target [a-z0-9][a-z0-9 ,.'’-]*|another target [a-z0-9][a-z0-9 ,.'’-]*)";
 
 const NAMED_DAMAGE_SOURCE_PATTERN =
   "[A-Z0-9][A-Za-z0-9'’/-]*(?: [A-Z0-9][A-Za-z0-9'’/-]*)*(?:, [A-Z0-9][A-Za-z0-9'’/-]*(?: [A-Z0-9][A-Za-z0-9'’/-]*)*)?";

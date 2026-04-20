@@ -5639,6 +5639,42 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
     expect(ir.abilities[0]?.steps).toEqual([]);
   });
 
+  it('lowers self X enters-with-counters replacement text into an add_counter step', () => {
+    const ir = parseOracleTextToIR('This creature enters with X +1/+1 counters on it.', 'Magma Pummeler');
+
+    expect(ir.abilities[0]).toMatchObject({
+      type: 'replacement',
+      effectText: 'with X +1/+1 counters on it',
+    });
+    expect(ir.abilities[0]?.steps).toEqual([
+      {
+        kind: 'add_counter',
+        target: { kind: 'raw', text: 'this permanent' },
+        counter: '+1/+1',
+        amount: { kind: 'x' },
+        raw: 'with X +1/+1 counters on it',
+      },
+    ]);
+  });
+
+  it('lowers self numeric enters-with-counters replacement text into an add_counter step', () => {
+    const ir = parseOracleTextToIR('This artifact enters the battlefield with two charge counters on it.', 'Magistrate\'s Scepter');
+
+    expect(ir.abilities[0]).toMatchObject({
+      type: 'replacement',
+      effectText: 'with two charge counters on it',
+    });
+    expect(ir.abilities[0]?.steps).toEqual([
+      {
+        kind: 'add_counter',
+        target: { kind: 'raw', text: 'this permanent' },
+        counter: 'charge',
+        amount: { kind: 'number', value: 2 },
+        raw: 'with two charge counters on it',
+      },
+    ]);
+  });
+
   it('prunes redundant infect keyword placeholder steps while preserving keyword capture', () => {
     const ir = parseOracleTextToIR('Infect', 'Glistener Elf');
 
@@ -8370,6 +8406,74 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
     expect(ir.abilities[0]?.steps.some(step => step.kind === 'unknown')).toBe(true);
   });
 
+  it('prunes leading flip-a-coin stubs when the win branch is already parsed', () => {
+    const ir = parseOracleTextToIR(
+      'Flip a coin. If you win the flip, sacrifice this artifact and draw three cards.',
+      "Sorcerer's Strongbox"
+    );
+
+    expect(ir.abilities[0]?.steps).toEqual([
+      expect.objectContaining({
+        kind: 'conditional',
+        condition: { kind: 'if', raw: 'you win the flip' },
+        steps: [
+          expect.objectContaining({ kind: 'sacrifice' }),
+          expect.objectContaining({ kind: 'draw', amount: { kind: 'number', value: 3 } }),
+        ],
+      }),
+    ]);
+    expect(ir.abilities[0]?.steps.some(step => step.kind === 'unknown')).toBe(false);
+  });
+
+  it('parses lose-the-flip damage branches into executable conditional steps', () => {
+    const ir = parseOracleTextToIR(
+      '{3}, {T}: Flip a coin. If you lose the flip, this artifact deals 3 damage to you.',
+      'Goblin Lyre'
+    );
+
+    expect(ir.abilities[0]?.steps).toEqual([
+      expect.objectContaining({
+        kind: 'conditional',
+        condition: { kind: 'if', raw: 'you lose the flip' },
+        steps: [
+          expect.objectContaining({
+            kind: 'deal_damage',
+            amount: { kind: 'number', value: 3 },
+            source: { kind: 'raw', text: 'this artifact' },
+            target: { kind: 'raw', text: 'you' },
+          }),
+        ],
+      }),
+    ]);
+    expect(ir.abilities[0]?.steps.some(step => step.kind === 'unknown')).toBe(false);
+  });
+
+  it('prunes bare landwalk keyword lines from unknown IR steps', () => {
+    const ir = parseOracleTextToIR('Swampwalk', 'Bog Wraith');
+
+    expect(ir.keywords).toContain('swampwalk');
+    expect(ir.abilities[0]?.steps).toEqual([]);
+  });
+
+  it('prunes landwalk reminder text from unknown IR steps', () => {
+    const ir = parseOracleTextToIR(
+      "Swampwalk (This creature can't be blocked as long as defending player controls a Swamp.)",
+      'Bog Wraith'
+    );
+
+    expect(ir.keywords).toContain('swampwalk');
+    expect(ir.abilities[0]?.steps).toEqual([]);
+  });
+
+  it('prunes comma-separated landwalk keyword bundles from unknown IR steps', () => {
+    const ir = parseOracleTextToIR(
+      'Plainswalk, islandwalk, swampwalk, mountainwalk, forestwalk',
+      'Staff of the Ages'
+    );
+
+    expect(ir.abilities[0]?.steps).toEqual([]);
+  });
+
   it('parses Living weapon keyword lines into a Germ token creation plus attach follow-up', () => {
     const ir = parseOracleTextToIR('Living weapon', 'Flayer Husk');
 
@@ -8738,10 +8842,47 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
     ]);
   });
 
+  it('parses Disguise keyword lines into a turn-face-up step', () => {
+    const ir = parseOracleTextToIR('Disguise {2}{G}', 'Sample Disguise');
+
+    expect(ir.abilities[0]).toMatchObject({
+      type: 'keyword',
+      cost: '{2}{G}',
+      effectText: 'Turn this permanent face up.',
+    });
+    expect(ir.abilities[0]?.steps).toEqual([
+      {
+        kind: 'turn_face_up',
+        target: { kind: 'raw', text: 'this permanent' },
+        raw: 'Turn this permanent face up',
+      },
+    ]);
+  });
+
   it('prunes morph reminder-only pseudo-abilities from full reminder text', () => {
     const ir = parseOracleTextToIR(
       "Morph {3}{U} (You may cast this card face down as a 2/2 creature for {3}. Turn it face up any time for its mana cost if it's a creature card.)",
       'Willbender'
+    );
+
+    expect(ir.abilities).toHaveLength(1);
+    expect(ir.abilities[0]).toMatchObject({
+      type: 'keyword',
+      effectText: 'Turn this permanent face up.',
+    });
+    expect(ir.abilities[0]?.steps).toEqual([
+      {
+        kind: 'turn_face_up',
+        target: { kind: 'raw', text: 'this permanent' },
+        raw: 'Turn this permanent face up',
+      },
+    ]);
+  });
+
+  it('prunes disguise reminder-only pseudo-abilities from full reminder text', () => {
+    const ir = parseOracleTextToIR(
+      'Disguise {2}{U} (You may cast this card face down for {3} as a 2/2 creature with ward {2}. Turn it face up any time for its disguise cost.)',
+      'Sample Disguise'
     );
 
     expect(ir.abilities).toHaveLength(1);
