@@ -109,6 +109,22 @@ export function parseKeywordActionAbility(text: string): ParsedAbility | null {
     };
   }
 
+  if (/^affinity for\s+[^()]+(?:\s*\([^)]*\))?\.?$/i.test(cleaned)) {
+    return {
+      type: AbilityType.STATIC,
+      text,
+      effect: '',
+    };
+  }
+
+  if (/^shroud(?:\s*\([^)]*\))?\.?$/i.test(cleaned)) {
+    return {
+      type: AbilityType.STATIC,
+      text,
+      effect: '',
+    };
+  }
+
   if (/^start your engines!(?:\s*\([^)]*\))?$/i.test(cleaned)) {
     return {
       type: AbilityType.STATIC,

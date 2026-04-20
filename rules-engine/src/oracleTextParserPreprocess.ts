@@ -31,6 +31,7 @@ const CONTINUATION_SENTENCE_PATTERNS = [
   /^then\b/i,
   /^\(/,
   /^you\b/i,
+  /^target\b/i,
   /^if\b/i,
   /^spell mastery\b/i,
   /^choose\b/i,

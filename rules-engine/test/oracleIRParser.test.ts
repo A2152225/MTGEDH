@@ -5401,6 +5401,32 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
     ]);
   });
 
+  it('keeps target continuation text inside activated abilities and prunes own-turn restriction steps', () => {
+    const ir = parseOracleTextToIR(
+      '{T}: Draw two cards. Target opponent gains control of Humble Defector. Activate only during your turn.',
+      'Humble Defector'
+    );
+
+    expect(ir.abilities).toHaveLength(1);
+    expect(ir.abilities[0]).toMatchObject({
+      type: 'activated',
+      cost: '{T}',
+      effectText:
+        'Draw two cards. Target opponent gains control of this permanent. Activate only during your turn.',
+    });
+    expect(ir.abilities[0]?.steps).toEqual([
+      expect.objectContaining({
+        kind: 'draw',
+        who: { kind: 'you' },
+        amount: { kind: 'number', value: 2 },
+      }),
+      expect.objectContaining({
+        kind: 'unknown',
+        raw: 'Target opponent gains control of this permanent',
+      }),
+    ]);
+  });
+
   it('prunes standalone attack-each-combat requirement abilities from Oracle IR', () => {
     const ir = parseOracleTextToIR('This creature attacks each combat if able.', 'Goblin Berserker');
 
@@ -5429,6 +5455,38 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
     ]);
   });
 
+  it('prunes standalone affinity reminder lines from Oracle IR while keeping the keyword', () => {
+    const ir = parseOracleTextToIR(
+      'Affinity for artifacts (This spell costs {1} less to cast for each artifact you control.)',
+      'Somber Hoverguard'
+    );
+
+    expect(ir.keywords).toContain('affinity');
+    expect(ir.abilities).toEqual([
+      expect.objectContaining({
+        type: 'static',
+        effectText: '',
+        steps: [],
+      }),
+    ]);
+  });
+
+  it('prunes standalone shroud reminder lines from Oracle IR while keeping the keyword', () => {
+    const ir = parseOracleTextToIR(
+      'Shroud (This creature can\'t be the target of spells or abilities.)',
+      'Nimble Mongoose'
+    );
+
+    expect(ir.keywords).toContain('shroud');
+    expect(ir.abilities).toEqual([
+      expect.objectContaining({
+        type: 'static',
+        effectText: '',
+        steps: [],
+      }),
+    ]);
+  });
+
   it('prunes long convoke reminder text from full card text while keeping the spell effect', () => {
     const ir = parseOracleTextToIR(
       'Convoke (Your creatures can help cast this spell. Each creature you tap while casting this spell pays for {1} or one mana of that creature\'s color.)\nCreate X 1/1 white Soldier creature tokens with lifelink.',
@@ -5446,6 +5504,23 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
             amount: { kind: 'x' },
           }),
         ],
+      }),
+    ]);
+  });
+
+  it('folds impulse cleanup tails into the impulse step for play-this-turn effects', () => {
+    const ir = parseOracleTextToIR(
+      'Exile the top three cards of your library. Until end of turn, you may play those cards. Put the exiled cards on the bottom of your library in a random order.',
+      'Test Card'
+    );
+
+    expect(ir.abilities[0]?.steps).toEqual([
+      expect.objectContaining({
+        kind: 'impulse_exile_top',
+        amount: { kind: 'number', value: 3 },
+        duration: 'this_turn',
+        permission: 'play',
+        raw: expect.stringContaining('Put the exiled cards on the bottom of your library in a random order'),
       }),
     ]);
   });
@@ -8588,10 +8663,11 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
           },
           duration: 'during_resolution',
           permission: 'cast',
+          raw: expect.stringContaining('Put the exiled cards on the bottom of your library in a random order'),
         }),
       ])
     );
-    expect(ir.abilities[0]?.steps.some(step => step.kind === 'unknown')).toBe(true);
+    expect(ir.abilities[0]?.steps.some(step => step.kind === 'unknown')).toBe(false);
   });
 
   it('prunes leading flip-a-coin stubs when the win branch is already parsed', () => {

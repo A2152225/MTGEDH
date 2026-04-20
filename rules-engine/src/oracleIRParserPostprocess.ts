@@ -5571,6 +5571,7 @@ function isRedundantActivationRestrictionUnknownStep(step: OracleEffectStep): bo
 
   return (
     /^activate only as a sorcery$/i.test(normalized) ||
+    /^activate only during your turn$/i.test(normalized) ||
     /^activate(?: this ability)? only once(?: each turn)?$/i.test(normalized)
   );
 }
@@ -5593,11 +5594,13 @@ function isRedundantImpulseCleanupUnknownStep(step: OracleEffectStep): boolean {
   if (!normalized) return false;
 
   return (
-    (/\bput\s+the\s+exiled\s+cards\b/.test(normalized) &&
-      /\bon\s+the\s+bottom\s+of\s+(?:that|their|your)\s+library\b/.test(normalized)) ||
-    (/\bput\s+all\s+cards\s+exiled\b/.test(normalized) &&
-      /\bon\s+the\s+bottom\s+of\s+their\s+library\b/.test(normalized)) ||
-    /\bshuffles\s+the\s+rest\s+into\s+their\s+library\b/.test(normalized)
+    (/\bput\s+the\s+exiled\s+cards\b/i.test(normalized) &&
+      /\bon\s+the\s+bottom\s+of\s+(?:that|their|your)\s+library\b/i.test(normalized)) ||
+    (/\bput\s+the\s+exiled\s+card\b/i.test(normalized) &&
+      /\bon\s+the\s+bottom\s+of\s+(?:that|their|your)\s+library\b/i.test(normalized)) ||
+    (/\bput\s+all\s+cards\s+exiled\b/i.test(normalized) &&
+      /\bon\s+the\s+bottom\s+of\s+their\s+library\b/i.test(normalized)) ||
+    /\bshuffles\s+the\s+rest\s+into\s+their\s+library\b/i.test(normalized)
   );
 }
 
@@ -5610,14 +5613,18 @@ export function pruneRedundantImpulseCleanupUnknownAbilities(
 
     for (const step of ability.steps) {
       const previous = nextSteps[nextSteps.length - 1];
-      if (
-        previous?.kind === 'impulse_exile_top' &&
-        previous.duration === 'during_resolution' &&
-        previous.permission === 'cast' &&
-        previous.amount?.kind === 'unknown' &&
-        isRedundantImpulseCleanupUnknownStep(step)
-      ) {
+      if (previous?.kind === 'impulse_exile_top' && isRedundantImpulseCleanupUnknownStep(step)) {
         changed = true;
+        const previousRaw = normalizeOracleText(String(previous.raw || ''))
+          .replace(/[.]+$/g, '')
+          .trim();
+        const cleanupRaw = normalizeOracleText(String(step.raw || ''))
+          .replace(/[.]+$/g, '')
+          .trim();
+        nextSteps[nextSteps.length - 1] = {
+          ...previous,
+          raw: `${previousRaw}. ${cleanupRaw}`.trim(),
+        };
         continue;
       }
 

@@ -61,6 +61,32 @@ describe('Oracle Text Parser', () => {
     });
   });
 
+  it('parses affinity reminder text as a non-executable static keyword line', () => {
+    const result = parseOracleText(
+      'Affinity for artifacts (This spell costs {1} less to cast for each artifact you control.)'
+    );
+
+    expect(result.abilities).toHaveLength(1);
+    expect(result.abilities[0]).toMatchObject({
+      type: AbilityType.STATIC,
+      effect: '',
+    });
+    expect(result.keywords).toContain('affinity');
+  });
+
+  it('parses shroud reminder text as a non-executable static keyword line', () => {
+    const result = parseOracleText(
+      'Shroud (This creature can\'t be the target of spells or abilities.)'
+    );
+
+    expect(result.abilities).toHaveLength(1);
+    expect(result.abilities[0]).toMatchObject({
+      type: AbilityType.STATIC,
+      effect: '',
+    });
+    expect(result.keywords).toContain('shroud');
+  });
+
   it('parses start-your-engines reminder text as a non-executable static keyword line', () => {
     const result = parseOracleText(
       'Start your engines! (If you have no speed, it starts at 1. It can increase once on each of your turns when an opponent loses life and decreases only if you lose life. Max speed is 4.)'
@@ -1517,6 +1543,17 @@ describe('Oracle Text Parser', () => {
       expect(activatedAbilities.length).toBeGreaterThanOrEqual(1);
       expect(activatedAbilities[0].effect).toContain('Draw a card');
       expect(activatedAbilities[0].effect).toContain('Activate only as a sorcery');
+    });
+
+    it('should merge ". Target" continuation sentences into activated abilities', () => {
+      const text = '{T}: Draw two cards. Target opponent gains control of Humble Defector. Activate only during your turn.';
+      const result = parseOracleText(text, 'Humble Defector');
+
+      const activatedAbilities = result.abilities.filter(a => a.type === AbilityType.ACTIVATED);
+      expect(activatedAbilities).toHaveLength(1);
+      expect(activatedAbilities[0].effect).toContain('Draw two cards');
+      expect(activatedAbilities[0].effect).toContain('Target opponent gains control of this permanent');
+      expect(activatedAbilities[0].effect).toContain('Activate only during your turn');
     });
 
     it('should NOT merge triggered abilities starting with "When"', () => {
