@@ -49,6 +49,7 @@ export function parseQuantity(raw: string | undefined): OracleQuantity {
   if (!raw) return { kind: 'unknown' };
   const trimmed = raw.trim();
   if (!trimmed) return { kind: 'unknown' };
+  if (/^that (much|many)$/i.test(trimmed)) return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
   if (/^x$/i.test(trimmed)) return { kind: 'x' };
   if (/^(a|an)$/i.test(trimmed)) return { kind: 'number', value: 1 };
   if (/^\d+$/.test(trimmed)) return { kind: 'number', value: parseInt(trimmed, 10) };

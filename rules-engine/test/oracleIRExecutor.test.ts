@@ -20932,6 +20932,76 @@ describe('Oracle IR Executor', () => {
     expect((p1?.hand || [])).toHaveLength(3);
   });
 
+  it('applies standalone reveal-top steps without producing automation gaps', () => {
+    const ir = parseOracleTextToIR('Reveal the top card of your library.', 'Reveal Probe');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'top-card', name: 'Forest', type_line: 'Land' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        },
+      ] as any,
+      battlefield: [],
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceName: 'Reveal Probe',
+    });
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+
+    expect(result.appliedSteps.some(step => step.kind === 'reveal_top')).toBe(true);
+    expect(result.automationGaps).toEqual([]);
+    expect((p1?.library || []).map((card: any) => card.name)).toEqual(['Forest']);
+  });
+
+  it('applies reveal-top creature-card conditionals by moving the revealed top card onto the battlefield', () => {
+    const ir = parseOracleTextToIR(
+      "Reveal the top card of your library. If it's a creature card, put it onto the battlefield.",
+      'Reveal Creature Probe'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [
+            { id: 'top-creature', name: 'Grizzly Bears', type_line: 'Creature — Bear', power: '2', toughness: '2' },
+          ],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        },
+      ] as any,
+      battlefield: [],
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceName: 'Reveal Creature Probe',
+    });
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    const battlefield = (result.state.battlefield || []) as any[];
+
+    expect(result.appliedSteps.some(step => step.kind === 'reveal_top')).toBe(true);
+    expect(result.appliedSteps.some(step => step.kind === 'move_zone')).toBe(true);
+    expect((p1?.library || [])).toEqual([]);
+    expect(battlefield.some(perm => String(perm?.card?.name || perm?.name || '') === 'Grizzly Bears')).toBe(true);
+    expect(result.automationGaps).toEqual([]);
+  });
+
   it('applies coin-flip conditional sacrifice wrappers when the runtime context says the flip was won', () => {
     const ir = parseOracleTextToIR(
       'Flip a coin. If you win the flip, sacrifice this artifact and draw three cards.',
@@ -37861,6 +37931,44 @@ This creature has protection from each of the exiled card's card types. (Artifac
     expect(permanent?.tapped).toBe(false);
   });
 
+  it('applies tap enchanted creature clauses through the source aura attachment', () => {
+    const ir = parseOracleTextToIR('Tap enchanted creature.', 'Waterknot');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      battlefield: [
+        {
+          id: 'enchanted-creature',
+          controller: 'p2',
+          owner: 'p2',
+          tapped: false,
+          card: { id: 'enchanted-creature-card', name: 'Runeclaw Bear', type_line: 'Creature - Bear', power: '2', toughness: '2' },
+          counters: {},
+          attachments: ['waterknot-aura'],
+        } as any,
+        {
+          id: 'waterknot-aura',
+          controller: 'p1',
+          owner: 'p1',
+          tapped: false,
+          attachedTo: 'enchanted-creature',
+          card: { id: 'waterknot-card', name: 'Waterknot', type_line: 'Enchantment - Aura' },
+          counters: {},
+        } as any,
+      ],
+    } as any);
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceId: 'waterknot-aura',
+      sourceName: 'Waterknot',
+    });
+
+    const permanent = ((result.state as any).battlefield || []).find((perm: any) => perm.id === 'enchanted-creature') as any;
+    expect(result.appliedSteps.some(s => s.kind === 'tap_or_untap')).toBe(true);
+    expect(permanent?.tapped).toBe(true);
+  });
+
   it('buildOracleIRExecutionContext maps spellType hint into referenceSpellTypes', () => {
     const ctx = buildOracleIRExecutionContext(
       { controllerId: 'p1' as any },
@@ -45472,6 +45580,99 @@ This creature has protection from each of the exiled card's card types. (Artifac
     expect(result.log.some(line => line.includes('shuffled their library'))).toBe(true);
   });
 
+  it('applies reveal-shuffle tutors that put the found card on top of the library', () => {
+    const randomSpy = vi.spyOn(Math, 'random').mockReturnValue(0.6);
+    try {
+      const ir = parseOracleTextToIR(
+        'Search your library for a Merfolk card, reveal it, then shuffle and put that card on top.',
+        'Merrow Harbinger'
+      );
+      const steps = ir.abilities[0]?.steps ?? [];
+
+      const result = applyOracleIRStepsToGameState(
+        makeState({
+          players: [
+            {
+              id: 'p1',
+              name: 'P1',
+              seat: 0,
+              life: 40,
+              hand: [],
+              graveyard: [],
+              library: [
+                { id: 'merfolk', name: 'Vodalian Hexcatcher', type_line: 'Creature - Merfolk Wizard' },
+                { id: 'island', name: 'Island', type_line: 'Basic Land - Island' },
+                { id: 'spell', name: 'Opt', type_line: 'Instant', mana_cost: '{U}', cmc: 1 },
+              ],
+              exile: [],
+            } as any,
+          ],
+        } as any),
+        steps,
+        {
+          controllerId: 'p1',
+          sourceId: 'merrow-harbinger',
+          sourceName: 'Merrow Harbinger',
+        },
+        { allowOptional: true }
+      );
+
+      const player = result.state.players.find(p => p.id === 'p1') as any;
+      expect(result.appliedSteps.map(step => step.kind)).toEqual(['search_library']);
+      expect((player.library || []).map((card: any) => card.id)[0]).toBe('merfolk');
+      expect(result.log.some(line => line.includes('revealed Vodalian Hexcatcher'))).toBe(true);
+      expect(result.log.some(line => line.includes('shuffled their library'))).toBe(true);
+    } finally {
+      randomSpy.mockRestore();
+    }
+  });
+
+  it('applies non-reveal shuffle tutors that put the found card on top of the library', () => {
+    const randomSpy = vi.spyOn(Math, 'random').mockReturnValue(0.6);
+    try {
+      const ir = parseOracleTextToIR(
+        'Search your library for a card, then shuffle and put that card on top.',
+        'Imperial Seal'
+      );
+      const steps = ir.abilities[0]?.steps ?? [];
+
+      const result = applyOracleIRStepsToGameState(
+        makeState({
+          players: [
+            {
+              id: 'p1',
+              name: 'P1',
+              seat: 0,
+              life: 40,
+              hand: [],
+              graveyard: [],
+              library: [
+                { id: 'seal-1', name: 'Demonic Tutor', type_line: 'Sorcery', mana_value: 2 },
+                { id: 'seal-2', name: 'Island', type_line: 'Basic Land - Island' },
+                { id: 'seal-3', name: 'Opt', type_line: 'Instant', mana_value: 1 },
+              ],
+              exile: [],
+            } as any,
+          ],
+        } as any),
+        steps,
+        {
+          controllerId: 'p1',
+          sourceId: 'imperial-seal',
+          sourceName: 'Imperial Seal',
+        },
+        { allowOptional: true }
+      );
+
+      const player = result.state.players.find(p => p.id === 'p1') as any;
+      expect(result.appliedSteps.map(step => step.kind)).toEqual(['search_library']);
+      expect((player.library || []).map((card: any) => card.id)[0]).toBe('seal-1');
+      expect(result.log.some(line => line.includes('shuffled their library'))).toBe(true);
+    } finally {
+      randomSpy.mockRestore();
+    }
+  });
+
   it('applies standalone shuffle_library steps by shuffling the controller library', () => {
     const randomSpy = vi.spyOn(Math, 'random').mockReturnValue(0.6);
     try {
@@ -50890,6 +51091,88 @@ This creature has protection from each of the exiled card's card types. (Artifac
     );
   });
 
+  it('applies top-of-library hand selection with bottom-any-order by preserving the remaining card order', () => {
+    const ir = parseOracleTextToIR(
+      'When Courageous Outrider enters the battlefield, look at the top four cards of your library. You may reveal a Human card from among them and put it into your hand. Put the rest on the bottom of your library in any order.',
+      'Courageous Outrider'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [
+            { id: 'outrider-1', name: 'Town Gossipmonger', type_line: 'Creature - Human Scout' },
+            { id: 'outrider-2', name: 'Island', type_line: 'Basic Land - Island' },
+            { id: 'outrider-3', name: 'Opt', type_line: 'Instant', mana_value: 1 },
+            { id: 'outrider-4', name: 'Forest', type_line: 'Basic Land - Forest' },
+            { id: 'outrider-5', name: 'Mountain', type_line: 'Basic Land - Mountain' },
+          ],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+      battlefield: [],
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceName: 'Courageous Outrider',
+    }, {
+      allowOptional: true,
+    });
+
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+
+    expect(result.appliedSteps.map(step => step.kind)).toEqual(['look_choose_from_top']);
+    expect((p1.hand || []).map((entry: any) => entry.id)).toEqual(['outrider-1']);
+    expect((p1.library || []).map((entry: any) => entry.id)).toEqual([
+      'outrider-5',
+      'outrider-2',
+      'outrider-3',
+      'outrider-4',
+    ]);
+    expect(result.log.some(line => line.includes('in any order'))).toBe(true);
+  });
+
+  it('applies standalone d20 rolls by recording the deterministic result', () => {
+    const ir = parseOracleTextToIR('When this creature enters the battlefield, roll a d20.', 'Delina, Wild Mage');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const result = applyOracleIRStepsToGameState(
+      makeState({
+        players: [
+          {
+            id: 'p1',
+            name: 'P1',
+            seat: 0,
+            life: 40,
+            library: [],
+            hand: [],
+            graveyard: [],
+            exile: [],
+          } as any,
+        ],
+        battlefield: [],
+      }),
+      steps,
+      {
+        controllerId: 'p1',
+        sourceName: 'Delina, Wild Mage',
+        dieRollResult: 17,
+      }
+    );
+
+    expect(result.appliedSteps.map(step => step.kind)).toEqual(['roll_die']);
+    expect((result.state as any).lastDieRoll?.result).toBe(17);
+    expect(result.log.some(line => line.includes('rolled d20: 17'))).toBe(true);
+  });
+
   it('applies Corpse Appraiser by gating the look-select-top follow-up on a successful graveyard exile', () => {
     const ir = parseOracleTextToIR(
       'When this creature enters, exile up to one target creature card from a graveyard. If a card is put into exile this way, look at the top three cards of your library, then put one of those cards into your hand and the rest into your graveyard.',
@@ -51454,6 +51737,353 @@ This creature has protection from each of the exiled card's card types. (Artifac
 
     expect(result.appliedSteps.map(step => step.kind)).toEqual(['move_zone', 'create_token']);
     expect((result.state.battlefield || []).some((perm: any) => perm.card?.name === 'Food')).toBe(true);
+  });
+
+  it('applies reference-amount life gain from trigger damage event data', () => {
+    const abilities = parseTriggeredAbilitiesFromText(
+      'Whenever this creature deals damage, you gain that much life.',
+      'mourning-thrull',
+      'p1',
+      'Mourning Thrull'
+    );
+    const ability = abilities[0];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+    } as any);
+
+    const result = executeTriggeredAbilityEffectWithOracleIR(start, ability, {
+      sourceId: 'mourning-thrull',
+      sourceControllerId: 'p1',
+      damageDealt: 3,
+    });
+
+    expect((result.state.players.find((player: any) => player.id === 'p1') as any)?.life).toBe(43);
+    expect(result.appliedSteps.map(step => step.kind)).toEqual(['gain_life']);
+  });
+
+  it('applies reference-amount life gain from trigger life-gained event data', () => {
+    const abilities = parseTriggeredAbilitiesFromText(
+      'Whenever an opponent gains life during their turn, you gain that much life.',
+      'wedding-ring',
+      'p1',
+      'Wedding Ring'
+    );
+    const ability = abilities[0];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+    } as any);
+
+    const result = executeTriggeredAbilityEffectWithOracleIR(start, ability, {
+      sourceId: 'wedding-ring',
+      sourceControllerId: 'p1',
+      targetOpponentId: 'p2',
+      lifeGained: 5,
+    });
+
+    expect((result.state.players.find((player: any) => player.id === 'p1') as any)?.life).toBe(45);
+    expect(result.appliedSteps.map(step => step.kind)).toEqual(['gain_life']);
+  });
+
+  it('applies reference-amount damage from the immediately previous counted step', () => {
+    const steps = [
+      {
+        kind: 'remove_counter',
+        amount: { kind: 'number', value: 3 },
+        counter: 'charge',
+        target: { kind: 'raw', text: 'this artifact' },
+        raw: 'Remove three charge counters from this artifact',
+      },
+      {
+        kind: 'deal_damage',
+        amount: { kind: 'reference_amount', raw: 'that much' },
+        source: { kind: 'raw', text: 'it' },
+        target: { kind: 'raw', text: 'target opponent' },
+        raw: 'It deals that much damage to target opponent',
+      },
+    ] as any;
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+      battlefield: [
+        {
+          id: 'reservoir-1',
+          owner: 'p1',
+          controller: 'p1',
+          tapped: false,
+          counters: { charge: 5 },
+          attachments: [],
+          modifiers: [],
+          card: {
+            id: 'reservoir-card',
+            name: 'Geistflame Reservoir',
+            type_line: 'Artifact',
+            oracle_text: '{1}{R}, {T}, Remove any number of charge counters from this artifact: It deals that much damage to any target.',
+          },
+        } as any,
+      ],
+    } as any);
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceId: 'reservoir-1',
+      sourceName: 'Geistflame Reservoir',
+      selectorContext: {
+        targetOpponentId: 'p2',
+      },
+    });
+
+    const reservoir = (result.state.battlefield || []).find((perm: any) => perm.id === 'reservoir-1') as any;
+    const p2 = result.state.players.find((player: any) => player.id === 'p2') as any;
+
+    expect(result.appliedSteps.map(step => step.kind)).toEqual(['remove_counter', 'deal_damage']);
+    expect(reservoir?.counters).toEqual({ charge: 2 });
+    expect(p2?.life).toBe(37);
+  });
+
+  it('applies reference-amount token creation from trigger damage event data', () => {
+    const abilities = parseTriggeredAbilitiesFromText(
+      'Whenever this creature deals combat damage to a player, create that many 1/1 green Insect creature tokens.',
+      'living-hive',
+      'p1',
+      'Living Hive'
+    );
+    const ability = abilities[0];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+      battlefield: [],
+    } as any);
+
+    const result = executeTriggeredAbilityEffectWithOracleIR(start, ability, {
+      sourceId: 'living-hive',
+      sourceControllerId: 'p1',
+      damageDealt: 4,
+      targetOpponentId: 'p2',
+    });
+
+    expect(result.appliedSteps.map(step => step.kind)).toEqual(['create_token']);
+    expect((result.state.battlefield || []).filter((perm: any) => perm.controller === 'p1')).toHaveLength(4);
+    expect((result.state.battlefield || []).every((perm: any) => perm.card?.name === 'Insect')).toBe(true);
+  });
+
+  it('applies reference-amount token creation from the immediately previous counted step', () => {
+    const steps = [
+      {
+        kind: 'remove_counter',
+        amount: { kind: 'number', value: 3 },
+        counter: 'charge',
+        target: { kind: 'raw', text: 'this artifact' },
+        raw: 'Remove three charge counters from this artifact',
+      },
+      {
+        kind: 'create_token',
+        who: { kind: 'you' },
+        amount: { kind: 'reference_amount', raw: 'that many' },
+        token: 'Blood',
+        raw: 'Create that many Blood tokens',
+      },
+    ] as any;
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+      battlefield: [
+        {
+          id: 'artifact-1',
+          owner: 'p1',
+          controller: 'p1',
+          tapped: false,
+          counters: { charge: 5 },
+          attachments: [],
+          modifiers: [],
+          card: {
+            id: 'artifact-card',
+            name: 'Reference Engine',
+            type_line: 'Artifact',
+            oracle_text: 'Remove three charge counters from this artifact: Create that many Blood tokens.',
+          },
+        } as any,
+      ],
+    } as any);
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceId: 'artifact-1',
+      sourceName: 'Reference Engine',
+    });
+
+    const artifact = (result.state.battlefield || []).find((perm: any) => perm.id === 'artifact-1') as any;
+    const bloodTokens = (result.state.battlefield || []).filter((perm: any) => perm.controller === 'p1' && perm.id !== 'artifact-1');
+
+    expect(result.appliedSteps.map(step => step.kind)).toEqual(['remove_counter', 'create_token']);
+    expect(artifact?.counters).toEqual({ charge: 2 });
+    expect(bloodTokens).toHaveLength(3);
+    expect(bloodTokens.every((perm: any) => perm.card?.name === 'Blood')).toBe(true);
+  });
+
+  it('applies reference-amount draw from the immediately previous counted step', () => {
+    const steps = [
+      {
+        kind: 'remove_counter',
+        amount: { kind: 'number', value: 3 },
+        counter: 'charge',
+        target: { kind: 'raw', text: 'this artifact' },
+        raw: 'Remove three charge counters from this artifact',
+      },
+      {
+        kind: 'draw',
+        who: { kind: 'you' },
+        amount: { kind: 'reference_amount', raw: 'that many' },
+        raw: 'Draw that many cards',
+      },
+    ] as any;
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [
+            { id: 'card-1', name: 'A' },
+            { id: 'card-2', name: 'B' },
+            { id: 'card-3', name: 'C' },
+            { id: 'card-4', name: 'D' },
+          ],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+      battlefield: [
+        {
+          id: 'artifact-1',
+          owner: 'p1',
+          controller: 'p1',
+          tapped: false,
+          counters: { charge: 5 },
+          attachments: [],
+          modifiers: [],
+          card: {
+            id: 'artifact-card',
+            name: 'Reference Engine',
+            type_line: 'Artifact',
+            oracle_text: 'Remove three charge counters from this artifact: Draw that many cards.',
+          },
+        } as any,
+      ],
+    } as any);
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceId: 'artifact-1',
+      sourceName: 'Reference Engine',
+    });
+
+    const player = result.state.players.find((candidate: any) => candidate.id === 'p1') as any;
+    const artifact = (result.state.battlefield || []).find((perm: any) => perm.id === 'artifact-1') as any;
+
+    expect(result.appliedSteps.map(step => step.kind)).toEqual(['remove_counter', 'draw']);
+    expect(artifact?.counters).toEqual({ charge: 2 });
+    expect(player?.hand).toHaveLength(3);
+    expect(player?.library).toHaveLength(1);
   });
 
 });

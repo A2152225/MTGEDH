@@ -3,6 +3,8 @@ import { normalizeOracleText, parseObjectSelector, parsePlayerSelector, parseQua
 
 type WithMeta = <T extends OracleEffectStep>(step: T) => T;
 
+const TOKEN_AMOUNT_PATTERN = '(?:that many|that much|a|an|\\d+|x|[a-z]+)';
+
 const PLAYER_SUBJECT_PREFIX =
   "(?:(you|each player|each opponent|each of those opponents|target player|target opponent|that player|that opponent|defending player|the defending player|he or she|they|its controller|its owner|that [a-z0-9][a-z0-9 ,.'’-]*?(?:'s|’s)? (?:controller|owner))\\s+)?";
 
@@ -46,7 +48,7 @@ function buildSimpleCreateTokenLeadPattern(): RegExp {
   const playerSubjectPrefixNoCapture =
     "(?:(?:you|each player|each opponent|each of those opponents|target player|target opponent|that player|that opponent|defending player|the defending player|he or she|they|its controller|its owner|that [a-z0-9][a-z0-9 ,.'â€™-]*?(?:'s|â€™s)? (?:controller|owner))\\s+)?";
   return new RegExp(
-    `^(${playerSubjectPrefixNoCapture}create(?:s)?\\s+(?:a|an|\\d+|x|[a-z]+)\\s+(?:tapped\\s+)?(?:.+?)\\s+(?:creature\\s+)?token(?:s)?(?:\\s+tapped\\b)?(?:\\s+with\\s+[^,.]+?\\s+counters?\\s+on\\s+(?:it|them))?(?:\\s+attached\\s+to\\s+(?:it|that creature))?)\\s+and\\s+(.+)$`,
+    `^(${playerSubjectPrefixNoCapture}create(?:s)?\\s+${TOKEN_AMOUNT_PATTERN}\\s+(?:tapped\\s+)?(?:.+?)\\s+(?:creature\\s+)?token(?:s)?(?:\\s+tapped\\b)?(?:\\s+with\\s+[^,.]+?\\s+counters?\\s+on\\s+(?:it|them))?(?:\\s+attached\\s+to\\s+(?:it|that creature))?)\\s+and\\s+(.+)$`,
     'i'
   );
 }
@@ -60,7 +62,7 @@ export function tryParseSimpleCreateTokenClause(args: {
 
   const createCopy = clause.match(
     new RegExp(
-      `^${PLAYER_SUBJECT_PREFIX}create(?:s)?\\s+(a|an|\\d+|x|[a-z]+)\\s+token(?:s)?\\s+that(?:'s| are)\\s+(?:a\\s+copy|copies)\\s+of\\s+(.+)$`,
+      `^${PLAYER_SUBJECT_PREFIX}create(?:s)?\\s+(${TOKEN_AMOUNT_PATTERN})\\s+token(?:s)?\\s+that(?:'s| are)\\s+(?:a\\s+copy|copies)\\s+of\\s+(.+)$`,
       'i'
     )
   );
@@ -87,7 +89,7 @@ export function tryParseSimpleCreateTokenClause(args: {
 
   const create = clause.match(
     new RegExp(
-      `^${PLAYER_SUBJECT_PREFIX}create(?:s)?\\s+(a|an|\\d+|x|[a-z]+)\\s+(tapped\\s+)?(.+?)\\s+(?:creature\\s+)?token(?:s)?\\b`,
+      `^${PLAYER_SUBJECT_PREFIX}create(?:s)?\\s+(${TOKEN_AMOUNT_PATTERN})\\s+(tapped\\s+)?(.+?)\\s+(?:creature\\s+)?token(?:s)?\\b`,
       'i'
     )
   );
@@ -114,7 +116,7 @@ export function tryParseSimpleCreateTokenClause(args: {
     });
   }
 
-  const createDefault = clause.match(/^create(?:s)?\s+(a|an|\d+|x|[a-z]+)\s+(tapped\s+)?(.+?)\s+(?:creature\s+)?token(?:s)?\b/i);
+  const createDefault = clause.match(new RegExp(`^create(?:s)?\\s+(${TOKEN_AMOUNT_PATTERN})\\s+(tapped\\s+)?(.+?)\\s+(?:creature\\s+)?token(?:s)?\\b`, 'i'));
   if (createDefault) {
     const entersTapped = Boolean(createDefault[2]) || /\btoken(?:s)?\s+tapped\b/i.test(clause);
     const withCounters = parseWithCountersFromClause(clause);

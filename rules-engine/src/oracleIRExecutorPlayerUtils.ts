@@ -235,6 +235,10 @@ export function deriveWinningVoteChoice(
 
 export function quantityToNumber(qty: OracleQuantity, ctx?: OracleIRExecutionContext): number | null {
   if (qty.kind === 'number') return qty.value;
+  if (qty.kind === 'reference_amount') {
+    const referenceAmount = Number(ctx?.referenceAmount);
+    return Number.isFinite(referenceAmount) ? Math.max(0, referenceAmount) : null;
+  }
   if (qty.kind === 'votes_for_choice') {
     const voteCount = getVoteCountForChoice(ctx, qty.choice);
     if (voteCount === null) return null;

@@ -41,6 +41,7 @@ type StepApplyResult = {
   readonly applied: true;
   readonly state: GameState;
   readonly log: readonly string[];
+  readonly count?: number;
   readonly lastSacrificedCreaturesPowerTotal?: number;
   readonly lastSacrificedPermanents?: readonly LastKnownPermanentSnapshot[];
   readonly lastMovedCards?: readonly any[];
@@ -2212,6 +2213,7 @@ export function applyRemoveCounterStep(
         ...(state as any),
         battlefield: nextBattlefield,
       } as GameState,
+      count: amountValue,
       log: [`Removed ${amountValue} ${counterName} counter(s)`],
     };
   }
@@ -2282,6 +2284,7 @@ export function applyRemoveCounterStep(
       ...(state as any),
       players: nextPlayers as any,
     } as GameState,
+    count: amountValue,
     log: [`Removed ${amountValue} ${counterName} counter(s)`],
   };
 }

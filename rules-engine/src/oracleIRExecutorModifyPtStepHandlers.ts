@@ -23,6 +23,7 @@ export type ModifyPtRuntime = {
   readonly lastExcessDamageDealtThisWay?: number;
   readonly lastScryLookedAtCount?: number;
   readonly lastTappedMatchingPermanentCount?: number;
+  readonly lastReferenceAmount?: number;
 };
 
 type StepApplyResult = {

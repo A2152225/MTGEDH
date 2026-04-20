@@ -5,7 +5,7 @@ const ORACLE_KEYWORDS = [
   'cipher', 'cleave', 'companion', 'compleated', 'conjure', 'connive', 'conspire', 'convoke',
   'corrupted', 'crew', 'cumulative upkeep', 'cycling', 'dash', 'daybound', 'deathtouch',
   'decayed', 'defender', 'delve', 'demonstrate', 'descend', 'detain', 'devotion', 'devour',
-  'discover', 'disguise', 'disappear', 'disturb', 'domain', 'double strike', 'dredge', 'echo', 'embalm',
+  'discover', 'disguise', 'disappear', 'disturb', 'doctor\'s companion', 'domain', 'double strike', 'dredge', 'echo', 'embalm',
   'emerge', 'enchant', 'encore', 'enlist', 'enrage', 'entwine', 'equip', 'escalate', 'escape',
   'eternalize', 'evoke', 'evolve', 'exalted', 'exploit', 'explore', 'extort', 'fabricate',
   'fading', 'fear', 'ferocious', 'fight', 'first strike', 'flanking', 'flash', 'flashback',
@@ -25,6 +25,7 @@ const ORACLE_KEYWORDS = [
   'support', 'surge', 'surveil', 'suspend', 'swampcycling', 'swampwalk', 'threshold', 'totem armor',
   'trample', 'training', 'transfigure', 'transform', 'transmute', 'treasure', 'tribute', 'undaunted',
   'undergrowth', 'undying', 'unearth', 'unleash', 'vanishing', 'vigilance', 'ward', 'wither',
+  'warp',
 ] as const;
 
 export function isManaProducingAbility(effectText: string): boolean {

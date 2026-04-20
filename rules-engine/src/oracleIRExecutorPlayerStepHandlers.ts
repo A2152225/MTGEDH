@@ -41,6 +41,8 @@ type StepApplyResult = {
   readonly applied: true;
   readonly state: GameState;
   readonly log: readonly string[];
+  readonly count?: number;
+  readonly lastTopLibraryOwnerId?: PlayerID;
   readonly lastClashWon?: boolean;
   readonly lastCollectedEvidence?: boolean;
   readonly lastVisitedAttractions?: readonly any[];
@@ -1253,7 +1255,7 @@ function getSearchLibraryMatches(
   }
 
   const normalizedText = normalizeOracleText(criteria.text);
-  if (!normalizedText) return null;
+  if (!normalizedText || normalizedText === 'card' || normalizedText === 'cards') return cards;
 
   const sameManaValueMatch = normalizedText.match(/^((?:[a-z' -]+?)\s+)?card with the same mana value as this(?: card)?$/i);
   if (sameManaValueMatch) {
@@ -1819,6 +1821,10 @@ function resolveVariableAmount(
 ): number | null {
   const numericAmount = quantityToNumber(amount, ctx);
   if (numericAmount !== null) return numericAmount;
+  if (amount.kind === 'reference_amount') {
+    const runtimeAmount = Number(runtime?.lastReferenceAmount);
+    return Number.isFinite(runtimeAmount) ? Math.max(0, runtimeAmount) : null;
+  }
   if (amount.kind !== 'unknown' || !evaluateWhereX) return null;
 
   const raw = String(amount.raw || '').trim().replace(/^equal to\s+/i, '').trim();
@@ -2405,6 +2411,96 @@ export function applyLookSelectTopStep(
   };
 }
 
+export function applyLookTopStep(
+  state: GameState,
+  step: Extract<OracleEffectStep, { kind: 'look_top' }>,
+  ctx: OracleIRExecutionContext
+): PlayerStepHandlerResult {
+  const amount = quantityToNumber(step.amount, ctx);
+  if (amount === null) {
+    return {
+      applied: false,
+      message: `Skipped look-top (unknown amount): ${step.raw}`,
+      reason: 'unknown_amount',
+      options: { classification: 'ambiguous' },
+    };
+  }
+
+  const players = resolvePlayers(state, step.who, ctx);
+  if (players.length === 0) {
+    return {
+      applied: false,
+      message: `Skipped look-top (unsupported player selector): ${step.raw}`,
+      reason: 'unsupported_player_selector',
+    };
+  }
+
+  const log: string[] = [];
+  for (const playerId of players) {
+    const player = state.players.find(entry => entry.id === playerId) as any;
+    const libraryCount = Array.isArray(player?.library) ? player.library.length : 0;
+    const looked = Math.max(0, Math.min(libraryCount, amount | 0));
+    log.push(`${playerId} looks at the top ${looked} card(s) of their library`);
+  }
+
+  return {
+    applied: true,
+    state,
+    log,
+    ...(players.length === 1 ? { lastTopLibraryOwnerId: players[0] } : {}),
+  };
+}
+
+export function applyRevealTopStep(
+  state: GameState,
+  step: Extract<OracleEffectStep, { kind: 'reveal_top' }>,
+  ctx: OracleIRExecutionContext
+): PlayerStepHandlerResult {
+  const amount = quantityToNumber(step.amount, ctx);
+  if (amount === null) {
+    return {
+      applied: false,
+      message: `Skipped reveal-top (unknown amount): ${step.raw}`,
+      reason: 'unknown_amount',
+      options: { classification: 'ambiguous' },
+    };
+  }
+
+  const players = resolvePlayers(state, step.who, ctx);
+  if (players.length === 0) {
+    return {
+      applied: false,
+      message: `Skipped reveal-top (unsupported player selector): ${step.raw}`,
+      reason: 'unsupported_player_selector',
+    };
+  }
+
+  const log: string[] = [];
+  let totalRevealed = 0;
+  for (const playerId of players) {
+    const player = state.players.find(entry => entry.id === playerId) as any;
+    const library = Array.isArray(player?.library) ? player.library : [];
+    const revealedCount = Math.max(0, Math.min(library.length, amount | 0));
+    totalRevealed += revealedCount;
+    const revealedNames = library
+      .slice(0, revealedCount)
+      .map((card: any) => String(card?.name || 'unknown card').trim() || 'unknown card');
+    log.push(
+      revealedCount > 0
+        ? `${playerId} reveals ${revealedNames.join(', ')}`
+        : `${playerId} reveals no cards from the top of their library`
+    );
+  }
+
+  return {
+    applied: true,
+    state,
+    log,
+    lastRevealedCardCount: totalRevealed,
+    ...(players.length === 1 ? { lastTopLibraryOwnerId: players[0] } : {}),
+  };
+}
+
 export function applyLookChooseFromTopStep(
   state: GameState,
   step: Extract<OracleEffectStep, { kind: 'look_choose_from_top' }>,
@@ -2460,12 +2556,12 @@ export function applyLookChooseFromTopStep(
       }
     }
 
-    const randomizedRest = shuffleArray(lookedCards);
+    const bottomedRest = step.restOrder === 'any' ? lookedCards : shuffleArray(lookedCards);
     const updatedPlayers = nextState.players.map(entry => {
       if (entry.id !== playerId) return entry;
       return {
         ...(entry as any),
-        library: [...library, ...randomizedRest],
+        library: [...library, ...bottomedRest],
         hand,
         exile,
       } as any;
@@ -2476,7 +2572,7 @@ export function applyLookChooseFromTopStep(
       ? `${step.destination === 'hand' ? 'puts a matching card into their hand' : 'exiles a matching card'}`
       : 'does not find a matching card';
     log.push(
-      `${playerId} looks at ${lookedCount} card(s), ${actionText}, and puts ${randomizedRest.length} on the bottom of their library in a random order`
+      `${playerId} looks at ${lookedCount} card(s), ${actionText}, and puts ${bottomedRest.length} on the bottom of their library in ${step.restOrder === 'any' ? 'any' : 'a random'} order`
     );
   }
 
@@ -3005,7 +3101,7 @@ export function applyGainLifeStep(
     log.push(...result.log);
   }
 
-  return { applied: true, state: nextState, log };
+  return { applied: true, state: nextState, log, count: amount };
 }
 
 export function applyLoseLifeStep(
@@ -3050,7 +3146,7 @@ export function applyLoseLifeStep(
     log.push(...result.log);
   }
 
-  return { applied: true, state: nextState, log };
+  return { applied: true, state: nextState, log, count: amount };
 }
 
 export function applyAddPlayerCounterStep(
@@ -3110,7 +3206,7 @@ export function applyDrawStep(
   step: Extract<OracleEffectStep, { kind: 'draw' }>,
   ctx: OracleIRExecutionContext
 ): PlayerStepHandlerResult {
-  const amount = quantityToNumber(step.amount);
+  const amount = quantityToNumber(step.amount, ctx);
   if (amount === null) {
     return {
       applied: false,
@@ -3137,7 +3233,7 @@ export function applyDrawStep(
     log.push(...result.log);
   }
 
-  return { applied: true, state: nextState, log };
+  return { applied: true, state: nextState, log, count: amount };
 }
 
 export function applyAddManaStep(

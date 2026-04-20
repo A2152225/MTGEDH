@@ -2,6 +2,7 @@ import type { AbilityType } from './oracleTextParser';
 
 export type OracleQuantity =
   | { readonly kind: 'number'; readonly value: number }
+  | { readonly kind: 'reference_amount'; readonly raw?: string }
   | { readonly kind: 'x' }
   | { readonly kind: 'spells_cast_before_this_turn' }
   | { readonly kind: 'votes_for_choice'; readonly choice: string; readonly multiplier?: number }
@@ -460,6 +461,22 @@ export type OracleEffectStep =
       readonly raw: string;
     }
   | {
+      readonly kind: 'look_top';
+      readonly who: OraclePlayerSelector;
+      readonly amount: OracleQuantity;
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
+      readonly kind: 'reveal_top';
+      readonly who: OraclePlayerSelector;
+      readonly amount: OracleQuantity;
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
       readonly kind: 'look_select_top';
       readonly who: OraclePlayerSelector;
       readonly amount: OracleQuantity;
@@ -478,6 +495,7 @@ export type OracleEffectStep =
       readonly selectorText: string;
       readonly destination: 'hand' | 'exile';
       readonly reveal?: boolean;
+      readonly restOrder?: 'any';
       readonly optional?: boolean;
       readonly sequence?: 'then';
       readonly raw: string;

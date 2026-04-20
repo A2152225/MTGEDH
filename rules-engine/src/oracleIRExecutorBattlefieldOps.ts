@@ -4,6 +4,7 @@ import { getLeaveBattlefieldDestination } from '../../shared/src/leaveBattlefiel
 import type { OracleObjectSelector } from './oracleIR';
 import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
 import type { SimpleBattlefieldSelector, SimplePermanentType } from './oracleIRExecutorBattlefieldParser';
+import { resolveSingleCreatureTargetId } from './oracleIRExecutorCreatureStepUtils';
 import { stampCardPutIntoGraveyardThisTurn } from './oracleIRExecutorPlayerUtils';
 import { hasExecutorClass } from './oracleIRExecutorPermanentUtils';
 import { putAttractionInJunkyard, shouldAttractionGoToCommandZone } from './remainingCardTypes';
@@ -29,6 +30,11 @@ export function resolveTapOrUntapTargetIds(
   if (target?.kind !== 'raw') return [];
   const text = String(target?.text || '').trim().toLowerCase();
   if (!text) return [];
+
+  const singleCreatureTargetId = resolveSingleCreatureTargetId(state, target as any, ctx);
+  if (singleCreatureTargetId) {
+    return [singleCreatureTargetId];
+  }
 
   if (text === 'target permanent' && battlefield.length === 1) {
     return [String((battlefield[0] as any)?.id || '').trim()].filter(Boolean);

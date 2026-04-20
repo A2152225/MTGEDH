@@ -62,7 +62,9 @@ import {
   expandUnearthKeywordAbilities,
   expandKeywordActionUnknownAbilities,
   mergeDestroyCantRegenerateFollowupAbilities,
+  mergeSearchLibraryPutOnTopFollowupAbilities,
   expandVoteChoiceCountAbilities,
+  pruneRedundantAnyPlayerMayActivateUnknownAbilities,
   pruneRedundantActivationRestrictionUnknownAbilities,
   expandMixedBattlefieldAndGraveyardExileAbilities,
   expandMoveZoneCopiedSpellAbilities,
@@ -72,6 +74,7 @@ import {
   expandPreventDamageUnknownAbilities,
   pruneForetellReminderAbilities,
   pruneConvokeReminderAbilities,
+  pruneCascadeReminderAbilities,
   pruneMadnessReminderAbilities,
   pruneMorphReminderAbilities,
   pruneRedundantFaceDownReminderUnknownAbilities,
@@ -79,6 +82,7 @@ import {
   pruneRedundantArtifactTokenReminderUnknownAbilities,
   pruneRedundantBestowReminderUnknownAbilities,
   pruneRedundantCrewReminderAbilities,
+  pruneLateKeywordReminderOnlyAbilities,
   pruneRedundantCoinFlipLeadUnknownAbilities,
   pruneRedundantEntersTappedReplacementUnknownAbilities,
   pruneRedundantInfectKeywordUnknownAbilities,
@@ -86,6 +90,7 @@ import {
   lowerSelfEntryCounterReplacementAbilities,
   pruneRedundantSpellCantBeCounteredAbilities,
   pruneRedundantProliferateReminderUnknownAbilities,
+  pruneRedundantClashReminderUnknownAbilities,
   expandFutureSpellEffectUnknownAbilities,
   pruneRedundantTriggerRestrictionUnknownAbilities,
   pruneRedundantScryReminderUnknownAbilities,
@@ -104,6 +109,8 @@ import {
   mergeDeterministicKeywordFollowupAbilities,
   mergeConditionalMoveZoneCounterFollowupAbilities,
   mergeConditionalGraveyardReminderFollowupAbilities,
+  expandStandaloneTopLibraryInfoAbilities,
+  bindImmediateTopLibraryReferenceFollowups,
   mergeLookChooseFromTopAbilities,
   mergeTopLibraryBottomRandomTailAbilities,
   mergeLookSelectTopFollowupAbilities,
@@ -1234,9 +1241,12 @@ export function parseOracleTextToIR(oracleText: string, cardName?: string): Orac
   abilities = applyGlobalImpulseUpgrades(abilities, normalizedOracleText);
   abilities = mergeDieRollResultTableAbilities(abilities);
   abilities = mergeRevealFollowupAbilities(abilities);
+  abilities = mergeSearchLibraryPutOnTopFollowupAbilities(abilities);
   abilities = mergeLookChooseFromTopAbilities(abilities);
   abilities = mergeTopLibraryBottomRandomTailAbilities(abilities);
   abilities = mergeLookSelectTopFollowupAbilities(abilities);
+  abilities = expandStandaloneTopLibraryInfoAbilities(abilities);
+  abilities = bindImmediateTopLibraryReferenceFollowups(abilities);
   abilities = mergeCopyChapterAbilityFollowupAbilities(abilities);
   abilities = expandConditionalLookTopChooseOneToHandRestToGraveyardAbilities(abilities);
   abilities = mergeConditionalMoveZoneCounterFollowupAbilities(abilities);
@@ -1254,6 +1264,7 @@ export function parseOracleTextToIR(oracleText: string, cardName?: string): Orac
   abilities = expandPreventDamageUnknownAbilities(abilities);
   abilities = expandTapMatchingPermanentCountAbilities(abilities);
   abilities = expandSimpleConditionalUnknownAbilities(abilities);
+  abilities = expandCopySpellUnknownAbilities(abilities);
   abilities = upgradeConditionalIfYouDoImpulseAbilities(abilities);
   abilities = expandUnlessSacrificeAbilities(abilities);
   abilities = expandOtherwiseConditionalUnknownAbilities(abilities);
@@ -1268,6 +1279,7 @@ export function parseOracleTextToIR(oracleText: string, cardName?: string): Orac
   abilities = expandDisturbKeywordAbilities(abilities);
   abilities = expandUnearthKeywordAbilities(abilities);
   abilities = pruneConvokeReminderAbilities(abilities);
+  abilities = pruneCascadeReminderAbilities(abilities);
   abilities = pruneMadnessReminderAbilities(abilities);
   abilities = pruneForetellReminderAbilities(abilities);
   abilities = pruneMorphReminderAbilities(abilities);
@@ -1280,6 +1292,7 @@ export function parseOracleTextToIR(oracleText: string, cardName?: string): Orac
   abilities = pruneRedundantTriggerRestrictionUnknownAbilities(abilities);
   abilities = pruneRedundantStillLandUnknownAbilities(abilities);
   abilities = pruneRedundantProliferateReminderUnknownAbilities(abilities);
+  abilities = pruneRedundantClashReminderUnknownAbilities(abilities);
   abilities = pruneRedundantScryReminderUnknownAbilities(abilities);
   abilities = pruneRedundantBestowReminderUnknownAbilities(abilities);
   abilities = lowerSelfEntryCounterReplacementAbilities(abilities);
@@ -1310,6 +1323,7 @@ export function parseOracleTextToIR(oracleText: string, cardName?: string): Orac
   abilities = mergeDestroyCantRegenerateFollowupAbilities(abilities);
   abilities = expandVoteChoiceCountAbilities(abilities);
   abilities = pruneRedundantActivationRestrictionUnknownAbilities(abilities);
+  abilities = pruneRedundantAnyPlayerMayActivateUnknownAbilities(abilities);
   abilities = mergeDeterministicKeywordFollowupAbilities(abilities);
   abilities = mergeSagaChapterCopyFollowupAbilities(abilities);
   abilities = pruneRedundantImpulseCleanupUnknownAbilities(abilities);
@@ -1317,6 +1331,7 @@ export function parseOracleTextToIR(oracleText: string, cardName?: string): Orac
   abilities = expandCreateEmblemUnknownAbilities(abilities, cardName);
   abilities = mergeDieRollResultTableAbilities(abilities);
   abilities = pruneRedundantProliferateReminderUnknownAbilities(abilities);
+  abilities = pruneLateKeywordReminderOnlyAbilities(abilities);
   abilities = abilities.map(wrapTriggeredInterveningIfAbility);
 
   return {

@@ -69,6 +69,8 @@ export interface OracleIRExecutionEventHint {
   readonly affectedOpponentIds?: readonly PlayerID[];
   /** Opponents dealt damage by the triggering event/source (Breeches-style antecedent). */
   readonly opponentsDealtDamageIds?: readonly PlayerID[];
+  /** Numeric amount referenced by text like "that much" when the triggering event defines it. */
+  readonly referenceAmount?: number;
   /** Spell type context used by some exile-until templates (for example, Possibility Storm). */
   readonly spellType?: string;
   /** Number of spells the triggering player has cast this turn when relevant. */
@@ -121,6 +123,8 @@ export interface OracleIRExecutionContext {
   readonly lastCollectedEvidence?: boolean;
   /** Internal runtime carry-over for nested follow-up steps that reference battlefield permanents moved by prior steps. */
   readonly lastMovedBattlefieldPermanentIds?: readonly string[];
+  /** Internal runtime carry-over for top-of-library references like "it" after a look/reveal-top step. */
+  readonly lastTopLibraryOwnerId?: PlayerID;
   /** Internal runtime carry-over for scheme effects that refer to "that scheme". */
   readonly lastSetInMotionScheme?: any;
   /** Optional direct target creature binding used by modify_pt where-X evaluation and legacy tests/callers. */
@@ -143,6 +147,8 @@ export interface OracleIRExecutionContext {
   readonly wonCoinFlip?: boolean;
   /** Winning vote choice when already known from runtime context. */
   readonly winningVoteChoice?: string | null;
+  /** Numeric amount referenced by text like "that much" from trigger data or prior steps. */
+  readonly referenceAmount?: number;
   /** Explicit vote tallies keyed by choice text when already known from runtime context. */
   readonly voteChoiceCounts?: Readonly<Record<string, number>>;
   /** Whether a gift cost was paid / promised for gift-conditional spell text. */

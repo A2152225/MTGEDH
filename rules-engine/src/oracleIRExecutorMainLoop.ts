@@ -98,6 +98,8 @@ import {
   applyGainLifeStep,
   applyLoseLifeStep,
   applyLookChooseFromTopStep,
+  applyLookTopStep,
+  applyRevealTopStep,
   applyLookSelectTopStep,
   applyMillStep,
   applyOpenAttractionStep,
@@ -500,6 +502,9 @@ export function applyOracleIRStepsToGameStateImpl(
   let lastExcessDamageDealtThisWay = 0;
   let lastScryLookedAtCount = 0;
   let lastTappedMatchingPermanentCount = Math.max(0, Number(ctx.lastTappedMatchingPermanentCount) || 0);
+  let lastReferenceAmount = Number.isFinite(Number(ctx.referenceAmount))
+    ? Math.max(0, Number(ctx.referenceAmount) || 0)
+    : undefined;
   let lastClashWon = typeof ctx.lastClashWon === 'boolean' ? ctx.lastClashWon : undefined;
   let lastCollectedEvidence = typeof ctx.lastCollectedEvidence === 'boolean' ? ctx.lastCollectedEvidence : undefined;
   let lastSetInMotionScheme = (ctx as any).lastSetInMotionScheme;
@@ -523,6 +528,9 @@ export function applyOracleIRStepsToGameStateImpl(
     lastStepOutcome = { kind, stepKind: step.kind, ...(metadata?.count !== undefined ? { count: metadata.count } : {}) };
     if (kind === 'applied' || kind === 'choice_required' || kind === 'impossible') {
       lastActionOutcome = { kind, stepKind: step.kind, ...(metadata?.count !== undefined ? { count: metadata.count } : {}) };
+      if (typeof metadata?.count === 'number' && Number.isFinite(metadata.count)) {
+        lastReferenceAmount = Math.max(0, Number(metadata.count) || 0);
+      }
     }
   };
 
@@ -585,7 +593,19 @@ export function applyOracleIRStepsToGameStateImpl(
     }
 
     nextState = result.state;
-    setLastStepOutcome(step, 'applied');
+    setLastStepOutcome(
+      step,
+      'applied',
+      typeof result?.count === 'number' && Number.isFinite(result.count)
+        ? { count: result.count }
+        : undefined
+    );
+    currentCtx = {
+      ...currentCtx,
+      ...(typeof lastReferenceAmount === 'number' && Number.isFinite(lastReferenceAmount)
+        ? { referenceAmount: lastReferenceAmount }
+        : {}),
+    };
     onApplied?.(result);
     log.push(...result.log);
     appliedSteps.push(step);
@@ -1163,6 +1183,27 @@ export function applyOracleIRStepsToGameStateImpl(
         applyHandledStepResult(step, result);
         break;
       }
+      case 'look_top': {
+        const result = applyLookTopStep(nextState, step, currentCtx);
+        applyHandledStepResult(step, result, (appliedResult) => {
+          if (appliedResult.lastTopLibraryOwnerId) {
+            currentCtx = { ...currentCtx, lastTopLibraryOwnerId: appliedResult.lastTopLibraryOwnerId };
+          }
+        });
+        break;
+      }
+      case 'reveal_top': {
+        const result = applyRevealTopStep(nextState, step, currentCtx);
+        applyHandledStepResult(step, result, (appliedResult) => {
+          if (typeof appliedResult.lastRevealedCardCount === 'number') {
+            lastRevealedCardCount = Math.max(0, Number(appliedResult.lastRevealedCardCount) || 0);
+          }
+          if (appliedResult.lastTopLibraryOwnerId) {
+            currentCtx = { ...currentCtx, lastTopLibraryOwnerId: appliedResult.lastTopLibraryOwnerId };
+          }
+        });
+        break;
+      }
       case 'look_select_top': {
         const result = applyLookSelectTopStep(nextState, step, currentCtx);
         applyHandledStepResult(step, result);
@@ -1306,6 +1347,7 @@ export function applyOracleIRStepsToGameStateImpl(
             lastExcessDamageDealtThisWay,
             lastScryLookedAtCount,
             lastTappedMatchingPermanentCount,
+            lastReferenceAmount,
           },
           evaluateModifyPtWhereX
         );
@@ -1331,6 +1373,7 @@ export function applyOracleIRStepsToGameStateImpl(
             lastExcessDamageDealtThisWay,
             lastScryLookedAtCount,
             lastTappedMatchingPermanentCount,
+            lastReferenceAmount,
           },
           evaluateModifyPtWhereX
         );
@@ -1366,6 +1409,7 @@ export function applyOracleIRStepsToGameStateImpl(
         const result = applyDealDamageStep(nextState, step, currentCtx, {
           lastMovedCards,
           lastTappedMatchingPermanentCount,
+          lastReferenceAmount,
         });
         applyHandledStepResult(step, result, (appliedResult) => {
           lastExcessDamageDealtThisWay = Math.max(0, Number(appliedResult.excessDamageDealtThisWay) || 0);
@@ -1461,6 +1505,7 @@ export function applyOracleIRStepsToGameStateImpl(
         const result = applyCreateTokenStep(nextState, step, currentCtx, {
           lastMovedBattlefieldPermanentIds,
           lastMovedCards,
+          lastReferenceAmount,
         });
         applyHandledStepResult(step, result, (appliedResult) => {
           lastCreatedTokenIds = Array.isArray(appliedResult.createdTokenIds)

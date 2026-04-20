@@ -38,6 +38,7 @@ export type TokenStepHandlerResult = StepApplyResult | StepSkipResult;
 type TokenStepRuntime = {
   readonly lastMovedBattlefieldPermanentIds?: readonly string[];
   readonly lastMovedCards?: readonly any[];
+  readonly lastReferenceAmount?: number;
 };
 
 function applyTemporaryGrantedAbilitiesToToken(
@@ -105,6 +106,10 @@ function resolveTokenAmount(
 ): number | null {
   const numericAmount = quantityToNumber(step.amount, ctx);
   if (numericAmount !== null) return numericAmount;
+  if (step.amount.kind === 'reference_amount') {
+    const fallbackAmount = Number(runtime?.lastReferenceAmount);
+    return Number.isFinite(fallbackAmount) ? Math.max(0, fallbackAmount) : null;
+  }
   if (step.amount.kind !== 'x') return null;
 
   const whereMatch = String(step.raw || '').match(/\bwhere\s+x\s+is\s+(.+)$/i);

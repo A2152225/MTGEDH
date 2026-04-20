@@ -574,6 +574,24 @@ export function buildOracleIRExecutionEventHintFromTriggerData(
 
   const dedupedAffectedOpponents = dedupeOpponents(eventData.affectedOpponentIds);
   const dedupedOpponentsDealtDamage = dedupeOpponents(eventData.opponentsDealtDamageIds);
+  const counterReferenceAmount = eventData.counters
+    ? Object.values(eventData.counters)
+        .map((value) => Number(value))
+        .filter((value) => Number.isFinite(value))
+        .reduce((sum, value) => sum + value, 0)
+    : undefined;
+  const referenceAmount =
+    Number.isFinite(Number(eventData.damageDealt))
+      ? Number(eventData.damageDealt)
+      : Number.isFinite(Number(eventData.lifeGained))
+        ? Number(eventData.lifeGained)
+        : Number.isFinite(Number(eventData.lifeLost))
+          ? Number(eventData.lifeLost)
+          : Number.isFinite(Number(eventData.cardsDrawn))
+            ? Number(eventData.cardsDrawn)
+            : typeof counterReferenceAmount === 'number' && Number.isFinite(counterReferenceAmount)
+              ? counterReferenceAmount
+              : undefined;
 
   const targetOpponentId = isOpponentId(normalizedRawTargetOpponentId)
     ? normalizedRawTargetOpponentId
@@ -593,6 +611,7 @@ export function buildOracleIRExecutionEventHintFromTriggerData(
     affectedPlayerIds: dedupe(eventData.affectedPlayerIds),
     affectedOpponentIds: dedupedAffectedOpponents,
     opponentsDealtDamageIds: dedupedOpponentsDealtDamage,
+    ...(typeof referenceAmount !== 'undefined' ? { referenceAmount } : {}),
     spellType: eventData.spellType,
     ...(Number.isFinite(Number(eventData.spellCastCountThisTurn))
       ? { spellCastCountThisTurn: Number(eventData.spellCastCountThisTurn) }
@@ -620,6 +639,7 @@ export function buildOracleIRExecutionEventHintFromTriggerData(
     !hint.affectedPlayerIds &&
     !hint.affectedOpponentIds &&
     !hint.opponentsDealtDamageIds &&
+    !Number.isFinite(Number(hint.referenceAmount)) &&
     !hint.spellType &&
     !Number.isFinite(Number(hint.spellCastCountThisTurn)) &&
     !Number.isFinite(Number(hint.noncreatureSpellCastCountThisTurn)) &&

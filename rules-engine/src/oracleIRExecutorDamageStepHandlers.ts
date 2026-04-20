@@ -30,6 +30,7 @@ type StepApplyResult = {
   readonly applied: true;
   readonly state: GameState;
   readonly log: readonly string[];
+  readonly count?: number;
   readonly excessDamageDealtThisWay: number;
 };
 
@@ -64,6 +65,7 @@ export type PreventDamageStepHandlerResult = PreventionStepApplyResult | Prevent
 type DamageRuntime = {
   readonly lastMovedCards?: readonly any[];
   readonly lastTappedMatchingPermanentCount?: number;
+  readonly lastReferenceAmount?: number;
 };
 
 type DamageSourceKeywords = {
@@ -176,8 +178,12 @@ function resolveDamageAmount(
   ctx: OracleIRExecutionContext,
   runtime?: DamageRuntime
 ): number | null {
-  const numericAmount = quantityToNumber(amount);
+  const numericAmount = quantityToNumber(amount, ctx);
   if (numericAmount !== null) return numericAmount;
+  if (amount.kind === 'reference_amount') {
+    const runtimeAmount = Number(runtime?.lastReferenceAmount);
+    return Number.isFinite(runtimeAmount) ? Math.max(0, runtimeAmount) : null;
+  }
   if (amount.kind === 'object_stat') {
     const sourceObjects =
       amount.subject === 'that_card' || amount.subject === 'that_creature'
@@ -393,7 +399,7 @@ export function applyDealDamageStep(
   const finalAmount = prevention.remainingDamage;
   if (finalAmount <= 0) {
     log.push(`All damage was prevented: ${step.raw}`);
-    return { applied: true, state: nextState, log, excessDamageDealtThisWay: 0 };
+    return { applied: true, state: nextState, log, count: 0, excessDamageDealtThisWay: 0 };
   }
 
   const players = resolvePlayersFromDamageTarget(nextState, step.target as any, ctx);
@@ -418,7 +424,7 @@ export function applyDealDamageStep(
       log.push(`${playerId} is dealt ${finalAmount} damage`);
     }
 
-    return { applied: true, state: nextState, log, excessDamageDealtThisWay: 0 };
+    return { applied: true, state: nextState, log, count: finalAmount, excessDamageDealtThisWay: 0 };
   }
 
   const singlePermanentId = resolveSinglePermanentDamageTargetId(nextState, step.target, ctx);
@@ -441,6 +447,7 @@ export function applyDealDamageStep(
       applied: true,
       state: nextState,
       log,
+      count: finalAmount,
       excessDamageDealtThisWay: result.excessDamageDealtThisWay,
     };
   }
@@ -467,6 +474,7 @@ export function applyDealDamageStep(
         applied: true,
         state: nextState,
         log,
+        count: finalAmount,
         excessDamageDealtThisWay: result.excessDamageDealtThisWay,
       };
     }
@@ -505,6 +513,7 @@ export function applyDealDamageStep(
         applied: true,
         state: nextState,
         log,
+        count: finalAmount,
         excessDamageDealtThisWay: Math.max(0, excessDamageDealtThisWay),
       };
     }
@@ -545,6 +554,7 @@ export function applyDealDamageStep(
         applied: true,
         state: nextState,
         log,
+        count: finalAmount,
         excessDamageDealtThisWay: result.excessDamageDealtThisWay,
       };
     }

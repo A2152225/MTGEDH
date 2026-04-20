@@ -44,6 +44,36 @@ export function tryParseSimpleActionClause(args: {
     }
   }
 
+
+  {
+    const rollDie = clause.match(/^roll\s+a\s+d(\d+)$/i);
+    if (rollDie) {
+      return withMeta({
+        kind: 'roll_die',
+        who: { kind: 'you' },
+        sides: Number.parseInt(String(rollDie[1] || '0'), 10),
+        raw: rawClause,
+      });
+    }
+  }
+  {
+    const searchTop = clause.match(
+      /^search your library for (?:up to one |a |an )(?:(.+?)\s+)?card(?:,\s*reveal it)?,\s*(?:then\s+)?shuffle(?: your library)? and put (?:it|that card) on top$/i
+    );
+    if (searchTop) {
+      return withMeta({
+        kind: 'search_library',
+        who: { kind: 'you' },
+        criteria: { kind: 'raw', text: String(searchTop[1] || '').trim() },
+        destination: 'top',
+        ...(/reveal it/i.test(clause) ? { revealFound: true } : {}),
+        shuffle: true,
+        maxResults: 1,
+        raw: rawClause,
+      });
+    }
+  }
+
   {
     const shuffleLibrary = clause.match(
       new RegExp(`^${PLAYER_SUBJECT_PREFIX}shuffle(?:s)?(?:\\s+(?:your|their|his or her)\\s+library)?$`, 'i')
@@ -72,7 +102,7 @@ export function tryParseSimpleActionClause(args: {
 
   {
     const moreCards = clause.match(
-      new RegExp(`^${PLAYER_SUBJECT_PREFIX}draws?\\s+([a-z0-9]+)\\s+more\\s+cards?\\b`, 'i')
+      new RegExp(`^${PLAYER_SUBJECT_PREFIX}draws?\\s+(that many|that much|[a-z0-9]+)\\s+more\\s+cards?\\b`, 'i')
     );
     if (moreCards) {
       return withMeta({
@@ -84,7 +114,7 @@ export function tryParseSimpleActionClause(args: {
     }
 
     const draw = clause.match(
-      new RegExp(`^${PLAYER_SUBJECT_PREFIX}draws?\\s+(a|an|\\d+|x|[a-z]+)\\s+cards?\\b`, 'i')
+      new RegExp(`^${PLAYER_SUBJECT_PREFIX}draws?\\s+(that many|that much|a|an|\\d+|x|[a-z]+)\\s+cards?\\b`, 'i')
     );
     if (draw) {
       return withMeta({
@@ -95,7 +125,7 @@ export function tryParseSimpleActionClause(args: {
       });
     }
 
-    const drawDefault = clause.match(/^draw\s+(a|an|\d+|x|[a-z]+)\s+cards?\b/i);
+    const drawDefault = clause.match(/^draw\s+(that many|that much|a|an|\d+|x|[a-z]+)\s+cards?\b/i);
     if (drawDefault) {
       return withMeta({
         kind: 'draw',

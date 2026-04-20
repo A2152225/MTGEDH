@@ -9,6 +9,9 @@ function parseDamageAmount(raw: string | undefined): Extract<OracleEffectStep, {
     .trim()
     .toLowerCase();
 
+  if (normalized === 'that much' || normalized === 'that many') {
+    return { kind: 'reference_amount', raw: normalized };
+  }
   if (normalized === 'its power') {
     return { kind: 'object_stat', subject: 'it', stat: 'power' };
   }
@@ -55,7 +58,7 @@ export function tryParseLifeAndCombatClause(args: {
   const normalizedRawClause = normalizeOracleText(rawClause);
 
   {
-    const gain = clause.match(new RegExp(`^${PLAYER_SUBJECT_PREFIX}gains?\\s+(\\d+|x|[a-z]+)\\s+life\\b`, 'i'));
+    const gain = clause.match(new RegExp(`^${PLAYER_SUBJECT_PREFIX}gains?\\s+(that much|that many|\\d+|x|[a-z]+)\\s+life\\b`, 'i'));
     if (gain) {
       return withMeta({
         kind: 'gain_life',
@@ -65,7 +68,7 @@ export function tryParseLifeAndCombatClause(args: {
       });
     }
 
-    const gainDefault = clause.match(/^gain\s+(\d+|x|[a-z]+)\s+life\b/i);
+    const gainDefault = clause.match(/^gain\s+(that much|that many|\d+|x|[a-z]+)\s+life\b/i);
     if (gainDefault) {
       return withMeta({
         kind: 'gain_life',
@@ -96,7 +99,7 @@ export function tryParseLifeAndCombatClause(args: {
       });
     }
 
-    const lose = clause.match(new RegExp(`^${PLAYER_SUBJECT_PREFIX}loses?\\s+(\\d+|x|[a-z]+)\\s+life\\b`, 'i'));
+    const lose = clause.match(new RegExp(`^${PLAYER_SUBJECT_PREFIX}loses?\\s+(that much|that many|\\d+|x|[a-z]+)\\s+life\\b`, 'i'));
     if (lose) {
       return withMeta({
         kind: 'lose_life',
@@ -106,7 +109,7 @@ export function tryParseLifeAndCombatClause(args: {
       });
     }
 
-    const loseDefault = clause.match(/^lose\s+(\d+|x|[a-z]+)\s+life\b/i);
+    const loseDefault = clause.match(/^lose\s+(that much|that many|\d+|x|[a-z]+)\s+life\b/i);
     if (loseDefault) {
       return withMeta({
         kind: 'lose_life',
@@ -223,7 +226,7 @@ export function tryParseLifeAndCombatClause(args: {
       });
     }
 
-    const tapTarget = clause.match(/^tap\s+((?:target|that|those|this)\s+.+|it|them)$/i);
+    const tapTarget = clause.match(/^tap\s+((?:target|that|those|this|enchanted|equipped)\s+.+|it|them)$/i);
     if (tapTarget) {
       return withMeta({
         kind: 'tap_or_untap',
@@ -233,7 +236,7 @@ export function tryParseLifeAndCombatClause(args: {
       });
     }
 
-    const untapTarget = clause.match(/^untap\s+((?:target|that|those|this)\s+.+|it|them)$/i);
+    const untapTarget = clause.match(/^untap\s+((?:target|that|those|this|enchanted|equipped)\s+.+|it|them)$/i);
     if (untapTarget) {
       return withMeta({
         kind: 'tap_or_untap',

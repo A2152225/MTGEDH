@@ -8,6 +8,7 @@ import { findObjectByIdInState } from './oracleIRExecutorModifyPtWhereUtils';
 import { getProcessedBattlefield } from './oracleIRExecutorCreatureStepUtils';
 import { getExecutorTypeLineLower, hasExecutorClass } from './oracleIRExecutorPermanentUtils';
 import { deriveWinningVoteChoice, getCardManaValue } from './oracleIRExecutorPlayerUtils';
+import { cardMatchesType, parseSimpleCardTypeFromText } from './oracleIRExecutorZoneOps';
 import { splitCardMatchesName } from './splitCards';
 
 type ConditionalCondition = Extract<OracleEffectStep, { kind: 'conditional' }>['condition'];
@@ -780,13 +781,28 @@ export function evaluateConditionalWrapperCondition(params: {
     return winningVoteChoice === null ? true : typeof winningVoteChoice === 'undefined' ? null : false;
   }
 
+  {
+    const topCardTypeMatch = normalizedRaw.match(/^(?:it(?:'s| is)|that card is)\s+(?:an?\s+)?(.+?)\s+card$/i);
+    if (topCardTypeMatch) {
+      const parsedType = parseSimpleCardTypeFromText(String(topCardTypeMatch[1] || '').trim());
+      if (parsedType) {
+        const libraryOwnerId = String(ctx.lastTopLibraryOwnerId || controllerId || '').trim();
+        const player = (nextState.players || []).find((p: any) => String(p?.id || '').trim() === libraryOwnerId) as any;
+        const topCard = Array.isArray(player?.library) && player.library.length > 0 ? player.library[0] : null;
+        if (!topCard) return null;
+        return cardMatchesType(topCard, parsedType);
+      }
+    }
+  }
+
   if (!sourceRef) return null;
 
   if (normalizedRaw === 'that card has the chosen name') {
     const chosenName = String((sourceRef as any)?.chosenCardName || (sourceRef as any)?.card?.chosenCardName || '').trim();
     if (!chosenName) return null;
 
-    const player = (nextState.players || []).find((p: any) => String(p?.id || '').trim() === controllerId) as any;
+    const libraryOwnerId = String(ctx.lastTopLibraryOwnerId || controllerId || '').trim();
+    const player = (nextState.players || []).find((p: any) => String(p?.id || '').trim() === libraryOwnerId) as any;
     const topCard = Array.isArray(player?.library) && player.library.length > 0 ? player.library[0] : null;
     if (!topCard) return null;
 
