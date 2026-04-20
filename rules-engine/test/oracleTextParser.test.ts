@@ -723,6 +723,18 @@ describe('Oracle Text Parser', () => {
       });
     });
 
+    it('parses reminder-bearing amass orcs lines as keyword action lines', () => {
+      const result = parseOracleText(
+        "Amass Orcs 1. (Put a +1/+1 counter on an Army you control. It's also an Orc. If you don't control an Army, create a 0/0 black Orc Army creature token first.)"
+      );
+      expect(result.abilities).toHaveLength(1);
+      expect(result.abilities[0]).toMatchObject({
+        type: AbilityType.STATIC,
+        effect:
+          "If you don't control an Army creature, create a 0/0 black Orc Army creature token. Choose an Army creature you control. Put 1 +1/+1 counter on that creature. If it isn't an Orc, it becomes an Orc in addition to its other types.",
+      });
+    });
+
     it('parses scry as a keyword action line instead of a static stub', () => {
       const result = parseOracleText('Scry 2');
       expect(result.abilities).toHaveLength(1);

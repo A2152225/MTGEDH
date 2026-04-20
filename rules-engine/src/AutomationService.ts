@@ -1150,7 +1150,7 @@ export function applyCombatDamage(
   };
   
   for (const assignment of assignments) {
-    const prevention = previewPreventedDamage(updatedState, assignment.damage, assignment.sourceId);
+    const prevention = previewPreventedDamage(updatedState, assignment.damage, assignment.sourceId, { combatDamage: true });
     const finalDamage = prevention.remainingDamage;
     log.push(...prevention.log);
     if (finalDamage <= 0) {

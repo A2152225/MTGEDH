@@ -75,6 +75,9 @@ import {
   pruneForetellReminderAbilities,
   pruneConvokeReminderAbilities,
   pruneCascadeReminderAbilities,
+  pruneFirebendingReminderAbilities,
+  pruneRedundantWaterbendReminderUnknownAbilities,
+  pruneSoulbondReminderAbilities,
   pruneMadnessReminderAbilities,
   pruneMorphReminderAbilities,
   pruneRedundantFaceDownReminderUnknownAbilities,
@@ -93,6 +96,8 @@ import {
   pruneRedundantClashReminderUnknownAbilities,
   expandFutureSpellEffectUnknownAbilities,
   pruneRedundantTriggerRestrictionUnknownAbilities,
+  pruneRedundantExploreReminderAbilities,
+  pruneRedundantLookTopReorderUnknownAbilities,
   pruneRedundantScryReminderUnknownAbilities,
   pruneRedundantStillLandUnknownAbilities,
   expandPayManaUnknownAbilities,
@@ -1233,9 +1238,55 @@ function wrapTriggeredInterveningIfAbility(ability: OracleIRAbility): OracleIRAb
   };
 }
 
+function mergeSplitChooseModeParsedAbilities(parsed: OracleTextParseResult): OracleTextParseResult {
+  const merged: ParsedAbility[] = [];
+
+  for (let index = 0; index < parsed.abilities.length; index += 1) {
+    const current = parsed.abilities[index];
+    const currentText = String(current.text || '').trim();
+    if (!/^choose\s+(?:one\s+or\s+both|one|two|three|four|up\s+to\s+\w+|any\s+number)/i.test(currentText)) {
+      merged.push(current);
+      continue;
+    }
+
+    const modeAbilities: ParsedAbility[] = [];
+    let nextIndex = index + 1;
+    while (nextIndex < parsed.abilities.length) {
+      const next = parsed.abilities[nextIndex];
+      const nextText = String(next.text || '').trim();
+      if (!/^[\u2022•]/.test(nextText)) break;
+      modeAbilities.push(next);
+      nextIndex += 1;
+    }
+
+    if (modeAbilities.length === 0) {
+      merged.push(current);
+      continue;
+    }
+
+    const combinedText = [currentText, ...modeAbilities.map((ability) => String(ability.text || '').trim())]
+      .filter(Boolean)
+      .join('\n');
+    const combinedTargets = Array.from(new Set(modeAbilities.flatMap((ability) => ability.targets || [])));
+
+    merged.push({
+      type: current.type || AbilityType.STATIC,
+      text: combinedText,
+      effect: combinedText,
+      ...(combinedTargets.length > 0 ? { targets: combinedTargets } : {}),
+      ...(current.requiresChoice ? { requiresChoice: current.requiresChoice } : {}),
+    });
+    index = nextIndex - 1;
+  }
+
+  return merged.length === parsed.abilities.length ? parsed : { ...parsed, abilities: merged, hasModes: true };
+}
+
 export function parseOracleTextToIR(oracleText: string, cardName?: string): OracleIRResult {
   const normalizedOracleText = normalizeOracleText(oracleText);
-  const parsed: OracleTextParseResult = parseOracleText(normalizedOracleText, cardName);
+  const parsed: OracleTextParseResult = mergeSplitChooseModeParsedAbilities(
+    parseOracleText(normalizedOracleText, cardName)
+  );
 
   let abilities = parsed.abilities.map(ability => parseAbilityToIRAbility(ability, cardName));
   abilities = applyGlobalImpulseUpgrades(abilities, normalizedOracleText);
@@ -1280,6 +1331,8 @@ export function parseOracleTextToIR(oracleText: string, cardName?: string): Orac
   abilities = expandUnearthKeywordAbilities(abilities);
   abilities = pruneConvokeReminderAbilities(abilities);
   abilities = pruneCascadeReminderAbilities(abilities);
+  abilities = pruneFirebendingReminderAbilities(abilities);
+  abilities = pruneSoulbondReminderAbilities(abilities);
   abilities = pruneMadnessReminderAbilities(abilities);
   abilities = pruneForetellReminderAbilities(abilities);
   abilities = pruneMorphReminderAbilities(abilities);
@@ -1292,6 +1345,7 @@ export function parseOracleTextToIR(oracleText: string, cardName?: string): Orac
   abilities = pruneRedundantTriggerRestrictionUnknownAbilities(abilities);
   abilities = pruneRedundantStillLandUnknownAbilities(abilities);
   abilities = pruneRedundantProliferateReminderUnknownAbilities(abilities);
+  abilities = pruneRedundantLookTopReorderUnknownAbilities(abilities);
   abilities = pruneRedundantClashReminderUnknownAbilities(abilities);
   abilities = pruneRedundantScryReminderUnknownAbilities(abilities);
   abilities = pruneRedundantBestowReminderUnknownAbilities(abilities);
@@ -1320,6 +1374,8 @@ export function parseOracleTextToIR(oracleText: string, cardName?: string): Orac
   abilities = lowerConniveKeywordAbilities(abilities);
   abilities = lowerDiscoverKeywordAbilities(abilities);
   abilities = expandKeywordActionUnknownAbilities(abilities);
+  abilities = pruneRedundantExploreReminderAbilities(abilities);
+  abilities = pruneRedundantWaterbendReminderUnknownAbilities(abilities);
   abilities = mergeDestroyCantRegenerateFollowupAbilities(abilities);
   abilities = expandVoteChoiceCountAbilities(abilities);
   abilities = pruneRedundantActivationRestrictionUnknownAbilities(abilities);

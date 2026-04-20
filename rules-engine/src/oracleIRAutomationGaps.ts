@@ -24,6 +24,10 @@ export function createOracleAutomationGapRecord(
 ): OracleAutomationGap {
   const timestamp = Date.now();
   const stateAny = params.state as any;
+  const metadata = {
+    ...(params.metadata || {}),
+    ...(stateAny?.step ? { step: String(stateAny.step) } : {}),
+  };
 
   return {
     id: `${params.state.id}:oracle-gap:${timestamp}:${params.sequence}`,
@@ -40,8 +44,7 @@ export function createOracleAutomationGapRecord(
     sourceName: params.ctx.sourceName,
     turnNumber: Number.isFinite(Number(stateAny?.turnNumber)) ? Number(stateAny.turnNumber) : undefined,
     phase: stateAny?.phase ? String(stateAny.phase) : undefined,
-    step: stateAny?.step ? String(stateAny.step) : undefined,
-    metadata: params.metadata,
+    metadata,
   };
 }
 

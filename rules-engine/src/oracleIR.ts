@@ -666,8 +666,9 @@ export type OracleEffectStep =
   | {
       readonly kind: 'prevent_damage';
       readonly amount: 'all';
-      readonly target: OracleObjectSelector;
+      readonly target?: OracleObjectSelector;
       readonly duration: 'this_turn';
+      readonly combatOnly?: boolean;
       /** Restricts legal target sources to those sharing a color with the linked exiled card. */
       readonly sharesColorWithLinkedExiledCard?: boolean;
       readonly optional?: boolean;

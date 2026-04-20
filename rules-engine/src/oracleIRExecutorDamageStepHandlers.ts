@@ -3,6 +3,7 @@ import type { OracleEffectStep } from './oracleIR';
 import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
 import { createDamageSourceFromPermanent } from './damageProcessing';
 import {
+  createGlobalCombatDamagePreventionEffect,
   createSourceColorDamagePreventionEffect,
   previewPreventedDamage,
   registerDamagePreventionEffect,
@@ -572,6 +573,22 @@ export function applyPreventDamageStep(
   step: Extract<OracleEffectStep, { kind: 'prevent_damage' }>,
   ctx: OracleIRExecutionContext
 ): PreventDamageStepHandlerResult {
+  if (step.combatOnly) {
+    const effect = createGlobalCombatDamagePreventionEffect({
+      state,
+      sourceId: ctx.sourceId,
+      sourceName: ctx.sourceName,
+      controllerId: ctx.controllerId,
+      description: 'Prevent all combat damage this turn',
+    });
+
+    return {
+      applied: true,
+      state: registerDamagePreventionEffect(state, effect),
+      log: ['Prevent all combat damage that would be dealt this turn'],
+    };
+  }
+
   const targetSourceId = resolvePreventionTargetSourceId(state, ctx);
   if (!targetSourceId) {
     return {

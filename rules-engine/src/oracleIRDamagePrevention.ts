@@ -46,6 +46,26 @@ export function createSourceColorDamagePreventionEffect(params: {
   };
 }
 
+export function createGlobalCombatDamagePreventionEffect(params: {
+  state: GameState;
+  sourceId?: string;
+  sourceName?: string;
+  controllerId?: string;
+  description: string;
+}): DamagePreventionEffect {
+  const currentTurn = getCurrentTurnNumber(params.state);
+  return {
+    id: `${String(params.sourceId || 'oracle-ir').trim() || 'oracle-ir'}:prevent:combat:${currentTurn}`,
+    description: params.description,
+    sourceId: params.sourceId,
+    sourceName: params.sourceName,
+    controllerId: params.controllerId as any,
+    targetSourceId: '*',
+    combatOnly: true,
+    expiresAtTurn: currentTurn,
+  };
+}
+
 export function registerDamagePreventionEffect(
   state: GameState,
   effect: DamagePreventionEffect
@@ -63,7 +83,14 @@ export function registerDamagePreventionEffect(
   } as GameState;
 }
 
-export function previewPreventedDamage(state: GameState, amount: number, damageSourceId?: string): {
+export function previewPreventedDamage(
+  state: GameState,
+  amount: number,
+  damageSourceId?: string,
+  options?: {
+    readonly combatDamage?: boolean;
+  }
+): {
   readonly prevented: number;
   readonly remainingDamage: number;
   readonly log: readonly string[];
@@ -94,9 +121,11 @@ export function previewPreventedDamage(state: GameState, amount: number, damageS
   const sourceColors = sourceObject ? getColorsFromObject(sourceObject).map((color) => String(color || '').trim().toUpperCase()) : [];
 
   for (const effect of activeEffects) {
-    if (String(effect?.targetSourceId || '').trim() !== normalizedSourceId) continue;
+    const targetSourceId = String(effect?.targetSourceId || '').trim();
+    if (targetSourceId !== '*' && targetSourceId !== normalizedSourceId) continue;
     const expiresAtTurn = Number((effect as any)?.expiresAtTurn);
     if (Number.isFinite(expiresAtTurn) && expiresAtTurn !== currentTurn) continue;
+    if (effect?.combatOnly === true && options?.combatDamage !== true) continue;
 
     const requiredColors = Array.isArray(effect?.colors)
       ? effect.colors.map((color) => String(color || '').trim().toUpperCase()).filter(Boolean)
@@ -106,7 +135,11 @@ export function previewPreventedDamage(state: GameState, amount: number, damageS
     return {
       prevented: initialAmount,
       remainingDamage: 0,
-      log: [`Prevented ${initialAmount} damage from ${normalizedSourceId}`],
+      log: [
+        effect?.combatOnly === true
+          ? `Prevented ${initialAmount} combat damage from ${normalizedSourceId}`
+          : `Prevented ${initialAmount} damage from ${normalizedSourceId}`,
+      ],
     };
   }
 

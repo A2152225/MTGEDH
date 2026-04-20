@@ -8,7 +8,7 @@ const ORACLE_KEYWORDS = [
   'discover', 'disguise', 'disappear', 'disturb', 'doctor\'s companion', 'domain', 'double strike', 'dredge', 'echo', 'embalm',
   'emerge', 'enchant', 'encore', 'enlist', 'enrage', 'entwine', 'equip', 'escalate', 'escape',
   'eternalize', 'evoke', 'evolve', 'exalted', 'exploit', 'explore', 'extort', 'fabricate',
-  'fading', 'fear', 'ferocious', 'fight', 'first strike', 'flanking', 'flash', 'flashback',
+  'fading', 'fear', 'ferocious', 'fight', 'firebending', 'first strike', 'flanking', 'flash', 'flashback',
   'flying', 'for mirrodin!', 'forecast', 'foretell', 'formidable', 'friends forever', 'fuse',
   'goad', 'graft', 'gravestorm', 'haste', 'haunt', 'hellbent', 'heroic', 'hexproof',
   'hideaway', 'horsemanship', 'imprint', 'improvise', 'incubate', 'indestructible', 'infect',
@@ -21,11 +21,11 @@ const ORACLE_KEYWORDS = [
   'provoke', 'prowess', 'prowl', 'radiance', 'raid', 'rally', 'rampage', 'reach', 'rebound',
   'reconfigure', 'recover', 'reinforce', 'renown', 'replicate', 'retrace', 'revolt', 'riot',
   'ripple', 'saddle', 'scavenge', 'scry', 'shadow', 'shroud', 'skulk', 'soulbond', 'soulshift',
-  'spectacle', 'sneak', 'splice', 'split second', 'spree', 'squad', 'storm', 'strive', 'sunburst',
+  'spectacle', 'sneak', 'splice', 'split second', 'spree', 'squad', 'station', 'storm', 'strive', 'sunburst',
   'support', 'surge', 'surveil', 'suspend', 'swampcycling', 'swampwalk', 'threshold', 'totem armor',
   'trample', 'training', 'transfigure', 'transform', 'transmute', 'treasure', 'tribute', 'undaunted',
   'undergrowth', 'undying', 'unearth', 'unleash', 'vanishing', 'vigilance', 'ward', 'wither',
-  'warp',
+  'warp', 'waterbend',
 ] as const;
 
 export function isManaProducingAbility(effectText: string): boolean {

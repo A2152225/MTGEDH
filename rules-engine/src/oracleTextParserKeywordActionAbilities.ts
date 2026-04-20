@@ -22,7 +22,10 @@ function articleForSubtype(subtype: string): 'a' | 'an' {
 }
 
 export function parseKeywordActionAbility(text: string): ParsedAbility | null {
-  const cleaned = String(text || '').trim();
+  const cleaned = String(text || '')
+    .trim()
+    .replace(/\s*\([^)]*\)\s*$/, '')
+    .trim();
   if (!cleaned) return null;
 
   const scryMatch = cleaned.match(/^scry\s+(\d+|x)$/i);

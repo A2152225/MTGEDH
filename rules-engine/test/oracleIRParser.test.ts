@@ -179,21 +179,15 @@ Whenever this creature attacks, you may cast an Ally spell from among cards you 
 
     const ir = parseOracleTextToIR(text, 'Boiling Rock Rioter');
 
-    expect(ir.abilities).toHaveLength(3);
+    expect(ir.abilities).toHaveLength(2);
+    expect(ir.keywords).toContain('firebending');
 
-    const reminder = ir.abilities[0].steps as any[];
-    expect(reminder).toHaveLength(2);
-    expect(reminder[0].kind).toBe('unknown');
-    expect(reminder[0].raw).toBe('Firebending 1 (Whenever this creature attacks, add {R}');
-    expect(reminder[1].kind).toBe('unknown');
-    expect(reminder[1].raw).toBe('This mana lasts until end of combat.)');
-
-    const exileStep = ir.abilities[1].steps[0] as any;
+    const exileStep = ir.abilities[0].steps[0] as any;
     expect(exileStep.kind).toBe('move_zone');
     expect(exileStep.what).toEqual({ kind: 'raw', text: 'target card from a graveyard' });
     expect(exileStep.to).toBe('exile');
 
-    const attackPermission = ir.abilities[2].steps[0] as any;
+    const attackPermission = ir.abilities[1].steps[0] as any;
     expect(attackPermission.kind).toBe('grant_exile_permission');
     expect(attackPermission.who).toEqual({ kind: 'you' });
     expect(attackPermission.what).toEqual({ kind: 'raw', text: 'an Ally spell' });
@@ -203,6 +197,96 @@ Whenever this creature attacks, you may cast an Ally spell from among cards you 
     expect(attackPermission.ownedByWho).toBe('granted_player');
     expect(attackPermission.optional).toBe(true);
     expect(attackPermission.raw).toBe('you may cast an Ally spell from among cards you own exiled with this creature');
+  });
+
+  it('prunes firebending reminder abilities while retaining the keyword', () => {
+    const ir = parseOracleTextToIR(
+      'Firebending 1 (Whenever this creature attacks, add {R}. This mana lasts until end of combat.)',
+      'Fire Sages'
+    );
+
+    expect(ir.abilities).toHaveLength(0);
+    expect(ir.keywords).toContain('firebending');
+  });
+
+  it('prunes waterbend reminder shards while retaining the keyword', () => {
+    const ir = parseOracleTextToIR(
+      'Waterbend {2}: This creature gets +1/+1 until end of turn. Activate only during your turn. (While paying a waterbend cost, you can tap your artifacts and creatures to help. Each one pays for {1}.)',
+      'Ruthless Waterbender'
+    );
+
+    expect(ir.keywords).toContain('waterbend');
+    expect(ir.abilities[0]?.steps).toEqual([
+      expect.objectContaining({
+        kind: 'modify_pt',
+        raw: 'This creature gets +1/+1 until end of turn',
+      }),
+    ]);
+  });
+
+  it('prunes split Powerstone reminder tails after token creation', () => {
+    const ir = parseOracleTextToIR(
+      'Create a tapped Powerstone token. (It\'s an artifact with "{T}: Add {C}. This mana can\'t be spent to cast a nonartifact spell.")',
+      'Koilos Roc'
+    );
+
+    expect(ir.abilities[0]?.steps).toEqual([
+      expect.objectContaining({
+        kind: 'create_token',
+        token: 'Powerstone',
+      }),
+    ]);
+  });
+
+  it('prunes wither reminder abilities while retaining the keyword', () => {
+    const ir = parseOracleTextToIR(
+      'Wither (This deals damage to creatures in the form of -1/-1 counters.)',
+      'Twinblade Slasher'
+    );
+
+    expect(ir.abilities).toHaveLength(0);
+    expect(ir.keywords).toContain('wither');
+  });
+
+  it('prunes station reminder abilities while retaining the keyword', () => {
+    const ir = parseOracleTextToIR(
+      "Station (Tap another creature you control: Put charge counters equal to its power on this Spacecraft. Station only as a sorcery. It's an artifact creature at 9+.)",
+      'Wedgelight Rammer'
+    );
+
+    expect(ir.abilities).toHaveLength(0);
+    expect(ir.keywords).toContain('station');
+  });
+
+  it('prunes saddle reminder abilities while retaining the keyword', () => {
+    const ir = parseOracleTextToIR(
+      'Saddle 3 (Tap any number of other creatures you control with total power 3 or more: This Mount becomes saddled until end of turn. Saddle only as a sorcery.)',
+      'Caustic Bronco'
+    );
+
+    expect(ir.abilities).toHaveLength(0);
+    expect(ir.keywords).toContain('saddle');
+  });
+
+  it('prunes mixed station sorcery-speed reminder shards from full card text', () => {
+    const ir = parseOracleTextToIR(
+      "When this Spacecraft enters, create a 2/2 colorless Robot artifact creature token.\nStation (Tap another creature you control: Put charge counters equal to its power on this Spacecraft. Station only as a sorcery. It's an artifact creature at 9+.)\n9+ | Flying, first strike",
+      'Wedgelight Rammer'
+    );
+
+    const rawSteps = ir.abilities.flatMap((ability) => ability.steps.map((step) => String(step.raw || '')));
+    expect(rawSteps).not.toContain('Station only as a sorcery');
+    expect(rawSteps).not.toContain('Station only as a sorcery.)');
+  });
+
+  it('prunes bushido reminder abilities while retaining the keyword', () => {
+    const ir = parseOracleTextToIR(
+      'Bushido 2 (Whenever this creature blocks or becomes blocked, it gets +2/+2 until end of turn.)',
+      'Battle-Mad Ronin'
+    );
+
+    expect(ir.abilities).toHaveLength(0);
+    expect(ir.keywords).toContain('bushido');
   });
 
   it('parses Emperor of Bones into the linked-exile reanimation shape', () => {
@@ -618,6 +702,35 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
         raw: 'Search your library for a card, then shuffle and put that card on top',
       },
     ]);
+  });
+
+  it('merges may-search triggered clauses that shuffle and put the found card on top', () => {
+    const ir = parseOracleTextToIR(
+      'When this creature enters, you may search your library for a Merfolk card, reveal it, then shuffle and put that card on top.',
+      'Merrow Harbinger'
+    );
+
+    expect(ir.abilities[0]).toEqual(
+      expect.objectContaining({
+        kind: 'triggered',
+        steps: [
+          expect.objectContaining({
+            kind: 'search_library',
+            criteria: { kind: 'raw', text: 'Merfolk' },
+            destination: 'top',
+            revealFound: true,
+            shuffle: true,
+            optional: true,
+            maxResults: 1,
+          }),
+        ],
+      })
+    );
+    expect(
+      ir.abilities[0]?.steps.some(
+        (step: any) => step.kind === 'unknown' && String(step?.raw || '').includes('then shuffle and put that card on top')
+      )
+    ).toBe(false);
   });
 
   it('parses standalone shuffle your library clauses', () => {
@@ -1190,6 +1303,43 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
     ]);
   });
 
+  it('parses reminder-bearing Amass Orcs lines into counters plus subtype addition', () => {
+    const ir = parseOracleTextToIR(
+      "Amass Orcs 1. (Put a +1/+1 counter on an Army you control. It's also an Orc. If you don't control an Army, create a 0/0 black Orc Army creature token first.)",
+      "Saruman's Trickery"
+    );
+
+    expect(ir.abilities[0]?.steps).toEqual([
+      {
+        kind: 'conditional',
+        condition: { kind: 'if', raw: "you don't control an Army creature" },
+        steps: [
+          {
+            kind: 'create_token',
+            who: { kind: 'you' },
+            amount: { kind: 'number', value: 1 },
+            token: '0/0 black Orc Army',
+            raw: 'create a 0/0 black Orc Army creature token',
+          },
+        ],
+        raw: "If you don't control an Army creature, create a 0/0 black Orc Army creature token",
+      },
+      {
+        kind: 'add_counter',
+        amount: { kind: 'number', value: 1 },
+        counter: '+1/+1',
+        target: { kind: 'raw', text: 'Army creature you control' },
+        raw: 'Put 1 +1/+1 counter on an Army creature you control',
+      },
+      {
+        kind: 'add_types',
+        target: { kind: 'raw', text: 'Army creature you control' },
+        addTypes: ['Orc'],
+        raw: "If it isn't an Orc, it becomes an Orc in addition to its other types",
+      },
+    ]);
+  });
+
   it('parses Explore keyword lines into an executable explore step', () => {
     const ir = parseOracleTextToIR('Explore', 'Jadelight Ranger');
 
@@ -1198,6 +1348,42 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
         kind: 'explore',
         target: { kind: 'raw', text: 'this creature' },
         raw: 'Explore',
+      },
+    ]);
+  });
+
+  it('parses subject-form explore clauses and prunes the printed reminder text', () => {
+    const ir = parseOracleTextToIR(
+      "When this creature enters, it explores. (Reveal the top card of your library. Put that card into your hand if it's a land. Otherwise, put a +1/+1 counter on this creature, then put the card back or put it into your graveyard.)",
+      'Merfolk Branchwalker'
+    );
+
+    expect(ir.abilities[0]?.steps).toEqual([
+      {
+        kind: 'explore',
+        target: { kind: 'raw', text: 'this creature' },
+        raw: 'it explores',
+      },
+    ]);
+  });
+
+  it('parses repeated explore clauses and prunes the reminder repeat tail', () => {
+    const ir = parseOracleTextToIR(
+      "When this creature enters, it explores, then it explores again. (Reveal the top card of your library. Put that card into your hand if it's a land. Otherwise, put a +1/+1 counter on this creature, then put the card back or put it into your graveyard. Then repeat this process.)",
+      'Jadelight Ranger'
+    );
+
+    expect(ir.abilities[0]?.steps).toEqual([
+      {
+        kind: 'explore',
+        target: { kind: 'raw', text: 'this creature' },
+        raw: 'it explores',
+      },
+      {
+        kind: 'explore',
+        target: { kind: 'raw', text: 'this creature' },
+        sequence: 'then',
+        raw: 'it explores again',
       },
     ]);
   });
@@ -5005,6 +5191,28 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
     expect(impulse.permission).toBe('play');
   });
 
+  it('parses split choose-one bullet blocks with choose-both riders into choose_mode', () => {
+    const ir = parseOracleTextToIR(
+      "Choose one. If you control a commander as you cast this spell, you may choose both instead.\n• Add {R} for each card in target opponent's hand.\n• Exile the top three cards of your library. You may play them this turn.",
+      "Jeska's Will"
+    );
+
+    expect(ir.abilities).toHaveLength(1);
+    expect(ir.abilities[0]?.steps).toHaveLength(1);
+    expect(ir.abilities[0]?.steps[0]).toEqual(
+      expect.objectContaining({
+        kind: 'choose_mode',
+        minModes: 1,
+        maxModes: 2,
+      })
+    );
+    const chooseMode = ir.abilities[0]?.steps[0] as any;
+    expect(chooseMode.modes).toHaveLength(2);
+    expect(
+      chooseMode.modes.some((mode: any) => mode.steps.some((step: any) => step.kind === 'impulse_exile_top'))
+    ).toBe(true);
+  });
+
   it('preserves choose_mode labels that include lowercase connector words', () => {
     const text =
       'Choose up to three -\n' +
@@ -5916,6 +6124,7 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
     expect(allStepRaws.some((raw: string) => raw.includes('choice of the top or bottom') || raw.includes('greater mana value'))).toBe(false);
     expect(ir.abilities.flatMap((ability: any) => ability.steps)).toEqual(
       expect.arrayContaining([
+        expect.objectContaining({ kind: 'prevent_damage', combatOnly: true }),
         expect.objectContaining({ kind: 'clash' }),
       ])
     );
@@ -6051,6 +6260,16 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
 
     expect(ir.abilities).toHaveLength(0);
     expect(ir.keywords).toContain('overload');
+  });
+
+  it('prunes soulbond reminder abilities while retaining the keyword', () => {
+    const ir = parseOracleTextToIR(
+      'Soulbond (You may pair this creature with another unpaired creature when either enters. They remain paired for as long as you control both of them.)',
+      'Trusted Forcemage'
+    );
+
+    expect(ir.abilities).toHaveLength(0);
+    expect(ir.keywords).toContain('soulbond');
   });
 
   it('prunes ward-reminder spell-cant-be-countered variants from Oracle IR', () => {
@@ -7411,6 +7630,26 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
         amount: { kind: 'number', value: 3 },
         raw: 'Look at the top three cards of your library',
       },
+    ]);
+  });
+
+  it('prunes trailing top-of-library reorder clauses after look-top parsing', () => {
+    const ir = parseOracleTextToIR(
+      'Look at the top three cards of your library, then put them back in any order. You may shuffle.',
+      'Ponder'
+    );
+
+    expect(ir.abilities[0]?.steps).toEqual([
+      {
+        kind: 'look_top',
+        who: { kind: 'you' },
+        amount: { kind: 'number', value: 3 },
+        raw: 'Look at the top three cards of your library',
+      },
+      expect.objectContaining({
+        kind: 'shuffle_library',
+        optional: true,
+      }),
     ]);
   });
 

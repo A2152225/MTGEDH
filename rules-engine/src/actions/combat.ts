@@ -1604,7 +1604,7 @@ export function executeCombatDamage(
       let totalDamageDealt = 0;
       for (const block of attacker.blockedBy) {
         const damageToBlocker = block.damageAssigned || damage;
-        const prevention = previewPreventedDamage(currentState, damageToBlocker, attacker.attackerId);
+        const prevention = previewPreventedDamage(currentState, damageToBlocker, attacker.attackerId, { combatDamage: true });
         const finalDamageToBlocker = prevention.remainingDamage;
         logs.push(...prevention.log);
         if (finalDamageToBlocker <= 0) {
@@ -1674,7 +1674,7 @@ export function executeCombatDamage(
       const defender = currentState.players.find(p => p.id === attacker.defendingPlayerId);
       
       if (defender && damage > 0) {
-        const prevention = previewPreventedDamage(currentState, damage, attacker.attackerId);
+        const prevention = previewPreventedDamage(currentState, damage, attacker.attackerId, { combatDamage: true });
         const finalDamage = prevention.remainingDamage;
         logs.push(...prevention.log);
         if (finalDamage <= 0) {

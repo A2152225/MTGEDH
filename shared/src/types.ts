@@ -345,6 +345,7 @@ export interface DamagePreventionEffect {
   sourceName?: string;
   controllerId?: PlayerID;
   targetSourceId: string;
+  combatOnly?: boolean;
   colors?: readonly string[];
   expiresAtTurn?: number;
 }
@@ -514,7 +515,7 @@ export interface OracleAutomationGap {
   sourceName?: string;
   turnNumber?: number;
   phase?: string;
-  step?: string;
+  combatOnly?: boolean;
   metadata?: Record<string, string | number | boolean | null | readonly string[]>;
 }
 

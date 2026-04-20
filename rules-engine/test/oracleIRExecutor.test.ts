@@ -12,6 +12,7 @@ import {
 } from '../src/triggeredAbilities';
 import { canCreatureBlock, createCombatCreature } from '../src/combatAutomation';
 import { executeCleanupStep as executeTurnCleanupStep, executeUntapStep } from '../src/actions/turnActions';
+import { previewPreventedDamage } from '../src/oracleIRDamagePrevention';
 import { makeMerfolkIterationState } from './helpers/merfolkIterationFixture';
 
 function makeState(overrides: Partial<GameState> = {}): GameState {
@@ -23767,7 +23768,8 @@ Tap an untapped Ally you control: Exile target card from a graveyard.
 Whenever this creature attacks, you may cast an Ally spell from among cards you own exiled with this creature.`,
       'Boiling Rock Rioter'
     );
-    const steps = ir.abilities[2]?.steps ?? [];
+    const steps =
+      ir.abilities.find((ability: any) => ability.steps.some((step: any) => step.kind === 'grant_exile_permission'))?.steps ?? [];
 
     const result = applyOracleIRStepsToGameState(
       makeState({
@@ -24810,6 +24812,60 @@ This creature has protection from each of the exiled card's card types. (Artifac
     expect(damageResult.appliedSteps.map(step => step.kind)).toEqual(['deal_damage']);
     expect(p1.life).toBe(40);
     expect(damageResult.log.some(entry => String(entry).includes('Prevented 3 damage'))).toBe(true);
+  });
+
+  it('applies Fog-style combat damage prevention without affecting noncombat damage', () => {
+    const ir = parseOracleTextToIR('Prevent all combat damage that would be dealt this turn.', 'Fog');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const prevented = applyOracleIRStepsToGameState(
+      makeState({
+        players: [
+          {
+            id: 'p1',
+            name: 'P1',
+            seat: 0,
+            life: 40,
+            library: [],
+            hand: [],
+            graveyard: [],
+            exile: [],
+          } as any,
+        ],
+        battlefield: [
+          {
+            id: 'attacker-1',
+            owner: 'p1',
+            controller: 'p1',
+            tapped: false,
+            attachments: [],
+            modifiers: [],
+            card: {
+              id: 'attacker-card',
+              name: 'Test Attacker',
+              type_line: 'Creature',
+              power: '3',
+              toughness: '3',
+            },
+          } as any,
+        ],
+      } as any),
+      steps,
+      {
+        controllerId: 'p1',
+        sourceId: 'fog',
+        sourceName: 'Fog',
+      }
+    );
+
+    const preventionEffects = ((prevented.state as any).damagePreventionEffects || []) as any[];
+    const combatPrevention = previewPreventedDamage(prevented.state, 3, 'attacker-1', { combatDamage: true });
+    const nonCombatPrevention = previewPreventedDamage(prevented.state, 3, 'attacker-1');
+
+    expect(prevented.appliedSteps.map(step => step.kind)).toEqual(['prevent_damage']);
+    expect(preventionEffects.some(effect => effect.targetSourceId === '*' && effect.combatOnly === true)).toBe(true);
+    expect(combatPrevention.remainingDamage).toBe(0);
+    expect(nonCombatPrevention.remainingDamage).toBe(3);
   });
 
   it('applies Psionic Ritual by exiling the spell card and replaying its copied instructions', () => {
