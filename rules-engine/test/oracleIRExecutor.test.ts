@@ -24761,6 +24761,71 @@ This creature has protection from each of the exiled card's card types. (Artifac
     expect(p1.library || []).toEqual([]);
   });
 
+  it('applies targeted spell-copy steps by replaying the bound spell on the stack', () => {
+    const ir = parseOracleTextToIR(
+      'Copy target instant or sorcery spell you control. You may choose new targets for the copy.',
+      'Reverberate'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const result = applyOracleIRStepsToGameState(
+      makeState({
+        players: [
+          {
+            id: 'p1',
+            name: 'P1',
+            seat: 0,
+            life: 40,
+            library: [
+              { id: 'reverb-draw-1', name: 'Plains', type_line: 'Basic Land - Plains' },
+              { id: 'reverb-draw-2', name: 'Island', type_line: 'Basic Land - Island' },
+            ],
+            hand: [],
+            graveyard: [],
+            exile: [],
+          } as any,
+          {
+            id: 'p2',
+            name: 'P2',
+            seat: 1,
+            life: 40,
+            library: [],
+            hand: [],
+            graveyard: [],
+            exile: [],
+          } as any,
+        ],
+        stack: [
+          {
+            id: 'copied-divination',
+            type: 'spell',
+            controller: 'p1',
+            card: {
+              id: 'divination-card',
+              name: 'Divination',
+              type_line: 'Sorcery',
+              oracle_text: 'Draw two cards.',
+            },
+          } as any,
+        ],
+      } as any),
+      steps,
+      {
+        controllerId: 'p1',
+        sourceId: 'reverberate-source',
+        sourceName: 'Reverberate',
+        targetSpellId: 'copied-divination',
+      },
+      { allowOptional: true }
+    );
+
+    const p1 = result.state.players.find((player: any) => player.id === 'p1') as any;
+
+    expect(result.appliedSteps.map(step => step.kind)).toEqual(['copy_spell']);
+    expect((p1.hand || []).map((card: any) => card.id)).toEqual(['reverb-draw-1', 'reverb-draw-2']);
+    expect(((result.state as any).stack || []).map((item: any) => item.id)).toEqual(['copied-divination']);
+  });
+
   it("applies Wizard's Spellbook 10-19 branch by paying {1} for the copied spell", () => {
     const randomSpy = vi.spyOn(Math, 'random').mockReturnValue(0.6);
     try {

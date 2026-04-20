@@ -178,6 +178,15 @@ export function tryParseZoneAndRemovalClause(args: {
     return withMeta({ kind: 'counter_spell', target: parseObjectSelector('target spell'), raw: rawClause });
   }
 
+  const counterTargetedSpellMatch = clause.match(/^counter\s+(target\s+.+?spell(?:\s+.+)?)$/i);
+  if (counterTargetedSpellMatch) {
+    return withMeta({
+      kind: 'counter_spell',
+      target: parseObjectSelector(String(counterTargetedSpellMatch[1] || '').trim()),
+      raw: rawClause,
+    });
+  }
+
   const exileFromMatch = clause.match(/^exile\s+(.+?)\s+from\s+(.+)$/i);
   if (exileFromMatch) {
     const whatRaw = `${String(exileFromMatch[1] || '').trim()} from ${String(exileFromMatch[2] || '').trim()}`.trim();

@@ -1,0 +1,469 @@
+{
+  "meta": {
+    "generatedAt": "2026-04-18T21:42:44.663Z",
+    "oraclePath": "D:\\Git\\MTGEDH\\oracle-cards.json",
+    "atomicPath": "D:\\Git\\MTGEDH\\AtomicCards.json",
+    "includeOracle": true,
+    "includeAtomic": false,
+    "maxExamples": 5,
+    "top": 20
+  },
+  "stats": {
+    "seenUniqueCards": 29539,
+    "scannedOracleCards": 29539,
+    "scannedAtomicCards": 0,
+    "skippedDuplicateOracleId": 0,
+    "cardsWithAnyGap": 12652
+  },
+  "topGaps": [
+    {
+      "rank": 1,
+      "key": "unknown-step|unknown|as an additional cost to cast this spell, sacrifice a creature",
+      "raw": "As an additional cost to cast this spell, sacrifice a creature",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 53,
+      "exampleCards": [
+        "Mind Extraction",
+        "Diabolic Intent",
+        "Scapegoat",
+        "Infernal Plunge",
+        "Bone Splinters"
+      ],
+      "exampleClauses": [
+        "As an additional cost to cast this spell, sacrifice a creature"
+      ],
+      "sources": {
+        "oracle-cards": 53,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 2,
+      "key": "unknown-step|unknown|enchanted creature doesn't untap during its controller's untap step",
+      "raw": "Enchanted creature doesn't untap during its controller's untap step",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 46,
+      "exampleCards": [
+        "Waterknot",
+        "Locked in the Cemetery",
+        "Bonds of Quicksilver",
+        "Apathy",
+        "Roots"
+      ],
+      "exampleClauses": [
+        "Enchanted creature doesn't untap during its controller's untap step"
+      ],
+      "sources": {
+        "oracle-cards": 46,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 3,
+      "key": "unknown-fragment|deal_damage.amount|that much",
+      "raw": "that much",
+      "gapType": "unknown-fragment",
+      "fieldPath": "deal_damage.amount",
+      "count": 46,
+      "exampleCards": [
+        "Donna Noble",
+        "Geistflame Reservoir",
+        "Wrathful Red Dragon",
+        "Wrathful Raptors",
+        "Leech Medic"
+      ],
+      "exampleClauses": [
+        "this permanent deals that much damage to target opponent",
+        "It deals that much damage to any target",
+        "it deals that much damage to any target that isn't a Dragon",
+        "it deals that much damage to any target that isn't a Dinosaur",
+        "Leeches deals that much damage to that player.\")"
+      ],
+      "sources": {
+        "oracle-cards": 46,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 4,
+      "key": "unknown-step|unknown|with x +1/+1 counters on it",
+      "raw": "with X +1/+1 counters on it",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 46,
+      "exampleCards": [
+        "Benevolent Hydra",
+        "Marketback Walker",
+        "Magma Pummeler",
+        "Primordial Hydra",
+        "Vrestin, Menoptra Leader"
+      ],
+      "exampleClauses": [
+        "with X +1/+1 counters on it"
+      ],
+      "sources": {
+        "oracle-cards": 46,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 5,
+      "key": "unknown-step|unknown|then shuffle.)",
+      "raw": "then shuffle.)",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 44,
+      "exampleCards": [
+        "Lore Weaver",
+        "Silvar, Devourer of the Free",
+        "Timin, Youthful Geist",
+        "Kamber, the Plunderer",
+        "Regna, the Redeemer"
+      ],
+      "exampleClauses": [
+        "then shuffle.)"
+      ],
+      "sources": {
+        "oracle-cards": 44,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 6,
+      "key": "unknown-step|unknown|you may look at the top card of your library any time",
+      "raw": "You may look at the top card of your library any time",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 44,
+      "exampleCards": [
+        "One with the Multiverse",
+        "The Lunar Whale",
+        "Cemetery Illuminator",
+        "Assemble the Players",
+        "Fortune Teller's Talent"
+      ],
+      "exampleClauses": [
+        "You may look at the top card of your library any time"
+      ],
+      "sources": {
+        "oracle-cards": 44,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 7,
+      "key": "unknown-step|unknown|look at the top three cards of your library",
+      "raw": "Look at the top three cards of your library",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 42,
+      "exampleCards": [
+        "Ponder",
+        "Sensei's Divining Top",
+        "Vivien, Champion of the Wilds",
+        "Telling Time",
+        "Beastrider Vanguard"
+      ],
+      "exampleClauses": [
+        "Look at the top three cards of your library",
+        "look at the top three cards of your library"
+      ],
+      "sources": {
+        "oracle-cards": 42,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 8,
+      "key": "unknown-step|unknown|you may choose new targets for the copies",
+      "raw": "You may choose new targets for the copies",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 41,
+      "exampleCards": [
+        "Consign to Memory",
+        "Lose Focus",
+        "Banish into Fable",
+        "Seasonal Sequels",
+        "Fury Storm"
+      ],
+      "exampleClauses": [
+        "You may choose new targets for the copies"
+      ],
+      "sources": {
+        "oracle-cards": 41,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 9,
+      "key": "unknown-step|unknown|flip a coin",
+      "raw": "Flip a coin",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 39,
+      "exampleCards": [
+        "Polis the Planeshifter",
+        "Goblin Lyre",
+        "Krark, the Thumbless",
+        "Risky Move",
+        "Plasma Caster"
+      ],
+      "exampleClauses": [
+        "Flip a coin",
+        "flip a coin"
+      ],
+      "sources": {
+        "oracle-cards": 39,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 10,
+      "key": "unknown-step|unknown|you may choose new targets for the copy",
+      "raw": "You may choose new targets for the copy",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 39,
+      "exampleCards": [
+        "Bill Potts",
+        "See Double",
+        "Tzaangor Shaman",
+        "Errant, Street Artist",
+        "Najal, the Storm Runner"
+      ],
+      "exampleClauses": [
+        "You may choose new targets for the copy"
+      ],
+      "sources": {
+        "oracle-cards": 39,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 11,
+      "key": "unknown-step|unknown|look at the top four cards of your library",
+      "raw": "look at the top four cards of your library",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 38,
+      "exampleCards": [
+        "Courageous Outrider",
+        "Foul Emissary",
+        "Glint-Nest Crane",
+        "Durnan of the Yawning Portal",
+        "Gavony Dawnguard"
+      ],
+      "exampleClauses": [
+        "look at the top four cards of your library",
+        "Look at the top four cards of your library"
+      ],
+      "sources": {
+        "oracle-cards": 38,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 12,
+      "key": "unknown-step|unknown|swampwalk (this creature can't be blocked as long as defending player controls a swamp.)",
+      "raw": "Swampwalk (This creature can't be blocked as long as defending player controls a Swamp.)",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 38,
+      "exampleCards": [
+        "Whispering Shade",
+        "Dirtwater Wraith",
+        "Slithery Stalker",
+        "Lost Soul",
+        "Quag Vampires"
+      ],
+      "exampleClauses": [
+        "Swampwalk (This creature can't be blocked as long as defending player controls a Swamp.)",
+        "swampwalk (This creature can't be blocked as long as defending player controls a Swamp.)"
+      ],
+      "sources": {
+        "oracle-cards": 38,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 13,
+      "key": "unknown-step|unknown|turn it face up any time for its disguise cost.)",
+      "raw": "Turn it face up any time for its disguise cost.)",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 38,
+      "exampleCards": [
+        "Boltbender",
+        "Nightdrinker Moroii",
+        "Concealed Weapon",
+        "Dog Walker",
+        "Nervous Gardener"
+      ],
+      "exampleClauses": [
+        "Turn it face up any time for its disguise cost.)"
+      ],
+      "sources": {
+        "oracle-cards": 38,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 14,
+      "key": "unknown-step|unknown|activate only as a sorcery.\")",
+      "raw": "Activate only as a sorcery.\")",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 37,
+      "exampleCards": [
+        "Topography Tracker",
+        "April O'Neil, Human Element",
+        "Junk Jet",
+        "Mister Gutsy",
+        "Zoo Escapees"
+      ],
+      "exampleClauses": [
+        "Activate only as a sorcery.\")"
+      ],
+      "sources": {
+        "oracle-cards": 37,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 15,
+      "key": "unknown-step|unknown|it increases once on each of your turns when an opponent loses life",
+      "raw": "It increases once on each of your turns when an opponent loses life",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 37,
+      "exampleCards": [
+        "Momentum Breaker",
+        "Point the Way",
+        "Lightwheel Enhancements",
+        "Burnout Bashtronaut",
+        "Goblin Surveyor"
+      ],
+      "exampleClauses": [
+        "It increases once on each of your turns when an opponent loses life"
+      ],
+      "sources": {
+        "oracle-cards": 37,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 16,
+      "key": "unknown-step|unknown|max speed is 4.)",
+      "raw": "Max speed is 4.)",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 37,
+      "exampleCards": [
+        "Momentum Breaker",
+        "Point the Way",
+        "Lightwheel Enhancements",
+        "Burnout Bashtronaut",
+        "Goblin Surveyor"
+      ],
+      "exampleClauses": [
+        "Max speed is 4.)"
+      ],
+      "sources": {
+        "oracle-cards": 37,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 17,
+      "key": "unknown-step|unknown|start your engines! (if you have no speed, it starts at 1",
+      "raw": "Start your engines! (If you have no speed, it starts at 1",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 37,
+      "exampleCards": [
+        "Momentum Breaker",
+        "Point the Way",
+        "Lightwheel Enhancements",
+        "Burnout Bashtronaut",
+        "Goblin Surveyor"
+      ],
+      "exampleClauses": [
+        "Start your engines! (If you have no speed, it starts at 1"
+      ],
+      "sources": {
+        "oracle-cards": 37,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 18,
+      "key": "unknown-step|unknown|activate only during your turn",
+      "raw": "Activate only during your turn",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 36,
+      "exampleCards": [
+        "Ruthless Waterbender",
+        "Humble Defector",
+        "Yes Man, Personal Securitron",
+        "Hoofprints of the Stag",
+        "June, Bounty Hunter"
+      ],
+      "exampleClauses": [
+        "Activate only during your turn"
+      ],
+      "sources": {
+        "oracle-cards": 36,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 19,
+      "key": "unknown-step|unknown|equipped creature gets +1/+1",
+      "raw": "Equipped creature gets +1/+1",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 36,
+      "exampleCards": [
+        "Plasma Caster",
+        "Bladed Bracers",
+        "Quick-Draw Dagger",
+        "Tormentor's Helm",
+        "Stormrider Rig"
+      ],
+      "exampleClauses": [
+        "Equipped creature gets +1/+1"
+      ],
+      "sources": {
+        "oracle-cards": 36,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 20,
+      "key": "unknown-step|unknown|gain control of target creature until end of turn",
+      "raw": "Gain control of target creature until end of turn",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 36,
+      "exampleCards": [
+        "Unwilling Recruit",
+        "Goatnap",
+        "Angrath, the Flame-Chained",
+        "Portent of Betrayal",
+        "Vengeful Possession"
+      ],
+      "exampleClauses": [
+        "Gain control of target creature until end of turn",
+        "gain control of target creature until end of turn"
+      ],
+      "sources": {
+        "oracle-cards": 36,
+        "AtomicCards": 0
+      }
+    }
+  ]
+}

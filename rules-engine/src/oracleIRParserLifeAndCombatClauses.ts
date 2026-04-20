@@ -1,5 +1,5 @@
 import type { OracleEffectStep } from './oracleIR';
-import { parseObjectSelector, parsePlayerSelector, parseQuantity } from './oracleIRParserUtils';
+import { normalizeOracleText, parseObjectSelector, parsePlayerSelector, parseQuantity } from './oracleIRParserUtils';
 
 type WithMeta = <T extends OracleEffectStep>(step: T) => T;
 
@@ -40,12 +40,19 @@ function parseDamageAmount(raw: string | undefined): Extract<OracleEffectStep, {
 const PLAYER_SUBJECT_PREFIX =
   "(?:(you|each player|each opponent|each of those opponents|target player|target opponent|that player|that opponent|defending player|the defending player|he or she|they|its controller|its owner|that [a-z0-9][a-z0-9 ,.'’-]*?(?:'s|’s)? (?:controller|owner))\\s+)?";
 
+const SELF_DAMAGE_SOURCE_SUBJECT_PATTERN =
+  "(?:it|this (?:permanent|spell|creature|card|emblem)|that [a-z0-9][a-z0-9 ,.'’-]*|target [a-z0-9][a-z0-9 ,.'’-]*|another target [a-z0-9][a-z0-9 ,.'’-]*)";
+
+const NAMED_DAMAGE_SOURCE_PATTERN =
+  "[A-Z0-9][A-Za-z0-9'’/-]*(?: [A-Z0-9][A-Za-z0-9'’/-]*)*(?:, [A-Z0-9][A-Za-z0-9'’/-]*(?: [A-Z0-9][A-Za-z0-9'’/-]*)*)?";
+
 export function tryParseLifeAndCombatClause(args: {
   clause: string;
   rawClause: string;
   withMeta: WithMeta;
 }): OracleEffectStep | null {
   const { clause, rawClause, withMeta } = args;
+  const normalizedRawClause = normalizeOracleText(rawClause);
 
   {
     const gain = clause.match(new RegExp(`^${PLAYER_SUBJECT_PREFIX}gains?\\s+(\\d+|x|[a-z]+)\\s+life\\b`, 'i'));
@@ -143,7 +150,7 @@ export function tryParseLifeAndCombatClause(args: {
     }
 
     const sourceDealsDamageEqual = clause.match(
-      /^((?:it|this (?:permanent|spell|creature|card)|[a-z0-9 ,.'â€™/-]+))\s+deals?\s+damage\s+equal\s+to\s+(.+?)\s+to\s+(.+)$/i
+      new RegExp(`^(${SELF_DAMAGE_SOURCE_SUBJECT_PATTERN})\\s+deals?\\s+damage\\s+equal\\s+to\\s+(.+?)\\s+to\\s+(.+)$`, 'i')
     );
     if (sourceDealsDamageEqual) {
       return withMeta({
@@ -151,6 +158,19 @@ export function tryParseLifeAndCombatClause(args: {
         amount: parseDamageAmount(sourceDealsDamageEqual[2]),
         source: parseObjectSelector(sourceDealsDamageEqual[1]),
         target: parseObjectSelector(sourceDealsDamageEqual[3]),
+        raw: rawClause,
+      });
+    }
+
+    const namedSourceDealsDamageEqual = normalizedRawClause.match(
+      new RegExp(`^(${NAMED_DAMAGE_SOURCE_PATTERN})\\s+deals?\\s+damage\\s+equal\\s+to\\s+(.+?)\\s+to\\s+(.+)$`)
+    );
+    if (namedSourceDealsDamageEqual) {
+      return withMeta({
+        kind: 'deal_damage',
+        amount: parseDamageAmount(namedSourceDealsDamageEqual[2]),
+        source: parseObjectSelector(namedSourceDealsDamageEqual[1]),
+        target: parseObjectSelector(namedSourceDealsDamageEqual[3]),
         raw: rawClause,
       });
     }
@@ -166,7 +186,7 @@ export function tryParseLifeAndCombatClause(args: {
     }
 
     const sourceDealsDamage = clause.match(
-      /^((?:it|this (?:permanent|spell|creature|card)))\s+deals?\s+(that much|\d+|x|[a-z]+)\s+damage\s+to\s+(.+)$/i
+      new RegExp(`^(${SELF_DAMAGE_SOURCE_SUBJECT_PATTERN})\\s+deals?\\s+(that much|\\d+|x|[a-z]+)\\s+damage\\s+to\\s+(.+)$`, 'i')
     );
     if (sourceDealsDamage) {
       return withMeta({
@@ -174,6 +194,19 @@ export function tryParseLifeAndCombatClause(args: {
         amount: parseQuantity(sourceDealsDamage[2]),
         source: parseObjectSelector(sourceDealsDamage[1]),
         target: parseObjectSelector(sourceDealsDamage[3]),
+        raw: rawClause,
+      });
+    }
+
+    const namedSourceDealsDamage = normalizedRawClause.match(
+      new RegExp(`^(${NAMED_DAMAGE_SOURCE_PATTERN})\\s+deals?\\s+(that much|\\d+|x|[a-z]+)\\s+damage\\s+to\\s+(.+)$`)
+    );
+    if (namedSourceDealsDamage) {
+      return withMeta({
+        kind: 'deal_damage',
+        amount: parseQuantity(namedSourceDealsDamage[2]),
+        source: parseObjectSelector(namedSourceDealsDamage[1]),
+        target: parseObjectSelector(namedSourceDealsDamage[3]),
         raw: rawClause,
       });
     }

@@ -5287,6 +5287,96 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
     expect(ir.abilities).toEqual([]);
   });
 
+  it('prunes standalone convoke keyword lines from Oracle IR while keeping the keyword', () => {
+    const ir = parseOracleTextToIR(
+      'Convoke\nTarget creature gets +3/+3 until end of turn.',
+      'Pack\'s Favor'
+    );
+
+    expect(ir.keywords).toContain('convoke');
+    expect(ir.abilities).toEqual([
+      expect.objectContaining({
+        steps: [
+          expect.objectContaining({
+            kind: 'modify_pt',
+            target: { kind: 'raw', text: 'target creature' },
+            power: 3,
+            toughness: 3,
+            duration: 'end_of_turn',
+          }),
+        ],
+      }),
+    ]);
+  });
+
+  it('prunes long convoke reminder text from full card text while keeping the spell effect', () => {
+    const ir = parseOracleTextToIR(
+      'Convoke (Your creatures can help cast this spell. Each creature you tap while casting this spell pays for {1} or one mana of that creature\'s color.)\nCreate X 1/1 white Soldier creature tokens with lifelink.',
+      'March of the Multitudes'
+    );
+
+    expect(ir.keywords).toEqual(expect.arrayContaining(['convoke', 'lifelink']));
+    expect(ir.abilities.flatMap((ability: any) => ability.steps).some((step: any) => /convoke|each creature you tap while casting/i.test(String(step?.raw || '')))).toBe(false);
+    expect(ir.abilities).toEqual([
+      expect.objectContaining({
+        steps: [
+          expect.objectContaining({
+            kind: 'create_token',
+            token: '1/1 white Soldier',
+            amount: { kind: 'x' },
+          }),
+        ],
+      }),
+    ]);
+  });
+
+  it('prunes standalone madness keyword reminder abilities while keeping the keyword', () => {
+    const ir = parseOracleTextToIR(
+      'Madness {U} (If you discard this card, discard it into exile. When you do, cast it for its madness cost or put it into your graveyard.)\nDraw a card.',
+      'Obsessive Search'
+    );
+
+    expect(ir.keywords).toContain('madness');
+    expect(ir.abilities).toEqual([
+      expect.objectContaining({
+        steps: [
+          expect.objectContaining({
+            kind: 'draw',
+            who: { kind: 'you' },
+            amount: { kind: 'number', value: 1 },
+          }),
+        ],
+      }),
+    ]);
+  });
+
+  it('prunes proliferate reminder tails from proliferate keyword lines', () => {
+    const ir = parseOracleTextToIR(
+      'Proliferate. (Choose any number of permanents and/or players, then give each another counter of each kind already there.)\nDraw a card.',
+      'Experimental Augury'
+    );
+
+    expect(ir.abilities.map((ability) => ability.steps.map((step) => step.kind))).toEqual([
+      ['proliferate'],
+      ['draw'],
+    ]);
+    expect(
+      ir.abilities.some((ability: any) =>
+        ability.steps.some((step: any) => /choose any number of permanents|give each another counter/i.test(String(step?.raw || '')))
+      )
+    ).toBe(false);
+  });
+
+  it('prunes proliferate reminder tails from inline proliferate clauses', () => {
+    const ir = parseOracleTextToIR(
+      'Destroy target creature, then proliferate. (Choose any number of permanents and/or players, then give each another counter of each kind already there.)',
+      'Spread the Sickness'
+    );
+
+    expect(ir.abilities[0]?.steps.map((step) => step.kind)).toEqual(['destroy', 'proliferate']);
+    expect(ir.abilities[0]?.steps.some((step: any) => /choose any number of permanents|give each another counter/i.test(String(step?.raw || '')))).toBe(false);
+  });
+
   it('prunes standalone spell-cant-be-countered text from Oracle IR', () => {
     const ir = parseOracleTextToIR(
       "This spell can't be countered.\nDestroy target nonland permanent with mana value 3 or less.",
@@ -5361,6 +5451,65 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
     expect(ir.keywords).toContain('crew');
   });
 
+  it('prunes split equipment-vehicle crew reminder fragments while keeping the crew keyword', () => {
+    const ir = parseOracleTextToIR(
+      'Crew 2 (Tap any number of creatures you control with total power 2 or more: This Vehicle becomes an artifact creature until end of turn. Creatures can\'t be attached to other permanents.)',
+      'Cloudspire Skycycle'
+    );
+
+    expect(ir.abilities).toEqual([]);
+    expect(ir.keywords).toContain('crew');
+  });
+
+  it('prunes ward-reminder spell-cant-be-countered variants from Oracle IR', () => {
+    const ir = parseOracleTextToIR(
+      "This spell can't be countered. (This includes by the ward ability.)\nHeated Debate deals 4 damage to target creature or planeswalker.",
+      'Heated Debate'
+    );
+
+    expect(ir.abilities.flatMap((ability: any) => ability.steps).some((step: any) => /can't be countered/i.test(String(step?.raw || '')))).toBe(false);
+    expect(ir.abilities.flatMap((ability: any) => ability.steps)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'deal_damage',
+          amount: { kind: 'number', value: 4 },
+          target: { kind: 'raw', text: 'target creature or planeswalker' },
+        }),
+      ])
+    );
+  });
+
+  it('prunes clue and once-per-turn reminder tails from live trigger text', () => {
+    const ir = parseOracleTextToIR(
+      'When this enchantment enters, create a Clue token. (It\'s an artifact with "{2}, Sacrifice this token: Draw a card.")\nWhenever you sacrifice a permanent during your turn, create a 1/1 white Ally creature token. This ability triggers only once each turn.',
+      'Tolls of War'
+    );
+
+    expect(ir.abilities.flatMap((ability: any) => ability.steps).some((step: any) => /artifact with|triggers only once each turn/i.test(String(step?.raw || '')))).toBe(false);
+    expect(ir.abilities.flatMap((ability: any) => ability.steps)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'create_token',
+          token: 'Clue',
+        }),
+        expect.objectContaining({
+          kind: 'create_token',
+          token: '1/1 white Ally',
+        }),
+      ])
+    );
+  });
+
+  it('prunes still-a-land reminder text from Hall of Storm Giants style activations', () => {
+    const ir = parseOracleTextToIR(
+      "{3}{U}{U}: Until end of turn, this land becomes a 7/7 blue Giant creature with ward {3}. It's still a land.",
+      'Hall of Storm Giants'
+    );
+
+    expect(ir.abilities[0]?.steps.some((step: any) => String(step?.raw || '').includes("It's still a land"))).toBe(false);
+    expect(ir.abilities[0]?.steps.length).toBeGreaterThan(0);
+  });
+
   it('prunes trigger-only-once restriction text from triggered ability steps', () => {
     const ir = parseOracleTextToIR(
       'Whenever you sacrifice one or more other creatures, Forge Boss deals 2 damage to each opponent. This ability triggers only once each turn.',
@@ -5425,6 +5574,93 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
         raw: 'Scry 2',
       },
     ]);
+  });
+
+  it('prunes short-form plural scry reminder fragments when a scry step is already parsed', () => {
+    const ir = parseOracleTextToIR(
+      'Scry 2. (Look at the top two cards of your library, then put any number of them on the bottom and the rest on top in any order.)',
+      'Test'
+    );
+
+    expect(ir.abilities[0]?.steps).toEqual([
+      {
+        kind: 'scry',
+        who: { kind: 'you' },
+        amount: { kind: 'number', value: 2 },
+        raw: 'Scry 2',
+      },
+    ]);
+  });
+
+  it("prunes standalone short-form scry reminder abilities from full card text", () => {
+    const ir = parseOracleTextToIR(
+      "When this artifact enters, scry 2, then you get {E}{E}. (You get two energy counters. To scry 2, look at the top two cards of your library, then put any number of them on the bottom and the rest on top in any order.)\n{2}{U}, Sacrifice this artifact: Scry 2, then you get {E}{E}.",
+      "Glassblower's Puzzleknot"
+    );
+
+    expect(ir.abilities.some((ability) => String(ability.text || '').includes('To scry 2'))).toBe(false);
+    expect(
+      ir.abilities.some((ability) =>
+        ability.steps.some((step: any) => String(step?.raw || '').includes('put any number of them on the bottom and the rest on top in any order'))
+      )
+    ).toBe(false);
+  });
+
+  it('prunes bestow unattached-creature reminder tails from keyword lines', () => {
+    const ir = parseOracleTextToIR(
+      "Bestow {3}{W} (If you cast this card for its bestow cost, it's an Aura spell with enchant creature. It becomes a creature again if it's not attached.)",
+      'Test'
+    );
+
+    expect(
+      ir.abilities.some((ability) =>
+        ability.steps.some((step: any) => String(step?.raw || '').includes("It becomes a creature again if it's not attached"))
+      )
+    ).toBe(false);
+  });
+
+  it('treats short self enters-tapped artifact text as a replacement ability without unknown steps', () => {
+    const ir = parseOracleTextToIR('This artifact enters tapped.', 'Moss Diamond');
+
+    expect(ir.abilities[0]).toMatchObject({
+      type: 'replacement',
+      effectText: 'tapped',
+    });
+    expect(ir.abilities[0]?.steps).toEqual([]);
+  });
+
+  it('treats short self enters-tapped creature text as a replacement ability without unknown steps', () => {
+    const ir = parseOracleTextToIR('This creature enters tapped.', 'Dungeon Crawler');
+
+    expect(ir.abilities[0]).toMatchObject({
+      type: 'replacement',
+      effectText: 'tapped',
+    });
+    expect(ir.abilities[0]?.steps).toEqual([]);
+  });
+
+  it('prunes redundant infect keyword placeholder steps while preserving keyword capture', () => {
+    const ir = parseOracleTextToIR('Infect', 'Glistener Elf');
+
+    expect(ir.keywords).toContain('infect');
+    expect(ir.abilities[0]).toMatchObject({
+      type: 'static',
+      effectText: 'Infect',
+    });
+    expect(ir.abilities[0]?.steps).toEqual([]);
+  });
+
+  it('prunes infect reminder-text placeholder steps while preserving keyword capture', () => {
+    const ir = parseOracleTextToIR(
+      'Infect (This creature deals damage to creatures in the form of -1/-1 counters and to players in the form of poison counters.)',
+      'Cystbearer'
+    );
+
+    expect(ir.keywords).toContain('infect');
+    expect(ir.abilities[0]).toMatchObject({
+      type: 'static',
+    });
+    expect(ir.abilities[0]?.steps).toEqual([]);
   });
 
   it("parses target creature can't block this turn into a cant_block step", () => {
@@ -8056,6 +8292,58 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
     ]);
   });
 
+  it('parses League Guildmage spell-copy activations into targeted copy_spell steps', () => {
+    const ir = parseOracleTextToIR(
+      '{3}{U}, {T}: Draw a card.\n{X}{R}, {T}: Copy target instant or sorcery spell you control with mana value X. You may choose new targets for the copy.',
+      'League Guildmage'
+    );
+
+    const copyAbility = ir.abilities.find((ability) => ability.steps.some((step) => step.kind === 'copy_spell'));
+    expect(copyAbility?.type).toBe('activated');
+    expect(copyAbility?.steps).toEqual([
+      expect.objectContaining({
+        kind: 'copy_spell',
+        subject: 'target_spell',
+        target: { kind: 'raw', text: 'target instant or sorcery spell you control with mana value X' },
+        allowNewTargets: true,
+      }),
+    ]);
+  });
+
+  it('parses Melek, Izzet Paragon copy-it triggers into target_spell copy steps', () => {
+    const ir = parseOracleTextToIR(
+      'Play with the top card of your library revealed.\nYou may cast instant and sorcery spells from the top of your library.\nWhenever you cast an instant or sorcery spell from your library, copy it. You may choose new targets for the copy.',
+      'Melek, Izzet Paragon'
+    );
+
+    const copyAbility = ir.abilities.find((ability) => ability.steps.some((step) => step.kind === 'copy_spell'));
+    expect(copyAbility?.type).toBe('triggered');
+    expect(copyAbility?.steps).toEqual([
+      expect.objectContaining({
+        kind: 'copy_spell',
+        subject: 'target_spell',
+        target: { kind: 'raw', text: 'it' },
+        allowNewTargets: true,
+      }),
+    ]);
+  });
+
+  it('merges copy-ability retarget tails onto the primary unknown step', () => {
+    const ir = parseOracleTextToIR(
+      "Vigilance\n{1}, {T}: Copy target activated or triggered ability you control from a colorless source. You may choose new targets for the copy. (Mana abilities can't be targeted.)",
+      'Abstruse Archaic'
+    );
+
+    const copyAbility = ir.abilities.find((ability) => ability.type === 'activated');
+    expect(copyAbility?.steps.some((step: any) => String(step?.raw || '').trim() === 'You may choose new targets for the copy')).toBe(false);
+    expect(copyAbility?.steps[0]).toEqual(
+      expect.objectContaining({
+        kind: 'unknown',
+        raw: expect.stringContaining('You may choose new targets for the copy'),
+      })
+    );
+  });
+
   it('parses Cascade keyword lines into a self-cast trigger with a spell-mana-value exile loop', () => {
     const ir = parseOracleTextToIR('Cascade', 'Bloodbraid Elf');
 
@@ -8985,6 +9273,31 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
     );
   });
 
+  it('parses Psychic Rebuttal spell-mastery copy riders into conditional copy_spell steps', () => {
+    const ir = parseOracleTextToIR(
+      'Counter target instant or sorcery spell that targets you.\nSpell mastery — If there are two or more instant and/or sorcery cards in your graveyard, you may copy the spell countered this way. You may choose new targets for the copy.',
+      'Psychic Rebuttal'
+    );
+
+    expect(ir.abilities[0]?.steps).toEqual([
+      expect.objectContaining({ kind: 'counter_spell' }),
+    ]);
+    expect(ir.abilities[1]?.steps).toEqual([
+      expect.objectContaining({
+        kind: 'conditional',
+        condition: { kind: 'if', raw: 'there are two or more instant and/or sorcery cards in your graveyard' },
+        steps: [
+          expect.objectContaining({
+            kind: 'copy_spell',
+            subject: 'last_moved_card',
+            optional: true,
+            allowNewTargets: true,
+          }),
+        ],
+      }),
+    ]);
+  });
+
   it('parses Ignite the Future graveyard rider into a conditional exile-permission modifier', () => {
     const ir = parseOracleTextToIR(
       'Exile the top three cards of your library. Until the end of your next turn, you may play those cards. If this spell was cast from a graveyard, you may play cards this way without paying their mana costs.',
@@ -9073,6 +9386,55 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
         }),
       ])
     );
+  });
+
+  it('merges Owlbear Cub bottom-random tails into the preceding battlefield selection step', () => {
+    const ir = parseOracleTextToIR(
+      "Mama's Coming — Whenever this creature attacks a player who controls eight or more lands, look at the top eight cards of your library. You may put a creature card from among them onto the battlefield tapped and attacking that player. Put the rest on the bottom of your library in a random order.",
+      'Owlbear Cub'
+    );
+
+    expect(ir.abilities[0]?.steps.map((step) => step.raw)).toEqual([
+      'look at the top eight cards of your library',
+      'You may put a creature card from among them onto the battlefield tapped and attacking that player. Put the rest on the bottom of your library in a random order',
+    ]);
+  });
+
+  it('merges Keldon Flamesage bottom-random tails without swallowing the later free-cast followup', () => {
+    const ir = parseOracleTextToIR(
+      "Whenever this creature attacks, look at the top X cards of your library, where X is this creature's power. You may exile an instant or sorcery card with mana value X or less from among them. Put the rest on the bottom of your library in a random order. You may cast the exiled card without paying its mana cost.",
+      'Keldon Flamesage'
+    );
+
+    expect(ir.abilities[0]?.steps.map((step) => step.raw)).toEqual([
+      "look at the top X cards of your library, where X is this creature's power",
+      'You may exile an instant or sorcery card with mana value X or less from among them. Put the rest on the bottom of your library in a random order',
+      'You may cast the exiled card without paying its mana cost',
+    ]);
+  });
+
+  it('merges Sunbird\'s Invocation bottom-random tails into the cast-from-revealed clause', () => {
+    const ir = parseOracleTextToIR(
+      "Whenever you cast a spell from your hand, reveal the top X cards of your library, where X is that spell's mana value. You may cast a spell with mana value X or less from among cards revealed this way without paying its mana cost. Put the rest on the bottom of your library in a random order.",
+      "Sunbird's Invocation"
+    );
+
+    expect(ir.abilities[0]?.steps.map((step) => step.raw)).toEqual([
+      "reveal the top X cards of your library, where X is that spell's mana value",
+      'You may cast a spell with mana value X or less from among cards revealed this way without paying its mana cost. Put the rest on the bottom of your library in a random order',
+    ]);
+  });
+
+  it('merges Forging the Anchor bottom-random tails into the reveal-and-take clause', () => {
+    const ir = parseOracleTextToIR(
+      'Look at the top five cards of your library. You may reveal any number of artifact cards from among them and put the revealed cards into your hand. Put the rest on the bottom of your library in a random order.',
+      'Forging the Anchor'
+    );
+
+    expect(ir.abilities[0]?.steps.map((step) => step.raw)).toEqual([
+      'Look at the top five cards of your library',
+      'You may reveal any number of artifact cards from among them and put the revealed cards into your hand. Put the rest on the bottom of your library in a random order',
+    ]);
   });
 
   it('parses Corpse Appraiser into a conditional look-select-top follow-up after the graveyard exile', () => {

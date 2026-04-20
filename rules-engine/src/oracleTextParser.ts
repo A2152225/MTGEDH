@@ -475,6 +475,7 @@ const INSTEAD_PATTERN = /If\s+(.+?)\s+would\s+(.+?),\s+(.+?)\s+instead\.?/i;
 // "Create a token. It enters the battlefield ..."; those should be handled
 // by the IR parser as spell instructions with follow-up modifiers.
 const ENTERS_WITH_PATTERN = /^([^.;]+?)\s+enters the battlefield\s+([^.;]+?)[.;]?$/i;
+const SELF_ENTERS_SHORT_PATTERN = /^(This\s+[^.;]+?)\s+enters\s+([^.;]+?)[.;]?$/i;
 const ENTERS_AS_PATTERN = /^As\s+(.+?)\s+enters the battlefield,\s+(.+)$/i;
 
 /**
@@ -516,6 +517,16 @@ export function parseReplacementEffect(text: string): ParsedAbility | null {
       text,
       triggerCondition: `${entersMatch[1]} enters the battlefield`,
       effect: entersMatch[2].trim(),
+    };
+  }
+
+  const selfEntersShortMatch = text.match(SELF_ENTERS_SHORT_PATTERN);
+  if (selfEntersShortMatch) {
+    return {
+      type: AbilityType.REPLACEMENT,
+      text,
+      triggerCondition: `${selfEntersShortMatch[1]} enters the battlefield`,
+      effect: selfEntersShortMatch[2].trim(),
     };
   }
   
@@ -775,8 +786,8 @@ export function parseOracleText(oracleText: string, cardName?: string): OracleTe
       }
     }
     
-    // Step 3: Check for "enters with/tapped" patterns
-    if (/enters the battlefield/i.test(trimmed)) {
+    // Step 3: Check for self-replacement "enters with/tapped" patterns
+    if (/\benters the battlefield\b/i.test(trimmed) || /^this\s+[^.;]+?\s+enters\b/i.test(trimmed)) {
       const replacement = parseReplacementEffect(trimmed);
       if (replacement) {
         abilities.push(replacement);
@@ -895,7 +906,8 @@ export function hasActivatedAbility(oracleText: string): boolean {
 export function hasReplacementEffect(oracleText: string): boolean {
   return /\binstead\b/i.test(oracleText) ||
          /^as\s+.+enters/im.test(oracleText) ||
-         /enters the battlefield (tapped|with)/i.test(oracleText);
+         /enters the battlefield (tapped|with)/i.test(oracleText) ||
+         /^this\s+[^.;]+?\s+enters\s+(tapped|with)/im.test(oracleText);
 }
 
 export default {

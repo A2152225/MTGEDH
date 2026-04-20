@@ -147,13 +147,23 @@ export function executeTriggeredAbilityEffectWithOracleIR(
   const canAutoAllowCopySpell =
     optionalKinds.length > 0 &&
     optionalKinds.every(kind => kind === 'copy_spell');
+  const needsTargetSpellReplay = steps.some(step => step.kind === 'copy_spell' && step.subject === 'target_spell');
 
   const executionOptions =
     (canAutoAllowOptional || canAutoAllowCopySpell) && !options.allowOptional
       ? { ...options, allowOptional: true }
       : options;
 
-  const hint = buildOracleIRExecutionEventHintFromTriggerData(normalizedEventData);
+  const baseHint = buildOracleIRExecutionEventHintFromTriggerData(normalizedEventData);
+  const inferredTargetSpellId = needsTargetSpellReplay
+    ? String(baseHint?.targetSpellId || normalizedEventData?.targetSpellId || normalizedEventData?.sourceId || '').trim()
+    : '';
+  const hint = inferredTargetSpellId
+    ? {
+        ...(baseHint || {}),
+        targetSpellId: inferredTargetSpellId,
+      }
+    : baseHint;
   const replayStackItem = getStackItems((state as any)?.stack).find(
     item => String((item as any)?.id || '').trim() === String(ability.sourceId || '').trim()
   ) as any;

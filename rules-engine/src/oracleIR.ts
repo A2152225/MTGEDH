@@ -876,7 +876,8 @@ export type OracleEffectStep =
        * can be inferred.
        */
       readonly kind: 'copy_spell';
-      readonly subject: 'this_spell' | 'last_moved_card' | 'linked_exiled_cards';
+      readonly subject: 'this_spell' | 'target_spell' | 'last_moved_card' | 'linked_exiled_cards';
+      readonly target?: OracleObjectSelector;
       readonly copies?: OracleQuantity;
       readonly withoutPayingManaCost?: boolean;
       /** Alternative cast cost to use instead of the copied card's mana cost. */

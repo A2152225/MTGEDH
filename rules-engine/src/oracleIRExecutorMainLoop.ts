@@ -11,12 +11,14 @@ import {
   resolveConditionalReferenceAmount,
 } from './oracleIRExecutorConditionalStepSupport';
 import {
+  bindCopiedStackSpellTargetsToContext,
   getCopiedChapterAbilityReplaySteps,
   getCopiedSpellReplaySteps,
   getThisSpellReplayStepsFromState,
   payCopiedSpellCastCost,
   prepareCopiedSpellExecutionContext,
   resolveCopySpellCount,
+  resolveCopiedTargetSpellStackItem,
   resolveCopiedSpellSourceCards,
 } from './oracleIRExecutorCopySpellSupport';
 import { performDieRoll } from './dieRoll';
@@ -1573,6 +1575,90 @@ export function applyOracleIRStepsToGameStateImpl(
             state: nextState,
             replaySteps: replayableSteps,
             ctx: currentCtx,
+          });
+          if (preparedCopy.requiresChoice) {
+            recordSkippedStep(
+              step,
+              `Skipped copied spell retargeting (requires player choice): ${step.raw}`,
+              'player_choice_required',
+              {
+                classification: 'player_choice',
+                metadata: {
+                  candidateCount: Number(preparedCopy.candidateCount || 0),
+                },
+              }
+            );
+            break;
+          }
+
+          const copyCount = resolveCopySpellCount(nextState, controllerId, step);
+          if (copyCount <= 0) {
+            setLastStepOutcome(step, 'applied', { count: 0 });
+            appliedSteps.push(step);
+            log.push(`[oracle-ir] Copy spell produced 0 copies: ${step.raw}`);
+            break;
+          }
+
+          let workingState = nextState;
+          for (let copyIndex = 0; copyIndex < copyCount; copyIndex += 1) {
+            const replayResult = recurse(workingState, replayableSteps, preparedCopy.ctx, options);
+            workingState = replayResult.state;
+            log.push(...preparedCopy.log);
+            log.push(...replayResult.log);
+            automationGaps.push(...replayResult.automationGaps);
+            pendingOptionalSteps.push(...replayResult.pendingOptionalSteps);
+          }
+
+          nextState = workingState;
+          setLastStepOutcome(step, 'applied', { count: copyCount });
+          appliedSteps.push(step);
+          break;
+        }
+
+        if (step.subject === 'target_spell') {
+          const targetResolution = resolveCopiedTargetSpellStackItem({
+            state: nextState,
+            step,
+            ctx: currentCtx,
+          });
+          if (!targetResolution.stackItem) {
+            recordSkippedStep(
+              step,
+              targetResolution.reason === 'player_choice_required'
+                ? `Skipped copy spell step (requires stack target choice): ${step.raw}`
+                : `Skipped copy spell step (target spell unavailable): ${step.raw}`,
+              targetResolution.reason === 'player_choice_required' ? 'player_choice_required' : 'invalid_copy_spell_source',
+              {
+                classification: targetResolution.reason === 'player_choice_required' ? 'player_choice' : 'invalid_input',
+                ...(targetResolution.metadata ? { metadata: targetResolution.metadata as Record<string, string | number | boolean | readonly string[]> } : {}),
+                ...(targetResolution.reason === 'invalid_source' ? { persist: false } : {}),
+              }
+            );
+            break;
+          }
+
+          const replayableSteps = getCopiedSpellReplaySteps((targetResolution.stackItem as any)?.card || targetResolution.stackItem);
+          if (replayableSteps.length === 0) {
+            recordSkippedStep(
+              step,
+              `Skipped copy spell step (no deterministic copied spell steps): ${step.raw}`,
+              'invalid_copy_spell_source',
+              {
+                classification: 'invalid_input',
+              }
+            );
+            break;
+          }
+
+          const copiedCtx = bindCopiedStackSpellTargetsToContext({
+            state: nextState,
+            stackItem: targetResolution.stackItem,
+            ctx: currentCtx,
+          });
+          const preparedCopy = prepareCopiedSpellExecutionContext({
+            state: nextState,
+            replaySteps: replayableSteps,
+            ctx: copiedCtx,
           });
           if (preparedCopy.requiresChoice) {
             recordSkippedStep(

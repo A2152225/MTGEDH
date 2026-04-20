@@ -1,5 +1,5 @@
 import type { GameState, PlayerID } from '../../shared/src';
-import type { OracleEffectStep } from './oracleIR';
+import type { OracleEffectStep, OracleObjectSelector } from './oracleIR';
 import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
 import { parseOracleTextToIR } from './oracleIRParser';
 import { getStackItems } from './stackOperations';
@@ -12,6 +12,68 @@ import { getCurrentTurnNumber } from './oracleIRExecutorPlayerUtils';
 import { payManaCost } from './spellCasting';
 import { createEmptyManaPool, type ManaCost } from './types/mana';
 import { parseManaSymbols } from './types/numbers';
+
+function normalizeCopyTargetText(target: OracleObjectSelector | undefined): string {
+  return target?.kind === 'raw'
+    ? String(target.text || '').trim().toLowerCase()
+    : '';
+}
+
+function getStackSpellTypeLine(stackItem: any): string {
+  return String(
+    stackItem?.card?.type_line ||
+      stackItem?.type_line ||
+      stackItem?.card?.card_faces?.[0]?.type_line ||
+      stackItem?.card_faces?.[0]?.type_line ||
+      ''
+  )
+    .trim()
+    .toLowerCase();
+}
+
+function getStackSpellManaValue(stackItem: any): number | null {
+  const raw = Number(
+    stackItem?.card?.mana_value ??
+      stackItem?.card?.cmc ??
+      stackItem?.mana_value ??
+      stackItem?.cmc
+  );
+  return Number.isFinite(raw) ? raw : null;
+}
+
+function stackSpellMatchesCopyTarget(
+  stackItem: any,
+  target: OracleObjectSelector | undefined,
+  controllerId: PlayerID
+): boolean {
+  const normalizedTarget = normalizeCopyTargetText(target);
+  if (!normalizedTarget || normalizedTarget === 'target spell' || normalizedTarget === 'that spell' || normalizedTarget === 'it') {
+    return true;
+  }
+
+  const typeLine = getStackSpellTypeLine(stackItem);
+  if (normalizedTarget.includes('you control')) {
+    const itemController = String(stackItem?.controller || stackItem?.controllerId || '').trim();
+    if (itemController !== String(controllerId || '').trim()) return false;
+  }
+
+  if (normalizedTarget.includes('instant or sorcery spell') && !(typeLine.includes('instant') || typeLine.includes('sorcery'))) {
+    return false;
+  }
+  if (normalizedTarget.includes('instant spell') && !typeLine.includes('instant')) return false;
+  if (normalizedTarget.includes('sorcery spell') && !typeLine.includes('sorcery')) return false;
+  if (normalizedTarget.includes('noncreature spell') && typeLine.includes('creature')) return false;
+  if (normalizedTarget.includes('creature spell') && !typeLine.includes('creature')) return false;
+
+  const manaValueMatch = normalizedTarget.match(/\bmana value\s+(\d+)\b/i);
+  if (manaValueMatch) {
+    const expected = Number.parseInt(String(manaValueMatch[1] || ''), 10);
+    const actual = getStackSpellManaValue(stackItem);
+    if (!Number.isFinite(expected) || actual === null || actual !== expected) return false;
+  }
+
+  return true;
+}
 
 export function prepareCopiedSpellExecutionContext(params: {
   state: GameState;
@@ -174,6 +236,108 @@ export function getThisSpellReplayStepsFromState(state: GameState, sourceId?: st
   return copiedSpellIr.abilities
     .flatMap((ability) => ability.steps)
     .filter((candidate): candidate is OracleEffectStep => candidate.kind !== 'copy_spell' && candidate.kind !== 'unknown');
+}
+
+export function resolveCopiedTargetSpellStackItem(params: {
+  state: GameState;
+  step: Extract<OracleEffectStep, { kind: 'copy_spell' }>;
+  ctx: OracleIRExecutionContext;
+}): {
+  readonly stackItem?: any;
+  readonly reason?: 'invalid_source' | 'player_choice_required';
+  readonly metadata?: Record<string, unknown>;
+} {
+  const { state, step, ctx } = params;
+  const directTargetId = String(ctx.targetSpellId || ctx.selectorContext?.targetSpellId || '').trim();
+  const candidateSpells = getStackItems((state as any)?.stack).filter((item: any) => {
+    const itemId = String(item?.id || '').trim();
+    return String(item?.type || '').trim() === 'spell' && itemId && stackSpellMatchesCopyTarget(item, step.target, ctx.controllerId);
+  });
+
+  let targetSpell = directTargetId
+    ? candidateSpells.find((item: any) => String(item?.id || '').trim() === directTargetId)
+    : undefined;
+
+  if (!targetSpell && directTargetId) {
+    return {
+      reason: 'invalid_source',
+      metadata: { targetSpellId: directTargetId },
+    };
+  }
+
+  if (!targetSpell) {
+    if (candidateSpells.length === 1) {
+      targetSpell = candidateSpells[0];
+    } else if (candidateSpells.length > 1) {
+      return {
+        reason: 'player_choice_required',
+        metadata: {
+          stackSpellCount: candidateSpells.length,
+          candidateSpellIds: candidateSpells.map((item: any) => String(item?.id || '').trim()).filter(Boolean),
+        },
+      };
+    } else {
+      return {
+        reason: 'invalid_source',
+        metadata: { stackSpellCount: 0 },
+      };
+    }
+  }
+
+  return { stackItem: targetSpell };
+}
+
+export function bindCopiedStackSpellTargetsToContext(params: {
+  state: GameState;
+  stackItem: any;
+  ctx: OracleIRExecutionContext;
+}): OracleIRExecutionContext {
+  const { state, stackItem, ctx } = params;
+  const copiedCtx: OracleIRExecutionContext = {
+    ...ctx,
+    castFromZone: undefined,
+    enteredFromZone: undefined,
+  };
+
+  const targetDetails = Array.isArray(stackItem?.targetDetails) ? stackItem.targetDetails : [];
+  const targets = Array.isArray(stackItem?.targets)
+    ? stackItem.targets.map((target: any) => String(target || '').trim()).filter(Boolean)
+    : [];
+  if (targets.length !== 1) {
+    return copiedCtx;
+  }
+
+  const targetId = targets[0];
+  const detail = targetDetails.length === 1 ? targetDetails[0] : undefined;
+  const selectorContext = { ...(copiedCtx.selectorContext || {}) } as any;
+  const playerIds = new Set((state.players || []).map((player: any) => String(player?.id || '').trim()).filter(Boolean));
+
+  if (detail?.type === 'spell') {
+    selectorContext.targetSpellId = targetId;
+    return {
+      ...copiedCtx,
+      targetSpellId: targetId,
+      selectorContext,
+    };
+  }
+
+  if (detail?.type === 'player' || playerIds.has(targetId)) {
+    selectorContext.targetPlayerId = targetId;
+    if (targetId !== String(copiedCtx.controllerId || '').trim()) {
+      selectorContext.targetOpponentId = targetId;
+    }
+    return {
+      ...copiedCtx,
+      selectorContext,
+    };
+  }
+
+  return {
+    ...copiedCtx,
+    targetPermanentId: targetId,
+    targetCreatureId: targetId,
+    selectorContext,
+  };
 }
 
 export function resolveCopySpellCount(
