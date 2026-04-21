@@ -9,6 +9,7 @@
 
 import { describe, it, expect } from 'vitest';
 import {
+  applyStaticAbilitiesToBattlefield,
   parseStaticAbilities,
   StaticEffectType,
   matchesFilter,
@@ -391,6 +392,35 @@ describe('Enhanced Static Abilities', () => {
         'player1'
       );
       expect(matches).toBe(true);
+    });
+  });
+
+  describe('Aura Control Effects', () => {
+    it('should give the Aura controller control of the enchanted creature', () => {
+      const enchantedCreature = createMockPermanent(
+        'bear-1',
+        'player2',
+        'Runeclaw Bear',
+        'Creature — Bear',
+        '',
+        2,
+        2
+      );
+      const controlAura = {
+        ...createMockPermanent(
+          'control-magic-1',
+          'player1',
+          'Control Magic',
+          'Enchantment — Aura',
+          'Enchant creature\nYou control enchanted creature.'
+        ),
+        attachedTo: 'bear-1',
+      } as BattlefieldPermanent;
+
+      const processed = applyStaticAbilitiesToBattlefield([enchantedCreature, controlAura]);
+      const processedCreature = processed.find(permanent => permanent.id === 'bear-1');
+
+      expect(processedCreature?.controller).toBe('player1');
     });
   });
 });

@@ -1,0 +1,1 @@
+﻿import { parseOracleTextToIR } from './src/oracleIRParser.ts'; console.log(JSON.stringify(parseOracleTextToIR('Discover 4. (Exile cards from the top of your library until you exile a nonland card with mana value 4 or less. Cast it without paying its mana cost or put it into your hand. Put the rest on the bottom in a random order.)', 'Test').abilities, null, 2));

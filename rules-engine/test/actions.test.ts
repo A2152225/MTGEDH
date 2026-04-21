@@ -847,6 +847,49 @@ describe('Combat Validation Helpers', () => {
       expect(result.canParticipate).toBe(false);
       expect(result.reason).toContain('power 2 or less');
     });
+
+    it('should prevent creatures with reverse-flying restriction from blocking ground attackers', () => {
+      const blocker = {
+        id: 'b1',
+        tapped: false,
+        card: {
+          type_line: 'Creature - Faerie',
+          power: '1',
+          toughness: '1',
+          oracle_text: 'Flying\nThis creature can block only creatures with flying.',
+        },
+      };
+      const attacker = {
+        id: 'a1',
+        tapped: false,
+        card: { type_line: 'Creature - Bear', power: '2', toughness: '2', oracle_text: '' },
+      };
+
+      const result = canPermanentBlock(blocker, attacker);
+      expect(result.canParticipate).toBe(false);
+      expect(result.reason).toContain('only creatures with flying');
+    });
+
+    it('should allow creatures with reverse-flying restriction to block flying attackers', () => {
+      const blocker = {
+        id: 'b1',
+        tapped: false,
+        card: {
+          type_line: 'Creature - Faerie',
+          power: '1',
+          toughness: '1',
+          oracle_text: 'Flying\nThis creature can block only creatures with flying.',
+        },
+      };
+      const attacker = {
+        id: 'a1',
+        tapped: false,
+        card: { type_line: 'Creature - Drake', power: '2', toughness: '2', oracle_text: 'Flying' },
+      };
+
+      const result = canPermanentBlock(blocker, attacker);
+      expect(result.canParticipate).toBe(true);
+    });
   });
 
   describe('getLegalAttackers', () => {

@@ -25,13 +25,44 @@ export function collectStaticAbilities(
   return abilities;
 }
 
+function applyStaticAuraControlEffects(
+  battlefield: BattlefieldPermanent[]
+): BattlefieldPermanent[] {
+  const nextBattlefield = battlefield.map(permanent => ({ ...permanent } as BattlefieldPermanent));
+
+  for (const aura of nextBattlefield) {
+    const card = aura.card as KnownCardRef;
+    if (!card) continue;
+
+    const typeLine = String(card.type_line || '').toLowerCase();
+    if (!typeLine.includes('enchantment') || !typeLine.includes('aura')) continue;
+
+    const oracleText = String(card.oracle_text || '').toLowerCase();
+    if (!/\byou control enchanted (?:creature|permanent)\b/i.test(oracleText)) continue;
+
+    const attachedToId = String((aura as any).attachedTo || '').trim();
+    if (!attachedToId) continue;
+
+    const enchantedIndex = nextBattlefield.findIndex(perm => String((perm as any)?.id || '').trim() === attachedToId);
+    if (enchantedIndex < 0) continue;
+
+    nextBattlefield[enchantedIndex] = {
+      ...nextBattlefield[enchantedIndex],
+      controller: aura.controller,
+    } as BattlefieldPermanent;
+  }
+
+  return nextBattlefield;
+}
+
 export function applyStaticAbilitiesToBattlefield(
   battlefield: BattlefieldPermanent[],
   parseStaticAbilities: ParseStaticAbilitiesFn
 ): BattlefieldPermanent[] {
-  const staticAbilities = collectStaticAbilities(battlefield, parseStaticAbilities);
+  const battlefieldWithStaticControl = applyStaticAuraControlEffects(battlefield);
+  const staticAbilities = collectStaticAbilities(battlefieldWithStaticControl, parseStaticAbilities);
 
-  const withEffectivePT = battlefield.map(perm => {
+  const withEffectivePT = battlefieldWithStaticControl.map(perm => {
     const card = perm.card as KnownCardRef;
     if (!card) return perm;
 
@@ -42,7 +73,7 @@ export function applyStaticAbilitiesToBattlefield(
 
     const { power, toughness, grantedAbilities } = calculateEffectivePT(
       perm,
-      battlefield,
+      battlefieldWithStaticControl,
       staticAbilities
     );
 

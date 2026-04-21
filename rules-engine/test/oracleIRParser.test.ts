@@ -224,6 +224,20 @@ Whenever this creature attacks, you may cast an Ally spell from among cards you 
     ]);
   });
 
+  it('prunes earthbend reminder shards while keeping the core earthbend step visible', () => {
+    const ir = parseOracleTextToIR(
+      'When this creature dies, earthbend 2. (Target land you control becomes a 0/0 creature with haste that\'s still a land. Put two +1/+1 counters on it. When it dies or is exiled, return it to the battlefield tapped.)',
+      'Earth Village Ruffians'
+    );
+
+    expect(ir.abilities[0]?.steps).toEqual([
+      expect.objectContaining({
+        kind: 'unknown',
+        raw: 'earthbend 2',
+      }),
+    ]);
+  });
+
   it('prunes split Powerstone reminder tails after token creation', () => {
     const ir = parseOracleTextToIR(
       'Create a tapped Powerstone token. (It\'s an artifact with "{T}: Add {C}. This mana can\'t be spent to cast a nonartifact spell.")',
@@ -623,6 +637,16 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
     expect(untapStep).toBeTruthy();
     expect(untapStep.mode).toBe('untap');
     expect(untapStep.target).toEqual({ kind: 'raw', text: 'that creature' });
+  });
+
+  it('parses untap-all clauses as fixed untap actions', () => {
+    const text = 'Untap all creatures you control.';
+    const ir = parseOracleTextToIR(text);
+    const untapStep = ir.abilities[0].steps.find(s => s.kind === 'tap_or_untap') as any;
+
+    expect(untapStep).toBeTruthy();
+    expect(untapStep.mode).toBe('untap');
+    expect(untapStep.target).toEqual({ kind: 'raw', text: 'all creatures you control' });
   });
 
   it('parses enchanted-creature tap clauses as fixed tap actions', () => {
@@ -1340,6 +1364,54 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
     ]);
   });
 
+  it('lowers triggered amass orcs reminder lines into the canonical amass steps', () => {
+    const ir = parseOracleTextToIR(
+      "When this creature dies, amass Orcs 1. (Put a +1/+1 counter on an Army you control. It's also an Orc. If you don't control an Army, create a 0/0 black Orc Army creature token first.)",
+      'Easterling Vanguard'
+    );
+
+    expect(ir.abilities[0]?.steps).toEqual([
+      {
+        kind: 'conditional',
+        condition: { kind: 'if', raw: "you don't control an Army creature" },
+        steps: [
+          {
+            kind: 'create_token',
+            who: { kind: 'you' },
+            amount: { kind: 'number', value: 1 },
+            token: '0/0 black Orc Army',
+            raw: 'create a 0/0 black Orc Army creature token',
+          },
+        ],
+        raw: "If you don't control an Army creature, create a 0/0 black Orc Army creature token",
+      },
+      {
+        kind: 'add_counter',
+        amount: { kind: 'number', value: 1 },
+        counter: '+1/+1',
+        target: { kind: 'raw', text: 'Army creature you control' },
+        raw: 'Put 1 +1/+1 counter on an Army creature you control',
+      },
+      {
+        kind: 'add_types',
+        target: { kind: 'raw', text: 'Army creature you control' },
+        addTypes: ['Orc'],
+        raw: "If it isn't an Orc, it becomes an Orc in addition to its other types",
+      },
+    ]);
+  });
+
+  it('prunes standalone amass subtype reminder shards from variable amass clauses', () => {
+    const ir = parseOracleTextToIR(
+      "Whenever you cast your second spell each turn, amass Orcs X, where X is that spell's mana value. (Put X +1/+1 counters on an Army you control. It's also an Orc. If you don't control an Army, create a 0/0 black Orc Army creature token first.)",
+      'Saruman, the White Hand'
+    );
+
+    expect(
+      ir.abilities.flatMap((ability) => ability.steps.map((step) => String(step.raw || '').trim()))
+    ).not.toContain("It's also an Orc");
+  });
+
   it('parses Explore keyword lines into an executable explore step', () => {
     const ir = parseOracleTextToIR('Explore', 'Jadelight Ranger');
 
@@ -1586,6 +1658,31 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
     ]);
   });
 
+  it('prunes triggered manifest dread reminder tails from inline full reminder text', () => {
+    const ir = parseOracleTextToIR(
+      "When this creature attacks, manifest dread. (Look at the top two cards of your library. Put one onto the battlefield face down as a 2/2 creature and the other into your graveyard. Turn it face up any time for its mana cost if it's a creature card.)",
+      'Hauntwoods Shrieker'
+    );
+
+    expect(ir.abilities[0]?.steps).toEqual([
+      {
+        kind: 'manifest_dread',
+        who: { kind: 'you' },
+        raw: 'manifest dread',
+      },
+    ]);
+  });
+
+  it('prunes cipher reminder-only abilities while keeping the cipher keyword', () => {
+    const ir = parseOracleTextToIR(
+      'Cipher (Then you may exile this card encoded on a creature you control. Whenever that creature deals combat damage to a player, its controller may cast a copy of the encoded card without paying its mana cost.)',
+      'Hidden Strings'
+    );
+
+    expect(ir.keywords).toContain('cipher');
+    expect(ir.abilities).toEqual([]);
+  });
+
   it('parses partner-with reminder text into a non-executable static ability without reminder steps', () => {
     const ir = parseOracleTextToIR(
       'Partner with Lore Weaver (When this creature enters the battlefield, target player may put Lore Weaver into their hand from their library, then shuffle.)',
@@ -1627,6 +1724,18 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
         raw: 'create a Map token',
       },
     ]);
+  });
+
+  it('prunes no-maximum-hand-size static text as externally handled', () => {
+    const ir = parseOracleTextToIR('You have no maximum hand size.', 'Reliquary Tower');
+
+    expect(ir.abilities).toEqual([]);
+  });
+
+  it('prunes additional-land-play static text as externally handled', () => {
+    const ir = parseOracleTextToIR('You may play an additional land on each of your turns.', 'Exploration');
+
+    expect(ir.abilities).toEqual([]);
   });
 
   it('parses start-your-engines reminder text into a non-executable static ability without reminder steps', () => {
@@ -1823,6 +1932,45 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
         scope: 'last_exiled_cards',
         withoutPayingManaCost: true,
         raw: 'You may cast that card without paying its mana cost.',
+      },
+    ]);
+  });
+
+  it('prunes discover reminder tails from lowered discover abilities', () => {
+    const ir = parseOracleTextToIR(
+      '{4}{G}, {T}, Sacrifice this land: Discover 4. Activate only as a sorcery. (Exile cards from the top of your library until you exile a nonland card with mana value 4 or less. Cast it without paying its mana cost or put it into your hand. Put the rest on the bottom in a random order.)',
+      'Hidden Nursery'
+    );
+
+    expect(ir.abilities[0]?.steps).toEqual([
+      {
+        kind: 'impulse_exile_top',
+        who: { kind: 'you' },
+        amount: { kind: 'unknown', raw: 'until you exile a nonland card with mana value 4 or less' },
+        duration: 'during_resolution',
+        permission: 'cast',
+        raw:
+          'Exile cards from the top of your library until you exile a nonland card with mana value 4 or less. You may cast that card without paying its mana cost. Put the remaining exiled cards on the bottom of your library in a random order.',
+      },
+      {
+        kind: 'modify_exile_permissions',
+        scope: 'last_exiled_cards',
+        withoutPayingManaCost: true,
+        raw: 'You may cast that card without paying its mana cost.',
+      },
+    ]);
+  });
+
+  it('prunes discover reminder tails while keeping dynamic discover leads visible', () => {
+    const ir = parseOracleTextToIR(
+      "Discover X, where X is that spell's mana value. (Exile cards from the top of your library until you exile a nonland card with that mana value or less. Cast it without paying its mana cost or put it into your hand. Put the rest on the bottom in a random order.)",
+      'Hurl into History'
+    );
+
+    expect(ir.abilities[0]?.steps).toEqual([
+      {
+        kind: 'unknown',
+        raw: "Discover X, where X is that spell's mana value",
       },
     ]);
   });
@@ -5764,6 +5912,28 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
     ]);
   });
 
+  it('prunes standalone kicker reminder abilities while keeping the kicker keyword', () => {
+    const ir = parseOracleTextToIR(
+      'Kicker {4} (You may pay an additional {4} as you cast this spell.)\nTarget creature gets +4/+4 until end of turn.',
+      'Kavu Primarch'
+    );
+
+    expect(ir.keywords).toContain('kicker');
+    expect(ir.abilities).toEqual([
+      expect.objectContaining({
+        steps: [
+          expect.objectContaining({
+            kind: 'modify_pt',
+            target: { kind: 'raw', text: 'target creature' },
+            power: 4,
+            toughness: 4,
+            duration: 'end_of_turn',
+          }),
+        ],
+      }),
+    ]);
+  });
+
   it('prunes standalone affinity reminder lines from Oracle IR while keeping the keyword', () => {
     const ir = parseOracleTextToIR(
       'Affinity for artifacts (This spell costs {1} less to cast for each artifact you control.)',
@@ -5794,6 +5964,30 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
         steps: [],
       }),
     ]);
+  });
+
+  it('prunes standalone protection keyword lines while keeping the protection keyword', () => {
+    const ir = parseOracleTextToIR('Protection from black', 'Order of the Ebon Hand');
+
+    expect(ir.keywords).toContain('protection');
+    expect(ir.abilities).toEqual([]);
+  });
+
+  it('prunes standalone toxic reminder lines while keeping the toxic keyword', () => {
+    const ir = parseOracleTextToIR(
+      'Toxic 1 (Players dealt combat damage by this creature also get a poison counter.)',
+      'Bloated Contaminator'
+    );
+
+    expect(ir.keywords).toContain('toxic');
+    expect(ir.abilities).toEqual([]);
+  });
+
+  it('prunes standalone mixed keyword lists that include protection', () => {
+    const ir = parseOracleTextToIR('Flying, protection from black', 'Crypt Angel');
+
+    expect(ir.keywords).toEqual(expect.arrayContaining(['flying', 'protection']));
+    expect(ir.abilities).toEqual([]);
   });
 
   it('prunes long convoke reminder text from full card text while keeping the spell effect', () => {
@@ -5912,6 +6106,20 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
     ]);
   });
 
+  it('prunes Eldrazi token mana reminder text from create-token steps', () => {
+    const ir = parseOracleTextToIR(
+      'When this creature dies, create a 1/1 colorless Eldrazi Scion creature token. It has "Sacrifice this token: Add {C}."',
+      'Blisterpod'
+    );
+
+    expect(ir.abilities[0]?.steps).toEqual([
+      expect.objectContaining({
+        kind: 'create_token',
+        token: '1/1 colorless Eldrazi Scion',
+      }),
+    ]);
+  });
+
   it('prunes plural artifact reminder text from create-token steps', () => {
     const ir = parseOracleTextToIR(
       'Create two Treasure tokens. (They\'re artifacts with "{T}, Sacrifice this token: Add one mana of any color.")',
@@ -5940,6 +6148,54 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
       expect.arrayContaining([
         expect.objectContaining({
           kind: 'investigate',
+        }),
+      ])
+    );
+  });
+
+  it('prunes clue reminder tails when investigate remains an unknown step', () => {
+    const ir = parseOracleTextToIR(
+      'Each player who controls the most creatures investigates. Then destroy all creatures. (To investigate, create a Clue token. It\'s an artifact with "{2}, Sacrifice this token: Draw a card.")',
+      'No Witnesses'
+    );
+
+    expect(
+      ir.abilities.some((ability: any) =>
+        (ability?.steps || []).some((step: any) => /artifact with/i.test(String(step?.raw || '')))
+      )
+    ).toBe(false);
+    expect(ir.abilities[0]?.steps).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'unknown',
+          raw: 'Each player who controls the most creatures investigates',
+        }),
+        expect.objectContaining({
+          kind: 'destroy',
+        }),
+      ])
+    );
+  });
+
+  it('prunes split lander token reminder tails from created token abilities', () => {
+    const ir = parseOracleTextToIR(
+      'Create a Lander token. Then you may sacrifice an artifact. When you do, Lithobraking deals 2 damage to each creature. (A Lander token is an artifact with "{2}, {T}, Sacrifice this token: Search your library for a basic land card, put it onto the battlefield tapped, then shuffle.")',
+      'Lithobraking'
+    );
+
+    expect(
+      ir.abilities.some((ability: any) =>
+        (ability?.steps || []).some((step: any) => {
+          const raw = String(step?.raw || '');
+          return /lander token is an artifact with/i.test(raw) || /then shuffle\."\)/i.test(raw);
+        })
+      )
+    ).toBe(false);
+    expect(ir.abilities[0]?.steps).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'create_token',
+          token: 'Lander',
         }),
       ])
     );
@@ -6240,6 +6496,51 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
 
     expect(ir.abilities).toHaveLength(0);
     expect(ir.keywords).toContain('cascade');
+  });
+
+  it('prunes split cascade reminder shards while keeping the duplicate-cascade tail visible', () => {
+    const ir = parseOracleTextToIR(
+      "Cascade, cascade (When you cast this spell, exile cards from the top of your library until you exile a nonland card that costs less. You may cast it without paying its mana cost. Put the exiled cards on the bottom of your library in a random order. Then do it again.)",
+      'Call Forth the Tempest'
+    );
+
+    const stepRaws = (ir.abilities[0]?.steps || []).map((step) => String(step.raw || ''));
+    expect(stepRaws.some((raw) => /you may cast it without paying its mana cost/i.test(raw))).toBe(false);
+    expect(stepRaws.some((raw) => /put the exiled cards on the bottom(?: of your library)? in a random order/i.test(raw))).toBe(false);
+    expect(stepRaws.some((raw) => /then do it again/i.test(raw))).toBe(true);
+  });
+
+  it('keeps non-cascade cast-without-paying clauses outside reminder cleanup', () => {
+    const ir = parseOracleTextToIR(
+      'Storm (When you cast this spell, copy it for each spell cast before it this turn.)\nExile an instant or sorcery card with mana value 3 or less from your graveyard at random. You may cast it without paying its mana cost. If that spell would be put into a graveyard, exile it instead.',
+      'Storm of Memories'
+    );
+
+    const stepRaws = ir.abilities.flatMap((ability) => (ability.steps || []).map((step) => String(step.raw || '')));
+    expect(stepRaws.some((raw) => /you may cast it without paying its mana cost/i.test(raw))).toBe(true);
+  });
+
+  it('prunes prototype reminder tails while keeping the prototype lead visible', () => {
+    const ir = parseOracleTextToIR(
+      "Prototype {2}{W} - 1/1 (You may cast this spell with different mana cost, color, and size. It keeps its abilities and types.)\nDouble strike\nWhen this creature enters, draw a card.",
+      'Combat Thresher'
+    );
+
+    const stepRaws = ir.abilities.flatMap((ability) => (ability.steps || []).map((step) => String(step.raw || '')));
+    expect(stepRaws.some((raw) => /it keeps its abilities and types/i.test(raw))).toBe(false);
+    expect(stepRaws.some((raw) => /prototype\s+\{2\}\{w\}\s*-\s*1\/1/i.test(raw))).toBe(true);
+    expect(stepRaws.some((raw) => /draw a card/i.test(raw))).toBe(true);
+  });
+
+  it('prunes backup reminder tails while keeping the backup lead visible', () => {
+    const ir = parseOracleTextToIR(
+      "Flash\nBackup 1 (When this creature enters, put a +1/+1 counter on target creature. If that's another creature, it gains the following ability until end of turn.)\nHexproof",
+      'Saiba Cryptomancer'
+    );
+
+    const stepRaws = ir.abilities.flatMap((ability) => (ability.steps || []).map((step) => String(step.raw || '')));
+    expect(stepRaws.some((raw) => /if that(?:'|â€™)?s another creature, it gains the following ability until end of turn/i.test(raw))).toBe(false);
+    expect(stepRaws.some((raw) => /backup\s+1\s*\(when this creature enters, put a \+1\/\+1 counter on target creature/i.test(raw))).toBe(true);
   });
 
   it('prunes flanking reminder abilities while retaining the keyword', () => {
@@ -8993,6 +9294,27 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
     ]);
   });
 
+  it('merges optional search-to-hand plus trailing shuffle into a single search_library step', () => {
+    const ir = parseOracleTextToIR(
+      'When this creature enters, you may search your library for a basic land card, reveal it, put it into your hand, then shuffle.',
+      'Seedship Agrarian'
+    );
+    const ability = ir.abilities[0];
+
+    expect(ability?.type).toBe('triggered');
+    expect(ability?.steps).toHaveLength(1);
+    expect(ability?.steps[0]).toMatchObject({
+      kind: 'search_library',
+      who: { kind: 'you' },
+      criteria: { kind: 'raw', text: 'basic land' },
+      destination: 'hand',
+      revealFound: true,
+      shuffle: true,
+      maxResults: 1,
+      optional: true,
+    });
+  });
+
   it('parses Transfigure keyword lines into a battlefield tutor step with a creature filter', () => {
     const ir = parseOracleTextToIR('Transfigure {1}{B}{B}', 'Fleshwrither');
     const transfigure = ir.abilities.find(ability => String(ability.cost || '').includes('{1}{B}{B}'));
@@ -10567,6 +10889,30 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
       "look at the top X cards of your library, where X is this creature's power",
       'You may exile an instant or sorcery card with mana value X or less from among them. Put the rest on the bottom of your library in a random order',
       'You may cast the exiled card without paying its mana cost',
+    ]);
+  });
+
+  it('merges Jodah bottom-random tails into the impulse-exile clause', () => {
+    const ir = parseOracleTextToIR(
+      'Whenever you cast a legendary spell from your hand, exile cards from the top of your library until you exile a legendary nonland card with lesser mana value. You may cast that card without paying its mana cost. Put the rest on the bottom of your library in a random order.',
+      'Jodah, the Unifier'
+    );
+
+    expect(ir.abilities[0]?.steps.map((step) => step.raw)).toEqual([
+      'exile cards from the top of your library until you exile a legendary nonland card with lesser mana value. You may cast that card without paying its mana cost. Put the rest on the bottom of your library in a random order',
+    ]);
+  });
+
+  it('merges bottom-random tails when the look lead starts with Then', () => {
+    const ir = parseOracleTextToIR(
+      'At the beginning of your upkeep, put a time counter on this permanent. Then look at the top X cards of your library, where X is the number of time counters on this permanent. You may put a nonland permanent card with mana value 3 or less from among them onto the battlefield. Put the rest on the bottom of your library in a random order.',
+      'Wilfred Mott'
+    );
+
+    expect(ir.abilities[0]?.steps.map((step) => step.raw)).toEqual([
+      'put a time counter on this permanent',
+      'Then look at the top X cards of your library, where X is the number of time counters on this permanent',
+      'You may put a nonland permanent card with mana value 3 or less from among them onto the battlefield. Put the rest on the bottom of your library in a random order',
     ]);
   });
 

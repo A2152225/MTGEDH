@@ -5,7 +5,7 @@
  * Orchestrates turn-based actions, triggers, and state-based actions.
  */
 
-import type { GameState, BattlefieldPermanent, StackItem } from '../../../shared/src';
+import type { ExtraTurnEffect, GameState, BattlefieldPermanent, StackItem } from '../../../shared/src';
 import type { EngineResult, ActionContext } from '../core/types';
 import { RulesEngineEvent } from '../core/events';
 import { GamePhase, GameStep, getNextGameStep, doesStepReceivePriority } from './gamePhases';
@@ -33,6 +33,51 @@ function snapshotHandsForTurnStart(state: GameState): Record<string, string[]> {
       .filter((id: string) => id.length > 0);
   }
   return snapshot;
+}
+
+function resolveNextTurnStart(state: GameState): {
+  activePlayerIndex: number;
+  activePlayerId: string;
+  extraTurns?: readonly ExtraTurnEffect[];
+  takenExtraTurn?: ExtraTurnEffect;
+  skippedExtraTurnPlayerIds: readonly string[];
+} {
+  const players = Array.isArray(state.players) ? state.players : [];
+  const fallbackActivePlayerIndex = players.length > 0
+    ? ((state.activePlayerIndex || 0) + 1) % players.length
+    : 0;
+  const hadExtraTurnQueue = Array.isArray((state as any).extraTurns);
+  const pendingExtraTurns = hadExtraTurnQueue
+    ? ([...((state as any).extraTurns as readonly ExtraTurnEffect[])] as ExtraTurnEffect[])
+    : [];
+  const skippedExtraTurnPlayerIds: string[] = [];
+
+  while (pendingExtraTurns.length > 0) {
+    const nextExtraTurn = pendingExtraTurns.shift() as ExtraTurnEffect;
+    const playerId = String(nextExtraTurn?.playerId || '').trim();
+    const playerIndex = players.findIndex(player => String((player as any)?.id || '').trim() === playerId);
+
+    if (playerIndex >= 0) {
+      return {
+        activePlayerIndex: playerIndex,
+        activePlayerId: playerId,
+        extraTurns: pendingExtraTurns,
+        takenExtraTurn: nextExtraTurn,
+        skippedExtraTurnPlayerIds,
+      };
+    }
+
+    if (playerId) {
+      skippedExtraTurnPlayerIds.push(playerId);
+    }
+  }
+
+  return {
+    activePlayerIndex: fallbackActivePlayerIndex,
+    activePlayerId: String(players[fallbackActivePlayerIndex]?.id || '').trim(),
+    ...(hadExtraTurnQueue ? { extraTurns: pendingExtraTurns } : {}),
+    skippedExtraTurnPlayerIds,
+  };
 }
 
 function getStepTriggerEvent(step: GameStep): TriggerEvent | null {
@@ -84,11 +129,14 @@ export function advanceGame(
   
   // Get next step
   const { phase: nextPhase, step: nextStep, isNewTurn } = getNextGameStep(currentPhase, currentStep);
-  
-  // Get the active player index (may be updated if new turn)
-  const activePlayerIndex = isNewTurn 
-    ? ((state.activePlayerIndex || 0) + 1) % state.players.length
+
+  const nextTurnStart = isNewTurn ? resolveNextTurnStart(state) : null;
+  const activePlayerIndex = nextTurnStart
+    ? nextTurnStart.activePlayerIndex
     : (state.activePlayerIndex || 0);
+  const activePlayerId = nextTurnStart
+    ? nextTurnStart.activePlayerId
+    : String(state.players[activePlayerIndex]?.id || '').trim();
 
   // Rule 116.3a: At the beginning of most phases and steps, the active player gets priority.
   // Reset priority to active player when entering a new step that receives priority.
@@ -100,6 +148,7 @@ export function advanceGame(
     step: nextStep,
     // Reset priority to active player and clear priority passes when entering a new step
     priorityPlayerIndex: shouldResetPriority ? activePlayerIndex : state.priorityPlayerIndex,
+    priority: shouldResetPriority ? (activePlayerId || state.priority) : state.priority,
     priorityPasses: 0,
   } as GameState;
   
@@ -116,11 +165,21 @@ export function advanceGame(
     updatedState = {
       ...updatedState,
       activePlayerIndex: activePlayerIndex, // Use pre-calculated value
+      turnPlayer: activePlayerId || state.turnPlayer,
       turn: (state.turn || 0) + 1,
       landsPlayedThisTurn: {}, // Reset lands played
       turnStartBattlefieldSnapshot: turnStartBattlefieldSnapshot as any,
       turnStartHandSnapshot: turnStartHandSnapshot as any,
+      ...(nextTurnStart?.extraTurns ? { extraTurns: nextTurnStart.extraTurns } : {}),
     };
+
+    for (const skippedPlayerId of nextTurnStart?.skippedExtraTurnPlayerIds || []) {
+      logs.push(`Skipped invalid extra turn for ${skippedPlayerId}`);
+    }
+    if (nextTurnStart?.takenExtraTurn) {
+      const source = String(nextTurnStart.takenExtraTurn.source || '').trim();
+      logs.push(`Taking extra turn for ${activePlayerId}${source ? ` from ${source}` : ''}`);
+    }
     
     logs.push(`Turn ${updatedState.turn} - ${updatedState.players[activePlayerIndex]?.name}`);
     
@@ -130,7 +189,7 @@ export function advanceGame(
       gameId,
       data: { 
         turn: updatedState.turn,
-        activePlayer: updatedState.players[activePlayerIndex]?.id,
+        activePlayer: activePlayerId,
         turnStartBattlefieldSnapshot,
         turnStartHandSnapshot,
       },
@@ -145,10 +204,10 @@ export function advanceGame(
   updatedState = tbaResult.next;
   logs.push(...(tbaResult.log || []));
 
-  const activePlayerId = String(updatedState.players[activePlayerIndex]?.id || '').trim();
   const stepTriggerEvent = getStepTriggerEvent(nextStep);
-  if (stepTriggerEvent && activePlayerId) {
-    const triggerResult = checkStepTriggers(updatedState, stepTriggerEvent, activePlayerId);
+  const stepActivePlayerId = String(updatedState.players[activePlayerIndex]?.id || activePlayerId || '').trim();
+  if (stepTriggerEvent && stepActivePlayerId) {
+    const triggerResult = checkStepTriggers(updatedState, stepTriggerEvent, stepActivePlayerId);
     updatedState = triggerResult.state;
     logs.push(...(triggerResult.logs || []));
   }

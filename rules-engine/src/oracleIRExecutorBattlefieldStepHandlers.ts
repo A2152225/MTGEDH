@@ -1485,15 +1485,27 @@ export function applyGrantTemporaryDiesTriggerStep(
 export function applyGrantTemporaryAbilityStep(
   state: GameState,
   step: Extract<OracleEffectStep, { kind: 'grant_temporary_ability' }>,
-  ctx: OracleIRExecutionContext
+  ctx: OracleIRExecutionContext,
+  runtime?: RecentBattlefieldRuntime
 ): BattlefieldStepHandlerResult {
   const battlefield = (state.battlefield || []) as BattlefieldPermanent[];
   const targetText = String((step.target as any)?.text || '').trim().toLowerCase();
   const explicitTargetId = String(ctx.targetCreatureId || ctx.targetPermanentId || '').trim();
-  const targets =
+  const recentTokenTargets = resolveRecentlyCreatedTokenPermanents(battlefield, step.target as any, runtime);
+  const recentMovedTargets = recentTokenTargets.length > 0
+    ? []
+    : resolveRecentlyMovedBattlefieldPermanents(battlefield, step.target as any, runtime);
+  const directTargets =
     explicitTargetId && /^target\b/.test(targetText)
       ? battlefield.filter((perm: any) => String((perm?.id || '')).trim() === explicitTargetId)
-      : resolveDirectBattlefieldPermanents(battlefield, step.target as any, ctx);
+      : recentTokenTargets.length > 0 || recentMovedTargets.length > 0
+        ? []
+        : resolveDirectBattlefieldPermanents(battlefield, step.target as any, ctx);
+  const targets = recentTokenTargets.length > 0
+    ? recentTokenTargets
+    : recentMovedTargets.length > 0
+      ? recentMovedTargets
+      : directTargets;
 
   if (targets.length === 0) {
     return {
@@ -1915,6 +1927,111 @@ export function applyTurnFaceUpStep(
   };
 }
 
+export function applyGainControlStep(
+  state: GameState,
+  step: Extract<OracleEffectStep, { kind: 'gain_control' }>,
+  ctx: OracleIRExecutionContext
+): BattlefieldStepHandlerResult {
+  const resolvedControllers = resolvePlayers(state, step.newController, ctx);
+  if (resolvedControllers.length !== 1) {
+    return {
+      applied: false,
+      message: `Skipped gain-control (unsupported player selector): ${step.raw}`,
+      reason: 'unsupported_player_selector',
+    };
+  }
+
+  const newController = String(resolvedControllers[0] || '').trim();
+  if (!newController) {
+    return {
+      applied: false,
+      message: `Skipped gain-control (unsupported player selector): ${step.raw}`,
+      reason: 'unsupported_player_selector',
+    };
+  }
+
+  let targetPermanentId = String(ctx.targetPermanentId || ctx.targetCreatureId || '').trim();
+  if (!targetPermanentId && step.what.kind === 'raw') {
+    const targetText = String(step.what.text || '').trim().toLowerCase();
+    if (targetText.includes('target creature')) {
+      targetPermanentId = String(resolveSingleCreatureTargetId(state, step.what, ctx) || '').trim();
+    }
+  }
+
+  if (!targetPermanentId) {
+    return {
+      applied: false,
+      message: `Skipped gain-control (no deterministic target): ${step.raw}`,
+      reason: 'no_deterministic_target',
+    };
+  }
+
+  const battlefield = [...((state.battlefield || []) as BattlefieldPermanent[])];
+  const targetIndex = battlefield.findIndex(
+    permanent => String((permanent as any)?.id || '').trim() === targetPermanentId
+  );
+  if (targetIndex < 0) {
+    return {
+      applied: false,
+      message: `Skipped gain-control (target not on battlefield): ${step.raw}`,
+      reason: 'impossible_action',
+    };
+  }
+
+  const targetPermanent = battlefield[targetIndex] as any;
+  const currentController = String(targetPermanent?.controller || '').trim();
+  if (!currentController) {
+    return {
+      applied: false,
+      message: `Skipped gain-control (target missing controller): ${step.raw}`,
+      reason: 'impossible_action',
+    };
+  }
+
+  const existingEffects = Array.isArray((state as any).controlChangeEffects)
+    ? ([...((state as any).controlChangeEffects as any[])] as Array<{
+        permanentId: string;
+        originalController: PlayerID;
+        newController: PlayerID;
+        duration: string;
+        appliedAt: number;
+      }>)
+    : [];
+  const existingEffectIndex = existingEffects.findIndex(
+    effect =>
+      String(effect?.permanentId || '').trim() === targetPermanentId &&
+      String(effect?.duration || '').trim() === step.duration
+  );
+  const originalController = String(
+    existingEffectIndex >= 0 ? existingEffects[existingEffectIndex]?.originalController || currentController : currentController
+  ).trim() || currentController;
+  const nextControlChangeEffects = existingEffects.filter((_, index) => index !== existingEffectIndex);
+
+  nextControlChangeEffects.push({
+    permanentId: targetPermanentId,
+    originalController: originalController as PlayerID,
+    newController: newController as PlayerID,
+    duration: step.duration,
+    appliedAt: Date.now(),
+  });
+
+  battlefield[targetIndex] = {
+    ...targetPermanent,
+    controller: newController,
+    summoningSickness: true,
+  } as BattlefieldPermanent;
+
+  return {
+    applied: true,
+    state: {
+      ...(state as any),
+      battlefield,
+      controlChangeEffects: nextControlChangeEffects,
+    } as GameState,
+    log: [`${targetPermanentId} changes control to ${newController} until end of turn`],
+  };
+}
+
 function readCharacteristicNumber(...values: unknown[]): number | undefined {
   for (const value of values) {
     const parsed = Number(value);
@@ -2145,8 +2262,9 @@ export function applyRemoveCounterStep(
   step: Extract<OracleEffectStep, { kind: 'remove_counter' }>,
   ctx: OracleIRExecutionContext
 ): BattlefieldStepHandlerResult {
+  const removeAllCounters = step.amount.kind === 'all';
   const amountValue = step.amount.kind === 'number' ? step.amount.value : null;
-  if (amountValue === null || amountValue <= 0) {
+  if (!removeAllCounters && (amountValue === null || amountValue <= 0)) {
     return {
       applied: false,
       message: `Skipped remove counter (unsupported amount): ${step.raw}`,
@@ -2155,7 +2273,11 @@ export function applyRemoveCounterStep(
   }
 
   const targets = resolveDirectBattlefieldPermanents((state.battlefield || []) as BattlefieldPermanent[], step.target as any, ctx);
-  if (targets.length > 1) {
+  const normalizedTargetText = step.target.kind === 'raw'
+    ? normalizeSelfReferenceText(String(step.target.text || '').trim()).toLowerCase()
+    : '';
+  const allowMultipleDeterministicTargets = removeAllCounters && /^(?:all|each)\b/.test(normalizedTargetText);
+  if (targets.length > 1 && !allowMultipleDeterministicTargets) {
     return {
       applied: false,
       message: `Skipped remove counter (no deterministic target): ${step.raw}`,
@@ -2172,10 +2294,11 @@ export function applyRemoveCounterStep(
   }
 
   const battlefieldTarget = targets[0] as any;
-  if (battlefieldTarget) {
+  if (battlefieldTarget && !allowMultipleDeterministicTargets) {
     const currentCount = Number(battlefieldTarget?.counters?.[counterName] ?? 0);
     const normalizedCount = Number.isFinite(currentCount) ? currentCount : 0;
-    if (normalizedCount < amountValue) {
+    const removedCount = removeAllCounters ? normalizedCount : amountValue || 0;
+    if (!removeAllCounters && normalizedCount < (amountValue || 0)) {
       return {
         applied: false,
         message: `Skipped remove counter (not enough counters): ${step.raw}`,
@@ -2195,7 +2318,7 @@ export function applyRemoveCounterStep(
     const nextBattlefield = ((state.battlefield || []) as any[]).map((perm: any) => {
       if (String(perm?.id || '').trim() !== String(battlefieldTarget?.id || '').trim()) return perm;
       const counters = { ...((perm?.counters || {}) as Record<string, number>) };
-      const nextCount = normalizedCount - amountValue;
+      const nextCount = normalizedCount - removedCount;
       if (nextCount > 0) {
         counters[counterName] = nextCount;
       } else {
@@ -2213,8 +2336,38 @@ export function applyRemoveCounterStep(
         ...(state as any),
         battlefield: nextBattlefield,
       } as GameState,
-      count: amountValue,
-      log: [`Removed ${amountValue} ${counterName} counter(s)`],
+      count: removedCount,
+      log: [`Removed ${removedCount} ${counterName} counter(s)`],
+    };
+  }
+
+  if (targets.length > 0 && allowMultipleDeterministicTargets) {
+    const targetIds = new Set(targets.map((perm: any) => String(perm?.id || '').trim()).filter(Boolean));
+    let removedCount = 0;
+    const nextBattlefield = ((state.battlefield || []) as any[]).map((perm: any) => {
+      if (!targetIds.has(String(perm?.id || '').trim())) return perm;
+
+      const currentCount = Number(perm?.counters?.[counterName] ?? 0);
+      const normalizedCount = Number.isFinite(currentCount) ? currentCount : 0;
+      if (normalizedCount <= 0) return perm;
+
+      removedCount += normalizedCount;
+      const counters = { ...((perm?.counters || {}) as Record<string, number>) };
+      delete counters[counterName];
+      return {
+        ...perm,
+        counters,
+      };
+    });
+
+    return {
+      applied: true,
+      state: {
+        ...(state as any),
+        battlefield: nextBattlefield,
+      } as GameState,
+      count: removedCount,
+      log: [`Removed ${removedCount} ${counterName} counter(s)`],
     };
   }
 
@@ -2241,10 +2394,11 @@ export function applyRemoveCounterStep(
       if (String(card?.id || '').trim() !== sourceId) return card;
       const currentCount = Number(card?.counters?.[counterName] ?? 0);
       availableCount = Number.isFinite(currentCount) ? currentCount : 0;
-      if (availableCount < amountValue) return card;
+      const removedCount = removeAllCounters ? availableCount : amountValue || 0;
+      if (!removeAllCounters && availableCount < (amountValue || 0)) return card;
 
       const counters = { ...((card?.counters || {}) as Record<string, number>) };
-      const nextCount = availableCount - amountValue;
+      const nextCount = availableCount - removedCount;
       if (nextCount > 0) {
         counters[counterName] = nextCount;
       } else {
@@ -2284,8 +2438,8 @@ export function applyRemoveCounterStep(
       ...(state as any),
       players: nextPlayers as any,
     } as GameState,
-    count: amountValue,
-    log: [`Removed ${amountValue} ${counterName} counter(s)`],
+    count: removeAllCounters ? availableCount : amountValue || 0,
+    log: [`Removed ${removeAllCounters ? availableCount : amountValue || 0} ${counterName} counter(s)`],
   };
 }
 

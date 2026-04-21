@@ -1,0 +1,1 @@
+﻿import { parseOracleTextToIR } from "./src/oracleIRParser.ts"; const text = "When this creature dies, amass Orcs 1. (Put a +1/+1 counter on an Army you control. It's also an Orc. If you don't control an Army, create a 0/0 black Orc Army creature token first.)"; const ir = parseOracleTextToIR(text, "Easterling Vanguard"); console.log(JSON.stringify(ir, null, 2));

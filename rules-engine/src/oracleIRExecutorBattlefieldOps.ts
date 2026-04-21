@@ -3,11 +3,21 @@ import { buildZoneObjectWithRetainedCounters } from '../../shared/src/zoneRetain
 import { getLeaveBattlefieldDestination } from '../../shared/src/leaveBattlefieldReplacement';
 import type { OracleObjectSelector } from './oracleIR';
 import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
-import type { SimpleBattlefieldSelector, SimplePermanentType } from './oracleIRExecutorBattlefieldParser';
+import {
+  parseSimplePermanentTypeFromText,
+  type SimpleBattlefieldSelector,
+  type SimplePermanentType,
+} from './oracleIRExecutorBattlefieldParser';
 import { resolveSingleCreatureTargetId } from './oracleIRExecutorCreatureStepUtils';
 import { stampCardPutIntoGraveyardThisTurn } from './oracleIRExecutorPlayerUtils';
 import { hasExecutorClass } from './oracleIRExecutorPermanentUtils';
 import { putAttractionInJunkyard, shouldAttractionGoToCommandZone } from './remainingCardTypes';
+
+function permanentMatchesTapTargetType(perm: BattlefieldPermanent, type: SimplePermanentType | null): boolean {
+  if (!type || type === 'permanent') return true;
+  if (type === 'nonland_permanent') return !hasExecutorClass(perm as any, 'land');
+  return hasExecutorClass(perm as any, type);
+}
 
 export function resolveTapOrUntapTargetIds(
   state: GameState,
@@ -30,6 +40,20 @@ export function resolveTapOrUntapTargetIds(
   if (target?.kind !== 'raw') return [];
   const text = String(target?.text || '').trim().toLowerCase();
   if (!text) return [];
+
+  const chosenObjectIds = Array.isArray(ctx.selectorContext?.chosenObjectIds)
+    ? ctx.selectorContext.chosenObjectIds.map(id => String(id || '').trim()).filter(Boolean)
+    : [];
+  if (chosenObjectIds.length > 0 && /\btarget\b/.test(text)) {
+    const requiredType = parseSimplePermanentTypeFromText(text);
+    const chosenMatches = battlefield.filter((perm: any) => {
+      const permanentId = String((perm as any)?.id || '').trim();
+      return chosenObjectIds.includes(permanentId) && permanentMatchesTapTargetType(perm, requiredType);
+    });
+    if (chosenMatches.length > 0) {
+      return chosenMatches.map((perm: any) => String((perm as any)?.id || '').trim()).filter(Boolean);
+    }
+  }
 
   const singleCreatureTargetId = resolveSingleCreatureTargetId(state, target as any, ctx);
   if (singleCreatureTargetId) {

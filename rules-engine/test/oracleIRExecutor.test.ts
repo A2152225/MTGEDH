@@ -37960,6 +37960,51 @@ This creature has protection from each of the exiled card's card types. (Artifac
     expect(permanent?.tapped).toBe(true);
   });
 
+  it('applies fixed tap up-to-two target clauses using chosenObjectIds', () => {
+    const ir = parseOracleTextToIR('Tap up to two target creatures.', 'Sudden Storm');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      battlefield: [
+        {
+          id: 'tap-a',
+          controller: 'p2',
+          owner: 'p2',
+          tapped: false,
+          card: { id: 'tap-a-card', name: 'Runeclaw Bear', type_line: 'Creature - Bear', power: '2', toughness: '2' },
+          counters: {},
+        } as any,
+        {
+          id: 'tap-b',
+          controller: 'p2',
+          owner: 'p2',
+          tapped: false,
+          card: { id: 'tap-b-card', name: 'Silvercoat Lion', type_line: 'Creature - Cat', power: '2', toughness: '2' },
+          counters: {},
+        } as any,
+        {
+          id: 'tap-c',
+          controller: 'p2',
+          owner: 'p2',
+          tapped: false,
+          card: { id: 'tap-c-card', name: 'Walking Corpse', type_line: 'Creature - Zombie', power: '2', toughness: '2' },
+          counters: {},
+        } as any,
+      ],
+    } as any);
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      selectorContext: { chosenObjectIds: ['tap-a', 'tap-b'] } as any,
+    });
+
+    const battlefield = ((result.state as any).battlefield || []) as any[];
+    expect(result.appliedSteps.some(s => s.kind === 'tap_or_untap')).toBe(true);
+    expect(battlefield.find((perm: any) => perm.id === 'tap-a')?.tapped).toBe(true);
+    expect(battlefield.find((perm: any) => perm.id === 'tap-b')?.tapped).toBe(true);
+    expect(battlefield.find((perm: any) => perm.id === 'tap-c')?.tapped).toBe(false);
+  });
+
   it('applies fixed untap target clauses without requiring a tap-or-untap choice', () => {
     const ir = parseOracleTextToIR('Untap that creature.', 'Test');
     const steps = ir.abilities[0]?.steps ?? [];
@@ -43764,6 +43809,96 @@ This creature has protection from each of the exiled card's card types. (Artifac
     expect(returned?.controller).toBe('p1');
   });
 
+  it('queues an extra turn when resolving Time Warp', () => {
+    const ir = parseOracleTextToIR('Take an extra turn after this one.', 'Time Warp');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const result = applyOracleIRStepsToGameState(
+      makeState({
+        turn: 5,
+      }),
+      steps,
+      {
+        controllerId: 'p1',
+        sourceId: 'time-warp',
+        sourceName: 'Time Warp',
+      }
+    );
+
+    const extraTurns = (((result.state as any).extraTurns || []) as any[]).filter(
+      effect => String(effect?.playerId || '') === 'p1'
+    );
+
+    expect(extraTurns).toHaveLength(1);
+    expect(extraTurns[0]).toMatchObject({
+      playerId: 'p1',
+      afterTurnNumber: 5,
+      source: 'Time Warp',
+    });
+  });
+
+  it('changes control and tracks cleanup reversion when resolving Act of Treason', () => {
+    const ir = parseOracleTextToIR('Gain control of target creature until end of turn.', 'Act of Treason');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const result = applyOracleIRStepsToGameState(
+      makeState({
+        players: [
+          {
+            id: 'p1',
+            name: 'P1',
+            seat: 0,
+            life: 40,
+            library: [],
+            hand: [],
+            graveyard: [],
+          } as any,
+          {
+            id: 'p2',
+            name: 'P2',
+            seat: 1,
+            life: 40,
+            library: [],
+            hand: [],
+            graveyard: [],
+          } as any,
+        ],
+        battlefield: [
+          {
+            id: 'stolen-bear',
+            controller: 'p2',
+            ownerId: 'p2',
+            summoningSickness: false,
+            card: {
+              id: 'stolen-bear-card',
+              name: 'Runeclaw Bear',
+              type_line: 'Creature - Bear',
+              power: '2',
+              toughness: '2',
+            },
+          } as any,
+        ],
+      }),
+      steps,
+      {
+        controllerId: 'p1',
+        sourceId: 'act-of-treason',
+        sourceName: 'Act of Treason',
+        targetPermanentId: 'stolen-bear',
+      }
+    );
+
+    const stolenBear = (result.state.battlefield || []).find((perm: any) => perm.id === 'stolen-bear') as any;
+    expect(stolenBear?.controller).toBe('p1');
+    expect(stolenBear?.summoningSickness).toBe(true);
+    expect(((result.state as any).controlChangeEffects || [])[0]).toMatchObject({
+      permanentId: 'stolen-bear',
+      originalController: 'p2',
+      newController: 'p1',
+      duration: 'until_end_of_turn',
+    });
+  });
+
   it("schedules and resolves Rienne, Angel of Rebirth by returning the dead multicolored creature to its owner's hand", () => {
     const abilities = parseTriggeredAbilitiesFromText(
       "Whenever another multicolored creature you control dies, return it to its owner's hand at the beginning of the next end step.",
@@ -45462,6 +45597,7 @@ This creature has protection from each of the exiled card's card types. (Artifac
       (perm: any) => perm.card?.id === 'ghoul'
     ) as any;
     expect(returnedPermanent?.leaveBattlefieldReplacement).toBe('exile');
+    expect((returnedPermanent?.grantedAbilities || []).map((ability: any) => String(ability || '').toLowerCase())).toContain('haste');
 
     const destroyed = applyOracleIRStepsToGameState(
       reanimated.state,
@@ -51959,6 +52095,195 @@ This creature has protection from each of the exiled card's card types. (Artifac
     expect(result.appliedSteps.map(step => step.kind)).toEqual(['remove_counter', 'deal_damage']);
     expect(reservoir?.counters).toEqual({ charge: 2 });
     expect(p2?.life).toBe(37);
+  });
+
+  it('applies all-counter removal and carries the removed count into reference effects', () => {
+    const steps = [
+      {
+        kind: 'remove_counter',
+        amount: { kind: 'all' },
+        counter: 'charge',
+        target: { kind: 'raw', text: 'this artifact' },
+        raw: 'Remove all charge counters from this artifact',
+      },
+      {
+        kind: 'deal_damage',
+        amount: { kind: 'reference_amount', raw: 'that much' },
+        source: { kind: 'raw', text: 'it' },
+        target: { kind: 'raw', text: 'target opponent' },
+        raw: 'It deals that much damage to target opponent',
+      },
+    ] as any;
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+      battlefield: [
+        {
+          id: 'relic-1',
+          owner: 'p1',
+          controller: 'p1',
+          tapped: false,
+          counters: { charge: 5 },
+          attachments: [],
+          modifiers: [],
+          card: {
+            id: 'relic-card',
+            name: 'Coalition Relic',
+            type_line: 'Artifact',
+            oracle_text: 'Remove all charge counters from this artifact. It deals that much damage to target opponent.',
+          },
+        } as any,
+      ],
+    } as any);
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceId: 'relic-1',
+      sourceName: 'Coalition Relic',
+      selectorContext: {
+        targetOpponentId: 'p2',
+      },
+    });
+
+    const relic = (result.state.battlefield || []).find((perm: any) => perm.id === 'relic-1') as any;
+    const p2 = result.state.players.find((player: any) => player.id === 'p2') as any;
+
+    expect(result.appliedSteps.map(step => step.kind)).toEqual(['remove_counter', 'deal_damage']);
+    expect(relic?.counters?.charge ?? 0).toBe(0);
+    expect(p2?.life).toBe(35);
+  });
+
+  it('applies remove-all-counter steps across deterministic all-permanents selectors', () => {
+    const steps = [
+      {
+        kind: 'remove_counter',
+        amount: { kind: 'all' },
+        counter: 'fate',
+        target: { kind: 'raw', text: 'all permanents' },
+        raw: 'Remove all fate counters from all permanents',
+      },
+      {
+        kind: 'draw',
+        who: { kind: 'you' },
+        amount: { kind: 'reference_amount', raw: 'that many' },
+        raw: 'Draw that many cards',
+      },
+    ] as any;
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [
+            { id: 'draw-1', name: 'A' },
+            { id: 'draw-2', name: 'B' },
+            { id: 'draw-3', name: 'C' },
+            { id: 'draw-4', name: 'D' },
+          ],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+      battlefield: [
+        {
+          id: 'stone-1',
+          owner: 'p1',
+          controller: 'p1',
+          tapped: false,
+          counters: { fate: 2 },
+          attachments: [],
+          modifiers: [],
+          card: {
+            id: 'stone-card',
+            name: 'Oblivion Stone',
+            type_line: 'Artifact',
+            oracle_text: 'Remove all fate counters from all permanents.',
+          },
+        } as any,
+        {
+          id: 'creature-1',
+          owner: 'p2',
+          controller: 'p2',
+          tapped: false,
+          counters: { fate: 1 },
+          attachments: [],
+          modifiers: [],
+          card: {
+            id: 'creature-card',
+            name: 'Test Creature',
+            type_line: 'Creature - Human',
+            oracle_text: '',
+          },
+        } as any,
+        {
+          id: 'relic-2',
+          owner: 'p1',
+          controller: 'p1',
+          tapped: false,
+          counters: { charge: 3 },
+          attachments: [],
+          modifiers: [],
+          card: {
+            id: 'relic-card-2',
+            name: 'Coalition Relic',
+            type_line: 'Artifact',
+            oracle_text: '',
+          },
+        } as any,
+      ],
+    } as any);
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceId: 'stone-1',
+      sourceName: 'Oblivion Stone',
+    });
+
+    const stone = (result.state.battlefield || []).find((perm: any) => perm.id === 'stone-1') as any;
+    const creature = (result.state.battlefield || []).find((perm: any) => perm.id === 'creature-1') as any;
+    const relic = (result.state.battlefield || []).find((perm: any) => perm.id === 'relic-2') as any;
+    const p1 = result.state.players.find((player: any) => player.id === 'p1') as any;
+
+    expect(result.appliedSteps.map(step => step.kind)).toEqual(['remove_counter', 'draw']);
+    expect(stone?.counters?.fate ?? 0).toBe(0);
+    expect(creature?.counters?.fate ?? 0).toBe(0);
+    expect(relic?.counters?.charge).toBe(3);
+    expect(p1?.hand).toHaveLength(3);
   });
 
   it('applies reference-amount token creation from trigger damage event data', () => {

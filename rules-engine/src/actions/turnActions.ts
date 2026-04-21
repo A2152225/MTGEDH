@@ -209,11 +209,47 @@ export function executeCleanupStep(
       ...(remainingModifiers.length > 0 ? { modifiers: remainingModifiers } : { modifiers: undefined }),
     };
   });
+  const expiringControlChangeEffects = Array.isArray((state as any).controlChangeEffects)
+    ? ((state as any).controlChangeEffects as any[]).filter(
+        effect => String(effect?.duration || '').trim() === 'until_end_of_turn'
+      )
+    : [];
+  const remainingControlChangeEffects = Array.isArray((state as any).controlChangeEffects)
+    ? ((state as any).controlChangeEffects as any[]).filter(
+        effect => String(effect?.duration || '').trim() !== 'until_end_of_turn'
+      )
+    : [];
+  const revertedPermanentIds = new Set(
+    expiringControlChangeEffects
+      .map(effect => String(effect?.permanentId || '').trim())
+      .filter(Boolean)
+  );
+  const battlefieldAfterControlRevert = updatedBattlefield.map((perm: any) => {
+    const effect = expiringControlChangeEffects.find(
+      (entry: any) => String(entry?.permanentId || '').trim() === String(perm?.id || '').trim()
+    );
+    if (!effect) {
+      return perm;
+    }
+
+    return {
+      ...perm,
+      controller: effect.originalController,
+      summoningSickness: true,
+    };
+  });
+  if (revertedPermanentIds.size > 0) {
+    logs.push(`Control reverts for ${revertedPermanentIds.size} permanent(s)`);
+  }
   
   logs.push('Damage removed from all permanents');
   
   const clearedState = clearFutureSpellEffects(
-    clearEndOfTurnWinLossEffects({ ...state, battlefield: updatedBattlefield } as GameState)
+    clearEndOfTurnWinLossEffects({
+      ...state,
+      battlefield: battlefieldAfterControlRevert,
+      controlChangeEffects: remainingControlChangeEffects,
+    } as GameState)
   );
   const remainingRegenerationShields = removeExpiredShields(
     Array.isArray((clearedState as any).regenerationShields)

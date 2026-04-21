@@ -1,12 +1,12 @@
-﻿import { parseOracleTextToIR } from './src/oracleIRParser';
+﻿import { parseOracleTextToIR } from './src/oracleIRParser.ts';
+const cards = [
+    { name: 'Hurl into History', text: 'Counter target artifact or creature spell. Discover X, where X is that spell\\'s mana value. (Exile cards from the top of your library until you exile a nonland card with that mana value or less. Cast it without paying its mana cost or put it into your hand. Put the rest on the bottom in a random order.)' },
+    { name: 'Hidden Nursery', text: 'Hidden Nursery enters the battlefield tapped.\n{T}: Add {G}.\n{4}{G}, {T}, Sacrifice Hidden Nursery: Discover 4. Activate only as a sorcery. (Exile cards from the top of your library until you exile a nonland card with mana value 4 or less. Cast it without paying its mana cost or put it into your hand. Put the rest on the bottom in a random order.)' },
+    { name: 'Buried Treasure', text: '{T}, Sacrifice Buried Treasure: Add one mana of any color.\n{2}, Sacrifice Buried Treasure: Draw a card.\nWhen Buried Treasure is put into a graveyard from the battlefield, you may pay {R}. If you do, discover 5. (Exile cards from the top of your library until you exile a nonland card with mana value 5 or less. Cast it without paying its mana cost or put it into your hand. Put the rest on the bottom in a random order.)' }
+];
 
-const heatedDebate = "This spell can't be countered. (This includes by the ward ability.)\nHeated Debate deals 4 damage to target creature or planeswalker.";
-const tollsOfWar = "When this enchantment enters, create a Clue token. (It's an artifact with \"{2}, Sacrifice this token: Draw a card.\")\nWhenever you sacrifice a permanent during your turn, create a 1/1 white Ally creature token. This ability triggers only once each turn.";
-
-const res1 = parseOracleTextToIR(heatedDebate);
-const res2 = parseOracleTextToIR(tollsOfWar);
-
-console.log(JSON.stringify({
-  heatedDebate: res1.abilities,
-  tollsOfWar: res2.abilities
-}, null, 2));
+cards.forEach(card => {
+    console.log('--- ' + card.name + ' ---');
+    const ir = parseOracleTextToIR(card.text, card.name);
+    console.log(JSON.stringify(ir.abilities, null, 2));
+});

@@ -1,11 +1,13 @@
-import type {
+﻿import type {
   OracleClauseCondition,
   OracleEffectStep,
   OracleGraveyardAdditionalCost,
   OracleIRAbility,
   OraclePlayerSelector,
+  OracleQuantity,
 } from './oracleIR';
 import { AbilityType } from './oracleTextParser';
+import { parseKeywordsFromOracleText } from './oracleTextParserSupport';
 import { parseEffectLevelImpulsePermissionClause } from './oracleIRParserEffectImpulsePermission';
 import { tryParseExileTopOnly } from './oracleIRParserExileTopOnly';
 import { cleanImpulseClause, isIgnorableImpulseReminderClause } from './oracleIRParserImpulseClauseUtils';
@@ -58,7 +60,7 @@ function parseGlobalExiledWithSourceImpulsePermission(
     .trim()
     .replace(/^then\b\s*/i, '')
     .replace(/^once during each of your turns,?\s*/i, '')
-    .replace(/,?\s+without paying (?:its|their|that spell(?:'|â€™)s|those spells(?:'|â€™)) mana costs?\b/gi, '')
+    .replace(/,?\s+without paying (?:its|their|that spell(?:'|Ã¢â‚¬â„¢)s|those spells(?:'|Ã¢â‚¬â„¢)) mana costs?\b/gi, '')
     .replace(/[,.;]\s*$/g, '')
     .trim();
 
@@ -66,7 +68,7 @@ function parseGlobalExiledWithSourceImpulsePermission(
   const lower = clause.toLowerCase();
 
   const exiledWithSourceRef =
-    "(?:the )?(?:cards?|spells?) exiled with (?:this (?:creature|artifact|enchantment|planeswalker|permanent|class|saga)|(?!(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten)\\b)[a-z0-9][a-z0-9\\s\\-\\.',â€™]+)";
+    "(?:the )?(?:cards?|spells?) exiled with (?:this (?:creature|artifact|enchantment|planeswalker|permanent|class|saga)|(?!(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten)\\b)[a-z0-9][a-z0-9\\s\\-\\.',Ã¢â‚¬â„¢]+)";
 
   {
     const m = lower.match(new RegExp(`^you may play a land or cast a spell from among ${exiledWithSourceRef}\\s*$`, 'i'));
@@ -104,16 +106,16 @@ function parseGlobalLooseImpulsePermission(
   if (!clause) return null;
 
   clause = clause
-    .replace(/^(they|that player|that opponent|defending player|the defending player|he or she|its controller|its owner|that [a-z0-9][a-z0-9 -]*['â€™]s (?:controller|owner)) (?:may|can)\b/i, 'You may')
-    .replace(/^((?:until|through)\b[^,]*,),\s*(?:they|that player|that opponent|defending player|the defending player|he or she|its controller|its owner|that [a-z0-9][a-z0-9 -]*['â€™]s (?:controller|owner)) (?:may|can)\b/i, '$1 you may')
-    .replace(/^(during your next turn,?)\s*(?:they|that player|that opponent|defending player|the defending player|he or she|its controller|its owner|that [a-z0-9][a-z0-9 -]*['â€™]s (?:controller|owner)) (?:may|can)\b/i, '$1 you may');
+    .replace(/^(they|that player|that opponent|defending player|the defending player|he or she|its controller|its owner|that [a-z0-9][a-z0-9 -]*['Ã¢â‚¬â„¢]s (?:controller|owner)) (?:may|can)\b/i, 'You may')
+    .replace(/^((?:until|through)\b[^,]*,),\s*(?:they|that player|that opponent|defending player|the defending player|he or she|its controller|its owner|that [a-z0-9][a-z0-9 -]*['Ã¢â‚¬â„¢]s (?:controller|owner)) (?:may|can)\b/i, '$1 you may')
+    .replace(/^(during your next turn,?)\s*(?:they|that player|that opponent|defending player|the defending player|he or she|its controller|its owner|that [a-z0-9][a-z0-9 -]*['Ã¢â‚¬â„¢]s (?:controller|owner)) (?:may|can)\b/i, '$1 you may');
 
   clause = clause.replace(/^((?:until|through)\b.*?)(?:,\s*|\s+)you (?:may|can)\s+(play|cast)\s+(.+)$/i, 'You may $2 $3 $1');
 
   clause = clause
-    .replace(/,?\s+without paying (?:its|their|that spell(?:'|â€™)s|those spells(?:'|â€™)) mana costs?\b/gi, '')
+    .replace(/,?\s+without paying (?:its|their|that spell(?:'|Ã¢â‚¬â„¢)s|those spells(?:'|Ã¢â‚¬â„¢)) mana costs?\b/gi, '')
     .replace(
-      /,?\s+by paying\b.*\s+rather than paying (?:its|their|that spell(?:'|â€™)s|those spells(?:'|â€™)) mana costs?\.?\s*$/i,
+      /,?\s+by paying\b.*\s+rather than paying (?:its|their|that spell(?:'|Ã¢â‚¬â„¢)s|those spells(?:'|Ã¢â‚¬â„¢)) mana costs?\.?\s*$/i,
       ''
     )
     .replace(/\s+/g, ' ')
@@ -121,7 +123,7 @@ function parseGlobalLooseImpulsePermission(
 
   const lower = clause.toLowerCase();
   const permissionSubject =
-    '(?:you|they|that player|that opponent|defending player|the defending player|he or she|its controller|its owner|that [a-z0-9][a-z0-9 -]*[\'â€™]s (?:controller|owner))';
+    '(?:you|they|that player|that opponent|defending player|the defending player|he or she|its controller|its owner|that [a-z0-9][a-z0-9 -]*[\'Ã¢â‚¬â„¢]s (?:controller|owner))';
   const objectRef =
     '(?:that card|those cards|them|it|the exiled card|the exiled cards|that spell|those spells|the exiled spell|the exiled spells|(?:the )?card exiled this way|(?:the )?cards exiled this way|(?:the )?spell exiled this way|(?:the )?spells exiled this way|(?:the )?card they exiled this way|(?:the )?cards they exiled this way|(?:the )?spell they exiled this way|(?:the )?spells they exiled this way)';
   const objectRefWithLimit = `(?:up to (?:a|an|\\d+|x|[a-z]+) of |one of )?${objectRef}`;
@@ -408,6 +410,39 @@ function parseSearchLibraryPutOnTopFollowupPair(
   };
 }
 
+function parseSearchLibraryToHandFollowupPair(
+  current: OracleEffectStep,
+  next: OracleEffectStep | undefined
+): OracleEffectStep | null {
+  if (current.kind !== 'unknown' || next?.kind !== 'shuffle_library') return null;
+
+  const normalizedCurrent = normalizeOracleText(String(current.raw || ''))
+    .replace(/[.]+$/g, '')
+    .trim();
+  const normalizedNext = normalizeOracleText(String(next.raw || ''))
+    .replace(/[.]+$/g, '')
+    .trim();
+  const matchableCurrent = normalizedCurrent.replace(/^you\s+may\s+/i, '').trim();
+
+  const searchMatch = matchableCurrent.match(
+    /^search your library for (?:up to one |a |an )(?:(.+?)\s+)?card(?:,\s*reveal it)?,\s*put (?:it|that card) into your hand$/i
+  );
+  if (!searchMatch) return null;
+
+  return {
+    kind: 'search_library',
+    who: { kind: 'you' },
+    criteria: { kind: 'raw', text: String(searchMatch[1] || '').trim() },
+    destination: 'hand',
+    ...(/reveal it/i.test(matchableCurrent) ? { revealFound: true } : {}),
+    shuffle: true,
+    maxResults: 1,
+    ...(current.optional || next.optional ? { optional: true } : {}),
+    ...(current.sequence ? { sequence: current.sequence } : next.sequence ? { sequence: next.sequence } : {}),
+    raw: `${normalizedCurrent}, ${normalizedNext}`,
+  };
+}
+
 export function mergeSearchLibraryPutOnTopFollowupAbilities(
   abilities: readonly OracleIRAbility[]
 ): OracleIRAbility[] {
@@ -418,6 +453,29 @@ export function mergeSearchLibraryPutOnTopFollowupAbilities(
       const current = ability.steps[index];
       const next = ability.steps[index + 1];
       const combined = parseSearchLibraryPutOnTopFollowupPair(current, next);
+      if (combined) {
+        merged.push(combined);
+        index += 1;
+        continue;
+      }
+
+      merged.push(current);
+    }
+
+    return merged.length === ability.steps.length ? ability : { ...ability, steps: merged };
+  });
+}
+
+export function mergeSearchLibraryToHandFollowupAbilities(
+  abilities: readonly OracleIRAbility[]
+): OracleIRAbility[] {
+  return abilities.map((ability) => {
+    const merged: OracleEffectStep[] = [];
+
+    for (let index = 0; index < ability.steps.length; index += 1) {
+      const current = ability.steps[index];
+      const next = ability.steps[index + 1];
+      const combined = parseSearchLibraryToHandFollowupPair(current, next);
       if (combined) {
         merged.push(combined);
         index += 1;
@@ -527,7 +585,10 @@ function parseLookChooseFromTopTriple(
 ): OracleEffectStep | null {
   if (current.kind !== 'unknown' || after?.kind !== 'unknown') return null;
 
-  const normalizedLook = normalizeOracleText(String(current.raw || '')).replace(/[.]+$/g, '').trim();
+  const normalizedLook = normalizeOracleText(String(current.raw || ''))
+    .replace(/^then\b\s*/i, '')
+    .replace(/[.]+$/g, '')
+    .trim();
   const normalizedRest = normalizeOracleText(String(after.raw || '')).replace(/[.]+$/g, '').trim();
   const restOrder = getBottomLibraryRestOrder(after);
   if (!restOrder) {
@@ -629,6 +690,7 @@ function isTopLibrarySelectionLeadUnknownStep(step: OracleEffectStep | undefined
   if (step?.kind !== 'unknown') return false;
 
   const normalized = normalizeOracleText(String(step.raw || ''))
+    .replace(/^then\b\s*/i, '')
     .replace(/[.]+$/g, '')
     .trim();
   return /^(?:look at|reveal) the top (?:a|an|\d+|x|[a-z]+) cards? of your library(?:, where .+)?$/i.test(normalized);
@@ -656,6 +718,15 @@ export function mergeTopLibraryBottomRandomTailAbilities(
       const current = ability.steps[i];
       const next = ability.steps[i + 1];
       const after = ability.steps[i + 2];
+
+      if (current.kind === 'impulse_exile_top' && getBottomLibraryRestOrder(next)) {
+        merged.push({
+          ...current,
+          raw: appendFollowupSentence(current.raw, String(next?.raw || '').trim()),
+        });
+        i += 1;
+        continue;
+      }
 
       if (
         isTopLibrarySelectionLeadUnknownStep(current)
@@ -1427,6 +1498,61 @@ export function expandMoveZoneCopiedSpellAbilities(
         changed = true;
         i += 1;
         continue;
+      }
+
+      expandedSteps.push(current);
+    }
+
+    return changed ? { ...ability, steps: expandedSteps } : ability;
+  });
+}
+
+function parseBattlefieldMoveHasteFollowupStep(
+  step: Extract<OracleEffectStep, { kind: 'unknown' }>
+): Extract<OracleEffectStep, { kind: 'grant_temporary_ability' }> | null {
+  const normalized = normalizeOracleText(String(step.raw || ''))
+    .replace(/^then\b\s*/i, '')
+    .replace(/[.]+$/g, '')
+    .trim();
+  if (!normalized) return null;
+
+  const match = normalized.match(/^(it|that card|that creature|that permanent) gains haste$/i);
+  if (!match) return null;
+
+  return {
+    kind: 'grant_temporary_ability',
+    target: parseObjectSelector(String(match[1] || '').trim()),
+    duration: 'end_of_turn',
+    abilities: ['haste'],
+    ...(step.optional ? { optional: true } : {}),
+    ...(step.sequence ? { sequence: step.sequence } : {}),
+    raw: String(step.raw || '').trim(),
+  };
+}
+
+export function expandMoveZoneHasteFollowupAbilities(
+  abilities: readonly OracleIRAbility[]
+): OracleIRAbility[] {
+  return abilities.map((ability) => {
+    let changed = false;
+    const expandedSteps: OracleEffectStep[] = [];
+
+    for (let index = 0; index < ability.steps.length; index += 1) {
+      const current = ability.steps[index];
+      const next = ability.steps[index + 1];
+
+      if (
+        current?.kind === 'move_zone' &&
+        current.to === 'battlefield' &&
+        next?.kind === 'unknown'
+      ) {
+        const expanded = parseBattlefieldMoveHasteFollowupStep(next);
+        if (expanded) {
+          expandedSteps.push(current, expanded);
+          changed = true;
+          index += 1;
+          continue;
+        }
       }
 
       expandedSteps.push(current);
@@ -2311,7 +2437,7 @@ function parseGraveyardAdditionalCostFromText(rawText: string): OracleGraveyardA
     .trim();
   if (!normalized) return null;
 
-  normalized = normalized.replace(/^(?:flashback|jump-start|retrace|escape|harmonize)\b[:—-]?\s*/i, '').trim();
+  normalized = normalized.replace(/^(?:flashback|jump-start|retrace|escape|harmonize)\b[:â€”-]?\s*/i, '').trim();
   normalized = normalized.replace(/^(?:\{[^}]+\})+(?:,\s*|\s+)/, '').trim();
 
   const byMatch = normalized.match(
@@ -2642,20 +2768,27 @@ function normalizeReminderStepRaw(step: OracleEffectStep): string {
 }
 
 function isRedundantManifestOrCloakReminderStep(step: OracleEffectStep): boolean {
-  if (step.kind !== 'unknown') return false;
+    if (!step || step.kind !== 'unknown') return false;
 
   const normalized = normalizeReminderStepRaw(step);
   if (!normalized) return false;
 
   return (
     /^to (?:manifest|cloak) a card, put it onto the battlefield face down as a 2\/2 creature(?: with ward \{2\})?$/i.test(normalized) ||
-    /^turn it face up any time for its mana cost if it(?:'|’)s a creature card$/i.test(normalized)
+    /^turn it face up any time for its mana cost if it(?:'|â€™)s a creature card$/i.test(normalized)
   );
 }
 
 function isRedundantManifestDreadReminderStep(step: OracleEffectStep): boolean {
   const normalized = normalizeReminderStepRaw(step);
   if (!normalized) return false;
+
+  if (
+    /^put one onto the battlefield face down as a 2\/2 creature and the other into your graveyard$/i.test(normalized) ||
+    /^turn it face up any time for its mana cost if it(?:'|â€™)s a creature card$/i.test(normalized)
+  ) {
+    return true;
+  }
 
   if (step.kind === 'unknown') {
     return /^look at the top two cards of your library$/i.test(normalized) || /^manifest one of them$/i.test(normalized);
@@ -2678,7 +2811,7 @@ export function pruneRedundantFaceDownReminderUnknownAbilities(
     const hasManifestDread = ability.steps.some((step) => step.kind === 'manifest_dread');
     const hasManifestReminderText = /\(to manifest a card, put it onto the battlefield face down as a 2\/2 creature\.?/i.test(normalizedText);
     const hasCloakReminderText = /\(to cloak a card, put it onto the battlefield face down as a 2\/2 creature with ward \{2\}\.?/i.test(normalizedText);
-    const hasManifestDreadReminderText = /^manifest dread\.?\s*\(look at the top two cards of your library\. manifest one of them, then put the rest into your graveyard\.\)$/i.test(normalizedText);
+    const hasManifestDreadReminderText = /\bmanifest dread\.?\s*\(look at the top two cards of your library\./i.test(normalizedText);
     if (!hasFaceDownMove && !hasManifestDread && !hasManifestReminderText && !hasCloakReminderText && !hasManifestDreadReminderText) {
       return ability;
     }
@@ -2726,6 +2859,96 @@ export function pruneCascadeReminderAbilities(
   });
 }
 
+export function pruneKickerReminderAbilities(
+  abilities: readonly OracleIRAbility[]
+): OracleIRAbility[] {
+  return abilities.filter((ability) => {
+    const normalizedText = normalizeOracleText(String(ability.text || ability.effectText || ''))
+      .replace(/\s+/g, ' ')
+      .trim()
+      .toLowerCase();
+
+    return !/^(?:multi)?kicker\s+.+?\(you may pay an additional .+?(?: any number of times)? as you cast this spell\.?\)[.)]*$/i.test(
+      normalizedText
+    );
+  });
+}
+
+function isRedundantCascadeReminderUnknownStep(step: OracleEffectStep): boolean {
+  if (!step || step.kind !== 'unknown') return false;
+
+  const normalized = normalizeOracleText(String(step.raw || ''))
+    .replace(/^then\b\s*/i, '')
+    .replace(/^[()\s]+/, '')
+    .replace(/[.)\s]+$/g, '')
+    .trim();
+  if (!normalized) return false;
+
+  return (
+    /^you may cast it without paying its mana cost$/i.test(normalized) ||
+    /^put the exiled cards on the bottom(?: of your library)? in a random order$/i.test(normalized)
+  );
+}
+
+export function pruneRedundantCascadeReminderUnknownAbilities(
+  abilities: readonly OracleIRAbility[]
+): OracleIRAbility[] {
+  return abilities.map((ability) => {
+    const normalizedText = normalizeOracleText(String(ability.text || ability.effectText || ''))
+      .replace(/\s+/g, ' ')
+      .trim()
+      .toLowerCase();
+    if (!normalizedText.includes('cascade')) return ability;
+
+    const nextSteps = ability.steps.filter((step) => !isRedundantCascadeReminderUnknownStep(step));
+    return nextSteps.length === ability.steps.length ? ability : { ...ability, steps: nextSteps };
+  });
+}
+
+function isRedundantPrototypeReminderUnknownStep(step: OracleEffectStep): boolean {
+  if (!step || step.kind !== 'unknown') return false;
+
+  return /^it keeps its abilities and types[.)]*$/i.test(normalizeReminderStepRaw(step));
+}
+
+export function pruneRedundantPrototypeReminderUnknownAbilities(
+  abilities: readonly OracleIRAbility[]
+): OracleIRAbility[] {
+  return abilities.map((ability) => {
+    const normalizedText = normalizeOracleText(String(ability.text || ability.effectText || ''))
+      .replace(/\s+/g, ' ')
+      .trim()
+      .toLowerCase();
+    if (!normalizedText.includes('prototype')) return ability;
+
+    const nextSteps = ability.steps.filter((step) => !isRedundantPrototypeReminderUnknownStep(step));
+    return nextSteps.length === ability.steps.length ? ability : { ...ability, steps: nextSteps };
+  });
+}
+
+function isRedundantBackupReminderUnknownStep(step: OracleEffectStep): boolean {
+  if (!step || step.kind !== 'unknown') return false;
+
+  return /^if that(?:'|â€™)?s another creature, it gains the following ability until end of turn[.)]*$/i.test(
+    normalizeReminderStepRaw(step)
+  );
+}
+
+export function pruneRedundantBackupReminderUnknownAbilities(
+  abilities: readonly OracleIRAbility[]
+): OracleIRAbility[] {
+  return abilities.map((ability) => {
+    const normalizedText = normalizeOracleText(String(ability.text || ability.effectText || ''))
+      .replace(/\s+/g, ' ')
+      .trim()
+      .toLowerCase();
+    if (!normalizedText.includes('backup')) return ability;
+
+    const nextSteps = ability.steps.filter((step) => !isRedundantBackupReminderUnknownStep(step));
+    return nextSteps.length === ability.steps.length ? ability : { ...ability, steps: nextSteps };
+  });
+}
+
 export function pruneSoulbondReminderAbilities(
   abilities: readonly OracleIRAbility[]
 ): OracleIRAbility[] {
@@ -2751,7 +2974,7 @@ export function pruneFirebendingReminderAbilities(
 }
 
 function isRedundantWaterbendReminderUnknownStep(step: OracleEffectStep): boolean {
-  if (step.kind !== 'unknown') return false;
+    if (!step || step.kind !== 'unknown') return false;
 
   const normalized = normalizeReminderStepRaw(step);
   if (!normalized) return false;
@@ -2777,6 +3000,41 @@ export function pruneRedundantWaterbendReminderUnknownAbilities(
   });
 }
 
+function isRedundantEarthbendReminderStep(step: OracleEffectStep): boolean {
+  const normalized = normalizeReminderStepRaw(step);
+  if (!normalized) return false;
+
+  if (step.kind === 'unknown') {
+    return (
+      /^target land you control becomes a 0\/0 (?:land )?creature with haste that(?:'|â€™)?s still a land$/i.test(normalized) ||
+      /^when it dies or is exiled, return it to the battlefield tapped$/i.test(normalized)
+    );
+  }
+
+  return (
+    step.kind === 'add_counter' &&
+    /^put (?:an?|one|two|three|four|five|six|seven|eight|nine|ten|x|\d+) \+1\/\+1 counters? on it$/i.test(normalized)
+  );
+}
+
+export function pruneRedundantEarthbendReminderUnknownAbilities(
+  abilities: readonly OracleIRAbility[]
+): OracleIRAbility[] {
+  return abilities.map((ability) => {
+    const normalizedText = normalizeOracleText(String(ability.text || ability.effectText || ''))
+      .replace(/\s+/g, ' ')
+      .trim()
+      .toLowerCase();
+    const hasEarthbendLead = ability.steps.some(
+      (step) => step.kind === 'unknown' && /^earthbend\s+\d+$/i.test(normalizeReminderStepRaw(step))
+    );
+    if (!normalizedText.includes('earthbend') || !hasEarthbendLead) return ability;
+
+    const nextSteps = ability.steps.filter((step) => !isRedundantEarthbendReminderStep(step));
+    return nextSteps.length === ability.steps.length ? ability : { ...ability, steps: nextSteps };
+  });
+}
+
 export function pruneMadnessReminderAbilities(
   abilities: readonly OracleIRAbility[]
 ): OracleIRAbility[] {
@@ -2791,6 +3049,32 @@ export function pruneMadnessReminderAbilities(
       .toLowerCase();
 
     return !/^madness\b/i.test(normalizedText);
+  });
+}
+
+export function pruneCipherReminderAbilities(
+  abilities: readonly OracleIRAbility[]
+): OracleIRAbility[] {
+  return abilities.filter((ability) => {
+    const normalizedText = normalizeOracleText(String(ability.text || ability.effectText || ''))
+      .replace(/\s+/g, ' ')
+      .trim()
+      .toLowerCase();
+
+    if (!normalizedText) return true;
+
+    if (ability.type === 'static' && normalizedText.startsWith('cipher (')) {
+      return false;
+    }
+
+    if (
+      ability.type === 'triggered' &&
+      /^whenever that creature deals combat damage to a player, its controller may cast a copy of the encoded card without paying its mana cost[.)]*$/i.test(normalizedText)
+    ) {
+      return false;
+    }
+
+    return true;
   });
 }
 
@@ -2922,7 +3206,7 @@ export function expandFutureSpellEffectUnknownAbilities(
 }
 
 function isRedundantArtifactTokenReminderUnknownStep(step: OracleEffectStep): boolean {
-  if (step.kind !== 'unknown') return false;
+    if (!step || step.kind !== 'unknown') return false;
 
   const normalized = normalizeOracleText(String(step.raw || ''))
     .replace(/^then\b\s*/i, '')
@@ -2932,17 +3216,46 @@ function isRedundantArtifactTokenReminderUnknownStep(step: OracleEffectStep): bo
   if (!normalized) return false;
 
   return (
-    /^(?:it(?:'|’)s|it is)\s+an artifact with\s+"[^"]+"$/i.test(normalized) ||
-    /^(?:they(?:'|’)re|they are)\s+artifacts with\s+"[^"]+"$/i.test(normalized)
+    /^(?:(?:it(?:'|â€™)s|it is)|(?:an?\s+[a-z0-9 ,.'â€™-]+?\s+token\s+is))\s+an artifact with\s+"[^"]+"$/i.test(normalized) ||
+    /^(?:they(?:'|â€™)re|they are)\s+artifacts with\s+"[^"]+"$/i.test(normalized)
+  );
+}
+
+function isArtifactTokenReminderContextUnknownStep(step: OracleEffectStep): boolean {
+  const normalized = normalizeUnknownStepText(step);
+  if (!normalized) return false;
+
+  return (
+    /\binvestigate(?:s)?\b/i.test(normalized) ||
+    /\bcreate(?:s)?\b.*\b(?:clue|food|blood|treasure|gold|powerstone|junk|map|mutagen|lander)\s+tokens?\b/i.test(normalized)
   );
 }
 
 export function pruneRedundantArtifactTokenReminderUnknownAbilities(
   abilities: readonly OracleIRAbility[]
 ): OracleIRAbility[] {
-  return abilities.map((ability) => {
-    if (!ability.steps.some((step) => step.kind === 'create_token' || step.kind === 'investigate')) {
-      return ability;
+  return abilities.flatMap((ability) => {
+    const normalizedAbilityText = normalizeOracleText(String(ability.text || ability.effectText || ''))
+      .replace(/\s+/g, ' ')
+      .trim();
+    const isUnknownOnlyAbility = ability.steps.length > 0 && ability.steps.every((step) => step.kind === 'unknown');
+
+    if (
+      isUnknownOnlyAbility && (
+        /^(?:(?:it(?:'|â€™)s|it is)|(?:an?\s+[a-z0-9 ,.'â€™-]+?\s+token\s+is))\s+an artifact with\s+"[^"]+"[.)]*$/i.test(normalizedAbilityText) ||
+        /^(?:they(?:'|â€™)re|they are)\s+artifacts with\s+"[^"]+"[.)]*$/i.test(normalizedAbilityText)
+      )
+    ) {
+      return [];
+    }
+
+    if (!ability.steps.some(
+      (step) =>
+        step.kind === 'create_token' ||
+        step.kind === 'investigate' ||
+        isArtifactTokenReminderContextUnknownStep(step)
+    )) {
+      return [ability];
     }
 
     const hasSplitReminderLead = ability.steps.some(isArtifactTokenReminderLeadUnknownStep);
@@ -2952,6 +3265,28 @@ export function pruneRedundantArtifactTokenReminderUnknownAbilities(
       if (hasSplitReminderLead && isArtifactTokenReminderTailUnknownStep(step)) return false;
       return true;
     });
+    return nextSteps.length === ability.steps.length ? [ability] : [{ ...ability, steps: nextSteps }];
+  });
+}
+
+function isRedundantEldraziTokenManaReminderUnknownStep(step: OracleEffectStep): boolean {
+  const normalized = normalizeUnknownStepText(step);
+  if (!normalized) return false;
+
+  return /^it has "sacrifice this (?:token|creature): add \{c\}\."$/i.test(normalized);
+}
+
+function isEldraziManaTokenCreateStep(step: OracleEffectStep): boolean {
+  return step.kind === 'create_token' && /\beldrazi (?:scion|spawn)\b/i.test(String(step.token || ''));
+}
+
+export function pruneRedundantEldraziTokenManaReminderUnknownAbilities(
+  abilities: readonly OracleIRAbility[]
+): OracleIRAbility[] {
+  return abilities.map((ability) => {
+    if (!ability.steps.some(isEldraziManaTokenCreateStep)) return ability;
+
+    const nextSteps = ability.steps.filter((step) => !isRedundantEldraziTokenManaReminderUnknownStep(step));
     return nextSteps.length === ability.steps.length ? ability : { ...ability, steps: nextSteps };
   });
 }
@@ -3026,17 +3361,27 @@ export function pruneLateKeywordReminderOnlyAbilities(
           /^.+\s+can be your commander[.)]*$/i.test(normalizedText) ||
           /^ascend(?:\s*\(.*\))?[.)]*$/i.test(normalizedText) ||
           /^banding(?:\s*\(.*\))?[.)]*$/i.test(normalizedText) ||
+          /^bargain(?:\s*\(.*\))?[.)]*$/i.test(normalizedText) ||
           /^bushido\s+\d+(?:\s*\(.*\))?[.)]*$/i.test(normalizedText) ||
           /^crew\s+\d+[.)]*$/i.test(normalizedText) ||
           /^delve(?:\s*\(.*\))?[.)]*$/i.test(normalizedText) ||
-          /^doctor(?:'|’)s companion(?:\s*\(.*\))?[.)]*$/i.test(normalizedText) ||
+          /^doctor(?:'|â€™)s companion(?:\s*\(.*\))?[.)]*$/i.test(normalizedText) ||
+          /^dash\s+(?:\{[^}]+\})+(?:\s*\(.*\))?[.)]*$/i.test(normalizedText) ||
           /^evoke\s+(?:\{[^}]+\})+(?:\s*\(.*\))?[.)]*$/i.test(normalizedText) ||
           /^flanking(?:\s*\(.*\))?[.)]*$/i.test(normalizedText) ||
+          /^improvise(?:\s*\(.*\))?[.)]*$/i.test(normalizedText) ||
+          /^modular\s+\d+(?:\s*\(.*)?[.)]*$/i.test(normalizedText) ||
+          /^offspring\s+(?:\{[^}]+\})+(?:\s*\(.*\))?[.)]*$/i.test(normalizedText) ||
           /^overload\s+(?:\{[^}]+\})+(?:\s*\(.*\))?[.)]*$/i.test(normalizedText) ||
           /^plot\s+(?:\{[^}]+\})+(?:\s*\(.*\))?[.)]*$/i.test(normalizedText) ||
           /^mutate\s+(?:\{[^}]+\})+(?:\s*\(.*\))?[.)]*$/i.test(normalizedText) ||
           /^saddle\s+\d+(?:\s*\(.*\))?[.)]*$/i.test(normalizedText) ||
+          /^shadow(?:\s*\(.*\))?[.)]*$/i.test(normalizedText) ||
+          /^split second(?:\s*\(.*\))?[.)]*$/i.test(normalizedText) ||
+          /^spree(?:\s*\(.*\))?[.)]*$/i.test(normalizedText) ||
           /^station(?:\s*\(.*\))?[.)]*$/i.test(normalizedText) ||
+          /^toxic\s+\d+(?:\s*\(.*\))?[.)]*$/i.test(normalizedText) ||
+          /^vanishing\s+\d+(?:\s*\(.*)?[.)]*$/i.test(normalizedText) ||
           /^wither(?:\s*\(.*\))?[.)]*$/i.test(normalizedText) ||
           /^splice(?:\s+onto\s+.+?)?\s+(?:\{[^}]+\})+(?:\s*\(.*\))?[.)]*$/i.test(normalizedText)
         )
@@ -3052,15 +3397,194 @@ export function pruneLateKeywordReminderOnlyAbilities(
       const nextSteps = ability.steps.filter((step) => {
         if (step.kind !== 'unknown') return true;
         const normalizedStep = normalizeReminderStepRaw(step);
-        return !/^turn it face up any time for its mana cost if it(?:'|’)s a creature card$/i.test(normalizedStep);
+        return !/^turn it face up any time for its mana cost if it(?:'|â€™)s a creature card$/i.test(normalizedStep);
       });
 
       return nextSteps.length === ability.steps.length ? [ability] : [{ ...ability, steps: nextSteps }];
     });
 }
 
+function isRedundantVanishingReminderTriggeredAbility(ability: OracleIRAbility): boolean {
+  if (ability.type !== 'triggered') return false;
+
+  const normalizedEffectText = normalizeOracleText(String(ability.effectText || ''))
+    .replace(/^then\b\s*/i, '')
+    .trim();
+  if (!/^remove a time counter from it\. when the last is removed, sacrifice it[.)]*$/i.test(normalizedEffectText)) {
+    return false;
+  }
+
+  const hasExpectedRemoveCounter = ability.steps.some(
+    (step) =>
+      step.kind === 'remove_counter' &&
+      step.counter === 'time' &&
+      step.target.kind === 'raw' &&
+      /^it$/i.test(String(step.target.text || '').trim())
+  );
+  const hasExpectedReminderTail = ability.steps.some(
+    (step) =>
+      step.kind === 'unknown' &&
+      /^when the last is removed, sacrifice it[.)]*$/i.test(
+        normalizeOracleText(String(step.raw || '')).replace(/^then\b\s*/i, '').trim()
+      )
+  );
+
+  return hasExpectedRemoveCounter && hasExpectedReminderTail;
+}
+
+export function pruneRedundantVanishingReminderAbilities(
+  abilities: readonly OracleIRAbility[]
+): OracleIRAbility[] {
+  return abilities.filter((ability) => !isRedundantVanishingReminderTriggeredAbility(ability));
+}
+
+function isRedundantModularReminderTriggeredAbility(ability: OracleIRAbility): boolean {
+  if (ability.type !== 'triggered') return false;
+
+  const normalizedEffectText = normalizeOracleText(String(ability.effectText || ''))
+    .replace(/^then\b\s*/i, '')
+    .trim();
+  if (!/^you may put its \+1\/\+1 counters on target artifact creature[.)]*$/i.test(normalizedEffectText)) {
+    return false;
+  }
+
+  return ability.steps.length > 0 && ability.steps.every(
+    (step) =>
+      step.kind === 'unknown' &&
+      /^you may put its \+1\/\+1 counters on target artifact creature[.)]*$/i.test(
+        normalizeOracleText(String(step.raw || '')).replace(/^then\b\s*/i, '').trim()
+      )
+  );
+}
+
+export function pruneRedundantModularReminderAbilities(
+  abilities: readonly OracleIRAbility[]
+): OracleIRAbility[] {
+  return abilities.filter((ability) => !isRedundantModularReminderTriggeredAbility(ability));
+}
+
+function isRedundantBandingReminderUnknownStep(step: OracleEffectStep): boolean {
+    if (!step || step.kind !== 'unknown') return false;
+
+  const normalized = normalizeReminderStepRaw(step);
+  if (!normalized) return false;
+
+  return (
+    /^any creatures with banding, and up to one without, can attack in a band$/i.test(normalized) ||
+    /^bands are blocked as a group$/i.test(normalized) ||
+    /^if any creatures with banding (?:you control|a player controls) are blocking or being blocked by a creature, (?:you|that player) divide that creature(?:'|â€™)s combat damage, not its controller, among any of the creatures it(?:'|â€™)s being blocked by or is blocking$/i.test(normalized) ||
+    /^if any creatures with banding you control are blocking a creature, you divide that creature(?:'|â€™)s combat damage, not its controller, among any of the creatures it(?:'|â€™)s being blocked by$/i.test(normalized)
+  );
+}
+
+export function pruneRedundantBandingReminderUnknownAbilities(
+  abilities: readonly OracleIRAbility[]
+): OracleIRAbility[] {
+  return abilities.map((ability) => {
+    const normalizedAbilityText = normalizeOracleText(String(ability.text || ability.effectText || ''))
+      .replace(/\s+/g, ' ')
+      .trim()
+      .toLowerCase();
+    const referencesBanding = normalizedAbilityText.includes('banding');
+    if (!referencesBanding) return ability;
+
+    const nextSteps = ability.steps.filter((step) => !isRedundantBandingReminderUnknownStep(step));
+    return nextSteps.length === ability.steps.length ? ability : { ...ability, steps: nextSteps };
+  });
+}
+
+export function pruneExternallyHandledStaticUnknownAbilities(
+  abilities: readonly OracleIRAbility[]
+): OracleIRAbility[] {
+  const EXTERNALLY_HANDLED_STANDALONE_KEYWORDS = new Set([
+    'deathtouch',
+    'defender',
+    'double strike',
+    'first strike',
+    'flying',
+    'haste',
+    'hexproof',
+    'indestructible',
+    'lifelink',
+    'menace',
+    'reach',
+    'shadow',
+    'trample',
+    'vigilance',
+  ]);
+
+  const isPureKeywordGrantList = (text: string): boolean => {
+    const parts = String(text || '')
+      .replace(/\s*\([^()]*\)\s*$/g, '')
+      .toLowerCase()
+      .split(/\s+and\s+|\s*,\s*/)
+      .map(part => part.replace(/[.)\s]+$/g, '').trim())
+      .filter(Boolean);
+
+    return parts.length > 0 && parts.every((part) => {
+      const parsedKeywords = parseKeywordsFromOracleText(part);
+      return parsedKeywords.length === 1 && parsedKeywords[0] === part;
+    });
+  };
+
+  const isStandaloneHandledKeywordList = (text: string): boolean => {
+    const parts = String(text || '')
+      .replace(/\s*\([^()]*\)\s*$/g, '')
+      .toLowerCase()
+      .split(/\s+and\s+|\s*,\s*/)
+      .map(part => part.replace(/[.)\s]+$/g, '').trim())
+      .filter(Boolean);
+
+    return parts.length > 0 && parts.every((part) => {
+      if (/^protection from .+$/i.test(part)) {
+        return true;
+      }
+
+      const parsedKeywords = parseKeywordsFromOracleText(part);
+      return (
+        parsedKeywords.length === 1 &&
+        parsedKeywords[0] === part &&
+        EXTERNALLY_HANDLED_STANDALONE_KEYWORDS.has(parsedKeywords[0])
+      );
+    });
+  };
+
+  return abilities.flatMap((ability) => {
+    const normalizedText = normalizeOracleText(String(ability.text || ability.effectText || ''))
+      .replace(/\s+/g, ' ')
+      .trim();
+    const isUnknownOnlyAbility = ability.steps.length > 0 && ability.steps.every((step) => step.kind === 'unknown');
+
+    if (!isUnknownOnlyAbility) {
+      return [ability];
+    }
+
+    if (isStandaloneHandledKeywordList(normalizedText)) {
+      return [];
+    }
+
+    if (
+      /^(?:equipped|enchanted) creature gets [+-]\d+\/[+-]\d+[.)]*$/i.test(normalizedText) ||
+      /^you control enchanted (?:creature|permanent)[.)]*$/i.test(normalizedText) ||
+      /^(?:enchanted creature|this creature|this permanent) does(?:n't| not) untap during (?:its controller(?:'|â€™)s|your) untap step[.)]*$/i.test(normalizedText) ||
+      /^this creature can block only creatures with flying[.)]*$/i.test(normalizedText) ||
+      /^you have no maximum hand size[.)]*$/i.test(normalizedText) ||
+      /^you may play an additional land on each of your turns[.)]*$/i.test(normalizedText)
+    ) {
+      return [];
+    }
+
+    const keywordGrantMatch = normalizedText.match(/^(?:equipped|enchanted) creature (?:has|gains?) (.+?)[.)]*$/i);
+    if (keywordGrantMatch && isPureKeywordGrantList(String(keywordGrantMatch[1] || '').trim())) {
+      return [];
+    }
+
+    return [ability];
+  });
+}
+
 function isRedundantTriggerRestrictionUnknownStep(step: OracleEffectStep): boolean {
-  if (step.kind !== 'unknown') return false;
+    if (!step || step.kind !== 'unknown') return false;
 
   const normalized = normalizeOracleText(String(step.raw || ''))
     .replace(/^then\b\s*/i, '')
@@ -3083,14 +3607,14 @@ export function pruneRedundantTriggerRestrictionUnknownAbilities(
 }
 
 function isRedundantStillLandUnknownStep(step: OracleEffectStep): boolean {
-  if (step.kind !== 'unknown') return false;
+    if (!step || step.kind !== 'unknown') return false;
 
   const normalized = normalizeOracleText(String(step.raw || ''))
     .replace(/^then\b\s*/i, '')
     .trim();
   if (!normalized) return false;
 
-  return /^it(?:'|’)s still a land[.)]*$/i.test(normalized);
+  return /^it(?:'|â€™)s still a land[.)]*$/i.test(normalized);
 }
 
 export function pruneRedundantStillLandUnknownAbilities(
@@ -3103,7 +3627,7 @@ export function pruneRedundantStillLandUnknownAbilities(
 }
 
 function isRedundantProliferateReminderUnknownStep(step: OracleEffectStep): boolean {
-  if (step.kind !== 'unknown') return false;
+    if (!step || step.kind !== 'unknown') return false;
 
   const normalized = normalizeOracleText(String(step.raw || ''))
     .replace(/^[()\s]+/, '')
@@ -3134,7 +3658,7 @@ export function pruneRedundantProliferateReminderUnknownAbilities(
 }
 
 function isRedundantClashReminderUnknownStep(step: OracleEffectStep): boolean {
-  if (step.kind !== 'unknown') return false;
+    if (!step || step.kind !== 'unknown') return false;
 
   const normalized = normalizeOracleText(String(step.raw || ''))
     .replace(/^[()\s]+/, '')
@@ -3187,7 +3711,7 @@ export function pruneRedundantClashReminderUnknownAbilities(
 }
 
 function isRedundantScryReminderUnknownStep(step: OracleEffectStep): boolean {
-  if (step.kind !== 'unknown') return false;
+    if (!step || step.kind !== 'unknown') return false;
 
   const normalized = normalizeOracleText(String(step.raw || ''))
     .replace(/^[()\s]+/, '')
@@ -3246,7 +3770,7 @@ export function pruneRedundantScryReminderUnknownAbilities(
 }
 
 function isRedundantLookTopReorderUnknownStep(step: OracleEffectStep): boolean {
-  if (step.kind !== 'unknown') return false;
+    if (!step || step.kind !== 'unknown') return false;
 
   const normalized = normalizeReminderStepRaw(step);
   if (!normalized) return false;
@@ -3286,8 +3810,8 @@ function isRedundantExploreReminderStep(step: OracleEffectStep): boolean {
       .trim();
 
     return (
-      /^put that card into your hand if it(?:'|’)s a land$/i.test(normalized) &&
-      /^it(?:'|’)s a land$/i.test(normalizedCondition)
+      /^put that card into your hand if it(?:'|â€™)s a land$/i.test(normalized) &&
+      /^it(?:'|â€™)s a land$/i.test(normalizedCondition)
     );
   }
 
@@ -3311,7 +3835,7 @@ function isRedundantExploreReminderOnlyAbility(ability: OracleIRAbility): boolea
   if (ability.steps.length === 0) {
     return (
       /reveal the top card of your library/i.test(normalizedText) &&
-      /put that card into your hand if it(?:'|’)s a land/i.test(normalizedText)
+      /put that card into your hand if it(?:'|â€™)s a land/i.test(normalizedText)
     );
   }
 
@@ -3333,7 +3857,7 @@ export function pruneRedundantExploreReminderAbilities(
 }
 
 function isRedundantBestowReminderUnknownStep(step: OracleEffectStep): boolean {
-  if (step.kind !== 'unknown') return false;
+    if (!step || step.kind !== 'unknown') return false;
 
   const normalized = normalizeOracleText(String(step.raw || ''))
     .replace(/^[()\s]+/, '')
@@ -3341,7 +3865,7 @@ function isRedundantBestowReminderUnknownStep(step: OracleEffectStep): boolean {
     .trim();
   if (!normalized) return false;
 
-  return /^it becomes a creature again if it(?:'|’)s not attached$/i.test(normalized);
+  return /^it becomes a creature again if it(?:'|â€™)s not attached$/i.test(normalized);
 }
 
 export function pruneRedundantBestowReminderUnknownAbilities(
@@ -3423,7 +3947,7 @@ export function lowerSelfEntryCounterReplacementAbilities(
 }
 
 function isRedundantEntersTappedReplacementUnknownStep(step: OracleEffectStep): boolean {
-  if (step.kind !== 'unknown') return false;
+    if (!step || step.kind !== 'unknown') return false;
 
   const normalized = normalizeOracleText(String(step.raw || ''))
     .replace(/^[()\s]+/, '')
@@ -4136,7 +4660,7 @@ function normalizeUnknownStepText(step: OracleEffectStep | undefined): string {
 }
 
 function isArtifactTokenReminderLeadUnknownStep(step: OracleEffectStep): boolean {
-  if (step.kind !== 'unknown') return false;
+    if (!step || step.kind !== 'unknown') return false;
 
   const normalized = normalizeOracleText(String(step.raw || ''))
     .replace(/^then\b\s*/i, '')
@@ -4146,13 +4670,13 @@ function isArtifactTokenReminderLeadUnknownStep(step: OracleEffectStep): boolean
   if (!normalized) return false;
 
   return (
-    /^(?:it(?:'|’)s|it is)\s+an artifact with\s+"[^"]*$/i.test(normalized) ||
-    /^(?:they(?:'|’)re|they are)\s+artifacts with\s+"[^"]*$/i.test(normalized)
+    /^(?:(?:it(?:'|â€™)s|it is)|(?:an?\s+[a-z0-9 ,.'â€™-]+?\s+token\s+is))\s+an artifact with\s+"[^"]*$/i.test(normalized) ||
+    /^(?:they(?:'|â€™)re|they are)\s+artifacts with\s+"[^"]*$/i.test(normalized)
   );
 }
 
 function isArtifactTokenReminderTailUnknownStep(step: OracleEffectStep): boolean {
-  if (step.kind !== 'unknown') return false;
+    if (!step || step.kind !== 'unknown') return false;
 
   const normalized = normalizeOracleText(String(step.raw || ''))
     .replace(/^then\b\s*/i, '')
@@ -4163,7 +4687,8 @@ function isArtifactTokenReminderTailUnknownStep(step: OracleEffectStep): boolean
 
   return (
     /^activate only as a sorcery$/i.test(normalized) ||
-    /^this mana can(?:'|’)t be spent to cast a nonartifact spell$/i.test(normalized)
+    /^this mana can(?:'|â€™)t be spent to cast a nonartifact spell$/i.test(normalized) ||
+    /^shuffle$/i.test(normalized)
   );
 }
 
@@ -4302,7 +4827,7 @@ function isCopyAbilityUnknownStep(step: OracleEffectStep | undefined): boolean {
   if (step?.kind !== 'unknown') return false;
 
   const stripped = stripInlineCopyRetargetTail(String(step.raw || ''));
-  const normalized = stripped.body.replace(/^[•·●◦▪▫►➤\uFFFD]+\s*/u, '').trim();
+  const normalized = stripped.body.replace(/^[â€¢Â·â—â—¦â–ªâ–«â–ºâž¤\uFFFD]+\s*/u, '').trim();
   if (!normalized) return false;
 
   return /^(?:you may\s+)?copy\s+(?:that ability|the ability|target triggered ability(?: you control)?|target activated or triggered ability(?: you control)?(?: from .+)?)$/i.test(
@@ -4320,7 +4845,7 @@ function parseCopySpellUnknownStep(
 ): OracleEffectStep | null {
   const retargetTail = parseCopySpellRetargetTail(nextStep);
   const stripped = stripInlineCopyRetargetTail(String(step.raw || ''));
-  const normalized = stripped.body.replace(/^[•·●◦▪▫►➤\uFFFD]+\s*/u, '').trim();
+  const normalized = stripped.body.replace(/^[â€¢Â·â—â—¦â–ªâ–«â–ºâž¤\uFFFD]+\s*/u, '').trim();
   if (!normalized) return null;
   const allowNewTargets = stripped.allowNewTargets || retargetTail !== null;
   const rawRetargetTail = retargetTail ?? (stripped.allowNewTargets ? 'You may choose new targets for the copy' : null);
@@ -4888,7 +5413,7 @@ export function mergeDieRollResultTableAbilities(
 function parseCopySagaChapterAbilityStep(
   step: OracleEffectStep
 ): Extract<OracleEffectStep, { kind: 'copy_saga_chapter_ability' }> | null {
-  if (step.kind !== 'unknown') return null;
+    if (!step || step.kind !== 'unknown') return null;
 
   const match = String(step.raw || '').trim().match(/^Copy its chapter (I|II|III|IV|V|VI|VII|VIII|IX|X) ability$/i);
   if (!match) return null;
@@ -5460,6 +5985,76 @@ export function expandFreeGraveyardCastPermissionAbilities(
 }
 
 function tryLowerAmassAbilitySteps(steps: readonly OracleEffectStep[]): readonly OracleEffectStep[] | null {
+  const singularizeAmassSubtype = (rawSubtype: string): string => {
+    const normalizedSubtype = String(rawSubtype || '').trim().replace(/\s+/g, ' ');
+    if (!normalizedSubtype) return 'Zombie';
+    return /s$/i.test(normalizedSubtype) ? normalizedSubtype.slice(0, -1) : normalizedSubtype;
+  };
+
+  const getTypeArticle = (typeName: string): 'a' | 'an' => (/^[aeiou]/i.test(typeName) ? 'an' : 'a');
+
+  const parseAmassLead = (
+    step: OracleEffectStep
+  ): { amountText: string; amount: OracleQuantity; subtype: string } | null => {
+    if (!step || step.kind !== 'unknown') return null;
+
+    const match = normalizeReminderStepRaw(step).match(/^amass(?:\s+([a-z][a-z' -]*?))?\s+(\d+|x)$/i);
+    if (!match) return null;
+
+    const rawSubtype = String(match[1] || '').trim();
+    const amountText = String(match[2] || '').trim().toUpperCase();
+    return {
+      amountText,
+      amount: parseQuantity(String(match[2] || '').trim()),
+      subtype: singularizeAmassSubtype(rawSubtype || 'Zombie'),
+    };
+  };
+
+  const isSplitAmassCounterReminder = (step: OracleEffectStep): boolean => {
+    if (!step || step.kind !== 'unknown') return false;
+
+    return /^put (?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+|x) \+1\/\+1 counters? on an army you control$/i.test(
+      normalizeReminderStepRaw(step)
+    );
+  };
+
+  const parseSplitAmassSubtypeReminder = (step: OracleEffectStep | undefined): string | null => {
+    if (!step || step.kind !== 'unknown') return null;
+
+    const match = normalizeReminderStepRaw(step).match(/^it(?:'|â€™)?s also (?:a|an)\s+([a-z][a-z' -]*)$/i);
+    if (!match) return null;
+
+    return singularizeAmassSubtype(String(match[1] || '').trim());
+  };
+
+  const normalizeSplitAmassCreateConditional = (
+    step: OracleEffectStep
+  ): Extract<OracleEffectStep, { kind: 'conditional' }> | null => {
+    if (!step || step.kind !== 'conditional') return null;
+
+    const normalizedCondition = normalizeOracleText(String(step.condition?.raw || '')).toLowerCase();
+    if (normalizedCondition !== "you don't control an army") return null;
+    if (step.steps.length !== 1 || step.steps[0]?.kind !== 'create_token' || !/\barmy\b/i.test(String(step.steps[0]?.token || ''))) {
+      return null;
+    }
+
+    const createStep = step.steps[0];
+    const normalizedToken = String(createStep.token || '').trim();
+    if (!normalizedToken) return null;
+
+    return {
+      ...step,
+      condition: { kind: 'if', raw: "you don't control an Army creature" },
+      steps: [
+        {
+          ...createStep,
+          raw: `create a ${normalizedToken} creature token`,
+        },
+      ],
+      raw: `If you don't control an Army creature, create a ${normalizedToken} creature token`,
+    };
+  };
+
   let changed = false;
   const nextSteps: OracleEffectStep[] = [];
 
@@ -5482,6 +6077,35 @@ function tryLowerAmassAbilitySteps(steps: readonly OracleEffectStep[]): readonly
       addCounterStep?.kind === 'add_counter' &&
       addCounterStep.target.kind === 'raw' &&
       normalizeOracleText(String(addCounterStep.target.text || '')).toLowerCase() === 'that creature';
+
+    const amassLead = parseAmassLead(current);
+    const splitAmassSubtype = parseSplitAmassSubtypeReminder(addCounterStep);
+    const splitAmassCreateConditional = normalizeSplitAmassCreateConditional(addTypeUnknownStep);
+
+    if (amassLead && isSplitAmassCounterReminder(chooseStep) && splitAmassSubtype && splitAmassCreateConditional) {
+      changed = true;
+      index += 3;
+      nextSteps.push({
+        ...splitAmassCreateConditional,
+        ...(current.sequence ? { sequence: current.sequence } : {}),
+      });
+      nextSteps.push({
+        kind: 'add_counter',
+        amount: amassLead.amount,
+        counter: '+1/+1',
+        target: { kind: 'raw', text: 'Army creature you control' },
+        raw: `Put ${amassLead.amountText} +1/+1 counter${amassLead.amountText === '1' ? '' : 's'} on an Army creature you control`,
+      });
+      nextSteps.push({
+        kind: 'add_types',
+        target: { kind: 'raw', text: 'Army creature you control' },
+        addTypes: [splitAmassSubtype],
+        raw:
+          `If it isn't ${getTypeArticle(splitAmassSubtype)} ${splitAmassSubtype}, ` +
+          `it becomes ${getTypeArticle(splitAmassSubtype)} ${splitAmassSubtype} in addition to its other types`,
+      });
+      continue;
+    }
 
     if (!isAmassCreateConditional || !isChooseArmyUnknown || !isContextualArmyCounter) {
       nextSteps.push(current);
@@ -5528,6 +6152,60 @@ export function lowerAmassReminderAbilities(
   });
 }
 
+function isRedundantAmassSubtypeReminderUnknownStep(
+  step: OracleEffectStep,
+  ability: OracleIRAbility
+): boolean {
+  if (step.kind !== 'unknown') return false;
+
+  const normalizedStep = normalizeReminderStepRaw(step);
+  if (!/^it(?:'|’)?s also (?:a|an) [a-z][a-z' -]*$/i.test(normalizedStep)) {
+    return false;
+  }
+
+  const normalizedAbilityText = normalizeOracleText(String(ability.text || ability.effectText || ''))
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+  if (normalizedAbilityText.includes('amass')) {
+    return true;
+  }
+
+  const hasAmassLead = ability.steps.some(
+    (candidate) =>
+      candidate.kind === 'unknown' &&
+      /^amass(?:\s+[a-z][a-z' -]*?)?\s+(?:\d+|x)(?:,|$)/i.test(normalizeReminderStepRaw(candidate))
+  );
+  const hasArmyCounterReminder = ability.steps.some(
+    (candidate) =>
+      candidate.kind === 'unknown' &&
+      /^put (?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+|x) \+1\/\+1 counters? on an army you control$/i.test(
+        normalizeReminderStepRaw(candidate)
+      )
+  );
+  const hasArmyCreateConditional = ability.steps.some(
+    (candidate) =>
+      candidate.kind === 'conditional' &&
+      /you don't control an army/i.test(normalizeOracleText(String(candidate.condition?.raw || ''))) &&
+      candidate.steps.some(
+        (nested) => nested.kind === 'create_token' && /\barmy\b/i.test(String(nested.token || ''))
+      )
+  );
+
+  return hasAmassLead || hasArmyCounterReminder || hasArmyCreateConditional;
+}
+
+export function pruneRedundantAmassSubtypeReminderUnknownAbilities(
+  abilities: readonly OracleIRAbility[]
+): OracleIRAbility[] {
+  return abilities.map((ability) => {
+    const nextSteps = ability.steps.filter(
+      (step) => !isRedundantAmassSubtypeReminderUnknownStep(step, ability)
+    );
+    return nextSteps.length === ability.steps.length ? ability : { ...ability, steps: nextSteps };
+  });
+}
+
 function buildDiscoverKeywordSteps(amountText: string, sequence?: 'then'): readonly OracleEffectStep[] {
   const normalizedAmountText = String(amountText || '').trim().toUpperCase();
 
@@ -5552,27 +6230,56 @@ function buildDiscoverKeywordSteps(amountText: string, sequence?: 'then'): reado
   ] as const;
 }
 
+function getDiscoverKeywordAmountFromUnknownStep(step: OracleEffectStep): string | null {
+    if (!step || step.kind !== 'unknown') return null;
+
+  const normalized = normalizeOracleText(String(step.raw || ''))
+    .replace(/^then\b\s*/i, '')
+    .trim();
+  const match = normalized.match(/^(?:you\s+)?discover\s+(\d+|x)$/i);
+  return match ? String(match[1] || '').trim() : null;
+}
+
+function isDiscoverReminderTailUnknownStep(step: OracleEffectStep): boolean {
+  if (!step || step.kind !== 'unknown') return false;
+
+  const normalized = normalizeOracleText(String(step.raw || ''))
+    .replace(/^then\b\s*/i, '')
+    .replace(/^[()\s]+/, '')
+    .replace(/[.)\s]+$/g, '')
+    .trim();
+  if (!normalized) return false;
+
+  return (
+    /^exile cards from the top of your library until you exile a nonland card (?:with mana value (\d+|x) or less|with that mana value or less|whose mana value is less than this spell(?:'|â€™)s mana value)$/i.test(normalized) ||
+    /^cast it without paying its mana cost or put it into your hand$/i.test(normalized) ||
+    /^put the rest on the bottom(?: of your library)? in a random order$/i.test(normalized)
+  );
+}
+
 function tryLowerDiscoverKeywordSteps(steps: readonly OracleEffectStep[]): readonly OracleEffectStep[] | null {
   let changed = false;
   const nextSteps: OracleEffectStep[] = [];
 
-  for (const step of steps) {
+  for (let index = 0; index < steps.length; index += 1) {
+    const step = steps[index];
     if (step.kind !== 'unknown') {
       nextSteps.push(step);
       continue;
     }
 
-    const normalized = normalizeOracleText(String(step.raw || ''))
-      .replace(/^then\b\s*/i, '')
-      .trim();
-    const discoverMatch = normalized.match(/^discover\s+(\d+|x)$/i);
-    if (!discoverMatch) {
+    const discoverAmount = getDiscoverKeywordAmountFromUnknownStep(step);
+    if (!discoverAmount) {
       nextSteps.push(step);
       continue;
     }
 
     changed = true;
-    nextSteps.push(...buildDiscoverKeywordSteps(String(discoverMatch[1] || '').trim(), step.sequence));
+    nextSteps.push(...buildDiscoverKeywordSteps(discoverAmount, step.sequence));
+
+    while (index + 1 < steps.length && isDiscoverReminderTailUnknownStep(steps[index + 1])) {
+      index += 1;
+    }
   }
 
   return changed ? nextSteps : null;
@@ -5597,6 +6304,21 @@ export function lowerDiscoverKeywordAbilities(
 
     const lowered = tryLowerDiscoverKeywordSteps(ability.steps);
     return lowered ? { ...ability, steps: lowered } : ability;
+  });
+}
+
+export function pruneRedundantDiscoverReminderUnknownAbilities(
+  abilities: readonly OracleIRAbility[]
+): OracleIRAbility[] {
+  return abilities.map((ability) => {
+    const normalizedText = normalizeOracleText(String(ability.text || ability.effectText || ''))
+      .replace(/\s+/g, ' ')
+      .trim()
+      .toLowerCase();
+    if (!normalizedText.includes('discover')) return ability;
+
+    const nextSteps = ability.steps.filter((step) => !isDiscoverReminderTailUnknownStep(step));
+    return nextSteps.length === ability.steps.length ? ability : { ...ability, steps: nextSteps };
   });
 }
 
@@ -6162,7 +6884,7 @@ export function expandVoteChoiceCountAbilities(abilities: readonly OracleIRAbili
 }
 
 function isRedundantActivationRestrictionUnknownStep(step: OracleEffectStep): boolean {
-  if (step.kind !== 'unknown') return false;
+    if (!step || step.kind !== 'unknown') return false;
 
   const normalized = normalizeOracleText(String(step.raw || ''))
     .replace(/^then\b\s*/i, '')
@@ -6170,10 +6892,12 @@ function isRedundantActivationRestrictionUnknownStep(step: OracleEffectStep): bo
   if (!normalized) return false;
 
   return (
-    /^activate only as a sorcery$/i.test(normalized) ||
+    /^activate only as a sorcery[.)"â€]*$/i.test(normalized) ||
     /^(?:station|saddle) only as a sorcery[.)]*$/i.test(normalized) ||
-    /^activate only during your turn$/i.test(normalized) ||
-    /^activate(?: this ability)? only once(?: each turn)?$/i.test(normalized)
+    /^activate only during your turn[.)"â€]*$/i.test(normalized) ||
+    /^activate only during your turn, before attackers are declared[.)"â€]*$/i.test(normalized) ||
+    /^activate only during your upkeep[.)]*$/i.test(normalized) ||
+    /^activate(?: this ability)? only once(?: each turn)?[.)"â€]*$/i.test(normalized)
   );
 }
 
@@ -6182,6 +6906,100 @@ export function pruneRedundantActivationRestrictionUnknownAbilities(
 ): OracleIRAbility[] {
   return abilities.map((ability) => {
     const nextSteps = ability.steps.filter(step => !isRedundantActivationRestrictionUnknownStep(step));
+    return nextSteps.length === ability.steps.length ? ability : { ...ability, steps: nextSteps };
+  });
+}
+
+function isStationThresholdReminderUnknownStep(step: OracleEffectStep): boolean {
+    if (!step || step.kind !== 'unknown') return false;
+
+  const normalized = normalizeOracleText(String(step.raw || ''))
+    .replace(/^then\b\s*/i, '')
+    .trim();
+  if (!normalized) return false;
+
+  return /^it(?:'|â€™)s an artifact creature at \d+\+[.)]*$/i.test(normalized) || /^\d+\+\s*\|/i.test(normalized);
+}
+
+function isRedundantStationChargeCounterReminderUnknownStep(
+  step: OracleEffectStep,
+  ability: OracleIRAbility
+): boolean {
+  if (ability.type !== 'activated' || step.kind !== 'unknown') return false;
+
+  const normalized = normalizeOracleText(String(step.raw || ''))
+    .replace(/^then\b\s*/i, '')
+    .trim();
+  if (!/^put charge counters equal to its power on this spacecraft$/i.test(normalized)) {
+    return false;
+  }
+
+  return ability.steps.some(candidate => isStationThresholdReminderUnknownStep(candidate));
+}
+
+export function pruneRedundantStationChargeCounterReminderUnknownAbilities(
+  abilities: readonly OracleIRAbility[]
+): OracleIRAbility[] {
+  return abilities.map((ability) => {
+    const nextSteps = ability.steps.filter(
+      (step) => !isRedundantStationChargeCounterReminderUnknownStep(step, ability)
+    );
+    return nextSteps.length === ability.steps.length ? ability : { ...ability, steps: nextSteps };
+  });
+}
+
+function isRedundantHandRevealDiscardChoiceUnknownStep(
+  step: OracleEffectStep,
+  ability: OracleIRAbility
+): boolean {
+    if (!step || step.kind !== 'unknown') return false;
+
+  const normalized = normalizeOracleText(String(step.raw || ''))
+    .replace(/^then\b\s*/i, '')
+    .trim();
+  if (!/^you choose a nonland card from it$/i.test(normalized)) {
+    return false;
+  }
+
+  const hasRevealHandStep = ability.steps.some((candidate) => candidate.kind === 'reveal_hand');
+  const hasTargetedDiscardThatCardStep = ability.steps.some(
+    (candidate) =>
+      candidate.kind === 'discard' &&
+      candidate.target?.kind === 'raw' &&
+      /^that card$/i.test(String(candidate.target.text || '').trim())
+  );
+
+  return hasRevealHandStep && hasTargetedDiscardThatCardStep;
+}
+
+export function pruneRedundantHandRevealDiscardChoiceUnknownAbilities(
+  abilities: readonly OracleIRAbility[]
+): OracleIRAbility[] {
+  return abilities.map((ability) => {
+    const nextSteps = ability.steps.filter(
+      (step) => !isRedundantHandRevealDiscardChoiceUnknownStep(step, ability)
+    );
+    return nextSteps.length === ability.steps.length ? ability : { ...ability, steps: nextSteps };
+  });
+}
+
+function isRedundantBuybackCostPaymentUnknownStep(step: OracleEffectStep): boolean {
+    if (!step || step.kind !== 'unknown') return false;
+
+  const normalized = normalizeOracleText(String(step.raw || ''))
+    .replace(/^then\b\s*/i, '')
+    .trim();
+  if (!normalized) return false;
+
+  return /^you may pay an additional buyback cost as you cast this spell[.)]*$/i.test(normalized);
+}
+
+export function pruneRedundantBuybackCostReminderUnknownAbilities(
+  abilities: readonly OracleIRAbility[]
+): OracleIRAbility[] {
+  return abilities.map((ability) => {
+    if (!ability.steps.some((step) => step.kind !== 'unknown')) return ability;
+    const nextSteps = ability.steps.filter(step => !isRedundantBuybackCostPaymentUnknownStep(step));
     return nextSteps.length === ability.steps.length ? ability : { ...ability, steps: nextSteps };
   });
 }
@@ -6195,7 +7013,7 @@ function isStandaloneAnyPlayerMayActivateAbility(ability: OracleIRAbility): bool
 }
 
 function isRedundantAnyPlayerMayActivateUnknownStep(step: OracleEffectStep): boolean {
-  if (step.kind !== 'unknown') return false;
+    if (!step || step.kind !== 'unknown') return false;
 
   const normalized = normalizeOracleText(String(step.raw || ''))
     .replace(/^then\b\s*/i, '')
@@ -6219,7 +7037,7 @@ export function pruneRedundantAnyPlayerMayActivateUnknownAbilities(
 }
 
 function isRedundantImpulseCleanupUnknownStep(step: OracleEffectStep): boolean {
-  if (step.kind !== 'unknown') return false;
+    if (!step || step.kind !== 'unknown') return false;
 
   const normalized = normalizeOracleText(String(step.raw || ''))
     .replace(/^then\b\s*/i, '')

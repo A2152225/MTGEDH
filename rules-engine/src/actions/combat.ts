@@ -551,6 +551,13 @@ export function canPermanentBlock(permanent: any, attacker?: any, battlefield?: 
       return { canParticipate: false, reason: 'This creature cannot block' };
     }
   }
+
+  if (attacker && oracleText.includes('can block only creatures with flying')) {
+    const attackerText = getCombinedPermanentText(analyzedAttacker);
+    if (!attackerText.includes('flying') && !hasAbility(analyzedAttacker, 'flying', battlefield)) {
+      return { canParticipate: false, reason: 'This creature can block only creatures with flying' };
+    }
+  }
   
   // If an attacker is provided, check evasion abilities (flying, shadow, etc.)
   if (analyzedAttacker) {

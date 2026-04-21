@@ -33,6 +33,7 @@ import {
   applyDetainStep,
   applyExertStep,
   applyExileStep,
+  applyGainControlStep,
   applyRegenerateStep,
   applyGrantLeaveBattlefieldReplacementStep,
   applyGrantTemporaryAbilityStep,
@@ -117,7 +118,7 @@ import {
   applyVoteStep,
 } from './oracleIRExecutorPlayerStepHandlers';
 import { applyCreateTokenStep } from './oracleIRExecutorTokenStepHandlers';
-import { applySkipNextDrawStep } from './oracleIRExecutorTurnStepHandlers';
+import { applySkipNextDrawStep, applyTakeExtraTurn } from './oracleIRExecutorTurnStepHandlers';
 import { stampCardsPutIntoGraveyardThisTurn } from './oracleIRExecutorPlayerUtils';
 import { getColorsFromObject } from './oracleIRExecutorManaUtils';
 import type {
@@ -1017,6 +1018,16 @@ export function applyOracleIRStepsToGameStateImpl(
         applyHandledStepResult(step, result);
         break;
       }
+      case 'gain_control': {
+        const result = applyGainControlStep(nextState, step, currentCtx);
+        applyHandledStepResult(step, result);
+        break;
+      }
+      case 'take_extra_turn': {
+        const result = applyTakeExtraTurn(nextState, step, currentCtx);
+        applyHandledStepResult(step, result);
+        break;
+      }
       case 'grant_graveyard_permission': {
         const result = applyGrantGraveyardPermissionStep(nextState, step, currentCtx);
         applyHandledStepResult(step, result, (appliedResult) => {
@@ -1535,7 +1546,10 @@ export function applyOracleIRStepsToGameStateImpl(
         break;
       }
       case 'grant_temporary_ability': {
-        const result = applyGrantTemporaryAbilityStep(nextState, step, currentCtx);
+        const result = applyGrantTemporaryAbilityStep(nextState, step, currentCtx, {
+          lastCreatedTokenIds,
+          lastMovedBattlefieldPermanentIds,
+        });
         applyHandledStepResult(step, result);
         break;
       }

@@ -358,6 +358,13 @@ export interface SkipNextDrawStepEffect {
   remainingSkips: number;
 }
 
+export interface ExtraTurnEffect {
+  playerId: PlayerID;
+  afterTurnNumber: number;
+  source?: string;
+  createdAt?: number;
+}
+
 export interface FutureSpellEffect {
   id: string;
   controllerId: PlayerID;
@@ -712,6 +719,8 @@ export interface GameState {
   oracleAutomationGaps?: readonly OracleAutomationGap[];
   /** Temporary source-based damage prevention effects such as Mourner's Shield. */
   damagePreventionEffects?: readonly DamagePreventionEffect[];
+  /** Queued extra turns waiting to be taken. Most recently created turns are consumed first. */
+  extraTurns?: readonly ExtraTurnEffect[];
   /** One-shot "skip your next draw step" effects waiting to be consumed. */
   skipNextDrawStepEffects?: readonly SkipNextDrawStepEffect[];
 }

@@ -200,6 +200,12 @@ export function expandKeywordCostAbility(
         `${cleanCost}, {T}`,
         'Put a +1/+1 counter on this creature. Activate only as a sorcery.'
       );
+    case 'reconfigure':
+      return buildExpandedKeywordAbility(
+        text,
+        cleanCost,
+        'Attach this permanent to target creature you control. Activate only as a sorcery.'
+      );
     case 'reinforce': {
       const reinforceMatch = cleanCost.match(/^(\d+|X)\s*[\u2014-]\s*(.+)$/i);
       if (!reinforceMatch) return null;

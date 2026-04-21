@@ -4,6 +4,7 @@ export type OracleQuantity =
   | { readonly kind: 'number'; readonly value: number }
   | { readonly kind: 'reference_amount'; readonly raw?: string }
   | { readonly kind: 'x' }
+  | { readonly kind: 'all' }
   | { readonly kind: 'spells_cast_before_this_turn' }
   | { readonly kind: 'votes_for_choice'; readonly choice: string; readonly multiplier?: number }
   | { readonly kind: 'object_stat'; readonly subject: 'it' | 'that_card' | 'that_creature'; readonly stat: 'power' | 'toughness' | 'mana_value' }
@@ -121,7 +122,16 @@ export type OracleEffectStep =
       readonly sequence?: 'then';
       readonly raw: string;
     }
-  | {
+    | {
+        readonly kind: 'gain_control';
+        readonly what: OracleObjectSelector;
+        readonly newController: OraclePlayerSelector;
+        readonly duration: 'until_end_of_turn';
+        readonly optional?: boolean;
+        readonly sequence?: 'then';
+        readonly raw: string;
+      }
+    | {
       readonly kind: 'clash';
       readonly who: OraclePlayerSelector;
       readonly opponent?: OraclePlayerSelector;
@@ -184,6 +194,13 @@ export type OracleEffectStep =
     }
   | {
       readonly kind: 'skip_next_draw_step';
+      readonly who: OraclePlayerSelector;
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
+      readonly kind: 'take_extra_turn';
       readonly who: OraclePlayerSelector;
       readonly optional?: boolean;
       readonly sequence?: 'then';

@@ -1,4 +1,4 @@
-import type { OracleEffectStep } from './oracleIR';
+﻿import type { OracleEffectStep } from './oracleIR';
 import { normalizeOracleText, parseObjectSelector, parsePlayerSelector, parseQuantity } from './oracleIRParserUtils';
 
 type WithMeta = <T extends OracleEffectStep>(step: T) => T;
@@ -41,13 +41,13 @@ function parseDamageAmount(raw: string | undefined): Extract<OracleEffectStep, {
 }
 
 const PLAYER_SUBJECT_PREFIX =
-  "(?:(you|each player|each opponent|each of those opponents|target player|target opponent|that player|that opponent|defending player|the defending player|he or she|they|its controller|its owner|that [a-z0-9][a-z0-9 ,.'’-]*?(?:'s|’s)? (?:controller|owner))\\s+)?";
+  "(?:(you|each player|each opponent|each of those opponents|target player|target opponent|that player|that opponent|defending player|the defending player|he or she|they|its controller|its owner|that [a-z0-9][a-z0-9 ,.'â€™-]*?(?:'s|â€™s)? (?:controller|owner))\\s+)?";
 
 const SELF_DAMAGE_SOURCE_SUBJECT_PATTERN =
-  "(?:it|this (?:permanent|spell|creature|artifact|enchantment|planeswalker|battle|land|card|emblem|token)|that [a-z0-9][a-z0-9 ,.'’-]*|target [a-z0-9][a-z0-9 ,.'’-]*|another target [a-z0-9][a-z0-9 ,.'’-]*)";
+  "(?:it|this (?:permanent|spell|creature|artifact|enchantment|planeswalker|battle|land|card|emblem|token)|that [a-z0-9][a-z0-9 ,.'â€™-]*|target [a-z0-9][a-z0-9 ,.'â€™-]*|another target [a-z0-9][a-z0-9 ,.'â€™-]*)";
 
 const NAMED_DAMAGE_SOURCE_PATTERN =
-  "[A-Z0-9][A-Za-z0-9'’/-]*(?: [A-Z0-9][A-Za-z0-9'’/-]*)*(?:, [A-Z0-9][A-Za-z0-9'’/-]*(?: [A-Z0-9][A-Za-z0-9'’/-]*)*)?";
+  "[A-Z0-9][A-Za-z0-9'â€™/-]*(?: [A-Z0-9][A-Za-z0-9'â€™/-]*)*(?:, [A-Z0-9][A-Za-z0-9'â€™/-]*(?: [A-Z0-9][A-Za-z0-9'â€™/-]*)*)?";
 
 export function tryParseLifeAndCombatClause(args: {
   clause: string;
@@ -226,7 +226,9 @@ export function tryParseLifeAndCombatClause(args: {
       });
     }
 
-    const tapTarget = clause.match(/^tap\s+((?:target|that|those|this|enchanted|equipped)\s+.+|it|them)$/i);
+    const tapTarget = clause.match(
+      /^tap\s+((?:(?:all|(?:up to\s+(?:one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+)?target|that|those|this|enchanted|equipped)\s+.+|it|them))$/i
+    );
     if (tapTarget) {
       return withMeta({
         kind: 'tap_or_untap',
@@ -236,7 +238,9 @@ export function tryParseLifeAndCombatClause(args: {
       });
     }
 
-    const untapTarget = clause.match(/^untap\s+((?:target|that|those|this|enchanted|equipped)\s+.+|it|them)$/i);
+    const untapTarget = clause.match(
+      /^untap\s+((?:(?:all|(?:up to\s+(?:one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+)?target|that|those|this|enchanted|equipped)\s+.+|it|them))$/i
+    );
     if (untapTarget) {
       return withMeta({
         kind: 'tap_or_untap',
@@ -249,3 +253,6 @@ export function tryParseLifeAndCombatClause(args: {
 
   return null;
 }
+
+
+

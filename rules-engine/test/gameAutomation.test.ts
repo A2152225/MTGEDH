@@ -673,6 +673,49 @@ describe('Turn Actions', () => {
     expect(((result.state as any).winLossEffects || []).length).toBe(0);
   });
 
+  it('should restore temporary control changes in cleanup', () => {
+    const state: GameState = {
+      players: [
+        {
+          id: 'player1',
+          hand: [],
+        },
+        {
+          id: 'player2',
+          hand: [],
+        },
+      ],
+      battlefield: [
+        {
+          id: 'stolen-bear',
+          controller: 'player1',
+          ownerId: 'player2',
+          summoningSickness: false,
+          card: {
+            name: 'Runeclaw Bear',
+            type_line: 'Creature - Bear',
+          },
+        },
+      ],
+      controlChangeEffects: [
+        {
+          permanentId: 'stolen-bear',
+          originalController: 'player2',
+          newController: 'player1',
+          duration: 'until_end_of_turn',
+          appliedAt: 1,
+        },
+      ],
+    } as any;
+
+    const result = executeCleanupStep(state, 'player1');
+    const permanent = result.state.battlefield?.find((perm: any) => perm.id === 'stolen-bear') as any;
+
+    expect(permanent?.controller).toBe('player2');
+    expect(permanent?.summoningSickness).toBe(true);
+    expect(((result.state as any).controlChangeEffects || []).length).toBe(0);
+  });
+
   it('should make Divine Intervention draw the game when the last counter is removed', () => {
     const state: GameState = {
       players: [
@@ -1098,5 +1141,40 @@ describe('Game Advancement', () => {
     expect(((result.next as any).turnStartBattlefieldSnapshot || [])[0]?.id).toBe('turnStartLand');
     expect(((result.next as any).turnStartBattlefieldSnapshot || [])[0]?.tapped).toBe(true);
     expect(((result.next as any).battlefield || [])[0]?.tapped).toBe(false);
+  });
+
+  it('should consume queued extra turns before normal turn order and synchronize turnPlayer', () => {
+    const gameStates = new Map<string, GameState>();
+    const state: GameState = {
+      players: [
+        { id: 'player1', name: 'Player 1', life: 40, battlefield: [], library: [{ id: 'c1' }], hand: [] },
+        { id: 'player2', name: 'Player 2', life: 40, battlefield: [], library: [{ id: 'c2' }], hand: [] },
+      ],
+      phase: GamePhase.ENDING,
+      step: GameStep.CLEANUP,
+      activePlayerIndex: 0,
+      turnPlayer: 'player1',
+      priorityPlayerIndex: 1,
+      turn: 1,
+      stack: [],
+      battlefield: [],
+      extraTurns: [
+        {
+          playerId: 'player1',
+          afterTurnNumber: 1,
+          source: 'Time Warp',
+        },
+      ],
+    } as any;
+    gameStates.set('test-game', state);
+    const context = createMockContext(gameStates);
+
+    const result = advanceGame('test-game', context);
+
+    expect(result.next.step).toBe(GameStep.UNTAP);
+    expect(result.next.activePlayerIndex).toBe(0);
+    expect((result.next as any).turnPlayer).toBe('player1');
+    expect(((result.next as any).extraTurns || [])).toHaveLength(0);
+    expect(result.log.some(log => log.includes('Taking extra turn for player1'))).toBe(true);
   });
 });

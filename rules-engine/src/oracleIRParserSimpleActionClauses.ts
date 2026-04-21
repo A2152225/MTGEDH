@@ -150,6 +150,34 @@ export function tryParseSimpleActionClause(args: {
   }
 
   {
+    const takeExtraTurn = clause.match(
+      new RegExp(`^${PLAYER_SUBJECT_PREFIX}(?:take|takes)\\s+an?\\s+extra\\s+turn\\s+after\\s+this\\s+one\\b`, 'i')
+    );
+    if (takeExtraTurn) {
+      return withMeta({
+        kind: 'take_extra_turn',
+        who: parsePlayerSelector(takeExtraTurn[1]),
+        raw: rawClause,
+      });
+    }
+  }
+
+  {
+    const gainControlUntilEndOfTurn = clause.match(
+      new RegExp(`^${PLAYER_SUBJECT_PREFIX}gain(?:s)?\\s+control\\s+of\\s+(.+?)\\s+until\\s+end\\s+of\\s+turn\\b`, 'i')
+    );
+    if (gainControlUntilEndOfTurn) {
+      return withMeta({
+        kind: 'gain_control',
+        what: parseObjectSelector(gainControlUntilEndOfTurn[2]),
+        newController: parsePlayerSelector(gainControlUntilEndOfTurn[1]),
+        duration: 'until_end_of_turn',
+        raw: rawClause,
+      });
+    }
+  }
+
+  {
     const addCounters = clause.match(new RegExp(`^put\\s+(${COUNTER_AMOUNT_PATTERN})\\s+(.+?)\\s+counters?\\s+on\\s+(.+)$`, 'i'));
     if (addCounters && !/\bonto\s+the\s+battlefield\b/i.test(clause)) {
       return withMeta({

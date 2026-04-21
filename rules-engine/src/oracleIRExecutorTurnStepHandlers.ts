@@ -1,4 +1,4 @@
-import type { GameState, PlayerID, SkipNextDrawStepEffect } from '../../shared/src';
+import type { ExtraTurnEffect, GameState, PlayerID, SkipNextDrawStepEffect } from '../../shared/src';
 import type { OracleEffectStep } from './oracleIR';
 import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
 import { resolvePlayers } from './oracleIRExecutorPlayerUtils';
@@ -53,5 +53,46 @@ export function applySkipNextDrawStep(
       skipNextDrawStepEffects: nextEffects,
     } as GameState,
     log: players.map((playerId: string) => `${playerId} skips their next draw step`),
+  };
+}
+
+export function applyTakeExtraTurn(
+  state: GameState,
+  step: Extract<OracleEffectStep, { kind: 'take_extra_turn' }>,
+  ctx: OracleIRExecutionContext
+): TurnStepHandlerResult {
+  const players = resolvePlayers(state, step.who, ctx);
+  if (players.length === 0) {
+    return {
+      applied: false,
+      message: `Skipped take-extra-turn (unsupported player selector): ${step.raw}`,
+      reason: 'unsupported_player_selector',
+    };
+  }
+
+  const existingExtraTurns = Array.isArray((state as any).extraTurns)
+    ? ([...(state as any).extraTurns] as ExtraTurnEffect[])
+    : [];
+  const nextExtraTurns = [...existingExtraTurns];
+  const afterTurnNumber = Number((state as any).turn || 0);
+  const createdAt = Date.now();
+  const source = String(ctx.sourceName || ctx.sourceId || '').trim();
+
+  for (const playerId of players) {
+    nextExtraTurns.unshift({
+      playerId: playerId as PlayerID,
+      afterTurnNumber,
+      ...(source ? { source } : {}),
+      createdAt,
+    });
+  }
+
+  return {
+    applied: true,
+    state: {
+      ...(state as any),
+      extraTurns: nextExtraTurns,
+    } as GameState,
+    log: players.map((playerId: string) => `${playerId} takes an extra turn after this one`),
   };
 }

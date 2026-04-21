@@ -4,6 +4,7 @@ import { parseObjectSelector } from './oracleIRParserUtils';
 type WithMeta = <T extends OracleEffectStep>(step: T) => T;
 
 const KEYWORD_ABILITIES = new Set([
+  'banding',
   'flying',
   'trample',
   'vigilance',

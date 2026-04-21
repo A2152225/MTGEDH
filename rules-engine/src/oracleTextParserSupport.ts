@@ -23,7 +23,7 @@ const ORACLE_KEYWORDS = [
   'ripple', 'saddle', 'scavenge', 'scry', 'shadow', 'shroud', 'skulk', 'soulbond', 'soulshift',
   'spectacle', 'sneak', 'splice', 'split second', 'spree', 'squad', 'station', 'storm', 'strive', 'sunburst',
   'support', 'surge', 'surveil', 'suspend', 'swampcycling', 'swampwalk', 'threshold', 'totem armor',
-  'trample', 'training', 'transfigure', 'transform', 'transmute', 'treasure', 'tribute', 'undaunted',
+  'toxic', 'trample', 'training', 'transfigure', 'transform', 'transmute', 'treasure', 'tribute', 'undaunted',
   'undergrowth', 'undying', 'unearth', 'unleash', 'vanishing', 'vigilance', 'ward', 'wither',
   'warp', 'waterbend',
 ] as const;
