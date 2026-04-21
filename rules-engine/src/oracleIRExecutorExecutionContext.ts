@@ -113,6 +113,8 @@ export function buildOracleIRExecutionContext(
   const hintChosenDungeonRoomId =
     typeof hint?.chosenDungeonRoomId === 'string' ? hint.chosenDungeonRoomId.trim() || undefined : undefined;
   const hintChosenMana = typeof hint?.chosenMana === 'string' ? hint.chosenMana.trim() || undefined : undefined;
+  const hintChosenCreatureType =
+    typeof hint?.chosenCreatureType === 'string' ? hint.chosenCreatureType.trim() || undefined : undefined;
   const hintUnlessPaysLifeChoice =
     hint?.unlessPaysLifeChoice === 'pay' || hint?.unlessPaysLifeChoice === 'decline'
       ? hint.unlessPaysLifeChoice
@@ -127,6 +129,8 @@ export function buildOracleIRExecutionContext(
   const baseSourceObjectType = normalizeSourceObjectType(base.sourceObjectType);
   const baseSourceColors = normalizeSourceColors(base.sourceColors);
   const baseChosenMana = typeof baseSel?.chosenMana === 'string' ? baseSel.chosenMana.trim() || undefined : undefined;
+  const baseChosenCreatureType =
+    typeof baseSel?.chosenCreatureType === 'string' ? baseSel.chosenCreatureType.trim() || undefined : undefined;
   const baseChosenDungeonId = typeof baseSel?.chosenDungeonId === 'string' ? baseSel.chosenDungeonId.trim() || undefined : undefined;
   const baseChosenDungeonRoomId =
     typeof baseSel?.chosenDungeonRoomId === 'string' ? baseSel.chosenDungeonRoomId.trim() || undefined : undefined;
@@ -206,6 +210,9 @@ export function buildOracleIRExecutionContext(
       ? { chosenDungeonRoomId: hintChosenDungeonRoomId ?? baseChosenDungeonRoomId }
       : {}),
     ...(hintChosenMana || baseChosenMana ? { chosenMana: hintChosenMana ?? baseChosenMana } : {}),
+    ...(hintChosenCreatureType || baseChosenCreatureType
+      ? { chosenCreatureType: hintChosenCreatureType ?? baseChosenCreatureType }
+      : {}),
     ...(hintUnlessPaysLifeChoice || baseUnlessPaysLifeChoice
       ? { unlessPaysLifeChoice: hintUnlessPaysLifeChoice ?? baseUnlessPaysLifeChoice }
       : {}),

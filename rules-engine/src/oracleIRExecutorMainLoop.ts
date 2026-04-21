@@ -24,6 +24,7 @@ import {
 import { performDieRoll } from './dieRoll';
 import { applyAttachStep } from './oracleIRExecutorAttachStepHandlers';
 import { applyChooseModeStep } from './oracleIRExecutorChooseModeStepHandlers';
+import { resolveSingleCreatureTargetId } from './oracleIRExecutorCreatureStepUtils';
 import {
   applyCantAttackStep,
   applyCantActivateAbilitiesStep,
@@ -35,6 +36,7 @@ import {
   applyDetainStep,
   applyExertStep,
   applyExileStep,
+  applyGainClassLevelStep,
   applyGainControlStep,
   applyRegenerateStep,
   applyGrantLeaveBattlefieldReplacementStep,
@@ -1123,6 +1125,112 @@ export function applyOracleIRStepsToGameStateImpl(
         appliedSteps.push(step);
         break;
       }
+      case 'choose_color': {
+        const allowedOptions = (Array.isArray(step.manaOptions) && step.manaOptions.length > 0
+          ? step.manaOptions
+          : ['{W}', '{U}', '{B}', '{R}', '{G}']
+        ).map(option => String(option || '').trim()).filter(Boolean);
+        const rawChosenMana = String(currentCtx.selectorContext?.chosenMana || '').trim();
+        const normalizedChosenMana = (() => {
+          const upper = rawChosenMana.toUpperCase();
+          if (!upper) return '';
+          const symbol = upper.startsWith('{') && upper.endsWith('}') ? upper : `{${upper}}`;
+          return /^{[WUBRG]}$/i.test(symbol) ? symbol.toUpperCase() : '';
+        })();
+
+        if (!normalizedChosenMana) {
+          recordSkippedStep(
+            step,
+            `Skipped choose color (requires player choice): ${step.raw}`,
+            'player_choice_required',
+            {
+              classification: 'player_choice',
+              metadata: {
+                optionCount: allowedOptions.length,
+              },
+            }
+          );
+          break;
+        }
+
+        if (!allowedOptions.some(option => option.toUpperCase() === normalizedChosenMana.toUpperCase())) {
+          recordSkippedStep(
+            step,
+            `Skipped choose color (invalid chosen color): ${step.raw}`,
+            'invalid_input',
+            {
+              classification: 'invalid_input',
+              metadata: {
+                chosenMana: normalizedChosenMana,
+                options: allowedOptions,
+              },
+            }
+          );
+          break;
+        }
+
+        currentCtx = {
+          ...currentCtx,
+          selectorContext: {
+            ...(currentCtx.selectorContext || {}),
+            chosenMana: normalizedChosenMana,
+          },
+        };
+        setLastStepOutcome(step, 'applied');
+        log.push(`Chose color ${normalizedChosenMana}`);
+        appliedSteps.push(step);
+        break;
+      }
+      case 'choose_creature_type': {
+        const chosenCreatureType = String(currentCtx.selectorContext?.chosenCreatureType || '').trim();
+        if (!chosenCreatureType) {
+          recordSkippedStep(
+            step,
+            `Skipped choose creature type (requires player choice): ${step.raw}`,
+            'player_choice_required',
+            {
+              classification: 'player_choice',
+            }
+          );
+          break;
+        }
+
+        currentCtx = {
+          ...currentCtx,
+          selectorContext: {
+            ...(currentCtx.selectorContext || {}),
+            chosenCreatureType,
+          },
+        };
+        setLastStepOutcome(step, 'applied');
+        log.push(`Chose creature type ${chosenCreatureType}`);
+        appliedSteps.push(step);
+        break;
+      }
+      case 'choose_target_creature': {
+        const chosenTargetId = String(resolveSingleCreatureTargetId(nextState, step.target, currentCtx) || '').trim();
+        if (!chosenTargetId) {
+          recordSkippedStep(
+            step,
+            `Skipped choose target creature (requires player choice): ${step.raw}`,
+            'player_choice_required',
+            {
+              classification: 'player_choice',
+            }
+          );
+          break;
+        }
+
+        currentCtx = {
+          ...currentCtx,
+          targetCreatureId: chosenTargetId,
+          targetPermanentId: chosenTargetId,
+        };
+        setLastStepOutcome(step, 'applied');
+        log.push(`Chose target creature ${chosenTargetId}`);
+        appliedSteps.push(step);
+        break;
+      }
       case 'create_emblem': {
         const result = applyCreateEmblemStep(nextState, step, currentCtx);
         applyHandledStepResult(step, result);
@@ -1166,6 +1274,11 @@ export function applyOracleIRStepsToGameStateImpl(
           lastMovedBattlefieldPermanentIds,
           lastMovedCards,
         });
+        applyHandledStepResult(step, result);
+        break;
+      }
+      case 'gain_class_level': {
+        const result = applyGainClassLevelStep(nextState, step, currentCtx);
         applyHandledStepResult(step, result);
         break;
       }

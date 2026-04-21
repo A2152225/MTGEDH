@@ -707,6 +707,102 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
     expect(addMana.manaOptions).toEqual(['{W}', '{U}', '{B}', '{R}', '{G}']);
   });
 
+  it('parses choose-a-color plus chosen-color mana across the resulting abilities', () => {
+    const text = 'Choose a color. Add one mana of the chosen color.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities.flatMap(ability => ability.steps);
+
+    expect(steps).toEqual([
+      {
+        kind: 'choose_color',
+        manaOptions: ['{W}', '{U}', '{B}', '{R}', '{G}'],
+        raw: 'Choose a color',
+      },
+      {
+        kind: 'add_mana',
+        who: { kind: 'you' },
+        mana: '{W}',
+        manaOptions: ['{W}', '{U}', '{B}', '{R}', '{G}'],
+        requiresChosenMana: true,
+        raw: 'Add one mana of the chosen color',
+      },
+    ]);
+  });
+
+  it('lowers short self choose-a-color enters text into a choose_color step', () => {
+    const ir = parseOracleTextToIR('As this creature enters, choose a color.', 'Diamond Knight');
+    const chooseColorStep = ir.abilities.flatMap(ability => ability.steps).find(step => step.kind === 'choose_color');
+
+    expect(chooseColorStep).toEqual({
+      kind: 'choose_color',
+      manaOptions: ['{W}', '{U}', '{B}', '{R}', '{G}'],
+      raw: 'As this creature enters, choose a color',
+    });
+  });
+
+  it('parses choose a creature type into a choose_creature_type step', () => {
+    const ir = parseOracleTextToIR('Choose a creature type.', 'Test');
+    const chooseTypeStep = ir.abilities.flatMap(ability => ability.steps).find(step => step.kind === 'choose_creature_type');
+
+    expect(chooseTypeStep).toEqual({
+      kind: 'choose_creature_type',
+      raw: 'Choose a creature type',
+    });
+  });
+
+  it('lowers self-entry choose-a-creature-type text into a choose_creature_type step', () => {
+    const ir = parseOracleTextToIR('As this enchantment enters, choose a creature type.', 'Kindred Discovery');
+    const chooseTypeStep = ir.abilities.flatMap(ability => ability.steps).find(step => step.kind === 'choose_creature_type');
+
+    expect(chooseTypeStep).toEqual({
+      kind: 'choose_creature_type',
+      raw: 'As this enchantment enters, choose a creature type',
+    });
+  });
+
+  it('parses choose target creature into a choose_target_creature step', () => {
+    const ir = parseOracleTextToIR('Choose target creature.', 'Arcbond');
+    const chooseTargetStep = ir.abilities.flatMap(ability => ability.steps).find(step => step.kind === 'choose_target_creature');
+
+    expect(chooseTargetStep).toEqual({
+      kind: 'choose_target_creature',
+      target: { kind: 'raw', text: 'target creature' },
+      raw: 'Choose target creature',
+    });
+  });
+
+  it('parses Class level bars into gain_class_level steps', () => {
+    const ir = parseOracleTextToIR(
+      "(Gain the next level as a sorcery to add its ability.)\nWhen Stormchaser's Talent enters, draw a card.\n{1}{U}: Level 2\nWhen this Class becomes level 2, return up to one target noncreature, nonland permanent to its owner's hand.\n{3}{U}: Level 3\nWhenever you cast an instant or sorcery spell, create a 1/1 blue and red Otter creature token with prowess.",
+      "Stormchaser's Talent"
+    );
+    const classLevelSteps = ir.abilities
+      .flatMap(ability => ability.steps)
+      .filter((step: any) => step.kind === 'gain_class_level');
+
+    expect(classLevelSteps).toEqual([
+      { kind: 'gain_class_level', level: 2, raw: 'Level 2' },
+      { kind: 'gain_class_level', level: 3, raw: 'Level 3' },
+    ]);
+  });
+
+  it('prunes standalone cast additional-cost text while keeping the spell effect steps', () => {
+    const ir = parseOracleTextToIR(
+      'As an additional cost to cast this spell, sacrifice a creature. Draw two cards.',
+      'Village Rites'
+    );
+    const steps = ir.abilities.flatMap((ability) => ability.steps);
+
+    expect(steps.some((step) => step.kind === 'unknown' && /additional cost to cast this spell/i.test(String((step as any).raw || '')))).toBe(false);
+    expect(steps).toEqual([
+      expect.objectContaining({
+        kind: 'draw',
+        who: { kind: 'you' },
+        amount: { kind: 'number', value: 2 },
+      }),
+    ]);
+  });
+
   it('parses battlefield tutors that enter tapped and shuffle', () => {
     const text = 'Search your library for a basic land card, put it onto the battlefield tapped, then shuffle.';
     const ir = parseOracleTextToIR(text);
@@ -9781,6 +9877,93 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
     );
   });
 
+  it('merges retarget tails onto when-you-next-cast copy-that-spell clauses', () => {
+    const ir = parseOracleTextToIR(
+      '−2: When you next cast an instant or sorcery spell this turn, copy that spell. You may choose new targets for the copy.',
+      'Chandra, the Firebrand'
+    );
+
+    const copyAbility = ir.abilities.find((ability) => ability.type === 'activated');
+    expect(copyAbility?.steps.some((step: any) => String(step?.raw || '').trim() === 'You may choose new targets for the copy')).toBe(false);
+    expect(copyAbility?.steps[0]).toEqual(
+      expect.objectContaining({
+        kind: 'unknown',
+        raw: expect.stringContaining('You may choose new targets for the copy'),
+      })
+    );
+  });
+
+  it('merges retarget tails onto chapter-prefixed whenever-cast copy clauses', () => {
+    const ir = parseOracleTextToIR(
+      'III — Until end of turn, whenever you cast an instant or sorcery spell, copy it. You may choose new targets for the copy.',
+      'The Mirari Conjecture'
+    );
+
+    expect(ir.abilities[0]?.steps.some((step: any) => String(step?.raw || '').trim() === 'You may choose new targets for the copy')).toBe(false);
+    expect(ir.abilities[0]?.steps[0]).toEqual(
+      expect.objectContaining({
+        kind: 'unknown',
+        raw: expect.stringContaining('You may choose new targets for the copy'),
+      })
+    );
+  });
+
+  it('merges retarget tails onto die-roll result copy clauses', () => {
+    const ir = parseOracleTextToIR(
+      'Whenever you cast an instant or sorcery spell with mana value 3 or greater, roll a d20. 20 | Copy that spell. You may choose new targets for the copy.',
+      'Mathise, Surge Channeler'
+    );
+
+    const mergedCopyStep = ir.abilities
+      .flatMap((ability) => ability.steps)
+      .find((step: any) => String(step?.raw || '').includes('20 | Copy that spell'));
+
+    expect(ir.abilities.flatMap((ability) => ability.steps).some((step: any) => String(step?.raw || '').trim() === 'You may choose new targets for the copy')).toBe(false);
+    expect(mergedCopyStep).toEqual(
+      expect.objectContaining({
+        kind: 'unknown',
+        raw: expect.stringContaining('You may choose new targets for the copy'),
+      })
+    );
+  });
+
+  it('merges retarget tails onto spree copy-target clauses', () => {
+    const ir = parseOracleTextToIR(
+      '+ {1} — Copy target instant spell, sorcery spell, activated ability, or triggered ability. You may choose new targets for the copy.',
+      'Return the Favor'
+    );
+
+    expect(ir.abilities[0]?.steps.some((step: any) => String(step?.raw || '').trim() === 'You may choose new targets for the copy')).toBe(false);
+    expect(ir.abilities[0]?.steps[0]).toEqual(
+      expect.objectContaining({
+        kind: 'unknown',
+        raw: expect.stringContaining('You may choose new targets for the copy'),
+      })
+    );
+  });
+
+  it('merges retarget tails back onto parsed copy-spell steps after then-followups', () => {
+    const ir = parseOracleTextToIR(
+      "Copy target instant or sorcery spell, then return it to its owner's hand. You may choose new targets for the copy.",
+      "Narset's Reversal"
+    );
+
+    expect(ir.abilities[0]?.steps.some((step: any) => String(step?.raw || '').trim() === 'You may choose new targets for the copy')).toBe(false);
+    expect(ir.abilities[0]?.steps).toEqual([
+      expect.objectContaining({
+        kind: 'copy_spell',
+        target: { kind: 'raw', text: 'target instant or sorcery spell' },
+        allowNewTargets: true,
+      }),
+      expect.objectContaining({
+        kind: 'move_zone',
+        sequence: 'then',
+        what: { kind: 'raw', text: 'it' },
+        to: 'hand',
+      }),
+    ]);
+  });
+
   it('merges retarget tails onto replicate multi-copy clauses', () => {
     const ir = parseOracleTextToIR(
       'Replicate {1} (When you cast this spell, copy it for each time you paid its replicate cost. You may choose new targets for the copies.)',
@@ -11764,6 +11947,29 @@ This creature has protection from each of the exiled card's card types. (Artifac
         allowNewTargets: true,
       }),
     ]);
+  });
+
+
+  it('parses Copy that card plus free-cast followup into a last_moved_card copy_spell step', () => {
+    const ir = parseOracleTextToIR(
+      "Exile target instant or sorcery card from an opponent's graveyard. Copy that card. You may cast the copy without paying its mana cost.",
+      'Flawless Forgery'
+    );
+
+    expect(ir.abilities[0]?.steps).toEqual([
+      expect.objectContaining({
+        kind: 'move_zone',
+        to: 'exile',
+        what: { kind: 'raw', text: "target instant or sorcery card from an opponent's graveyard" },
+      }),
+      expect.objectContaining({
+        kind: 'copy_spell',
+        subject: 'last_moved_card',
+        optional: true,
+        withoutPayingManaCost: true,
+      }),
+    ]);
+    expect(ir.abilities[0]?.steps.some((step: any) => String(step?.raw || '').trim() === 'You may cast the copy without paying its mana cost')).toBe(false);
   });
 
   it("parses Wizard's Spellbook into exile, roll_die, and die-roll result branches", () => {

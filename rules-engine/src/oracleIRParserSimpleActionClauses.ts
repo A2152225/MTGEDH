@@ -108,6 +108,25 @@ export function tryParseSimpleActionClause(args: {
   }
 
   {
+    const addChosenColorMana = clause.match(
+      new RegExp(
+        `^${PLAYER_SUBJECT_PREFIX}adds?\\s+(?:an\\s+additional\\s+)?one\\s+mana\\s+of\\s+(?:the\\s+chosen|that)\\s+color\\s*$`,
+        'i'
+      )
+    );
+    if (addChosenColorMana) {
+      return withMeta({
+        kind: 'add_mana',
+        who: parsePlayerSelector(addChosenColorMana[1]),
+        mana: '{W}',
+        manaOptions: ['{W}', '{U}', '{B}', '{R}', '{G}'],
+        requiresChosenMana: true,
+        raw: rawClause,
+      });
+    }
+  }
+
+  {
     const moreCards = clause.match(
       new RegExp(`^${PLAYER_SUBJECT_PREFIX}draws?\\s+(that many|that much|[a-z0-9]+)\\s+more\\s+cards?\\b`, 'i')
     );
@@ -164,6 +183,17 @@ export function tryParseSimpleActionClause(args: {
       return withMeta({
         kind: 'take_extra_turn',
         who: parsePlayerSelector(takeExtraTurn[1]),
+        raw: rawClause,
+      });
+    }
+  }
+
+  {
+    const gainClassLevel = clause.match(/^level\s+(\d+)\.?$/i);
+    if (gainClassLevel) {
+      return withMeta({
+        kind: 'gain_class_level',
+        level: Number.parseInt(String(gainClassLevel[1] || '0'), 10),
         raw: rawClause,
       });
     }

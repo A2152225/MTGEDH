@@ -61,7 +61,7 @@ type StepApplyResult = {
 type StepSkipResult = {
   readonly applied: false;
   readonly message: string;
-  readonly reason: 'unknown_amount' | 'unsupported_player_selector' | 'player_choice_required' | 'failed_to_apply';
+  readonly reason: 'unknown_amount' | 'unsupported_player_selector' | 'player_choice_required' | 'failed_to_apply' | 'invalid_input';
   readonly options?: {
     readonly classification?: 'ambiguous' | 'player_choice' | 'invalid_input';
     readonly metadata?: Record<string, string | number | boolean | readonly string[]>;
@@ -3252,17 +3252,79 @@ export function applyAddManaStep(
 
   let nextState = state;
   const log: string[] = [];
-  const manaToAdd = (() => {
+  const normalizeManaChoice = (raw: string): string | null => {
+    const trimmed = String(raw || '').trim().toUpperCase();
+    if (!trimmed) return null;
+    const symbol = trimmed.startsWith('{') && trimmed.endsWith('}') ? trimmed : `{${trimmed}}`;
+    return /^{[WUBRG]}$/i.test(symbol) ? symbol.toUpperCase() : null;
+  };
+  const manaResolution = (() => {
     const options = Array.isArray(step.manaOptions)
       ? step.manaOptions.map(option => String(option || '').trim()).filter(Boolean)
       : [];
-    if (options.length <= 1) return String(step.mana || '').trim();
+    if (options.length <= 1) {
+      return {
+        kind: 'resolved' as const,
+        mana: String(step.mana || '').trim(),
+      };
+    }
 
-    const chosenMana = String(ctx.selectorContext?.chosenMana || '').trim();
-    if (!chosenMana) return options[0] || '';
+    const chosenMana = normalizeManaChoice(String(ctx.selectorContext?.chosenMana || '').trim());
+    if (!chosenMana) {
+      if (step.requiresChosenMana) {
+        return {
+          kind: 'skip' as const,
+          message: `Skipped add mana (needs chosen color): ${step.raw}`,
+          reason: 'player_choice_required' as const,
+          options: { classification: 'player_choice' as const },
+        };
+      }
+
+      return {
+        kind: 'resolved' as const,
+        mana: options[0] || '',
+      };
+    }
+
     const match = options.find(option => option.toUpperCase() === chosenMana.toUpperCase());
-    return match || options[0] || '';
+    if (match) {
+      return {
+        kind: 'resolved' as const,
+        mana: match,
+      };
+    }
+
+    if (step.requiresChosenMana) {
+      return {
+        kind: 'skip' as const,
+        message: `Skipped add mana (invalid chosen color): ${step.raw}`,
+        reason: 'invalid_input' as const,
+        options: {
+          classification: 'invalid_input' as const,
+          metadata: {
+            chosenMana,
+            options,
+          },
+        },
+      };
+    }
+
+    return {
+      kind: 'resolved' as const,
+      mana: options[0] || '',
+    };
   })();
+
+  if (manaResolution.kind === 'skip') {
+    return {
+      applied: false,
+      message: manaResolution.message,
+      reason: manaResolution.reason,
+      options: manaResolution.options,
+    };
+  }
+
+  const manaToAdd = manaResolution.mana;
 
   for (const playerId of players) {
     const result = addManaToPoolForPlayer(nextState, playerId, manaToAdd);

@@ -245,6 +245,8 @@ export interface BattlefieldPermanent {
   temporaryEffects?: readonly TemporaryEffect[];
   // Creature type choice for changeling/tribal effects (e.g., Mistform Ultimus)
   chosenCreatureType?: string;
+  // Class cards use battlefield state to track their current level designation
+  level?: number;
   // Phasing support
   phasedOut?: boolean;
   phaseOutController?: PlayerID;

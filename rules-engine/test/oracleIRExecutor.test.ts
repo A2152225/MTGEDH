@@ -8949,6 +8949,252 @@ describe('Oracle IR Executor', () => {
     expect(result.appliedSteps.some(s => s.kind === 'add_mana')).toBe(true);
   });
 
+  it('applies choose_color followed by chosen-color mana when execution context supplies the choice', () => {
+    const steps = [
+      {
+        kind: 'choose_color',
+        manaOptions: ['{W}', '{U}', '{B}', '{R}', '{G}'],
+        raw: 'Choose a color',
+      },
+      {
+        kind: 'add_mana',
+        who: { kind: 'you' },
+        mana: '{W}',
+        manaOptions: ['{W}', '{U}', '{B}', '{R}', '{G}'],
+        requiresChosenMana: true,
+        raw: 'Add one mana of the chosen color',
+      },
+    ] as any;
+
+    const result = applyOracleIRStepsToGameState(makeState(), steps, {
+      controllerId: 'p1',
+      selectorContext: { chosenMana: '{R}' as any },
+    });
+
+    const pool = (result.state as any).manaPool?.['p1'];
+    expect(result.appliedSteps.map(step => step.kind)).toEqual(['choose_color', 'add_mana']);
+    expect(pool).toBeTruthy();
+    expect(pool.red).toBe(1);
+    expect(pool.white ?? 0).toBe(0);
+  });
+
+  it('requires a player color choice before chosen-color mana and does not default to white', () => {
+    const steps = [
+      {
+        kind: 'choose_color',
+        manaOptions: ['{W}', '{U}', '{B}', '{R}', '{G}'],
+        raw: 'Choose a color',
+      },
+      {
+        kind: 'add_mana',
+        who: { kind: 'you' },
+        mana: '{W}',
+        manaOptions: ['{W}', '{U}', '{B}', '{R}', '{G}'],
+        requiresChosenMana: true,
+        raw: 'Add one mana of the chosen color',
+      },
+    ] as any;
+
+    const result = applyOracleIRStepsToGameState(makeState(), steps, {
+      controllerId: 'p1',
+    });
+
+    const pool = (result.state as any).manaPool?.['p1'];
+    const totalMana = (pool?.white ?? 0) + (pool?.blue ?? 0) + (pool?.black ?? 0) + (pool?.red ?? 0) + (pool?.green ?? 0);
+    expect(result.appliedSteps).toEqual([]);
+    expect(result.skippedSteps.map(step => step.kind)).toEqual(['choose_color', 'add_mana']);
+    expect(result.automationGaps.some((gap: any) => gap.reasonCode === 'player_choice_required')).toBe(true);
+    expect(totalMana).toBe(0);
+  });
+
+  it('applies choose_creature_type when execution context supplies the choice', () => {
+    const steps = [
+      {
+        kind: 'choose_creature_type',
+        raw: 'Choose a creature type',
+      },
+    ] as any;
+
+    const result = applyOracleIRStepsToGameState(makeState(), steps, {
+      controllerId: 'p1',
+      selectorContext: { chosenCreatureType: 'Elf' as any },
+    });
+
+    expect(result.appliedSteps.map(step => step.kind)).toEqual(['choose_creature_type']);
+    expect(result.automationGaps).toEqual([]);
+  });
+
+  it('requires a player creature type choice when none is supplied', () => {
+    const steps = [
+      {
+        kind: 'choose_creature_type',
+        raw: 'Choose a creature type',
+      },
+    ] as any;
+
+    const result = applyOracleIRStepsToGameState(makeState(), steps, {
+      controllerId: 'p1',
+    });
+
+    expect(result.appliedSteps).toEqual([]);
+    expect(result.skippedSteps.map(step => step.kind)).toEqual(['choose_creature_type']);
+    expect(result.automationGaps.some((gap: any) => gap.reasonCode === 'player_choice_required')).toBe(true);
+  });
+
+  it('binds choose_target_creature into later that-creature references', () => {
+    const steps = [
+      {
+        kind: 'choose_target_creature',
+        target: { kind: 'raw', text: 'target creature' },
+        raw: 'Choose target creature',
+      },
+      {
+        kind: 'tap_or_untap',
+        target: { kind: 'raw', text: 'that creature' },
+        mode: 'tap',
+        raw: 'Tap that creature',
+      },
+    ] as any;
+
+    const start = makeState({
+      battlefield: [
+        {
+          id: 'chosen-target-creature',
+          controller: 'p2',
+          owner: 'p2',
+          tapped: false,
+          card: { id: 'chosen-target-creature-card', name: 'Runeclaw Bear', type_line: 'Creature - Bear', power: '2', toughness: '2' },
+          counters: {},
+        } as any,
+      ],
+    } as any);
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      targetCreatureId: 'chosen-target-creature',
+    });
+
+    const permanent = ((result.state as any).battlefield || []).find((perm: any) => perm.id === 'chosen-target-creature') as any;
+    expect(result.appliedSteps.map(step => step.kind)).toEqual(['choose_target_creature', 'tap_or_untap']);
+    expect(permanent?.tapped).toBe(true);
+  });
+
+  it('requires a target choice for choose_target_creature when none is bound deterministically', () => {
+    const steps = [
+      {
+        kind: 'choose_target_creature',
+        target: { kind: 'raw', text: 'target creature' },
+        raw: 'Choose target creature',
+      },
+    ] as any;
+
+    const start = makeState({
+      battlefield: [
+        {
+          id: 'choice-creature-a',
+          controller: 'p1',
+          owner: 'p1',
+          tapped: false,
+          card: { id: 'choice-creature-a-card', name: 'Silvercoat Lion', type_line: 'Creature - Cat', power: '2', toughness: '2' },
+          counters: {},
+        } as any,
+        {
+          id: 'choice-creature-b',
+          controller: 'p2',
+          owner: 'p2',
+          tapped: false,
+          card: { id: 'choice-creature-b-card', name: 'Runeclaw Bear', type_line: 'Creature - Bear', power: '2', toughness: '2' },
+          counters: {},
+        } as any,
+      ],
+    } as any);
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+    });
+
+    expect(result.appliedSteps).toEqual([]);
+    expect(result.skippedSteps.map(step => step.kind)).toEqual(['choose_target_creature']);
+    expect(result.automationGaps.some((gap: any) => gap.reasonCode === 'player_choice_required')).toBe(true);
+  });
+
+  it('applies sequential gain_class_level steps to the source Class permanent', () => {
+    const steps = [
+      {
+        kind: 'gain_class_level',
+        level: 2,
+        raw: 'Level 2',
+      },
+      {
+        kind: 'gain_class_level',
+        level: 3,
+        raw: 'Level 3',
+      },
+    ] as any;
+
+    const start = makeState({
+      battlefield: [
+        {
+          id: 'stormchaser-class',
+          controller: 'p1',
+          owner: 'p1',
+          card: {
+            id: 'stormchaser-class-card',
+            name: "Stormchaser's Talent",
+            type_line: 'Enchantment - Class',
+          },
+          counters: {},
+        } as any,
+      ],
+    } as any);
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceId: 'stormchaser-class',
+    });
+
+    const permanent = ((result.state as any).battlefield || []).find((perm: any) => perm.id === 'stormchaser-class') as any;
+    expect(result.appliedSteps.map(step => step.kind)).toEqual(['gain_class_level', 'gain_class_level']);
+    expect(permanent?.level).toBe(3);
+  });
+
+  it('does not skip directly to a later Class level', () => {
+    const steps = [
+      {
+        kind: 'gain_class_level',
+        level: 3,
+        raw: 'Level 3',
+      },
+    ] as any;
+
+    const start = makeState({
+      battlefield: [
+        {
+          id: 'builder-class',
+          controller: 'p1',
+          owner: 'p1',
+          card: {
+            id: 'builder-class-card',
+            name: "Builder's Talent",
+            type_line: 'Enchantment - Class',
+          },
+          counters: {},
+        } as any,
+      ],
+    } as any);
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceId: 'builder-class',
+    });
+
+    const permanent = ((result.state as any).battlefield || []).find((perm: any) => perm.id === 'builder-class') as any;
+    expect(result.appliedSteps).toEqual([]);
+    expect(result.skippedSteps.map(step => step.kind)).toEqual(['gain_class_level']);
+    expect(result.automationGaps.some((gap: any) => gap.reasonCode === 'impossible_action')).toBe(true);
+    expect(permanent?.level ?? 1).toBe(1);
+  });
+
   it('applies add_mana for defending player via target_opponent selector context binding', () => {
     const ir = parseOracleTextToIR('Defending player adds {G}.', 'Test');
     const steps = ir.abilities[0]?.steps ?? [];

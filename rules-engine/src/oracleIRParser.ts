@@ -75,6 +75,7 @@ import {
   pruneRedundantModularReminderAbilities,
   pruneRedundantBandingReminderUnknownAbilities,
   pruneRedundantBuybackCostReminderUnknownAbilities,
+  pruneRedundantCastAdditionalCostUnknownAbilities,
   expandMixedBattlefieldAndGraveyardExileAbilities,
   expandMoveZoneCopiedSpellAbilities,
   expandMoveZoneHasteFollowupAbilities,
@@ -1414,6 +1415,7 @@ export function parseOracleTextToIR(oracleText: string, cardName?: string): Orac
   abilities = pruneRedundantModularReminderAbilities(abilities);
   abilities = pruneRedundantBandingReminderUnknownAbilities(abilities);
   abilities = pruneRedundantBuybackCostReminderUnknownAbilities(abilities);
+  abilities = pruneRedundantCastAdditionalCostUnknownAbilities(abilities);
   abilities = pruneRedundantAnyPlayerMayActivateUnknownAbilities(abilities);
   abilities = mergeDeterministicKeywordFollowupAbilities(abilities);
   abilities = mergeSagaChapterCopyFollowupAbilities(abilities);

@@ -1473,13 +1473,15 @@ function stripCopyItSuffix(step: Extract<OracleEffectStep, { kind: 'move_zone' }
 export function expandMoveZoneCopiedSpellAbilities(
   abilities: readonly OracleIRAbility[]
 ): OracleIRAbility[] {
-  return abilities.map((ability) => {
+  const expandedAbilities = abilities.map((ability) => {
     let changed = false;
     const expandedSteps: OracleEffectStep[] = [];
 
     for (let i = 0; i < ability.steps.length; i += 1) {
       const current = ability.steps[i];
       const next = ability.steps[i + 1];
+      const castTail = parseCopySpellCastTail(ability.steps[i + 2]);
+      const retargetTail = castTail ? parseCopySpellRetargetTail(ability.steps[i + 3]) : null;
 
       if (
         current?.kind === 'move_zone' &&
@@ -1500,11 +1502,90 @@ export function expandMoveZoneCopiedSpellAbilities(
         continue;
       }
 
+      if (
+        current?.kind === 'move_zone' &&
+        next?.kind === 'unknown' &&
+        /^copy that card$/i.test(normalizeUnknownStepText(next) || '') &&
+        castTail !== null
+      ) {
+        expandedSteps.push(current);
+        expandedSteps.push({
+          kind: 'copy_spell',
+          subject: 'last_moved_card',
+          ...(castTail.castCost ? { castCost: castTail.castCost } : {}),
+          ...(castTail.withoutPayingManaCost ? { withoutPayingManaCost: true } : {}),
+          ...(retargetTail ? { allowNewTargets: true } : {}),
+          optional: true,
+          raw: appendFollowupSentence(appendFollowupSentence(String(next.raw || '').trim(), castTail.raw), retargetTail),
+        });
+        changed = true;
+        i += 2 + (retargetTail ? 1 : 0);
+        continue;
+      }
+
       expandedSteps.push(current);
     }
 
     return changed ? { ...ability, steps: expandedSteps } : ability;
   });
+
+  const mergedAbilities: OracleIRAbility[] = [];
+  let mergedChanged = false;
+
+  for (let i = 0; i < expandedAbilities.length; i += 1) {
+    const current = expandedAbilities[i];
+    const next = expandedAbilities[i + 1];
+    const currentSteps = current?.steps || [];
+    const nextSteps = next?.steps || [];
+    const currentLastStep = currentSteps[currentSteps.length - 1];
+    const copyThatCardStep = nextSteps[0];
+    const castTail = parseCopySpellCastTail(nextSteps[1]);
+    const retargetTail = castTail ? parseCopySpellRetargetTail(nextSteps[2]) : parseCopySpellRetargetTail(nextSteps[1]);
+    const consumedStepCount = 1 + (castTail ? 1 : 0) + (retargetTail ? 1 : 0);
+
+    if (
+      currentLastStep?.kind === 'move_zone' &&
+      copyThatCardStep?.kind === 'unknown' &&
+      /^copy that card$/i.test(normalizeUnknownStepText(copyThatCardStep) || '') &&
+      nextSteps.length === consumedStepCount &&
+      current?.type === next?.type
+    ) {
+      let mergedCopyStep: Extract<OracleEffectStep, { kind: 'copy_spell' }> = {
+        kind: 'copy_spell',
+        subject: 'last_moved_card',
+        optional: true,
+        raw: String(copyThatCardStep.raw || '').trim(),
+      };
+
+      if (castTail) {
+        mergedCopyStep = applyCopySpellCastTail(mergedCopyStep, castTail);
+      }
+
+      if (retargetTail) {
+        mergedCopyStep = {
+          ...mergedCopyStep,
+          allowNewTargets: true,
+          raw: copySpellRawMentionsRetarget(mergedCopyStep.raw)
+            ? mergedCopyStep.raw
+            : appendFollowupSentence(mergedCopyStep.raw, retargetTail),
+        };
+      }
+
+      mergedAbilities.push({
+        ...current,
+        text: `${String(current.text || '').trim()} ${String(next.text || '').trim()}`.trim(),
+        effectText: `${String(current.effectText || '').trim()} ${String(next.effectText || '').trim()}`.trim(),
+        steps: [...currentSteps, mergedCopyStep],
+      });
+      mergedChanged = true;
+      i += 1;
+      continue;
+    }
+
+    mergedAbilities.push(current);
+  }
+
+  return mergedChanged ? mergedAbilities : expandedAbilities;
 }
 
 function parseBattlefieldMoveHasteFollowupStep(
@@ -4725,6 +4806,55 @@ function parseCopySpellRetargetTail(step: OracleEffectStep | undefined): string 
     : null;
 }
 
+type CopySpellCastTail = {
+  readonly raw: string;
+  readonly castCost?: 'mana_cost' | string;
+  readonly withoutPayingManaCost?: boolean;
+  readonly optional?: boolean;
+};
+
+function parseCopySpellCastTail(step: OracleEffectStep | undefined): CopySpellCastTail | null {
+  const normalized = normalizeUnknownStepText(step);
+  if (!normalized) return null;
+
+  if (/^you may cast the copy$/i.test(normalized)) {
+    return {
+      raw: String((step as any)?.raw || '').trim() || 'You may cast the copy',
+      castCost: 'mana_cost',
+      optional: true,
+    };
+  }
+
+  const alternateCostMatch = normalized.match(
+    /^you may cast the copy by paying (\{[^}]+\}(?:\{[^}]+\})*) rather than paying its mana cost$/i
+  );
+  if (alternateCostMatch) {
+    return {
+      raw: String((step as any)?.raw || '').trim() || normalized,
+      castCost: String(alternateCostMatch[1] || '').trim(),
+      optional: true,
+    };
+  }
+
+  if (/^you may cast the copy without paying its mana cost$/i.test(normalized)) {
+    return {
+      raw: String((step as any)?.raw || '').trim() || normalized,
+      withoutPayingManaCost: true,
+      optional: true,
+    };
+  }
+
+  if (/^you may cast any number of the copies without paying their mana costs$/i.test(normalized)) {
+    return {
+      raw: String((step as any)?.raw || '').trim() || normalized,
+      withoutPayingManaCost: true,
+      optional: true,
+    };
+  }
+
+  return null;
+}
+
 function appendFollowupSentence(base: string | undefined, followup: string | null): string {
   const trimmedBase = String(base || '')
     .trim()
@@ -4817,18 +4947,52 @@ function applyCopySpellRetargetTailToSteps(
   };
 }
 
+function applyCopySpellCastTail(
+  step: Extract<OracleEffectStep, { kind: 'copy_spell' }>,
+  castTail: CopySpellCastTail
+): Extract<OracleEffectStep, { kind: 'copy_spell' }> {
+  return {
+    ...step,
+    ...(castTail.castCost ? { castCost: castTail.castCost } : {}),
+    ...(castTail.withoutPayingManaCost ? { withoutPayingManaCost: true } : {}),
+    ...((step.optional || castTail.optional) ? { optional: true } : {}),
+    raw: appendFollowupSentence(step.raw, castTail.raw),
+  };
+}
+
 function copySpellRawMentionsRetarget(raw: string | undefined): boolean {
   return /choose\s+(?:a new target|new targets)\s+for\s+the\s+cop(?:y|ies)/i.test(
     normalizeOracleText(String(raw || ''))
   );
 }
 
+function normalizeCopyAbilityUnknownStepText(step: OracleEffectStep | undefined): string {
+  if (step?.kind !== 'unknown') return '';
+
+  const stripped = stripInlineCopyRetargetTail(String(step.raw || ''));
+  let normalized = stripped.body.replace(/^[â€¢Â·â—â—¦â–ªâ–«â–ºâž¤\uFFFD]+\s*/u, '').trim();
+
+  while (normalized) {
+    const nextNormalized = normalized
+      .replace(/^then\b\s*/i, '')
+      .replace(/^(?:raid|spell mastery)\s*[-—]\s*/i, '')
+      .replace(/^(?:[ivxlcdm]+|\d+(?:-\d+)?|\+\s*\{[^}]+\}|-\d+)\s*[|—-]\s*/i, '')
+      .trim();
+
+    if (nextNormalized === normalized) break;
+    normalized = nextNormalized;
+  }
+
+  return normalized;
+}
+
 function isCopyAbilityUnknownStep(step: OracleEffectStep | undefined): boolean {
   if (step?.kind !== 'unknown') return false;
 
-  const stripped = stripInlineCopyRetargetTail(String(step.raw || ''));
-  const normalized = stripped.body.replace(/^[â€¢Â·â—â—¦â–ªâ–«â–ºâž¤\uFFFD]+\s*/u, '').trim();
+  const normalized = normalizeCopyAbilityUnknownStepText(step);
   if (!normalized) return false;
+
+  const prefixedCopyPattern = /^(?:until end of turn,\s+)?(?:(?:if|when|whenever)\s+.+?,\s+)*(?:you may\s+)?copy\s+(?:that ability|the ability|that spell|the spell|that spell or ability|it|target\s+.+)$/i;
 
   return /^(?:you may\s+)?copy\s+(?:that ability|the ability|target triggered ability(?: you control)?|target activated or triggered ability(?: you control)?(?: from .+)?)$/i.test(
     normalized
@@ -4836,7 +5000,8 @@ function isCopyAbilityUnknownStep(step: OracleEffectStep | undefined): boolean {
     /^(?:you may\s+)?copy that spell or ability$/i.test(normalized) ||
     /^(?:you may\s+)?copy the next .+ spell you cast this turn when you cast it$/i.test(normalized) ||
     /^(?:if you do,\s+)?when you next cast .+?,\s+copy it$/i.test(normalized) ||
-    /^(?:when you cast this spell,\s+)?copy\b.+$/i.test(normalized);
+    /^(?:when you cast this spell,\s+)?copy\b.+$/i.test(normalized) ||
+    prefixedCopyPattern.test(normalized);
 }
 
 function parseCopySpellUnknownStep(
@@ -5030,7 +5195,9 @@ function expandCopySpellUnknownSteps(
     }
 
     if (step.kind === 'unknown') {
-      const expanded = parseCopySpellUnknownStep(step, nextStep);
+      const castTail = parseCopySpellCastTail(nextStep);
+      const trailingRetargetTail = castTail ? parseCopySpellRetargetTail(steps[i + 2]) : retargetTail;
+      const expanded = parseCopySpellUnknownStep(step, castTail ? steps[i + 2] : nextStep);
       if (!expanded) {
         if (retargetTail !== null && isCopyAbilityUnknownStep(step)) {
           changed = true;
@@ -5047,24 +5214,46 @@ function expandCopySpellUnknownSteps(
       }
 
       changed = true;
-      expandedSteps.push(expanded);
-      if (retargetTail !== null) {
-        i += 1;
-      }
+      expandedSteps.push(castTail && expanded.kind === 'copy_spell' ? applyCopySpellCastTail(expanded, castTail) : expanded);
+      i += (castTail ? 1 : 0) + (trailingRetargetTail !== null ? 1 : 0);
       continue;
     }
 
-    if (step.kind === 'copy_spell' && retargetTail !== null) {
-      changed = true;
-      expandedSteps.push({
-        ...step,
-        allowNewTargets: true,
-        raw: copySpellRawMentionsRetarget(step.raw)
-          ? step.raw
-          : appendFollowupSentence(step.raw, retargetTail),
-      });
-      i += 1;
-      continue;
+    if (step.kind === 'copy_spell') {
+      const castTail = parseCopySpellCastTail(nextStep);
+      const preservedThenFollowupStep =
+        castTail === null &&
+        retargetTail === null &&
+        nextStep?.sequence === 'then' &&
+        parseCopySpellRetargetTail(steps[i + 2]) !== null
+          ? nextStep
+          : null;
+      const trailingRetargetTail = castTail
+        ? parseCopySpellRetargetTail(steps[i + 2])
+        : retargetTail ?? (preservedThenFollowupStep ? parseCopySpellRetargetTail(steps[i + 2]) : null);
+      if (castTail || trailingRetargetTail !== null) {
+        changed = true;
+        const castMerged = castTail ? applyCopySpellCastTail(step, castTail) : step;
+        expandedSteps.push(
+          trailingRetargetTail !== null
+            ? {
+                ...castMerged,
+                allowNewTargets: true,
+                raw: copySpellRawMentionsRetarget(castMerged.raw)
+                  ? castMerged.raw
+                  : appendFollowupSentence(castMerged.raw, trailingRetargetTail),
+              }
+            : castMerged
+        );
+        if (preservedThenFollowupStep) {
+          expandedSteps.push(preservedThenFollowupStep);
+        }
+        i +=
+          (castTail ? 1 : 0) +
+          (trailingRetargetTail !== null ? 1 : 0) +
+          (preservedThenFollowupStep ? 1 : 0);
+        continue;
+      }
     }
 
     expandedSteps.push(step);
@@ -5083,6 +5272,51 @@ export function expandCopySpellUnknownAbilities(
     const expanded = expandCopySpellUnknownSteps(ability.steps);
     return expanded.changed ? { ...ability, steps: expanded.steps } : ability;
   });
+}
+
+function isRedundantCastAdditionalCostUnknownStep(step: OracleEffectStep): boolean {
+  if (step.kind !== 'unknown') return false;
+  const normalized = normalizeUnknownStepText(step);
+  return normalized !== null && /^as an additional cost to cast this spell,\s+.+$/i.test(normalized);
+}
+
+function isStandaloneCastAdditionalCostAbility(ability: OracleIRAbility): boolean {
+  return ability.steps.length > 0 && ability.steps.every(isRedundantCastAdditionalCostUnknownStep);
+}
+
+export function pruneRedundantCastAdditionalCostUnknownAbilities(
+  abilities: readonly OracleIRAbility[]
+): OracleIRAbility[] {
+  let changed = false;
+  const filtered: OracleIRAbility[] = [];
+
+  for (const ability of abilities) {
+    if (isStandaloneCastAdditionalCostAbility(ability)) {
+      changed = true;
+      continue;
+    }
+
+    let firstMeaningfulStepIndex = 0;
+    while (
+      firstMeaningfulStepIndex < ability.steps.length &&
+      isRedundantCastAdditionalCostUnknownStep(ability.steps[firstMeaningfulStepIndex])
+    ) {
+      firstMeaningfulStepIndex += 1;
+    }
+
+    if (firstMeaningfulStepIndex > 0 && firstMeaningfulStepIndex < ability.steps.length) {
+      filtered.push({
+        ...ability,
+        steps: ability.steps.slice(firstMeaningfulStepIndex),
+      });
+      changed = true;
+      continue;
+    }
+
+    filtered.push(ability);
+  }
+
+  return changed ? filtered : abilities.slice();
 }
 
 function parseCopyChapterAbilityUnknownStep(

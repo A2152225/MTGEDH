@@ -1,6 +1,6 @@
 {
   "meta": {
-    "generatedAt": "2026-04-21T04:02:00.194Z",
+    "generatedAt": "2026-04-21T08:38:45.994Z",
     "oraclePath": "D:\\Git\\MTGEDH\\oracle-cards.json",
     "atomicPath": "D:\\Git\\MTGEDH\\AtomicCards.json",
     "includeOracle": true,
@@ -13,77 +13,11 @@
     "scannedOracleCards": 29539,
     "scannedAtomicCards": 0,
     "skippedDuplicateOracleId": 0,
-    "cardsWithAnyGap": 11744
+    "cardsWithAnyGap": 11672
   },
   "topGaps": [
     {
       "rank": 1,
-      "key": "unknown-step|unknown|as an additional cost to cast this spell, sacrifice a creature",
-      "raw": "As an additional cost to cast this spell, sacrifice a creature",
-      "gapType": "unknown-step",
-      "fieldPath": "unknown",
-      "count": 53,
-      "exampleCards": [
-        "Mind Extraction",
-        "Diabolic Intent",
-        "Scapegoat",
-        "Infernal Plunge",
-        "Bone Splinters"
-      ],
-      "exampleClauses": [
-        "As an additional cost to cast this spell, sacrifice a creature"
-      ],
-      "sources": {
-        "oracle-cards": 53,
-        "AtomicCards": 0
-      }
-    },
-    {
-      "rank": 2,
-      "key": "unknown-step|unknown|level 2",
-      "raw": "Level 2",
-      "gapType": "unknown-step",
-      "fieldPath": "unknown",
-      "count": 32,
-      "exampleCards": [
-        "Stormchaser's Talent",
-        "Builder's Talent",
-        "Leader's Talent",
-        "Sorcerer Class",
-        "Fortune Teller's Talent"
-      ],
-      "exampleClauses": [
-        "Level 2"
-      ],
-      "sources": {
-        "oracle-cards": 32,
-        "AtomicCards": 0
-      }
-    },
-    {
-      "rank": 3,
-      "key": "unknown-step|unknown|level 3",
-      "raw": "Level 3",
-      "gapType": "unknown-step",
-      "fieldPath": "unknown",
-      "count": 32,
-      "exampleCards": [
-        "Stormchaser's Talent",
-        "Builder's Talent",
-        "Leader's Talent",
-        "Sorcerer Class",
-        "Fortune Teller's Talent"
-      ],
-      "exampleClauses": [
-        "Level 3"
-      ],
-      "sources": {
-        "oracle-cards": 32,
-        "AtomicCards": 0
-      }
-    },
-    {
-      "rank": 4,
       "key": "unknown-step|unknown|choose a creature type",
       "raw": "Choose a creature type",
       "gapType": "unknown-step",
@@ -106,7 +40,7 @@
       }
     },
     {
-      "rank": 5,
+      "rank": 2,
       "key": "unknown-step|unknown|then you may put a sticker on a nonland permanent you own",
       "raw": "then you may put a sticker on a nonland permanent you own",
       "gapType": "unknown-step",
@@ -128,29 +62,7 @@
       }
     },
     {
-      "rank": 6,
-      "key": "unknown-step|unknown|you may choose new targets for the copy",
-      "raw": "You may choose new targets for the copy",
-      "gapType": "unknown-step",
-      "fieldPath": "unknown",
-      "count": 24,
-      "exampleCards": [
-        "Return the Favor",
-        "Pit Automaton",
-        "Chandra, the Firebrand",
-        "The Mirari Conjecture",
-        "Ether"
-      ],
-      "exampleClauses": [
-        "You may choose new targets for the copy"
-      ],
-      "sources": {
-        "oracle-cards": 24,
-        "AtomicCards": 0
-      }
-    },
-    {
-      "rank": 7,
+      "rank": 3,
       "key": "unknown-step|unknown|choose a color",
       "raw": "Choose a color",
       "gapType": "unknown-step",
@@ -173,7 +85,7 @@
       }
     },
     {
-      "rank": 8,
+      "rank": 4,
       "key": "unknown-step|unknown|choose target creature",
       "raw": "Choose target creature",
       "gapType": "unknown-step",
@@ -196,29 +108,7 @@
       }
     },
     {
-      "rank": 9,
-      "key": "unknown-step|unknown|you may cast the copy without paying its mana cost",
-      "raw": "You may cast the copy without paying its mana cost",
-      "gapType": "unknown-step",
-      "fieldPath": "unknown",
-      "count": 20,
-      "exampleCards": [
-        "Flawless Forgery",
-        "Mysterious Confluence",
-        "Chandra's Dragonmech",
-        "Spellweaver Volute",
-        "Mysterious Stranger"
-      ],
-      "exampleClauses": [
-        "You may cast the copy without paying its mana cost"
-      ],
-      "sources": {
-        "oracle-cards": 20,
-        "AtomicCards": 0
-      }
-    },
-    {
-      "rank": 10,
+      "rank": 5,
       "key": "unknown-step|unknown|as this enchantment enters, choose a creature type",
       "raw": "As this enchantment enters, choose a creature type",
       "gapType": "unknown-step",
@@ -240,7 +130,7 @@
       }
     },
     {
-      "rank": 11,
+      "rank": 6,
       "key": "unknown-step|unknown|backup 1 (when this creature enters, put a +1/+1 counter on target creature",
       "raw": "Backup 1 (When this creature enters, put a +1/+1 counter on target creature",
       "gapType": "unknown-step",
@@ -262,7 +152,7 @@
       }
     },
     {
-      "rank": 12,
+      "rank": 7,
       "key": "unknown-step|unknown|if you don't, this land enters tapped",
       "raw": "If you don't, this land enters tapped",
       "gapType": "unknown-step",
@@ -284,7 +174,7 @@
       }
     },
     {
-      "rank": 13,
+      "rank": 8,
       "key": "unknown-step|unknown|prevent the next 1 damage that would be dealt to any target this turn",
       "raw": "Prevent the next 1 damage that would be dealt to any target this turn",
       "gapType": "unknown-step",
@@ -306,29 +196,7 @@
       }
     },
     {
-      "rank": 14,
-      "key": "unknown-step|unknown|add one mana of the chosen color",
-      "raw": "Add one mana of the chosen color",
-      "gapType": "unknown-step",
-      "fieldPath": "unknown",
-      "count": 18,
-      "exampleCards": [
-        "Temple of the Dragon Queen",
-        "Coldsteel Heart",
-        "Shimmerdrift Vale",
-        "Heraldic Banner",
-        "Silhana Starfletcher"
-      ],
-      "exampleClauses": [
-        "Add one mana of the chosen color"
-      ],
-      "sources": {
-        "oracle-cards": 18,
-        "AtomicCards": 0
-      }
-    },
-    {
-      "rank": 15,
+      "rank": 9,
       "key": "unknown-step|unknown|after this phase, there is an additional combat phase",
       "raw": "After this phase, there is an additional combat phase",
       "gapType": "unknown-step",
@@ -350,7 +218,7 @@
       }
     },
     {
-      "rank": 16,
+      "rank": 10,
       "key": "unknown-step|unknown|cumulative upkeep {1} (at the beginning of your upkeep, put an age counter on this permanent",
       "raw": "Cumulative upkeep {1} (At the beginning of your upkeep, put an age counter on this permanent",
       "gapType": "unknown-step",
@@ -372,7 +240,7 @@
       }
     },
     {
-      "rank": 17,
+      "rank": 11,
       "key": "unknown-step|unknown|this creature can't attack unless defending player controls an island",
       "raw": "This creature can't attack unless defending player controls an Island",
       "gapType": "unknown-step",
@@ -394,7 +262,7 @@
       }
     },
     {
-      "rank": 18,
+      "rank": 12,
       "key": "unknown-fragment|conditional.steps[0]|you win the game",
       "raw": "you win the game",
       "gapType": "unknown-fragment",
@@ -420,29 +288,7 @@
       }
     },
     {
-      "rank": 19,
-      "key": "unknown-step|unknown|as an additional cost to cast this spell, discard a card",
-      "raw": "As an additional cost to cast this spell, discard a card",
-      "gapType": "unknown-step",
-      "fieldPath": "unknown",
-      "count": 17,
-      "exampleCards": [
-        "Sparkhunter Masticore",
-        "Thrill of Possibility",
-        "Unexpected Windfall",
-        "Laughing Mad",
-        "Seize the Spoils"
-      ],
-      "exampleClauses": [
-        "As an additional cost to cast this spell, discard a card"
-      ],
-      "sources": {
-        "oracle-cards": 17,
-        "AtomicCards": 0
-      }
-    },
-    {
-      "rank": 20,
+      "rank": 13,
       "key": "unknown-step|unknown|as this artifact enters, choose a creature type",
       "raw": "As this artifact enters, choose a creature type",
       "gapType": "unknown-step",
@@ -464,7 +310,7 @@
       }
     },
     {
-      "rank": 21,
+      "rank": 14,
       "key": "unknown-step|unknown|if this card is in your opening hand, you may begin the game with it on the battlefield",
       "raw": "If this card is in your opening hand, you may begin the game with it on the battlefield",
       "gapType": "unknown-step",
@@ -486,7 +332,7 @@
       }
     },
     {
-      "rank": 22,
+      "rank": 15,
       "key": "unknown-step|unknown|put the rest on the bottom of your library in a random order",
       "raw": "Put the rest on the bottom of your library in a random order",
       "gapType": "unknown-step",
@@ -508,7 +354,7 @@
       }
     },
     {
-      "rank": 23,
+      "rank": 16,
       "key": "unknown-step|unknown|until end of turn, you don't lose this mana as steps and phases end",
       "raw": "Until end of turn, you don't lose this mana as steps and phases end",
       "gapType": "unknown-step",
@@ -530,7 +376,7 @@
       }
     },
     {
-      "rank": 24,
+      "rank": 17,
       "key": "unknown-step|unknown|add two mana in any combination of colors",
       "raw": "Add two mana in any combination of colors",
       "gapType": "unknown-step",
@@ -552,29 +398,7 @@
       }
     },
     {
-      "rank": 25,
-      "key": "unknown-step|unknown|as an additional cost to cast this spell, you may pay its replicate cost any number of times",
-      "raw": "As an additional cost to cast this spell, you may pay its replicate cost any number of times",
-      "gapType": "unknown-step",
-      "fieldPath": "unknown",
-      "count": 16,
-      "exampleCards": [
-        "Consign to Memory",
-        "Lose Focus",
-        "Ate-o'-Clock",
-        "Hatchery Sliver",
-        "Mists of Lórien"
-      ],
-      "exampleClauses": [
-        "As an additional cost to cast this spell, you may pay its replicate cost any number of times"
-      ],
-      "sources": {
-        "oracle-cards": 16,
-        "AtomicCards": 0
-      }
-    },
-    {
-      "rank": 26,
+      "rank": 18,
       "key": "unknown-step|unknown|umbra armor (if enchanted creature would be destroyed, instead remove all damage from it and destroy this aura.)",
       "raw": "Umbra armor (If enchanted creature would be destroyed, instead remove all damage from it and destroy this Aura.)",
       "gapType": "unknown-step",
@@ -596,7 +420,7 @@
       }
     },
     {
-      "rank": 27,
+      "rank": 19,
       "key": "unknown-step|unknown|when you cast this spell, copy it for each time you paid its replicate cost. you may choose new targets for the copies",
       "raw": "When you cast this spell, copy it for each time you paid its replicate cost. You may choose new targets for the copies",
       "gapType": "unknown-step",
@@ -618,7 +442,29 @@
       }
     },
     {
-      "rank": 28,
+      "rank": 20,
+      "key": "unknown-step|unknown|you may cast the copy without paying its mana cost",
+      "raw": "You may cast the copy without paying its mana cost",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 16,
+      "exampleCards": [
+        "Mysterious Confluence",
+        "Chandra's Dragonmech",
+        "Spellweaver Volute",
+        "Mysterious Stranger",
+        "Myra the Magnificent"
+      ],
+      "exampleClauses": [
+        "You may cast the copy without paying its mana cost"
+      ],
+      "sources": {
+        "oracle-cards": 16,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 21,
       "key": "unknown-step|unknown|you may choose not to untap this creature during your untap step",
       "raw": "You may choose not to untap this creature during your untap step",
       "gapType": "unknown-step",
@@ -640,7 +486,7 @@
       }
     },
     {
-      "rank": 29,
+      "rank": 22,
       "key": "unknown-step|unknown|add three mana of any one color",
       "raw": "Add three mana of any one color",
       "gapType": "unknown-step",
@@ -662,7 +508,7 @@
       }
     },
     {
-      "rank": 30,
+      "rank": 23,
       "key": "unknown-step|unknown|choose a card name",
       "raw": "Choose a card name",
       "gapType": "unknown-step",
@@ -685,7 +531,7 @@
       }
     },
     {
-      "rank": 31,
+      "rank": 24,
       "key": "unknown-step|unknown|creatures you control get +1/+1",
       "raw": "Creatures you control get +1/+1",
       "gapType": "unknown-step",
@@ -707,7 +553,7 @@
       }
     },
     {
-      "rank": 32,
+      "rank": 25,
       "key": "unknown-step|unknown|creatures you control have haste",
       "raw": "Creatures you control have haste",
       "gapType": "unknown-step",
@@ -729,7 +575,7 @@
       }
     },
     {
-      "rank": 33,
+      "rank": 26,
       "key": "unknown-fragment|pay_mana.who|extort (whenever you cast a spell, you",
       "raw": "Extort (Whenever you cast a spell, you",
       "gapType": "unknown-fragment",
@@ -751,7 +597,7 @@
       }
     },
     {
-      "rank": 34,
+      "rank": 27,
       "key": "unknown-fragment|gain_life.amount|its power",
       "raw": "its power",
       "gapType": "unknown-fragment",
@@ -777,7 +623,7 @@
       }
     },
     {
-      "rank": 35,
+      "rank": 28,
       "key": "unknown-fragment|gain_life.amount|that creature's toughness",
       "raw": "that creature's toughness",
       "gapType": "unknown-fragment",
@@ -802,7 +648,7 @@
       }
     },
     {
-      "rank": 36,
+      "rank": 29,
       "key": "unknown-fragment|gain_life.amount|the life lost this way",
       "raw": "the life lost this way",
       "gapType": "unknown-fragment",
@@ -824,7 +670,7 @@
       }
     },
     {
-      "rank": 37,
+      "rank": 30,
       "key": "unknown-step|unknown|this card enters attached to that creature.)",
       "raw": "This card enters attached to that creature.)",
       "gapType": "unknown-step",
@@ -846,7 +692,7 @@
       }
     },
     {
-      "rank": 38,
+      "rank": 31,
       "key": "unknown-step|unknown|while it's phased out, it's treated as though it doesn't exist.)",
       "raw": "While it's phased out, it's treated as though it doesn't exist.)",
       "gapType": "unknown-step",
@@ -868,7 +714,7 @@
       }
     },
     {
-      "rank": 39,
+      "rank": 32,
       "key": "unknown-step|unknown|you may look at the top card of your library",
       "raw": "you may look at the top card of your library",
       "gapType": "unknown-step",
@@ -890,7 +736,7 @@
       }
     },
     {
-      "rank": 40,
+      "rank": 33,
       "key": "unknown-step|unknown|you may play that card this turn",
       "raw": "You may play that card this turn",
       "gapType": "unknown-step",
@@ -912,29 +758,7 @@
       }
     },
     {
-      "rank": 41,
-      "key": "unknown-step|unknown|as an additional cost to cast this spell, sacrifice an artifact or creature",
-      "raw": "As an additional cost to cast this spell, sacrifice an artifact or creature",
-      "gapType": "unknown-step",
-      "fieldPath": "unknown",
-      "count": 14,
-      "exampleCards": [
-        "Reckoner's Bargain",
-        "Embrace Oblivion",
-        "Improvised Club",
-        "Fanatical Offering",
-        "Deadly Dispute"
-      ],
-      "exampleClauses": [
-        "As an additional cost to cast this spell, sacrifice an artifact or creature"
-      ],
-      "sources": {
-        "oracle-cards": 14,
-        "AtomicCards": 0
-      }
-    },
-    {
-      "rank": 42,
+      "rank": 34,
       "key": "unknown-step|unknown|choose one",
       "raw": "Choose one",
       "gapType": "unknown-step",
@@ -957,7 +781,7 @@
       }
     },
     {
-      "rank": 43,
+      "rank": 35,
       "key": "unknown-step|unknown|hidden agenda (start the game with this conspiracy face down in the command zone and secretly choose a card name",
       "raw": "Hidden agenda (Start the game with this conspiracy face down in the command zone and secretly choose a card name",
       "gapType": "unknown-step",
@@ -979,7 +803,7 @@
       }
     },
     {
-      "rank": 44,
+      "rank": 36,
       "key": "unknown-step|unknown|it can't block as long as it has a +1/+1 counter on it.)",
       "raw": "It can't block as long as it has a +1/+1 counter on it.)",
       "gapType": "unknown-step",
@@ -1001,7 +825,7 @@
       }
     },
     {
-      "rank": 45,
+      "rank": 37,
       "key": "unknown-step|unknown|search your library for up to two basic land cards, put them onto the battlefield tapped",
       "raw": "Search your library for up to two basic land cards, put them onto the battlefield tapped",
       "gapType": "unknown-step",
@@ -1024,7 +848,7 @@
       }
     },
     {
-      "rank": 46,
+      "rank": 38,
       "key": "unknown-step|unknown|then put the rest on the bottom in a random order.)",
       "raw": "then put the rest on the bottom in a random order.)",
       "gapType": "unknown-step",
@@ -1046,7 +870,7 @@
       }
     },
     {
-      "rank": 47,
+      "rank": 39,
       "key": "unknown-step|unknown|they have \"sacrifice this token: add {c}.\"",
       "raw": "They have \"Sacrifice this token: Add {C}.\"",
       "gapType": "unknown-step",
@@ -1068,7 +892,7 @@
       }
     },
     {
-      "rank": 48,
+      "rank": 40,
       "key": "unknown-step|unknown|timing rules still apply.)",
       "raw": "Timing rules still apply.)",
       "gapType": "unknown-step",
@@ -1090,7 +914,7 @@
       }
     },
     {
-      "rank": 49,
+      "rank": 41,
       "key": "unknown-step|unknown|unleash (you may have this creature enter with a +1/+1 counter on it",
       "raw": "Unleash (You may have this creature enter with a +1/+1 counter on it",
       "gapType": "unknown-step",
@@ -1112,7 +936,7 @@
       }
     },
     {
-      "rank": 50,
+      "rank": 42,
       "key": "unknown-step|unknown|when it attacks, sacrifice it at end of combat.)",
       "raw": "When it attacks, sacrifice it at end of combat.)",
       "gapType": "unknown-step",
@@ -1134,7 +958,7 @@
       }
     },
     {
-      "rank": 51,
+      "rank": 43,
       "key": "unknown-step|unknown|when this creature enters, create that many tokens that are copies of it.)",
       "raw": "When this creature enters, create that many tokens that are copies of it.)",
       "gapType": "unknown-step",
@@ -1156,7 +980,7 @@
       }
     },
     {
-      "rank": 52,
+      "rank": 44,
       "key": "unknown-step|unknown|you may turn this conspiracy face up any time and reveal that name.)",
       "raw": "You may turn this conspiracy face up any time and reveal that name.)",
       "gapType": "unknown-step",
@@ -1178,7 +1002,7 @@
       }
     },
     {
-      "rank": 53,
+      "rank": 45,
       "key": "unknown-step|unknown|activate only if there are seven or more cards in your graveyard",
       "raw": "Activate only if there are seven or more cards in your graveyard",
       "gapType": "unknown-step",
@@ -1200,7 +1024,7 @@
       }
     },
     {
-      "rank": 54,
+      "rank": 46,
       "key": "unknown-step|unknown|add two mana of any one color",
       "raw": "Add two mana of any one color",
       "gapType": "unknown-step",
@@ -1223,7 +1047,7 @@
       }
     },
     {
-      "rank": 55,
+      "rank": 47,
       "key": "unknown-step|unknown|draft this card face up",
       "raw": "Draft this card face up",
       "gapType": "unknown-step",
@@ -1245,7 +1069,7 @@
       }
     },
     {
-      "rank": 56,
+      "rank": 48,
       "key": "unknown-step|unknown|during your turn, this creature has first strike",
       "raw": "During your turn, this creature has first strike",
       "gapType": "unknown-step",
@@ -1267,7 +1091,7 @@
       }
     },
     {
-      "rank": 57,
+      "rank": 49,
       "key": "unknown-step|unknown|prevent the next 2 damage that would be dealt to any target this turn",
       "raw": "Prevent the next 2 damage that would be dealt to any target this turn",
       "gapType": "unknown-step",
@@ -1289,7 +1113,7 @@
       }
     },
     {
-      "rank": 58,
+      "rank": 50,
       "key": "unknown-step|unknown|support 2",
       "raw": "support 2",
       "gapType": "unknown-step",
@@ -1312,7 +1136,7 @@
       }
     },
     {
-      "rank": 59,
+      "rank": 51,
       "key": "unknown-step|unknown|target creature you control gains protection from the color of your choice until end of turn",
       "raw": "target creature you control gains protection from the color of your choice until end of turn",
       "gapType": "unknown-step",
@@ -1335,7 +1159,7 @@
       }
     },
     {
-      "rank": 60,
+      "rank": 52,
       "key": "unknown-step|unknown|then give each another counter of each kind already there.)",
       "raw": "then give each another counter of each kind already there.)",
       "gapType": "unknown-step",
@@ -1357,7 +1181,7 @@
       }
     },
     {
-      "rank": 61,
+      "rank": 53,
       "key": "unknown-step|unknown|as this creature enters, choose a color",
       "raw": "As this creature enters, choose a color",
       "gapType": "unknown-step",
@@ -1379,7 +1203,7 @@
       }
     },
     {
-      "rank": 62,
+      "rank": 54,
       "key": "unknown-step|unknown|each player reveals the top card of their library",
       "raw": "each player reveals the top card of their library",
       "gapType": "unknown-step",
@@ -1402,7 +1226,7 @@
       }
     },
     {
-      "rank": 63,
+      "rank": 55,
       "key": "unknown-step|unknown|gift a card (you may promise an opponent a gift as you cast this spell",
       "raw": "Gift a card (You may promise an opponent a gift as you cast this spell",
       "gapType": "unknown-step",
@@ -1424,7 +1248,7 @@
       }
     },
     {
-      "rank": 64,
+      "rank": 56,
       "key": "unknown-step|unknown|if it shares a creature type with this creature, you may reveal it",
       "raw": "If it shares a creature type with this creature, you may reveal it",
       "gapType": "unknown-step",
@@ -1446,7 +1270,7 @@
       }
     },
     {
-      "rank": 65,
+      "rank": 57,
       "key": "unknown-step|unknown|if you do, remove the words in square brackets.)",
       "raw": "If you do, remove the words in square brackets.)",
       "gapType": "unknown-step",
@@ -1468,7 +1292,7 @@
       }
     },
     {
-      "rank": 66,
+      "rank": 58,
       "key": "unknown-step|unknown|if you don't, it enters tapped",
       "raw": "If you don't, it enters tapped",
       "gapType": "unknown-step",
@@ -1490,7 +1314,7 @@
       }
     },
     {
-      "rank": 67,
+      "rank": 59,
       "key": "unknown-fragment|gain_life.amount|its toughness",
       "raw": "its toughness",
       "gapType": "unknown-fragment",
@@ -1515,7 +1339,7 @@
       }
     },
     {
-      "rank": 68,
+      "rank": 60,
       "key": "unknown-step|unknown|phasing (this phases in or out before you untap during each of your untap steps",
       "raw": "Phasing (This phases in or out before you untap during each of your untap steps",
       "gapType": "unknown-step",
@@ -1537,7 +1361,7 @@
       }
     },
     {
-      "rank": 69,
+      "rank": 61,
       "key": "unknown-step|unknown|play with the top card of your library revealed",
       "raw": "Play with the top card of your library revealed",
       "gapType": "unknown-step",
@@ -1559,7 +1383,7 @@
       }
     },
     {
-      "rank": 70,
+      "rank": 62,
       "key": "unknown-step|unknown|ravenous (this creature enters with x +1/+1 counters on it",
       "raw": "Ravenous (This creature enters with X +1/+1 counters on it",
       "gapType": "unknown-step",
@@ -1581,7 +1405,7 @@
       }
     },
     {
-      "rank": 71,
+      "rank": 63,
       "key": "unknown-step|unknown|riot (this creature enters with your choice of a +1/+1 counter or haste.)",
       "raw": "Riot (This creature enters with your choice of a +1/+1 counter or haste.)",
       "gapType": "unknown-step",
@@ -1603,7 +1427,7 @@
       }
     },
     {
-      "rank": 72,
+      "rank": 64,
       "key": "unknown-step|unknown|skip your draw step",
       "raw": "Skip your draw step",
       "gapType": "unknown-step",
@@ -1625,7 +1449,7 @@
       }
     },
     {
-      "rank": 73,
+      "rank": 65,
       "key": "unknown-step|unknown|this creature can attack this turn as though it didn't have defender",
       "raw": "this creature can attack this turn as though it didn't have defender",
       "gapType": "unknown-step",
@@ -1648,7 +1472,7 @@
       }
     },
     {
-      "rank": 74,
+      "rank": 66,
       "key": "unknown-step|unknown|this creature can't be blocked by more than one creature",
       "raw": "This creature can't be blocked by more than one creature",
       "gapType": "unknown-step",
@@ -1670,7 +1494,7 @@
       }
     },
     {
-      "rank": 75,
+      "rank": 67,
       "key": "unknown-step|unknown|this creature loses this ability and becomes an aura enchantment with enchant creature",
       "raw": "This creature loses this ability and becomes an Aura enchantment with enchant creature",
       "gapType": "unknown-step",
@@ -1692,7 +1516,7 @@
       }
     },
     {
-      "rank": 76,
+      "rank": 68,
       "key": "unknown-step|unknown|this effect doesn't remove this aura",
       "raw": "This effect doesn't remove this Aura",
       "gapType": "unknown-step",
@@ -1714,7 +1538,7 @@
       }
     },
     {
-      "rank": 77,
+      "rank": 69,
       "key": "unknown-step|unknown|x can't be 0",
       "raw": "X can't be 0",
       "gapType": "unknown-step",
@@ -1736,7 +1560,7 @@
       }
     },
     {
-      "rank": 78,
+      "rank": 70,
       "key": "unknown-step|unknown|you lose the game",
       "raw": "you lose the game",
       "gapType": "unknown-step",
@@ -1759,7 +1583,7 @@
       }
     },
     {
-      "rank": 79,
+      "rank": 71,
       "key": "unknown-step|unknown|you may attach this equipment to it",
       "raw": "you may attach this Equipment to it",
       "gapType": "unknown-step",
@@ -1781,7 +1605,7 @@
       }
     },
     {
-      "rank": 80,
+      "rank": 72,
       "key": "unknown-step|unknown|you may choose not to untap this artifact during your untap step",
       "raw": "You may choose not to untap this artifact during your untap step",
       "gapType": "unknown-step",
@@ -1803,7 +1627,7 @@
       }
     },
     {
-      "rank": 81,
+      "rank": 73,
       "key": "unknown-step|unknown|you may move a +1/+1 counter from this creature onto it.)",
       "raw": "you may move a +1/+1 counter from this creature onto it.)",
       "gapType": "unknown-step",
@@ -1825,7 +1649,7 @@
       }
     },
     {
-      "rank": 82,
+      "rank": 74,
       "key": "unknown-step|unknown|bloodthirst 1 (if an opponent was dealt damage this turn, this creature enters with a +1/+1 counter on it.)",
       "raw": "Bloodthirst 1 (If an opponent was dealt damage this turn, this creature enters with a +1/+1 counter on it.)",
       "gapType": "unknown-step",
@@ -1847,7 +1671,7 @@
       }
     },
     {
-      "rank": 83,
+      "rank": 75,
       "key": "unknown-step|unknown|choose target creature you control",
       "raw": "Choose target creature you control",
       "gapType": "unknown-step",
@@ -1870,7 +1694,7 @@
       }
     },
     {
-      "rank": 84,
+      "rank": 76,
       "key": "unknown-step|unknown|conspire (as you cast this spell, you may tap two untapped creatures you control that share a color with it",
       "raw": "Conspire (As you cast this spell, you may tap two untapped creatures you control that share a color with it",
       "gapType": "unknown-step",
@@ -1892,7 +1716,7 @@
       }
     },
     {
-      "rank": 85,
+      "rank": 77,
       "key": "unknown-step|unknown|enlist (as this creature attacks, you may tap a nonattacking creature you control without summoning sickness",
       "raw": "Enlist (As this creature attacks, you may tap a nonattacking creature you control without summoning sickness",
       "gapType": "unknown-step",
@@ -1914,7 +1738,7 @@
       }
     },
     {
-      "rank": 86,
+      "rank": 78,
       "key": "unknown-step|unknown|flip a coin",
       "raw": "Flip a coin",
       "gapType": "unknown-step",
@@ -1937,7 +1761,7 @@
       }
     },
     {
-      "rank": 87,
+      "rank": 79,
       "key": "unknown-step|unknown|if this creature was kicked, it enters with two +1/+1 counters on it",
       "raw": "If this creature was kicked, it enters with two +1/+1 counters on it",
       "gapType": "unknown-step",
@@ -1959,7 +1783,7 @@
       }
     },
     {
-      "rank": 88,
+      "rank": 80,
       "key": "unknown-step|unknown|instant and sorcery spells you cast cost {1} less to cast",
       "raw": "Instant and sorcery spells you cast cost {1} less to cast",
       "gapType": "unknown-step",
@@ -1981,7 +1805,7 @@
       }
     },
     {
-      "rank": 89,
+      "rank": 81,
       "key": "unknown-step|unknown|it connives",
       "raw": "it connives",
       "gapType": "unknown-step",
@@ -2004,7 +1828,7 @@
       }
     },
     {
-      "rank": 90,
+      "rank": 82,
       "key": "unknown-fragment|lose_life.amount|its mana value",
       "raw": "its mana value",
       "gapType": "unknown-fragment",
@@ -2030,7 +1854,7 @@
       }
     },
     {
-      "rank": 91,
+      "rank": 83,
       "key": "unknown-step|unknown|put that many +1/+1 counters on this creature",
       "raw": "put that many +1/+1 counters on this creature",
       "gapType": "unknown-step",
@@ -2052,7 +1876,7 @@
       }
     },
     {
-      "rank": 92,
+      "rank": 84,
       "key": "unknown-step|unknown|shuffle this permanent into its owner's library",
       "raw": "Shuffle this permanent into its owner's library",
       "gapType": "unknown-step",
@@ -2075,7 +1899,7 @@
       }
     },
     {
-      "rank": 93,
+      "rank": 85,
       "key": "unknown-step|unknown|tapped unless you control two or fewer other lands",
       "raw": "tapped unless you control two or fewer other lands",
       "gapType": "unknown-step",
@@ -2097,7 +1921,7 @@
       }
     },
     {
-      "rank": 94,
+      "rank": 86,
       "key": "unknown-step|unknown|then reveal the top card of your library",
       "raw": "then reveal the top card of your library",
       "gapType": "unknown-step",
@@ -2119,7 +1943,7 @@
       }
     },
     {
-      "rank": 95,
+      "rank": 87,
       "key": "unknown-step|unknown|this mana lasts until end of combat.)",
       "raw": "This mana lasts until end of combat.)",
       "gapType": "unknown-step",
@@ -2141,7 +1965,7 @@
       }
     },
     {
-      "rank": 96,
+      "rank": 88,
       "key": "unknown-step|unknown|this permanent's power and toughness are each equal to the number of cards in your hand",
       "raw": "this permanent's power and toughness are each equal to the number of cards in your hand",
       "gapType": "unknown-step",
@@ -2163,7 +1987,7 @@
       }
     },
     {
-      "rank": 97,
+      "rank": 89,
       "key": "unknown-step|unknown|this permanent's power and toughness are each equal to the number of lands you control",
       "raw": "this permanent's power and toughness are each equal to the number of lands you control",
       "gapType": "unknown-step",
@@ -2185,7 +2009,7 @@
       }
     },
     {
-      "rank": 98,
+      "rank": 90,
       "key": "unknown-step|unknown|turn it face up any time for its mana cost if it's a creature card.)",
       "raw": "Turn it face up any time for its mana cost if it's a creature card.)",
       "gapType": "unknown-step",
@@ -2207,7 +2031,7 @@
       }
     },
     {
-      "rank": 99,
+      "rank": 91,
       "key": "unknown-fragment|mill.amount|until they reveal a land card",
       "raw": "until they reveal a land card",
       "gapType": "unknown-fragment",
@@ -2233,7 +2057,7 @@
       }
     },
     {
-      "rank": 100,
+      "rank": 92,
       "key": "unknown-step|unknown|when this leaves the battlefield, that card returns to the battlefield.)",
       "raw": "When this leaves the battlefield, that card returns to the battlefield.)",
       "gapType": "unknown-step",
@@ -2251,6 +2075,182 @@
       ],
       "sources": {
         "oracle-cards": 11,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 93,
+      "key": "unknown-step|unknown|when you do, add its power to this creature's until end of turn.)",
+      "raw": "When you do, add its power to this creature's until end of turn.)",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 11,
+      "exampleCards": [
+        "Benalish Faithbonder",
+        "Aradesh, the Founder",
+        "Guardian of New Benalia",
+        "Balduvian Berserker",
+        "Coalition Warbrute"
+      ],
+      "exampleClauses": [
+        "When you do, add its power to this creature's until end of turn.)"
+      ],
+      "sources": {
+        "oracle-cards": 11,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 94,
+      "key": "unknown-step|unknown|a deck can have any number of cards named this permanent",
+      "raw": "A deck can have any number of cards named this permanent",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 10,
+      "exampleCards": [
+        "Persistent Petitioners",
+        "Relentless Rats",
+        "Hare Apparent",
+        "Dragon's Approach",
+        "Shadowborn Apostle"
+      ],
+      "exampleClauses": [
+        "A deck can have any number of cards named this permanent"
+      ],
+      "sources": {
+        "oracle-cards": 10,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 95,
+      "key": "unknown-step|unknown|add one after your draw step",
+      "raw": "Add one after your draw step",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 10,
+      "exampleCards": [
+        "Urza Assembles the Titans",
+        "Founding the Third Path",
+        "The Cruelty of Gix",
+        "Braids's Frightful Return",
+        "The Elder Dragon War"
+      ],
+      "exampleClauses": [
+        "Add one after your draw step"
+      ],
+      "sources": {
+        "oracle-cards": 10,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 96,
+      "key": "unknown-step|unknown|all creatures able to block this creature do so",
+      "raw": "All creatures able to block this creature do so",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 10,
+      "exampleCards": [
+        "Elvish Bard",
+        "Breaker of Armies",
+        "Nessian Boar",
+        "Nath's Elite",
+        "Prized Unicorn"
+      ],
+      "exampleClauses": [
+        "All creatures able to block this creature do so"
+      ],
+      "sources": {
+        "oracle-cards": 10,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 97,
+      "key": "unknown-step|unknown|as this aura enters, choose a color",
+      "raw": "As this Aura enters, choose a color",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 10,
+      "exampleCards": [
+        "Utopia Sprawl",
+        "Floating Shield",
+        "Flickering Ward",
+        "Chromatic Armor",
+        "Pentarch Ward"
+      ],
+      "exampleClauses": [
+        "As this Aura enters, choose a color"
+      ],
+      "sources": {
+        "oracle-cards": 10,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 98,
+      "key": "unknown-step|unknown|as this creature enters, choose a creature type",
+      "raw": "As this creature enters, choose a creature type",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 10,
+      "exampleCards": [
+        "Metallic Mimic",
+        "Roaming Throne",
+        "Bloodline Pretender",
+        "Species Specialist",
+        "Adaptive Automaton"
+      ],
+      "exampleClauses": [
+        "As this creature enters, choose a creature type"
+      ],
+      "sources": {
+        "oracle-cards": 10,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 99,
+      "key": "unknown-step|unknown|as this land enters, you may pay 2 life",
+      "raw": "As this land enters, you may pay 2 life",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 10,
+      "exampleCards": [
+        "Stomping Ground",
+        "Steam Vents",
+        "Breeding Pool",
+        "Blood Crypt",
+        "Sacred Foundry"
+      ],
+      "exampleClauses": [
+        "As this land enters, you may pay 2 life"
+      ],
+      "sources": {
+        "oracle-cards": 10,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 100,
+      "key": "unknown-step|unknown|cast this spell only during the declare attackers step and only if you've been attacked this step",
+      "raw": "Cast this spell only during the declare attackers step and only if you've been attacked this step",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 10,
+      "exampleCards": [
+        "Defiant Stand",
+        "Warrior's Stand",
+        "Deep Wood",
+        "Rally the Troops",
+        "Assassin's Blade"
+      ],
+      "exampleClauses": [
+        "Cast this spell only during the declare attackers step and only if you've been attacked this step"
+      ],
+      "sources": {
+        "oracle-cards": 10,
         "AtomicCards": 0
       }
     }

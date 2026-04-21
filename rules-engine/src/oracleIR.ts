@@ -207,6 +207,13 @@ export type OracleEffectStep =
       readonly raw: string;
     }
   | {
+      readonly kind: 'gain_class_level';
+      readonly level: number;
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
       readonly kind: 'exile_top';
       readonly who: OraclePlayerSelector;
       readonly amount: OracleQuantity;
@@ -332,6 +339,8 @@ export type OracleEffectStep =
       readonly mana: string;
       /** Optional mana choices for clauses like "Add {R} or {G}." */
       readonly manaOptions?: readonly string[];
+      /** Requires an explicit chosen color/mana binding instead of defaulting to the first option. */
+      readonly requiresChosenMana?: boolean;
       readonly optional?: boolean;
       readonly sequence?: 'then';
       readonly raw: string;
@@ -347,6 +356,27 @@ export type OracleEffectStep =
     }
   | {
       readonly kind: 'choose_opponent';
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
+      readonly kind: 'choose_color';
+      /** Optional restricted color set, expressed as mana symbols such as {W}. */
+      readonly manaOptions?: readonly string[];
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
+      readonly kind: 'choose_creature_type';
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
+      readonly kind: 'choose_target_creature';
+      readonly target: OracleObjectSelector;
       readonly optional?: boolean;
       readonly sequence?: 'then';
       readonly raw: string;
