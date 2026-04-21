@@ -72,6 +72,7 @@ import {
   applyRingTemptsYouStep,
   applyTimeTravelStep,
 } from './oracleIRExecutorKeywordStepHandlers';
+import { opponentsHaveCantWinEffect, playerHasCantLoseEffect } from './winEffectCards';
 import type { LastKnownPermanentSnapshot } from './oracleIRExecutorLastKnownInfo';
 import { evaluateModifyPtCondition } from './oracleIRExecutorModifyPtCondition';
 import { evaluateModifyPtWhereX } from './oracleIRExecutorModifyPtWhereEvaluator';
@@ -335,6 +336,10 @@ function spellCanBeCountered(state: GameState, stackItem: any, ctx?: OracleIRExe
   }
 
   return !battlefieldGrantsCounterImmunity(state, stackItem);
+}
+
+function isPlayerStillInGame(player: any): boolean {
+  return Boolean(player?.id) && !player?.hasLost && !player?.eliminated && !player?.conceded && !player?.spectator && !player?.isSpectator;
 }
 
 type RecurseExecutor = (
@@ -834,6 +839,104 @@ export function applyOracleIRStepsToGameStateImpl(
         applyHandledStepResult(step, result);
         break;
       }
+      case 'win_game': {
+        if (!controllerId) {
+          recordSkippedStep(
+            step,
+            `Skipped win game (controller unavailable): ${step.raw}`,
+            'invalid_controller',
+            {
+              classification: 'invalid_input',
+            }
+          );
+          break;
+        }
+
+        const cantWin = opponentsHaveCantWinEffect(
+          controllerId as any,
+          (nextState.battlefield || []) as any,
+          nextState.players as any,
+          ((nextState as any).winLossEffects || []) as any
+        );
+        if (cantWin.hasCantWin) {
+          recordSkippedStep(
+            step,
+            `Skipped win game (blocked by ${cantWin.source}): ${step.raw}`,
+            'impossible_action',
+            {
+              classification: 'invalid_input',
+            }
+          );
+          break;
+        }
+
+        nextState = {
+          ...nextState,
+          winner: controllerId,
+          status: 'finished' as any,
+          winReason: String(step.raw || 'You win the game') as any,
+        } as GameState;
+        setLastStepOutcome(step, 'applied');
+        log.push(`${controllerId} wins the game`);
+        appliedSteps.push(step);
+        break;
+      }
+      case 'lose_game': {
+        if (!controllerId) {
+          recordSkippedStep(
+            step,
+            `Skipped lose game (controller unavailable): ${step.raw}`,
+            'invalid_controller',
+            {
+              classification: 'invalid_input',
+            }
+          );
+          break;
+        }
+
+        const cantLose = playerHasCantLoseEffect(
+          controllerId as any,
+          (nextState.battlefield || []) as any,
+          nextState.players as any,
+          ((nextState as any).winLossEffects || []) as any
+        );
+        if (cantLose.hasCantLose) {
+          recordSkippedStep(
+            step,
+            `Skipped lose game (blocked by ${cantLose.source}): ${step.raw}`,
+            'impossible_action',
+            {
+              classification: 'invalid_input',
+            }
+          );
+          break;
+        }
+
+        const nextPlayers = nextState.players.map((player) =>
+          player.id === controllerId ? ({ ...player, hasLost: true } as typeof player) : player
+        );
+        nextState = {
+          ...nextState,
+          players: nextPlayers,
+        } as GameState;
+
+        log.push(`${controllerId} loses the game`);
+
+        const remainingPlayers = nextPlayers.filter(isPlayerStillInGame);
+        if (remainingPlayers.length === 1) {
+          nextState = {
+            ...nextState,
+            winner: remainingPlayers[0].id,
+            status: 'finished' as any,
+            winReason: `${controllerId} lost the game` as any,
+          } as GameState;
+          log.push(`${remainingPlayers[0].id} wins the game`);
+        }
+
+        setLastStepOutcome(step, 'applied');
+        appliedSteps.push(step);
+        break;
+      }
       case 'clash': {
         const result = applyClashStep(nextState, step, currentCtx);
         applyHandledStepResult(step, result, (appliedResult) => {
@@ -1114,6 +1217,7 @@ export function applyOracleIRStepsToGameStateImpl(
 
         currentCtx = {
           ...currentCtx,
+          ...(/promise an opponent a gift/i.test(String(step.raw || '')) ? { giftPromised: true } : {}),
           selectorContext: {
             ...(currentCtx.selectorContext || {}),
             targetOpponentId: chosenOpponentId,
@@ -1204,6 +1308,32 @@ export function applyOracleIRStepsToGameStateImpl(
         };
         setLastStepOutcome(step, 'applied');
         log.push(`Chose creature type ${chosenCreatureType}`);
+        appliedSteps.push(step);
+        break;
+      }
+      case 'choose_card_name': {
+        const chosenCardName = String(currentCtx.selectorContext?.chosenCardName || '').trim();
+        if (!chosenCardName) {
+          recordSkippedStep(
+            step,
+            `Skipped choose card name (requires player choice): ${step.raw}`,
+            'player_choice_required',
+            {
+              classification: 'player_choice',
+            }
+          );
+          break;
+        }
+
+        currentCtx = {
+          ...currentCtx,
+          selectorContext: {
+            ...(currentCtx.selectorContext || {}),
+            chosenCardName,
+          },
+        };
+        setLastStepOutcome(step, 'applied');
+        log.push(`Chose card name ${chosenCardName}`);
         appliedSteps.push(step);
         break;
       }
@@ -1784,7 +1914,7 @@ export function applyOracleIRStepsToGameStateImpl(
             break;
           }
 
-          const copyCount = resolveCopySpellCount(nextState, controllerId, step);
+          const copyCount = resolveCopySpellCount(nextState, controllerId, step, currentCtx);
           if (copyCount <= 0) {
             setLastStepOutcome(step, 'applied', { count: 0 });
             appliedSteps.push(step);
@@ -1868,7 +1998,7 @@ export function applyOracleIRStepsToGameStateImpl(
             break;
           }
 
-          const copyCount = resolveCopySpellCount(nextState, controllerId, step);
+          const copyCount = resolveCopySpellCount(nextState, controllerId, step, currentCtx);
           if (copyCount <= 0) {
             setLastStepOutcome(step, 'applied', { count: 0 });
             appliedSteps.push(step);
@@ -2014,7 +2144,17 @@ export function applyOracleIRStepsToGameStateImpl(
       }
       case 'exile': {
         const result = applyExileStep(nextState, step, currentCtx);
-        applyHandledStepResult(step, result);
+        applyHandledStepResult(step, result, (appliedResult) => {
+          lastExiledCardCount = Math.max(0, Number(appliedResult.lastExiledCardCount) || 0);
+          lastExiledCards = Array.isArray(appliedResult.lastExiledCards)
+            ? [...appliedResult.lastExiledCards]
+            : [];
+          if (Array.isArray(appliedResult.lastMovedCards) && appliedResult.lastMovedCards.length > 0) {
+            lastMovedCards = [...appliedResult.lastMovedCards];
+          } else if (lastExiledCards.length > 0) {
+            lastMovedCards = [...lastExiledCards];
+          }
+        });
         break;
       }
       case 'sacrifice': {

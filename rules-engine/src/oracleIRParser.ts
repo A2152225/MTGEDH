@@ -11,7 +11,10 @@ import type {
   OraclePlayerSelector,
   OracleQuantity,
 } from './oracleIR';
-import { tryParseChooseModeBlock as tryParseChooseModeBlockFromModule } from './oracleIRParserChooseMode';
+import {
+  tryParseChooseModeBlock as tryParseChooseModeBlockFromModule,
+  tryParseChooseModeBlockWithPrelude as tryParseChooseModeBlockWithPreludeFromModule,
+} from './oracleIRParserChooseMode';
 import { tryParseDelayedBattlefieldActionClause } from './oracleIRParserDelayedBattlefieldActions';
 import { tryParseDelayedTriggerClause } from './oracleIRParserDelayedTriggeredClauses';
 import { parseEffectLevelImpulsePermissionClause as parseExileTopImpulsePermissionClause } from './oracleIRParserEffectImpulsePermission';
@@ -63,6 +66,7 @@ import {
   expandGraveyardOrExilePermissionAbilities,
   expandUnearthKeywordAbilities,
   expandKeywordActionUnknownAbilities,
+  expandTurnScopedStaticKeywordAbilities,
   mergeDestroyCantRegenerateFollowupAbilities,
   mergeSearchLibraryToHandFollowupAbilities,
   mergeSearchLibraryPutOnTopFollowupAbilities,
@@ -79,28 +83,36 @@ import {
   expandMixedBattlefieldAndGraveyardExileAbilities,
   expandMoveZoneCopiedSpellAbilities,
   expandMoveZoneHasteFollowupAbilities,
+  expandChosenColorProtectionAbilities,
   mergeDieRollResultTableAbilities,
   expandOtherwiseConditionalUnknownAbilities,
   expandLeaveBattlefieldReplacementUnknownAbilities,
   expandPreventDamageUnknownAbilities,
+  expandWinLossUnknownAbilities,
   pruneForetellReminderAbilities,
   pruneConvokeReminderAbilities,
   pruneKickerReminderAbilities,
   pruneCascadeReminderAbilities,
   pruneRedundantCascadeReminderUnknownAbilities,
   pruneRedundantBackupReminderUnknownAbilities,
+  pruneCumulativeUpkeepReminderAbilities,
   pruneRedundantPrototypeReminderUnknownAbilities,
   pruneFirebendingReminderAbilities,
   pruneRedundantEarthbendReminderUnknownAbilities,
   pruneRedundantWaterbendReminderUnknownAbilities,
   pruneSoulbondReminderAbilities,
+  pruneExtortReminderAbilities,
   pruneMadnessReminderAbilities,
   pruneCipherReminderAbilities,
   pruneMorphReminderAbilities,
   pruneRedundantFaceDownReminderUnknownAbilities,
   pruneRedundantAttackRequirementAbilities,
   pruneRedundantArtifactTokenReminderUnknownAbilities,
+  pruneRedundantDecayedReminderUnknownAbilities,
   pruneRedundantEldraziTokenManaReminderUnknownAbilities,
+  pruneRedundantEnchantAttachmentReminderUnknownAbilities,
+  pruneRedundantHiddenAgendaRevealUnknownAbilities,
+  pruneRedundantTimingRulesReminderUnknownAbilities,
   pruneRedundantBestowReminderUnknownAbilities,
   pruneRedundantCrewReminderAbilities,
   pruneExternallyHandledStaticUnknownAbilities,
@@ -112,6 +124,7 @@ import {
   lowerSelfEntryCounterReplacementAbilities,
   pruneRedundantSpellCantBeCounteredAbilities,
   pruneRedundantProliferateReminderUnknownAbilities,
+  pruneRedundantPhasingReminderUnknownAbilities,
   pruneRedundantClashReminderUnknownAbilities,
   expandFutureSpellEffectUnknownAbilities,
   pruneRedundantTriggerRestrictionUnknownAbilities,
@@ -291,6 +304,10 @@ function tryParseVillainousChoiceStep(
 
 function parseAbilityToIRAbility(ability: ParsedAbility, cardName?: string): OracleIRAbility {
   const effectText = abilityEffectText(ability);
+  const parseEffectTextToFlatSteps = (text: string): readonly OracleEffectStep[] => {
+    const clauses = buildAbilityClauses({ effectText: text, cardName, parseEffectClauseToStep });
+    return clauses.map(parseEffectClauseToStep);
+  };
 
   // Check for a modal "Choose N \u2014 \u2022 Mode A \u2022 Mode B" block at the top of the effect.
   // When found, the entire effect is a single choose_mode step rather than
@@ -307,6 +324,23 @@ function parseAbilityToIRAbility(ability: ParsedAbility, cardName?: string): Ora
       interveningIf: ability.interveningIf,
       effectText,
       steps: [chooseModeStep],
+    };
+  }
+
+  const chooseModeStepsWithPrelude = tryParseChooseModeBlockWithPreludeFromModule(
+    effectText,
+    (modeEffectText) => parseOracleTextToIR(modeEffectText, cardName).abilities.flatMap(modeAbility => modeAbility.steps),
+    parseEffectTextToFlatSteps,
+  );
+  if (chooseModeStepsWithPrelude !== null) {
+    return {
+      type: ability.type,
+      text: ability.text,
+      cost: ability.cost,
+      triggerCondition: ability.triggerCondition,
+      interveningIf: ability.interveningIf,
+      effectText,
+      steps: [...chooseModeStepsWithPrelude],
     };
   }
 
@@ -1263,7 +1297,7 @@ function mergeSplitChooseModeParsedAbilities(parsed: OracleTextParseResult): Ora
   for (let index = 0; index < parsed.abilities.length; index += 1) {
     const current = parsed.abilities[index];
     const currentText = String(current.text || '').trim();
-    if (!/^choose\s+(?:one\s+or\s+both|one|two|three|four|up\s+to\s+\w+|any\s+number)/i.test(currentText)) {
+    if (!/^choose\s+(?:one\s+or\s+both|one\s+or\s+more|one|two|three|four|up\s+to\s+\w+|any\s+number)/i.test(currentText)) {
       merged.push(current);
       continue;
     }
@@ -1273,7 +1307,7 @@ function mergeSplitChooseModeParsedAbilities(parsed: OracleTextParseResult): Ora
     while (nextIndex < parsed.abilities.length) {
       const next = parsed.abilities[nextIndex];
       const nextText = String(next.text || '').trim();
-      if (!/^[\u2022•]/.test(nextText)) break;
+      if (!/^[\u2022•\uFFFD]/.test(nextText)) break;
       modeAbilities.push(next);
       nextIndex += 1;
     }
@@ -1328,11 +1362,13 @@ export function parseOracleTextToIR(oracleText: string, cardName?: string): Orac
   abilities = expandMixedBattlefieldAndGraveyardExileAbilities(abilities);
   abilities = expandPayManaUnknownAbilities(abilities);
   abilities = expandChoiceUnknownAbilities(abilities);
+  abilities = expandChosenColorProtectionAbilities(abilities);
   abilities = expandCopyChapterAbilityUnknownAbilities(abilities);
   abilities = expandLeaveBattlefieldReplacementUnknownAbilities(abilities);
   abilities = expandCopySpellUnknownAbilities(abilities);
   abilities = expandCopyPermanentUnknownAbilities(abilities);
   abilities = expandPreventDamageUnknownAbilities(abilities);
+  abilities = expandWinLossUnknownAbilities(abilities);
   abilities = expandTapMatchingPermanentCountAbilities(abilities);
   abilities = expandSimpleConditionalUnknownAbilities(abilities);
   abilities = expandCopySpellUnknownAbilities(abilities);
@@ -1354,9 +1390,11 @@ export function parseOracleTextToIR(oracleText: string, cardName?: string): Orac
   abilities = pruneCascadeReminderAbilities(abilities);
   abilities = pruneRedundantCascadeReminderUnknownAbilities(abilities);
   abilities = pruneRedundantBackupReminderUnknownAbilities(abilities);
+  abilities = pruneCumulativeUpkeepReminderAbilities(abilities);
   abilities = pruneRedundantPrototypeReminderUnknownAbilities(abilities);
   abilities = pruneFirebendingReminderAbilities(abilities);
   abilities = pruneSoulbondReminderAbilities(abilities);
+  abilities = pruneExtortReminderAbilities(abilities);
   abilities = pruneMadnessReminderAbilities(abilities);
   abilities = pruneCipherReminderAbilities(abilities);
   abilities = pruneForetellReminderAbilities(abilities);
@@ -1365,11 +1403,16 @@ export function parseOracleTextToIR(oracleText: string, cardName?: string): Orac
   abilities = pruneRedundantAttackRequirementAbilities(abilities);
   abilities = pruneRedundantCrewReminderAbilities(abilities);
   abilities = pruneRedundantArtifactTokenReminderUnknownAbilities(abilities);
+  abilities = pruneRedundantDecayedReminderUnknownAbilities(abilities);
   abilities = pruneRedundantEldraziTokenManaReminderUnknownAbilities(abilities);
+  abilities = pruneRedundantEnchantAttachmentReminderUnknownAbilities(abilities);
+  abilities = pruneRedundantHiddenAgendaRevealUnknownAbilities(abilities);
+  abilities = pruneRedundantTimingRulesReminderUnknownAbilities(abilities);
   abilities = pruneRedundantSpellCantBeCounteredAbilities(abilities);
   abilities = expandFutureSpellEffectUnknownAbilities(abilities);
   abilities = pruneRedundantTriggerRestrictionUnknownAbilities(abilities);
   abilities = pruneRedundantStillLandUnknownAbilities(abilities);
+  abilities = pruneRedundantPhasingReminderUnknownAbilities(abilities);
   abilities = pruneRedundantProliferateReminderUnknownAbilities(abilities);
   abilities = pruneRedundantLookTopReorderUnknownAbilities(abilities);
   abilities = pruneRedundantClashReminderUnknownAbilities(abilities);
@@ -1403,6 +1446,7 @@ export function parseOracleTextToIR(oracleText: string, cardName?: string): Orac
   abilities = lowerDiscoverKeywordAbilities(abilities);
   abilities = pruneRedundantDiscoverReminderUnknownAbilities(abilities);
   abilities = expandKeywordActionUnknownAbilities(abilities);
+  abilities = expandTurnScopedStaticKeywordAbilities(abilities);
   abilities = pruneRedundantExploreReminderAbilities(abilities);
   abilities = pruneRedundantEarthbendReminderUnknownAbilities(abilities);
   abilities = pruneRedundantWaterbendReminderUnknownAbilities(abilities);

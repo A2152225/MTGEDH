@@ -5,6 +5,7 @@ export type OracleQuantity =
   | { readonly kind: 'reference_amount'; readonly raw?: string }
   | { readonly kind: 'x' }
   | { readonly kind: 'all' }
+  | { readonly kind: 'replicate_count' }
   | { readonly kind: 'spells_cast_before_this_turn' }
   | { readonly kind: 'votes_for_choice'; readonly choice: string; readonly multiplier?: number }
   | { readonly kind: 'object_stat'; readonly subject: 'it' | 'that_card' | 'that_creature'; readonly stat: 'power' | 'toughness' | 'mana_value' }
@@ -375,6 +376,12 @@ export type OracleEffectStep =
       readonly raw: string;
     }
   | {
+      readonly kind: 'choose_card_name';
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
       readonly kind: 'choose_target_creature';
       readonly target: OracleObjectSelector;
       readonly optional?: boolean;
@@ -734,6 +741,18 @@ export type OracleEffectStep =
       readonly combatOnly?: boolean;
       /** Restricts legal target sources to those sharing a color with the linked exiled card. */
       readonly sharesColorWithLinkedExiledCard?: boolean;
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
+      readonly kind: 'win_game';
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
+      readonly kind: 'lose_game';
       readonly optional?: boolean;
       readonly sequence?: 'then';
       readonly raw: string;

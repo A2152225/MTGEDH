@@ -13,6 +13,47 @@ function parseManaChoiceList(raw: string): string[] {
   return Array.isArray(matches) ? matches.map(symbol => String(symbol || '').trim()).filter(Boolean) : [];
 }
 
+function parseSmallNumber(raw: string): number | null {
+  const normalized = String(raw || '').trim().toLowerCase();
+  if (!normalized) return null;
+  if (/^\d+$/.test(normalized)) return Number.parseInt(normalized, 10);
+
+  switch (normalized) {
+    case 'a':
+    case 'an':
+    case 'one':
+      return 1;
+    case 'two':
+      return 2;
+    case 'three':
+      return 3;
+    case 'four':
+      return 4;
+    case 'five':
+      return 5;
+    case 'six':
+      return 6;
+    case 'seven':
+      return 7;
+    case 'eight':
+      return 8;
+    case 'nine':
+      return 9;
+    case 'ten':
+      return 10;
+    case 'eleven':
+      return 11;
+    case 'twelve':
+      return 12;
+    default:
+      return null;
+  }
+}
+
+function buildRepeatedMana(symbol: string, count: number): string {
+  return Array.from({ length: count }, () => symbol).join('');
+}
+
 function countEnergySymbols(raw: string): number {
   const matches = String(raw || '').match(/\{E\}/gi);
   return Array.isArray(matches) ? matches.length : 0;
@@ -31,6 +72,31 @@ export function tryParseSimpleActionClause(args: {
   withMeta: WithMeta;
 }): OracleEffectStep | null {
   const { clause, rawClause, withMeta } = args;
+
+  {
+    const searchBattlefieldMultiple = clause.match(
+      new RegExp(
+        `^search your library for up to (${COUNTER_AMOUNT_PATTERN}) (.+?) cards,\\s*(reveal them,\\s*)?put them onto the battlefield( tapped)?(?: under your control)?(?:,\\s*(?:then\\s+)?shuffle(?: your library)?)?$`,
+        'i'
+      )
+    );
+    if (searchBattlefieldMultiple) {
+      const maxResults = parseSmallNumber(searchBattlefieldMultiple[1]);
+      if (maxResults && maxResults > 0) {
+        return withMeta({
+          kind: 'search_library',
+          who: { kind: 'you' },
+          criteria: { kind: 'raw', text: String(searchBattlefieldMultiple[2] || '').trim() },
+          destination: 'battlefield',
+          revealFound: Boolean(searchBattlefieldMultiple[3]),
+          entersTapped: Boolean(searchBattlefieldMultiple[4]),
+          shuffle: /\bshuffle\b/i.test(clause) || undefined,
+          maxResults,
+          raw: rawClause,
+        });
+      }
+    }
+  }
 
   {
     const searchBattlefield = clause.match(
@@ -102,6 +168,86 @@ export function tryParseSimpleActionClause(args: {
         who: parsePlayerSelector(addAnyColorMana[1]),
         mana: '{W}',
         manaOptions: ['{W}', '{U}', '{B}', '{R}', '{G}'],
+        raw: rawClause,
+      });
+    }
+  }
+
+  {
+    const addAnyOneColorMana = clause.match(
+      new RegExp(`^${PLAYER_SUBJECT_PREFIX}adds?\\s+(${COUNTER_AMOUNT_PATTERN})\\s+mana\\s+of\\s+any\\s+one\\s+color\\s*$`, 'i')
+    );
+    if (addAnyOneColorMana) {
+      const manaCount = parseSmallNumber(addAnyOneColorMana[2]);
+      if (manaCount && manaCount > 0) {
+        return withMeta({
+          kind: 'add_mana',
+          who: parsePlayerSelector(addAnyOneColorMana[1]),
+          mana: buildRepeatedMana('{W}', manaCount),
+          manaOptions: ['{W}', '{U}', '{B}', '{R}', '{G}'],
+          requiresChosenMana: true,
+          raw: rawClause,
+        });
+      }
+    }
+  }
+
+  {
+    const addAnyCombinationColorMana = clause.match(
+      new RegExp(`^${PLAYER_SUBJECT_PREFIX}adds?\\s+(${COUNTER_AMOUNT_PATTERN})\\s+mana\\s+in\\s+any\\s+combination\\s+of\\s+colors\\s*$`, 'i')
+    );
+    if (addAnyCombinationColorMana) {
+      const manaCount = parseSmallNumber(addAnyCombinationColorMana[2]);
+      if (manaCount && manaCount > 0) {
+        return withMeta({
+          kind: 'add_mana',
+          who: parsePlayerSelector(addAnyCombinationColorMana[1]),
+          mana: buildRepeatedMana('{W}', manaCount),
+          manaOptions: ['{W}', '{U}', '{B}', '{R}', '{G}'],
+          requiresChosenMana: true,
+          raw: rawClause,
+        });
+      }
+    }
+  }
+
+  {
+    const chooseColor = clause.match(/^(?:as\s+.+?\s+enters,\s+)?choose\s+a\s+color\s*$/i);
+    if (chooseColor) {
+      return withMeta({
+        kind: 'choose_color',
+        manaOptions: ['{W}', '{U}', '{B}', '{R}', '{G}'],
+        raw: rawClause,
+      });
+    }
+  }
+
+  {
+    const chooseCreatureType = clause.match(/^(?:as\s+.+?\s+enters,\s+)?choose\s+a\s+creature\s+type\s*$/i);
+    if (chooseCreatureType) {
+      return withMeta({
+        kind: 'choose_creature_type',
+        raw: rawClause,
+      });
+    }
+  }
+
+  {
+    const chooseCardName = clause.match(/^(?:secretly\s+)?choose\s+a\s+card\s+name\s*$/i);
+    if (chooseCardName) {
+      return withMeta({
+        kind: 'choose_card_name',
+        raw: rawClause,
+      });
+    }
+  }
+
+  {
+    const chooseTargetCreature = clause.match(/^choose\s+target\s+creature\s*$/i);
+    if (chooseTargetCreature) {
+      return withMeta({
+        kind: 'choose_target_creature',
+        target: { kind: 'raw', text: 'target creature' },
         raw: rawClause,
       });
     }

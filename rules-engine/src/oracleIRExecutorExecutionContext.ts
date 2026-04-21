@@ -115,6 +115,8 @@ export function buildOracleIRExecutionContext(
   const hintChosenMana = typeof hint?.chosenMana === 'string' ? hint.chosenMana.trim() || undefined : undefined;
   const hintChosenCreatureType =
     typeof hint?.chosenCreatureType === 'string' ? hint.chosenCreatureType.trim() || undefined : undefined;
+  const hintChosenCardName =
+    typeof hint?.chosenCardName === 'string' ? hint.chosenCardName.trim() || undefined : undefined;
   const hintUnlessPaysLifeChoice =
     hint?.unlessPaysLifeChoice === 'pay' || hint?.unlessPaysLifeChoice === 'decline'
       ? hint.unlessPaysLifeChoice
@@ -131,6 +133,8 @@ export function buildOracleIRExecutionContext(
   const baseChosenMana = typeof baseSel?.chosenMana === 'string' ? baseSel.chosenMana.trim() || undefined : undefined;
   const baseChosenCreatureType =
     typeof baseSel?.chosenCreatureType === 'string' ? baseSel.chosenCreatureType.trim() || undefined : undefined;
+  const baseChosenCardName =
+    typeof baseSel?.chosenCardName === 'string' ? baseSel.chosenCardName.trim() || undefined : undefined;
   const baseChosenDungeonId = typeof baseSel?.chosenDungeonId === 'string' ? baseSel.chosenDungeonId.trim() || undefined : undefined;
   const baseChosenDungeonRoomId =
     typeof baseSel?.chosenDungeonRoomId === 'string' ? baseSel.chosenDungeonRoomId.trim() || undefined : undefined;
@@ -212,6 +216,9 @@ export function buildOracleIRExecutionContext(
     ...(hintChosenMana || baseChosenMana ? { chosenMana: hintChosenMana ?? baseChosenMana } : {}),
     ...(hintChosenCreatureType || baseChosenCreatureType
       ? { chosenCreatureType: hintChosenCreatureType ?? baseChosenCreatureType }
+      : {}),
+    ...(hintChosenCardName || baseChosenCardName
+      ? { chosenCardName: hintChosenCardName ?? baseChosenCardName }
       : {}),
     ...(hintUnlessPaysLifeChoice || baseUnlessPaysLifeChoice
       ? { unlessPaysLifeChoice: hintUnlessPaysLifeChoice ?? baseUnlessPaysLifeChoice }

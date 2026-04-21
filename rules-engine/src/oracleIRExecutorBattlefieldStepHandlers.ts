@@ -1,4 +1,5 @@
 import type { GameState, PlayerID, BattlefieldPermanent } from '../../shared/src';
+import { buildZoneObjectWithRetainedCounters } from '../../shared/src/zoneRetainedCounters';
 import type { OracleBattlefieldObjectCondition, OracleEffectStep } from './oracleIR';
 import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
 import { parseSimpleBattlefieldSelector, parseSimplePermanentTypeFromText } from './oracleIRExecutorBattlefieldParser';
@@ -1618,10 +1619,49 @@ export function applyGrantTemporaryAbilityStep(
     };
   }
 
-  const descriptions = [
+  const chosenMana = String(ctx.selectorContext?.chosenMana || '').trim().toUpperCase();
+  const chosenColorWord = (() => {
+    switch (chosenMana) {
+      case '{W}':
+        return 'white';
+      case '{U}':
+        return 'blue';
+      case '{B}':
+        return 'black';
+      case '{R}':
+        return 'red';
+      case '{G}':
+        return 'green';
+      default:
+        return '';
+    }
+  })();
+  const resolveChosenColorText = (value: string): string | null => {
+    if (!/protection from (?:the chosen color|the color of your choice)/i.test(value)) return value;
+    return chosenColorWord ? `protection from ${chosenColorWord}` : null;
+  };
+
+  const grantedAbilities = (Array.isArray(step.abilities) ? step.abilities : [])
+    .map(value => resolveChosenColorText(String(value || '').trim()))
+    .filter((value): value is string => Boolean(value));
+  const effectText = (Array.isArray(step.effectText) ? step.effectText : [])
+    .map(value => resolveChosenColorText(String(value || '').trim()))
+    .filter((value): value is string => Boolean(value));
+
+  const needsChosenColor = [
     ...(Array.isArray(step.abilities) ? step.abilities : []),
     ...(Array.isArray(step.effectText) ? step.effectText : []),
-  ].map(value => String(value || '').trim()).filter(Boolean);
+  ].some(value => /protection from (?:the chosen color|the color of your choice)/i.test(String(value || '')));
+  if (needsChosenColor && !chosenColorWord) {
+    return {
+      applied: false,
+      message: `Skipped temporary ability grant (requires player color choice): ${step.raw}`,
+      reason: 'player_choice_required',
+      options: { classification: 'player_choice' },
+    };
+  }
+
+  const descriptions = [...grantedAbilities, ...effectText].filter(Boolean);
 
   if (descriptions.length === 0) {
     return {
@@ -1633,7 +1673,7 @@ export function applyGrantTemporaryAbilityStep(
 
   const nextState = applyTemporaryEffectToPermanents(state, targets, ctx, {
     descriptions,
-    grantedAbilities: step.abilities,
+    grantedAbilities,
     expiresAt: step.duration === 'this_turn' ? 'end_of_turn' : 'end_of_turn',
   });
 
@@ -3150,7 +3190,15 @@ export function applyExileStep(
   const removedIds = new Set<string>(toRemove.map(perm => perm.id));
   const kept = battlefield.filter(perm => !removedIds.has(perm.id));
   const result = finalizeBattlefieldRemoval(state, toRemove, removedIds, kept, 'exile', 'exiled');
-  return { applied: true, state: annotateBattlefieldExilesWithSource(result.state, toRemove, ctx), log: result.log };
+  const movedCards = toRemove
+    .filter(perm => !(perm as any).isToken)
+    .map(perm => buildZoneObjectWithRetainedCounters((perm as any).card, perm, 'exile'));
+  return {
+    applied: true,
+    state: annotateBattlefieldExilesWithSource(result.state, toRemove, ctx),
+    log: result.log,
+    ...(movedCards.length > 0 ? { lastMovedCards: movedCards } : {}),
+  };
 }
 
 export function applyScheduleDelayedBattlefieldActionStep(

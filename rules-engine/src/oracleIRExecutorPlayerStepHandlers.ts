@@ -1819,11 +1819,56 @@ function resolveVariableAmount(
     runtime?: ModifyPtRuntime
   ) => number | null
 ): number | null {
+  const readFinite = (value: unknown): number | null => {
+    const numeric = Number(value);
+    return Number.isFinite(numeric) ? numeric : null;
+  };
+
+  const readObjectStat = (entry: any, stat: 'power' | 'toughness' | 'mana_value'): number | null => {
+    if (stat === 'mana_value') {
+      return getCardManaValue(entry);
+    }
+
+    return stat === 'power'
+      ? readFinite(entry?.effectivePower ?? entry?.power ?? entry?.basePower ?? entry?.card?.power)
+      : readFinite(entry?.effectiveToughness ?? entry?.toughness ?? entry?.baseToughness ?? entry?.card?.toughness);
+  };
+
   const numericAmount = quantityToNumber(amount, ctx);
   if (numericAmount !== null) return numericAmount;
   if (amount.kind === 'reference_amount') {
     const runtimeAmount = Number(runtime?.lastReferenceAmount);
     return Number.isFinite(runtimeAmount) ? Math.max(0, runtimeAmount) : null;
+  }
+  if (amount.kind === 'object_stat') {
+    const sacrificed = Array.isArray(runtime?.lastSacrificedPermanents) ? runtime.lastSacrificedPermanents : [];
+    if (sacrificed.length === 1 && amount.subject === 'that_creature') {
+      const sacrificedAmount = readObjectStat(sacrificed[0], amount.stat);
+      if (sacrificedAmount !== null) return sacrificedAmount;
+    }
+
+    const moved = Array.isArray(runtime?.lastMovedCards) ? runtime.lastMovedCards : [];
+    if (moved.length === 1 && (amount.subject === 'it' || amount.subject === 'that_card' || amount.subject === 'that_creature')) {
+      const movedAmount = readObjectStat(moved[0], amount.stat);
+      if (movedAmount !== null) return movedAmount;
+    }
+
+    if (amount.subject === 'it' || amount.subject === 'that_creature') {
+      const targetCreatureId = resolveSingleCreatureTargetId(
+        state,
+        { kind: 'raw', text: amount.subject === 'that_creature' ? 'that creature' : 'it' },
+        ctx
+      );
+      if (targetCreatureId) {
+        const targetCreature = (state.battlefield || []).find(
+          (entry: any) => String(entry?.id || '').trim() === String(targetCreatureId || '').trim()
+        );
+        const targetAmount = readObjectStat(targetCreature, amount.stat);
+        if (targetAmount !== null) return targetAmount;
+      }
+    }
+
+    return null;
   }
   if (amount.kind !== 'unknown' || !evaluateWhereX) return null;
 
@@ -1837,10 +1882,6 @@ function resolveVariableAmount(
   if (sacrificed.length === 1) {
     const snapshot = sacrificed[0] as any;
     const lowerRaw = raw.toLowerCase();
-    const readFinite = (value: unknown): number | null => {
-      const n = Number(value);
-      return Number.isFinite(n) ? n : null;
-    };
     if (/^(?:the sacrificed|that) creature's power$/.test(lowerRaw)) return readFinite(snapshot?.power);
     if (/^(?:the sacrificed|that) creature's toughness$/.test(lowerRaw)) return readFinite(snapshot?.toughness);
     if (/^(?:the sacrificed|that) creature's mana value$/.test(lowerRaw)) return readFinite(snapshot?.manaValue);
@@ -1849,10 +1890,6 @@ function resolveVariableAmount(
   const moved = Array.isArray(runtime?.lastMovedCards) ? runtime.lastMovedCards : [];
   if (moved.length === 1) {
     const lowerRaw = raw.toLowerCase();
-    const readFinite = (value: unknown): number | null => {
-      const n = Number(value);
-      return Number.isFinite(n) ? n : null;
-    };
     const manaValue = getCardManaValue(moved[0]);
     if (manaValue !== null && /^(?:its|that card's|that creature's) mana value$/.test(lowerRaw)) {
       return manaValue;
@@ -3140,13 +3177,22 @@ export function applyLoseLifeStep(
 
   let nextState = state;
   const log: string[] = [];
+  let totalLifeLost = 0;
   for (const playerId of players) {
+    const playerBefore = nextState.players.find((player) => player.id === playerId) as any;
+    const previousLife = Number(playerBefore?.life);
     const result = adjustLife(nextState, playerId, -amount);
     nextState = result.state;
     log.push(...result.log);
+
+    const playerAfter = nextState.players.find((player) => player.id === playerId) as any;
+    const nextLife = Number(playerAfter?.life);
+    if (Number.isFinite(previousLife) && Number.isFinite(nextLife)) {
+      totalLifeLost += Math.max(0, previousLife - nextLife);
+    }
   }
 
-  return { applied: true, state: nextState, log, count: amount };
+  return { applied: true, state: nextState, log, count: totalLifeLost };
 }
 
 export function applyAddPlayerCounterStep(
@@ -3258,6 +3304,27 @@ export function applyAddManaStep(
     const symbol = trimmed.startsWith('{') && trimmed.endsWith('}') ? trimmed : `{${trimmed}}`;
     return /^{[WUBRG]}$/i.test(symbol) ? symbol.toUpperCase() : null;
   };
+  const countManaSymbols = (raw: string): number => {
+    const matches = String(raw || '').match(/\{[^}]+\}/g);
+    return Array.isArray(matches) ? matches.length : 0;
+  };
+  const normalizeManaChoiceSequence = (raw: string): string[] | null => {
+    const compact = String(raw || '').replace(/\s+/g, '').trim();
+    if (!compact) return null;
+
+    const braceMatches = compact.match(/\{[^}]+\}/g);
+    if (Array.isArray(braceMatches) && braceMatches.join('') === compact) {
+      const symbols = braceMatches.map(normalizeManaChoice);
+      return symbols.every(Boolean) ? (symbols as string[]) : null;
+    }
+
+    if (/^[WUBRG]+$/i.test(compact)) {
+      return compact.toUpperCase().split('').map((symbol) => `{${symbol}}`);
+    }
+
+    const single = normalizeManaChoice(compact);
+    return single ? [single] : null;
+  };
   const manaResolution = (() => {
     const options = Array.isArray(step.manaOptions)
       ? step.manaOptions.map(option => String(option || '').trim()).filter(Boolean)
@@ -3266,6 +3333,87 @@ export function applyAddManaStep(
       return {
         kind: 'resolved' as const,
         mana: String(step.mana || '').trim(),
+      };
+    }
+
+    const symbolCount = Math.max(1, countManaSymbols(String(step.mana || '').trim()));
+    const rawText = String(step.raw || '').trim();
+    const requiresCombinationChoice = /any combination of colors/i.test(rawText) && symbolCount > 1;
+    const requiresRepeatedSingleChoice = /any one color/i.test(rawText) && symbolCount > 1;
+
+    if (symbolCount > 1 && (requiresCombinationChoice || requiresRepeatedSingleChoice)) {
+      const chosenSymbols = normalizeManaChoiceSequence(String(ctx.selectorContext?.chosenMana || '').trim());
+      if (!chosenSymbols || chosenSymbols.length === 0) {
+        return {
+          kind: 'skip' as const,
+          message: `Skipped add mana (needs chosen color): ${step.raw}`,
+          reason: 'player_choice_required' as const,
+          options: { classification: 'player_choice' as const },
+        };
+      }
+
+      if (!chosenSymbols.every((symbol) => options.some((option) => option.toUpperCase() === symbol.toUpperCase()))) {
+        return {
+          kind: 'skip' as const,
+          message: `Skipped add mana (invalid chosen color): ${step.raw}`,
+          reason: 'invalid_input' as const,
+          options: {
+            classification: 'invalid_input' as const,
+            metadata: {
+              chosenMana: chosenSymbols.join(''),
+              options,
+            },
+          },
+        };
+      }
+
+      if (requiresCombinationChoice) {
+        if (chosenSymbols.length !== symbolCount) {
+          return {
+            kind: 'skip' as const,
+            message: `Skipped add mana (invalid chosen color count): ${step.raw}`,
+            reason: 'invalid_input' as const,
+            options: {
+              classification: 'invalid_input' as const,
+              metadata: {
+                chosenMana: chosenSymbols.join(''),
+                expectedCount: symbolCount,
+              },
+            },
+          };
+        }
+
+        return {
+          kind: 'resolved' as const,
+          mana: chosenSymbols.join(''),
+        };
+      }
+
+      const chosenColor = chosenSymbols[0];
+      const repeatedChoice = chosenSymbols.length === 1
+        ? Array.from({ length: symbolCount }, () => chosenColor)
+        : chosenSymbols;
+      if (
+        repeatedChoice.length !== symbolCount ||
+        repeatedChoice.some((symbol) => symbol.toUpperCase() !== chosenColor.toUpperCase())
+      ) {
+        return {
+          kind: 'skip' as const,
+          message: `Skipped add mana (invalid chosen color repetition): ${step.raw}`,
+          reason: 'invalid_input' as const,
+          options: {
+            classification: 'invalid_input' as const,
+            metadata: {
+              chosenMana: chosenSymbols.join(''),
+              expectedCount: symbolCount,
+            },
+          },
+        };
+      }
+
+      return {
+        kind: 'resolved' as const,
+        mana: repeatedChoice.join(''),
       };
     }
 

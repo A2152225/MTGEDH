@@ -40,8 +40,50 @@ function parseDamageAmount(raw: string | undefined): Extract<OracleEffectStep, {
   return { kind: 'unknown', raw: String(raw || '').trim() };
 }
 
+function parseLifeChangeAmount(
+  raw: string | undefined
+): Extract<OracleEffectStep, { kind: 'gain_life' | 'lose_life' }>['amount'] {
+  const parsedQuantity = parseQuantity(raw);
+  if (parsedQuantity.kind !== 'unknown') return parsedQuantity;
+
+  const normalized = String(raw || '')
+    .replace(/[\u2019]/g, "'")
+    .trim()
+    .toLowerCase();
+
+  if (normalized === 'its power') {
+    return { kind: 'object_stat', subject: 'it', stat: 'power' };
+  }
+  if (normalized === 'its toughness') {
+    return { kind: 'object_stat', subject: 'it', stat: 'toughness' };
+  }
+  if (normalized === 'its mana value') {
+    return { kind: 'object_stat', subject: 'it', stat: 'mana_value' };
+  }
+  if (normalized === "that card's power") {
+    return { kind: 'object_stat', subject: 'that_card', stat: 'power' };
+  }
+  if (normalized === "that card's toughness") {
+    return { kind: 'object_stat', subject: 'that_card', stat: 'toughness' };
+  }
+  if (normalized === "that card's mana value") {
+    return { kind: 'object_stat', subject: 'that_card', stat: 'mana_value' };
+  }
+  if (normalized === "that creature's power") {
+    return { kind: 'object_stat', subject: 'that_creature', stat: 'power' };
+  }
+  if (normalized === "that creature's toughness") {
+    return { kind: 'object_stat', subject: 'that_creature', stat: 'toughness' };
+  }
+  if (normalized === 'the life lost this way') {
+    return { kind: 'reference_amount', raw: normalized };
+  }
+
+  return parsedQuantity;
+}
+
 const PLAYER_SUBJECT_PREFIX =
-  "(?:(you|each player|each opponent|each of those opponents|target player|target opponent|that player|that opponent|defending player|the defending player|he or she|they|its controller|its owner|that [a-z0-9][a-z0-9 ,.'â€™-]*?(?:'s|â€™s)? (?:controller|owner))\\s+)?";
+  "(?:(you|each player|each opponent|each of those opponents|target player|target opponent|that player|that opponent|defending player|the defending player|he or she|they|its controller|its owner|that [a-z0-9][a-z0-9 ,.'â€™-]*?(?:'s|â€™s)? (?:controller|owner)|[a-z0-9][a-z0-9 ,.'â€™-]*?(?:'s|â€™s) (?:controller|owner))\\s+)?";
 
 const SELF_DAMAGE_SOURCE_SUBJECT_PATTERN =
   "(?:it|this (?:permanent|spell|creature|artifact|enchantment|planeswalker|battle|land|card|emblem|token)|that [a-z0-9][a-z0-9 ,.'â€™-]*|target [a-z0-9][a-z0-9 ,.'â€™-]*|another target [a-z0-9][a-z0-9 ,.'â€™-]*)";
@@ -84,7 +126,7 @@ export function tryParseLifeAndCombatClause(args: {
       return withMeta({
         kind: 'gain_life',
         who: parsePlayerSelector(whoRaw || 'you'),
-        amount: { kind: 'unknown', raw: String(gainEqual[2] || '').trim() },
+        amount: parseLifeChangeAmount(gainEqual[2]),
         raw: rawClause,
       });
     }
@@ -94,7 +136,7 @@ export function tryParseLifeAndCombatClause(args: {
       return withMeta({
         kind: 'gain_life',
         who: { kind: 'you' },
-        amount: { kind: 'unknown', raw: String(gainEqualDefault[1] || '').trim() },
+        amount: parseLifeChangeAmount(gainEqualDefault[1]),
         raw: rawClause,
       });
     }
@@ -125,7 +167,7 @@ export function tryParseLifeAndCombatClause(args: {
       return withMeta({
         kind: 'lose_life',
         who: parsePlayerSelector(whoRaw || 'you'),
-        amount: { kind: 'unknown', raw: String(loseEqual[2] || '').trim() },
+        amount: parseLifeChangeAmount(loseEqual[2]),
         raw: rawClause,
       });
     }
@@ -135,7 +177,7 @@ export function tryParseLifeAndCombatClause(args: {
       return withMeta({
         kind: 'lose_life',
         who: { kind: 'you' },
-        amount: { kind: 'unknown', raw: String(loseEqualDefault[1] || '').trim() },
+        amount: parseLifeChangeAmount(loseEqualDefault[1]),
         raw: rawClause,
       });
     }

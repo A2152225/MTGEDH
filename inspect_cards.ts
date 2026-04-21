@@ -1,41 +1,29 @@
-﻿import * as fs from 'fs';
-import { parseOracleTextToIR } from './rules-engine/src/oracleIRParser';
+﻿import { parseOracleTextToIR } from './rules-engine/src/oracleIRParser.ts';
+import fs from 'node:fs';
 
-const cardNames = [
-  "Owlbear Cub",
-  "Keldon Flamesage",
-  "Sunbird's Invocation",
-  "Majestic Genesis",
-  "Forging the Anchor",
-  "Harald, King of Skemfar"
-];
+const JSON_PATH = './oracle-cards.json';
+const namesToFind = ['Songbirds' Blessing', 'Garruk's Harbinger', 'Industrial Advancement', 'The Key to the Vault', 'Doomskar Warrior'];
 
-async function main() {
-  const data = JSON.parse(fs.readFileSync('oracle-cards.json', 'utf8'));
-  const cards = data.filter((c: any) => cardNames.includes(c.name));
-  
-  const results = cards.map((card: any) => {
-    let ir;
-    try {
-        ir = parseOracleTextToIR(card.oracle_text, card.name);
-    } catch (e) {
-        return { name: card.name, error: (e as Error).message };
+const data = JSON.parse(fs.readFileSync(JSON_PATH, 'utf8'));
+
+for (const name of namesToFind) {
+  const card = data.find(c => c.name === name);
+  if (card) {
+    console.log('--- ' + name + ' ---');
+    const oracleText = card.oracle_text || '';
+    const sentences = oracleText.split('\n');
+    for (const sentence of sentences) {
+      if (sentence.includes('Put the rest on the bottom of your library in a random order')) {
+        console.log('Oracle Clause: ' + sentence);
+      }
     }
-    return {
-      name: card.name,
-      oracle_text: card.oracle_text,
-      abilities: (ir as any).abilities?.map((a: any) => ({
-        type: a.type,
-        text: a.text,
-        steps: a.steps?.map((s: any) => ({
-          kind: s.kind,
-          raw: s.raw
-        }))
-      })) || []
-    };
-  });
-
-  console.log(JSON.stringify(results, null, 2));
+    console.log('Parsed Steps:');
+    const IR = parseOracleTextToIR(oracleText, name);
+    IR.abilities.forEach((ability, i) => {
+      console.log('  Ability ' + (i + 1) + ' (' + ability.type + '):');
+      ability.steps.forEach((step, j) => {
+        console.log('    Step ' + (j + 1) + ': ' + JSON.stringify(step));
+      });
+    });
+  }
 }
-
-main().catch(console.error);

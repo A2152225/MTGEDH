@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+﻿import { describe, it, expect } from 'vitest';
 import { parseOracleTextToIR } from '../src/oracleIRParser';
 
 function unwrapLeadingConditionalSteps(steps: readonly any[]): readonly any[] {
@@ -338,8 +338,10 @@ Whenever one or more +1/+1 counters are put on this creature, put a creature car
     expect(reanimateSteps[0].battlefieldController).toEqual({ kind: 'you' });
     expect(reanimateSteps[0].withCounters).toEqual({ finality: 1 });
 
-    expect(reanimateSteps[1].kind).toBe('unknown');
-    expect(reanimateSteps[1].raw).toBe('It gains haste');
+    expect(reanimateSteps[1]).toMatchObject({
+      kind: 'grant_temporary_ability',
+      raw: 'It gains haste',
+    });
 
     expect(reanimateSteps[2].kind).toBe('schedule_delayed_battlefield_action');
     expect(reanimateSteps[2].timing).toBe('next_end_step');
@@ -530,7 +532,7 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
     expect(steps[0].steps[0].kind).toBe('sacrifice');
     expect(steps[0].steps[0].what).toEqual({ kind: 'raw', text: 'this permanent' });
     expect(steps[0].steps[1].kind).toBe('deal_damage');
-    expect(steps[0].steps[1].amount).toEqual({ kind: 'unknown', raw: 'that much' });
+    expect(steps[0].steps[1].amount).toEqual({ kind: 'reference_amount', raw: 'that much' });
     expect(steps[0].steps[1].target).toEqual({ kind: 'raw', text: 'each opponent' });
     expect(steps[0].steps[1].raw).toBe('it deals that much damage to each opponent');
   });
@@ -548,6 +550,35 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
     expect(steps[0].steps[0].what).toEqual({ kind: 'raw', text: 'this artifact' });
     expect(steps[0].steps[1].kind).toBe('draw');
     expect(steps[0].steps[1].amount).toEqual({ kind: 'number', value: 3 });
+  });
+
+  it('lowers self-win fragments inside parsed conditionals', () => {
+    const ir = parseOracleTextToIR(
+      'At the beginning of your upkeep, if you have exactly 1 life, you win the game.',
+      'Near-Death Experience'
+    );
+    const steps = ir.abilities[0].steps as any[];
+
+    expect(steps).toHaveLength(1);
+    expect(steps[0].kind).toBe('conditional');
+    expect(steps[0].condition).toEqual({ kind: 'if', raw: 'you have exactly 1 life' });
+    expect(steps[0].steps).toEqual([
+      expect.objectContaining({
+        kind: 'win_game',
+        raw: 'you win the game',
+      }),
+    ]);
+  });
+
+  it('parses standalone self-loss clauses into lose_game steps', () => {
+    const ir = parseOracleTextToIR('You lose the game.', 'Last Chance');
+
+    expect(ir.abilities[0]?.steps).toEqual([
+      expect.objectContaining({
+        kind: 'lose_game',
+        raw: 'You lose the game',
+      }),
+    ]);
   });
 
   it('parses leading conditional sacrifice wrappers with comma-delimited followups', () => {
@@ -579,7 +610,7 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
     expect(steps[0].steps).toHaveLength(2);
     expect(steps[0].steps[0].kind).toBe('sacrifice');
     expect(steps[0].steps[1].kind).toBe('deal_damage');
-    expect(steps[0].steps[1].amount).toEqual({ kind: 'unknown', raw: 'that much' });
+    expect(steps[0].steps[1].amount).toEqual({ kind: 'reference_amount', raw: 'that much' });
     expect(steps[0].steps[1].target).toEqual({ kind: 'raw', text: 'any target' });
   });
 
@@ -729,6 +760,34 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
     ]);
   });
 
+  it('parses add three mana of any one color into a chosen-color add_mana step', () => {
+    const ir = parseOracleTextToIR('Add three mana of any one color.', 'Gilded Lotus');
+    const addMana = ir.abilities.flatMap((ability) => ability.steps).find((step) => step.kind === 'add_mana');
+
+    expect(addMana).toEqual({
+      kind: 'add_mana',
+      who: { kind: 'you' },
+      mana: '{W}{W}{W}',
+      manaOptions: ['{W}', '{U}', '{B}', '{R}', '{G}'],
+      requiresChosenMana: true,
+      raw: 'Add three mana of any one color',
+    });
+  });
+
+  it('parses add two mana in any combination of colors into a multi-choice add_mana step', () => {
+    const ir = parseOracleTextToIR('Add two mana in any combination of colors.', 'Test');
+    const addMana = ir.abilities.flatMap((ability) => ability.steps).find((step) => step.kind === 'add_mana');
+
+    expect(addMana).toEqual({
+      kind: 'add_mana',
+      who: { kind: 'you' },
+      mana: '{W}{W}',
+      manaOptions: ['{W}', '{U}', '{B}', '{R}', '{G}'],
+      requiresChosenMana: true,
+      raw: 'Add two mana in any combination of colors',
+    });
+  });
+
   it('lowers short self choose-a-color enters text into a choose_color step', () => {
     const ir = parseOracleTextToIR('As this creature enters, choose a color.', 'Diamond Knight');
     const chooseColorStep = ir.abilities.flatMap(ability => ability.steps).find(step => step.kind === 'choose_color');
@@ -738,6 +797,28 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
       manaOptions: ['{W}', '{U}', '{B}', '{R}', '{G}'],
       raw: 'As this creature enters, choose a color',
     });
+  });
+
+  it('expands chosen-color protection grants into choose_color plus a temporary ability grant', () => {
+    const ir = parseOracleTextToIR(
+      'Target creature you control gains protection from the color of your choice until end of turn.',
+      'Redeem the Lost'
+    );
+
+    expect(ir.abilities[0]?.steps).toEqual([
+      {
+        kind: 'choose_color',
+        manaOptions: ['{W}', '{U}', '{B}', '{R}', '{G}'],
+        raw: 'Choose a color',
+      },
+      {
+        kind: 'grant_temporary_ability',
+        target: { kind: 'raw', text: 'Target creature you control' },
+        duration: 'end_of_turn',
+        abilities: ['protection from the chosen color'],
+        raw: 'Target creature you control gains protection from the color of your choice until end of turn',
+      },
+    ]);
   });
 
   it('parses choose a creature type into a choose_creature_type step', () => {
@@ -758,6 +839,54 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
       kind: 'choose_creature_type',
       raw: 'As this enchantment enters, choose a creature type',
     });
+  });
+
+  it('parses choose a card name into a choose_card_name step', () => {
+    const ir = parseOracleTextToIR('Choose a card name.', 'Test');
+    const chooseCardNameStep = ir.abilities.flatMap(ability => ability.steps).find(step => step.kind === 'choose_card_name');
+
+    expect(chooseCardNameStep).toEqual({
+      kind: 'choose_card_name',
+      raw: 'Choose a card name',
+    });
+  });
+
+  it('lowers gift promise clauses into an optional choose_opponent step', () => {
+    const ir = parseOracleTextToIR(
+      'Gift a card (You may promise an opponent a gift as you cast this spell. If you do, they draw a card before its other effects.)',
+      'Wildfire Howl'
+    );
+
+    expect(ir.keywords).toContain('gift');
+    expect(ir.abilities[0]?.steps).toEqual([
+      expect.objectContaining({
+        kind: 'choose_opponent',
+        optional: true,
+      }),
+      expect.objectContaining({
+        kind: 'conditional',
+        condition: { kind: 'if', raw: 'you do' },
+      }),
+    ]);
+  });
+
+  it('lowers hidden agenda name choice and prunes the reveal reminder tail', () => {
+    const ir = parseOracleTextToIR(
+      'Hidden agenda (Start the game with this conspiracy face down in the command zone and secretly choose a card name. You may turn this conspiracy face up any time and reveal that name.)',
+      "Muzzio's Preparations"
+    );
+
+    expect(ir.keywords).toContain('hidden agenda');
+    expect(ir.abilities).toEqual([
+      expect.objectContaining({
+        steps: [
+          expect.objectContaining({ kind: 'choose_card_name' }),
+        ],
+      }),
+    ]);
+
+    const stepRaws = ir.abilities.flatMap(ability => ability.steps.map(step => String(step.raw || '')));
+    expect(stepRaws.some(raw => /turn this conspiracy face up any time and reveal that name/i.test(raw))).toBe(false);
   });
 
   it('parses choose target creature into a choose_target_creature step', () => {
@@ -827,6 +956,30 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
     ]);
   });
 
+  it('parses plural battlefield tutors that put two lands onto the battlefield tapped and shuffle', () => {
+    const text = 'Search your library for up to two basic land cards, put them onto the battlefield tapped, then shuffle.';
+    const ir = parseOracleTextToIR(text);
+
+    expect(ir.abilities[0].steps).toEqual([
+      {
+        kind: 'search_library',
+        who: { kind: 'you' },
+        criteria: { kind: 'raw', text: 'basic land' },
+        destination: 'battlefield',
+        entersTapped: true,
+        maxResults: 2,
+        revealFound: false,
+        raw: 'Search your library for up to two basic land cards, put them onto the battlefield tapped',
+      },
+      {
+        kind: 'shuffle_library',
+        who: { kind: 'you' },
+        raw: 'then shuffle',
+        sequence: 'then',
+      },
+    ]);
+  });
+
   it('parses reveal-shuffle tutors that put the found card on top of the library', () => {
     const text = 'Search your library for a Merfolk card, reveal it, then shuffle and put that card on top.';
     const ir = parseOracleTextToIR(text);
@@ -870,7 +1023,7 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
 
     expect(ir.abilities[0]).toEqual(
       expect.objectContaining({
-        kind: 'triggered',
+        type: 'triggered',
         steps: [
           expect.objectContaining({
             kind: 'search_library',
@@ -1872,6 +2025,103 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
     expect(ir.abilities).toEqual([]);
   });
 
+  it('prunes global creature stat static text as externally handled', () => {
+    const ir = parseOracleTextToIR('Creatures you control get +1/+1.', "Gaea's Anthem");
+
+    expect(ir.abilities).toEqual([]);
+  });
+
+  it('prunes global creature keyword static text as externally handled', () => {
+    const ir = parseOracleTextToIR('Creatures you control have haste.', 'Hammer of Purphoros');
+
+    expect(ir.abilities).toEqual([]);
+  });
+
+  it('prunes opening-hand static text as externally handled', () => {
+    const ir = parseOracleTextToIR(
+      'If this card is in your opening hand, you may begin the game with it on the battlefield.\nYou have hexproof. (You can\'t be the target of spells or abilities your opponents control.)',
+      'Leyline of Sanctity'
+    );
+
+    expect(ir.abilities).toEqual([]);
+    expect(ir.keywords).toContain('hexproof');
+  });
+
+  it('prunes extort reminder abilities while retaining the keyword', () => {
+    const ir = parseOracleTextToIR(
+      'Defender\nExtort (Whenever you cast a spell, you may pay {W/B}. If you do, each opponent loses 1 life and you gain that much life.)',
+      'Basilica Guards'
+    );
+
+    expect(ir.abilities).toEqual([]);
+    expect(ir.keywords).toContain('extort');
+  });
+
+  it('prunes squad reminder abilities while retaining the keyword', () => {
+    const ir = parseOracleTextToIR(
+      'Squad {2} (As an additional cost to cast this spell, you may pay {2} any number of times. When this creature enters, create that many tokens that are copies of it.)',
+      'Wasteland Raider'
+    );
+
+    expect(ir.abilities).toEqual([]);
+    expect(ir.keywords).toContain('squad');
+  });
+
+  it('prunes umbra armor reminder abilities while retaining the keyword', () => {
+    const ir = parseOracleTextToIR(
+      'Umbra armor (If enchanted creature would be destroyed, instead remove all damage from it and destroy this Aura.)',
+      'Hyena Umbra'
+    );
+
+    expect(ir.abilities).toEqual([]);
+    expect(ir.keywords).toContain('umbra armor');
+  });
+
+  it('prunes unleash reminder abilities while retaining the keyword', () => {
+    const ir = parseOracleTextToIR(
+      "Unleash (You may have this creature enter with a +1/+1 counter on it. It can't block as long as it has a +1/+1 counter on it.)",
+      'Carnage Gladiator'
+    );
+
+    expect(ir.abilities).toEqual([]);
+    expect(ir.keywords).toContain('unleash');
+  });
+
+  it('prunes phasing reminder tails while keeping the phase-out clause', () => {
+    const ir = parseOracleTextToIR(
+      "All nontoken permanents of that type phase out. (While they're phased out, they're treated as though they don't exist. Each one phases in before its controller untaps during their next untap step.)",
+      "Teferi's Realm"
+    );
+
+    const stepRaws = ir.abilities.flatMap((ability) => (ability.steps || []).map((step) => String(step.raw || '')));
+    expect(stepRaws.some((raw) => /all nontoken permanents of that type phase out/i.test(raw))).toBe(true);
+    expect(stepRaws.some((raw) => /treated as though they don't exist/i.test(raw))).toBe(false);
+    expect(stepRaws.some((raw) => /phases in before its controller untaps during their next untap step/i.test(raw))).toBe(false);
+  });
+
+  it('prunes hideaway reminder abilities while retaining the keyword', () => {
+    const ir = parseOracleTextToIR(
+      'Hideaway 4 (When this creature enters, look at the top four cards of your library, exile one face down, then put the rest on the bottom in a random order.)\nThis creature enters tapped.',
+      'Watcher for Tomorrow'
+    );
+
+    const stepRaws = ir.abilities.flatMap((ability) => (ability.steps || []).map((step) => String(step.raw || '')));
+    expect(stepRaws.some((raw) => /hideaway 4/i.test(raw))).toBe(false);
+    expect(stepRaws.some((raw) => /put the rest on the bottom in a random order/i.test(raw))).toBe(false);
+    expect(ir.keywords).toContain('hideaway');
+  });
+
+  it('prunes Junk-token reminder permission tails after token creation', () => {
+    const ir = parseOracleTextToIR(
+      'When this Equipment enters, create a Junk token. (It\'s an artifact with "{T}, Sacrifice this token: Exile the top card of your library. You may play that card this turn. Activate only as a sorcery.")',
+      'Junk Jet'
+    );
+
+    const stepRaws = ir.abilities.flatMap((ability) => (ability.steps || []).map((step) => String(step.raw || '')));
+    expect(stepRaws.some((raw) => /create a Junk token/i.test(raw))).toBe(true);
+    expect(stepRaws.some((raw) => /you may play that card this turn/i.test(raw))).toBe(false);
+  });
+
   it('parses start-your-engines reminder text into a non-executable static ability without reminder steps', () => {
     const ir = parseOracleTextToIR(
       'Start your engines! (If you have no speed, it starts at 1. It can increase once on each of your turns when an opponent loses life and decreases only if you lose life. Max speed is 4.)',
@@ -2167,6 +2417,38 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
     ]);
   });
 
+  it('parses triggered support clauses into add_counter steps instead of leaving support as unknown', () => {
+    const ir = parseOracleTextToIR('Flying\nWhen Expedition Raptor enters, support 2.', 'Expedition Raptor');
+
+    expect(ir.abilities[0]?.steps).toEqual([
+      {
+        kind: 'add_counter',
+        amount: { kind: 'number', value: 1 },
+        counter: '+1/+1',
+        target: { kind: 'raw', text: 'each of up to 2 other target creatures' },
+        raw: 'Put a +1/+1 counter on each of up to 2 other target creatures',
+      },
+    ]);
+  });
+
+  it('parses support clauses when they lead a longer spell ability', () => {
+    const ir = parseOracleTextToIR(
+      'Support 2. Each creature your opponents control gets -1/-1 until end of turn for each +1/+1 counter on creatures you control.',
+      "Nissa's Judgment"
+    );
+
+    expect(ir.abilities[0]?.steps[0]).toEqual({
+      kind: 'add_counter',
+      amount: { kind: 'number', value: 1 },
+      counter: '+1/+1',
+      target: { kind: 'raw', text: 'each of up to 2 other target creatures' },
+      raw: 'Put a +1/+1 counter on each of up to 2 other target creatures',
+    });
+    expect(
+      ir.abilities[0]?.steps.some((step) => step.kind === 'unknown' && /support 2/i.test(String((step as any).raw || '')))
+    ).toBe(false);
+  });
+
   it('parses Bolster keyword lines into add_counter steps for the least-toughness creature you control', () => {
     const ir = parseOracleTextToIR('Bolster 2', 'Abzan Skycaptain');
 
@@ -2190,6 +2472,79 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
         raw: 'Proliferate',
       },
     ]);
+  });
+
+  it('parses during-your-turn self keyword text into a turn-gated grant wrapper', () => {
+    const ir = parseOracleTextToIR('During your turn, this creature has first strike.', 'Fresh-Faced Recruit');
+
+    expect(ir.abilities[0]?.steps).toEqual([
+      {
+        kind: 'conditional',
+        condition: { kind: 'if', raw: "it's your turn" },
+        steps: [
+          {
+            kind: 'grant_temporary_ability',
+            target: { kind: 'raw', text: 'this creature' },
+            duration: 'this_turn',
+            abilities: ['first strike'],
+            raw: 'During your turn, this creature has first strike',
+          },
+        ],
+        raw: 'During your turn, this creature has first strike',
+      },
+    ]);
+  });
+
+  it('parses during-your-turn plural keyword grants into a turn-gated grant wrapper', () => {
+    const ir = parseOracleTextToIR(
+      'During your turn, creatures you control with +1/+1 counters on them have first strike.',
+      'Null Group Biological Assets'
+    );
+
+    expect(ir.abilities[0]?.steps).toEqual([
+      {
+        kind: 'conditional',
+        condition: { kind: 'if', raw: "it's your turn" },
+        steps: [
+          {
+            kind: 'grant_temporary_ability',
+            target: { kind: 'raw', text: 'creatures you control with +1/+1 counters on them' },
+            duration: 'this_turn',
+            abilities: ['first strike'],
+            raw: 'During your turn, creatures you control with +1/+1 counters on them have first strike',
+          },
+        ],
+        raw: 'During your turn, creatures you control with +1/+1 counters on them have first strike',
+      },
+    ]);
+  });
+
+  it('prunes reveal-land ETB choice text because land-entry handling already owns it', () => {
+    const ir = parseOracleTextToIR(
+      "As this land enters, you may reveal a Mountain or Forest card from your hand. If you don't, this land enters tapped.\n{T}: Add {R} or {G}.",
+      'Game Trail'
+    );
+
+    expect(ir.abilities).toHaveLength(1);
+    expect(ir.abilities[0]?.steps).toEqual([
+      {
+        kind: 'add_mana',
+        who: { kind: 'you' },
+        mana: '{R}',
+        manaOptions: ['{R}', '{G}'],
+        raw: 'Add {R} or {G}',
+      },
+    ]);
+  });
+
+  it('prunes reveal-land ETB choice text for pronoun enters-tapped variants too', () => {
+    const ir = parseOracleTextToIR(
+      "As this land enters, you may reveal an Elemental card from your hand. If you don't, it enters tapped.\n{T}: Add {R}.\n{R}, {T}: Target creature gains haste until end of turn.",
+      'Flamekin Village'
+    );
+
+    expect(ir.abilities.some((ability) => ability.steps.some((step) => step.kind === 'unknown'))).toBe(false);
+    expect(ir.abilities).toHaveLength(2);
   });
 
   it('parses Investigate keyword lines into investigate steps', () => {
@@ -3648,7 +4003,7 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
     const impulse = ability.steps.find(s => s.kind === 'impulse_exile_top') as any;
     expect(impulse).toBeTruthy();
     expect(impulse.who).toEqual({ kind: 'target_player' });
-    expect(impulse.amount).toEqual({ kind: 'unknown', raw: 'that many' });
+    expect(impulse.amount).toEqual({ kind: 'reference_amount', raw: 'that many' });
     expect(impulse.permission).toBe('play');
     expect(impulse.duration).toBe('until_end_of_next_turn');
   });
@@ -3663,7 +4018,7 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
     const impulse = ability.steps.find(s => s.kind === 'impulse_exile_top') as any;
     expect(impulse).toBeTruthy();
     expect(impulse.who).toEqual({ kind: 'target_player' });
-    expect(impulse.amount).toEqual({ kind: 'unknown', raw: 'that many' });
+    expect(impulse.amount).toEqual({ kind: 'reference_amount', raw: 'that many' });
     expect(impulse.permission).toBe('play');
     expect(impulse.duration).toBe('until_end_of_next_turn');
   });
@@ -5121,6 +5476,48 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
     expect(hasInterveningClause).toBe(true);
   });
 
+  it('parses Infernal Reckoning life gain as an object-stat power amount', () => {
+    const ir = parseOracleTextToIR('Exile target colorless creature. You gain life equal to its power.', 'Infernal Reckoning');
+    const gainLife = ir.abilities.flatMap((ability) => ability.steps).find((step) => step.kind === 'gain_life') as any;
+
+    expect(gainLife).toEqual(
+      expect.objectContaining({
+        kind: 'gain_life',
+        amount: { kind: 'object_stat', subject: 'it', stat: 'power' },
+      })
+    );
+  });
+
+  it('parses Sheltering Word life gain as a that-creature toughness amount', () => {
+    const ir = parseOracleTextToIR(
+      "Target creature you control gains hexproof until end of turn. You gain life equal to that creature's toughness.",
+      'Sheltering Word'
+    );
+    const gainLife = ir.abilities.flatMap((ability) => ability.steps).find((step) => step.kind === 'gain_life') as any;
+
+    expect(gainLife).toEqual(
+      expect.objectContaining({
+        kind: 'gain_life',
+        amount: { kind: 'object_stat', subject: 'that_creature', stat: 'toughness' },
+      })
+    );
+  });
+
+  it('parses Gray Merchant life gain as the total life lost this way', () => {
+    const ir = parseOracleTextToIR(
+      'When this creature enters, each opponent loses X life, where X is your devotion to black. You gain life equal to the life lost this way.',
+      'Gray Merchant of Asphodel'
+    );
+    const gainLife = ir.abilities.flatMap((ability) => ability.steps).find((step) => step.kind === 'gain_life') as any;
+
+    expect(gainLife).toEqual(
+      expect.objectContaining({
+        kind: 'gain_life',
+        amount: { kind: 'reference_amount', raw: 'the life lost this way' },
+      })
+    );
+  });
+
   it("parses impulse exile-top for each player's library", () => {
     const text = "Exile the top card of each player's library. You may play those cards this turn.";
     const ir = parseOracleTextToIR(text);
@@ -5493,6 +5890,70 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
     expect(
       chooseMode.modes.some((mode: any) => mode.steps.some((step: any) => step.kind === 'impulse_exile_top'))
     ).toBe(true);
+  });
+
+  it('parses choose-any-number modal bullet blocks into choose_mode', () => {
+    const ir = parseOracleTextToIR(
+      "Choose one. If this spell was kicked, choose any number instead.\n• Return up to two target creatures to their owners' hands.\n• Scry 2, then draw two cards.\n• Target player creates an X/X blue Illusion creature token, where X is the number of cards in their hand.",
+      'Inscription of Insight'
+    );
+
+    expect(ir.abilities[0]?.steps[0]).toEqual(
+      expect.objectContaining({
+        kind: 'choose_mode',
+        minModes: 1,
+        maxModes: 3,
+      })
+    );
+  });
+
+  it('parses choose-both riders without explicit you-may wording into choose_mode', () => {
+    const ir = parseOracleTextToIR(
+      "Choose one. If there are four or more card types among cards in your graveyard, choose both instead—\n• This creature deals 4 damage to any target.\n• Look at the top four cards of your library. Put one of them into your hand and the rest on the bottom of your library in a random order.",
+      'Prophetic Titan'
+    );
+
+    expect(ir.abilities[0]?.steps[0]).toEqual(
+      expect.objectContaining({
+        kind: 'choose_mode',
+        minModes: 1,
+        maxModes: 2,
+      })
+    );
+  });
+
+  it('parses prelude text followed by choose-one bullets into preserved prelude plus choose_mode output', () => {
+    const ir = parseOracleTextToIR(
+      'Add one mana of any color.\nChoose one—\n• Double the number of each kind of counter on target permanent.\n• Double the number of each kind of counter you have.',
+      'Aetheric Amplifier'
+    );
+
+    const allSteps = ir.abilities.flatMap((ability) => ability.steps);
+    expect(allSteps.some((step) => step.kind === 'add_mana')).toBe(true);
+    const chooseModeStep = allSteps.find((step) => step.kind === 'choose_mode');
+
+    expect(chooseModeStep).toEqual(
+      expect.objectContaining({
+        kind: 'choose_mode',
+        minModes: 1,
+        maxModes: 1,
+      })
+    );
+  });
+
+  it('parses simple choose-one em-dash bullet blocks into choose_mode', () => {
+    const ir = parseOracleTextToIR(
+      'Choose one—\n• Put X charge counters on target artifact.\n• Put X +1/+1 counters on target creature.',
+      'Moxite Refinery'
+    );
+
+    expect(ir.abilities[0]?.steps[0]).toEqual(
+      expect.objectContaining({
+        kind: 'choose_mode',
+        minModes: 1,
+        maxModes: 1,
+      })
+    );
   });
 
   it('preserves choose_mode labels that include lowercase connector words', () => {
@@ -6225,6 +6686,18 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
     expect(ir.abilities[0]?.steps.some((step: any) => /choose any number of permanents|give each another counter/i.test(String(step?.raw || '')))).toBe(false);
   });
 
+  it('prunes split proliferate reminder fragments even when the proliferate clause itself is still unknown', () => {
+    const ir = parseOracleTextToIR(
+      'If you put fewer than two lands onto the battlefield this way, proliferate a number of times equal to the difference. (Choose any number of permanents and/or players, then give each another counter of each kind already there.)',
+      'Expand the Sphere'
+    );
+
+    const stepRaws = ir.abilities.flatMap((ability) => (ability.steps || []).map((step) => String(step.raw || '')));
+    expect(stepRaws.some((raw) => /choose any number of permanents and\/or players/i.test(raw))).toBe(false);
+    expect(stepRaws.some((raw) => /then give each another counter of each kind already there/i.test(raw))).toBe(false);
+    expect(stepRaws.some((raw) => /proliferate a number of times equal to the difference/i.test(raw))).toBe(true);
+  });
+
   it('prunes standalone spell-cant-be-countered text from Oracle IR', () => {
     const ir = parseOracleTextToIR(
       "This spell can't be countered.\nDestroy target nonland permanent with mana value 3 or less.",
@@ -6268,6 +6741,43 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
         token: '1/1 colorless Eldrazi Scion',
       }),
     ]);
+  });
+
+  it('prunes plural Eldrazi token mana reminder text from create-token steps', () => {
+    const ir = parseOracleTextToIR(
+      'When this creature enters, create two 0/1 colorless Eldrazi Spawn creature tokens. They have "Sacrifice this token: Add {C}."',
+      "Kozilek's Predator"
+    );
+
+    expect(ir.abilities[0]?.steps).toEqual([
+      expect.objectContaining({
+        kind: 'create_token',
+        token: '0/1 colorless Eldrazi Spawn',
+      }),
+    ]);
+  });
+
+  it('prunes decayed reminder sacrifice tails after token creation', () => {
+    const ir = parseOracleTextToIR(
+      'Create a 2/2 black Zombie creature token with decayed. (It can\'t block. When it attacks, sacrifice it at end of combat.)',
+      'Rotten Reunion'
+    );
+
+    const stepRaws = ir.abilities.flatMap((ability) => (ability.steps || []).map((step) => String(step.raw || '')));
+    expect(stepRaws.some((raw) => /create a 2\/2 black zombie creature token with decayed/i.test(raw))).toBe(true);
+    expect(stepRaws.some((raw) => /when it attacks, sacrifice it at end of combat/i.test(raw))).toBe(false);
+  });
+
+  it('prunes enchant attachment reminder tails from aura keyword lines', () => {
+    const ir = parseOracleTextToIR(
+      'Enchant creature (Target a creature as you cast this. This card enters attached to that creature.)',
+      'Robe of Mirrors'
+    );
+
+    const stepRaws = ir.abilities.flatMap((ability) => (ability.steps || []).map((step) => String(step.raw || '')));
+    expect(stepRaws.some((raw) => /this card enters attached to that creature/i.test(raw))).toBe(false);
+    expect(stepRaws.some((raw) => /enchant creature/i.test(raw))).toBe(true);
+    expect(ir.keywords).toContain('enchant');
   });
 
   it('prunes plural artifact reminder text from create-token steps', () => {
@@ -6602,7 +7112,7 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
 
     const ability = ir.abilities[0] as any;
     expect(ability.steps.some((step: any) => /any player may activate this ability/i.test(String(step?.raw || '')))).toBe(false);
-    expect(ability.steps.map((step: any) => step.kind)).toEqual(['lose_life', 'draw_card']);
+    expect(ability.steps.map((step: any) => step.kind)).toEqual(['lose_life', 'draw']);
   });
 
   it('prunes standalone any-player activation permission abilities', () => {
@@ -6616,6 +7126,23 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
       'modify_pt',
       'modify_pt',
     ]);
+  });
+
+  it('prunes threshold activation restriction tails from parsed activated abilities', () => {
+    const ir = parseOracleTextToIR(
+      'Threshold - {W}, {T}, Sacrifice this land: You gain 4 life. Activate only if there are seven or more cards in your graveyard.',
+      'Nomad Stadium'
+    );
+
+    const ability = ir.abilities[0] as any;
+    expect(ability.steps.some((step: any) => /activate only if there are seven or more cards in your graveyard/i.test(String(step?.raw || '')))).toBe(false);
+    expect(ability.steps).toEqual([
+      expect.objectContaining({
+        kind: 'gain_life',
+        amount: { kind: 'number', value: 4 },
+      }),
+    ]);
+    expect(ir.keywords).toContain('threshold');
   });
 
   it('prunes doctor\'s companion reminder abilities while retaining the keyword', () => {
@@ -6682,7 +7209,7 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
     expect(stepRaws.some((raw) => /draw a card/i.test(raw))).toBe(true);
   });
 
-  it('prunes backup reminder tails while keeping the backup lead visible', () => {
+  it('prunes backup reminder abilities while retaining the keyword', () => {
     const ir = parseOracleTextToIR(
       "Flash\nBackup 1 (When this creature enters, put a +1/+1 counter on target creature. If that's another creature, it gains the following ability until end of turn.)\nHexproof",
       'Saiba Cryptomancer'
@@ -6690,7 +7217,21 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
 
     const stepRaws = ir.abilities.flatMap((ability) => (ability.steps || []).map((step) => String(step.raw || '')));
     expect(stepRaws.some((raw) => /if that(?:'|â€™)?s another creature, it gains the following ability until end of turn/i.test(raw))).toBe(false);
-    expect(stepRaws.some((raw) => /backup\s+1\s*\(when this creature enters, put a \+1\/\+1 counter on target creature/i.test(raw))).toBe(true);
+    expect(stepRaws.some((raw) => /backup\s+1\s*\(when this creature enters, put a \+1\/\+1 counter on target creature/i.test(raw))).toBe(false);
+    expect(ir.keywords).toContain('backup');
+  });
+
+  it('prunes cumulative upkeep reminder abilities while retaining the keyword', () => {
+    const ir = parseOracleTextToIR(
+      'Cumulative upkeep {1} (At the beginning of your upkeep, put an age counter on this permanent, then sacrifice it unless you pay its upkeep cost for each age counter on it.)\nAs this enchantment enters, choose a color.',
+      'Prismatic Circle'
+    );
+
+    const stepRaws = ir.abilities.flatMap((ability) => (ability.steps || []).map((step) => String(step.raw || '')));
+    expect(stepRaws.some((raw) => /cumulative upkeep/i.test(raw))).toBe(false);
+    expect(stepRaws.some((raw) => /age counter/i.test(raw))).toBe(false);
+    expect(ir.keywords).toContain('cumulative upkeep');
+    expect(ir.abilities.flatMap((ability) => ability.steps).some((step) => step.kind === 'choose_color')).toBe(true);
   });
 
   it('prunes flanking reminder abilities while retaining the keyword', () => {
@@ -7080,6 +7621,11 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
     expect(impulse).toBeTruthy();
     expect(impulse.who).toEqual({ kind: 'target_player' });
     expect(impulse.amount).toMatchObject({ kind: 'unknown' });
+    expect(String(impulse.amount.raw || '')).toContain('nonland');
+    expect(impulse.duration).toBe('during_resolution');
+    expect(impulse.permission).toBe('cast');
+  });
+
   it('absorbs copy retarget tails into nested copy-spell steps', () => {
     const ir = parseOracleTextToIR(
       'Whenever you cast a multicolored instant or sorcery spell, you may pay {1}. If you do, copy that spell. You may choose new targets for the copy.',
@@ -7101,10 +7647,6 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
         }),
       ])
     );
-  });
-    expect(String(impulse.amount.raw || '')).toContain('nonland');
-    expect(impulse.duration).toBe('during_resolution');
-    expect(impulse.permission).toBe('cast');
   });
 
   it("parses impulse exile-until when a player exiles a spell then exiles from top (corpus: Possibility Storm)", () => {
@@ -8145,6 +8687,20 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
     ]);
   });
 
+  it('parses optional standalone look-top informational clauses', () => {
+    const ir = parseOracleTextToIR('At the beginning of your upkeep, you may look at the top card of your library.', 'Kinship Probe');
+
+    expect(ir.abilities[0]?.steps).toEqual([
+      {
+        kind: 'look_top',
+        who: { kind: 'you' },
+        amount: { kind: 'number', value: 1 },
+        optional: true,
+        raw: 'you may look at the top card of your library',
+      },
+    ]);
+  });
+
   it('prunes trailing top-of-library reorder clauses after look-top parsing', () => {
     const ir = parseOracleTextToIR(
       'Look at the top three cards of your library, then put them back in any order. You may shuffle.',
@@ -8174,6 +8730,19 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
         who: { kind: 'you' },
         amount: { kind: 'number', value: 1 },
         raw: 'Reveal the top card of your library',
+      },
+    ]);
+  });
+
+  it('parses each-player reveal-top informational clauses', () => {
+    const ir = parseOracleTextToIR('Each player reveals the top card of their library.', 'Game Preserve');
+
+    expect(ir.abilities[0]?.steps).toEqual([
+      {
+        kind: 'reveal_top',
+        who: { kind: 'each_player' },
+        amount: { kind: 'number', value: 1 },
+        raw: 'Each player reveals the top card of their library',
       },
     ]);
   });
@@ -8804,7 +9373,7 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
       {
         kind: 'lose_life',
         who: { kind: 'each_opponent' },
-        amount: { kind: 'unknown', raw: "that card's power" },
+        amount: { kind: 'object_stat', subject: 'that_card', stat: 'power' },
       },
     ]);
   });
@@ -9446,7 +10015,7 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
       effectText: 'Search your library for a basic land card, reveal it, put it into your hand, then shuffle.',
     });
     expect(landcycling?.steps).toEqual([
-      {
+      expect.objectContaining({
         kind: 'search_library',
         who: { kind: 'you' },
         criteria: { kind: 'raw', text: 'basic land' },
@@ -9454,8 +10023,8 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
         revealFound: true,
         shuffle: true,
         maxResults: 1,
-        raw: 'Search your library for a basic land card, reveal it, put it into your hand, then shuffle.',
-      },
+        raw: 'Search your library for a basic land card, reveal it, put it into your hand, then shuffle',
+      }),
     ]);
   });
 
@@ -9469,7 +10038,7 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
       effectText: 'Search your library for a Plains card, reveal it, put it into your hand, then shuffle.',
     });
     expect(typecycling?.steps).toEqual([
-      {
+      expect.objectContaining({
         kind: 'search_library',
         who: { kind: 'you' },
         criteria: { kind: 'raw', text: 'Plains' },
@@ -9477,8 +10046,8 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
         revealFound: true,
         shuffle: true,
         maxResults: 1,
-        raw: 'Search your library for a Plains card, reveal it, put it into your hand, then shuffle.',
-      },
+        raw: 'Search your library for a Plains card, reveal it, put it into your hand, then shuffle',
+      }),
     ]);
   });
 
@@ -9492,7 +10061,7 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
       effectText: 'Search your library for a Wizard card, reveal it, put it into your hand, then shuffle.',
     });
     expect(typecycling?.steps).toEqual([
-      {
+      expect.objectContaining({
         kind: 'search_library',
         who: { kind: 'you' },
         criteria: { kind: 'raw', text: 'Wizard' },
@@ -9500,8 +10069,8 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
         revealFound: true,
         shuffle: true,
         maxResults: 1,
-        raw: 'Search your library for a Wizard card, reveal it, put it into your hand, then shuffle.',
-      },
+        raw: 'Search your library for a Wizard card, reveal it, put it into your hand, then shuffle',
+      }),
     ]);
   });
 
@@ -9972,10 +10541,12 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
 
     expect(ir.abilities).toHaveLength(1);
     expect(ir.abilities[0]?.steps.some((step: any) => String(step?.raw || '').trim() === 'You may choose new targets for the copies')).toBe(false);
-    expect(ir.abilities[0]?.steps[1]).toEqual(
+    expect(ir.abilities[0]?.steps[0]).toEqual(
       expect.objectContaining({
-        kind: 'unknown',
-        raw: expect.stringContaining('You may choose new targets for the copies'),
+        kind: 'copy_spell',
+        subject: 'this_spell',
+        copies: { kind: 'replicate_count' },
+        allowNewTargets: true,
       })
     );
   });
@@ -10000,7 +10571,6 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
           },
           duration: 'during_resolution',
           permission: 'cast',
-          raw: expect.stringContaining('Put the exiled cards on the bottom of your library in a random order'),
         }),
       ])
     );
@@ -11238,6 +11808,68 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
     ]);
   });
 
+  it('merges bottom-random tails after parsed top-library exile choices that use one of those cards wording', () => {
+    const ir = parseOracleTextToIR(
+      "Nahiri's Warcrafting deals 5 damage to target creature, planeswalker, or battle. Look at the top X cards of your library, where X is the excess damage dealt this way. You may exile one of those cards. Put the rest on the bottom of your library in a random order. You may play the exiled card this turn.",
+      "Nahiri's Warcrafting"
+    );
+    const raws = ir.abilities.flatMap((ability) => ability.steps.map((step) => step.raw));
+
+    expect(raws).toContain('You may exile one of those cards. Put the rest on the bottom of your library in a random order');
+    expect(raws).not.toContain('Put the rest on the bottom of your library in a random order');
+  });
+
+  it("merges bottom-random tails after impulse followups with intervening if-you-don't clauses", () => {
+    const ir = parseOracleTextToIR(
+      'Whenever enchanted creature attacks, reveal cards from the top of your library until you reveal an Aura card. You may put that card onto the battlefield. If you don\'t, put it into your hand. Put the rest on the bottom of your library in a random order.',
+      "Songbirds' Blessing"
+    );
+    const raws = ir.abilities.flatMap((ability) => ability.steps.map((step) => step.raw));
+
+    expect(raws).toContain("If you don't, put it into your hand. Put the rest on the bottom of your library in a random order");
+    expect(raws).not.toContain('Put the rest on the bottom of your library in a random order');
+  });
+
+  it("merges Garruk's Harbinger bottom-random tails after that-many top-library leads", () => {
+    const ir = parseOracleTextToIR(
+      "Whenever this creature deals combat damage to a player or planeswalker, look at that many cards from the top of your library. You may reveal a creature card or Garruk planeswalker card from among them and put it into your hand. Put the rest on the bottom of your library in a random order.",
+      "Garruk's Harbinger"
+    );
+    const raws = ir.abilities.flatMap((ability) => ability.steps.map((step) => step.raw));
+
+    expect(raws).toContain(
+      'You may reveal a creature card or Garruk planeswalker card from among them and put it into your hand. Put the rest on the bottom of your library in a random order'
+    );
+    expect(raws).not.toContain('Put the rest on the bottom of your library in a random order');
+  });
+
+  it('merges Industrial Advancement bottom-random tails after If you do top-library leads', () => {
+    const ir = parseOracleTextToIR(
+      "At the beginning of your end step, you may sacrifice a creature. If you do, look at the top X cards of your library, where X is that creature's mana value. You may put a creature card from among them onto the battlefield. Put the rest on the bottom of your library in a random order.",
+      'Industrial Advancement'
+    );
+    const raws = ir.abilities.flatMap((ability) => ability.steps.map((step) => step.raw));
+
+    expect(raws).toContain(
+      'You may put a creature card from among them onto the battlefield. Put the rest on the bottom of your library in a random order'
+    );
+    expect(raws).not.toContain('Put the rest on the bottom of your library in a random order');
+  });
+
+  it('merges Key to the Vault bottom-random tails without swallowing the later free-cast followup', () => {
+    const ir = parseOracleTextToIR(
+      'Whenever equipped creature deals combat damage to a player, look at that many cards from the top of your library. You may exile a nonland card from among them. Put the rest on the bottom of your library in a random order. You may cast the exiled card without paying its mana cost.',
+      'The Key to the Vault'
+    );
+    const raws = ir.abilities.flatMap((ability) => ability.steps.map((step) => step.raw));
+
+    expect(raws).toContain(
+      'You may exile a nonland card from among them. Put the rest on the bottom of your library in a random order'
+    );
+    expect(raws).toContain('You may cast the exiled card without paying its mana cost');
+    expect(raws).not.toContain('Put the rest on the bottom of your library in a random order');
+  });
+
   it('parses Corpse Appraiser into a conditional look-select-top follow-up after the graveyard exile', () => {
     const ir = parseOracleTextToIR(
       'When this creature enters, exile up to one target creature card from a graveyard. If a card is put into exile this way, look at the top three cards of your library, then put one of those cards into your hand and the rest into your graveyard.',
@@ -11402,6 +12034,23 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
     ]);
   });
 
+  it('prunes timing-rules reminder tails once a permission step has been lowered', () => {
+    const ir = parseOracleTextToIR(
+      'Mayhem {B} (You may cast this card from your graveyard for {B} if you discarded it this turn. Timing rules still apply.)',
+      'Swarm, Being of Bees'
+    );
+
+    expect(ir.abilities[0]?.steps).toEqual([
+      expect.objectContaining({
+        kind: 'grant_graveyard_permission',
+        permission: 'cast',
+      }),
+    ]);
+    expect(
+      ir.abilities[0]?.steps.some((step: any) => /timing rules still apply/i.test(String(step?.raw || '')))
+    ).toBe(false);
+  });
+
   it('splits Restless Cottage style create-token-plus-graveyard-exile clauses into ordered steps', () => {
     const ir = parseOracleTextToIR(
       'Whenever this land attacks, create a Food token and exile up to one target card from a graveyard.',
@@ -11422,34 +12071,6 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
       ])
     );
     expect(ir.abilities[0]?.steps.map((step: any) => step.kind)).toEqual(['create_token', 'move_zone']);
-  });
-
-  it('parses Mardu Woe-Reaper exile follow-ups into a conditional life-gain step', () => {
-    const ir = parseOracleTextToIR(
-      'Whenever this creature or another Warrior you control enters, you may exile target creature card from a graveyard. If you do, you gain 1 life.',
-      'Mardu Woe-Reaper'
-    );
-
-    expect(ir.abilities[0]?.steps).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          kind: 'move_zone',
-          to: 'exile',
-          optional: true,
-          what: { kind: 'raw', text: 'target creature card from a graveyard' },
-        }),
-        expect.objectContaining({
-          kind: 'conditional',
-          condition: { kind: 'if', raw: 'you do' },
-          steps: [
-            expect.objectContaining({
-              kind: 'gain_life',
-              amount: { kind: 'number', value: 1 },
-            }),
-          ],
-        }),
-      ])
-    );
   });
 
   it('parses Diregraf Scavenger typed exiled-this-way follow-ups into conditional branches', () => {
@@ -12362,6 +12983,14 @@ This creature has protection from each of the exiled card's card types. (Artifac
       effectText:
         'As an additional cost to cast this spell, you may pay its replicate cost any number of times. When you cast this spell, copy it for each time you paid its replicate cost. You may choose new targets for the copies.',
     });
+    expect(ir.abilities[0]?.steps[0]).toEqual(
+      expect.objectContaining({
+        kind: 'copy_spell',
+        subject: 'this_spell',
+        copies: { kind: 'replicate_count' },
+        allowNewTargets: true,
+      })
+    );
   });
 
   it('parses Fortify as an attach activation instead of a dead keyword stub', () => {

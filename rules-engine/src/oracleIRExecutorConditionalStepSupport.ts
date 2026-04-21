@@ -798,7 +798,9 @@ export function evaluateConditionalWrapperCondition(params: {
   if (!sourceRef) return null;
 
   if (normalizedRaw === 'that card has the chosen name') {
-    const chosenName = String((sourceRef as any)?.chosenCardName || (sourceRef as any)?.card?.chosenCardName || '').trim();
+    const chosenName = String(
+      ctx.selectorContext?.chosenCardName || (sourceRef as any)?.chosenCardName || (sourceRef as any)?.card?.chosenCardName || ''
+    ).trim();
     if (!chosenName) return null;
 
     const libraryOwnerId = String(ctx.lastTopLibraryOwnerId || controllerId || '').trim();

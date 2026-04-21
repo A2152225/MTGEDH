@@ -343,11 +343,22 @@ export function bindCopiedStackSpellTargetsToContext(params: {
 export function resolveCopySpellCount(
   state: GameState,
   controllerId: PlayerID,
-  step: Extract<OracleEffectStep, { kind: 'copy_spell' }>
+  step: Extract<OracleEffectStep, { kind: 'copy_spell' }>,
+  ctx?: OracleIRExecutionContext
 ): number {
   if (!step.copies) return 1;
   if (step.copies.kind === 'number') {
     return Math.max(0, Number(step.copies.value) || 0);
+  }
+  if (step.copies.kind === 'replicate_count') {
+    const sourceId = String(ctx?.sourceId || '').trim();
+    if (!sourceId) return 0;
+
+    const sourceStackObject = getStackItems((state as any)?.stack).find(
+      (item: any) => String(item?.type || '').trim() === 'spell' && String(item?.id || '').trim() === sourceId
+    ) as any;
+
+    return Math.max(0, Number(sourceStackObject?.replicateCount || 0) || 0);
   }
   if (step.copies.kind === 'spells_cast_before_this_turn') {
     const stateAny = state as any;

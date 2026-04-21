@@ -11,7 +11,32 @@ import { normalizeOracleText } from './oracleIRParserUtils';
  * - "Choose any number of modes -"
  */
 const CHOOSE_MODE_HEADER_RE =
-  /^Choose\s+(?:one\s+or\s+both|one\s+or\s+more|one|two|three|four|up\s+to\s+(?:one|two|three|four|\w+)|any\s+number(?:\s+of\s+modes?)?)(?:\.\s*If\s+[^.]*?you\s+may\s+choose\s+both\s+instead\.)?(?:\.\s*You may choose the same mode more than once\.)?\s*(?:[-\u2014])?$/i;
+  /^Choose\s+(?:one\s+or\s+both|one\s+or\s+more|one|two|three|four|up\s+to\s+(?:one|two|three|four|\w+)|any\s+number(?:\s+of\s+modes?)?)(?:\.\s*If\s+[^.]*?(?:you\s+may\s+)?choose\s+(?:both|any\s+number)\s+instead[.\u2014-]?)?(?:\.\s*You may choose the same mode more than once\.)?\s*(?:[-\u2014])?$/i;
+
+function splitChooseModeHeaderText(headerText: string): {
+  readonly prefixText: string;
+  readonly headerText: string;
+} | null {
+  let headerStart = -1;
+  const chooseMatchRe = /\bChoose\s+/gi;
+
+  for (const match of headerText.matchAll(chooseMatchRe)) {
+    const start = Number(match.index ?? -1);
+    if (start < 0) continue;
+
+    const candidateHeader = headerText.slice(start).trim();
+    if (CHOOSE_MODE_HEADER_RE.test(candidateHeader)) {
+      headerStart = start;
+    }
+  }
+
+  if (headerStart < 0) return null;
+
+  return {
+    prefixText: headerText.slice(0, headerStart).trim(),
+    headerText: headerText.slice(headerStart).trim(),
+  };
+}
 
 function resolveModeCount(word: string): number | null {
   const normalized = String(word || '').trim().toLowerCase();
@@ -37,7 +62,7 @@ export function tryParseChooseModeBlock(
   const firstBulletIndex = normalized.search(/[\u2022ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢]\s+/);
   if (firstBulletIndex < 0) return null;
 
-  const headerText = normalized.slice(0, firstBulletIndex).trim();
+  const rawHeaderText = normalized.slice(0, firstBulletIndex).trim();
   const bodyText = normalized.slice(firstBulletIndex).trim();
   if (!/[\u2022ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢]/.test(bodyText)) return null;
 
@@ -47,7 +72,7 @@ export function tryParseChooseModeBlock(
     .filter(Boolean);
   if (rawBullets.length === 0) return null;
 
-  const tieredMatch = headerText.match(/^Tiered\s*\([^)]*\)\s*\n([\s\S]+)$/i);
+  const tieredMatch = rawHeaderText.match(/^Tiered\s*\([^)]*\)\s*\n([\s\S]+)$/i);
   if (tieredMatch) {
     const sharedEffectText = String(tieredMatch[1] || '').trim();
     if (!sharedEffectText) return null;
@@ -91,13 +116,19 @@ export function tryParseChooseModeBlock(
     };
   }
 
+  const headerMatch = splitChooseModeHeaderText(rawHeaderText);
+  if (!headerMatch || headerMatch.prefixText) return null;
+
+  const headerText = headerMatch.headerText;
+
   if (!CHOOSE_MODE_HEADER_RE.test(headerText)) return null;
 
   let minModes = 1;
   let maxModes = 1;
   const normalizedHeaderText = headerText.toLowerCase();
   const canRepeatModes = /you may choose the same mode more than once/i.test(headerText);
-  const chooseBothInstead = /you may choose both instead/i.test(headerText);
+  const chooseBothInstead = /(?:you may\s+)?choose both instead/i.test(headerText);
+  const chooseAnyNumberInstead = /(?:you may\s+)?choose any number instead/i.test(headerText);
   const oneOrBothMatch = normalizedHeaderText.match(/^choose\s+one\s+or\s+both\b/i);
   const oneOrMoreMatch = normalizedHeaderText.match(/^choose\s+one\s+or\s+more\b/i);
   const upToMatch = normalizedHeaderText.match(/^choose\s+up\s+to\s+(\w+)/i);
@@ -106,7 +137,7 @@ export function tryParseChooseModeBlock(
   if (oneOrBothMatch || chooseBothInstead) {
     minModes = 1;
     maxModes = 2;
-  } else if (oneOrMoreMatch) {
+  } else if (oneOrMoreMatch || chooseAnyNumberInstead) {
     minModes = 1;
     maxModes = rawBullets.length;
   } else if (upToMatch) {
@@ -144,4 +175,27 @@ export function tryParseChooseModeBlock(
     modes,
     raw: normalized.slice(0, 300),
   };
+}
+
+export function tryParseChooseModeBlockWithPrelude(
+  effectText: string,
+  parseModeEffectSteps: (effectText: string) => readonly OracleEffectStep[],
+  parsePreludeEffectSteps: (effectText: string) => readonly OracleEffectStep[]
+): readonly OracleEffectStep[] | null {
+  const normalized = normalizeOracleText(effectText);
+  const firstBulletIndex = normalized.search(/[\u2022ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢]\s+/);
+  if (firstBulletIndex < 0) return null;
+
+  const headerMatch = splitChooseModeHeaderText(normalized.slice(0, firstBulletIndex).trim());
+  if (!headerMatch || !headerMatch.prefixText) return null;
+
+  const chooseModeStep = tryParseChooseModeBlock(
+    `${headerMatch.headerText}\n${normalized.slice(firstBulletIndex).trim()}`,
+    parseModeEffectSteps
+  );
+  if (!chooseModeStep) return null;
+
+  const prefixSteps = parsePreludeEffectSteps(headerMatch.prefixText).filter(Boolean);
+  if (prefixSteps.length === 0) return [chooseModeStep];
+  return [...prefixSteps, chooseModeStep];
 }
