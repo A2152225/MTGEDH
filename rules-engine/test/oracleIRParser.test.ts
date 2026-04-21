@@ -639,6 +639,44 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
     expect(untapStep.target).toEqual({ kind: 'raw', text: 'that creature' });
   });
 
+  it("parses 'it doesn't untap during its controller's next untap step' into skip_next_untap", () => {
+    const text = "Tap target creature. It doesn't untap during its controller's next untap step.";
+    const ir = parseOracleTextToIR(text);
+
+    expect(ir.abilities[0]?.steps).toEqual([
+      {
+        kind: 'tap_or_untap',
+        target: { kind: 'raw', text: 'target creature' },
+        mode: 'tap',
+        raw: 'Tap target creature',
+      },
+      {
+        kind: 'skip_next_untap',
+        target: { kind: 'raw', text: 'It' },
+        raw: "It doesn't untap during its controller's next untap step",
+      },
+    ]);
+  });
+
+  it("parses 'that creature doesn't untap during its controller's next untap step' into skip_next_untap", () => {
+    const text = "Tap target creature. That creature doesn't untap during its controller's next untap step.";
+    const ir = parseOracleTextToIR(text);
+
+    expect(ir.abilities[0]?.steps).toEqual([
+      {
+        kind: 'tap_or_untap',
+        target: { kind: 'raw', text: 'target creature' },
+        mode: 'tap',
+        raw: 'Tap target creature',
+      },
+      {
+        kind: 'skip_next_untap',
+        target: { kind: 'raw', text: 'That creature' },
+        raw: "That creature doesn't untap during its controller's next untap step",
+      },
+    ]);
+  });
+
   it('parses untap-all clauses as fixed untap actions', () => {
     const text = 'Untap all creatures you control.';
     const ir = parseOracleTextToIR(text);
@@ -5379,6 +5417,22 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
     ]);
   });
 
+  it('parses choose-one-or-more bullet blocks into choose_mode with a flexible upper bound', () => {
+    const text =
+      'Choose one or more -\n' +
+      '\u2022 Draw a card.\n' +
+      '\u2022 Gain 3 life.\n' +
+      '\u2022 Create a Treasure token.';
+
+    const ir = parseOracleTextToIR(text, 'Modal Test');
+    const chooseModeStep = ir.abilities.flatMap((a) => a.steps).find((s) => s.kind === 'choose_mode') as any;
+
+    expect(chooseModeStep).toBeTruthy();
+    expect(chooseModeStep.minModes).toBe(1);
+    expect(chooseModeStep.maxModes).toBe(3);
+    expect(chooseModeStep.modes).toHaveLength(3);
+  });
+
   it('parses impulse exile-top with an ability-word prefix + at-beginning wrapper (Prosper-style)', () => {
     const text =
       'Deathtouch\n' +
@@ -6839,6 +6893,67 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
         }),
       ])
     );
+  });
+
+  it("parses target creature can't attack this turn into a cant_attack step", () => {
+    const ir = parseOracleTextToIR("Target creature can't attack this turn.", 'Blinding Beam');
+
+    expect(ir.abilities[0]?.steps).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'cant_attack',
+          target: { kind: 'raw', text: 'Target creature' },
+          duration: 'end_of_turn',
+        }),
+      ])
+    );
+  });
+
+  it("parses enchanted creature can't attack or block into static cant-attack and cant-block steps", () => {
+    const ir = parseOracleTextToIR("Enchanted creature can't attack or block.", 'Pacifism');
+
+    expect(ir.abilities[0]?.steps).toEqual([
+      {
+        kind: 'cant_attack',
+        target: { kind: 'raw', text: 'Enchanted creature' },
+        duration: 'static',
+        raw: "Enchanted creature can't attack",
+      },
+      {
+        kind: 'cant_block',
+        target: { kind: 'raw', text: 'Enchanted creature' },
+        duration: 'static',
+        raw: "Enchanted creature can't block",
+      },
+    ]);
+  });
+
+  it("parses enchanted creature can't attack or block, and its activated abilities can't be activated into three static restriction steps", () => {
+    const ir = parseOracleTextToIR(
+      "Enchanted creature can't attack or block, and its activated abilities can't be activated.",
+      "Lawmage's Binding"
+    );
+
+    expect(ir.abilities[0]?.steps).toEqual([
+      {
+        kind: 'cant_attack',
+        target: { kind: 'raw', text: 'Enchanted creature' },
+        duration: 'static',
+        raw: "Enchanted creature can't attack",
+      },
+      {
+        kind: 'cant_block',
+        target: { kind: 'raw', text: 'Enchanted creature' },
+        duration: 'static',
+        raw: "Enchanted creature can't block",
+      },
+      {
+        kind: 'cant_activate_abilities',
+        target: { kind: 'raw', text: 'it' },
+        duration: 'static',
+        raw: "its activated abilities can't be activated",
+      },
+    ]);
   });
 
   it('parses creatures you control get +1/+1 until end of turn into a multi-creature modify_pt step', () => {

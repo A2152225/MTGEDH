@@ -4,13 +4,14 @@ import { normalizeOracleText } from './oracleIRParserUtils';
 /**
  * Matches modal headers such as:
  * - "Choose one -"
+ * - "Choose one or more -"
  * - "Choose one or both -"
  * - "Choose up to three -"
  * - "Choose four. You may choose the same mode more than once."
  * - "Choose any number of modes -"
  */
 const CHOOSE_MODE_HEADER_RE =
-  /^Choose\s+(?:one\s+or\s+both|one|two|three|four|up\s+to\s+(?:one|two|three|four|\w+)|any\s+number(?:\s+of\s+modes?)?)(?:\.\s*If\s+[^.]*?you\s+may\s+choose\s+both\s+instead\.)?(?:\.\s*You may choose the same mode more than once\.)?\s*(?:[-\u2014])?$/i;
+  /^Choose\s+(?:one\s+or\s+both|one\s+or\s+more|one|two|three|four|up\s+to\s+(?:one|two|three|four|\w+)|any\s+number(?:\s+of\s+modes?)?)(?:\.\s*If\s+[^.]*?you\s+may\s+choose\s+both\s+instead\.)?(?:\.\s*You may choose the same mode more than once\.)?\s*(?:[-\u2014])?$/i;
 
 function resolveModeCount(word: string): number | null {
   const normalized = String(word || '').trim().toLowerCase();
@@ -98,12 +99,16 @@ export function tryParseChooseModeBlock(
   const canRepeatModes = /you may choose the same mode more than once/i.test(headerText);
   const chooseBothInstead = /you may choose both instead/i.test(headerText);
   const oneOrBothMatch = normalizedHeaderText.match(/^choose\s+one\s+or\s+both\b/i);
+  const oneOrMoreMatch = normalizedHeaderText.match(/^choose\s+one\s+or\s+more\b/i);
   const upToMatch = normalizedHeaderText.match(/^choose\s+up\s+to\s+(\w+)/i);
   const exactMatch = normalizedHeaderText.match(/^choose\s+(one|two|three|four)\b/i);
 
   if (oneOrBothMatch || chooseBothInstead) {
     minModes = 1;
     maxModes = 2;
+  } else if (oneOrMoreMatch) {
+    minModes = 1;
+    maxModes = rawBullets.length;
   } else if (upToMatch) {
     minModes = 0;
     maxModes = resolveModeCount(upToMatch[1] || '') ?? 1;

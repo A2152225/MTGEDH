@@ -19,6 +19,34 @@ function splitTrailingGrantedDiesTriggerFollowup(clause: string): string[] {
   return [String(match[1] || '').trim(), String(match[2] || '').trim()].filter(Boolean);
 }
 
+function splitConservativeCantAttackOrBlockClause(args: {
+  rawClause: string;
+  parseEffectClauseToStep: (rawClause: string) => OracleEffectStep;
+}): string[] | null {
+  const { rawClause, parseEffectClauseToStep } = args;
+  const normalized = normalizeOracleText(rawClause).trim();
+  if (!normalized || !/can't\s+attack\s+or\s+block/i.test(normalized)) return null;
+
+  const match = normalized.match(
+    /^(.*?)\s+can't\s+attack\s+or\s+block(?:\s+(this\s+turn))?(?:,\s*and\s+(.+))?$/i
+  );
+  if (!match) return null;
+
+  const targetText = String(match[1] || '').trim();
+  const durationSuffix = String(match[2] || '').trim();
+  const trailingClause = String(match[3] || '').trim();
+  if (!targetText) return null;
+
+  const suffix = durationSuffix ? ` ${durationSuffix}` : '';
+  const first = `${targetText} can't attack${suffix}`;
+  const second = `${targetText} can't block${suffix}`;
+  const firstStep = parseEffectClauseToStep(first);
+  const secondStep = parseEffectClauseToStep(second);
+  if (firstStep.kind === 'unknown' || secondStep.kind === 'unknown') return null;
+
+  return trailingClause ? [first, second, trailingClause] : [first, second];
+}
+
 function splitConservativeActionConjunctionClause(args: {
   rawClause: string;
   parseEffectClauseToStep: (rawClause: string) => OracleEffectStep;
@@ -162,6 +190,7 @@ export function buildAbilityClauses(args: {
     splitConservativeTemporaryAbilityEvasionClause({ rawClause: clause, parseEffectClauseToStep }) ??
     splitConservativeGrantedDiesTriggerSetBasePtClause({ rawClause: clause, parseEffectClauseToStep }) ??
     splitConservativeModifyPtGrantedDiesTriggerClause({ rawClause: clause, parseEffectClauseToStep }) ??
+    splitConservativeCantAttackOrBlockClause({ rawClause: clause, parseEffectClauseToStep }) ??
     splitConservativeActionConjunctionClause({ rawClause: clause, parseEffectClauseToStep }) ??
     splitConservativeCreateTokenLeadClause({ rawClause: clause, parseEffectClauseToStep }) ??
     splitConservativeExileFromLeadClause({ rawClause: clause, parseEffectClauseToStep }) ??

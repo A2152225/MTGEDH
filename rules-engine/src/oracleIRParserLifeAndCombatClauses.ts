@@ -249,6 +249,17 @@ export function tryParseLifeAndCombatClause(args: {
         raw: rawClause,
       });
     }
+
+    const skipNextUntap = clause.match(
+      /^((?:(?:all|(?:up to\s+(?:one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+)?target|that|those|this|enchanted|equipped)\s+.+|it|them))\s+do(?:es)?(?:n't|\s+not)\s+untap during (?:its|their) controller(?:'|â€™)?s next untap step$/i
+    );
+    if (skipNextUntap) {
+      return withMeta({
+        kind: 'skip_next_untap',
+        target: parseObjectSelector(skipNextUntap[1]),
+        raw: rawClause,
+      });
+    }
   }
 
   return null;

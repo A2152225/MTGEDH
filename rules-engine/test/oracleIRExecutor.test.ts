@@ -11,6 +11,7 @@ import {
   TriggerEvent,
 } from '../src/triggeredAbilities';
 import { canCreatureBlock, createCombatCreature } from '../src/combatAutomation';
+import { canPermanentAttack } from '../src/actions/combat';
 import { executeCleanupStep as executeTurnCleanupStep, executeUntapStep } from '../src/actions/turnActions';
 import { previewPreventedDamage } from '../src/oracleIRDamagePrevention';
 import { makeMerfolkIterationState } from './helpers/merfolkIterationFixture';
@@ -21548,6 +21549,108 @@ describe('Oracle IR Executor', () => {
 
     const cleaned = executeTurnCleanupStep(result.state as any, 'p1');
     const released = ((cleaned.state.battlefield || []) as any[]).find((perm: any) => perm.id === 'blocked-target');
+    expect(released?.temporaryEffects || []).toEqual([]);
+  });
+
+  it("applies target creature can't attack this turn as a temporary can't-attack effect", () => {
+    const ir = parseOracleTextToIR("Target creature can't attack this turn.", 'Blinding Beam');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      battlefield: [
+        {
+          id: 'attacking-target',
+          controller: 'p2',
+          owner: 'p2',
+          tapped: false,
+          card: {
+            id: 'attacking-target-card',
+            name: 'Runeclaw Bear',
+            type_line: 'Creature - Bear',
+            power: '2',
+            toughness: '2',
+          },
+        },
+      ] as any,
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, hand: [], graveyard: [], library: [], exile: [] },
+        { id: 'p2', name: 'P2', seat: 1, life: 40, hand: [], graveyard: [], library: [], exile: [] },
+      ] as any,
+    });
+
+    const result = applyOracleIRStepsToGameState(
+      start,
+      steps,
+      {
+        controllerId: 'p1',
+        sourceId: 'blinding-beam',
+        sourceName: 'Blinding Beam',
+        targetCreatureId: 'attacking-target',
+      },
+      { allowOptional: true }
+    );
+
+    const creature = ((result.state.battlefield || []) as any[]).find((perm: any) => perm.id === 'attacking-target');
+    expect(creature?.temporaryEffects?.map((effect: any) => effect.description)).toEqual(
+      expect.arrayContaining(["can't attack"])
+    );
+    expect(canPermanentAttack(creature, 'p2', (result.state.battlefield || []) as any[]).canParticipate).toBe(false);
+
+    const cleaned = executeTurnCleanupStep(result.state as any, 'p1');
+    const released = ((cleaned.state.battlefield || []) as any[]).find((perm: any) => perm.id === 'attacking-target');
+    expect(released?.temporaryEffects || []).toEqual([]);
+    expect(canPermanentAttack(released, 'p2', (cleaned.state.battlefield || []) as any[]).canParticipate).toBe(true);
+  });
+
+  it("applies target creature's activated abilities can't be activated this turn as a temporary activation lock", () => {
+    const ir = parseOracleTextToIR(
+      "Target creature's activated abilities can't be activated this turn.",
+      'Silencing Ray'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      battlefield: [
+        {
+          id: 'silenced-target',
+          controller: 'p2',
+          owner: 'p2',
+          tapped: false,
+          card: {
+            id: 'silenced-target-card',
+            name: 'Prodigal Pyromancer',
+            type_line: 'Creature - Human Wizard',
+            oracle_text: '{T}: This creature deals 1 damage to any target.',
+            power: '1',
+            toughness: '1',
+          },
+        },
+      ] as any,
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, hand: [], graveyard: [], library: [], exile: [] },
+        { id: 'p2', name: 'P2', seat: 1, life: 40, hand: [], graveyard: [], library: [], exile: [] },
+      ] as any,
+    });
+
+    const result = applyOracleIRStepsToGameState(
+      start,
+      steps,
+      {
+        controllerId: 'p1',
+        sourceId: 'silencing-ray',
+        sourceName: 'Silencing Ray',
+        targetCreatureId: 'silenced-target',
+      },
+      { allowOptional: true }
+    );
+
+    const creature = ((result.state.battlefield || []) as any[]).find((perm: any) => perm.id === 'silenced-target');
+    expect(creature?.temporaryEffects?.map((effect: any) => effect.description)).toEqual(
+      expect.arrayContaining(["activated abilities can't be activated"])
+    );
+
+    const cleaned = executeTurnCleanupStep(result.state as any, 'p1');
+    const released = ((cleaned.state.battlefield || []) as any[]).find((perm: any) => perm.id === 'silenced-target');
     expect(released?.temporaryEffects || []).toEqual([]);
   });
 
@@ -47046,6 +47149,63 @@ This creature has protection from each of the exiled card's card types. (Artifac
 
     const afterSecondUntap = executeUntapStep(afterFirstUntap.state as any, 'p1');
     const untapped = ((afterSecondUntap.state.battlefield || []) as any[]).find((perm: any) => perm.id === 'gust-walker');
+    expect(untapped?.tapped).toBe(false);
+  });
+
+  it("applies next-untap prevention so the targeted creature stays tapped through its controller's next untap step", () => {
+    const ir = parseOracleTextToIR(
+      "Tap target creature. It doesn't untap during its controller's next untap step.",
+      'Crippling Chill'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      battlefield: [
+        {
+          id: 'frost-trickster',
+          controller: 'p2',
+          owner: 'p2',
+          tapped: false,
+          card: {
+            id: 'frost-trickster-card',
+            name: 'Frost Trickster',
+            type_line: 'Creature - Bird Wizard',
+            power: '2',
+            toughness: '2',
+          },
+        },
+      ] as any,
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, hand: [], graveyard: [], library: [], exile: [] },
+        { id: 'p2', name: 'P2', seat: 1, life: 40, hand: [], graveyard: [], library: [], exile: [] },
+      ] as any,
+    });
+
+    const chilled = applyOracleIRStepsToGameState(
+      start,
+      steps,
+      {
+        controllerId: 'p1',
+        sourceId: 'crippling-chill',
+        sourceName: 'Crippling Chill',
+        targetCreatureId: 'frost-trickster',
+      }
+    );
+
+    const affectedPermanent = ((chilled.state.battlefield || []) as any[]).find((perm: any) => perm.id === 'frost-trickster');
+    expect(chilled.appliedSteps.map(step => step.kind)).toEqual(['tap_or_untap', 'skip_next_untap']);
+    expect(affectedPermanent?.tapped).toBe(true);
+    expect(affectedPermanent?.temporaryEffects?.map((effect: any) => effect.description)).toContain(
+      "doesn't untap during your next untap step"
+    );
+
+    const afterFirstUntap = executeUntapStep(chilled.state as any, 'p2');
+    const stillTapped = ((afterFirstUntap.state.battlefield || []) as any[]).find((perm: any) => perm.id === 'frost-trickster');
+    expect(stillTapped?.tapped).toBe(true);
+    expect(stillTapped?.temporaryEffects || []).toEqual([]);
+
+    const afterSecondUntap = executeUntapStep(afterFirstUntap.state as any, 'p2');
+    const untapped = ((afterSecondUntap.state.battlefield || []) as any[]).find((perm: any) => perm.id === 'frost-trickster');
     expect(untapped?.tapped).toBe(false);
   });
 

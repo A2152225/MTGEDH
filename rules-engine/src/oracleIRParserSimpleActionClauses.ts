@@ -18,6 +18,13 @@ function countEnergySymbols(raw: string): number {
   return Array.isArray(matches) ? matches.length : 0;
 }
 
+function normalizePossessiveObjectReference(raw: string): string {
+  const trimmed = String(raw || '').trim();
+  if (/^its$/i.test(trimmed)) return 'it';
+  if (/^their$/i.test(trimmed)) return 'them';
+  return trimmed.replace(/(?:'s|’s)$/i, '').trim();
+}
+
 export function tryParseSimpleActionClause(args: {
   clause: string;
   rawClause: string;
@@ -743,12 +750,36 @@ export function tryParseSimpleActionClause(args: {
   }
 
   {
-    const cantBlock = clause.match(/^(.+?)\s+can't\s+block\s+this\s+turn$/i);
+    const cantAttack = clause.match(/^(.+?)\s+can't\s+attack(?:\s+this\s+turn)?$/i);
+    if (cantAttack) {
+      return withMeta({
+        kind: 'cant_attack',
+        target: parseObjectSelector(cantAttack[1]),
+        duration: /\bthis\s+turn$/i.test(clause) ? 'end_of_turn' : 'static',
+        raw: rawClause,
+      });
+    }
+  }
+
+  {
+    const cantBlock = clause.match(/^(.+?)\s+can't\s+block(?:\s+this\s+turn)?$/i);
     if (cantBlock) {
       return withMeta({
         kind: 'cant_block',
         target: parseObjectSelector(cantBlock[1]),
-        duration: 'end_of_turn',
+        duration: /\bthis\s+turn$/i.test(clause) ? 'end_of_turn' : 'static',
+        raw: rawClause,
+      });
+    }
+  }
+
+  {
+    const cantActivateAbilities = clause.match(/^(.+?)\s+activated abilities\s+can't\s+be\s+activated(?:\s+this\s+turn)?$/i);
+    if (cantActivateAbilities) {
+      return withMeta({
+        kind: 'cant_activate_abilities',
+        target: parseObjectSelector(normalizePossessiveObjectReference(cantActivateAbilities[1])),
+        duration: /\bthis\s+turn$/i.test(clause) ? 'end_of_turn' : 'static',
         raw: rawClause,
       });
     }

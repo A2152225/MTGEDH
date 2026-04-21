@@ -25,6 +25,8 @@ import { performDieRoll } from './dieRoll';
 import { applyAttachStep } from './oracleIRExecutorAttachStepHandlers';
 import { applyChooseModeStep } from './oracleIRExecutorChooseModeStepHandlers';
 import {
+  applyCantAttackStep,
+  applyCantActivateAbilitiesStep,
   applyAddCounterStep,
   applyAddTypesStep,
   applyCantBlockStep,
@@ -46,6 +48,7 @@ import {
   applyScheduleDelayedBattlefieldActionStep,
   applyScheduleDelayedTriggerStep,
   applySuspectStep,
+  applySkipNextUntapStep,
   applyTapMatchingPermanentsStep,
   applyTapOrUntapStep,
   applyTurnFaceUpStep,
@@ -703,13 +706,31 @@ export function applyOracleIRStepsToGameStateImpl(
         applyHandledStepResult(step, result);
         break;
       }
+      case 'cant_attack': {
+        const result = applyCantAttackStep(nextState, step, currentCtx);
+        applyHandledStepResult(step, result);
+        break;
+      }
       case 'cant_block': {
         const result = applyCantBlockStep(nextState, step, currentCtx);
         applyHandledStepResult(step, result);
         break;
       }
+      case 'cant_activate_abilities': {
+        const result = applyCantActivateAbilitiesStep(nextState, step, currentCtx);
+        applyHandledStepResult(step, result);
+        break;
+      }
       case 'exert': {
         const result = applyExertStep(nextState, step, currentCtx, {
+          lastMovedBattlefieldPermanentIds,
+          lastMovedCards,
+        });
+        applyHandledStepResult(step, result);
+        break;
+      }
+      case 'skip_next_untap': {
+        const result = applySkipNextUntapStep(nextState, step, currentCtx, {
           lastMovedBattlefieldPermanentIds,
           lastMovedCards,
         });

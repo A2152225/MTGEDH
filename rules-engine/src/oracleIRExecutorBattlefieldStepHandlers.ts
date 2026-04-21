@@ -1320,6 +1320,100 @@ export function applyTapOrUntapStep(
   };
 }
 
+export function applySkipNextUntapStep(
+  state: GameState,
+  step: Extract<OracleEffectStep, { kind: 'skip_next_untap' }>,
+  ctx: OracleIRExecutionContext,
+  runtime?: RecentBattlefieldRuntime
+): BattlefieldStepHandlerResult {
+  const battlefield = (state.battlefield || []) as BattlefieldPermanent[];
+  const targetText = String((step.target as any)?.text || '').trim().toLowerCase();
+  const recentTargets = resolveRecentlyMovedBattlefieldPermanents(battlefield, step.target as any, runtime);
+  const contextualTargetIds = (() => {
+    const ids: string[] = [];
+    const seen = new Set<string>();
+    for (const candidate of [
+      ...(Array.isArray(ctx.selectorContext?.chosenObjectIds)
+        ? ctx.selectorContext.chosenObjectIds.map(id => String(id || '').trim()).filter(Boolean)
+        : []),
+      String(ctx.targetPermanentId || '').trim(),
+      String(ctx.targetCreatureId || '').trim(),
+    ]) {
+      if (!candidate || seen.has(candidate)) continue;
+      seen.add(candidate);
+      ids.push(candidate);
+    }
+    return ids;
+  })();
+  const contextualTargets = recentTargets.length > 0 || contextualTargetIds.length === 0
+    ? []
+    : battlefield.filter((perm: any) => {
+        const permanentId = String((perm?.id || '')).trim();
+        if (!contextualTargetIds.includes(permanentId)) return false;
+        if (/creature/.test(targetText) && !permanentMatchesType(perm, 'creature')) return false;
+        if (/token/.test(targetText) && !(perm as any)?.isToken) return false;
+        return true;
+      });
+  const directTargets = recentTargets.length > 0
+    ? []
+    : /^(?:it|them|that creature|those creatures|that permanent|those permanents|that token|those tokens)$/i.test(targetText)
+      ? contextualTargets
+      : resolveDirectBattlefieldPermanents(battlefield, step.target as any, ctx);
+  const targetIds = Array.from(
+    new Set(
+      [...recentTargets, ...directTargets]
+        .map((perm: any) => String((perm as any)?.id || '').trim())
+        .filter(Boolean)
+    )
+  );
+
+  if (targetIds.length === 0) {
+    return {
+      applied: false,
+      message: `Skipped next untap prevention (no deterministic target): ${step.raw}`,
+      reason: 'no_deterministic_target',
+    };
+  }
+
+  if (targetIds.length > 1 && /^target\b/i.test(String((step.target as any)?.text || '').trim())) {
+    return {
+      applied: false,
+      message: `Skipped next untap prevention (needs player choice): ${step.raw}`,
+      reason: 'player_choice_required',
+      options: { classification: 'player_choice' },
+    };
+  }
+
+  const targetIdSet = new Set(targetIds);
+  const nextBattlefield = battlefield.map((perm: any) => {
+    const permanentId = String((perm as any)?.id || '').trim();
+    if (!targetIdSet.has(permanentId)) return perm;
+
+    const existingEffects = Array.isArray((perm as any)?.temporaryEffects)
+      ? [...(perm as any).temporaryEffects]
+      : [];
+    existingEffects.push({
+      id: `${permanentId}:temp:${existingEffects.length + 1}:doesnt-untap-next-untap-step`,
+      description: "doesn't untap during your next untap step",
+      expiresAt: 'leaves_battlefield',
+      expiresOnControllerTurn: String((perm as any)?.controller || '').trim() || undefined,
+      sourceId: String(ctx.sourceId || '').trim() || undefined,
+      sourceName: String(ctx.sourceName || '').trim() || undefined,
+    } as any);
+
+    return {
+      ...perm,
+      temporaryEffects: existingEffects,
+    } as any;
+  });
+
+  return {
+    applied: true,
+    state: { ...(state as any), battlefield: nextBattlefield } as GameState,
+    log: [`Marked ${targetIds.length} permanent(s) to skip their next untap step`],
+  };
+}
+
 function permanentMatchesTappedFilter(perm: any, filterText: string): boolean {
   const normalizedFilter = String(filterText || '')
     .replace(/\u2019/g, "'")
@@ -1639,6 +1733,14 @@ export function applyCantBlockStep(
   step: Extract<OracleEffectStep, { kind: 'cant_block' }>,
   ctx: OracleIRExecutionContext
 ): BattlefieldStepHandlerResult {
+  if (step.duration !== 'end_of_turn') {
+    return {
+      applied: false,
+      message: `Skipped cant_block static restriction (continuous text handled elsewhere): ${step.raw}`,
+      reason: 'unsupported_condition',
+    };
+  }
+
   const battlefield = (state.battlefield || []) as BattlefieldPermanent[];
   const targets = resolveDirectBattlefieldPermanents(battlefield, step.target as any, ctx);
   if (targets.length === 0) {
@@ -1667,6 +1769,94 @@ export function applyCantBlockStep(
     applied: true,
     state: nextState,
     log: [`Applied can't-block to ${targets.length} permanent(s)`],
+  };
+}
+
+export function applyCantAttackStep(
+  state: GameState,
+  step: Extract<OracleEffectStep, { kind: 'cant_attack' }>,
+  ctx: OracleIRExecutionContext
+): BattlefieldStepHandlerResult {
+  if (step.duration !== 'end_of_turn') {
+    return {
+      applied: false,
+      message: `Skipped cant_attack static restriction (continuous text handled elsewhere): ${step.raw}`,
+      reason: 'unsupported_condition',
+    };
+  }
+
+  const battlefield = (state.battlefield || []) as BattlefieldPermanent[];
+  const targets = resolveDirectBattlefieldPermanents(battlefield, step.target as any, ctx);
+  if (targets.length === 0) {
+    return {
+      applied: false,
+      message: `Skipped cant_attack (no deterministic target): ${step.raw}`,
+      reason: 'no_deterministic_target',
+    };
+  }
+
+  if (targets.length > 1 && /^target\b/i.test(String((step.target as any)?.text || '').trim())) {
+    return {
+      applied: false,
+      message: `Skipped cant_attack (needs player choice): ${step.raw}`,
+      reason: 'player_choice_required',
+      options: { classification: 'player_choice' },
+    };
+  }
+
+  const nextState = applyTemporaryEffectToPermanents(state, targets, ctx, {
+    descriptions: ["can't attack"],
+    expiresAt: 'end_of_turn',
+  });
+
+  return {
+    applied: true,
+    state: nextState,
+    log: [`Applied can't-attack to ${targets.length} permanent(s)`],
+  };
+}
+
+export function applyCantActivateAbilitiesStep(
+  state: GameState,
+  step: Extract<OracleEffectStep, { kind: 'cant_activate_abilities' }>,
+  ctx: OracleIRExecutionContext
+): BattlefieldStepHandlerResult {
+  if (step.duration !== 'end_of_turn') {
+    return {
+      applied: false,
+      message: `Skipped cant_activate_abilities static restriction (continuous text handled elsewhere): ${step.raw}`,
+      reason: 'unsupported_condition',
+    };
+  }
+
+  const battlefield = (state.battlefield || []) as BattlefieldPermanent[];
+  const targets = resolveDirectBattlefieldPermanents(battlefield, step.target as any, ctx);
+  if (targets.length === 0) {
+    return {
+      applied: false,
+      message: `Skipped cant_activate_abilities (no deterministic target): ${step.raw}`,
+      reason: 'no_deterministic_target',
+    };
+  }
+
+  if (targets.length > 1 && /^target\b/i.test(String((step.target as any)?.text || '').trim())) {
+    return {
+      applied: false,
+      message: `Skipped cant_activate_abilities (needs player choice): ${step.raw}`,
+      reason: 'player_choice_required',
+      options: { classification: 'player_choice' },
+    };
+  }
+
+  const nextState = applyTemporaryEffectToPermanents(state, targets, ctx, {
+    descriptions: ["activated abilities can't be activated"],
+    expiresAt: 'end_of_turn',
+  });
+
+  return {
+    applied: true,
+    state: nextState,
+    log: [`Applied activated-ability lock to ${targets.length} permanent(s)`],
   };
 }
 

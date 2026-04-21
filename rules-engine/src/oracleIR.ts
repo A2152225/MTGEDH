@@ -583,9 +583,25 @@ export type OracleEffectStep =
       readonly raw: string;
     }
   | {
+      readonly kind: 'cant_attack';
+      readonly target: OracleObjectSelector;
+      readonly duration: 'end_of_turn' | 'static';
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
       readonly kind: 'cant_block';
       readonly target: OracleObjectSelector;
-      readonly duration: 'end_of_turn';
+      readonly duration: 'end_of_turn' | 'static';
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
+      readonly kind: 'cant_activate_abilities';
+      readonly target: OracleObjectSelector;
+      readonly duration: 'end_of_turn' | 'static';
       readonly optional?: boolean;
       readonly sequence?: 'then';
       readonly raw: string;
@@ -696,6 +712,13 @@ export type OracleEffectStep =
       readonly kind: 'tap_or_untap';
       readonly target: OracleObjectSelector;
       readonly mode?: 'tap' | 'untap';
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
+      readonly kind: 'skip_next_untap';
+      readonly target: OracleObjectSelector;
       readonly optional?: boolean;
       readonly sequence?: 'then';
       readonly raw: string;
