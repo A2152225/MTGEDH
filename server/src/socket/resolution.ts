@@ -26239,6 +26239,11 @@ async function handleOptionChoiceResponse(
         zones.graveyard = zones.graveyard || [];
         zones.graveyard.push({ ...exiledCard, zone: 'graveyard' });
         zones.graveyardCount = zones.graveyard.length;
+      } else if (declineDestination === 'cease_to_exist') {
+        zones.exile.splice(cardIndex, 1);
+        zones.exileCount = zones.exile.length;
+
+        cleanupCardLeavingExile(game.state as any, exiledCard);
       } else if (declineDestination === 'library_bottom_random') {
         zones.exile.splice(cardIndex, 1);
         zones.exileCount = zones.exile.length;
@@ -26272,11 +26277,13 @@ async function handleOptionChoiceResponse(
         from: 'system',
         message:
           declineDamageEachOpponent > 0
-            ? `${getPlayerName(game, playerId)} declined to cast ${exiledCard.name}${declineDestination === 'graveyard' ? ' and it was put into their graveyard' : declineDestination === 'library_bottom_random' ? ' and it was put on the bottom of their library' : ''}. ${sourceName} deals ${declineDamageEachOpponent} damage to each opponent.`
+            ? `${getPlayerName(game, playerId)} declined to cast ${exiledCard.name}${declineDestination === 'graveyard' ? ' and it was put into their graveyard' : declineDestination === 'library_bottom_random' ? ' and it was put on the bottom of their library' : declineDestination === 'cease_to_exist' ? ' and the copy ceased to exist' : ''}. ${sourceName} deals ${declineDamageEachOpponent} damage to each opponent.`
             : declineDestination === 'graveyard'
               ? `${getPlayerName(game, playerId)} declined to cast ${exiledCard.name} and it was put into their graveyard (${sourceName}).`
               : declineDestination === 'library_bottom_random'
                 ? `${getPlayerName(game, playerId)} declined to cast ${exiledCard.name} and it was put on the bottom of their library (${sourceName}).`
+                : declineDestination === 'cease_to_exist'
+                  ? `${getPlayerName(game, playerId)} declined to cast ${exiledCard.name} and the copy ceased to exist (${sourceName}).`
                 : `${getPlayerName(game, playerId)} declined to cast ${exiledCard.name} (${sourceName}).`,
         ts: Date.now(),
       });

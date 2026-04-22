@@ -65,6 +65,7 @@ import type { OracleEffectStep, OraclePlayerSelector, OracleQuantity } from "../
 import { parseTriggeredAbilitiesFromText, TriggerEvent as ParsedTriggerEvent } from "../../../../rules-engine/src/triggeredAbilities.js";
 import { updateLandPlayPermissions, updateAllLandPlayPermissions } from "./land-permissions.js";
 import { applyDayNightTransforms, ensureInitialDayNightDesignationFromBattlefield, setDayNightState, transformPermanentToFace } from "./day-night.js";
+import { cardEntersPrepared, clearPreparedPermanent, setPermanentPrepared } from "./prepared.js";
 import { parseCreateTokenDescriptor } from "../planeswalker/templates/utils.js";
 import { buildOpponentMayPayRecordedOutcome } from "./opponent-may-pay-utils.js";
 import { resolveGiftAwareOracleText } from "../../utils/gift.js";
@@ -2039,7 +2040,7 @@ function queueCastFromExileResolutionPrompt(
     maxSelections: 1,
     castFromExileCardId: exiledCard?.id,
     castFromExileCard: exiledCard,
-    castFromExileDeclineDestination: 'library_bottom_random',
+    castFromExileDeclineDestination: String((exiledCard as any)?.castFromExileDeclineDestination || 'library_bottom_random'),
   } as any);
 }
 
@@ -2778,6 +2779,277 @@ function queueAbilityCopyRetargetPrompt(
     retargetAbilityCopyMaxTargets: Number((copiedItem as any)?.copyRetargetMaxTargets || currentTargets.length || 1),
     retargetAbilityCopyTargetDescription: String((copiedItem as any)?.copyRetargetTargetDescription || 'target'),
   } as any);
+}
+
+function getTriggerSourcePermanent(state: any, triggerItem: any, sourcePermanent?: any): any | null {
+  if (sourcePermanent) {
+    return sourcePermanent;
+  }
+
+  const battlefield = Array.isArray(state?.battlefield) ? state.battlefield : [];
+  const sourceId = String(
+    triggerItem?.source ||
+    triggerItem?.sourceId ||
+    triggerItem?.permanentId ||
+    '',
+  ).trim();
+
+  if (sourceId) {
+    const permanent = battlefield.find((entry: any) => String(entry?.id || '') === sourceId);
+    if (permanent) {
+      return permanent;
+    }
+  }
+
+  return triggerItem?.sourcePermanentSnapshot || null;
+}
+
+function resolveTriggeredAbilityTargetPlayerId(state: any, triggerItem: any): string {
+  const players = Array.isArray(state?.players) ? state.players : [];
+  const playerIds = new Set(players.map((player: any) => String(player?.id || '')).filter(Boolean));
+  const targets = Array.isArray(triggerItem?.targets)
+    ? triggerItem.targets.map((target: any) => String(target || '').trim()).filter(Boolean)
+    : [];
+
+  for (const targetId of targets) {
+    if (playerIds.has(targetId)) {
+      return targetId;
+    }
+  }
+
+  const explicitTargetPlayer = String(triggerItem?.targetPlayer || '').trim();
+  if (explicitTargetPlayer && playerIds.has(explicitTargetPlayer)) {
+    return explicitTargetPlayer;
+  }
+
+  const triggeringPlayer = String(triggerItem?.triggeringPlayer || '').trim();
+  if (triggeringPlayer && playerIds.has(triggeringPlayer)) {
+    return triggeringPlayer;
+  }
+
+  return '';
+}
+
+function resolvePreparedTargetPermanent(state: any, description: string, triggerItem: any, sourcePermanent?: any): any | null {
+  const battlefield = Array.isArray(state?.battlefield) ? state.battlefield : [];
+  const normalizedDescription = String(description || '').replace(/[’]/g, "'").toLowerCase();
+  const targets = Array.isArray(triggerItem?.targets)
+    ? triggerItem.targets.map((target: any) => String(target || '').trim()).filter(Boolean)
+    : [];
+
+  const targetedPermanent = targets
+    .map((targetId: string) => battlefield.find((entry: any) => String(entry?.id || '') === targetId))
+    .find(Boolean) || null;
+  const triggerSourcePermanent = getTriggerSourcePermanent(state, triggerItem, sourcePermanent);
+
+  if (normalizedDescription.includes('target creature') || normalizedDescription.includes('target permanent') || normalizedDescription.includes('that creature')) {
+    return targetedPermanent || triggerSourcePermanent;
+  }
+
+  if (normalizedDescription.includes('it becomes prepared') || normalizedDescription.includes('it becomes unprepared')) {
+    return targetedPermanent || triggerSourcePermanent;
+  }
+
+  return triggerSourcePermanent || targetedPermanent;
+}
+
+function parsePreparedConditionCountToken(token: string): number | null {
+  const normalizedToken = String(token || '').trim().toLowerCase();
+  if (!normalizedToken) {
+    return null;
+  }
+
+  if (/^\d+$/.test(normalizedToken)) {
+    return parseInt(normalizedToken, 10);
+  }
+
+  const words: Record<string, number> = {
+    zero: 0,
+    one: 1,
+    two: 2,
+    three: 3,
+    four: 4,
+    five: 5,
+    six: 6,
+    seven: 7,
+    eight: 8,
+    nine: 9,
+    ten: 10,
+  };
+  return words[normalizedToken] ?? null;
+}
+
+function getPreparedHandCount(state: any, playerId: string): number {
+  const zone = state?.zones?.[playerId];
+  if (!zone) {
+    return 0;
+  }
+  if (typeof zone.handCount === 'number') {
+    return zone.handCount;
+  }
+  return Array.isArray(zone.hand) ? zone.hand.length : 0;
+}
+
+function getPreparedCreaturesDiedThisTurn(state: any): number {
+  const perController = state?.creaturesDiedThisTurnByController;
+  if (perController && typeof perController === 'object') {
+    return (Object.values(perController as Record<string, any>) as any[]).reduce((total: number, value: any) => {
+      const numericValue = Number(value || 0);
+      return total + (Number.isFinite(numericValue) ? numericValue : 0);
+    }, 0);
+  }
+
+  return state?.creatureDiedThisTurn ? 1 : 0;
+}
+
+function isPreparedStateChangeConditionSatisfied(
+  state: any,
+  controller: PlayerID,
+  description: string,
+  referencedPermanent: any | null,
+): boolean {
+  const normalizedDescription = String(description || '').replace(/[’]/g, "'").toLowerCase();
+  const battlefield = Array.isArray(state?.battlefield) ? state.battlefield : [];
+
+  if (normalizedDescription.includes('if an opponent controls more creatures than you')) {
+    const yourCreatureCount = battlefield.filter((entry: any) =>
+      entry &&
+      String(entry?.controller || '') === String(controller) &&
+      String(entry?.card?.type_line || '').toLowerCase().includes('creature')
+    ).length;
+
+    return (Array.isArray(state?.players) ? state.players : []).some((player: any) => {
+      const playerId = String(player?.id || '');
+      if (!playerId || playerId === String(controller) || player?.hasLost) {
+        return false;
+      }
+      const opponentCreatureCount = battlefield.filter((entry: any) =>
+        entry &&
+        String(entry?.controller || '') === playerId &&
+        String(entry?.card?.type_line || '').toLowerCase().includes('creature')
+      ).length;
+      return opponentCreatureCount > yourCreatureCount;
+    });
+  }
+
+  if (normalizedDescription.includes('if there are three or more creature cards in your graveyard')) {
+    const graveyard = Array.isArray(state?.zones?.[controller]?.graveyard) ? state.zones[controller].graveyard : [];
+    const creatureCards = graveyard.filter((card: any) => String(card?.type_line || '').toLowerCase().includes('creature'));
+    return creatureCards.length >= 3;
+  }
+
+  if (normalizedDescription.includes('if there are three or more artifact and/or creature cards in your graveyard')) {
+    const graveyard = Array.isArray(state?.zones?.[controller]?.graveyard) ? state.zones[controller].graveyard : [];
+    const relevantCards = graveyard.filter((card: any) => {
+      const typeLine = String(card?.type_line || '').toLowerCase();
+      return typeLine.includes('artifact') || typeLine.includes('creature');
+    });
+    return relevantCards.length >= 3;
+  }
+
+  if (normalizedDescription.includes('if that creature has power 7 or greater')) {
+    return Boolean(referencedPermanent) && getEffectivePower(referencedPermanent) >= 7;
+  }
+
+  const lifeGainThresholdMatch = normalizedDescription.match(/if you(?:'ve| have)? gained ([a-z0-9]+) or more life this turn/);
+  if (lifeGainThresholdMatch) {
+    const threshold = parsePreparedConditionCountToken(lifeGainThresholdMatch[1]);
+    if (threshold === null) {
+      return true;
+    }
+    const lifeGainedThisTurn = Number(state?.lifeGainedThisTurn?.[controller] || 0);
+    return lifeGainedThisTurn >= threshold;
+  }
+
+  if (normalizedDescription.includes('if you gained life this turn')) {
+    return Number(state?.lifeGainedThisTurn?.[controller] || 0) > 0;
+  }
+
+  const landsThresholdMatch = normalizedDescription.match(/if you control ([a-z0-9]+) or more lands/);
+  if (landsThresholdMatch) {
+    const threshold = parsePreparedConditionCountToken(landsThresholdMatch[1]);
+    if (threshold === null) {
+      return true;
+    }
+
+    const controlledLands = battlefield.filter((entry: any) =>
+      entry &&
+      String(entry?.controller || '') === String(controller) &&
+      String(entry?.card?.type_line || '').toLowerCase().includes('land')
+    ).length;
+    return controlledLands >= threshold;
+  }
+
+  const handThresholdMatch = normalizedDescription.match(/if a player has ([a-z0-9]+) or (?:fewer|less) cards? in hand/);
+  if (handThresholdMatch) {
+    const threshold = parsePreparedConditionCountToken(handThresholdMatch[1]);
+    if (threshold === null) {
+      return true;
+    }
+
+    const playerIds = Array.from(new Set([
+      ...(Array.isArray(state?.players) ? state.players.map((player: any) => String(player?.id || '')).filter(Boolean) : []),
+      ...Object.keys(state?.zones || {}),
+    ]));
+    return playerIds.some((playerId) => getPreparedHandCount(state, playerId) <= threshold);
+  }
+
+  if (normalizedDescription.includes('if an opponent has more cards in hand than you')) {
+    const yourHandCount = getPreparedHandCount(state, String(controller));
+    return (Array.isArray(state?.players) ? state.players : []).some((player: any) => {
+      const playerId = String(player?.id || '');
+      if (!playerId || playerId === String(controller) || player?.hasLost) {
+        return false;
+      }
+      return getPreparedHandCount(state, playerId) > yourHandCount;
+    });
+  }
+
+  const creaturesDiedThresholdMatch = normalizedDescription.match(/if ([a-z0-9]+) or more creatures died this turn/);
+  if (creaturesDiedThresholdMatch) {
+    const threshold = parsePreparedConditionCountToken(creaturesDiedThresholdMatch[1]);
+    if (threshold === null) {
+      return true;
+    }
+    return getPreparedCreaturesDiedThisTurn(state) >= threshold;
+  }
+
+  return true;
+}
+
+function maybeApplyPreparedStateChange(
+  ctx: GameContext,
+  controller: PlayerID,
+  description: string,
+  triggerItem: any,
+  sourcePermanent?: any,
+): boolean {
+  const state = (ctx as any)?.state;
+  if (!state) {
+    return false;
+  }
+
+  const normalizedDescription = String(description || '').replace(/[’]/g, "'").toLowerCase();
+  if (!normalizedDescription.includes('becomes prepared') && !normalizedDescription.includes('becomes unprepared')) {
+    return false;
+  }
+
+  const affectedPermanent = resolvePreparedTargetPermanent(state, normalizedDescription, triggerItem, sourcePermanent);
+  if (!affectedPermanent) {
+    return true;
+  }
+
+  if (normalizedDescription.includes('becomes unprepared')) {
+    clearPreparedPermanent(state, affectedPermanent);
+    return true;
+  }
+
+  if (!isPreparedStateChangeConditionSatisfied(state, controller, normalizedDescription, affectedPermanent)) {
+    return true;
+  }
+
+  setPermanentPrepared(state, affectedPermanent);
+  return true;
 }
 
 function parseCommonArtifactTokenOptions(tokenText: string):
@@ -5312,6 +5584,10 @@ export function triggerETBEffectsForPermanent(
     ensureInitialDayNightDesignationFromBattlefield(state as any);
   } catch {}
 
+  if (cardEntersPrepared(permanent?.card)) {
+    setPermanentPrepared(state, permanent);
+  }
+
   // Daybound replacement effect: if it's night, daybound permanents enter transformed.
   try {
     const dn = (state as any).dayNight;
@@ -6495,6 +6771,66 @@ export function executeTriggerEffect(
     );
 
     debug(2, `[executeTriggerEffect] Rebound: queued may prompt for ${sourceName}`);
+    return;
+  }
+
+  if (triggerTypeFromTrigger === 'paradigm') {
+    const paradigmCardId = String((triggerItem as any).paradigmCardId || '').trim();
+    const gameId = (ctx as any).gameId || 'unknown';
+    const isReplaying = !!(ctx as any).isReplaying;
+    if (!paradigmCardId) {
+      debugWarn(2, '[executeTriggerEffect] Paradigm: missing paradigm card id');
+      return;
+    }
+
+    if (isReplaying) {
+      debug(2, '[executeTriggerEffect] Paradigm: skipping resolution steps during replay');
+      return;
+    }
+
+    const zones = state?.zones?.[controller as any];
+    if (!zones || !Array.isArray((zones as any).exile)) {
+      debugWarn(2, `[executeTriggerEffect] Paradigm: No exile zone found for player ${controller}`);
+      return;
+    }
+
+    const exile = (zones as any).exile as any[];
+    const sourceCard = exile.find((card: any) => String(card?.id || '') === paradigmCardId);
+    if (!sourceCard) {
+      debugWarn(2, `[executeTriggerEffect] Paradigm: Card ${paradigmCardId} not found in exile`);
+      return;
+    }
+
+    const paradigmCopyCard = {
+      ...sourceCard,
+      id: uid('paradigm_copy'),
+      zone: 'exile',
+      isCopy: true,
+      copiedFromCardId: sourceCard.id,
+      canBePlayedBy: controller,
+      playableUntilTurn: Number((state as any)?.turnNumber ?? 0),
+      withoutPayingManaCost: true,
+      ceaseOnResolution: true,
+      ceaseOnCounter: true,
+      paradigmGeneratedCopy: true,
+      paradigmActive: false,
+    };
+    exile.push(paradigmCopyCard);
+    (zones as any).exileCount = exile.length;
+
+    queueCastFromExileResolutionPrompt(
+      gameId,
+      String(controller) as PlayerID,
+      String(sourceName || sourceCard?.name || 'Paradigm'),
+      String((triggerItem as any).source || sourceCard?.id || '').trim() || undefined,
+      sourceCard?.image_uris?.small || sourceCard?.image_uris?.normal || sourceCard?.imageUrl,
+      {
+        ...paradigmCopyCard,
+        castFromExileDeclineDestination: 'cease_to_exist',
+      }
+    );
+
+    debug(2, `[executeTriggerEffect] Paradigm: queued cast-from-exile prompt for ${sourceCard?.name || paradigmCardId}`);
     return;
   }
   
@@ -8471,6 +8807,40 @@ export function executeTriggerEffect(
     return;
   }
   
+  const targetPlayerTokenMatch = description.match(/target player creates (?:a|an|one|two|three|four|five|(\d+)) (\d+)\/(\d+) ([^\.]+?)(?:\s+creature)?\s+tokens?/i);
+  if (targetPlayerTokenMatch) {
+    const countWord = description.match(/target player creates (a|an|one|two|three|four|five|\d+)/i)?.[1]?.toLowerCase() || 'a';
+    const wordToCount: Record<string, number> = {
+      a: 1,
+      an: 1,
+      one: 1,
+      two: 2,
+      three: 3,
+      four: 4,
+      five: 5,
+    };
+    const tokenCount = wordToCount[countWord] || (targetPlayerTokenMatch[1] ? parseInt(targetPlayerTokenMatch[1], 10) : 1);
+    const power = parseInt(targetPlayerTokenMatch[2], 10);
+    const toughness = parseInt(targetPlayerTokenMatch[3], 10);
+    const tokenDescription = String(targetPlayerTokenMatch[4] || '').trim();
+    const targetPlayerId = resolveTriggeredAbilityTargetPlayerId(state, triggerItem);
+
+    if (targetPlayerId && Number.isFinite(power) && Number.isFinite(toughness)) {
+      const { name, colors, creatureTypes, abilities } = parseCreateTokenDescriptor(tokenDescription);
+      const typeLine = `Token Creature — ${creatureTypes.length ? creatureTypes.join(' ') : name}`;
+      const tokensToCreate = tokenCount * getTokenDoublerMultiplier(targetPlayerId, state);
+
+      createToken(ctx, targetPlayerId, name, tokensToCreate, power, toughness, {
+        colors,
+        abilities,
+        typeLine,
+      });
+    }
+
+    maybeApplyPreparedStateChange(ctx, controller, description, triggerItem);
+    return;
+  }
+
   // Pattern: "Create a Food/Treasure/Clue/Map token" (predefined artifact tokens)
   // Food: "{2}, {T}, Sacrifice this artifact: You gain 3 life."
   // Treasure: "{T}, Sacrifice this artifact: Add one mana of any color."
@@ -8548,6 +8918,7 @@ export function executeTriggerEffect(
         
         debug(2, `[executeTriggerEffect] Created ${tokenName} token for ${controller}`);
       }
+      maybeApplyPreparedStateChange(ctx, controller, description, triggerItem);
       return;
     }
   }
@@ -8664,6 +9035,7 @@ export function executeTriggerEffect(
       // Trigger ETB effects from other permanents (Cathars' Crusade, Soul Warden, etc.)
       triggerETBEffectsForToken(ctx, token, controller);
     }
+    maybeApplyPreparedStateChange(ctx, controller, description, triggerItem);
     return;
   }
   
@@ -10970,6 +11342,10 @@ export function executeTriggerEffect(
       }
     }
   }
+
+  if (maybeApplyPreparedStateChange(ctx, controller, description, triggerItem, permanent)) {
+    return;
+  }
   
   // Log unhandled triggers for future implementation
   debug(2, `[executeTriggerEffect] Unhandled trigger effect: "${description}" from ${sourceName}`);
@@ -11099,6 +11475,25 @@ export function resolveTopOfStack(ctx: GameContext) {
         // Keep the original name and image_uris from the main card for display
         // but override the name if we need face-specific name
         name: face.name || card.name,
+      };
+    }
+  }
+
+  if (card && (card as any).layout === 'prepare' && Array.isArray((card as any).card_faces)) {
+    const faces = (card as any).card_faces;
+    const frontFace = faces[0];
+    if (frontFace) {
+      effectiveTypeLine = frontFace.type_line || effectiveTypeLine;
+      effectiveCard = {
+        ...card,
+        type_line: frontFace.type_line || card.type_line,
+        oracle_text: frontFace.oracle_text || card.oracle_text,
+        mana_cost: frontFace.mana_cost || card.mana_cost,
+        power: frontFace.power || card.power,
+        toughness: frontFace.toughness || card.toughness,
+        loyalty: frontFace.loyalty || card.loyalty,
+        name: frontFace.name || card.name,
+        image_uris: frontFace.image_uris || card.image_uris,
       };
     }
   }
@@ -13004,6 +13399,10 @@ export function resolveTopOfStack(ctx: GameContext) {
     }
     
     state.battlefield.push(newPermanent);
+
+    if (cardEntersPrepared(newPermanent.card)) {
+      setPermanentPrepared(state, newPermanent);
+    }
     
     // Handle Aura and bestow-style enchantment attachments.
     // Bestow permanents stay enchantment creatures in this model but still attach
@@ -15746,7 +16145,18 @@ export function resolveTopOfStack(ctx: GameContext) {
       const wasCastFromHand = (item as any).castFromHand === true || (item as any).source === 'hand';
       const wasCastFromRebound = (item as any).castFromRebound === true;
       
-      if (layout === 'adventure' && wasAdventure) {
+      const hasParadigm = /\bparadigm\b/i.test(oracleText);
+      const stateAny = state as any;
+      const normalizedParadigmName = normalizeOracleResolutionText(String(card?.name || effectiveCard.name || ''));
+      const paradigmResolvedNames = (stateAny.paradigmResolvedSpellNames = stateAny.paradigmResolvedSpellNames || {});
+      const controllerParadigmNames = (paradigmResolvedNames[controller] = paradigmResolvedNames[controller] || {});
+      const firstParadigmResolution = Boolean(
+        hasParadigm && normalizedParadigmName && controllerParadigmNames[normalizedParadigmName] !== true
+      );
+
+      if ((card as any)?.ceaseOnResolution === true) {
+        debug(2, `[resolveTopOfStack] Copied spell ${effectiveCard.name || 'unnamed'} ceased to exist after resolution`);
+      } else if (layout === 'adventure' && wasAdventure) {
         // Adventure spells go to exile instead of graveyard (Rule 715.3d)
         z.exile = z.exile || [];
         (z.exile as any[]).push({ 
@@ -15758,6 +16168,24 @@ export function resolveTopOfStack(ctx: GameContext) {
         z.exileCount = (z.exile as any[]).length;
         
         debug(2, `[resolveTopOfStack] Adventure spell ${effectiveCard.name || 'unnamed'} resolved and exiled for ${controller}`);
+      } else if (hasParadigm) {
+        z.exile = z.exile || [];
+        if (firstParadigmResolution) {
+          controllerParadigmNames[normalizedParadigmName] = true;
+        }
+        (z.exile as any[]).push({
+          ...card,
+          zone: 'exile',
+          paradigmActive: firstParadigmResolution,
+          paradigmController: controller,
+          paradigmNameKey: normalizedParadigmName,
+        });
+        z.exileCount = (z.exile as any[]).length;
+
+        debug(
+          2,
+          `[resolveTopOfStack] Paradigm spell ${effectiveCard.name || 'unnamed'} exiled for ${controller}${firstParadigmResolution ? ' and activated for future precombat main phases' : ''}`
+        );
       } else if (hasRebound && wasCastFromHand && !wasCastFromRebound) {
         // Rebound: Exile the spell instead of putting it in graveyard
         // Mark it for casting at the beginning of next upkeep
@@ -16549,9 +16977,13 @@ function executeSpellEffect(
         if ((countered as any).card && controller) {
           const zones = ctx.state.zones = ctx.state.zones || {};
           zones[controller] = zones[controller] || { hand: [], handCount: 0, libraryCount: 0, graveyard: [], graveyardCount: 0 };
-          const gy = (zones[controller] as any).graveyard = (zones[controller] as any).graveyard || [];
-          gy.push({ ...(countered as any).card, zone: 'graveyard' });
-          (zones[controller] as any).graveyardCount = gy.length;
+          if ((countered as any).card?.ceaseOnCounter === true) {
+            debug(2, `[resolveSpell] Countered copied spell ${counteredCardName} ceased to exist`);
+          } else {
+            const gy = (zones[controller] as any).graveyard = (zones[controller] as any).graveyard || [];
+            gy.push({ ...(countered as any).card, zone: 'graveyard' });
+            (zones[controller] as any).graveyardCount = gy.length;
+          }
         }
         
         debug(2, `[resolveSpell] ${spellName} countered ${counteredCardName}`);

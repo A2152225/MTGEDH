@@ -5190,6 +5190,39 @@ export function expandMobilizeKeywordAbilities(
   });
 }
 
+export function expandParadigmKeywordAbilities(
+  abilities: readonly OracleIRAbility[]
+): OracleIRAbility[] {
+  const canonicalEffectText =
+    'Exile this spell. After you first resolve a spell with this name, you may cast a copy of it from exile without paying its mana cost at the beginning of each of your first main phases.';
+  const normalizedCanonicalEffectText = canonicalEffectText.toLowerCase();
+
+  return abilities.map((ability) => {
+    const normalizedText = normalizeOracleText(String(ability.text || '')).trim().toLowerCase();
+    const normalizedEffect = normalizeOracleText(String(ability.effectText || '')).trim().toLowerCase();
+    const alreadyExpanded = ability.steps.some((step) => step.kind === 'paradigm');
+    const matchesKeywordLine = normalizedText.startsWith('paradigm');
+    const matchesCanonicalEffect =
+      normalizedEffect === normalizedCanonicalEffectText ||
+      normalizedEffect === `then ${normalizedCanonicalEffectText}`;
+
+    if (alreadyExpanded || (!matchesKeywordLine && !matchesCanonicalEffect)) {
+      return ability;
+    }
+
+    return {
+      ...ability,
+      effectText: canonicalEffectText,
+      steps: [
+        {
+          kind: 'paradigm',
+          raw: canonicalEffectText,
+        },
+      ],
+    };
+  });
+}
+
 function isReminderSelfGraveyardGrant(step: OracleEffectStep): boolean {
   if (step.kind !== 'grant_graveyard_permission') return false;
   if (step.what.kind !== 'raw' || normalizeOracleText(step.what.text) !== 'this card') return false;

@@ -37,6 +37,7 @@ import { shouldSuppressMandatoryTriggeredAbilityPrompt } from "./trigger-shortcu
 import { hasMutateAlternateCost, parseMutateCost, getValidMutateTargets } from "../state/modules/alternate-costs.js";
 import { getCommandZoneCommanderCandidates, type SharedCommanderAvailabilityCandidate } from "../state/modules/can-respond.js";
 import { cleanupCardLeavingExile } from "../state/modules/playable-from-exile.js";
+import { isPreparedCopyActive } from "../state/modules/prepared.js";
 import { getEffectiveBasicLandTypes } from "../state/modules/mana-abilities.js";
 import { parseOracleTextToIR } from '../../../rules-engine/src/oracleIRParser.js';
 import { applyOracleIRStepsToGameState } from '../../../rules-engine/src/oracleIRExecutor.js';
@@ -3271,6 +3272,13 @@ function resolveSelectedSpellCard(card: any, faceIndex?: number): { card: any; f
     };
   }
 
+  if (layout === 'prepare' && cardFaces.length >= 1) {
+    return {
+      card: buildSelectedSpellFace(card, cardFaces[0], 0),
+      faceIndex: 0,
+    };
+  }
+
   if (typeof faceIndex === 'number' && cardFaces[faceIndex]) {
     const castAsAdventure = layout === 'adventure' ? faceIndex === 1 : undefined;
     return {
@@ -3413,6 +3421,23 @@ export async function requestCastSpellForSocket(
           return;
         }
 
+        if (String((exiled as any)?.preparedSourcePermanentId || '').trim()) {
+          if (!isPreparedCopyActive(game.state as any, exiled, String(playerId))) {
+            const staleExileIndex = exile.findIndex((card: any) => String(card?.id || '') === String(exiled?.id || ''));
+            if (staleExileIndex !== -1) {
+              const [removedCard] = exile.splice(staleExileIndex, 1);
+              (zones as any).exileCount = exile.length;
+              cleanupCardLeavingExile(game.state as any, removedCard);
+            }
+
+            socket.emit("error", {
+              code: "PREPARED_COPY_EXPIRED",
+              message: "That prepared copy is no longer available to cast.",
+            });
+            return;
+          }
+        }
+
         if (!bypassExilePermissionCheck && !pfeAllows && !cardAllows) {
           socket.emit("error", { code: "NO_PERMISSION", message: "You don't have permission to cast that card from exile." });
           return;
@@ -3450,6 +3475,14 @@ export async function requestCastSpellForSocket(
     const typeLine = (cardInHand.type_line || "").toLowerCase();
     const layout = (cardInHand.layout || "").toLowerCase();
     const cardFaces = cardInHand.card_faces;
+
+    if (layout === 'prepare' && Array.isArray(cardFaces) && cardFaces.length >= 2 && faceIndex === 1) {
+      socket.emit("error", {
+        code: "PREPARE_BACK_FACE",
+        message: `${cardFaces[1]?.name || "This spell"} can't be cast directly from ${castSourceZone}. Cast the creature face first, or cast a prepared copy from exile.`,
+      });
+      return;
+    }
 
     // Transform cards: only front face can be cast.
     if (layout === 'transform' && Array.isArray(cardFaces) && cardFaces.length >= 2) {

@@ -4983,7 +4983,7 @@ export function nextStep(ctx: GameContext) {
               debug(2, `${ts()} [nextStep] Rebound: Added trigger for ${card.name} to stack`);
             }
           }
-          
+
           const upkeepTriggers = getUpkeepTriggersForPlayer(ctx, turnPlayer);
           pushTriggersToStack(upkeepTriggers, 'upkeep', 'upkeep');
         }
@@ -4998,6 +4998,45 @@ export function nextStep(ctx: GameContext) {
         // This includes cards like Black Market Connections, Saga lore counters (Rule 714.3b), etc.
         // NOTE: Only process if we didn't just auto-advance from DRAW (checked via flag)
         else if (nextStep === "MAIN1" && !(ctx as any)._skipMain1TriggerCheck) {
+          const playerZone = (ctx as any).state?.zones?.[turnPlayer];
+          if (playerZone && playerZone.exile) {
+            const paradigmCards = playerZone.exile.filter((c: any) =>
+              c?.paradigmActive === true &&
+              String(c?.paradigmController || '') === String(turnPlayer)
+            );
+
+            for (const card of paradigmCards) {
+              const paradigmTriggerId = uid('paradigm_trigger');
+              const paradigmTrigger = {
+                id: paradigmTriggerId,
+                type: 'triggered_ability',
+                controller: turnPlayer,
+                source: card.id,
+                sourceName: card.name,
+                description: `You may cast a copy of ${card.name} from exile without paying its mana cost.`,
+                triggerType: 'paradigm',
+                mandatory: true,
+                paradigmCardId: card.id,
+                card,
+              };
+
+              (ctx as any).state.stack = (ctx as any).state.stack || [];
+              (ctx as any).state.stack.push(paradigmTrigger);
+
+              if ((ctx as any).io && (ctx as any).gameId) {
+                (ctx as any).io.to((ctx as any).gameId).emit('chat', {
+                  id: `m_${Date.now()}`,
+                  gameId: (ctx as any).gameId,
+                  from: 'system',
+                  message: `🧠 Paradigm: ${card.name} can be copied from exile.`,
+                  ts: Date.now(),
+                });
+              }
+
+              debug(2, `${ts()} [nextStep] Paradigm: Added trigger for ${card.name} to stack`);
+            }
+          }
+
           const precombatMainTriggers = getTriggersForTiming(ctx, 'precombat_main', turnPlayer);
           pushTriggersToStack(precombatMainTriggers, 'precombat_main', 'main');
           debug(2, `${ts()} [nextStep] Checking precombat main triggers for ${turnPlayer}, found ${precombatMainTriggers.length} trigger(s)`);

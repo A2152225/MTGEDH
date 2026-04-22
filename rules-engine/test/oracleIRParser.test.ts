@@ -12207,6 +12207,27 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
     ]);
   });
 
+  it('parses Paradigm reminder text into a dedicated recurring copy-cast step', () => {
+    const ir = parseOracleTextToIR(
+      'Put two +1/+1 counters on each creature you control. Paradigm (Then exile this spell. After you first resolve a spell with this name, you may cast a copy of it from exile without paying its mana cost at the beginning of each of your first main phases.)',
+      'Germination Practicum'
+    );
+
+    expect(ir.keywords).toContain('paradigm');
+    expect(ir.abilities).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          steps: [
+            expect.objectContaining({
+              kind: 'paradigm',
+              raw: 'Exile this spell. After you first resolve a spell with this name, you may cast a copy of it from exile without paying its mana cost at the beginning of each of your first main phases.',
+            }),
+          ],
+        }),
+      ])
+    );
+  });
+
   it('parses Chainer, Nightmare Adept into a this-turn creature-graveyard permission', () => {
     const ir = parseOracleTextToIR(
       'Discard a card: You may cast a creature spell from your graveyard this turn.',

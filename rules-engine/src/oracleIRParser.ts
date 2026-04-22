@@ -61,6 +61,7 @@ import {
   expandEncoreKeywordAbilities,
   expandMyriadKeywordAbilities,
   expandMobilizeKeywordAbilities,
+  expandParadigmKeywordAbilities,
   expandGraveyardPermissionModifierUnknownAbilities,
   expandGraveyardPermissionUnknownAbilities,
   expandGraveyardOrExilePermissionAbilities,
@@ -1444,6 +1445,7 @@ export function parseOracleTextToIR(oracleText: string, cardName?: string): Orac
   abilities = expandEncoreKeywordAbilities(abilities);
   abilities = expandMyriadKeywordAbilities(abilities);
   abilities = expandMobilizeKeywordAbilities(abilities);
+  abilities = expandParadigmKeywordAbilities(abilities);
   abilities = expandEmbalmKeywordAbilities(abilities);
   abilities = expandEternalizeKeywordAbilities(abilities);
   abilities = pruneDuplicateGraveyardReminderAbilities(abilities);

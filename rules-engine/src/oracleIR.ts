@@ -285,6 +285,12 @@ export type OracleEffectStep =
       readonly raw: string;
     }
   | {
+      readonly kind: 'paradigm';
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
       readonly kind: 'grant_future_spell_effect';
       readonly who: OraclePlayerSelector;
       readonly duration: 'this_turn';

@@ -49,6 +49,7 @@ import {
   movePermanentToExile,
 } from "./counters_tokens";
 import { cleanupCardLeavingExile } from "./playable-from-exile";
+import { clearPreparedPermanent } from "./prepared.js";
 import { applyMyriadTokenCopies, pushStack, resolveTopOfStack, playLand, castSpell, triggerETBEffectsForToken } from "./stack";
 import { exileEntireStack } from "./stack";
 import { permanentHasKeyword } from "./keyword-handlers";
@@ -2404,6 +2405,16 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
         try {
           if (fromZone === 'exile') {
             const cardObj = typeof spellCardData === 'string' ? { id: spellCardData } : spellCardData;
+            const preparedSourcePermanentId = String((cardObj as any)?.preparedSourcePermanentId || '').trim();
+            if (preparedSourcePermanentId) {
+              const battlefield = Array.isArray(ctx.state.battlefield) ? ctx.state.battlefield : [];
+              const sourcePermanent = battlefield.find((perm: any) => String(perm?.id || '') === preparedSourcePermanentId);
+              if (sourcePermanent) {
+                clearPreparedPermanent((ctx.state as any) as any, sourcePermanent, {
+                  preserveExileCardId: String((cardObj as any)?.id || '').trim(),
+                });
+              }
+            }
             cleanupCardLeavingExile((ctx.state as any) as any, cardObj);
           }
         } catch {

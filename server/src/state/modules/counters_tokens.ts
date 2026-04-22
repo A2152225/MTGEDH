@@ -15,6 +15,7 @@ import { ResolutionStepType } from "../resolution/types.js";
 import { ensureInitialDayNightDesignationFromBattlefield } from "./day-night.js";
 import { recordCardPutIntoGraveyardThisTurn } from "./turn-tracking.js";
 import { cleanupCardLeavingExile } from "./playable-from-exile.js";
+import { clearPreparedPermanent } from "./prepared.js";
 import { applyShieldCounterDamagePrevention, getCounterLeaveBattlefieldReplacement } from "./counter-common-effects.js";
 import { inferManaValueConstraintFromText } from "./graveyard-mana-value.js";
 import { detectKeywords } from "./keyword-detection.js";
@@ -56,6 +57,26 @@ type DeathTriggerStackMetadata = {
   boundGraveyardCardId?: string;
   boundGraveyardOwnerId?: string;
 };
+
+function clearPreparedStateOnBattlefieldExit(state: any, permanent: any): void {
+  if (!permanent) {
+    return;
+  }
+
+  const hasPreparedState =
+    permanent?.prepared === true ||
+    permanent?.isPrepared === true ||
+    Boolean(String(permanent?.preparedExileCopyCardId || '').trim()) ||
+    permanent?.card?.prepared === true ||
+    permanent?.card?.isPrepared === true ||
+    Boolean(String(permanent?.card?.preparedExileCopyCardId || '').trim());
+
+  if (!hasPreparedState) {
+    return;
+  }
+
+  clearPreparedPermanent(state, permanent);
+}
 
 function getSubtypeWordsFromTypeLine(typeLineValue: string): string[] {
   const typeLine = String(typeLineValue || '').toLowerCase();
@@ -1172,6 +1193,8 @@ export function movePermanentToGraveyard(ctx: GameContext, permanentId: string, 
   const isToken = (perm as any).isToken === true;
   const isCreature = (card?.type_line || '').toLowerCase().includes('creature');
 
+  clearPreparedStateOnBattlefieldExit(state, perm);
+
   // Per-turn tracking for morbid/revolt-style conditions
   try {
     (state as any).permanentLeftBattlefieldThisTurn = (state as any).permanentLeftBattlefieldThisTurn || {};
@@ -1581,6 +1604,7 @@ export function removePermanent(ctx: GameContext, permanentId: string) {
   const idx = state.battlefield.findIndex(p => p.id === permanentId);
   if (idx >= 0) {
     const perm = state.battlefield.splice(idx,1)[0];
+    clearPreparedStateOnBattlefieldExit(state, perm);
     const removedPermanentId = String((perm as any)?.id || permanentId || '').trim();
     try {
       const controller = (perm as any)?.controller || (perm as any)?.owner;
@@ -1624,6 +1648,8 @@ export function movePermanentToExile(
   const owner = ((perm as any).owner || (perm as any).controller) as PlayerID;
   const controller = ((perm as any).controller || owner) as PlayerID;
   const card = perm.card as any;
+
+  clearPreparedStateOnBattlefieldExit(state, perm);
 
   // Per-turn tracking for revolt-style conditions (a permanent left the battlefield)
   try {

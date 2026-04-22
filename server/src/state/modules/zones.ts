@@ -15,7 +15,28 @@ import { ResolutionQueueManager } from "../resolution/index.js";
 import { ResolutionStepType } from "../resolution/types.js";
 import { recordCardPutIntoGraveyardThisTurn, recordPermanentPutIntoHandFromBattlefieldThisTurn } from "./turn-tracking.js";
 import { cleanupCardLeavingExile } from "./playable-from-exile.js";
+import { clearPreparedPermanent } from "./prepared.js";
 import { processLinkedExileReturns } from "./triggers/linked-exile.js";
+
+function clearPreparedStateOnBattlefieldExit(state: any, permanent: any): void {
+  if (!permanent) {
+    return;
+  }
+
+  const hasPreparedState =
+    permanent?.prepared === true ||
+    permanent?.isPrepared === true ||
+    Boolean(String(permanent?.preparedExileCopyCardId || '').trim()) ||
+    permanent?.card?.prepared === true ||
+    permanent?.card?.isPrepared === true ||
+    Boolean(String(permanent?.card?.preparedExileCopyCardId || '').trim());
+
+  if (!hasPreparedState) {
+    return;
+  }
+
+  clearPreparedPermanent(state, permanent);
+}
 
 /* ===== core zone operations ===== */
 
@@ -774,6 +795,8 @@ export function movePermanentToLibrary(
   const owner = perm.owner as PlayerID;
   const card = perm.card;
 
+  clearPreparedStateOnBattlefieldExit(state, perm);
+
   // Revolt-style per-turn tracking: a permanent left the battlefield under its controller's control.
   try {
     const controllerAtLeave = String((perm as any)?.controller || owner || '').trim();
@@ -889,6 +912,8 @@ export function movePermanentToHand(ctx: GameContext, permanentId: string): bool
   const removedPermanentId = String((perm as any)?.id || permanentId || '').trim();
   const owner = perm.owner as PlayerID;
   const card = perm.card;
+
+  clearPreparedStateOnBattlefieldExit(state, perm);
 
   // Revolt-style per-turn tracking: a permanent left the battlefield under its controller's control.
   try {
