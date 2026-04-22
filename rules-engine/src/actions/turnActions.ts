@@ -15,7 +15,7 @@ import {
   resolveSpecialUpkeepOutcomes,
   clearEndOfTurnWinLossEffects,
 } from '../winEffectCards';
-import { consumeNextDrawStepSkipEffect } from '../phaseTransitionTriggers';
+import { consumeNextDrawStepSkipEffect, findStaticSkipDrawStepSource } from '../phaseTransitionTriggers';
 import { clearFutureSpellEffects } from '../futureSpellEffects';
 import { removeExpiredShields } from '../keywordAbilities/regeneration';
 
@@ -98,6 +98,12 @@ export function executeDrawStep(
   }
 
   state = skipResult.state;
+  const staticSkipSource = findStaticSkipDrawStepSource(state, activePlayerId);
+  if (staticSkipSource) {
+    logs.push(`${activePlayerId} skips their draw step due to ${staticSkipSource}`);
+    return { state, logs };
+  }
+
   const player = state.players.find(p => p.id === activePlayerId);
   
   if (!player) {

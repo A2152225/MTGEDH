@@ -577,6 +577,40 @@ describe('Turn Actions', () => {
     expect(result.logs.some(log => log.includes('Molten Firebird'))).toBe(true);
   });
 
+  it('should skip drawing when a controlled permanent says to skip your draw step', () => {
+    const gameStates = new Map<string, GameState>();
+    const context = createMockContext(gameStates);
+
+    const state: GameState = {
+      players: [
+        {
+          id: 'player1',
+          library: [{ id: 'card1', name: 'Forest' }, { id: 'card2', name: 'Island' }],
+          hand: [],
+        },
+      ],
+      battlefield: [
+        {
+          id: 'necropotence',
+          controller: 'player1',
+          owner: 'player1',
+          card: {
+            name: 'Necropotence',
+            type_line: 'Enchantment',
+            oracle_text: 'Skip your draw step. Whenever you discard a card, exile that card from your graveyard.',
+          },
+        },
+      ],
+    } as any;
+
+    const result = executeDrawStep(state, 'player1', context, 'test-game');
+    const player = result.state.players.find(p => p.id === 'player1');
+
+    expect(player?.hand?.length).toBe(0);
+    expect(player?.library?.length).toBe(2);
+    expect(result.logs.some(log => log.includes('Necropotence'))).toBe(true);
+  });
+
   it('should turn an empty-library draw into a win with Laboratory Maniac', () => {
     const gameStates = new Map<string, GameState>();
     const context = createMockContext(gameStates);

@@ -296,6 +296,47 @@ describe('Combat Actions', () => {
     expect(result.legal).toBe(true);
   });
 
+  it('should reject attacks against a defender that does not satisfy a defender-dependent land restriction', () => {
+    gameState.players.push({
+      id: 'player3',
+      name: 'Player 3',
+      seat: 2,
+      life: 40,
+      library: [],
+      hand: [],
+      graveyard: [],
+      manaPool: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+    } as any);
+    gameState.life.player3 = 40;
+    gameState.turnOrder = ['player1', 'player2', 'player3'];
+
+    const creature = gameState.battlefield.find((perm: any) => perm.id === 'creature1') as any;
+    creature.card = {
+      name: 'Floodchaser',
+      type_line: 'Creature - Elemental',
+      power: '2',
+      toughness: '2',
+      oracle_text: "This creature can't attack unless defending player controls an Island.",
+    };
+
+    gameState.battlefield.push({
+      id: 'player3-island',
+      controller: 'player3',
+      owner: 'player3',
+      tapped: false,
+      card: { name: 'Island', type_line: 'Basic Land - Island' },
+    } as any);
+
+    const result = validateDeclareAttackers(gameState, {
+      type: 'declareAttackers' as const,
+      playerId: 'player1',
+      attackers: [{ creatureId: 'creature1', defendingPlayerId: 'player2' }],
+    });
+
+    expect(result.legal).toBe(false);
+    expect(result.reason).toContain("defending player controls an island");
+  });
+
   it('should reject declare attackers in wrong step', () => {
     gameState.step = GameStep.MAIN1;
     
@@ -724,6 +765,23 @@ describe('Combat Validation Helpers', () => {
       expect(result.reason).toContain('defender');
     });
 
+    it("should allow creatures with defender to attack when a temporary effect says they can attack as though they didn't have defender", () => {
+      const wall = {
+        id: 'w2',
+        tapped: false,
+        card: { type_line: 'Creature — Wall', oracle_text: 'Defender' },
+        temporaryEffects: [
+          {
+            id: 'defender-override',
+            description: "can attack as though it didn't have defender",
+          },
+        ],
+      };
+
+      const result = canPermanentAttack(wall);
+      expect(result.canParticipate).toBe(true);
+    });
+
     it('should reject creatures with summoning sickness without haste', () => {
       const sick = {
         id: 's1',
@@ -775,6 +833,32 @@ describe('Combat Validation Helpers', () => {
       const result = canPermanentAttack(detained);
       expect(result.canParticipate).toBe(false);
       expect(result.reason).toContain('cannot attack');
+    });
+
+    it('should allow creatures with defender-dependent land restrictions to attack the matching defender', () => {
+      const creature = {
+        id: 'floodchaser',
+        controller: 'player1',
+        owner: 'player1',
+        tapped: false,
+        card: {
+          type_line: 'Creature - Elemental',
+          oracle_text: "This creature can't attack unless defending player controls an Island.",
+        },
+      };
+      const battlefield = [
+        creature,
+        {
+          id: 'player2-island',
+          controller: 'player2',
+          owner: 'player2',
+          tapped: false,
+          card: { name: 'Island', type_line: 'Basic Land - Island' },
+        },
+      ];
+
+      const result = canPermanentAttack(creature, 'player1', battlefield as any[], 'player2');
+      expect(result.canParticipate).toBe(true);
     });
   });
 
@@ -1312,6 +1396,59 @@ describe('Combat Validation in Actions', () => {
     expect(result.next.combat?.blockers[0].blocking).toEqual(['attacker1', 'attacker2']);
     expect(result.next.combat?.attackers[0].blockedBy).toEqual(['blocker1']);
     expect(result.next.combat?.attackers[1].blockedBy).toEqual(['blocker1']);
+  });
+
+  it("should reject multiple blockers on an attacker that can't be blocked by more than one creature", () => {
+    gameState.step = GameStep.DECLARE_BLOCKERS;
+    (gameState as any).combat = {
+      attackers: [
+        { permanentId: 'attacker1', defendingPlayerId: 'player2' },
+      ],
+      blockers: [],
+    };
+
+    gameState.battlefield.push(
+      {
+        id: 'attacker1',
+        controller: 'player1',
+        owner: 'player1',
+        tapped: true,
+        card: {
+          name: 'Charging Rhino',
+          type_line: 'Creature — Rhino',
+          power: '4',
+          toughness: '4',
+          oracle_text: "This creature can't be blocked by more than one creature.",
+        },
+      },
+      {
+        id: 'blocker1',
+        controller: 'player2',
+        owner: 'player2',
+        tapped: false,
+        card: { name: 'Guard One', type_line: 'Creature — Soldier', power: '2', toughness: '2', oracle_text: '' },
+      },
+      {
+        id: 'blocker2',
+        controller: 'player2',
+        owner: 'player2',
+        tapped: false,
+        card: { name: 'Guard Two', type_line: 'Creature — Soldier', power: '2', toughness: '2', oracle_text: '' },
+      }
+    );
+
+    const action = {
+      type: 'declareBlockers' as const,
+      playerId: 'player2',
+      blockers: [
+        { blockerId: 'blocker1', attackerId: 'attacker1' },
+        { blockerId: 'blocker2', attackerId: 'attacker1' },
+      ],
+    };
+
+    const result = validateDeclareBlockers(gameState, action);
+    expect(result.legal).toBe(false);
+    expect(result.reason).toContain("can't be blocked by more than one creature");
   });
 
   it('should parse singular additional-creature blocking text as capacity two', () => {

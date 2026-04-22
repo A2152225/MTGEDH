@@ -512,16 +512,17 @@ export function evaluateConditionalWrapperCondition(params: {
         String(ctx.targetPermanentId || '').trim() ||
         getSingleChosenObjectId(ctx) ||
         String(ctx.sourceId || '').trim();
-      if (!typeName || !referencedId) return null;
-      const referencedObject = findObjectByIdInState(nextState, battlefield as any, referencedId);
-      if (!referencedObject) return false;
+      if (typeName && referencedId) {
+        const referencedObject = findObjectByIdInState(nextState, battlefield as any, referencedId);
+        if (!referencedObject) return false;
 
-      const battlefieldObject = battlefield.find(
-        (perm: any) => String(perm?.id || '').trim() === referencedId
-      );
-      return battlefieldObject
-        ? battlefieldObjectHasType(battlefieldObject, typeName)
-        : cardHasType(referencedObject, typeName);
+        const battlefieldObject = battlefield.find(
+          (perm: any) => String(perm?.id || '').trim() === referencedId
+        );
+        return battlefieldObject
+          ? battlefieldObjectHasType(battlefieldObject, typeName)
+          : cardHasType(referencedObject, typeName);
+      }
     }
   }
 
@@ -782,9 +783,14 @@ export function evaluateConditionalWrapperCondition(params: {
   }
 
   {
-    const topCardTypeMatch = normalizedRaw.match(/^(?:it(?:'s| is)|that card is)\s+(?:an?\s+)?(.+?)\s+card$/i);
-    if (topCardTypeMatch) {
-      const parsedType = parseSimpleCardTypeFromText(String(topCardTypeMatch[1] || '').trim());
+    const topCardTypePrefixMatch = normalizedRaw.match(/^(it(?:'s| is)|that card is)\s+(.+)$/i);
+    if (topCardTypePrefixMatch) {
+      const normalizedTypeText = String(topCardTypePrefixMatch[2] || '')
+        .trim()
+        .replace(/^an?\s+/i, '')
+        .replace(/\s+card$/i, '')
+        .trim();
+      const parsedType = parseSimpleCardTypeFromText(normalizedTypeText);
       if (parsedType) {
         const libraryOwnerId = String(ctx.lastTopLibraryOwnerId || controllerId || '').trim();
         const player = (nextState.players || []).find((p: any) => String(p?.id || '').trim() === libraryOwnerId) as any;

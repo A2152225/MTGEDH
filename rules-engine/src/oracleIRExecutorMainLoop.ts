@@ -2262,6 +2262,9 @@ export function applyOracleIRStepsToGameStateImpl(
             lastDiscardedCards,
             copyReplaySteps: steps.slice(0, stepIndex),
             lastTappedMatchingPermanentCount,
+            ...(typeof resolvedAmount === 'number' && Number.isFinite(resolvedAmount)
+              ? { referenceAmount: Math.max(0, resolvedAmount) }
+              : {}),
           },
           options
         );

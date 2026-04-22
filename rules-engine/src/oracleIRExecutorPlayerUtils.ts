@@ -250,7 +250,7 @@ export function quantityToNumber(qty: OracleQuantity, ctx?: OracleIRExecutionCon
 
 export function normalizeOracleText(value: string): string {
   return String(value || '')
-    .replace(/\u2019/g, "'")
+    .replace(/â€™|â€˜|[\u2018\u2019]/g, "'")
     .toLowerCase()
     .replace(/\s+/g, ' ')
     .trim()

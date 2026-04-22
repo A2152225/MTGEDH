@@ -1016,7 +1016,7 @@ describe('Oracle IR Executor', () => {
 
     const start = makeState({
       players: [
-        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [], hand: [], graveyard: [] } as any,
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'draw1' }, { id: 'draw2' }, { id: 'draw3' }], hand: [], graveyard: [] } as any,
         { id: 'p2', name: 'P2', seat: 1, life: 40, library: [{ id: 'gift-draw' }], hand: [], graveyard: [] } as any,
       ],
     });
@@ -8473,7 +8473,7 @@ describe('Oracle IR Executor', () => {
 
     expect(result.appliedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(true);
     expect(result.skippedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(false);
-    expect(result.skippedSteps.some(s => s.kind === 'unknown')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'unknown')).toBe(false);
     expect(p1.library.map((c: any) => c.id)).toEqual(['p1c4', 'p1c1', 'p1c2', 'p1c3']);
     expect((p1.exile || []).map((c: any) => c.id)).toEqual([]);
   });
@@ -24492,7 +24492,7 @@ Whenever one or more +1/+1 counters are put on this creature, put a creature car
     );
 
     const returned = ((result.state.battlefield || []) as any[]).find((perm: any) => perm.card?.id === 'emperor-target') as any;
-    expect(result.appliedSteps.map(step => step.kind)).toEqual(['move_zone', 'schedule_delayed_battlefield_action']);
+    expect(result.appliedSteps.map(step => step.kind)).toEqual(['move_zone', 'grant_temporary_ability', 'schedule_delayed_battlefield_action']);
     expect(returned?.controller).toBe('p1');
     expect(returned?.counters).toEqual({ finality: 1 });
     expect((((result.state.players || [])[0] as any)?.exile || []).map((card: any) => card.id)).not.toContain('emperor-target');
@@ -25485,6 +25485,98 @@ This creature has protection from each of the exiled card's card types. (Artifac
     expect(nonCombatPrevention.remainingDamage).toBe(3);
   });
 
+  it('applies targeted next-damage shields and consumes them across damage events', () => {
+    const ir = parseOracleTextToIR(
+      'Prevent the next 3 damage that would be dealt to any target this turn.',
+      'Healing Salve'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const shielded = applyOracleIRStepsToGameState(
+      makeState({
+        players: [
+          {
+            id: 'p1',
+            name: 'P1',
+            seat: 0,
+            life: 40,
+            library: [],
+            hand: [],
+            graveyard: [],
+            exile: [],
+          } as any,
+          {
+            id: 'p2',
+            name: 'P2',
+            seat: 1,
+            life: 40,
+            library: [],
+            hand: [],
+            graveyard: [],
+            exile: [],
+          } as any,
+        ],
+      } as any),
+      steps,
+      {
+        controllerId: 'p1',
+        sourceId: 'healing-salve',
+        sourceName: 'Healing Salve',
+        selectorContext: { targetPlayerId: 'p2' },
+      }
+    );
+
+    const dealTwoDamage = [
+      {
+        kind: 'deal_damage',
+        amount: { kind: 'number', value: 2 },
+        target: { kind: 'raw', text: 'target player' },
+        raw: 'This spell deals 2 damage to target player.',
+      } as any,
+    ];
+
+    const firstDamage = applyOracleIRStepsToGameState(
+      shielded.state,
+      dealTwoDamage,
+      {
+        controllerId: 'p1',
+        sourceId: 'shock-1',
+        sourceName: 'Shock',
+        selectorContext: { targetPlayerId: 'p2' },
+      }
+    );
+
+    const firstP2 = firstDamage.state.players.find((player: any) => player.id === 'p2') as any;
+    const firstEffects = ((firstDamage.state as any).damagePreventionEffects || []) as any[];
+
+    const secondDamage = applyOracleIRStepsToGameState(
+      firstDamage.state,
+      dealTwoDamage,
+      {
+        controllerId: 'p1',
+        sourceId: 'shock-2',
+        sourceName: 'Shock',
+        selectorContext: { targetPlayerId: 'p2' },
+      }
+    );
+
+    const secondP2 = secondDamage.state.players.find((player: any) => player.id === 'p2') as any;
+    const secondEffects = ((secondDamage.state as any).damagePreventionEffects || []) as any[];
+
+    expect(shielded.appliedSteps.map(step => step.kind)).toEqual(['prevent_damage']);
+    expect(((shielded.state as any).damagePreventionEffects || []) as any[]).toEqual([
+      expect.objectContaining({ targetPlayerId: 'p2', remainingAmount: 3 }),
+    ]);
+    expect(firstP2.life).toBe(40);
+    expect(firstEffects).toEqual([
+      expect.objectContaining({ targetPlayerId: 'p2', remainingAmount: 1 }),
+    ]);
+    expect(firstDamage.log.some(entry => String(entry).includes('Prevented 2 damage'))).toBe(true);
+    expect(secondP2.life).toBe(39);
+    expect(secondEffects).toHaveLength(0);
+    expect(secondDamage.log.some(entry => String(entry).includes('Prevented 1 damage'))).toBe(true);
+  });
+
   it('applies Psionic Ritual by exiling the spell card and replaying its copied instructions', () => {
     const ir = parseOracleTextToIR(
       'Exile target instant or sorcery card from a graveyard and copy it. You may cast the copy without paying its mana cost.',
@@ -25900,6 +25992,55 @@ This creature has protection from each of the exiled card's card types. (Artifac
     } finally {
       randomSpy.mockRestore();
     }
+  });
+
+  it('applies linked exiled-card copy clauses with if-you-do free-cast tails', () => {
+    const ir = parseOracleTextToIR(
+      'Imprint - When this artifact enters, you may exile an instant card with mana value 2 or less from your hand.\n{2}, {T}: You may copy the exiled card. If you do, you may cast the copy without paying its mana cost.',
+      'Isochron Scepter'
+    );
+    const steps = ir.abilities.find((ability: any) => ability.type === 'activated')?.steps ?? [];
+
+    const result = applyOracleIRStepsToGameState(
+      makeState({
+        players: [
+          {
+            id: 'p1',
+            name: 'P1',
+            seat: 0,
+            life: 40,
+            library: [
+              { id: 'scepter-draw-1', name: 'Island', type_line: 'Basic Land - Island' },
+              { id: 'scepter-draw-2', name: 'Mountain', type_line: 'Basic Land - Mountain' },
+            ],
+            hand: [],
+            graveyard: [],
+            exile: [
+              {
+                id: 'scepter-imprint',
+                name: 'Divination',
+                type_line: 'Sorcery',
+                mana_cost: '{2}{U}',
+                oracle_text: 'Draw two cards.',
+                exiledBy: 'isochron-scepter',
+              },
+            ],
+          } as any,
+        ],
+      } as any),
+      steps,
+      {
+        controllerId: 'p1',
+        sourceId: 'isochron-scepter',
+        sourceName: 'Isochron Scepter',
+      },
+      { allowOptional: true }
+    );
+
+    const p1 = result.state.players.find((player: any) => player.id === 'p1') as any;
+
+    expect(result.appliedSteps.map(step => step.kind)).toEqual(['copy_spell']);
+    expect((p1.hand || []).map((card: any) => card.id)).toEqual(['scepter-draw-1', 'scepter-draw-2']);
   });
 
   it("applies The Many Deeds of Belzenlok by exiling the Saga and replaying the chosen chapter ability", () => {

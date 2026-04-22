@@ -854,6 +854,7 @@ function parseTopLibraryInfoOwner(ownerRaw: string): OraclePlayerSelector | null
 
 function parseStandaloneTopLibraryInfoUnknownStep(step: Extract<OracleEffectStep, { kind: 'unknown' }>): OracleEffectStep | null {
   const normalized = normalizeOracleText(String(step.raw || ''))
+    .replace(/^then\b\s*/i, '')
     .replace(/[.]+$/g, '')
     .trim();
   if (!normalized) return null;
@@ -3166,12 +3167,29 @@ export function pruneExtortReminderAbilities(
 export function pruneFirebendingReminderAbilities(
   abilities: readonly OracleIRAbility[]
 ): OracleIRAbility[] {
-  return abilities.filter((ability) => {
+  return abilities.flatMap((ability) => {
     const normalizedText = normalizeOracleText(String(ability.text || ability.effectText || ''))
       .replace(/\s+/g, ' ')
       .trim()
       .toLowerCase();
-    return !/^firebending\s+\d+(?:\s*\([^)]*\))?[.)]*$/i.test(normalizedText);
+
+    if (/^firebending\s+(?:\d+|x(?:,\s*where x is [^.]+)?)(?:\.?\s*)?(?:\([^)]*\))?[.)]*$/i.test(normalizedText)) {
+      return [];
+    }
+
+    if (!normalizedText.includes('firebending')) {
+      return [ability];
+    }
+
+    const nextSteps = ability.steps.filter((step) => {
+      if (step.kind !== 'unknown') {
+        return true;
+      }
+
+      return !/^this mana lasts until end of combat$/i.test(normalizeReminderStepRaw(step));
+    });
+
+    return nextSteps.length === ability.steps.length ? [ability] : [{ ...ability, steps: nextSteps }];
   });
 }
 
@@ -3289,7 +3307,11 @@ export function pruneRedundantAttackRequirementAbilities(
     }
 
     const normalizedText = normalizeOracleText(String(ability.text || '')).trim().toLowerCase();
-    return !/^this creature attacks each combat if able[.)]*$/i.test(normalizedText);
+    return !(
+      /^this creature attacks each combat if able[.)]*$/i.test(normalizedText)
+      || /^this creature can(?:not|'t) attack unless defending player controls an? (plains|island|swamp|mountain|forest)[.)]*$/i.test(normalizedText)
+      || /^this creature can(?:not|'t) be blocked by more than one creature[.)]*$/i.test(normalizedText)
+    );
   });
 }
 
@@ -3637,6 +3659,18 @@ export function pruneLateKeywordReminderOnlyAbilities(
         return [];
       }
 
+      if (/^when this creature enters, if x is 5 or more, draw a card[.)]*$/i.test(normalizedText)) {
+        return [];
+      }
+
+      if (/^ravenous(?:\s*\(.*)?[.)]*$/i.test(normalizedText)) {
+        return [];
+      }
+
+      if (/^this permanent \(this creature enters with x \+1\/\+1 counters on it\. if x is 5 or more, draw a card when it enters\.?(?:\))?[.)]*$/i.test(normalizedText)) {
+        return [];
+      }
+
       const isUnknownOnlyAbility = ability.steps.length === 0 || ability.steps.every((step) => step.kind === 'unknown');
 
       if (
@@ -3646,13 +3680,18 @@ export function pruneLateKeywordReminderOnlyAbilities(
           /^ascend(?:\s*\(.*\))?[.)]*$/i.test(normalizedText) ||
           /^banding(?:\s*\(.*\))?[.)]*$/i.test(normalizedText) ||
           /^bargain(?:\s*\(.*\))?[.)]*$/i.test(normalizedText) ||
+          /^bloodthirst\s+\d+(?:\s*\(.*)?[.)]*$/i.test(normalizedText) ||
           /^bushido\s+\d+(?:\s*\(.*\))?[.)]*$/i.test(normalizedText) ||
+          /^conspire(?:\s*\(.*\))?[.)]*$/i.test(normalizedText) ||
           /^crew\s+\d+[.)]*$/i.test(normalizedText) ||
           /^delve(?:\s*\(.*\))?[.)]*$/i.test(normalizedText) ||
           /^doctor(?:'|â€™)s companion(?:\s*\(.*\))?[.)]*$/i.test(normalizedText) ||
           /^dash\s+(?:\{[^}]+\})+(?:\s*\(.*\))?[.)]*$/i.test(normalizedText) ||
+          /^this permanent\s+\d+\s*\(if an opponent was dealt damage this turn, this creature enters with a \+1\/\+1 counter on it\.?(?:\))?[.)]*$/i.test(normalizedText) ||
+          /^enlist(?:\s*\(.*\))?[.)]*$/i.test(normalizedText) ||
           /^evoke\s+(?:\{[^}]+\})+(?:\s*\(.*\))?[.)]*$/i.test(normalizedText) ||
           /^flanking(?:\s*\(.*\))?[.)]*$/i.test(normalizedText) ||
+          /^graft\s+\d+\s*\(this creature enters with .+? \+1\/\+1 counters? on it[.)]*$/i.test(normalizedText) ||
           /^hideaway\s+\d+(?:\s*\(.*\))?[.)]*$/i.test(normalizedText) ||
           /^improvise(?:\s*\(.*\))?[.)]*$/i.test(normalizedText) ||
           /^modular\s+\d+(?:\s*\(.*)?[.)]*$/i.test(normalizedText) ||
@@ -3660,7 +3699,10 @@ export function pruneLateKeywordReminderOnlyAbilities(
           /^overload\s+(?:\{[^}]+\})+(?:\s*\(.*\))?[.)]*$/i.test(normalizedText) ||
           /^plot\s+(?:\{[^}]+\})+(?:\s*\(.*\))?[.)]*$/i.test(normalizedText) ||
           /^mutate\s+(?:\{[^}]+\})+(?:\s*\(.*\))?[.)]*$/i.test(normalizedText) ||
+          /^whenever another creature enters, you may move a \+1\/\+1 counter from this creature onto it[.)]*$/i.test(normalizedText) ||
+          /^phasing(?:\s*\(.*)?[.)]*$/i.test(normalizedText) ||
           /^saddle\s+\d+(?:\s*\(.*\))?[.)]*$/i.test(normalizedText) ||
+          /^ravenous(?:\s*\(.*)?[.)]*$/i.test(normalizedText) ||
           /^shadow(?:\s*\(.*\))?[.)]*$/i.test(normalizedText) ||
           /^split second(?:\s*\(.*\))?[.)]*$/i.test(normalizedText) ||
           /^spree(?:\s*\(.*\))?[.)]*$/i.test(normalizedText) ||
@@ -3669,6 +3711,7 @@ export function pruneLateKeywordReminderOnlyAbilities(
           /^umbra armor(?:\s*\(.*\))?[.)]*$/i.test(normalizedText) ||
           /^toxic\s+\d+(?:\s*\(.*\))?[.)]*$/i.test(normalizedText) ||
           /^unleash(?:\s*\(.*\))?[.)]*$/i.test(normalizedText) ||
+          /^riot(?:\s*\(.*)?[.)]*$/i.test(normalizedText) ||
           /^vanishing\s+\d+(?:\s*\(.*)?[.)]*$/i.test(normalizedText) ||
           /^wither(?:\s*\(.*\))?[.)]*$/i.test(normalizedText) ||
           /^splice(?:\s+onto\s+.+?)?\s+(?:\{[^}]+\})+(?:\s*\(.*\))?[.)]*$/i.test(normalizedText)
@@ -3857,6 +3900,7 @@ export function pruneExternallyHandledStaticUnknownAbilities(
       /^you control enchanted (?:creature|permanent)[.)]*$/i.test(normalizedText) ||
       /^creatures you control have haste[.)]*$/i.test(normalizedText) ||
       /^as this land enters, you may reveal (?:a|an) .+? card from your hand\. if you don't, (?:this land|it) enters tapped[.)]*$/i.test(normalizedText) ||
+      /^as this land enters, you may pay \d+ life\. if you don't, (?:this land|it) enters tapped[.)]*$/i.test(normalizedText) ||
       /^you have hexproof(?:\.?\s*\(.*\))?[.)]*$/i.test(normalizedText) ||
       /^(?:enchanted creature|this creature|this permanent) does(?:n't| not) untap during (?:its controller(?:'|â€™)s|your) untap step[.)]*$/i.test(normalizedText) ||
       /^this creature can block only creatures with flying[.)]*$/i.test(normalizedText) ||
@@ -4273,7 +4317,7 @@ function isRedundantEntersTappedReplacementUnknownStep(step: OracleEffectStep): 
     .replace(/^[()\s]+/, '')
     .replace(/[.)\s]+$/g, '')
     .trim();
-  return /^tapped$/i.test(normalized);
+  return /^tapped$/i.test(normalized) || /^tapped unless you control two or fewer other lands$/i.test(normalized);
 }
 
 export function pruneRedundantEntersTappedReplacementUnknownAbilities(
@@ -4285,7 +4329,9 @@ export function pruneRedundantEntersTappedReplacementUnknownAbilities(
     const normalizedText = normalizeOracleText(String(ability.text || ability.effectText || ''))
       .replace(/[.)\s]+$/g, '')
       .trim();
-    if (!/\benters(?: the battlefield)? tapped$/i.test(normalizedText)) return ability;
+    if (!/\benters(?: the battlefield)? tapped(?: unless you control two or fewer other lands)?$/i.test(normalizedText)) {
+      return ability;
+    }
 
     const nextSteps = ability.steps.filter((step) => !isRedundantEntersTappedReplacementUnknownStep(step));
     return nextSteps.length === ability.steps.length ? ability : { ...ability, steps: nextSteps };
@@ -5132,8 +5178,9 @@ type CopySpellCastTail = {
 function parseCopySpellCastTail(step: OracleEffectStep | undefined): CopySpellCastTail | null {
   const normalized = normalizeUnknownStepText(step);
   if (!normalized) return null;
+  const normalizedTail = normalized.replace(/^if you do,\s*/i, '').trim();
 
-  if (/^you may cast the copy$/i.test(normalized)) {
+  if (/^you may cast the copy$/i.test(normalizedTail)) {
     return {
       raw: String((step as any)?.raw || '').trim() || 'You may cast the copy',
       castCost: 'mana_cost',
@@ -5141,28 +5188,28 @@ function parseCopySpellCastTail(step: OracleEffectStep | undefined): CopySpellCa
     };
   }
 
-  const alternateCostMatch = normalized.match(
+  const alternateCostMatch = normalizedTail.match(
     /^you may cast the copy by paying (\{[^}]+\}(?:\{[^}]+\})*) rather than paying its mana cost$/i
   );
   if (alternateCostMatch) {
     return {
-      raw: String((step as any)?.raw || '').trim() || normalized,
+      raw: String((step as any)?.raw || '').trim() || normalizedTail,
       castCost: String(alternateCostMatch[1] || '').trim(),
       optional: true,
     };
   }
 
-  if (/^you may cast the copy without paying its mana cost$/i.test(normalized)) {
+  if (/^you may cast the copy without paying its mana cost$/i.test(normalizedTail)) {
     return {
-      raw: String((step as any)?.raw || '').trim() || normalized,
+      raw: String((step as any)?.raw || '').trim() || normalizedTail,
       withoutPayingManaCost: true,
       optional: true,
     };
   }
 
-  if (/^you may cast any number of the copies without paying their mana costs$/i.test(normalized)) {
+  if (/^you may cast any number of the copies without paying their mana costs$/i.test(normalizedTail)) {
     return {
-      raw: String((step as any)?.raw || '').trim() || normalized,
+      raw: String((step as any)?.raw || '').trim() || normalizedTail,
       withoutPayingManaCost: true,
       optional: true,
     };
@@ -5420,6 +5467,17 @@ function parseCopySpellUnknownStep(
       kind: 'copy_spell',
       subject: 'target_spell',
       target: { kind: 'raw', text: targetText },
+      ...(allowNewTargets ? { allowNewTargets: true } : {}),
+      ...(optional ? { optional: true } : {}),
+      ...(step.sequence ? { sequence: step.sequence } : {}),
+      raw: appendFollowupSentence(normalized, rawRetargetTail),
+    };
+  }
+
+  if (/^(?:you may\s+)?copy the exiled card$/i.test(normalized)) {
+    return {
+      kind: 'copy_spell',
+      subject: 'linked_exiled_cards',
       ...(allowNewTargets ? { allowNewTargets: true } : {}),
       ...(optional ? { optional: true } : {}),
       ...(step.sequence ? { sequence: step.sequence } : {}),
@@ -6139,6 +6197,23 @@ function parsePreventDamageUnknownStep(
       ...(step.sequence ? { sequence: step.sequence } : {}),
       raw: normalized,
     };
+  }
+
+  const nextDamageMatch = normalized.match(
+    /^prevent the next (.+?) damage that would be dealt to (.+?) this turn$/i
+  );
+  if (nextDamageMatch) {
+    const amount = parseQuantity(String(nextDamageMatch[1] || '').trim());
+    if (amount.kind === 'number') {
+      return {
+        kind: 'prevent_damage',
+        amount,
+        recipientTarget: parseObjectSelector(String(nextDamageMatch[2] || '').trim()),
+        duration: 'this_turn',
+        ...(step.sequence ? { sequence: step.sequence } : {}),
+        raw: normalized,
+      };
+    }
   }
 
   const match = normalized.match(
@@ -7335,6 +7410,27 @@ function parseKeywordActionUnknownStep(step: Extract<OracleEffectStep, { kind: '
     };
   }
 
+  const subjectConniveMatch = normalized.match(/^(.+?)\s+connives(?:\s+(\d+|x))?$/i);
+  if (subjectConniveMatch) {
+    const subjectText = String(subjectConniveMatch[1] || '').trim();
+    const normalizedSubject = normalizeOracleText(subjectText).replace(/\s+/g, ' ').trim().toLowerCase();
+    const targetText = (
+      normalizedSubject === 'it' || normalizedSubject === 'this creature'
+    )
+      ? 'this creature'
+      : normalizedSubject === 'this permanent'
+        ? 'this permanent'
+        : subjectText;
+
+    return {
+      kind: 'connive',
+      target: { kind: 'raw', text: targetText },
+      amount: parseQuantity(String(subjectConniveMatch[2] || '1').trim()),
+      ...(step.sequence ? { sequence: step.sequence } : {}),
+      raw: normalized,
+    };
+  }
+
   const goadMatch = normalized.match(/^goad\s+(.+)$/i);
   if (goadMatch) {
     return {
@@ -8007,14 +8103,15 @@ function parseStandaloneAttachUnknownStep(rawClause: string): OracleEffectStep |
   if (!normalized) return null;
 
   const match = normalized.match(
-    /^attach\s+(this enchantment|this equipment|this permanent|it)\s+to\s+(target creature(?: you control)?|target land(?: you control)?|that creature|that land|it)$/i
+    /^(?:(you)\s+may\s+)?attach\s+(this enchantment|this equipment|this permanent|it)\s+to\s+(target creature(?: you control)?|target land(?: you control)?|that creature|that land|it)$/i
   );
   if (!match) return null;
 
   return {
     kind: 'attach',
-    attachment: parseObjectSelector(String(match[1] || '').trim()),
-    to: parseObjectSelector(String(match[2] || '').trim()),
+    attachment: parseObjectSelector(String(match[2] || '').trim()),
+    to: parseObjectSelector(String(match[3] || '').trim()),
+    optional: Boolean(match[1]),
     raw: normalized,
   };
 }

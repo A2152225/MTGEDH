@@ -421,6 +421,37 @@ describe('Phase Transition Triggers', () => {
       expect(result.triggers).toHaveLength(0);
       expect(result.log.some(line => line.includes('Molten Firebird'))).toBe(true);
     });
+
+    it('should suppress draw-step triggers for static skip-your-draw-step permanents', () => {
+      const abilities = [
+        createTestAbility('draw-trigger-1', TriggerEvent.BEGINNING_OF_DRAW_STEP, 'Howling Mine', 'Each player draws a card'),
+      ];
+
+      const context = {
+        currentStep: PhaseStep.DRAW,
+        activePlayerId: 'player-1',
+        turnNumber: 1,
+        stack: createEmptyStack(),
+        abilities,
+        battlefield: [
+          {
+            id: 'necropotence',
+            controller: 'player-1',
+            owner: 'player-1',
+            card: {
+              name: 'Necropotence',
+              type_line: 'Enchantment',
+              oracle_text: 'Skip your draw step. Whenever you discard a card, exile that card from your graveyard.',
+            },
+          },
+        ],
+      };
+
+      const result = getStepEntryTriggers(PhaseStep.DRAW, context);
+
+      expect(result.triggers).toHaveLength(0);
+      expect(result.log.some(line => line.includes('Necropotence'))).toBe(true);
+    });
   });
   
   describe('Phase Step Enum', () => {

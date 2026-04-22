@@ -169,11 +169,9 @@ export function getCreatureSubtypeKeys(obj: any, typeLineLower: (obj: any) => st
 
   const typeLine = typeLineLower(obj);
   if (!typeLine.includes('creature')) return [];
-  const emDashIdx = typeLine.search(/[â€”\ufffd]/);
-  const hyphenDashIdx = typeLine.indexOf(' - ');
-  const splitIdx = emDashIdx >= 0 ? emDashIdx : hyphenDashIdx;
-  if (splitIdx < 0) return [];
-  const suffix = typeLine.slice(splitIdx + (emDashIdx >= 0 ? 1 : 3)).trim();
+  const delimiterMatch = typeLine.match(/\s+(?:-|—|–|â€”|â€“|ï¿½|\ufffd)\s+/);
+  if (!delimiterMatch || typeof delimiterMatch.index !== 'number') return [];
+  const suffix = typeLine.slice(delimiterMatch.index + delimiterMatch[0].length).trim();
   if (!suffix) return [];
   return suffix
     .split(/\s+/)

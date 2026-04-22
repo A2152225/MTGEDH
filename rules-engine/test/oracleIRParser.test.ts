@@ -209,6 +209,38 @@ Whenever this creature attacks, you may cast an Ally spell from among cards you 
     expect(ir.keywords).toContain('firebending');
   });
 
+  it('prunes nonnumeric firebending reminder abilities while retaining the keyword', () => {
+    const ir = parseOracleTextToIR(
+      "Firebending X, where X is this creature's power. (Whenever this creature attacks, add X {R}. This mana lasts until end of combat.)",
+      'Fire Sages'
+    );
+
+    expect(ir.abilities).toHaveLength(0);
+    expect(ir.keywords).toContain('firebending');
+  });
+
+  it('prunes embedded firebending reminder tail shards from token clauses', () => {
+    const ir = parseOracleTextToIR(
+      'Create a 2/2 red Soldier creature token with firebending 1. (Whenever a creature with firebending 1 attacks, add {R}. This mana lasts until end of combat.)',
+      'Fire Nation Attacks'
+    );
+
+    expect(ir.abilities).toHaveLength(1);
+    expect(ir.abilities[0].steps).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'create_token',
+          raw: 'Create a 2/2 red Soldier creature token with firebending 1',
+        }),
+      ])
+    );
+    expect(
+      ir.abilities[0].steps.some(
+        (step: any) => step.kind === 'unknown' && /this mana lasts until end of combat/i.test(String(step.raw || ''))
+      )
+    ).toBe(false);
+  });
+
   it('prunes waterbend reminder shards while retaining the keyword', () => {
     const ir = parseOracleTextToIR(
       'Waterbend {2}: This creature gets +1/+1 until end of turn. Activate only during your turn. (While paying a waterbend cost, you can tap your artifacts and creatures to help. Each one pays for {1}.)',
@@ -1055,6 +1087,48 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
         raw: 'Shuffle your library',
       },
     ]);
+  });
+
+  it('parses self-shuffle into owner library clauses into move_zone steps', () => {
+    const ir = parseOracleTextToIR(
+      "Put X -1/-1 counters on each creature. Shuffle Black Sun's Zenith into its owner's library.",
+      "Black Sun's Zenith"
+    );
+
+    expect(ir.abilities[0]?.steps).toEqual([
+      expect.objectContaining({
+        kind: 'add_counter',
+        raw: 'Put X -1/-1 counters on each creature',
+      }),
+      expect.objectContaining({
+        kind: 'move_zone',
+        what: { kind: 'raw', text: 'this permanent' },
+        to: 'library',
+        toRaw: "its owner's library",
+        raw: "Shuffle this permanent into its owner's library",
+      }),
+    ]);
+  });
+
+  it('prunes embedded manifest-dread reminder tails after later follow-up expansion', () => {
+    const ir = parseOracleTextToIR(
+      "When this Equipment enters, manifest dread, then attach this Equipment to that creature. (Look at the top two cards of your library. Put one onto the battlefield face down as a 2/2 creature and the other into your graveyard. Turn it face up any time for its mana cost if it's a creature card.)",
+      'Conductive Machete'
+    );
+
+    expect(ir.abilities[0]?.steps).toEqual([
+      expect.objectContaining({
+        kind: 'manifest_dread',
+        raw: 'manifest dread',
+      }),
+      expect.objectContaining({
+        kind: 'attach',
+        raw: 'attach this Equipment to that creature',
+      }),
+    ]);
+    expect(
+      ir.abilities[0]?.steps.some((step: any) => /turn it face up any time/i.test(String(step?.raw || '')))
+    ).toBe(false);
   });
 
   it('parses multi-token creation in a single clause into multiple steps', () => {
@@ -2087,6 +2161,76 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
     expect(ir.keywords).toContain('unleash');
   });
 
+  it('prunes riot reminder abilities while retaining the keyword', () => {
+    const ir = parseOracleTextToIR(
+      'Riot (This creature enters with your choice of a +1/+1 counter or haste.)',
+      'Gruul Initiate'
+    );
+
+    expect(ir.abilities).toEqual([]);
+    expect(ir.keywords).toContain('riot');
+  });
+
+  it('prunes ravenous reminder abilities while retaining the keyword', () => {
+    const ir = parseOracleTextToIR(
+      'Ravenous (This creature enters with X +1/+1 counters on it. If X is 5 or more, draw a card when it enters.)',
+      'Tyranid Ravener'
+    );
+
+    expect(ir.abilities).toEqual([]);
+    expect(ir.keywords).toContain('ravenous');
+  });
+
+  it('prunes bloodthirst reminder abilities while retaining the keyword', () => {
+    const ir = parseOracleTextToIR(
+      'Bloodthirst 1 (If an opponent was dealt damage this turn, this creature enters with a +1/+1 counter on it.)',
+      'Ghor-Clan Savage'
+    );
+
+    expect(ir.abilities).toEqual([]);
+    expect(ir.keywords).toContain('bloodthirst');
+  });
+
+  it('prunes graft reminder abilities while retaining the keyword', () => {
+    const ir = parseOracleTextToIR(
+      'Graft 2 (This creature enters with two +1/+1 counters on it. Whenever another creature enters, you may move a +1/+1 counter from this creature onto it.)',
+      'Plaxcaster Frogling'
+    );
+
+    expect(ir.abilities).toEqual([]);
+    expect(ir.keywords).toContain('graft');
+  });
+
+  it('prunes conspire reminder abilities while retaining the keyword', () => {
+    const ir = parseOracleTextToIR(
+      'Conspire (As you cast this spell, you may tap two untapped creatures you control that share a color with it. When you do, copy it and you may choose a new target for the copy.)',
+      'Burn Trail'
+    );
+
+    expect(ir.abilities).toEqual([]);
+    expect(ir.keywords).toContain('conspire');
+  });
+
+  it('prunes enlist reminder abilities while retaining the keyword', () => {
+    const ir = parseOracleTextToIR(
+      "Enlist (As this creature attacks, you may tap a nonattacking creature you control without summoning sickness. When you do, add its power to this creature's until end of turn.)",
+      'Argivian Cavalier'
+    );
+
+    expect(ir.abilities).toEqual([]);
+    expect(ir.keywords).toContain('enlist');
+  });
+
+  it('prunes standalone phasing reminder abilities while retaining the keyword', () => {
+    const ir = parseOracleTextToIR(
+      'Phasing (This phases in or out before you untap during each of your untap steps.)',
+      'Breezekeeper'
+    );
+
+    expect(ir.abilities).toEqual([]);
+    expect(ir.keywords).toContain('phasing');
+  });
+
   it('prunes phasing reminder tails while keeping the phase-out clause', () => {
     const ir = parseOracleTextToIR(
       "All nontoken permanents of that type phase out. (While they're phased out, they're treated as though they don't exist. Each one phases in before its controller untaps during their next untap step.)",
@@ -2247,6 +2391,52 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
           },
         ],
         raw: 'If a nonland card was discarded this way, put X +1/+1 counters on this creature, where X is the number of nonland cards discarded this way.',
+      },
+    ]);
+  });
+
+  it('parses subject-form connive clauses into connive steps', () => {
+    const ir = parseOracleTextToIR("When this creature enters, it connives.", "Raffine's Informant");
+
+    expect(ir.abilities).toEqual([
+      {
+        type: 'triggered',
+        text: 'When this creature enters, it connives.',
+        triggerCondition: 'this creature enters',
+        effectText: 'it connives.',
+        steps: [
+          {
+            kind: 'connive',
+            target: { kind: 'raw', text: 'this creature' },
+            amount: { kind: 'number', value: 1 },
+            raw: 'it connives',
+          },
+        ],
+      },
+    ]);
+  });
+
+  it('parses reference-amount add-counter clauses into add_counter steps', () => {
+    const ir = parseOracleTextToIR(
+      'Whenever this creature deals combat damage to a player, put that many +1/+1 counters on this creature.',
+      'War Elemental'
+    );
+
+    expect(ir.abilities).toEqual([
+      {
+        type: 'triggered',
+        text: 'Whenever this creature deals combat damage to a player, put that many +1/+1 counters on this creature.',
+        triggerCondition: 'this creature deals combat damage to a player',
+        effectText: 'put that many +1/+1 counters on this creature.',
+        steps: [
+          {
+            kind: 'add_counter',
+            target: { kind: 'raw', text: 'this creature' },
+            counter: '+1/+1',
+            amount: { kind: 'reference_amount', raw: 'that many' },
+            raw: 'put that many +1/+1 counters on this creature',
+          },
+        ],
       },
     ]);
   });
@@ -2545,6 +2735,26 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
 
     expect(ir.abilities.some((ability) => ability.steps.some((step) => step.kind === 'unknown'))).toBe(false);
     expect(ir.abilities).toHaveLength(2);
+  });
+
+  it('prunes pay-life land ETB choice text for pronoun enters-tapped variants too', () => {
+    const ir = parseOracleTextToIR(
+      "As this land enters, you may pay 3 life. If you don't, it enters tapped.\n{T}: Add {G}.",
+      'Turntimber, Serpentine Wood'
+    );
+
+    expect(ir.abilities).toEqual([
+      expect.objectContaining({
+        steps: [
+          {
+            kind: 'add_mana',
+            who: { kind: 'you' },
+            mana: '{G}',
+            raw: 'Add {G}',
+          },
+        ],
+      }),
+    ]);
   });
 
   it('parses Investigate keyword lines into investigate steps', () => {
@@ -6501,6 +6711,24 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
     expect(ir.abilities).toEqual([]);
   });
 
+  it('prunes standalone defending-player basic-land attack restrictions from Oracle IR', () => {
+    const ir = parseOracleTextToIR(
+      "This creature can't attack unless defending player controls an Island.",
+      'Floodchaser'
+    );
+
+    expect(ir.abilities).toEqual([]);
+  });
+
+  it('prunes standalone blocker-limit restriction abilities from Oracle IR', () => {
+    const ir = parseOracleTextToIR(
+      "This creature can't be blocked by more than one creature.",
+      'Charging Rhino'
+    );
+
+    expect(ir.abilities).toEqual([]);
+  });
+
   it('prunes standalone convoke keyword lines from Oracle IR while keeping the keyword', () => {
     const ir = parseOracleTextToIR(
       'Convoke\nTarget creature gets +3/+3 until end of turn.',
@@ -7454,6 +7682,19 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
     expect(ir.abilities[0]).toMatchObject({
       type: 'replacement',
       effectText: 'tapped',
+    });
+    expect(ir.abilities[0]?.steps).toEqual([]);
+  });
+
+  it('treats fastland enters-tapped replacement text as a replacement ability without unknown steps', () => {
+    const ir = parseOracleTextToIR(
+      'This land enters tapped unless you control two or fewer other lands.',
+      'Concealed Courtyard'
+    );
+
+    expect(ir.abilities[0]).toMatchObject({
+      type: 'replacement',
+      effectText: 'tapped unless you control two or fewer other lands',
     });
     expect(ir.abilities[0]?.steps).toEqual([]);
   });
@@ -8734,6 +8975,20 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
     ]);
   });
 
+  it('parses then-prefixed standalone reveal-top informational clauses', () => {
+    const ir = parseOracleTextToIR('Then reveal the top card of your library.', 'Reveal Probe');
+
+    expect(ir.abilities[0]?.steps).toEqual([
+      {
+        kind: 'reveal_top',
+        who: { kind: 'you' },
+        amount: { kind: 'number', value: 1 },
+        sequence: 'then',
+        raw: 'Then reveal the top card of your library',
+      },
+    ]);
+  });
+
   it('parses each-player reveal-top informational clauses', () => {
     const ir = parseOracleTextToIR('Each player reveals the top card of their library.', 'Game Preserve');
 
@@ -9727,6 +9982,40 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
     ]);
   });
 
+  it('parses static skip-your-draw-step text into a draw-skip step', () => {
+    const ir = parseOracleTextToIR(
+      'Skip your draw step. Whenever you discard a card, exile that card from your graveyard.',
+      'Necropotence'
+    );
+
+    expect(ir.abilities[0]?.steps).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+        kind: 'skip_next_draw_step',
+        who: { kind: 'you' },
+        raw: 'Skip your draw step',
+        }),
+      ])
+    );
+  });
+
+  it("parses temporary no-defender attack permissions into temporary ability steps", () => {
+    const ir = parseOracleTextToIR(
+      "{3}: This creature can attack this turn as though it didn't have defender.",
+      'Skyclave Squid'
+    );
+
+    const activated = ir.abilities.find(ability => ability.type === 'activated');
+    expect(activated?.steps).toEqual([
+      expect.objectContaining({
+        kind: 'grant_temporary_ability',
+        target: { kind: 'raw', text: 'This creature' },
+        duration: 'this_turn',
+        effectText: ["can attack as though it didn't have defender"],
+      }),
+    ]);
+  });
+
   it("does not misclassify Shade's Form granted quote as an activated IR ability", () => {
     const oracleText =
       'Enchant creature\n' +
@@ -10710,6 +10999,31 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
         kind: 'attach',
         attachment: { kind: 'raw', text: 'this Equipment' },
         to: { kind: 'raw', text: 'it' },
+      },
+    ]);
+  });
+
+  it('parses optional attach follow-ups with pronoun targets', () => {
+    const ir = parseOracleTextToIR(
+      'Whenever a creature enters, you may attach this Equipment to it.',
+      'Sample Equipment'
+    );
+
+    expect(ir.abilities).toEqual([
+      {
+        type: 'triggered',
+        text: 'Whenever a creature enters, you may attach this Equipment to it.',
+        triggerCondition: 'a creature enters',
+        effectText: 'you may attach this Equipment to it.',
+        steps: [
+          {
+            kind: 'attach',
+            attachment: { kind: 'raw', text: 'this Equipment' },
+            to: { kind: 'raw', text: 'it' },
+            optional: true,
+            raw: 'you may attach this Equipment to it',
+          },
+        ],
       },
     ]);
   });
@@ -12527,6 +12841,22 @@ This creature has protection from each of the exiled card's card types. (Artifac
     ]);
   });
 
+  it('parses next-damage shields for any target', () => {
+    const ir = parseOracleTextToIR(
+      'Prevent the next 3 damage that would be dealt to any target this turn.',
+      'Healing Salve'
+    );
+
+    expect(ir.abilities[0]?.steps).toEqual([
+      expect.objectContaining({
+        kind: 'prevent_damage',
+        amount: { kind: 'number', value: 3 },
+        recipientTarget: { kind: 'raw', text: 'any target' },
+        duration: 'this_turn',
+      }),
+    ]);
+  });
+
     it('parses Psionic Ritual into exile plus copied-spell replay steps', () => {
       const ir = parseOracleTextToIR(
         'Exile target instant or sorcery card from a graveyard and copy it. You may cast the copy without paying its mana cost.',
@@ -12591,6 +12921,23 @@ This creature has protection from each of the exiled card's card types. (Artifac
       }),
     ]);
     expect(ir.abilities[0]?.steps.some((step: any) => String(step?.raw || '').trim() === 'You may cast the copy without paying its mana cost')).toBe(false);
+  });
+
+  it('parses linked exiled-card copy clauses with if-you-do free-cast tails', () => {
+    const ir = parseOracleTextToIR(
+      'Imprint - When this artifact enters, you may exile an instant card with mana value 2 or less from your hand.\n{2}, {T}: You may copy the exiled card. If you do, you may cast the copy without paying its mana cost.',
+      'Isochron Scepter'
+    );
+
+    const activated = ir.abilities.find((ability: any) => ability.type === 'activated');
+    expect(activated?.steps).toEqual([
+      expect.objectContaining({
+        kind: 'copy_spell',
+        subject: 'linked_exiled_cards',
+        optional: true,
+        withoutPayingManaCost: true,
+      }),
+    ]);
   });
 
   it("parses Wizard's Spellbook into exile, roll_die, and die-roll result branches", () => {

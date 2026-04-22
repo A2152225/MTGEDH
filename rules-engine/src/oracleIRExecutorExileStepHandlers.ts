@@ -66,7 +66,7 @@ function resolveExileCounts(
   const exileCountByPlayer = new Map<PlayerID, number>();
   for (const playerId of players) {
     const resolvedCount =
-      quantityToNumber(amount) ??
+      quantityToNumber(amount, ctx) ??
       resolveUnknownExileUntilAmountForPlayer(state, playerId, amount, ctx);
     if (resolvedCount === null) return null;
     exileCountByPlayer.set(playerId, resolvedCount);

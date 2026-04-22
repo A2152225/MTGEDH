@@ -1,4 +1,4 @@
-import type { DamagePreventionEffect, GameState } from '../../shared/src';
+import type { DamagePreventionEffect, GameState, PlayerID } from '../../shared/src';
 import { getColorsFromObject } from './oracleIRExecutorManaUtils';
 import { getStackItems } from './stackOperations';
 
@@ -66,6 +66,32 @@ export function createGlobalCombatDamagePreventionEffect(params: {
   };
 }
 
+export function createTargetDamagePreventionEffect(params: {
+  state: GameState;
+  sourceId?: string;
+  sourceName?: string;
+  controllerId?: string;
+  targetPlayerId?: PlayerID;
+  targetPermanentId?: string;
+  amount: number;
+  description: string;
+}): DamagePreventionEffect {
+  const currentTurn = getCurrentTurnNumber(params.state);
+  const targetRef = String(params.targetPlayerId || params.targetPermanentId || 'target').trim() || 'target';
+  return {
+    id: `${String(params.sourceId || 'oracle-ir').trim() || 'oracle-ir'}:prevent:shield:${targetRef}:${currentTurn}`,
+    description: params.description,
+    sourceId: params.sourceId,
+    sourceName: params.sourceName,
+    controllerId: params.controllerId as any,
+    targetSourceId: '*',
+    targetPlayerId: params.targetPlayerId,
+    targetPermanentId: params.targetPermanentId,
+    remainingAmount: Math.max(0, Number(params.amount) || 0),
+    expiresAtTurn: currentTurn,
+  };
+}
+
 export function registerDamagePreventionEffect(
   state: GameState,
   effect: DamagePreventionEffect
@@ -89,15 +115,20 @@ export function previewPreventedDamage(
   damageSourceId?: string,
   options?: {
     readonly combatDamage?: boolean;
+    readonly targetPlayerId?: PlayerID;
+    readonly targetPermanentId?: string;
   }
 ): {
   readonly prevented: number;
   readonly remainingDamage: number;
   readonly log: readonly string[];
+  readonly state?: GameState;
 } {
   const normalizedSourceId = String(damageSourceId || '').trim();
   const initialAmount = Math.max(0, Number(amount) || 0);
-  if (!normalizedSourceId || initialAmount <= 0) {
+  const normalizedTargetPlayerId = String(options?.targetPlayerId || '').trim() as PlayerID;
+  const normalizedTargetPermanentId = String(options?.targetPermanentId || '').trim();
+  if (initialAmount <= 0) {
     return {
       prevented: 0,
       remainingDamage: initialAmount,
@@ -123,6 +154,10 @@ export function previewPreventedDamage(
   for (const effect of activeEffects) {
     const targetSourceId = String(effect?.targetSourceId || '').trim();
     if (targetSourceId !== '*' && targetSourceId !== normalizedSourceId) continue;
+    const effectTargetPlayerId = String(effect?.targetPlayerId || '').trim() as PlayerID;
+    if (effectTargetPlayerId && effectTargetPlayerId !== normalizedTargetPlayerId) continue;
+    const effectTargetPermanentId = String(effect?.targetPermanentId || '').trim();
+    if (effectTargetPermanentId && effectTargetPermanentId !== normalizedTargetPermanentId) continue;
     const expiresAtTurn = Number((effect as any)?.expiresAtTurn);
     if (Number.isFinite(expiresAtTurn) && expiresAtTurn !== currentTurn) continue;
     if (effect?.combatOnly === true && options?.combatDamage !== true) continue;
@@ -132,14 +167,43 @@ export function previewPreventedDamage(
       : [];
     if (requiredColors.length > 0 && !requiredColors.some((color) => sourceColors.includes(color))) continue;
 
+    const numericRemainingAmount = Number(effect?.remainingAmount);
+    const remainingShieldAmount = Number.isFinite(numericRemainingAmount)
+      ? Math.max(0, numericRemainingAmount)
+      : null;
+    const prevented = remainingShieldAmount === null ? initialAmount : Math.min(initialAmount, remainingShieldAmount);
+    if (prevented <= 0) continue;
+
+    let nextState: GameState | undefined;
+    if (remainingShieldAmount !== null) {
+      const nextRemainingAmount = remainingShieldAmount - prevented;
+      const nextEffects = activeEffects.flatMap((entry) => {
+        if (String(entry?.id || '').trim() !== String(effect?.id || '').trim()) {
+          return [entry];
+        }
+        if (nextRemainingAmount <= 0) {
+          return [];
+        }
+        return [{
+          ...entry,
+          remainingAmount: nextRemainingAmount,
+        }];
+      });
+      nextState = {
+        ...(state as any),
+        damagePreventionEffects: nextEffects,
+      } as GameState;
+    }
+
     return {
-      prevented: initialAmount,
-      remainingDamage: 0,
+      prevented,
+      remainingDamage: Math.max(0, initialAmount - prevented),
       log: [
         effect?.combatOnly === true
-          ? `Prevented ${initialAmount} combat damage from ${normalizedSourceId}`
-          : `Prevented ${initialAmount} damage from ${normalizedSourceId}`,
+          ? `Prevented ${prevented} combat damage from ${normalizedSourceId || 'the source'}`
+          : `Prevented ${prevented} damage from ${normalizedSourceId || 'the source'}`,
       ],
+      ...(nextState ? { state: nextState } : {}),
     };
   }
 

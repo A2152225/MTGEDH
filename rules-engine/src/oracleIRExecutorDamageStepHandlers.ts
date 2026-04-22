@@ -5,6 +5,7 @@ import { createDamageSourceFromPermanent } from './damageProcessing';
 import {
   createGlobalCombatDamagePreventionEffect,
   createSourceColorDamagePreventionEffect,
+  createTargetDamagePreventionEffect,
   previewPreventedDamage,
   registerDamagePreventionEffect,
 } from './oracleIRDamagePrevention';
@@ -291,31 +292,78 @@ function applyDamageToMatchingBattlefield(
   ctx: OracleIRExecutionContext,
   matcher: (permanent: any) => boolean,
   sourceKeywords?: DamageSourceKeywords | null
-): { state: GameState; excessDamageDealtThisWay: number; damageDealt: number } {
+): { state: GameState; excessDamageDealtThisWay: number; damageDealt: number; log: readonly string[] } {
   let excessDamageThisStep = 0;
   let damageDealt = 0;
+  let preventionState = state;
+  const log: string[] = [];
   const sourcePermanentId = String(ctx.sourceId || '').trim() || undefined;
 
   const updatedBattlefield = (state.battlefield || []).map(permanent => {
     if (!matcher(permanent)) return permanent as any;
-    damageDealt += amount;
-    excessDamageThisStep += getExcessDamageToPermanent(permanent as any, amount);
-    if (hasExecutorClass(permanent as any, 'battle')) return removeDefenseCountersFromBattle(permanent as any, amount);
+    const targetPermanentId = String((permanent as any)?.id || '').trim() || undefined;
+    const prevention = previewPreventedDamage(preventionState, amount, sourcePermanentId, { targetPermanentId });
+    preventionState = prevention.state ?? preventionState;
+    log.push(...prevention.log);
+
+    const finalAmount = prevention.remainingDamage;
+    if (finalAmount <= 0) {
+      return permanent as any;
+    }
+
+    damageDealt += finalAmount;
+    excessDamageThisStep += getExcessDamageToPermanent(permanent as any, finalAmount);
+    if (hasExecutorClass(permanent as any, 'battle')) return removeDefenseCountersFromBattle(permanent as any, finalAmount);
     if (hasExecutorClass(permanent as any, 'creature')) {
       if (sourceKeywords?.hasInfect || sourceKeywords?.hasWither) {
-        return addMinusCountersToPermanentLikeCreatureFromSource(permanent as any, amount, sourcePermanentId);
+        return addMinusCountersToPermanentLikeCreatureFromSource(permanent as any, finalAmount, sourcePermanentId);
       }
-      return addDamageToPermanentLikeCreatureFromSource(permanent as any, amount, sourcePermanentId);
+      return addDamageToPermanentLikeCreatureFromSource(permanent as any, finalAmount, sourcePermanentId);
     }
-    if (hasExecutorClass(permanent as any, 'planeswalker')) return removeLoyaltyFromPlaneswalker(permanent as any, amount);
+    if (hasExecutorClass(permanent as any, 'planeswalker')) return removeLoyaltyFromPlaneswalker(permanent as any, finalAmount);
     return permanent as any;
   }) as any;
 
   return {
-    state: { ...(state as any), battlefield: updatedBattlefield } as any,
+    state: { ...(preventionState as any), battlefield: updatedBattlefield } as any,
     excessDamageDealtThisWay: Math.max(0, excessDamageThisStep),
     damageDealt,
+    log,
   };
+}
+
+function resolvePreventionRecipientPermanentId(
+  state: GameState,
+  target: Extract<OracleEffectStep, { kind: 'prevent_damage' }>['recipientTarget'],
+  ctx: OracleIRExecutionContext
+): string | undefined {
+  if (!target) return undefined;
+
+  const anyTargetId = resolveSinglePermanentDamageTargetId(state, target as any, ctx);
+  if (anyTargetId) return anyTargetId;
+
+  const candidateIds = [
+    String(ctx.targetPermanentId || '').trim(),
+    String(ctx.targetCreatureId || '').trim(),
+    ...(Array.isArray(ctx.selectorContext?.chosenObjectIds) && ctx.selectorContext.chosenObjectIds.length === 1
+      ? [String(ctx.selectorContext.chosenObjectIds[0] || '').trim()]
+      : []),
+  ].filter(Boolean);
+
+  const battlefield = (state.battlefield || []) as any[];
+  for (const candidateId of candidateIds) {
+    const matched = battlefield.find(permanent => String((permanent as any)?.id || '').trim() === candidateId);
+    if (!matched) continue;
+    if (
+      hasExecutorClass(matched, 'creature') ||
+      hasExecutorClass(matched, 'planeswalker') ||
+      hasExecutorClass(matched, 'battle')
+    ) {
+      return candidateId;
+    }
+  }
+
+  return undefined;
 }
 
 function resolvePreventionTargetSourceId(state: GameState, ctx: OracleIRExecutionContext): string | null {
@@ -395,17 +443,20 @@ export function applyDealDamageStep(
   const log: string[] = [];
   const damageSourceId = String(ctx.sourceId || '').trim() || undefined;
   const sourceKeywords = resolveDamageSourceKeywords(nextState, ctx);
-  const prevention = previewPreventedDamage(nextState, amount, damageSourceId);
-  log.push(...prevention.log);
-  const finalAmount = prevention.remainingDamage;
-  if (finalAmount <= 0) {
-    log.push(`All damage was prevented: ${step.raw}`);
-    return { applied: true, state: nextState, log, count: 0, excessDamageDealtThisWay: 0 };
-  }
 
   const players = resolvePlayersFromDamageTarget(nextState, step.target as any, ctx);
   if (players.length > 0) {
+    let totalDamageDealt = 0;
     for (const playerId of players) {
+      const prevention = previewPreventedDamage(nextState, amount, damageSourceId, { targetPlayerId: playerId });
+      nextState = prevention.state ?? nextState;
+      log.push(...prevention.log);
+      const finalAmount = prevention.remainingDamage;
+      if (finalAmount <= 0) {
+        log.push(`All damage to ${playerId} was prevented: ${step.raw}`);
+        continue;
+      }
+
       if (sourceKeywords?.hasInfect) {
         const result = adjustPlayerCounter(nextState, playerId, 'poison', finalAmount);
         nextState = result.state;
@@ -423,32 +474,38 @@ export function applyDealDamageStep(
       }
 
       log.push(`${playerId} is dealt ${finalAmount} damage`);
+      totalDamageDealt += finalAmount;
     }
 
-    return { applied: true, state: nextState, log, count: finalAmount, excessDamageDealtThisWay: 0 };
+    return { applied: true, state: nextState, log, count: totalDamageDealt, excessDamageDealtThisWay: 0 };
   }
 
   const singlePermanentId = resolveSinglePermanentDamageTargetId(nextState, step.target, ctx);
   if (singlePermanentId) {
     const result = applyDamageToMatchingBattlefield(
       nextState,
-      finalAmount,
+      amount,
       ctx,
       permanent => String((permanent as any)?.id || '').trim() === singlePermanentId,
       sourceKeywords
     );
     nextState = result.state;
+    log.push(...result.log);
     if (sourceKeywords?.hasLifelink && sourceKeywords.controllerId && result.damageDealt > 0) {
       const lifeGain = adjustLife(nextState, sourceKeywords.controllerId, result.damageDealt);
       nextState = lifeGain.state;
       log.push(...lifeGain.log);
     }
-    log.push(`Dealt ${finalAmount} damage to ${singlePermanentId}`);
+    if (result.damageDealt <= 0) {
+      log.push(`All damage to ${singlePermanentId} was prevented: ${step.raw}`);
+    } else {
+      log.push(`Dealt ${result.damageDealt} damage to ${singlePermanentId}`);
+    }
     return {
       applied: true,
       state: nextState,
       log,
-      count: finalAmount,
+      count: result.damageDealt,
       excessDamageDealtThisWay: result.excessDamageDealtThisWay,
     };
   }
@@ -459,46 +516,63 @@ export function applyDealDamageStep(
     if (singleCreatureId) {
       const result = applyDamageToMatchingBattlefield(
         nextState,
-        finalAmount,
+        amount,
         ctx,
         permanent => String((permanent as any)?.id || '').trim() === singleCreatureId,
         sourceKeywords
       );
       nextState = result.state;
+      log.push(...result.log);
       if (sourceKeywords?.hasLifelink && sourceKeywords.controllerId && result.damageDealt > 0) {
         const lifeGain = adjustLife(nextState, sourceKeywords.controllerId, result.damageDealt);
         nextState = lifeGain.state;
         log.push(...lifeGain.log);
       }
-      log.push(`Dealt ${finalAmount} damage to ${rawText}`);
+      if (result.damageDealt <= 0) {
+        log.push(`All damage to ${rawText} was prevented: ${step.raw}`);
+      } else {
+        log.push(`Dealt ${result.damageDealt} damage to ${rawText}`);
+      }
       return {
         applied: true,
         state: nextState,
         log,
-        count: finalAmount,
+        count: result.damageDealt,
         excessDamageDealtThisWay: result.excessDamageDealtThisWay,
       };
     }
 
     const mixed = parseDeterministicMixedDamageTarget(rawText);
     if (mixed) {
+      let totalDamageDealt = 0;
       for (const playerId of resolveMixedDamagePlayers(nextState, mixed.players, ctx)) {
+        const prevention = previewPreventedDamage(nextState, amount, damageSourceId, { targetPlayerId: playerId });
+        nextState = prevention.state ?? nextState;
+        log.push(...prevention.log);
+        const finalAmount = prevention.remainingDamage;
+        if (finalAmount <= 0) {
+          log.push(`All damage to ${playerId} was prevented: ${step.raw}`);
+          continue;
+        }
+
         const result = adjustLife(nextState, playerId, -finalAmount);
         nextState = result.state;
+        log.push(...result.log);
         log.push(`${playerId} is dealt ${finalAmount} damage`);
+        totalDamageDealt += finalAmount;
       }
 
       let excessDamageDealtThisWay = 0;
-      let totalDamageDealt = 0;
       for (const selector of mixed.selectors) {
         const result = applyDamageToMatchingBattlefield(
           nextState,
-          finalAmount,
+          amount,
           ctx,
           permanent => permanentMatchesSelector(permanent as any, selector, ctx),
           sourceKeywords
         );
         nextState = result.state;
+        log.push(...result.log);
         excessDamageDealtThisWay += result.excessDamageDealtThisWay;
         totalDamageDealt += result.damageDealt;
       }
@@ -509,12 +583,12 @@ export function applyDealDamageStep(
         log.push(...lifeGain.log);
       }
 
-      log.push(`Dealt ${finalAmount} damage to ${rawText}`);
+      log.push(`Dealt ${totalDamageDealt} damage to ${rawText}`);
       return {
         applied: true,
         state: nextState,
         log,
-        count: finalAmount,
+        count: totalDamageDealt,
         excessDamageDealtThisWay: Math.max(0, excessDamageDealtThisWay),
       };
     }
@@ -539,23 +613,28 @@ export function applyDealDamageStep(
 
       const result = applyDamageToMatchingBattlefield(
         nextState,
-        finalAmount,
+        amount,
         ctx,
         permanent => permanentMatchesSelector(permanent as any, selector, ctx),
         sourceKeywords
       );
       nextState = result.state;
+      log.push(...result.log);
       if (sourceKeywords?.hasLifelink && sourceKeywords.controllerId && result.damageDealt > 0) {
         const lifeGain = adjustLife(nextState, sourceKeywords.controllerId, result.damageDealt);
         nextState = lifeGain.state;
         log.push(...lifeGain.log);
       }
-      log.push(`Dealt ${finalAmount} damage to ${normalized}`);
+      if (result.damageDealt <= 0) {
+        log.push(`All damage to ${normalized} was prevented: ${step.raw}`);
+      } else {
+        log.push(`Dealt ${result.damageDealt} damage to ${normalized}`);
+      }
       return {
         applied: true,
         state: nextState,
         log,
-        count: finalAmount,
+        count: result.damageDealt,
         excessDamageDealtThisWay: result.excessDamageDealtThisWay,
       };
     }
@@ -586,6 +665,49 @@ export function applyPreventDamageStep(
       applied: true,
       state: registerDamagePreventionEffect(state, effect),
       log: ['Prevent all combat damage that would be dealt this turn'],
+    };
+  }
+
+  if (step.amount !== 'all') {
+    const shieldAmount = quantityToNumber(step.amount, ctx);
+    const targetPlayers = step.recipientTarget ? resolvePlayersFromDamageTarget(state, step.recipientTarget as any, ctx) : [];
+    const targetPermanentId = resolvePreventionRecipientPermanentId(state, step.recipientTarget, ctx);
+    const targetPlayerId = targetPermanentId ? undefined : (targetPlayers.length === 1 ? targetPlayers[0] : undefined);
+
+    if (shieldAmount === null || shieldAmount <= 0) {
+      return {
+        applied: false,
+        message: `Skipped prevent damage (amount unavailable): ${step.raw}`,
+        reason: 'impossible_action',
+        options: { classification: 'invalid_input' },
+      };
+    }
+
+    if ((!targetPlayerId && !targetPermanentId) || (targetPlayers.length > 0 && Boolean(targetPermanentId))) {
+      return {
+        applied: false,
+        message: `Skipped prevent damage (target recipient unavailable): ${step.raw}`,
+        reason: 'unsupported_target',
+        options: { classification: 'ambiguous' },
+      };
+    }
+
+    const targetLabel = targetPlayerId || targetPermanentId || 'target';
+    const effect = createTargetDamagePreventionEffect({
+      state,
+      sourceId: ctx.sourceId,
+      sourceName: ctx.sourceName,
+      controllerId: ctx.controllerId,
+      targetPlayerId,
+      targetPermanentId,
+      amount: shieldAmount,
+      description: `Prevent the next ${shieldAmount} damage to ${targetLabel} this turn`,
+    });
+
+    return {
+      applied: true,
+      state: registerDamagePreventionEffect(state, effect),
+      log: [`Prevent the next ${shieldAmount} damage to ${targetLabel} this turn`],
     };
   }
 

@@ -73,6 +73,9 @@ export interface CombatValidationResult {
   readonly reason?: string;
 }
 
+const DEFENDING_PLAYER_LAND_ATTACK_RESTRICTION_RE =
+  /can(?:not|'t) attack unless defending player controls an? (plains|island|swamp|mountain|forest)\b/i;
+
 const BLOCKER_CAPACITY_WORDS: Record<string, number> = {
   a: 1,
   an: 1,
@@ -154,6 +157,19 @@ export function getBlockerCapacity(permanent: any): number {
   }
 
   return 1 + additionalCreatures;
+}
+
+function getAttackerBlockerLimit(attacker: any): number {
+  const combinedText = getCombinedPermanentText(attacker);
+  if (!combinedText) {
+    return Number.POSITIVE_INFINITY;
+  }
+
+  if (combinedText.includes("can't be blocked by more than one creature")) {
+    return 1;
+  }
+
+  return Number.POSITIVE_INFINITY;
 }
 
 /**
@@ -341,8 +357,9 @@ export function isCurrentlyCreature(permanent: any): boolean {
  */
 export function hasDefender(permanent: any): boolean {
   if (!permanent) return false;
-  const combinedText = getCombinedPermanentText(permanent);
-  if (combinedText.includes('defender')) return true;
+  const combinedText = getCombinedPermanentText(permanent)
+    .replace(/can attack(?: this turn)? as though it did(?:n't| not) have defender/gi, '');
+  if (/(^|[\n,.;])\s*defender(?:\s*\([^)]*\))?(?=$|[\n,.;])/i.test(combinedText)) return true;
   
   // Preserve legacy fixture compatibility for tests that still encode
   // defender directly in type text or keyword arrays.
@@ -386,6 +403,61 @@ export function hasDefender(permanent: any): boolean {
   return false;
 }
 
+function canAttackAsThoughItDidntHaveDefender(permanent: any): boolean {
+  if (!permanent) return false;
+  return /can attack(?: this turn)? as though it did(?:n't| not) have defender/i.test(
+    getCombinedPermanentText(permanent)
+  );
+}
+
+function getPermanentTypeLineLower(permanent: any): string {
+  return [
+    permanent?.card?.type_line,
+    permanent?.type_line,
+    permanent?.cardType,
+    Array.isArray(permanent?.effectiveTypes) ? permanent.effectiveTypes.join(' ') : '',
+  ]
+    .map((value) => String(value || '').trim().toLowerCase())
+    .filter(Boolean)
+    .join(' ');
+}
+
+function permanentHasLandSubtype(permanent: any, subtype: string): boolean {
+  const typeLine = getPermanentTypeLineLower(permanent);
+  if (!typeLine.includes('land')) return false;
+
+  return new RegExp(`(^|[^a-z])${String(subtype || '').trim().toLowerCase()}($|[^a-z])`, 'i').test(typeLine);
+}
+
+function satisfiesDefendingPlayerLandAttackRestriction(
+  battlefield: readonly any[] | undefined,
+  controllerId: string | undefined,
+  defendingPlayerId: string | undefined,
+  requiredSubtype: string,
+): boolean {
+  const permanents = Array.isArray(battlefield) ? battlefield : [];
+  const normalizedControllerId = String(controllerId || '').trim();
+  const normalizedDefendingPlayerId = String(defendingPlayerId || '').trim();
+
+  const candidateDefenders = normalizedDefendingPlayerId
+    ? [normalizedDefendingPlayerId]
+    : Array.from(
+        new Set(
+          permanents
+            .map((perm: any) => String(perm?.controller || '').trim())
+            .filter((playerId) => Boolean(playerId) && playerId !== normalizedControllerId),
+        ),
+      );
+
+  return candidateDefenders.some((playerId) =>
+    permanents.some(
+      (perm: any) =>
+        String(perm?.controller || '').trim() === playerId &&
+        permanentHasLandSubtype(perm, requiredSubtype),
+    ),
+  );
+}
+
 /**
  * Check if a permanent has a "can't attack" restriction
  * This includes:
@@ -396,9 +468,15 @@ export function hasDefender(permanent: any): boolean {
  * 
  * @param permanent - The permanent to check
  * @param controllerId - The controller's player ID
+ * @param defendingPlayerId - Optional defending player for defender-dependent attack restrictions
  * @returns CombatValidationResult with canParticipate and reason
  */
-export function canPermanentAttack(permanent: any, controllerId?: string, battlefield?: any[]): CombatValidationResult {
+export function canPermanentAttack(
+  permanent: any,
+  controllerId?: string,
+  battlefield?: any[],
+  defendingPlayerId?: string,
+): CombatValidationResult {
   if (!permanent) {
     return { canParticipate: false, reason: 'Permanent not found' };
   }
@@ -416,7 +494,7 @@ export function canPermanentAttack(permanent: any, controllerId?: string, battle
   }
   
   // Cannot attack with defender (Rule 702.3b)
-  if (hasDefender(analyzedPermanent)) {
+  if (hasDefender(analyzedPermanent) && !canAttackAsThoughItDidntHaveDefender(analyzedPermanent)) {
     return { canParticipate: false, reason: 'Creatures with defender cannot attack' };
   }
   
@@ -441,10 +519,26 @@ export function canPermanentAttack(permanent: any, controllerId?: string, battle
   
   // Check oracle text for "can't attack" effects on attached auras/equipment
   const oracleText = getCombinedPermanentText(analyzedPermanent);
-  if (oracleText.includes("can't attack") || oracleText.includes("cannot attack")) {
+  const defendingPlayerLandRestriction = oracleText.match(DEFENDING_PLAYER_LAND_ATTACK_RESTRICTION_RE);
+  if (defendingPlayerLandRestriction) {
+    const requiredSubtype = String(defendingPlayerLandRestriction[1] || '').trim().toLowerCase();
+    if (
+      requiredSubtype &&
+      !satisfiesDefendingPlayerLandAttackRestriction(battlefield, controllerId, defendingPlayerId, requiredSubtype)
+    ) {
+      const article = /^[aeiou]/i.test(requiredSubtype) ? 'an' : 'a';
+      return {
+        canParticipate: false,
+        reason: `This creature can't attack unless defending player controls ${article} ${requiredSubtype}`,
+      };
+    }
+  }
+
+  const genericCantAttackText = oracleText.replace(DEFENDING_PLAYER_LAND_ATTACK_RESTRICTION_RE, '');
+  if (genericCantAttackText.includes("can't attack") || genericCantAttackText.includes("cannot attack")) {
     // Self-restricting abilities like "can't attack alone" are handled differently
     // Full implementation would check specific conditions
-    if (!oracleText.includes("can't attack alone")) {
+    if (!genericCantAttackText.includes("can't attack alone")) {
       return { canParticipate: false, reason: 'This creature cannot attack' };
     }
   }
@@ -628,7 +722,10 @@ export function checkEvasionAbilities(blocker: any, attacker: any, battlefield?:
     }
   }
 
-  if (attackerText.includes("can't be blocked this turn") || attackerText.includes("can't be blocked")) {
+  if (
+    attackerText.includes("can't be blocked this turn") ||
+    /\bcan't be blocked\b(?!\s+by)(?:$|[\n,.;])/.test(attackerText)
+  ) {
     return { canParticipate: false, reason: 'This creature cannot block that attacker' };
   }
   
@@ -1154,7 +1251,7 @@ export function validateDeclareAttackers(
     }
     
     // Use comprehensive attack validation
-    const validationResult = canPermanentAttack(permanent, action.playerId, battlefield);
+    const validationResult = canPermanentAttack(permanent, action.playerId, battlefield, attacker.defendingPlayerId);
     if (!validationResult.canParticipate) {
       return { legal: false, reason: validationResult.reason || 'Cannot attack with this permanent' };
     }
@@ -1308,6 +1405,8 @@ export function validateDeclareBlockers(
   const battlefield = buildProcessedBattlefieldForGoad(state.battlefield as any[] | undefined);
   const blockerAssignments = new Map<string, Set<string>>();
   const blockerPermanents = new Map<string, any>();
+  const attackerAssignments = new Map<string, Set<string>>();
+  const attackerPermanents = new Map<string, any>();
   // Check if it's the declare blockers step
   if (state.step !== SharedGameStep.DECLARE_BLOCKERS) {
     return { legal: false, reason: 'Not in declare blockers step' };
@@ -1349,12 +1448,17 @@ export function validateDeclareBlockers(
     }
 
     blockerPermanents.set(blocker.blockerId, permanent);
+    attackerPermanents.set(blocker.attackerId, attacker);
     const assignments = blockerAssignments.get(blocker.blockerId) || new Set<string>();
     if (assignments.has(blocker.attackerId)) {
       return { legal: false, reason: `Permanent ${blocker.blockerId} cannot block the same attacker multiple times` };
     }
     assignments.add(blocker.attackerId);
     blockerAssignments.set(blocker.blockerId, assignments);
+
+    const attackerBlockers = attackerAssignments.get(blocker.attackerId) || new Set<string>();
+    attackerBlockers.add(blocker.blockerId);
+    attackerAssignments.set(blocker.attackerId, attackerBlockers);
   }
 
   for (const [blockerId, attackerIds] of blockerAssignments.entries()) {
@@ -1370,6 +1474,22 @@ export function validateDeclareBlockers(
       return {
         legal: false,
         reason: `${blockerName} can block at most ${blockerCapacity} creatures each combat`,
+      };
+    }
+  }
+
+  for (const [attackerId, blockerIds] of attackerAssignments.entries()) {
+    const attacker = attackerPermanents.get(attackerId);
+    const blockerLimit = getAttackerBlockerLimit(attacker);
+    if (blockerIds.size > blockerLimit) {
+      const attackerName = attacker?.card?.name || attackerId;
+      if (blockerLimit === 1) {
+        return { legal: false, reason: `${attackerName} can't be blocked by more than one creature` };
+      }
+
+      return {
+        legal: false,
+        reason: `${attackerName} can be blocked by at most ${blockerLimit} creatures`,
       };
     }
   }
@@ -1611,7 +1731,11 @@ export function executeCombatDamage(
       let totalDamageDealt = 0;
       for (const block of attacker.blockedBy) {
         const damageToBlocker = block.damageAssigned || damage;
-        const prevention = previewPreventedDamage(currentState, damageToBlocker, attacker.attackerId, { combatDamage: true });
+        const prevention = previewPreventedDamage(currentState, damageToBlocker, attacker.attackerId, {
+          combatDamage: true,
+          targetPermanentId: block.blockerId,
+        });
+        currentState = prevention.state ?? currentState;
         const finalDamageToBlocker = prevention.remainingDamage;
         logs.push(...prevention.log);
         if (finalDamageToBlocker <= 0) {
@@ -1681,7 +1805,11 @@ export function executeCombatDamage(
       const defender = currentState.players.find(p => p.id === attacker.defendingPlayerId);
       
       if (defender && damage > 0) {
-        const prevention = previewPreventedDamage(currentState, damage, attacker.attackerId, { combatDamage: true });
+        const prevention = previewPreventedDamage(currentState, damage, attacker.attackerId, {
+          combatDamage: true,
+          targetPlayerId: attacker.defendingPlayerId,
+        });
+        currentState = prevention.state ?? currentState;
         const finalDamage = prevention.remainingDamage;
         logs.push(...prevention.log);
         if (finalDamage <= 0) {

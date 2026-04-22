@@ -35,6 +35,7 @@ import {
 } from './delayedTriggeredAbilities';
 import type { Stack } from './stackOperations';
 import { isStackEmpty } from './stackOperations';
+import { getCombinedPermanentText } from './permanentText';
 
 /**
  * Phase/step types for trigger checking
@@ -81,6 +82,7 @@ export interface PhaseTransitionContext {
   readonly abilities: readonly TriggeredAbility[];
   readonly delayedTriggerRegistry?: DelayedTriggerRegistry;
   readonly skipNextDrawStepEffects?: readonly SkipNextDrawStepEffect[];
+  readonly battlefield?: readonly any[];
   readonly permanentStates?: readonly PermanentState[];
   readonly playerStates?: readonly PlayerState[];
 }
@@ -472,6 +474,29 @@ export function consumeNextDrawStepSkipEffect(
   };
 }
 
+export function findStaticSkipDrawStepSource(
+  state: Pick<GameState, 'battlefield'>,
+  activePlayerId: string
+): string | undefined {
+  const battlefield = Array.isArray((state as any)?.battlefield) ? ((state as any).battlefield as any[]) : [];
+  const normalizedActivePlayerId = String(activePlayerId || '').trim();
+  if (!normalizedActivePlayerId) return undefined;
+
+  const matchingPermanent = battlefield.find((permanent: any) => {
+    const controllerId = String(permanent?.controller || permanent?.controllerId || '').trim();
+    if (controllerId !== normalizedActivePlayerId) return false;
+    return /\b(?:you\s+)?skip your draw step\b/i.test(getCombinedPermanentText(permanent));
+  });
+
+  if (!matchingPermanent) return undefined;
+  return String(
+    matchingPermanent?.card?.name ||
+    matchingPermanent?.name ||
+    matchingPermanent?.id ||
+    'an effect'
+  ).trim() || 'an effect';
+}
+
 export function collectDrawStepTriggers(
   abilities: readonly TriggeredAbility[],
   activePlayerId: string,
@@ -829,6 +854,25 @@ export function getStepEntryTriggers(
         context.activePlayerId,
         true,
         skipEffect?.sourceName || skipEffect?.sourceId
+      );
+      return {
+        triggers: drawResult.triggers,
+        queue,
+        log: [...drawResult.log],
+      };
+    }
+
+    const staticSkipSource = findStaticSkipDrawStepSource(
+      { battlefield: context.battlefield as any },
+      context.activePlayerId
+    );
+    if (staticSkipSource) {
+      const queue = createEmptyTriggerQueue();
+      const drawResult = collectDrawStepTriggers(
+        context.abilities,
+        context.activePlayerId,
+        true,
+        staticSkipSource
       );
       return {
         triggers: drawResult.triggers,

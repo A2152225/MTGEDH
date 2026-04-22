@@ -282,6 +282,16 @@ export function tryParseZoneAndRemovalClause(args: {
     });
   }
 
+  const shuffleIntoMatch = clause.match(/^shuffle\s+(.+?)\s+into\s+(.+)$/i);
+  if (shuffleIntoMatch) {
+    return parseMoveZoneStep({
+      whatRaw: String(shuffleIntoMatch[1] || '').trim(),
+      toRaw: String(shuffleIntoMatch[2] || '').trim(),
+      rawClause,
+      withMeta,
+    });
+  }
+
   return null;
 }
 

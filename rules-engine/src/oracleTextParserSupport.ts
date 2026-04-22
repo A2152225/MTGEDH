@@ -19,7 +19,7 @@ const ORACLE_KEYWORDS = [
   'miracle', 'modular', 'monstrosity', 'morbid', 'morph', 'mountainwalk', 'mutate', 'ninjutsu',
   'nightbound', 'offering', 'offspring', 'outlast', 'overload', 'partner', 'partner with',
   'persist', 'phasing', 'plainswalk', 'plot', 'populate', 'proliferate', 'protection',
-  'provoke', 'prowess', 'prowl', 'radiance', 'raid', 'rally', 'rampage', 'reach', 'rebound',
+  'provoke', 'prowess', 'prowl', 'radiance', 'raid', 'rally', 'rampage', 'ravenous', 'reach', 'rebound',
   'reconfigure', 'recover', 'reinforce', 'renown', 'replicate', 'retrace', 'revolt', 'riot',
   'ripple', 'saddle', 'scavenge', 'scry', 'shadow', 'shroud', 'skulk', 'soulbond', 'soulshift',
   'spectacle', 'sneak', 'splice', 'split second', 'spree', 'squad', 'station', 'storm', 'strive', 'sunburst',

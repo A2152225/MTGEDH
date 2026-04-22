@@ -106,5 +106,18 @@ export function tryParseTemporaryAbilityClause(args: {
     }
   }
 
+  {
+    const m = clause.match(/^(?:until end of turn,\s+)?(.+?)\s+can attack(?:\s+this turn)? as though it did(?:n't| not) have defender$/i);
+    if (m) {
+      return withMeta({
+        kind: 'grant_temporary_ability',
+        target: parseObjectSelector(String(m[1] || '').trim()),
+        duration: 'this_turn',
+        effectText: ["can attack as though it didn't have defender"],
+        raw: rawClause,
+      });
+    }
+  }
+
   return null;
 }

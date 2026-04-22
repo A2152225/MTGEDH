@@ -1150,7 +1150,13 @@ export function applyCombatDamage(
   };
   
   for (const assignment of assignments) {
-    const prevention = previewPreventedDamage(updatedState, assignment.damage, assignment.sourceId, { combatDamage: true });
+    const prevention = previewPreventedDamage(updatedState, assignment.damage, assignment.sourceId, {
+      combatDamage: true,
+      ...(assignment.targetType === 'player'
+        ? { targetPlayerId: assignment.targetId as any }
+        : { targetPermanentId: assignment.targetId }),
+    });
+    updatedState = prevention.state ?? updatedState;
     const finalDamage = prevention.remainingDamage;
     log.push(...prevention.log);
     if (finalDamage <= 0) {

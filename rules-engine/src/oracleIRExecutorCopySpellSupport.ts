@@ -2,6 +2,7 @@ import type { GameState, PlayerID } from '../../shared/src';
 import type { OracleEffectStep, OracleObjectSelector } from './oracleIR';
 import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
 import { parseOracleTextToIR } from './oracleIRParser';
+import { normalizeOracleText } from './oracleIRParserUtils';
 import { getStackItems } from './stackOperations';
 import {
   cardMatchesMoveZoneSingleTargetCriteria,
@@ -389,7 +390,7 @@ function parseRomanChapterList(text: string): readonly number[] {
 }
 
 export function getCopiedChapterAbilityReplaySteps(card: any, chapter: number): readonly OracleEffectStep[] {
-  const oracleText = String(card?.oracle_text || card?.card?.oracle_text || '').replace(/\r/g, '').trim();
+  const oracleText = normalizeOracleText(String(card?.oracle_text || card?.card?.oracle_text || '').replace(/\r/g, '')).trim();
   if (!oracleText || !Number.isFinite(chapter) || chapter <= 0) return [];
 
   const lines = oracleText.split(/\n+/).map(line => line.trim()).filter(Boolean);

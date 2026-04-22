@@ -7,7 +7,6 @@ const PLAYER_SUBJECT_PREFIX =
   "(?:(you|each player|each opponent|each of those opponents|target player|target opponent|that player|that opponent|defending player|the defending player|he or she|they|its controller|its owner|that [a-z0-9][a-z0-9 ,.'’-]*?(?:'s|’s)? (?:controller|owner))\\s+)?";
 
 const COUNTER_AMOUNT_PATTERN = '(?:a|an|\\d+|x|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)';
-const REFERENCEABLE_COUNTER_AMOUNT_PATTERN = '(?:that many|that much|a|an|\\d+|x|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)';
 
 function parseManaChoiceList(raw: string): string[] {
   const matches = String(raw || '').match(/\{[^}]+\}/g);
@@ -82,8 +81,6 @@ export function tryParseSimpleActionClause(args: {
       )
     );
     if (searchBattlefieldMultiple) {
-      const maxResults = parseSmallNumber(searchBattlefieldMultiple[1]);
-      if (maxResults && maxResults > 0) {
         return withMeta({
           kind: 'search_library',
           who: { kind: 'you' },
@@ -105,11 +102,11 @@ export function tryParseSimpleActionClause(args: {
     );
     if (searchBattlefield) {
       return withMeta({
-        kind: 'search_library',
+        kind: 'skip_step',
         who: { kind: 'you' },
-        criteria: { kind: 'raw', text: String(searchBattlefield[1] || '').trim() },
-        destination: 'battlefield',
-        revealFound: Boolean(searchBattlefield[2]),
+        step: 'draw',
+        raw: rawClause,
+      });
         entersTapped: Boolean(searchBattlefield[3]),
         shuffle: /\bshuffle\b/i.test(clause) || undefined,
         maxResults: 1,
@@ -127,7 +124,7 @@ export function tryParseSimpleActionClause(args: {
         who: { kind: 'you' },
         sides: Number.parseInt(String(rollDie[1] || '0'), 10),
         raw: rawClause,
-        });
+      });
     }
   }
   {
@@ -144,7 +141,7 @@ export function tryParseSimpleActionClause(args: {
         shuffle: true,
         maxResults: 1,
         raw: rawClause,
-        });
+      });
     }
   }
 
@@ -157,7 +154,7 @@ export function tryParseSimpleActionClause(args: {
         kind: 'shuffle_library',
         who: parsePlayerSelector(shuffleLibrary[1]),
         raw: rawClause,
-        });
+      });
     }
   }
 
@@ -170,7 +167,7 @@ export function tryParseSimpleActionClause(args: {
         mana: '{W}',
         manaOptions: ['{W}', '{U}', '{B}', '{R}', '{G}'],
         raw: rawClause,
-        });
+      });
     }
   }
 
@@ -219,7 +216,7 @@ export function tryParseSimpleActionClause(args: {
         kind: 'choose_color',
         manaOptions: ['{W}', '{U}', '{B}', '{R}', '{G}'],
         raw: rawClause,
-        });
+      });
     }
   }
 
@@ -229,7 +226,7 @@ export function tryParseSimpleActionClause(args: {
       return withMeta({
         kind: 'choose_creature_type',
         raw: rawClause,
-        });
+      });
     }
   }
 
@@ -239,7 +236,7 @@ export function tryParseSimpleActionClause(args: {
       return withMeta({
         kind: 'choose_card_name',
         raw: rawClause,
-        });
+      });
     }
   }
 
@@ -250,7 +247,7 @@ export function tryParseSimpleActionClause(args: {
         kind: 'choose_target_creature',
         target: { kind: 'raw', text: 'target creature' },
         raw: rawClause,
-        });
+      });
     }
   }
 
@@ -269,7 +266,7 @@ export function tryParseSimpleActionClause(args: {
         manaOptions: ['{W}', '{U}', '{B}', '{R}', '{G}'],
         requiresChosenMana: true,
         raw: rawClause,
-        });
+      });
     }
   }
 
@@ -283,7 +280,7 @@ export function tryParseSimpleActionClause(args: {
         who: parsePlayerSelector(moreCards[1]),
         amount: parseQuantity(moreCards[2]),
         raw: rawClause,
-        });
+      });
     }
 
     const draw = clause.match(
@@ -295,7 +292,7 @@ export function tryParseSimpleActionClause(args: {
         who: parsePlayerSelector(draw[1]),
         amount: parseQuantity(draw[2]),
         raw: rawClause,
-        });
+      });
     }
 
     const drawDefault = clause.match(/^draw\s+(that many|that much|a|an|\d+|x|[a-z]+)\s+cards?\b/i);
@@ -305,20 +302,20 @@ export function tryParseSimpleActionClause(args: {
         who: { kind: 'you' },
         amount: parseQuantity(drawDefault[1]),
         raw: rawClause,
-        });
+      });
     }
   }
 
   {
     const skipNextDrawStep = clause.match(
-      new RegExp(`^${PLAYER_SUBJECT_PREFIX}skip(?:s)?\\s+(?:your|their|his or her)\\s+(?:next\\s+)?draw\\s+step\\b`, 'i')
+      new RegExp(`^${PLAYER_SUBJECT_PREFIX}skip(?:s)?\\s+(?:your|their|his or her)\\s+next\\s+draw\\s+step\\b`, 'i')
     );
     if (skipNextDrawStep) {
       return withMeta({
         kind: 'skip_next_draw_step',
         who: parsePlayerSelector(skipNextDrawStep[1]),
         raw: rawClause,
-        });
+      });
     }
   }
 
@@ -331,7 +328,7 @@ export function tryParseSimpleActionClause(args: {
         kind: 'take_extra_turn',
         who: parsePlayerSelector(takeExtraTurn[1]),
         raw: rawClause,
-        });
+      });
     }
   }
 
@@ -342,7 +339,7 @@ export function tryParseSimpleActionClause(args: {
         kind: 'gain_class_level',
         level: Number.parseInt(String(gainClassLevel[1] || '0'), 10),
         raw: rawClause,
-        });
+      });
     }
   }
 
@@ -357,12 +354,12 @@ export function tryParseSimpleActionClause(args: {
         newController: parsePlayerSelector(gainControlUntilEndOfTurn[1]),
         duration: 'until_end_of_turn',
         raw: rawClause,
-        });
+      });
     }
   }
 
   {
-    const addCounters = clause.match(new RegExp(`^put\\s+(${REFERENCEABLE_COUNTER_AMOUNT_PATTERN})\\s+(.+?)\\s+counters?\\s+on\\s+(.+)$`, 'i'));
+    const addCounters = clause.match(new RegExp(`^put\\s+(${COUNTER_AMOUNT_PATTERN})\\s+(.+?)\\s+counters?\\s+on\\s+(.+)$`, 'i'));
     if (addCounters && !/\bonto\s+the\s+battlefield\b/i.test(clause)) {
       return withMeta({
         kind: 'add_counter',
@@ -370,7 +367,7 @@ export function tryParseSimpleActionClause(args: {
         counter: normalizeCounterName(String(addCounters[2] || '')),
         target: parseObjectSelector(addCounters[3]),
         raw: rawClause,
-        });
+      });
     }
   }
 
@@ -392,7 +389,7 @@ export function tryParseSimpleActionClause(args: {
 
   {
     const addPlayerCounters = clause.match(
-      new RegExp(`^${PLAYER_SUBJECT_PREFIX}get(?:s)?\\s+(${REFERENCEABLE_COUNTER_AMOUNT_PATTERN})\\s+(.+?)\\s+counters?$`, 'i')
+      new RegExp(`^${PLAYER_SUBJECT_PREFIX}get(?:s)?\\s+(${COUNTER_AMOUNT_PATTERN})\\s+(.+?)\\s+counters?$`, 'i')
     );
     if (addPlayerCounters) {
       return withMeta({
@@ -401,7 +398,7 @@ export function tryParseSimpleActionClause(args: {
         amount: parseQuantity(addPlayerCounters[2]),
         counter: normalizeCounterName(String(addPlayerCounters[3] || '')),
         raw: rawClause,
-        });
+      });
     }
   }
 
@@ -414,7 +411,7 @@ export function tryParseSimpleActionClause(args: {
         counter: normalizeCounterName(String(removeCounters[2] || '')),
         target: parseObjectSelector(removeCounters[3]),
         raw: rawClause,
-        });
+      });
     }
   }
 
@@ -427,7 +424,7 @@ export function tryParseSimpleActionClause(args: {
         counter: 'time',
         target: parseObjectSelector('it'),
         raw: rawClause,
-        });
+      });
     }
   }
 
@@ -440,7 +437,7 @@ export function tryParseSimpleActionClause(args: {
         kind: 'double_counters',
         target: parseObjectSelector(String(doubleCounters[1] || '').trim()),
         raw: rawClause,
-        });
+      });
     }
   }
 
@@ -452,7 +449,7 @@ export function tryParseSimpleActionClause(args: {
         target: parseObjectSelector(String(doubleSpecificCounters[2] || '').trim()),
         counter: normalizeCounterName(String(doubleSpecificCounters[1] || '').trim()),
         raw: rawClause,
-        });
+      });
     }
   }
 
@@ -489,7 +486,7 @@ export function tryParseSimpleActionClause(args: {
         kind: 'exert',
         target: parseObjectSelector(String(exertMatch[1] || 'this permanent').trim()),
         raw: rawClause,
-        });
+      });
     }
   }
 
@@ -500,7 +497,7 @@ export function tryParseSimpleActionClause(args: {
         kind: 'open_attraction',
         who: parsePlayerSelector(openAttractionMatch[1]),
         raw: rawClause,
-        });
+      });
     }
   }
 
@@ -511,7 +508,7 @@ export function tryParseSimpleActionClause(args: {
         kind: 'roll_visit_attractions',
         who: parsePlayerSelector(rollVisitMatch[1]),
         raw: rawClause,
-        });
+      });
     }
   }
 
@@ -522,7 +519,7 @@ export function tryParseSimpleActionClause(args: {
         kind: 'take_initiative',
         who: parsePlayerSelector(initiativeMatch[1]),
         raw: rawClause,
-        });
+      });
     }
   }
 
@@ -533,7 +530,7 @@ export function tryParseSimpleActionClause(args: {
         kind: 'become_monarch',
         who: parsePlayerSelector(monarchMatch[1]),
         raw: rawClause,
-        });
+      });
     }
   }
 
@@ -544,7 +541,7 @@ export function tryParseSimpleActionClause(args: {
         kind: 'venture_into_dungeon',
         who: parsePlayerSelector(ventureMatch[1]),
         raw: rawClause,
-        });
+      });
     }
   }
 
@@ -555,7 +552,7 @@ export function tryParseSimpleActionClause(args: {
         kind: 'planeswalk',
         who: parsePlayerSelector(planeswalkMatch[1]),
         raw: rawClause,
-        });
+      });
     }
   }
 
@@ -566,7 +563,7 @@ export function tryParseSimpleActionClause(args: {
         kind: 'assemble',
         who: parsePlayerSelector(assembleMatch[1]),
         raw: rawClause,
-        });
+      });
     }
   }
 
@@ -577,7 +574,7 @@ export function tryParseSimpleActionClause(args: {
         kind: 'regenerate',
         target: parseObjectSelector(regenerateMatch[1]),
         raw: rawClause,
-        });
+      });
     }
   }
 
@@ -588,7 +585,7 @@ export function tryParseSimpleActionClause(args: {
         kind: 'abandon_scheme',
         target: { kind: 'raw', text: `${String(abandonSchemeMatch[1] || '').toLowerCase()} scheme` },
         raw: rawClause,
-        });
+      });
     }
   }
 
@@ -599,7 +596,7 @@ export function tryParseSimpleActionClause(args: {
         kind: 'set_in_motion',
         target: { kind: 'raw', text: `${String(setInMotionMatch[1] || '').toLowerCase()} scheme` },
         raw: rawClause,
-        });
+      });
     }
   }
 
@@ -610,7 +607,7 @@ export function tryParseSimpleActionClause(args: {
         kind: 'learn',
         who: parsePlayerSelector(learnMatch[1]),
         raw: rawClause,
-        });
+      });
     }
   }
 
@@ -622,7 +619,7 @@ export function tryParseSimpleActionClause(args: {
         who: parsePlayerSelector(clash[1]),
         opponent: { kind: 'target_opponent' },
         raw: rawClause,
-        });
+      });
     }
   }
 
@@ -655,20 +652,20 @@ export function tryParseSimpleActionClause(args: {
         who: parsePlayerSelector(investigate[1]),
         amount: { kind: 'number', value: 1 },
         raw: rawClause,
-        });
+      });
     }
   }
 
   {
     const skipNextDrawStep = clause.match(
-      new RegExp(`^${PLAYER_SUBJECT_PREFIX}skip(?:s)?\\s+(?:your|their|his or her|its)\\s+(?:next\\s+)?draw\\s+step\\b`, 'i')
+      new RegExp(`^${PLAYER_SUBJECT_PREFIX}skip(?:s)?\\s+(?:your|their|his or her|its)\\s+next\\s+draw\\s+step\\b`, 'i')
     );
     if (skipNextDrawStep) {
       return withMeta({
         kind: 'skip_next_draw_step',
         who: parsePlayerSelector(skipNextDrawStep[1]),
         raw: rawClause,
-        });
+      });
     }
   }
 
@@ -680,7 +677,7 @@ export function tryParseSimpleActionClause(args: {
         target: parseObjectSelector('this permanent'),
         amount: parseQuantity(monstrosityMatch[1]),
         raw: rawClause,
-        });
+      });
     }
   }
 
@@ -691,7 +688,7 @@ export function tryParseSimpleActionClause(args: {
         kind: 'suspect',
         target: parseObjectSelector(String(suspectMatch[1] || '').trim()),
         raw: rawClause,
-        });
+      });
     }
   }
 
@@ -702,7 +699,7 @@ export function tryParseSimpleActionClause(args: {
         kind: 'become_renowned',
         target: parseObjectSelector(String(renownedMatch[1] || '').trim()),
         raw: rawClause,
-        });
+      });
     }
   }
 
@@ -713,7 +710,7 @@ export function tryParseSimpleActionClause(args: {
         kind: 'turn_face_up',
         target: parseObjectSelector(String(turnFaceUpMatch[1] || '').trim()),
         raw: rawClause,
-        });
+      });
     }
   }
 
@@ -725,7 +722,7 @@ export function tryParseSimpleActionClause(args: {
         who: parsePlayerSelector(populate[1]),
         amount: { kind: 'number', value: 1 },
         raw: rawClause,
-        });
+      });
     }
   }
 
@@ -737,7 +734,7 @@ export function tryParseSimpleActionClause(args: {
         who: parsePlayerSelector(scry[1]),
         amount: parseQuantity(scry[2]),
         raw: rawClause,
-        });
+      });
     }
   }
 
@@ -751,7 +748,7 @@ export function tryParseSimpleActionClause(args: {
         who: parsePlayerSelector(surveil[1]),
         amount: parseQuantity(surveil[2]),
         raw: rawClause,
-        });
+      });
     }
   }
 
@@ -764,7 +761,7 @@ export function tryParseSimpleActionClause(args: {
         target: { kind: 'target_opponent' },
         amount: parseQuantity(fateseal[2]),
         raw: rawClause,
-        });
+      });
     }
   }
 
@@ -778,7 +775,7 @@ export function tryParseSimpleActionClause(args: {
         who: parsePlayerSelector(timeTravel[1]),
         amount: parseQuantity(timeTravel[2] || '1'),
         raw: rawClause,
-        });
+      });
     }
   }
 
@@ -792,7 +789,7 @@ export function tryParseSimpleActionClause(args: {
         who: parsePlayerSelector(discardHand[1]),
         amount: { kind: 'number', value: 9999 },
         raw: rawClause,
-        });
+      });
     }
 
     const discardAllInHand = clause.match(
@@ -804,7 +801,7 @@ export function tryParseSimpleActionClause(args: {
         who: parsePlayerSelector(discardAllInHand[1]),
         amount: { kind: 'number', value: 9999 },
         raw: rawClause,
-        });
+      });
     }
 
     const discardTargeted = clause.match(
@@ -817,7 +814,7 @@ export function tryParseSimpleActionClause(args: {
         amount: { kind: 'number', value: 1 },
         target: parseObjectSelector(discardTargeted[2]),
         raw: rawClause,
-        });
+      });
     }
 
     const discard = clause.match(
@@ -829,7 +826,7 @@ export function tryParseSimpleActionClause(args: {
         who: parsePlayerSelector(discard[1]),
         amount: parseQuantity(discard[2]),
         raw: rawClause,
-        });
+      });
     }
 
     const discardTargetedDefault = clause.match(/^discard\s+(that\s+card|it)\b/i);
@@ -840,7 +837,7 @@ export function tryParseSimpleActionClause(args: {
         amount: { kind: 'number', value: 1 },
         target: parseObjectSelector(discardTargetedDefault[1]),
         raw: rawClause,
-        });
+      });
     }
 
     const discardDefault = clause.match(/^discard\s+(a|an|\d+|x|[a-z]+)\s+cards?\b/i);
@@ -850,7 +847,7 @@ export function tryParseSimpleActionClause(args: {
         who: { kind: 'you' },
         amount: parseQuantity(discardDefault[1]),
         raw: rawClause,
-        });
+      });
     }
   }
 
@@ -863,7 +860,7 @@ export function tryParseSimpleActionClause(args: {
         kind: 'reveal_hand',
         who: parsePlayerSelector(revealHand[1]),
         raw: rawClause,
-        });
+      });
     }
   }
 
@@ -880,7 +877,7 @@ export function tryParseSimpleActionClause(args: {
         who: parsePlayerSelector(millUntilLand[1]),
         amount: { kind: 'unknown', raw: 'until they reveal a land card' },
         raw: rawClause,
-        });
+      });
     }
 
     const mill = clause.match(new RegExp(`^${PLAYER_SUBJECT_PREFIX}mill(?:s)?\\s+(a|an|\\d+|x|[a-z]+)\\s+cards?\\b`, 'i'));
@@ -890,7 +887,7 @@ export function tryParseSimpleActionClause(args: {
         who: parsePlayerSelector(mill[1]),
         amount: parseQuantity(mill[2]),
         raw: rawClause,
-        });
+      });
     }
 
     const millDefault = clause.match(/^mill\s+(a|an|\d+|x|[a-z]+)\s+cards?\b/i);
@@ -900,7 +897,7 @@ export function tryParseSimpleActionClause(args: {
         who: { kind: 'you' },
         amount: parseQuantity(millDefault[1]),
         raw: rawClause,
-        });
+      });
     }
   }
 
@@ -911,7 +908,7 @@ export function tryParseSimpleActionClause(args: {
         kind: 'goad',
         target: parseObjectSelector(goad[1]),
         raw: rawClause,
-        });
+      });
     }
   }
 
@@ -922,7 +919,7 @@ export function tryParseSimpleActionClause(args: {
         kind: 'detain',
         target: parseObjectSelector(detain[1]),
         raw: rawClause,
-        });
+      });
     }
   }
 
@@ -934,7 +931,7 @@ export function tryParseSimpleActionClause(args: {
         target: parseObjectSelector(cantAttack[1]),
         duration: /\bthis\s+turn$/i.test(clause) ? 'end_of_turn' : 'static',
         raw: rawClause,
-        });
+      });
     }
   }
 
@@ -946,7 +943,7 @@ export function tryParseSimpleActionClause(args: {
         target: parseObjectSelector(cantBlock[1]),
         duration: /\bthis\s+turn$/i.test(clause) ? 'end_of_turn' : 'static',
         raw: rawClause,
-        });
+      });
     }
   }
 
@@ -958,11 +955,9 @@ export function tryParseSimpleActionClause(args: {
         target: parseObjectSelector(normalizePossessiveObjectReference(cantActivateAbilities[1])),
         duration: /\bthis\s+turn$/i.test(clause) ? 'end_of_turn' : 'static',
         raw: rawClause,
-        });
+      });
     }
   }
 
   return null;
 }
-
-
