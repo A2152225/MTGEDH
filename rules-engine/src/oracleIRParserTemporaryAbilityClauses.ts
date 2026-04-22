@@ -12,6 +12,7 @@ const KEYWORD_ABILITIES = new Set([
   'deathtouch',
   'reach',
   'menace',
+  'shroud',
   'hexproof',
   'indestructible',
   'first strike',

@@ -36,7 +36,26 @@ export function parseStaticAbilities(
     });
   }
 
-  if (!lordMatch) {
+  const otherCreaturePumpMatch = oracleText.match(/other\s+creatures?\s+you\s+control\s+get\s+\+(\d+)\/\+(\d+)/i);
+  if (otherCreaturePumpMatch) {
+    abilities.push({
+      id: `${permanentId}-pump-other-creatures`,
+      sourceId: permanentId,
+      sourceName: name,
+      controllerId,
+      effectType: StaticEffectType.PUMP,
+      filter: {
+        cardTypes: ['creature'],
+        controller: 'you',
+        other: true,
+      },
+      powerMod: parseInt(otherCreaturePumpMatch[1]),
+      toughnessMod: parseInt(otherCreaturePumpMatch[2]),
+      layer: 7,
+    });
+  }
+
+  if (!lordMatch && !otherCreaturePumpMatch) {
     const creaturePumpMatch = oracleText.match(/creatures?\s+you\s+control\s+get\s+\+(\d+)\/\+(\d+)/i);
     if (creaturePumpMatch) {
       abilities.push({

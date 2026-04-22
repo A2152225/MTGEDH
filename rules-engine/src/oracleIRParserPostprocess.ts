@@ -4006,12 +4006,14 @@ export function pruneExternallyHandledStaticUnknownAbilities(
       /^you may reveal this card from your opening hand(?:[.)]*\s*if you do, at the beginning of the first upkeep, .+)?$/i.test(normalizedText) ||
       /^play with the top card of your library revealed[.)]*$/i.test(normalizedText) ||
       /^creatures you control get [+-]\d+\/[+-]\d+[.)]*$/i.test(normalizedText) ||
+      /^other creatures you control get [+-]\d+\/[+-]\d+[.)]*$/i.test(normalizedText) ||
       /^(?:equipped|enchanted) creature gets [+-]\d+\/[+-]\d+[.)]*$/i.test(normalizedText) ||
       /^you control enchanted (?:creature|permanent)[.)]*$/i.test(normalizedText) ||
       /^creatures you control have haste[.)]*$/i.test(normalizedText) ||
       /^as this land enters, you may reveal (?:a|an) .+? card from your hand\. if you don't, (?:this land|it) enters tapped[.)]*$/i.test(normalizedText) ||
       /^as this land enters, you may pay \d+ life\. if you don't, (?:this land|it) enters tapped[.)]*$/i.test(normalizedText) ||
       /^you have hexproof(?:\.?\s*\(.*\))?[.)]*$/i.test(normalizedText) ||
+      /^players can't gain life[.)]*$/i.test(normalizedText) ||
       /^(?:enchanted creature|this creature|this permanent) does(?:n't| not) untap during (?:its controller(?:'|â€™)s|your) untap step[.)]*$/i.test(normalizedText) ||
       /^this creature can block only creatures with flying[.)]*$/i.test(normalizedText) ||
       /^if this card is in your opening hand, you may begin the game with it on the battlefield[.)]*$/i.test(normalizedText) ||
@@ -4027,6 +4029,26 @@ export function pruneExternallyHandledStaticUnknownAbilities(
     }
 
     return [ability];
+  });
+}
+
+function isExternallyHandledTemporaryLandBonusUnknownStep(step: OracleEffectStep | undefined): boolean {
+  if (step?.kind !== 'unknown') return false;
+
+  const normalized = normalizeOracleText(String(step.raw || ''))
+    .replace(/[.)\s]+$/g, '')
+    .trim();
+  return /^you may play (?:(?:up to )?(?:a|an|one|two|three|four|five|\d+)) additional lands? this turn$/i.test(normalized);
+}
+
+export function pruneExternallyHandledTemporaryLandBonusUnknownSteps(
+  abilities: readonly OracleIRAbility[]
+): OracleIRAbility[] {
+  return abilities.flatMap((ability) => {
+    const nextSteps = ability.steps.filter((step) => !isExternallyHandledTemporaryLandBonusUnknownStep(step));
+    if (nextSteps.length === ability.steps.length) return [ability];
+    if (nextSteps.length === 0) return [];
+    return [{ ...ability, steps: nextSteps }];
   });
 }
 

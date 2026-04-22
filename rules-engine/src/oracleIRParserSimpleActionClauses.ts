@@ -801,12 +801,22 @@ export function tryParseSimpleActionClause(args: {
     }
 
     const discardAllInHand = clause.match(
-      new RegExp(`^${PLAYER_SUBJECT_PREFIX}discards?\\s+all\\s+cards?\\s+in\\s+(?:your|their)\\s+hand\\b`, 'i')
+      new RegExp(`^${PLAYER_SUBJECT_PREFIX}discards?\\s+all\\s+(?:the\\s+)?cards?\\s+in\\s+(?:your|their)\\s+hand\\b`, 'i')
     );
     if (discardAllInHand) {
       return withMeta({
         kind: 'discard',
         who: parsePlayerSelector(discardAllInHand[1]),
+        amount: { kind: 'number', value: 9999 },
+        raw: rawClause,
+        });
+    }
+
+    const discardAllInHandDefault = clause.match(/^discard\s+all\s+(?:the\s+)?cards?\s+in\s+your\s+hand\b/i);
+    if (discardAllInHandDefault) {
+      return withMeta({
+        kind: 'discard',
+        who: { kind: 'you' },
         amount: { kind: 'number', value: 9999 },
         raw: rawClause,
         });

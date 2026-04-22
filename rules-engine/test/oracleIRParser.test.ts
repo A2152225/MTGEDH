@@ -11129,6 +11129,82 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
     expect(ir.abilities[0]?.steps.some(step => step.kind === 'unknown')).toBe(false);
   });
 
+  it('parses discard all the cards in your hand into a discard step', () => {
+    const ir = parseOracleTextToIR(
+      'Discard all the cards in your hand. Draw that many cards plus one.',
+      'Tolarian Winds Variant'
+    );
+
+    expect(ir.abilities[0]?.steps).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'discard',
+          who: { kind: 'you' },
+          amount: { kind: 'number', value: 9999 },
+          raw: 'Discard all the cards in your hand',
+        }),
+      ])
+    );
+    expect(
+      ir.abilities[0]?.steps.some(
+        step => step.kind === 'unknown' && /discard all the cards in your hand/i.test(String(step.raw || ''))
+      )
+    ).toBe(false);
+  });
+
+  it('prunes temporary additional-land unknown steps while keeping the rest of the spell text', () => {
+    const ir = parseOracleTextToIR(
+      'Put a +1/+1 counter on up to one target creature. You gain 2 life. You may play an additional land this turn.',
+      'Scale the Heights'
+    );
+
+    expect(ir.abilities[0]?.steps).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ kind: 'add_counter' }),
+        expect.objectContaining({ kind: 'gain_life', amount: { kind: 'number', value: 2 } }),
+      ])
+    );
+    expect(
+      ir.abilities[0]?.steps.some(
+        step => step.kind === 'unknown' && /you may play an additional land this turn/i.test(String(step.raw || ''))
+      )
+    ).toBe(false);
+  });
+
+  it('parses this creature gains shroud until end of turn into a temporary ability grant', () => {
+    const ir = parseOracleTextToIR(
+      'This creature gains shroud until end of turn.',
+      'Glimmering Angel Variant'
+    );
+
+    expect(ir.abilities[0]?.steps).toEqual([
+      expect.objectContaining({
+        kind: 'grant_temporary_ability',
+        target: { kind: 'raw', text: 'This creature' },
+        duration: 'end_of_turn',
+        abilities: ['shroud'],
+      }),
+    ]);
+  });
+
+  it('prunes other creatures you control get +1/+1 as an externally handled static ability', () => {
+    const ir = parseOracleTextToIR(
+      'Other creatures you control get +1/+1.',
+      'Anthem Variant'
+    );
+
+    expect(ir.abilities).toEqual([]);
+  });
+
+  it('prunes players cannot gain life as an externally handled static ability', () => {
+    const ir = parseOracleTextToIR(
+      "Players can't gain life.",
+      'Leyline of Punishment Variant'
+    );
+
+    expect(ir.abilities).toEqual([]);
+  });
+
   it('prunes bare landwalk keyword lines from unknown IR steps', () => {
     const ir = parseOracleTextToIR('Swampwalk', 'Bog Wraith');
 

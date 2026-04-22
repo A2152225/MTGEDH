@@ -267,6 +267,32 @@ describe('Enhanced Static Abilities', () => {
       expect(oppResult.power).toBe(1); // Not buffed
       expect(oppResult.toughness).toBe(1);
     });
+
+    it('should parse untyped other-creatures lord effects', () => {
+      const gloriousAnthemVariant = {
+        id: 'anthem-variant-1',
+        name: 'Anthem Variant',
+        type_line: 'Enchantment',
+        oracle_text: 'Other creatures you control get +1/+1.',
+      } as KnownCardRef;
+
+      const abilities = parseStaticAbilities(gloriousAnthemVariant, 'anthem-variant-1', 'player1');
+
+      expect(abilities).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            effectType: StaticEffectType.PUMP,
+            filter: expect.objectContaining({
+              cardTypes: ['creature'],
+              controller: 'you',
+              other: true,
+            }),
+            powerMod: 1,
+            toughnessMod: 1,
+          }),
+        ])
+      );
+    });
   });
 
   describe('Deep Forest Hermit (+1/+1 to squirrels)', () => {

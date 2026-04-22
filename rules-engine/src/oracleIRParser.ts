@@ -119,6 +119,7 @@ import {
   pruneRedundantBestowReminderUnknownAbilities,
   pruneRedundantCrewReminderAbilities,
   pruneExternallyHandledStaticUnknownAbilities,
+  pruneExternallyHandledTemporaryLandBonusUnknownSteps,
   pruneLateKeywordReminderOnlyAbilities,
   pruneRedundantCoinFlipLeadUnknownAbilities,
   pruneRedundantEntersTappedReplacementUnknownAbilities,
@@ -1453,6 +1454,7 @@ export function parseOracleTextToIR(oracleText: string, cardName?: string): Orac
   abilities = pruneRedundantDiscoverReminderUnknownAbilities(abilities);
   abilities = expandKeywordActionUnknownAbilities(abilities);
   abilities = expandTurnScopedStaticKeywordAbilities(abilities);
+  abilities = pruneExternallyHandledTemporaryLandBonusUnknownSteps(abilities);
   abilities = pruneRedundantExploreReminderAbilities(abilities);
   abilities = pruneRedundantEarthbendReminderUnknownAbilities(abilities);
   abilities = pruneRedundantWaterbendReminderUnknownAbilities(abilities);

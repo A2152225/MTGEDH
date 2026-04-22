@@ -21604,6 +21604,51 @@ describe('Oracle IR Executor', () => {
     expect(p1?.life).toBe(37);
   });
 
+  it('applies discard-all-in-hand imperative phrasing', () => {
+    const ir = parseOracleTextToIR(
+      'Discard all the cards in your hand.',
+      'Tolarian Winds Variant'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [],
+          hand: [
+            { id: 'discard-a', owner: 'p1', card: { id: 'discard-a', name: 'Alpha', type_line: 'Instant' } },
+            { id: 'discard-b', owner: 'p1', card: { id: 'discard-b', name: 'Beta', type_line: 'Sorcery' } },
+            { id: 'discard-c', owner: 'p1', card: { id: 'discard-c', name: 'Gamma', type_line: 'Creature' } },
+          ],
+          graveyard: [],
+          exile: [],
+        },
+      ] as any,
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceId: 'winds-source',
+      sourceName: 'Tolarian Winds Variant',
+    });
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+
+    expect(result.skippedSteps).toHaveLength(0);
+    expect(result.appliedSteps.some(s => s.kind === 'discard')).toBe(true);
+    expect(p1?.hand || []).toHaveLength(0);
+    expect(p1?.graveyard || []).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: 'discard-a' }),
+        expect.objectContaining({ id: 'discard-b' }),
+        expect.objectContaining({ id: 'discard-c' }),
+      ])
+    );
+  });
+
   it('applies vote-result conditional sacrifice wrappers when the runtime context provides the winning vote', () => {
     const ir = parseOracleTextToIR(
       'If carnage gets more votes, sacrifice this artifact and destroy all nonland permanents.',
