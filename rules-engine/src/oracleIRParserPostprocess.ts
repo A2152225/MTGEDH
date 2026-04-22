@@ -3193,6 +3193,52 @@ export function pruneFirebendingReminderAbilities(
   });
 }
 
+function isRedundantReadAheadReminderUnknownStep(step: OracleEffectStep): boolean {
+  if (!step) return false;
+
+  const normalized = normalizeReminderStepRaw(step);
+  if (!normalized) return false;
+
+  if (step.kind === 'sacrifice') {
+    return /^sacrifice after [ivx]+[.)]*$/i.test(normalized);
+  }
+
+  if (step.kind !== 'unknown') return false;
+
+  return (
+    /^read ahead \(choose a chapter and start with that many lore counters$/i.test(normalized) ||
+    /^as a saga enters, choose a chapter and start with that many lore counters$/i.test(normalized) ||
+    /^add one after your draw step$/i.test(normalized) ||
+    /^skipped chapters do(?:n't| not) trigger[.)]*$/i.test(normalized) ||
+    /^sacrifice after [ivx]+[.)]*$/i.test(normalized)
+  );
+}
+
+export function pruneReadAheadReminderAbilities(
+  abilities: readonly OracleIRAbility[]
+): OracleIRAbility[] {
+  return abilities.flatMap((ability) => {
+    const normalizedText = normalizeOracleText(String(ability.text || ability.effectText || ''))
+      .replace(/\s+/g, ' ')
+      .trim()
+      .toLowerCase();
+    if (!normalizedText.includes('read ahead')) {
+      return [ability];
+    }
+
+    const nextSteps = ability.steps.filter((step) => !isRedundantReadAheadReminderUnknownStep(step));
+    if (nextSteps.length === ability.steps.length) {
+      return [ability];
+    }
+
+    if (nextSteps.length === 0 && /^read ahead\b/.test(normalizedText)) {
+      return [];
+    }
+
+    return [{ ...ability, steps: nextSteps }];
+  });
+}
+
 function isRedundantWaterbendReminderUnknownStep(step: OracleEffectStep): boolean {
     if (!step || step.kind !== 'unknown') return false;
 
@@ -3269,6 +3315,23 @@ export function pruneMadnessReminderAbilities(
       .toLowerCase();
 
     return !/^madness\b/i.test(normalizedText);
+  });
+}
+
+export function pruneCleaveReminderAbilities(
+  abilities: readonly OracleIRAbility[]
+): OracleIRAbility[] {
+  return abilities.filter((ability) => {
+    if (ability.type !== 'static' || ability.steps.length === 0 || !ability.steps.every((step) => step.kind === 'unknown')) {
+      return true;
+    }
+
+    const normalizedText = normalizeOracleText(String(ability.text || ability.effectText || ''))
+      .replace(/\s+/g, ' ')
+      .trim()
+      .toLowerCase();
+
+    return !(normalizedText.startsWith('cleave ') && normalizedText.includes('remove the words in square brackets'));
   });
 }
 
@@ -3560,6 +3623,27 @@ export function pruneRedundantEnchantAttachmentReminderUnknownAbilities(
   });
 }
 
+function isRedundantProtectionAuraReminderUnknownStep(step: OracleEffectStep): boolean {
+  const normalized = normalizeUnknownStepText(step);
+  if (!normalized) return false;
+
+  return /^this effect does(?:n't| not) remove this aura[.)]*$/i.test(normalized);
+}
+
+export function pruneRedundantProtectionAuraReminderUnknownAbilities(
+  abilities: readonly OracleIRAbility[]
+): OracleIRAbility[] {
+  return abilities.map((ability) => {
+    const normalizedText = normalizeOracleText(String(ability.text || ability.effectText || ''))
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (!/\bprotection from\b/i.test(normalizedText) || !/\baura\b/i.test(normalizedText)) return ability;
+
+    const nextSteps = ability.steps.filter((step) => !isRedundantProtectionAuraReminderUnknownStep(step));
+    return nextSteps.length === ability.steps.length ? ability : { ...ability, steps: nextSteps };
+  });
+}
+
 function isRedundantTimingRulesReminderUnknownStep(step: OracleEffectStep): boolean {
   const normalized = normalizeUnknownStepText(step);
   if (!normalized) return false;
@@ -3801,6 +3885,7 @@ function isRedundantBandingReminderUnknownStep(step: OracleEffectStep): boolean 
   if (!normalized) return false;
 
   return (
+    /^banding \(any creatures with banding, and up to one without, can attack in a band$/i.test(normalized) ||
     /^any creatures with banding, and up to one without, can attack in a band$/i.test(normalized) ||
     /^bands are blocked as a group$/i.test(normalized) ||
     /^if any creatures with banding (?:you control|a player controls) are blocking or being blocked by a creature, (?:you|that player) divide that creature(?:'|â€™)s combat damage, not its controller, among any of the creatures it(?:'|â€™)s being blocked by or is blocking$/i.test(normalized) ||
@@ -3811,16 +3896,30 @@ function isRedundantBandingReminderUnknownStep(step: OracleEffectStep): boolean 
 export function pruneRedundantBandingReminderUnknownAbilities(
   abilities: readonly OracleIRAbility[]
 ): OracleIRAbility[] {
-  return abilities.map((ability) => {
+  return abilities.flatMap((ability) => {
     const normalizedAbilityText = normalizeOracleText(String(ability.text || ability.effectText || ''))
       .replace(/\s+/g, ' ')
       .trim()
       .toLowerCase();
     const referencesBanding = normalizedAbilityText.includes('banding');
-    if (!referencesBanding) return ability;
+    if (!referencesBanding) return [ability];
 
     const nextSteps = ability.steps.filter((step) => !isRedundantBandingReminderUnknownStep(step));
-    return nextSteps.length === ability.steps.length ? ability : { ...ability, steps: nextSteps };
+    if (nextSteps.length === ability.steps.length) return [ability];
+
+    const onlyKeywordStepsRemain = nextSteps.length > 0 && nextSteps.every((step) => {
+      if (step.kind !== 'unknown') return false;
+      const normalized = normalizeUnknownStepText(step);
+      if (!normalized) return false;
+      const parsedKeywords = parseKeywordsFromOracleText(normalized);
+      return parsedKeywords.length === 1 && parsedKeywords[0] === normalized.toLowerCase();
+    });
+
+    if (nextSteps.length === 0 || onlyKeywordStepsRemain) {
+      return [];
+    }
+
+    return [{ ...ability, steps: nextSteps }];
   });
 }
 
@@ -3895,6 +3994,17 @@ export function pruneExternallyHandledStaticUnknownAbilities(
     }
 
     if (
+      /^draft this card face up[.)]*$/i.test(normalizedText) ||
+      /^a deck can have any number of cards named (?:this permanent|this card)[.)]*$/i.test(normalizedText) ||
+      /^remove this card from your deck before playing if you're not playing for ante[.)]*$/i.test(normalizedText) ||
+      /^ready to run(?:\s*\([^)]*\))?[.)]*$/i.test(normalizedText) ||
+      /^banding(?:\b|\s*\().*$/i.test(normalizedText) ||
+      /^devour\s+\d+(?:\s+[^()]+)?\s*\(as this (?:creature|permanent) enters, you may sacrifice any number of creatures\.?[^)]*\)[.)]*$/i.test(normalizedText) ||
+      /^entwine \{[^}]+\} \(choose both if you pay the entwine cost\.?\)[.)]*$/i.test(normalizedText) ||
+      /^sunburst \(this (?:creature|permanent|artifact) enters with (?:a \+1\/\+1 counter|that many charge counters?|a charge counter) on it for each color of mana spent to cast it\.?\)[.)]*$/i.test(normalizedText) ||
+      /^if it's neither day nor night, it becomes day as this (?:creature|permanent) enters[.)]*$/i.test(normalizedText) ||
+      /^you may reveal this card from your opening hand(?:[.)]*\s*if you do, at the beginning of the first upkeep, .+)?$/i.test(normalizedText) ||
+      /^play with the top card of your library revealed[.)]*$/i.test(normalizedText) ||
       /^creatures you control get [+-]\d+\/[+-]\d+[.)]*$/i.test(normalizedText) ||
       /^(?:equipped|enchanted) creature gets [+-]\d+\/[+-]\d+[.)]*$/i.test(normalizedText) ||
       /^you control enchanted (?:creature|permanent)[.)]*$/i.test(normalizedText) ||
@@ -5010,7 +5120,7 @@ function parseChoiceUnknownStep(step: Extract<OracleEffectStep, { kind: 'unknown
     };
   }
 
-  if (/^choose an opponent$/i.test(normalized)) {
+  if (/^choose (?:an opponent|target opponent)$/i.test(normalized)) {
     return {
       kind: 'choose_opponent',
       ...(step.sequence ? { sequence: step.sequence } : {}),

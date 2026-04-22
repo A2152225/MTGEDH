@@ -22887,8 +22887,7 @@ describe('Oracle IR Executor', () => {
       'Whenever equipped creature attacks, defending player reveals cards from the top of their library until they reveal a land card. The creature gets +1/+0 until end of turn for each card revealed this way. That player puts the revealed cards into their graveyard.',
       'Trepanation Blade'
     );
-    const ability = ir.abilities.find(a => a.type === 'triggered');
-    const steps = ability?.steps ?? [];
+    const steps = ir.abilities.flatMap(ability => ability.steps ?? []);
 
     const start = makeState({
       players: [

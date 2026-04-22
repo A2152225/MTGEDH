@@ -98,11 +98,13 @@ import {
   pruneCumulativeUpkeepReminderAbilities,
   pruneRedundantPrototypeReminderUnknownAbilities,
   pruneFirebendingReminderAbilities,
+  pruneReadAheadReminderAbilities,
   pruneRedundantEarthbendReminderUnknownAbilities,
   pruneRedundantWaterbendReminderUnknownAbilities,
   pruneSoulbondReminderAbilities,
   pruneExtortReminderAbilities,
   pruneMadnessReminderAbilities,
+  pruneCleaveReminderAbilities,
   pruneCipherReminderAbilities,
   pruneMorphReminderAbilities,
   pruneRedundantFaceDownReminderUnknownAbilities,
@@ -111,6 +113,7 @@ import {
   pruneRedundantDecayedReminderUnknownAbilities,
   pruneRedundantEldraziTokenManaReminderUnknownAbilities,
   pruneRedundantEnchantAttachmentReminderUnknownAbilities,
+  pruneRedundantProtectionAuraReminderUnknownAbilities,
   pruneRedundantHiddenAgendaRevealUnknownAbilities,
   pruneRedundantTimingRulesReminderUnknownAbilities,
   pruneRedundantBestowReminderUnknownAbilities,
@@ -1393,9 +1396,11 @@ export function parseOracleTextToIR(oracleText: string, cardName?: string): Orac
   abilities = pruneCumulativeUpkeepReminderAbilities(abilities);
   abilities = pruneRedundantPrototypeReminderUnknownAbilities(abilities);
   abilities = pruneFirebendingReminderAbilities(abilities);
+  abilities = pruneReadAheadReminderAbilities(abilities);
   abilities = pruneSoulbondReminderAbilities(abilities);
   abilities = pruneExtortReminderAbilities(abilities);
   abilities = pruneMadnessReminderAbilities(abilities);
+  abilities = pruneCleaveReminderAbilities(abilities);
   abilities = pruneCipherReminderAbilities(abilities);
   abilities = pruneForetellReminderAbilities(abilities);
   abilities = pruneMorphReminderAbilities(abilities);
@@ -1406,6 +1411,7 @@ export function parseOracleTextToIR(oracleText: string, cardName?: string): Orac
   abilities = pruneRedundantDecayedReminderUnknownAbilities(abilities);
   abilities = pruneRedundantEldraziTokenManaReminderUnknownAbilities(abilities);
   abilities = pruneRedundantEnchantAttachmentReminderUnknownAbilities(abilities);
+  abilities = pruneRedundantProtectionAuraReminderUnknownAbilities(abilities);
   abilities = pruneRedundantHiddenAgendaRevealUnknownAbilities(abilities);
   abilities = pruneRedundantTimingRulesReminderUnknownAbilities(abilities);
   abilities = pruneRedundantSpellCantBeCounteredAbilities(abilities);

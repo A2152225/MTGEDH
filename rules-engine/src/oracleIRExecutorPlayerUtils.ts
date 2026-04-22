@@ -560,10 +560,10 @@ export function resolveUnknownMillUntilAmountForPlayer(
   playerId: PlayerID,
   qty: OracleQuantity
 ): number | null {
-  if (qty.kind !== 'unknown') return null;
+  if (qty.kind !== 'reveal_until_land' && qty.kind !== 'unknown') return null;
 
   const raw = normalizeOracleText(String((qty as any).raw || ''));
-  if (raw !== 'until they reveal a land card' && raw !== 'until you reveal a land card') {
+  if (qty.kind === 'unknown' && raw !== 'until they reveal a land card' && raw !== 'until you reveal a land card') {
     return null;
   }
 

@@ -244,11 +244,16 @@ export function tryParseSimpleActionClause(args: {
   }
 
   {
-    const chooseTargetCreature = clause.match(/^choose\s+target\s+creature\s*$/i);
+    const chooseTargetCreature = clause.match(
+      /^choose\s+target\s+creature(?:\s+(you control|an opponent controls|your opponents control))?\s*$/i
+    );
     if (chooseTargetCreature) {
+      const targetText = chooseTargetCreature[1]
+        ? `target creature ${chooseTargetCreature[1].toLowerCase()}`
+        : 'target creature';
       return withMeta({
         kind: 'choose_target_creature',
-        target: { kind: 'raw', text: 'target creature' },
+        target: { kind: 'raw', text: targetText },
         raw: rawClause,
         });
     }
@@ -878,7 +883,7 @@ export function tryParseSimpleActionClause(args: {
       return withMeta({
         kind: 'mill',
         who: parsePlayerSelector(millUntilLand[1]),
-        amount: { kind: 'unknown', raw: 'until they reveal a land card' },
+        amount: { kind: 'reveal_until_land' },
         raw: rawClause,
         });
     }

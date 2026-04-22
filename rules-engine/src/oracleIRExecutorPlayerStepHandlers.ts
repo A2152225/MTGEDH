@@ -2661,7 +2661,9 @@ export function applyMillStep(
   }
 
   const unknownRaw = String((step.amount as any)?.raw || '').toLowerCase();
-  const isRevealThisWay = step.amount.kind === 'unknown' && unknownRaw.includes('reveal a land card');
+  const isRevealThisWay =
+    step.amount.kind === 'reveal_until_land' ||
+    (step.amount.kind === 'unknown' && unknownRaw.includes('reveal a land card'));
   const lastRevealedCardCount = isRevealThisWay
     ? Array.from(millCountByPlayer.values()).reduce((sum, count) => sum + (Number(count) || 0), 0)
     : undefined;

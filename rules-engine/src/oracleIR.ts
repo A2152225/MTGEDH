@@ -3,6 +3,7 @@ import type { AbilityType } from './oracleTextParser';
 export type OracleQuantity =
   | { readonly kind: 'number'; readonly value: number }
   | { readonly kind: 'reference_amount'; readonly raw?: string }
+  | { readonly kind: 'reveal_until_land' }
   | { readonly kind: 'x' }
   | { readonly kind: 'all' }
   | { readonly kind: 'replicate_count' }

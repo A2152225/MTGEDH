@@ -863,6 +863,26 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
     });
   });
 
+  it('prunes Ward-style Aura reminder tails while keeping the protection clause visible', () => {
+    const ir = parseOracleTextToIR(
+      "Enchant creature\nEnchanted creature has protection from red. This effect doesn't remove this Aura.",
+      'Red Ward'
+    );
+
+    expect(ir.keywords).toContain('protection');
+    expect(ir.abilities[1]?.steps).toEqual([
+      expect.objectContaining({
+        kind: 'unknown',
+        raw: 'Enchanted creature has protection from red',
+      }),
+    ]);
+    expect(
+      ir.abilities.flatMap((ability: any) => ability.steps ?? []).some(
+        (step: any) => /this effect does(?:n't| not) remove this aura/i.test(String(step?.raw || ''))
+      )
+    ).toBe(false);
+  });
+
   it('lowers self-entry choose-a-creature-type text into a choose_creature_type step', () => {
     const ir = parseOracleTextToIR('As this enchantment enters, choose a creature type.', 'Kindred Discovery');
     const chooseTypeStep = ir.abilities.flatMap(ability => ability.steps).find(step => step.kind === 'choose_creature_type');
@@ -902,6 +922,15 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
     ]);
   });
 
+  it('parses choose target opponent into a choose_opponent step', () => {
+    const ir = parseOracleTextToIR('Choose target opponent. That player discards a card.', 'Thought-Stalker Warlock');
+
+    expect(ir.abilities[0]?.steps[0]).toEqual({
+      kind: 'choose_opponent',
+      raw: 'Choose target opponent',
+    });
+  });
+
   it('lowers hidden agenda name choice and prunes the reveal reminder tail', () => {
     const ir = parseOracleTextToIR(
       'Hidden agenda (Start the game with this conspiracy face down in the command zone and secretly choose a card name. You may turn this conspiracy face up any time and reveal that name.)',
@@ -929,6 +958,17 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
       kind: 'choose_target_creature',
       target: { kind: 'raw', text: 'target creature' },
       raw: 'Choose target creature',
+    });
+  });
+
+  it('parses choose target creature you control into a choose_target_creature step', () => {
+    const ir = parseOracleTextToIR('Choose target creature you control.', "Predator's Rapport");
+    const chooseTargetStep = ir.abilities.flatMap(ability => ability.steps).find(step => step.kind === 'choose_target_creature');
+
+    expect(chooseTargetStep).toEqual({
+      kind: 'choose_target_creature',
+      target: { kind: 'raw', text: 'target creature you control' },
+      raw: 'Choose target creature you control',
     });
   });
 
@@ -2042,6 +2082,25 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
 
     expect(ir.keywords).toContain('cipher');
     expect(ir.abilities).toEqual([]);
+  });
+
+  it('prunes cleave reminder-only abilities while keeping the cleave keyword', () => {
+    const ir = parseOracleTextToIR(
+      'Cleave {5}{W} (You may cast this spell for its cleave cost. If you do, remove the words in square brackets.)\nDestroy target [attacking] creature.',
+      'Fierce Retribution'
+    );
+
+    expect(ir.keywords).toContain('cleave');
+    expect(ir.abilities).toHaveLength(1);
+    expect(ir.abilities[0]?.steps).toEqual([
+      expect.objectContaining({
+        kind: 'destroy',
+        target: { kind: 'raw', text: 'target [attacking] creature' },
+      }),
+    ]);
+    expect(
+      ir.abilities.some((ability: any) => /remove the words in square brackets/i.test(String(ability?.text || ability?.effectText || '')))
+    ).toBe(false);
   });
 
   it('parses partner-with reminder text into a non-executable static ability without reminder steps', () => {
@@ -3693,15 +3752,12 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
     const text =
       'Whenever equipped creature attacks, defending player reveals cards from the top of their library until they reveal a land card. The creature gets +1/+0 until end of turn for each card revealed this way. That player puts the revealed cards into their graveyard.';
     const ir = parseOracleTextToIR(text);
-    const ability = ir.abilities.find(a => a.type === 'triggered')!;
-    expect(ability).toBeTruthy();
-
-    const mill = ability.steps.find(s => s.kind === 'mill') as any;
+    const mill = ir.abilities.flatMap(a => a.steps ?? []).find(s => s.kind === 'mill') as any;
     expect(mill).toBeTruthy();
     expect(mill.who).toEqual({ kind: 'target_opponent' });
-    expect(mill.amount).toEqual({ kind: 'unknown', raw: 'until they reveal a land card' });
+    expect(mill.amount).toEqual({ kind: 'reveal_until_land' });
 
-    const pump = ability.steps.find(s => s.kind === 'modify_pt') as any;
+    const pump = ir.abilities.flatMap(a => a.steps ?? []).find(s => s.kind === 'modify_pt') as any;
     expect(pump).toBeTruthy();
     expect(pump.target).toEqual({ kind: 'equipped_creature' });
     expect(pump.power).toBe(1);
@@ -3837,7 +3893,7 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
     const mill = ability.steps.find(s => s.kind === 'mill') as any;
     expect(mill).toBeTruthy();
     expect(mill.who).toEqual({ kind: 'target_player' });
-    expect(mill.amount).toEqual({ kind: 'unknown', raw: 'until they reveal a land card' });
+    expect(mill.amount).toEqual({ kind: 'reveal_until_land' });
   });
 
   it('parses scry and surveil clauses into IR steps', () => {
@@ -10685,6 +10741,171 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
         allowNewTargets: true,
       }),
     ]);
+  });
+
+  it('prunes top-of-library reveal lines that are handled externally while keeping the remaining Melek abilities', () => {
+    const ir = parseOracleTextToIR(
+      'Play with the top card of your library revealed.\nYou may cast instant and sorcery spells from the top of your library.\nWhenever you cast an instant or sorcery spell from your library, copy it. You may choose new targets for the copy.',
+      'Melek, Izzet Paragon'
+    );
+
+    expect(
+      ir.abilities.some((ability) => /play with the top card of your library revealed/i.test(String(ability.text || ability.effectText || '')))
+    ).toBe(false);
+    expect(
+      ir.abilities.some((ability) => /you may cast instant and sorcery spells from the top of your library/i.test(String(ability.text || ability.effectText || '')))
+    ).toBe(true);
+    expect(ir.abilities.some((ability) => ability.steps.some((step) => step.kind === 'copy_spell'))).toBe(true);
+  });
+
+  it('prunes standalone draft-face-up setup text while keeping Deal Broker\'s in-game activated ability', () => {
+    const ir = parseOracleTextToIR(
+      'Draft this card face up.\nImmediately after the draft, you may reveal a card in your card pool. Each other player may offer you one card in their card pool in exchange. You may accept any one offer.\n{T}: Draw a card, then discard a card.',
+      'Deal Broker'
+    );
+
+    expect(
+      ir.abilities.some((ability) => /draft this card face up/i.test(String(ability.text || ability.effectText || '')))
+    ).toBe(false);
+    expect(ir.abilities.some((ability) => ability.type === 'activated')).toBe(true);
+    expect(ir.abilities.find((ability) => ability.type === 'activated')?.steps).toEqual([
+      expect.objectContaining({ kind: 'draw' }),
+      expect.objectContaining({ kind: 'discard', sequence: 'then' }),
+    ]);
+  });
+
+  it('prunes deck-construction text while keeping Relentless Rats gameplay text', () => {
+    const ir = parseOracleTextToIR(
+      'A deck can have any number of cards named Relentless Rats.\nRelentless Rats gets +1/+1 for each other creature on the battlefield named Relentless Rats.',
+      'Relentless Rats'
+    );
+
+    expect(
+      ir.abilities.some((ability) => /a deck can have any number of cards named/i.test(String(ability.text || ability.effectText || '')))
+    ).toBe(false);
+    expect(
+      ir.abilities.some((ability) => /gets \+1\/\+1 for each other creature on the battlefield named/i.test(String(ability.text || ability.effectText || '')))
+    ).toBe(true);
+  });
+
+  it('prunes Read Ahead reminder text while keeping saga chapters', () => {
+    const ir = parseOracleTextToIR(
+      "Read ahead (Choose a chapter and start with that many lore counters. Add one after your draw step. Skipped chapters don't trigger. Sacrifice after III.)\nI — Target opponent reveals their hand. You choose a creature or planeswalker card from it. That player discards that card.\nII — Search your library for a card, put that card into your hand, then shuffle. You lose 3 life.\nIII — Put target creature card from a graveyard onto the battlefield under your control.",
+      'The Cruelty of Gix'
+    );
+
+    expect(
+      ir.abilities.some((ability) => /read ahead/i.test(String(ability.text || ability.effectText || '')))
+    ).toBe(false);
+
+    const stepRaws = ir.abilities.flatMap((ability) => ability.steps.map((step) => String(step.raw || '')));
+    expect(stepRaws.some((raw) => /add one after your draw step/i.test(raw))).toBe(false);
+    expect(stepRaws.some((raw) => /skipped chapters do(?:n't| not) trigger/i.test(raw))).toBe(false);
+    expect(stepRaws.some((raw) => /sacrifice after iii/i.test(raw))).toBe(false);
+    expect(stepRaws.some((raw) => /target opponent reveals their hand/i.test(raw))).toBe(true);
+    expect(stepRaws.some((raw) => /search your library for a card/i.test(raw))).toBe(true);
+    expect(stepRaws.some((raw) => /put target creature card from a graveyard onto the battlefield under your control/i.test(raw))).toBe(true);
+  });
+
+  it('prunes ante pregame text while keeping gameplay text', () => {
+    const ir = parseOracleTextToIR(
+      "Remove this card from your deck before playing if you're not playing for ante.\nDraw a card.",
+      'Jeweled Bird'
+    );
+
+    expect(
+      ir.abilities.some((ability) => /remove this card from your deck before playing if you're not playing for ante/i.test(String(ability.text || ability.effectText || '')))
+    ).toBe(false);
+    expect(ir.abilities.some((ability) => ability.steps.some((step) => step.kind === 'draw'))).toBe(true);
+  });
+
+  it('prunes Chancellor opening-hand reveal text while keeping battlefield abilities', () => {
+    const ir = parseOracleTextToIR(
+      'You may reveal this card from your opening hand. If you do, at the beginning of the first upkeep, create a 1/1 red Phyrexian Goblin creature token with haste.\nWhen Chancellor of the Forge enters, put X 1/1 red Goblin creature tokens onto the battlefield, where X is the number of creatures you control.',
+      'Chancellor of the Forge'
+    );
+
+    expect(
+      ir.abilities.some((ability) => /you may reveal this card from your opening hand/i.test(String(ability.text || ability.effectText || '')))
+    ).toBe(false);
+    expect(
+      ir.abilities.some((ability) => /put x 1\/1 red goblin creature tokens onto the battlefield/i.test(String(ability.text || ability.effectText || '')))
+    ).toBe(true);
+  });
+
+  it('prunes Ready to run commander setup text from Oracle IR', () => {
+    const ir = parseOracleTextToIR(
+      'Ready to run (You can have two commanders if both have ready to run.)',
+      'The Highland Runner'
+    );
+
+    expect(ir.abilities).toEqual([]);
+  });
+
+  it('prunes Entwine reminder text while keeping the modal spell body', () => {
+    const ir = parseOracleTextToIR(
+      'Choose one - Search your library for up to two creature cards, reveal them, put them into your hand, then shuffle; or put up to two creature cards from your hand onto the battlefield.\nEntwine {2} (Choose both if you pay the entwine cost.)',
+      'Tooth and Nail'
+    );
+
+    expect(ir.keywords).toContain('entwine');
+    expect(
+      ir.abilities.some((ability) => /^entwine /i.test(String(ability.text || ability.effectText || '')))
+    ).toBe(false);
+    expect(
+      ir.abilities.some((ability) => /choose one/i.test(String(ability.text || ability.effectText || '')))
+    ).toBe(true);
+  });
+
+  it('prunes Sunburst reminder text while keeping the keyword', () => {
+    const ir = parseOracleTextToIR(
+      'Sunburst (This creature enters with a +1/+1 counter on it for each color of mana spent to cast it.)\nWhen Spinal Parasite enters, remove up to one counter from target permanent.',
+      'Spinal Parasite'
+    );
+
+    expect(ir.keywords).toContain('sunburst');
+    expect(
+      ir.abilities.some((ability) => /^sunburst /i.test(String(ability.text || ability.effectText || '')))
+    ).toBe(false);
+    expect(ir.abilities.length).toBeGreaterThan(0);
+  });
+
+  it('prunes Banding reminder text while keeping the keyword', () => {
+    const ir = parseOracleTextToIR(
+      "Trample; banding (Any creatures with banding, and up to one without, can attack in a band. Bands are blocked as a group. If any creatures with banding you control are blocking or being blocked by a creature, you divide that creature's combat damage, not its controller, among any of the creatures it's being blocked by or is blocking.)",
+      'War Elephant'
+    );
+
+    expect(ir.keywords).toContain('banding');
+    expect(ir.keywords).toContain('trample');
+    expect(ir.abilities).toEqual([]);
+  });
+
+  it('prunes Devour reminder text while keeping other gameplay text', () => {
+    const ir = parseOracleTextToIR(
+      'Devour 1 (As this creature enters, you may sacrifice any number of creatures. This creature enters with that many +1/+1 counters on it.)\nWhen this creature enters, draw a card.',
+      'Skullmulcher'
+    );
+
+    expect(ir.keywords).toContain('devour');
+    expect(
+      ir.abilities.some((ability) => /^devour /i.test(String(ability.text || ability.effectText || '')))
+    ).toBe(false);
+    expect(ir.abilities.some((ability) => ability.steps.some((step) => step.kind === 'draw'))).toBe(true);
+  });
+
+  it('prunes daybound bootstrap reminder text while keeping the triggered ability', () => {
+    const ir = parseOracleTextToIR(
+      "Trample, haste\nWhenever Sunrise Cavalier attacks, if it's day, put a +1/+1 counter on it.\nIf it's neither day nor night, it becomes day as this creature enters.",
+      'Sunrise Cavalier'
+    );
+
+    expect(
+      ir.abilities.some((ability) => /if it's neither day nor night, it becomes day as this creature enters/i.test(String(ability.text || ability.effectText || '')))
+    ).toBe(false);
+    expect(
+      ir.abilities.some((ability) => /whenever this permanent attacks, if it's day/i.test(String(ability.text || ability.effectText || '')))
+    ).toBe(true);
   });
 
   it('merges copy-ability retarget tails onto the primary unknown step', () => {
