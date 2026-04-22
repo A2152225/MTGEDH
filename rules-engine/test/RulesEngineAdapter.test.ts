@@ -973,6 +973,86 @@ describe('RulesEngineAdapter', () => {
       expect(stackObjects[0].card.entersBattlefieldWithCounters).toEqual({ '+1/+1': 3 });
     });
 
+    it('should derive kicked self-entry counters when cast metadata says the spell was kicked', () => {
+      const stateWithKickedCreature: any = {
+        ...testGameState,
+        phase: 'precombatMain' as any,
+        step: 'main' as any,
+        players: testGameState.players.map(p =>
+          p.id === 'player1'
+            ? {
+                ...(p as any),
+                hand: [
+                  {
+                    id: 'kicked-creature-1',
+                    name: 'Kicked Illusion Probe',
+                    type_line: 'Creature - Illusion',
+                    mana_cost: '{1}{U}',
+                    oracle_text: 'Kicker {3} (You may pay an additional {3} as you cast this spell.)\nIf this creature was kicked, it enters with two +1/+1 counters on it.\nThis creature can\'t be blocked.',
+                  },
+                ],
+              }
+            : p
+        ),
+      };
+
+      adapter.initializeGame('test-game', stateWithKickedCreature);
+      const result = adapter.executeAction('test-game', {
+        type: 'castSpell',
+        playerId: 'player1',
+        cardId: 'kicked-creature-1',
+        manaCost: '{1}{U}',
+        wasKicked: true,
+        targets: [],
+      });
+
+      expect(result.log).toContain('player1 announces Kicked Illusion Probe');
+      const stackObjects = ((adapter as any).stacks.get('test-game')?.objects || []) as any[];
+      expect(stackObjects).toHaveLength(1);
+      expect(stackObjects[0].entersBattlefieldWithCounters).toEqual({ '+1/+1': 2 });
+      expect(stackObjects[0].card.entersBattlefieldWithCounters).toEqual({ '+1/+1': 2 });
+    });
+
+    it('should not derive kicked self-entry counters when cast metadata says the spell was not kicked', () => {
+      const stateWithUnkickedCreature: any = {
+        ...testGameState,
+        phase: 'precombatMain' as any,
+        step: 'main' as any,
+        players: testGameState.players.map(p =>
+          p.id === 'player1'
+            ? {
+                ...(p as any),
+                hand: [
+                  {
+                    id: 'unkicked-creature-1',
+                    name: 'Kicked Illusion Probe',
+                    type_line: 'Creature - Illusion',
+                    mana_cost: '{1}{U}',
+                    oracle_text: 'Kicker {3} (You may pay an additional {3} as you cast this spell.)\nIf this creature was kicked, it enters with two +1/+1 counters on it.\nThis creature can\'t be blocked.',
+                  },
+                ],
+              }
+            : p
+        ),
+      };
+
+      adapter.initializeGame('test-game', stateWithUnkickedCreature);
+      const result = adapter.executeAction('test-game', {
+        type: 'castSpell',
+        playerId: 'player1',
+        cardId: 'unkicked-creature-1',
+        manaCost: '{1}{U}',
+        wasKicked: false,
+        targets: [],
+      });
+
+      expect(result.log).toContain('player1 announces Kicked Illusion Probe');
+      const stackObjects = ((adapter as any).stacks.get('test-game')?.objects || []) as any[];
+      expect(stackObjects).toHaveLength(1);
+      expect(stackObjects[0].entersBattlefieldWithCounters).toBeUndefined();
+      expect(stackObjects[0].card.entersBattlefieldWithCounters).toBeUndefined();
+    });
+
     it('should infer uncounterable metadata from a tapped Cavern of Souls for a matching creature spell', () => {
       const stateWithCavern: any = {
         ...testGameState,
@@ -6249,6 +6329,89 @@ describe('RulesEngineAdapter', () => {
       expect(processed.state.delayedTriggerRegistry.triggers).toHaveLength(0);
       expect(processed.state.delayedTriggerRegistry.firedTriggerIds).toHaveLength(0);
       expect((processed.state.stack as any[])).toHaveLength(0);
+    });
+
+    it('puts watched dies-or-exile triggers on the stack and resolves them after the land is exiled', () => {
+      const delayedTrigger = createDelayedTrigger(
+        'earthbend-source',
+        'Earthbend',
+        'player1',
+        DelayedTriggerTiming.WHEN_DIES_OR_EXILED,
+        'Return it to the battlefield tapped under your control.',
+        1,
+        {
+          watchingPermanentId: 'earth-land',
+          eventDataSnapshot: {
+            sourceId: 'earthbend-source',
+            sourceControllerId: 'player1',
+            targetPermanentId: 'earth-land',
+            chosenObjectIds: ['earth-land'],
+          },
+        }
+      );
+
+      const startState: GameState = {
+        ...testGameState,
+        battlefield: [
+          {
+            id: 'earth-land',
+            controller: 'player1',
+            owner: 'player1',
+            tapped: false,
+            attachments: [],
+            counters: {},
+            card: {
+              id: 'earth-land',
+              name: 'Earth Land',
+              type_line: 'Basic Land - Mountain',
+            },
+          },
+        ] as any,
+        delayedTriggerRegistry: registerDelayedTrigger(
+          { triggers: [], firedTriggerIds: [] },
+          delayedTrigger
+        ),
+      } as any;
+
+      adapter.initializeGame('test-game', startState);
+
+      const nextState: GameState = {
+        ...startState,
+        battlefield: [] as any,
+        players: startState.players.map(player =>
+          player.id === 'player1'
+            ? {
+                ...player,
+                exile: [
+                  ...((player as any).exile || []),
+                  {
+                    id: 'earth-land',
+                    name: 'Earth Land',
+                    type_line: 'Basic Land - Mountain',
+                  },
+                ],
+              }
+            : player
+        ),
+      } as any;
+
+      const processed = (adapter as any).processDiesDelayedTriggers('test-game', startState, nextState);
+
+      expect(processed.state.delayedTriggerRegistry.triggers).toHaveLength(0);
+      expect(processed.state.delayedTriggerRegistry.firedTriggerIds).toContain(delayedTrigger.id);
+      expect((processed.state.stack as any[])).toHaveLength(1);
+
+      ((adapter as any).gameStates as Map<string, GameState>).set('test-game', processed.state);
+      const resolveResult = adapter.executeAction('test-game', { type: 'resolveStack' });
+
+      const returnedLand = (resolveResult.next.battlefield as any[]).find(
+        (perm: any) => String(perm?.card?.id || perm?.id || '') === 'earth-land'
+      ) as any;
+      const player1 = resolveResult.next.players.find(player => player.id === 'player1') as any;
+
+      expect(returnedLand).toBeTruthy();
+      expect(returnedLand?.tapped).toBe(true);
+      expect((player1.exile || []).map((card: any) => card.id)).toEqual([]);
     });
   });
   

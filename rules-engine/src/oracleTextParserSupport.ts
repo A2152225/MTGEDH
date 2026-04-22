@@ -13,7 +13,7 @@ const ORACLE_KEYWORDS = [
   'flying', 'for mirrodin!', 'forecast', 'foretell', 'formidable', 'friends forever', 'fuse',
   'gift', 'goad', 'graft', 'gravestorm', 'haste', 'haunt', 'hellbent', 'heroic', 'hexproof',
   'hidden agenda', 'hideaway', 'horsemanship', 'imprint', 'improvise', 'incubate', 'indestructible', 'infect',
-  'inspired', 'intimidate', 'investigate', 'islandwalk', 'jump-start', 'kicker', 'kinship',
+  'increment', 'inspired', 'intimidate', 'investigate', 'islandwalk', 'jump-start', 'kicker', 'kinship',
   'landfall', 'landwalk', 'learn', 'level up', 'lifelink', 'living weapon', 'madness',
   'magecraft', 'manifest', 'megamorph', 'meld', 'menace', 'mentor', 'metalcraft', 'mill',
   'miracle', 'modular', 'monstrosity', 'morbid', 'morph', 'mountainwalk', 'mutate', 'ninjutsu',

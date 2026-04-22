@@ -134,6 +134,19 @@ export function parseKeywordTriggeredAbility(text: string): ParsedAbility | null
     };
   }
 
+  if (normalized === 'increment') {
+    return {
+      type: AbilityType.TRIGGERED,
+      text,
+      triggerKeyword: 'whenever',
+      triggerCondition: 'you cast a spell',
+      interveningIf:
+        "this permanent is a creature and the amount of mana spent to cast that spell is greater than this creature's power or this creature's toughness",
+      effect: 'Put a +1/+1 counter on this creature.',
+      isOptional: false,
+    };
+  }
+
   if (normalized === 'mentor') {
     return {
       type: AbilityType.TRIGGERED,

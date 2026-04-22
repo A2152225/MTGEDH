@@ -437,6 +437,14 @@ export type OracleEffectStep =
       readonly raw: string;
     }
   | {
+      readonly kind: 'earthbend';
+      readonly target: OracleObjectSelector;
+      readonly amount: OracleQuantity;
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
       readonly kind: 'open_attraction';
       readonly who: OraclePlayerSelector;
       readonly optional?: boolean;

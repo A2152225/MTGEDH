@@ -721,6 +721,64 @@ export function evaluateEvolveComparisonCondition(
   return enteringPower > evolvingPower || enteringToughness > evolvingToughness;
 }
 
+export function evaluateSelfIsCreatureCondition(
+  condition: string,
+  eventData: TriggerEventData,
+  sourceId?: string
+): boolean | null {
+  const normalized = String(condition || '').trim().toLowerCase();
+  if (normalized !== 'this permanent is a creature') {
+    return null;
+  }
+
+  const normalizedSourceId = String(sourceId || '').trim();
+  if (!normalizedSourceId) {
+    return false;
+  }
+
+  const battlefield = Array.isArray(eventData.battlefield) ? eventData.battlefield : [];
+  const sourcePermanent = battlefield.find(entry => String(entry?.id || '').trim() === normalizedSourceId);
+  if (!sourcePermanent) {
+    return false;
+  }
+
+  return Boolean(sourcePermanent.types?.some(type => String(type || '').trim().toLowerCase() === 'creature'));
+}
+
+export function evaluateManaSpentGreaterThanSelfStatsCondition(
+  condition: string,
+  eventData: TriggerEventData,
+  sourceId?: string
+): boolean | null {
+  const normalized = String(condition || '').trim().toLowerCase();
+  if (
+    normalized !==
+    "the amount of mana spent to cast that spell is greater than this creature's power or this creature's toughness"
+  ) {
+    return null;
+  }
+
+  const normalizedSourceId = String(sourceId || '').trim();
+  const manaSpentTotal = Number(eventData.manaSpentTotal);
+  if (!normalizedSourceId || !Number.isFinite(manaSpentTotal)) {
+    return false;
+  }
+
+  const battlefield = Array.isArray(eventData.battlefield) ? eventData.battlefield : [];
+  const sourcePermanent = battlefield.find(entry => String(entry?.id || '').trim() === normalizedSourceId);
+  if (!sourcePermanent) {
+    return false;
+  }
+
+  const sourcePower = Number(sourcePermanent.power);
+  const sourceToughness = Number(sourcePermanent.toughness);
+  if (!Number.isFinite(sourcePower) || !Number.isFinite(sourceToughness)) {
+    return false;
+  }
+
+  return manaSpentTotal > sourcePower || manaSpentTotal > sourceToughness;
+}
+
 export function evaluateControlCondition(
   condition: string,
   controllerId: PlayerID | string,

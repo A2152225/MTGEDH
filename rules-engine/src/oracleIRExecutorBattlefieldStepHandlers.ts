@@ -31,12 +31,14 @@ import {
 import { createLastKnownPermanentSnapshot, type LastKnownPermanentSnapshot } from './oracleIRExecutorLastKnownInfo';
 import {
   resolveBolsterTargetCreatureIdFromBattlefield,
+  getProcessedBattlefield,
   resolveMentorTargetCreatureIdFromBattlefield,
   resolveSingleCreatureTargetId,
 } from './oracleIRExecutorCreatureStepUtils';
 import { getExecutorTypeLineLower } from './oracleIRExecutorPermanentUtils';
 import { getCardManaValue, getCardTypeLineLower, quantityToNumber, resolvePlayers } from './oracleIRExecutorPlayerUtils';
 import { canTargetPermanent } from './permanentTargeting';
+import { EARTHBENDED_PROPERTIES } from './keywordActions/earthbend';
 
 type StepApplyResult = {
   readonly applied: true;
@@ -1946,6 +1948,145 @@ export function applyExertStep(
     applied: true,
     state: nextState,
     log: [`Exerted ${targets.length} permanent(s)`],
+  };
+}
+
+export function applyEarthbendStep(
+  state: GameState,
+  step: Extract<OracleEffectStep, { kind: 'earthbend' }>,
+  ctx: OracleIRExecutionContext
+): BattlefieldStepHandlerResult {
+  const amountValue = quantityToNumber(step.amount, ctx);
+  if (amountValue === null || amountValue < 0) {
+    return {
+      applied: false,
+      message: `Skipped earthbend (unsupported amount): ${step.raw}`,
+      reason: 'unsupported_target',
+    };
+  }
+
+  const battlefield = (state.battlefield || []) as BattlefieldPermanent[];
+  const targetText = String((step.target as any)?.text || '').trim().toLowerCase();
+  const explicitTargetId = String(ctx.targetPermanentId || '').trim();
+  const targets =
+    explicitTargetId && /^target\b/.test(targetText)
+      ? battlefield.filter((perm: any) => String((perm as any)?.id || '').trim() === explicitTargetId)
+      : resolveDirectBattlefieldPermanents(battlefield, step.target as any, ctx);
+  const targetIds = Array.from(
+    new Set(targets.map((perm: any) => String((perm as any)?.id || '').trim()).filter(Boolean))
+  );
+
+  if (targetIds.length === 0) {
+    return {
+      applied: false,
+      message: `Skipped earthbend (no deterministic target): ${step.raw}`,
+      reason: 'no_deterministic_target',
+    };
+  }
+
+  if (targetIds.length > 1 && /^target\b/.test(targetText)) {
+    return {
+      applied: false,
+      message: `Skipped earthbend (needs player choice): ${step.raw}`,
+      reason: 'player_choice_required',
+      options: { classification: 'player_choice' },
+    };
+  }
+
+  const currentTurn = Number((state as any).turnNumber ?? (state as any).turn ?? 0) || 0;
+  const controllerId = (String(ctx.controllerId || '').trim() || String((targets[0] as any)?.controller || '').trim()) as PlayerID;
+
+  const nextBattlefield = battlefield.map((permanent: any) => {
+    const permanentId = String((permanent as any)?.id || '').trim();
+    if (!targetIds.includes(permanentId)) return permanent;
+
+    const earthbendedPermanent = appendPermanentTypes(permanent, EARTHBENDED_PROPERTIES.addedTypes);
+    const counters = { ...(((earthbendedPermanent as any)?.counters || {}) as Record<string, number>) };
+    const currentCounterCount = Number(counters['+1/+1'] ?? 0);
+    counters['+1/+1'] = (Number.isFinite(currentCounterCount) ? currentCounterCount : 0) + amountValue;
+
+    const grantedAbilities = Array.isArray((earthbendedPermanent as any)?.grantedAbilities)
+      ? [...(earthbendedPermanent as any).grantedAbilities]
+      : [];
+    if (!grantedAbilities.some((ability: unknown) => String(ability || '').trim().toLowerCase() === 'haste')) {
+      grantedAbilities.push('haste');
+    }
+
+    return {
+      ...(earthbendedPermanent as any),
+      counters,
+      power: EARTHBENDED_PROPERTIES.basePower,
+      toughness: EARTHBENDED_PROPERTIES.baseToughness,
+      basePower: EARTHBENDED_PROPERTIES.basePower,
+      baseToughness: EARTHBENDED_PROPERTIES.baseToughness,
+      effectivePower: undefined,
+      effectiveToughness: undefined,
+      grantedAbilities,
+    } as BattlefieldPermanent;
+  });
+
+  const processedBattlefield = getProcessedBattlefield({ ...(state as any), battlefield: nextBattlefield } as GameState);
+  const processedById = new Map(
+    processedBattlefield.map((permanent: any) => [String((permanent as any)?.id || '').trim(), permanent])
+  );
+  const reconciledBattlefield = nextBattlefield.map((permanent: any) => {
+    const permanentId = String((permanent as any)?.id || '').trim();
+    if (!targetIds.includes(permanentId)) return permanent;
+    const processedPermanent = processedById.get(permanentId) as any;
+    if (!processedPermanent) return permanent;
+    return {
+      ...(permanent as any),
+      power:
+        typeof processedPermanent.effectivePower === 'number'
+          ? processedPermanent.effectivePower
+          : typeof processedPermanent.power === 'number'
+            ? processedPermanent.power
+            : (permanent as any).power,
+      toughness:
+        typeof processedPermanent.effectiveToughness === 'number'
+          ? processedPermanent.effectiveToughness
+          : typeof processedPermanent.toughness === 'number'
+            ? processedPermanent.toughness
+            : (permanent as any).toughness,
+      effectivePower: processedPermanent.effectivePower,
+      effectiveToughness: processedPermanent.effectiveToughness,
+      grantedAbilities: processedPermanent.grantedAbilities,
+    } as BattlefieldPermanent;
+  });
+
+  let delayedTriggerRegistry = ((state as any).delayedTriggerRegistry || createDelayedTriggerRegistry()) as ReturnType<typeof createDelayedTriggerRegistry>;
+  for (const targetId of targetIds) {
+    delayedTriggerRegistry = registerDelayedTrigger(
+      delayedTriggerRegistry,
+      createDelayedTrigger(
+        String(ctx.sourceId || ctx.sourceName || 'earthbend').trim() || 'earthbend',
+        String(ctx.sourceName || 'Earthbend').trim() || 'Earthbend',
+        controllerId,
+        DelayedTriggerTiming.WHEN_DIES_OR_EXILED,
+        'Return it to the battlefield tapped under your control.',
+        currentTurn,
+        {
+          watchingPermanentId: targetId,
+          targets: [targetId],
+          eventDataSnapshot: {
+            sourceId: String(ctx.sourceId || '').trim() || undefined,
+            sourceControllerId: String(controllerId || '').trim() || undefined,
+            targetPermanentId: targetId,
+            chosenObjectIds: [targetId],
+          },
+        }
+      )
+    );
+  }
+
+  return {
+    applied: true,
+    state: {
+      ...(state as any),
+      battlefield: reconciledBattlefield as any,
+      delayedTriggerRegistry,
+    } as GameState,
+    log: [`Earthbended ${targetIds.length} land(s) with ${amountValue} +1/+1 counter(s)`],
   };
 }
 

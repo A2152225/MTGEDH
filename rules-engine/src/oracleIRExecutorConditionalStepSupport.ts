@@ -4,7 +4,7 @@ import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
 import { getContextSourceObject } from './oracleIRExecutorContextRefUtils';
 import { getAmountOfManaSpent } from './oracleIRExecutorManaUtils';
 import { evaluateModifyPtCondition } from './oracleIRExecutorModifyPtCondition';
-import { findObjectByIdInState } from './oracleIRExecutorModifyPtWhereUtils';
+import { findObjectByIdInState, getCreatureSubtypeKeys } from './oracleIRExecutorModifyPtWhereUtils';
 import { getProcessedBattlefield } from './oracleIRExecutorCreatureStepUtils';
 import { getExecutorTypeLineLower, hasExecutorClass } from './oracleIRExecutorPermanentUtils';
 import { deriveWinningVoteChoice, getCardManaValue } from './oracleIRExecutorPlayerUtils';
@@ -217,6 +217,27 @@ function getConditionalObjectZoneProvenance(object: any): { castFromZone?: strin
   const enteredFromZone =
     String(object?.enteredFromZone || object?.card?.enteredFromZone || '').trim().toLowerCase() || undefined;
   return { castFromZone, enteredFromZone };
+}
+
+function getTopLibraryCard(nextState: GameState, ownerId: string): any | null {
+  const normalizedOwnerId = String(ownerId || '').trim();
+  if (!normalizedOwnerId) return null;
+  const player = (nextState.players || []).find((entry: any) => String(entry?.id || '').trim() === normalizedOwnerId) as any;
+  return Array.isArray(player?.library) && player.library.length > 0 ? player.library[0] : null;
+}
+
+function topCardSharesCreatureTypeWithSource(nextState: GameState, ownerId: string, sourceRef: any): boolean {
+  const topCard = getTopLibraryCard(nextState, ownerId);
+  if (!topCard || !sourceRef) return false;
+
+  const topCardSubtypes = new Set(getCreatureSubtypeKeys(topCard, getExecutorTypeLineLower));
+  const sourceSubtypes = new Set(getCreatureSubtypeKeys(sourceRef, getExecutorTypeLineLower));
+  if (topCardSubtypes.size === 0 || sourceSubtypes.size === 0) return false;
+
+  for (const subtype of topCardSubtypes) {
+    if (sourceSubtypes.has(subtype)) return true;
+  }
+  return false;
 }
 
 export function evaluateConditionalWrapperCondition(params: {
@@ -799,6 +820,17 @@ export function evaluateConditionalWrapperCondition(params: {
         return cardMatchesType(topCard, parsedType);
       }
     }
+  }
+
+  if (
+    normalizedRaw === 'it shares a creature type with this creature' ||
+    normalizedRaw === 'that card shares a creature type with this creature' ||
+    normalizedRaw === 'it shares a creature type with this permanent' ||
+    normalizedRaw === 'that card shares a creature type with this permanent'
+  ) {
+    const libraryOwnerId = String(ctx.lastTopLibraryOwnerId || controllerId || '').trim();
+    if (!libraryOwnerId) return null;
+    return topCardSharesCreatureTypeWithSource(nextState, libraryOwnerId, sourceRef);
   }
 
   if (!sourceRef) return null;

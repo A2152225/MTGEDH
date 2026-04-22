@@ -103,7 +103,17 @@ export interface BecomesBlockedTriggerProcessingOptions extends TriggerProcessin
 }
 
 export interface DelayedTriggerEventCheck {
-  readonly type: 'end_step' | 'upkeep' | 'combat_end' | 'combat_begin' | 'cleanup' | 'permanent_left' | 'dies' | 'control_lost' | 'turn_start';
+  readonly type:
+    | 'end_step'
+    | 'upkeep'
+    | 'combat_end'
+    | 'combat_begin'
+    | 'cleanup'
+    | 'permanent_left'
+    | 'dies'
+    | 'dies_or_exiled'
+    | 'control_lost'
+    | 'turn_start';
   readonly playerId?: string;
   readonly activePlayerId?: string;
   readonly permanentId?: string;
@@ -1021,6 +1031,11 @@ export function checkSpellCastTriggers(
   const resolvedSpellType = String(resolvedCastCard?.type_line || '').trim();
   const normalizedSpellType = resolvedSpellType.toLowerCase();
   const spellManaValue = getCardManaValue(resolvedCastCard);
+  const manaSpentTotal = Number(
+    (options.eventData as any)?.manaSpentTotal ??
+    stackSpell?.manaSpentTotal ??
+    stackSpell?.card?.manaSpentTotal
+  );
   const spellCastCountThisTurn = Number((((state as any)?.spellsCastThisTurn || {})?.[casterId] || 0));
   const noncreatureSpellCastCountThisTurn = Number(
     ((((state as any)?.noncreatureSpellsCastThisTurn || {})?.[casterId] || 0))
@@ -1051,6 +1066,7 @@ export function checkSpellCastTriggers(
       affectedPlayerIds: [casterId],
       spellType: resolvedSpellType || undefined,
       ...(spellManaValue !== null ? { spellManaValue } : {}),
+      ...(Number.isFinite(manaSpentTotal) ? { manaSpentTotal } : {}),
       ...(Number.isFinite(spellCastCountThisTurn) ? { spellCastCountThisTurn } : {}),
       ...(Number.isFinite(noncreatureSpellCastCountThisTurn) ? { noncreatureSpellCastCountThisTurn } : {}),
     }

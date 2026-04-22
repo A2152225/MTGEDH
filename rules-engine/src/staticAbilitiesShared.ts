@@ -58,6 +58,7 @@ export interface StaticAbility {
   layer: number;
   countFilter?: {
     types?: string[];
+    cardTypes?: string[];
     other?: boolean;
     controller?: 'you' | 'opponents' | 'any';
   };

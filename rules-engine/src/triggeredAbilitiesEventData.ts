@@ -39,6 +39,7 @@ export interface TriggerEventData {
   readonly cardsDrawn?: number;
   readonly spellType?: string;
   readonly spellManaValue?: number;
+  readonly manaSpentTotal?: number;
   readonly spellCastCountThisTurn?: number;
   readonly noncreatureSpellCastCountThisTurn?: number;
   readonly wonCoinFlip?: boolean;
@@ -360,6 +361,7 @@ export function buildTriggerEventDataFromPayloads(
     cardsDrawn: scalarNumber('cardsDrawn'),
     spellType: scalarString('spellType'),
     spellManaValue: scalarNumber('spellManaValue'),
+    manaSpentTotal: scalarNumber('manaSpentTotal'),
     spellCastCountThisTurn: scalarNumber('spellCastCountThisTurn'),
     noncreatureSpellCastCountThisTurn: scalarNumber('noncreatureSpellCastCountThisTurn'),
     wonCoinFlip: scalarBool('wonCoinFlip'),

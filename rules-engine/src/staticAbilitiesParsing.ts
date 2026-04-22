@@ -353,5 +353,27 @@ export function parseStaticAbilities(
     });
   }
 
+  const ptEqualLandsMatch = oracleText.match(
+    /(?:~'?s?|this (?:creature|permanent)'?s?)\s+power\s+and\s+toughness\s+are\s+each\s+equal\s+to\s+(?:the\s+)?number\s+of\s+lands\s+you\s+control/i
+  );
+  if (ptEqualLandsMatch) {
+    abilities.push({
+      id: `${permanentId}-pt-equal-lands`,
+      sourceId: permanentId,
+      sourceName: name,
+      controllerId,
+      effectType: StaticEffectType.SET_PT,
+      filter: {
+        selfOnly: true,
+      },
+      value: 'count',
+      countFilter: {
+        cardTypes: ['land'],
+        controller: 'you',
+      },
+      layer: 7,
+    });
+  }
+
   return abilities;
 }

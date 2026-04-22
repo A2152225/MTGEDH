@@ -56,6 +56,7 @@ import { dispatchRulesEngineAction } from './rulesEngineAdapterActionDispatch';
 import {
   processControlLossDelayedTriggersForState,
   processDiesDelayedTriggersForState,
+  processDiesOrExileDelayedTriggersForState,
 } from './rulesEngineAdapterDelayedTriggerSupport';
 import {
   createDelayedTrigger,
@@ -2519,13 +2520,26 @@ export class RulesEngineAdapter {
     previousState: GameState,
     nextState: GameState
   ): { state: GameState; log: string[] } {
-    return processDiesDelayedTriggersForState({
+    const diesResult = processDiesDelayedTriggersForState({
       gameId,
       previousState,
       nextState,
       getStack: targetGameId => this.stacks.get(targetGameId),
       setStack: (targetGameId, stack) => this.stacks.set(targetGameId, stack),
     });
+
+    const exileResult = processDiesOrExileDelayedTriggersForState({
+      gameId,
+      previousState,
+      nextState: diesResult.state,
+      getStack: targetGameId => this.stacks.get(targetGameId),
+      setStack: (targetGameId, stack) => this.stacks.set(targetGameId, stack),
+    });
+
+    return {
+      state: exileResult.state,
+      log: [...diesResult.log, ...exileResult.log],
+    };
   }
 
   private processControlLossDelayedTriggers(
@@ -2741,12 +2755,29 @@ export class RulesEngineAdapter {
       .map((line) => String(line || '').trim())
       .filter(Boolean);
 
+    const wasCastKicked = (() => {
+      const explicitWasKicked = this.getCastMetadataValue(action, sourceCard, 'wasKicked');
+      if (typeof explicitWasKicked === 'boolean') return explicitWasKicked;
+
+      for (const field of ['kickerPaidCount', 'timesKicked', 'kickedTimes'] as const) {
+        const rawValue = this.getCastMetadataValue(action, sourceCard, field);
+        const numericValue = Number(rawValue);
+        if (Number.isFinite(numericValue)) return numericValue > 0;
+      }
+
+      return false;
+    })();
+
     for (const line of lines) {
       const normalizedLine = String(line).replace(/[.;]\s*$/g, '').trim();
-      const match = normalizedLine.match(
+      const conditionalKickedMatch = normalizedLine.match(
+        /^if\s+(?:this creature|this permanent|it)\s+was kicked,\s+(?:this\s+[^.;]+?|it)\s+enters(?: the battlefield)?\s+with\s+(a|an|\d+|x|[a-z]+)\s+(.+?)\s+counters?\s+on\s+it$/i
+      );
+      const match = conditionalKickedMatch || normalizedLine.match(
         /^this\s+[^.;]+?\s+enters(?: the battlefield)?\s+with\s+(a|an|\d+|x|[a-z]+)\s+(.+?)\s+counters?\s+on\s+it$/i
       );
       if (!match) continue;
+      if (conditionalKickedMatch && !wasCastKicked) continue;
 
       const amount = parseQuantity(String(match[1] || '').trim());
       let numericAmount: number | null = null;

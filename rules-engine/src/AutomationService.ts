@@ -258,7 +258,7 @@ export function requiresDecisionToResolve(item: StackItem, state: GameState): {
       sourceId: item.id,
       sourceName: card?.name,
       description: `Choose value of X for ${card?.name}`,
-      minX: 0,
+      minX: getMinimumXValueFromOracleText(oracleText),
       mandatory: true,
       createdAt: Date.now(),
     });
@@ -955,6 +955,12 @@ function hasXInCost(manaCost?: string): boolean {
  */
 function hasXInText(oracleText: string): boolean {
   return /\bX\b/.test(oracleText) && !/\bexile\b/i.test(oracleText.split(/\bX\b/)[0] || '');
+}
+
+function getMinimumXValueFromOracleText(oracleText: string): number {
+  const normalizedText = String(oracleText || '').replace(/\u2019/g, "'");
+  if (/\bX can't be 0\b/i.test(normalizedText)) return 1;
+  return 0;
 }
 
 /**

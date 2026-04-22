@@ -268,6 +268,13 @@ export function calculateEffectivePT(
               if (!hasType && !isChangeling) continue;
             }
 
+            if (ability.countFilter.cardTypes && ability.countFilter.cardTypes.length > 0) {
+              const hasCardType = ability.countFilter.cardTypes.some(cardType =>
+                permTypeLine.includes(cardType.toLowerCase())
+              );
+              if (!hasCardType) continue;
+            }
+
             count++;
           }
 
@@ -281,6 +288,42 @@ export function calculateEffectivePT(
           const [p, t] = ability.value.split('/').map(v => parseInt(v));
           power = p;
           toughness = t;
+        } else if (ability.value === 'count' && ability.countFilter) {
+          let count = 0;
+
+          for (const perm of battlefield) {
+            const permCard = perm.card as KnownCardRef;
+            if (!permCard) continue;
+
+            const permTypeLine = (permCard.type_line || '').toLowerCase();
+
+            if (ability.countFilter.controller === 'you' && perm.controller !== ability.controllerId) {
+              continue;
+            }
+            if (ability.countFilter.controller === 'opponents' && perm.controller === ability.controllerId) {
+              continue;
+            }
+
+            if (ability.countFilter.types && ability.countFilter.types.length > 0) {
+              const hasType = ability.countFilter.types.some(t =>
+                permTypeLine.includes(t.toLowerCase())
+              );
+              const isChangeling = (permCard.oracle_text || '').toLowerCase().includes('changeling');
+              if (!hasType && !isChangeling) continue;
+            }
+
+            if (ability.countFilter.cardTypes && ability.countFilter.cardTypes.length > 0) {
+              const hasCardType = ability.countFilter.cardTypes.some(cardType =>
+                permTypeLine.includes(cardType.toLowerCase())
+              );
+              if (!hasCardType) continue;
+            }
+
+            count++;
+          }
+
+          power = count;
+          toughness = count;
         }
         break;
 

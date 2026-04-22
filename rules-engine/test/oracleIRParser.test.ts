@@ -256,7 +256,7 @@ Whenever this creature attacks, you may cast an Ally spell from among cards you 
     ]);
   });
 
-  it('prunes earthbend reminder shards while keeping the core earthbend step visible', () => {
+  it('parses earthbend while pruning redundant reminder shards', () => {
     const ir = parseOracleTextToIR(
       'When this creature dies, earthbend 2. (Target land you control becomes a 0/0 creature with haste that\'s still a land. Put two +1/+1 counters on it. When it dies or is exiled, return it to the battlefield tapped.)',
       'Earth Village Ruffians'
@@ -264,7 +264,9 @@ Whenever this creature attacks, you may cast an Ally spell from among cards you 
 
     expect(ir.abilities[0]?.steps).toEqual([
       expect.objectContaining({
-        kind: 'unknown',
+        kind: 'earthbend',
+        amount: { kind: 'number', value: 2 },
+        target: { kind: 'raw', text: 'target land you control' },
         raw: 'earthbend 2',
       }),
     ]);
@@ -7755,6 +7757,40 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
     expect(ir.abilities[0]?.steps).toEqual([]);
   });
 
+  it('treats slowland enters-tapped replacement text as a replacement ability without unknown steps', () => {
+    const ir = parseOracleTextToIR(
+      'This land enters the battlefield tapped unless you control two or more other lands.',
+      'Furycalm Snarl'
+    );
+
+    expect(ir.abilities[0]).toMatchObject({
+      type: 'replacement',
+      effectText: 'tapped unless you control two or more other lands',
+    });
+    expect(ir.abilities[0]?.steps).toEqual([]);
+  });
+
+  it('prunes champion reminder tails while preserving champion keyword capture', () => {
+    const ir = parseOracleTextToIR(
+      'Champion an Elf (When this creature enters, sacrifice it unless you exile another Elf you control. When this leaves the battlefield, that card returns to the battlefield.)',
+      'Wrens Run Packmaster'
+    );
+
+    expect(ir.keywords).toContain('champion');
+    expect(
+      ir.abilities.some((ability: any) =>
+        /when this leaves the battlefield, that card returns to the battlefield/i.test(String(ability?.text || ability?.effectText || ''))
+      )
+    ).toBe(false);
+    expect(
+      ir.abilities.some((ability: any) =>
+        (ability?.steps || []).some((step: any) =>
+          /when this leaves the battlefield, that card returns to the battlefield/i.test(String(step?.raw || ''))
+        )
+      )
+    ).toBe(false);
+  });
+
   it('lowers self X enters-with-counters replacement text into an add_counter step', () => {
     const ir = parseOracleTextToIR('This creature enters with X +1/+1 counters on it.', 'Magma Pummeler');
 
@@ -7789,6 +7825,38 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
         raw: 'with two charge counters on it',
       },
     ]);
+  });
+
+  it('lowers kicked self-entry counter replacement text into an add_counter step', () => {
+    const ir = parseOracleTextToIR(
+      'Kicker {3} (You may pay an additional {3} as you cast this spell.)\nIf this creature was kicked, it enters with two +1/+1 counters on it.',
+      'Kicked Illusion Probe'
+    );
+
+    expect(ir.abilities[0]).toMatchObject({
+      type: 'replacement',
+      triggerCondition: 'this creature was kicked',
+      effectText: 'it enters with two +1/+1 counters on it',
+    });
+    expect(ir.abilities[0]?.steps).toEqual([
+      {
+        kind: 'add_counter',
+        target: { kind: 'raw', text: 'this permanent' },
+        counter: '+1/+1',
+        amount: { kind: 'number', value: 2 },
+        raw: 'it enters with two +1/+1 counters on it',
+      },
+    ]);
+  });
+
+  it('prunes X cannot be zero reminder tails after parsing the main X effect', () => {
+    const ir = parseOracleTextToIR(
+      'This spell costs {1} more to cast for each target beyond the first. Fireball deals X damage divided evenly, rounded down, among any number of targets. X can\'t be 0.',
+      'Fireball'
+    );
+
+    const allSteps = ir.abilities.flatMap((ability: any) => ability?.steps || []);
+    expect(allSteps.some((step: any) => /^x can't be 0$/i.test(String(step?.raw || '').trim()))).toBe(false);
   });
 
   it('prunes redundant infect keyword placeholder steps while preserving keyword capture', () => {
@@ -8994,6 +9062,51 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
         amount: { kind: 'number', value: 1 },
         optional: true,
         raw: 'you may look at the top card of your library',
+      },
+    ]);
+  });
+
+  it('parses kinship reveal gates into a nested reveal-top conditional', () => {
+    const ir = parseOracleTextToIR(
+      'Kinship — At the beginning of your upkeep, you may look at the top card of your library. If it shares a creature type with this creature, you may reveal it. If you do, put a +1/+1 counter on this creature.',
+      'Kinship Counter Probe'
+    );
+
+    expect(ir.abilities[0]?.steps).toEqual([
+      {
+        kind: 'look_top',
+        who: { kind: 'you' },
+        amount: { kind: 'number', value: 1 },
+        optional: true,
+        raw: 'you may look at the top card of your library',
+      },
+      {
+        kind: 'conditional',
+        condition: { kind: 'if', raw: 'it shares a creature type with this creature' },
+        raw: 'If it shares a creature type with this creature, you may reveal it If you do, put a +1/+1 counter on this creature',
+        steps: [
+          {
+            kind: 'reveal_top',
+            who: { kind: 'you' },
+            amount: { kind: 'number', value: 1 },
+            optional: true,
+            raw: 'You may reveal the top card of your library.',
+          },
+          {
+            kind: 'conditional',
+            condition: { kind: 'if', raw: 'you do' },
+            raw: 'If you do, put a +1/+1 counter on this creature',
+            steps: [
+              {
+                kind: 'add_counter',
+                amount: { kind: 'number', value: 1 },
+                counter: '+1/+1',
+                target: { kind: 'raw', text: 'this creature' },
+                raw: 'put a +1/+1 counter on this creature',
+              },
+            ],
+          },
+        ],
       },
     ]);
   });
@@ -11205,6 +11318,37 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
     expect(ir.abilities).toEqual([]);
   });
 
+  it('prunes lands-you-control characteristic-defining static abilities handled by battlefield evaluation', () => {
+    const ir = parseOracleTextToIR(
+      "This creature's power and toughness are each equal to the number of lands you control.",
+      'Terrain Elemental Variant'
+    );
+
+    expect(ir.abilities).toEqual([]);
+  });
+
+  it('prunes additional-blocker static abilities handled by combat validation', () => {
+    const ir = parseOracleTextToIR(
+      'Seasoned Shieldmate can block an additional creature each combat.',
+      'Seasoned Shieldmate'
+    );
+
+    expect(ir.abilities).toEqual([]);
+  });
+
+  it('prunes attached creature pump-plus-keyword lines handled by static battlefield evaluation', () => {
+    const ir = parseOracleTextToIR(
+      'Enchant creature\nEnchanted creature gets +2/+2 and has flying.',
+      'Flight Variant'
+    );
+
+    expect(
+      ir.abilities.some((ability) =>
+        /enchanted creature gets \+2\/\+2 and has flying/i.test(String(ability.text || ability.effectText || ''))
+      )
+    ).toBe(false);
+  });
+
   it('prunes bare landwalk keyword lines from unknown IR steps', () => {
     const ir = parseOracleTextToIR('Swampwalk', 'Bog Wraith');
 
@@ -13220,6 +13364,46 @@ This creature has protection from each of the exiled card's card types. (Artifac
     expect(ir.abilities[0]?.steps.some((step: any) => String(step?.raw || '').trim() === 'You may cast the copy without paying its mana cost')).toBe(false);
   });
 
+  it('parses create-a-copy wording plus free-cast followup into a last_moved_card copy_spell step', () => {
+    const ir = parseOracleTextToIR(
+      'Exile target instant or sorcery card from a graveyard. Create a copy of that card. You may cast the copy without paying its mana cost.',
+      'Mysterious Confluence'
+    );
+
+    expect(ir.abilities[0]?.steps).toEqual([
+      expect.objectContaining({
+        kind: 'move_zone',
+        to: 'exile',
+        what: { kind: 'raw', text: 'target instant or sorcery card from a graveyard' },
+      }),
+      expect.objectContaining({
+        kind: 'copy_spell',
+        subject: 'last_moved_card',
+        optional: true,
+        withoutPayingManaCost: true,
+      }),
+    ]);
+    expect(ir.abilities[0]?.steps.some((step: any) => String(step?.raw || '').trim() === 'You may cast the copy without paying its mana cost')).toBe(false);
+  });
+
+  it('parses linked-exile copy wording plus free-cast followup into a linked_exiled_cards copy_spell step', () => {
+    const ir = parseOracleTextToIR(
+      "When this creature enters, copy a card you exiled with cards named Arcane Savant. You may cast the copy without paying its mana cost.",
+      'Arcane Savant'
+    );
+
+    expect(ir.abilities[0]?.type).toBe('triggered');
+    expect(ir.abilities[0]?.steps).toEqual([
+      expect.objectContaining({
+        kind: 'copy_spell',
+        subject: 'linked_exiled_cards',
+        optional: true,
+        withoutPayingManaCost: true,
+      }),
+    ]);
+    expect(ir.abilities[0]?.steps.some((step: any) => String(step?.raw || '').trim() === 'You may cast the copy without paying its mana cost')).toBe(false);
+  });
+
   it('parses linked exiled-card copy clauses with if-you-do free-cast tails', () => {
     const ir = parseOracleTextToIR(
       'Imprint - When this artifact enters, you may exile an instant card with mana value 2 or less from your hand.\n{2}, {T}: You may copy the exiled card. If you do, you may cast the copy without paying its mana cost.',
@@ -13235,6 +13419,55 @@ This creature has protection from each of the exiled card's card types. (Artifac
         withoutPayingManaCost: true,
       }),
     ]);
+  });
+
+  it('parses conditional exile-copy-free-cast clauses into a copy_spell step', () => {
+    const ir = parseOracleTextToIR(
+      "When this creature enters, if you cast it, exile target instant or sorcery card with mana value less than or equal to this creature's power from your graveyard. Copy that card. You may cast the copy without paying its mana cost.",
+      "Chandra's Dragonmech"
+    );
+
+    const triggered = ir.abilities.find((ability: any) => ability.type === 'triggered');
+    expect(triggered?.steps).toEqual([
+      expect.objectContaining({
+        kind: 'conditional',
+        condition: { kind: 'if', raw: 'you cast it' },
+        steps: [
+          expect.objectContaining({
+            kind: 'move_zone',
+            to: 'exile',
+          }),
+          expect.objectContaining({
+            kind: 'copy_spell',
+            subject: 'last_moved_card',
+            optional: true,
+            withoutPayingManaCost: true,
+          }),
+        ],
+      }),
+    ]);
+  });
+
+  it('parses random-exile copy-free-cast clauses into a copy_spell step', () => {
+    const ir = parseOracleTextToIR(
+      'When this creature enters and at the beginning of your upkeep, choose a player at random. That player exiles an instant or sorcery card from their graveyard. Copy that card. You may cast the copy without paying its mana cost.',
+      'Mysterious Stranger'
+    );
+
+    const triggerWithCopy = ir.abilities.find((ability: any) =>
+      ability.type === 'triggered' &&
+      ability.steps.some((step: any) => step.kind === 'copy_spell')
+    );
+    expect(triggerWithCopy?.steps.some((step: any) => step.kind === 'copy_spell')).toBe(true);
+    expect(triggerWithCopy?.steps).toContainEqual(
+      expect.objectContaining({
+        kind: 'copy_spell',
+        subject: 'last_moved_card',
+        optional: true,
+        withoutPayingManaCost: true,
+      })
+    );
+    expect(triggerWithCopy?.steps.some((step: any) => String(step?.raw || '').trim() === 'You may cast the copy without paying its mana cost')).toBe(false);
   });
 
   it("parses Wizard's Spellbook into exile, roll_die, and die-roll result branches", () => {

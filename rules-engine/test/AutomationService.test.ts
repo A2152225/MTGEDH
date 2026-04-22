@@ -122,6 +122,35 @@ describe('AutomationService target decisions', () => {
     ]);
   });
 
+  it('sets minX to 1 when oracle text says X cannot be 0', () => {
+    const state: GameState = {
+      players: [
+        { id: 'player1', name: 'Player 1', life: 40 },
+        { id: 'player2', name: 'Player 2', life: 40 },
+      ],
+      battlefield: [],
+      stack: [],
+    } as any;
+
+    const result = requiresDecisionToResolve({
+      id: 'spell-x-1',
+      type: 'spell',
+      controller: 'player1',
+      card: {
+        name: 'Mind Spring Variant',
+        type_line: 'Sorcery',
+        mana_cost: '{X}{U}{U}',
+        oracle_text: 'Draw X cards. X can\'t be 0.',
+      },
+      targets: [],
+    } as any, state);
+
+    expect(result.requires).toBe(true);
+    expect(result.decisions).toHaveLength(1);
+    expect(result.decisions[0].type).toBe('select_x_value');
+    expect(result.decisions[0].minX).toBe(1);
+  });
+
   it('excludes self-controlled and land permanents from old nonland-opponent target prompts', () => {
     const state: GameState = {
       players: [

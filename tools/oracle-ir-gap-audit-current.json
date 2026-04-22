@@ -1,10 +1,10 @@
 {
   "meta": {
-    "generatedAt": "2026-04-22T04:24:45.233Z",
+    "generatedAt": "2026-04-22T05:06:23.741Z",
     "oraclePath": "D:\\Git\\MTGEDH\\oracle-cards.json",
     "atomicPath": "D:\\Git\\MTGEDH\\AtomicCards.json",
     "includeOracle": true,
-    "includeAtomic": false,
+    "includeAtomic": true,
     "maxExamples": 5,
     "top": 100
   },
@@ -13,7 +13,7 @@
     "scannedOracleCards": 29539,
     "scannedAtomicCards": 0,
     "skippedDuplicateOracleId": 0,
-    "cardsWithAnyGap": 11360
+    "cardsWithAnyGap": 11352
   },
   "topGaps": [
     {
@@ -110,19 +110,19 @@
       "raw": "You may cast the copy without paying its mana cost",
       "gapType": "unknown-step",
       "fieldPath": "unknown",
-      "count": 14,
+      "count": 13,
       "exampleCards": [
-        "Mysterious Confluence",
         "Chandra's Dragonmech",
         "Spellweaver Volute",
         "Mysterious Stranger",
-        "Myra the Magnificent"
+        "Myra the Magnificent",
+        "Arcane Savant"
       ],
       "exampleClauses": [
         "You may cast the copy without paying its mana cost"
       ],
       "sources": {
-        "oracle-cards": 14,
+        "oracle-cards": 13,
         "AtomicCards": 0
       }
     },
@@ -795,29 +795,6 @@
     },
     {
       "rank": 36,
-      "key": "unknown-step|unknown|earthbend 2",
-      "raw": "earthbend 2",
-      "gapType": "unknown-step",
-      "fieldPath": "unknown",
-      "count": 9,
-      "exampleCards": [
-        "Earth Village Ruffians",
-        "Badgermole",
-        "Toph, the Blind Bandit",
-        "Earthbending Student",
-        "Ba Sing Se"
-      ],
-      "exampleClauses": [
-        "earthbend 2",
-        "Earthbend 2"
-      ],
-      "sources": {
-        "oracle-cards": 9,
-        "AtomicCards": 0
-      }
-    },
-    {
-      "rank": 37,
       "key": "unknown-step|unknown|he enters tapped and attacking.)",
       "raw": "He enters tapped and attacking.)",
       "gapType": "unknown-step",
@@ -839,7 +816,7 @@
       }
     },
     {
-      "rank": 38,
+      "rank": 37,
       "key": "unknown-step|unknown|if you cast it any time a sorcery couldn't have been cast, the controller of the permanent it becomes sacrifices it at the beginning of the next cleanup step",
       "raw": "If you cast it any time a sorcery couldn't have been cast, the controller of the permanent it becomes sacrifices it at the beginning of the next cleanup step",
       "gapType": "unknown-step",
@@ -861,7 +838,7 @@
       }
     },
     {
-      "rank": 39,
+      "rank": 38,
       "key": "unknown-step|unknown|put its counters on target creature you control",
       "raw": "put its counters on target creature you control",
       "gapType": "unknown-step",
@@ -883,7 +860,7 @@
       }
     },
     {
-      "rank": 40,
+      "rank": 39,
       "key": "unknown-step|unknown|reveal those cards, put them into your hand",
       "raw": "Reveal those cards, put them into your hand",
       "gapType": "unknown-step",
@@ -905,7 +882,7 @@
       }
     },
     {
-      "rank": 41,
+      "rank": 40,
       "key": "unknown-step|unknown|target creature blocks this creature this turn if able",
       "raw": "Target creature blocks this creature this turn if able",
       "gapType": "unknown-step",
@@ -927,7 +904,7 @@
       }
     },
     {
-      "rank": 42,
+      "rank": 41,
       "key": "unknown-step|unknown|that many plus one +1/+1 counters are put on it",
       "raw": "that many plus one +1/+1 counters are put on it",
       "gapType": "unknown-step",
@@ -949,7 +926,7 @@
       }
     },
     {
-      "rank": 43,
+      "rank": 42,
       "key": "unknown-step|unknown|then put the rest on the bottom of your library in a random order",
       "raw": "then put the rest on the bottom of your library in a random order",
       "gapType": "unknown-step",
@@ -972,7 +949,7 @@
       }
     },
     {
-      "rank": 44,
+      "rank": 43,
       "key": "unknown-fragment|impulse_exile_top.amount|until you exile a nonland card with mana value 4 or less",
       "raw": "until you exile a nonland card with mana value 4 or less",
       "gapType": "unknown-fragment",
@@ -994,7 +971,7 @@
       }
     },
     {
-      "rank": 45,
+      "rank": 44,
       "key": "unknown-fragment|create_token.amount|with",
       "raw": "with",
       "gapType": "unknown-fragment",
@@ -1020,7 +997,7 @@
       }
     },
     {
-      "rank": 46,
+      "rank": 45,
       "key": "unknown-step|unknown|you may cast this spell as though it had flash",
       "raw": "You may cast this spell as though it had flash",
       "gapType": "unknown-step",
@@ -1042,7 +1019,7 @@
       }
     },
     {
-      "rank": 47,
+      "rank": 46,
       "key": "unknown-step|unknown|4/4",
       "raw": "4/4",
       "gapType": "unknown-step",
@@ -1064,7 +1041,7 @@
       }
     },
     {
-      "rank": 48,
+      "rank": 47,
       "key": "unknown-step|unknown|add one mana of any color in your commander's color identity",
       "raw": "Add one mana of any color in your commander's color identity",
       "gapType": "unknown-step",
@@ -1086,7 +1063,7 @@
       }
     },
     {
-      "rank": 49,
+      "rank": 48,
       "key": "unknown-step|unknown|choose a nonland card name",
       "raw": "Choose a nonland card name",
       "gapType": "unknown-step",
@@ -1108,7 +1085,7 @@
       }
     },
     {
-      "rank": 50,
+      "rank": 49,
       "key": "unknown-step|unknown|choose one",
       "raw": "Choose one",
       "gapType": "unknown-step",
@@ -1130,7 +1107,7 @@
       }
     },
     {
-      "rank": 51,
+      "rank": 50,
       "key": "unknown-step|unknown|creatures with power less than this creature's power can't block it",
       "raw": "Creatures with power less than this creature's power can't block it",
       "gapType": "unknown-step",
@@ -1152,7 +1129,7 @@
       }
     },
     {
-      "rank": 52,
+      "rank": 51,
       "key": "unknown-step|unknown|damage can't be prevented this turn",
       "raw": "Damage can't be prevented this turn",
       "gapType": "unknown-step",
@@ -1174,7 +1151,7 @@
       }
     },
     {
-      "rank": 53,
+      "rank": 52,
       "key": "unknown-step|unknown|discard any number of cards",
       "raw": "Discard any number of cards",
       "gapType": "unknown-step",
@@ -1197,7 +1174,7 @@
       }
     },
     {
-      "rank": 54,
+      "rank": 53,
       "key": "unknown-step|unknown|each player shuffles their hand and graveyard into their library",
       "raw": "Each player shuffles their hand and graveyard into their library",
       "gapType": "unknown-step",
@@ -1219,7 +1196,7 @@
       }
     },
     {
-      "rank": 55,
+      "rank": 54,
       "key": "unknown-step|unknown|enchanted creature gets +1/+1 and has flying",
       "raw": "Enchanted creature gets +1/+1 and has flying",
       "gapType": "unknown-step",
@@ -1241,7 +1218,7 @@
       }
     },
     {
-      "rank": 56,
+      "rank": 55,
       "key": "unknown-fragment|modify_pt.scaler|for each creature blocking it",
       "raw": "for each creature blocking it",
       "gapType": "unknown-fragment",
@@ -1265,7 +1242,7 @@
       }
     },
     {
-      "rank": 57,
+      "rank": 56,
       "key": "unknown-step|unknown|if damage would be dealt to this creature, prevent that damage",
       "raw": "If damage would be dealt to this creature, prevent that damage",
       "gapType": "unknown-step",
@@ -1287,7 +1264,7 @@
       }
     },
     {
-      "rank": 58,
+      "rank": 57,
       "key": "unknown-step|unknown|if its toughness is 0 or less, it still dies.)",
       "raw": "If its toughness is 0 or less, it still dies.)",
       "gapType": "unknown-step",
@@ -1309,7 +1286,7 @@
       }
     },
     {
-      "rank": 59,
+      "rank": 58,
       "key": "unknown-step|unknown|if you do, choose an opponent to also copy it",
       "raw": "If you do, choose an opponent to also copy it",
       "gapType": "unknown-step",
@@ -1331,7 +1308,7 @@
       }
     },
     {
-      "rank": 60,
+      "rank": 59,
       "key": "unknown-step|unknown|it's an artifact creature at 8+.)",
       "raw": "It's an artifact creature at 8+.)",
       "gapType": "unknown-step",
@@ -1353,7 +1330,7 @@
       }
     },
     {
-      "rank": 61,
+      "rank": 60,
       "key": "unknown-step|unknown|level 4+",
       "raw": "LEVEL 4+",
       "gapType": "unknown-step",
@@ -1375,7 +1352,7 @@
       }
     },
     {
-      "rank": 62,
+      "rank": 61,
       "key": "unknown-step|unknown|look at target opponent's hand",
       "raw": "Look at target opponent's hand",
       "gapType": "unknown-step",
@@ -1398,7 +1375,7 @@
       }
     },
     {
-      "rank": 63,
+      "rank": 62,
       "key": "unknown-step|unknown|otherwise, put it into your hand",
       "raw": "Otherwise, put it into your hand",
       "gapType": "unknown-step",
@@ -1420,7 +1397,7 @@
       }
     },
     {
-      "rank": 64,
+      "rank": 63,
       "key": "unknown-step|unknown|reveal cards from the top of your library until you reveal a creature card",
       "raw": "Reveal cards from the top of your library until you reveal a creature card",
       "gapType": "unknown-step",
@@ -1443,7 +1420,7 @@
       }
     },
     {
-      "rank": 65,
+      "rank": 64,
       "key": "unknown-step|unknown|reveal the top card of your library and put that card into your hand",
       "raw": "Reveal the top card of your library and put that card into your hand",
       "gapType": "unknown-step",
@@ -1466,7 +1443,7 @@
       }
     },
     {
-      "rank": 66,
+      "rank": 65,
       "key": "unknown-step|unknown|roll a six-sided die",
       "raw": "Roll a six-sided die",
       "gapType": "unknown-step",
@@ -1489,7 +1466,7 @@
       }
     },
     {
-      "rank": 67,
+      "rank": 66,
       "key": "unknown-step|unknown|switch target creature's power and toughness until end of turn",
       "raw": "Switch target creature's power and toughness until end of turn",
       "gapType": "unknown-step",
@@ -1512,7 +1489,7 @@
       }
     },
     {
-      "rank": 68,
+      "rank": 67,
       "key": "unknown-step|unknown|tapped unless you control two or more basic lands",
       "raw": "tapped unless you control two or more basic lands",
       "gapType": "unknown-step",
@@ -1534,7 +1511,7 @@
       }
     },
     {
-      "rank": 69,
+      "rank": 68,
       "key": "unknown-step|unknown|target creature blocks this turn if able",
       "raw": "Target creature blocks this turn if able",
       "gapType": "unknown-step",
@@ -1557,7 +1534,7 @@
       }
     },
     {
-      "rank": 70,
+      "rank": 69,
       "key": "unknown-step|unknown|target creature you control fights target creature you don't control",
       "raw": "Target creature you control fights target creature you don't control",
       "gapType": "unknown-step",
@@ -1579,7 +1556,7 @@
       }
     },
     {
-      "rank": 71,
+      "rank": 70,
       "key": "unknown-step|unknown|target land becomes the basic land type of your choice until end of turn",
       "raw": "Target land becomes the basic land type of your choice until end of turn",
       "gapType": "unknown-step",
@@ -1601,7 +1578,7 @@
       }
     },
     {
-      "rank": 72,
+      "rank": 71,
       "key": "unknown-step|unknown|target player shuffles their graveyard into their library",
       "raw": "Target player shuffles their graveyard into their library",
       "gapType": "unknown-step",
@@ -1623,7 +1600,7 @@
       }
     },
     {
-      "rank": 73,
+      "rank": 72,
       "key": "unknown-step|unknown|that player draws an additional card",
       "raw": "that player draws an additional card",
       "gapType": "unknown-step",
@@ -1645,7 +1622,7 @@
       }
     },
     {
-      "rank": 74,
+      "rank": 73,
       "key": "unknown-fragment|gain_life.amount|the damage prevented this way",
       "raw": "the damage prevented this way",
       "gapType": "unknown-fragment",
@@ -1667,7 +1644,7 @@
       }
     },
     {
-      "rank": 75,
+      "rank": 74,
       "key": "unknown-fragment|gain_life.amount|the sacrificed creature's toughness",
       "raw": "the sacrificed creature's toughness",
       "gapType": "unknown-fragment",
@@ -1689,7 +1666,7 @@
       }
     },
     {
-      "rank": 76,
+      "rank": 75,
       "key": "unknown-step|unknown|then each player who searched their library this way shuffles",
       "raw": "Then each player who searched their library this way shuffles",
       "gapType": "unknown-step",
@@ -1711,7 +1688,7 @@
       }
     },
     {
-      "rank": 77,
+      "rank": 76,
       "key": "unknown-step|unknown|they're still lands",
       "raw": "They're still lands",
       "gapType": "unknown-step",
@@ -1733,7 +1710,7 @@
       }
     },
     {
-      "rank": 78,
+      "rank": 77,
       "key": "unknown-step|unknown|this creature becomes the creature type of your choice until end of turn",
       "raw": "This creature becomes the creature type of your choice until end of turn",
       "gapType": "unknown-step",
@@ -1755,7 +1732,7 @@
       }
     },
     {
-      "rank": 79,
+      "rank": 78,
       "key": "unknown-step|unknown|this creature can't be blocked except by three or more creatures",
       "raw": "This creature can't be blocked except by three or more creatures",
       "gapType": "unknown-step",
@@ -1777,7 +1754,7 @@
       }
     },
     {
-      "rank": 80,
+      "rank": 79,
       "key": "unknown-step|unknown|this creature gets +1/+0 for each artifact you control",
       "raw": "This creature gets +1/+0 for each artifact you control",
       "gapType": "unknown-step",
@@ -1799,7 +1776,7 @@
       }
     },
     {
-      "rank": 81,
+      "rank": 80,
       "key": "unknown-step|unknown|this creature must be blocked if able",
       "raw": "This creature must be blocked if able",
       "gapType": "unknown-step",
@@ -1821,7 +1798,7 @@
       }
     },
     {
-      "rank": 82,
+      "rank": 81,
       "key": "unknown-fragment|discard.amount|those",
       "raw": "those",
       "gapType": "unknown-fragment",
@@ -1844,7 +1821,7 @@
       }
     },
     {
-      "rank": 83,
+      "rank": 82,
       "key": "unknown-step|unknown|turn it face up any time for its mana cost if it's a creature card.)",
       "raw": "Turn it face up any time for its mana cost if it's a creature card.)",
       "gapType": "unknown-step",
@@ -1866,7 +1843,7 @@
       }
     },
     {
-      "rank": 84,
+      "rank": 83,
       "key": "unknown-step|unknown|you choose a card from it",
       "raw": "You choose a card from it",
       "gapType": "unknown-step",
@@ -1888,7 +1865,7 @@
       }
     },
     {
-      "rank": 85,
+      "rank": 84,
       "key": "unknown-step|unknown|you may cast this spell as though it had flash if you pay {2} more to cast it",
       "raw": "You may cast this spell as though it had flash if you pay {2} more to cast it",
       "gapType": "unknown-step",
@@ -1910,7 +1887,7 @@
       }
     },
     {
-      "rank": 86,
+      "rank": 85,
       "key": "unknown-step|unknown|you may choose the same mode more than once",
       "raw": "You may choose the same mode more than once",
       "gapType": "unknown-step",
@@ -1932,7 +1909,7 @@
       }
     },
     {
-      "rank": 87,
+      "rank": 86,
       "key": "unknown-step|unknown|you may pay 2 life",
       "raw": "you may pay 2 life",
       "gapType": "unknown-step",
@@ -1954,7 +1931,7 @@
       }
     },
     {
-      "rank": 88,
+      "rank": 87,
       "key": "unknown-step|unknown|you may search your library for a card named this permanent, reveal it, put it into your hand",
       "raw": "you may search your library for a card named this permanent, reveal it, put it into your hand",
       "gapType": "unknown-step",
@@ -1976,7 +1953,7 @@
       }
     },
     {
-      "rank": 89,
+      "rank": 88,
       "key": "unknown-step|unknown|add {g}, {u}, or {r}",
       "raw": "Add {G}, {U}, or {R}",
       "gapType": "unknown-step",
@@ -1998,7 +1975,7 @@
       }
     },
     {
-      "rank": 90,
+      "rank": 89,
       "key": "unknown-step|unknown|add {u}, {b}, or {r}",
       "raw": "Add {U}, {B}, or {R}",
       "gapType": "unknown-step",
@@ -2020,7 +1997,7 @@
       }
     },
     {
-      "rank": 91,
+      "rank": 90,
       "key": "unknown-step|unknown|an opponent chooses one of those piles",
       "raw": "An opponent chooses one of those piles",
       "gapType": "unknown-step",
@@ -2042,7 +2019,7 @@
       }
     },
     {
-      "rank": 92,
+      "rank": 91,
       "key": "unknown-step|unknown|an opponent separates those cards into two piles",
       "raw": "An opponent separates those cards into two piles",
       "gapType": "unknown-step",
@@ -2064,7 +2041,7 @@
       }
     },
     {
-      "rank": 93,
+      "rank": 92,
       "key": "unknown-step|unknown|choose one that hasn't been chosen this turn -",
       "raw": "Choose one that hasn't been chosen this turn -",
       "gapType": "unknown-step",
@@ -2087,7 +2064,7 @@
       }
     },
     {
-      "rank": 94,
+      "rank": 93,
       "key": "unknown-step|unknown|creatures you control of the chosen type get +1/+1",
       "raw": "Creatures you control of the chosen type get +1/+1",
       "gapType": "unknown-step",
@@ -2109,7 +2086,7 @@
       }
     },
     {
-      "rank": 95,
+      "rank": 94,
       "key": "unknown-step|unknown|damage wears off, and \"this turn\" and \"until end of turn\" effects end.)",
       "raw": "Damage wears off, and \"this turn\" and \"until end of turn\" effects end.)",
       "gapType": "unknown-step",
@@ -2131,7 +2108,7 @@
       }
     },
     {
-      "rank": 96,
+      "rank": 95,
       "key": "unknown-step|unknown|demonstrate (when you cast this spell, you may copy it",
       "raw": "Demonstrate (When you cast this spell, you may copy it",
       "gapType": "unknown-step",
@@ -2153,7 +2130,7 @@
       }
     },
     {
-      "rank": 97,
+      "rank": 96,
       "key": "unknown-step|unknown|each creature you control assigns combat damage equal to its toughness rather than its power",
       "raw": "Each creature you control assigns combat damage equal to its toughness rather than its power",
       "gapType": "unknown-step",
@@ -2175,7 +2152,7 @@
       }
     },
     {
-      "rank": 98,
+      "rank": 97,
       "key": "unknown-step|unknown|each mode must target a different player",
       "raw": "Each mode must target a different player",
       "gapType": "unknown-step",
@@ -2197,7 +2174,7 @@
       }
     },
     {
-      "rank": 99,
+      "rank": 98,
       "key": "unknown-step|unknown|enchanted permanent doesn't untap during its controller's untap step",
       "raw": "Enchanted permanent doesn't untap during its controller's untap step",
       "gapType": "unknown-step",
@@ -2219,7 +2196,7 @@
       }
     },
     {
-      "rank": 100,
+      "rank": 99,
       "key": "unknown-step|unknown|haunt (when this creature dies, exile it haunting target creature.)",
       "raw": "Haunt (When this creature dies, exile it haunting target creature.)",
       "gapType": "unknown-step",
@@ -2234,6 +2211,28 @@
       ],
       "exampleClauses": [
         "Haunt (When this creature dies, exile it haunting target creature.)"
+      ],
+      "sources": {
+        "oracle-cards": 7,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 100,
+      "key": "unknown-step|unknown|if it doesn't have suspend, it gains suspend",
+      "raw": "If it doesn't have suspend, it gains suspend",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 7,
+      "exampleCards": [
+        "The Tenth Doctor",
+        "Taigam, Master Opportunist",
+        "The Parting of the Ways",
+        "Sibylline Soothsayer",
+        "The Eleventh Doctor"
+      ],
+      "exampleClauses": [
+        "If it doesn't have suspend, it gains suspend"
       ],
       "sources": {
         "oracle-cards": 7,

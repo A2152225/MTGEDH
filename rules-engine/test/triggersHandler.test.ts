@@ -639,6 +639,35 @@ describe('triggersHandler Oracle automation', () => {
     expect(prowessTrigger?.effect).toBe('This creature gets +1/+1 until end of turn.');
   });
 
+  it('finds Increment as a spell-cast trigger with the mana-spent intervening-if clause', () => {
+    const start = makeState({
+      battlefield: [
+        {
+          id: 'increment-perm',
+          controller: 'p1',
+          owner: 'p1',
+          tapped: false,
+          card: {
+            id: 'increment-card',
+            name: 'Student of Growth',
+            type_line: 'Creature - Wizard',
+            oracle_text: 'Increment',
+          },
+        } as any,
+      ],
+    });
+
+    const abilities = findTriggeredAbilities(start);
+    const incrementTrigger = abilities.find(ability => ability.sourceId === 'increment-perm');
+
+    expect(incrementTrigger).toBeTruthy();
+    expect(incrementTrigger?.event).toBe(TriggerEvent.SPELL_CAST);
+    expect(incrementTrigger?.interveningIfClause).toBe(
+      "this permanent is a creature and the amount of mana spent to cast that spell is greater than this creature's power or this creature's toughness"
+    );
+    expect(incrementTrigger?.effect).toBe('Put a +1/+1 counter on this creature.');
+  });
+
   it('dedupes duplicate battlefield trigger discovery for special plus parsed trigger text', () => {
     const start = makeState({
       battlefield: [
@@ -3049,6 +3078,59 @@ describe('triggersHandler Oracle automation', () => {
     expect(result.oracleExecutions).toBe(1);
     expect((result.oracleStepsApplied || 0) > 0).toBe(true);
     expect(prowessModifier).toBeTruthy();
+  });
+
+  it('checkSpellCastTriggers executes Increment when mana spent is greater than the source power or toughness', () => {
+    const start = makeState({
+      battlefield: [
+        {
+          id: 'increment-source',
+          controller: 'p1',
+          owner: 'p1',
+          tapped: false,
+          summoningSickness: false,
+          power: 2,
+          toughness: 3,
+          basePower: 2,
+          baseToughness: 3,
+          card: {
+            id: 'increment-source-card',
+            name: 'Student of Growth',
+            type_line: 'Creature - Wizard',
+            oracle_text: 'Increment',
+            power: '2',
+            toughness: '3',
+          },
+        } as any,
+      ] as any,
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, hand: [], graveyard: [], library: [], exile: [] } as any,
+        { id: 'p2', name: 'P2', seat: 1, life: 40, hand: [], graveyard: [], library: [], exile: [] } as any,
+      ],
+      stack: [
+        {
+          id: 'increment-spell-on-stack',
+          type: 'spell',
+          controller: 'p1',
+          manaSpentTotal: 4,
+          card: {
+            id: 'increment-spell-card',
+            name: 'Big Study',
+            type_line: 'Sorcery',
+            oracle_text: 'Draw two cards.',
+            manaSpentTotal: 4,
+          },
+        } as any,
+      ],
+    } as any);
+
+    const result = checkSpellCastTriggers(start, 'p1');
+    const creature = (result.state.battlefield as any[]).find((perm: any) => perm.id === 'increment-source');
+
+    expect(result.triggersAdded).toBe(1);
+    expect(result.oracleExecutions).toBe(1);
+    expect((result.oracleStepsApplied || 0) > 0).toBe(true);
+    expect(creature?.counters?.['+1/+1']).toBe(1);
   });
 
   it('checkSpellCastTriggers executes self instant-or-sorcery cast triggers', () => {
@@ -6146,6 +6228,58 @@ describe('triggersHandler Oracle automation', () => {
     expect(result.oracleExecutions).toBe(1);
     expect((result.oracleStepsApplied || 0) > 0).toBe(true);
     expect(battlefieldIds).toEqual(['stangg-token']);
+    expect(updatedRegistry?.triggers || []).toHaveLength(0);
+    expect(updatedRegistry?.firedTriggerIds || []).toContain(delayedTrigger.id);
+  });
+
+  it('checkDelayedEventTriggers auto-executes watched dies-or-exile delayed triggers from exile', () => {
+    const delayedTrigger = createDelayedTrigger(
+      'earthbend-source',
+      'Earthbend',
+      'p1',
+      DelayedTriggerTiming.WHEN_DIES_OR_EXILED,
+      'Return it to the battlefield tapped under your control.',
+      8,
+      {
+        watchingPermanentId: 'earth-land',
+        eventDataSnapshot: {
+          sourceId: 'earthbend-source',
+          sourceControllerId: 'p1',
+          targetPermanentId: 'earth-land',
+          chosenObjectIds: ['earth-land'],
+        } as any,
+      }
+    );
+    const delayedRegistry = registerDelayedTrigger(createDelayedTriggerRegistry(), delayedTrigger);
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'p1c1' }],
+          hand: [],
+          graveyard: [],
+          exile: [{ id: 'earth-land', name: 'Earth Land', type_line: 'Basic Land - Mountain' }],
+        } as any,
+      ],
+      battlefield: [],
+      delayedTriggerRegistry: delayedRegistry as any,
+    } as any);
+
+    const result = checkDelayedEventTriggers(start, { type: 'dies_or_exiled', permanentId: 'earth-land' }, {
+      autoExecuteOracle: true,
+    });
+    const battlefield = result.state.battlefield || [];
+    const returnedLand = battlefield.find((perm: any) => String(perm?.card?.id || perm?.id || '') === 'earth-land') as any;
+    const updatedRegistry = (result.state as any).delayedTriggerRegistry;
+
+    expect(result.triggersAdded).toBe(1);
+    expect(result.oracleExecutions).toBe(1);
+    expect((result.oracleStepsApplied || 0) > 0).toBe(true);
+    expect(returnedLand).toBeTruthy();
+    expect(returnedLand?.tapped).toBe(true);
     expect(updatedRegistry?.triggers || []).toHaveLength(0);
     expect(updatedRegistry?.firedTriggerIds || []).toContain(delayedTrigger.id);
   });

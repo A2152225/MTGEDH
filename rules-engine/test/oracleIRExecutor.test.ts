@@ -5670,6 +5670,50 @@ describe('Oracle IR Executor', () => {
     expect((result.state as any).delayedTriggerRegistry).toBeTruthy();
   });
 
+  it('applies earthbend by animating the chosen land and registering a dies-or-exile delayed trigger', () => {
+    const ir = parseOracleTextToIR(
+      'When this creature dies, earthbend 2. (Target land you control becomes a 0/0 creature with haste that\'s still a land. Put two +1/+1 counters on it. When it dies or is exiled, return it to the battlefield tapped.)',
+      'Earth Village Ruffians'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      battlefield: [
+        {
+          id: 'earth-land',
+          controller: 'p1',
+          owner: 'p1',
+          tapped: false,
+          counters: {},
+          card: {
+            id: 'earth-land-card',
+            name: 'Mountain',
+            type_line: 'Basic Land - Mountain',
+          },
+        } as any,
+      ],
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceName: 'Earth Village Ruffians',
+      targetPermanentId: 'earth-land',
+    });
+
+    const processed = applyStaticAbilitiesToBattlefield(result.state.battlefield as any);
+    const land = processed.find((perm: any) => perm.id === 'earth-land') as any;
+    const registry = (result.state as any).delayedTriggerRegistry;
+
+    expect(result.appliedSteps.some(step => step.kind === 'earthbend')).toBe(true);
+    expect(String(land?.type_line || land?.card?.type_line || '')).toContain('Creature');
+    expect(land?.counters?.['+1/+1']).toBe(2);
+    expect(Array.isArray(land?.grantedAbilities) && land.grantedAbilities.some((ability: string) => ability.toLowerCase() === 'haste')).toBe(true);
+    expect(land?.effectivePower ?? land?.power).toBe(2);
+    expect(land?.effectiveToughness ?? land?.toughness).toBe(2);
+    expect(registry?.triggers?.[0]?.timing).toBe(DelayedTriggerTiming.WHEN_DIES_OR_EXILED);
+    expect(registry?.triggers?.[0]?.effect).toBe('Return it to the battlefield tapped under your control.');
+  });
+
   it('applies impulse_exile_top when permission uses "through their next turn" with controller play-permission (target player)', () => {
     const ir = parseOracleTextToIR(
       'Target player exiles the top card of their library. Its controller may play it through their next turn.',
@@ -21515,6 +21559,122 @@ describe('Oracle IR Executor', () => {
     expect(result.appliedSteps.some(step => step.kind === 'move_zone')).toBe(true);
     expect((p1?.library || [])).toEqual([]);
     expect(battlefield.some(perm => String(perm?.card?.name || perm?.name || '') === 'Grizzly Bears')).toBe(true);
+    expect(result.automationGaps).toEqual([]);
+  });
+
+  it('applies kinship reveal branches when the top card shares a creature type with the source creature', () => {
+    const ir = parseOracleTextToIR(
+      'Kinship — At the beginning of your upkeep, you may look at the top card of your library. If it shares a creature type with this creature, you may reveal it. If you do, put a +1/+1 counter on this creature.',
+      'Kinship Counter Probe'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [
+            {
+              id: 'top-elf',
+              name: 'Leaf Gilder',
+              type_line: 'Creature — Elf Druid',
+              subtypes: ['Elf', 'Druid'],
+            },
+          ],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        },
+      ] as any,
+      battlefield: [
+        {
+          id: 'kinship-source',
+          controller: 'p1',
+          owner: 'p1',
+          counters: {},
+          card: {
+            id: 'kinship-source-card',
+            name: 'Kinship Counter Probe',
+            type_line: 'Creature — Elf Warrior',
+            subtypes: ['Elf', 'Warrior'],
+          },
+          subtypes: ['Elf', 'Warrior'],
+        },
+      ] as any,
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceId: 'kinship-source',
+      sourceName: 'Kinship Counter Probe',
+    }, { allowOptional: true });
+    const source = ((result.state.battlefield || []) as any[]).find(perm => perm.id === 'kinship-source') as any;
+
+    expect(result.appliedSteps.some(step => step.kind === 'look_top')).toBe(true);
+    expect(result.appliedSteps.some(step => step.kind === 'reveal_top')).toBe(true);
+    expect(result.appliedSteps.some(step => step.kind === 'add_counter')).toBe(true);
+    expect(source?.counters?.['+1/+1']).toBe(1);
+    expect(result.automationGaps).toEqual([]);
+  });
+
+  it('skips kinship reveal branches when the top card does not share a creature type with the source creature', () => {
+    const ir = parseOracleTextToIR(
+      'Kinship — At the beginning of your upkeep, you may look at the top card of your library. If it shares a creature type with this creature, you may reveal it. If you do, put a +1/+1 counter on this creature.',
+      'Kinship Counter Probe'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [
+            {
+              id: 'top-goblin',
+              name: 'Goblin Piker',
+              type_line: 'Creature — Goblin Warrior',
+              subtypes: ['Goblin', 'Warrior'],
+            },
+          ],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        },
+      ] as any,
+      battlefield: [
+        {
+          id: 'kinship-source',
+          controller: 'p1',
+          owner: 'p1',
+          counters: {},
+          card: {
+            id: 'kinship-source-card',
+            name: 'Kinship Counter Probe',
+            type_line: 'Creature — Elf Shaman',
+            subtypes: ['Elf', 'Shaman'],
+          },
+          subtypes: ['Elf', 'Shaman'],
+        },
+      ] as any,
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceId: 'kinship-source',
+      sourceName: 'Kinship Counter Probe',
+    }, { allowOptional: true });
+    const source = ((result.state.battlefield || []) as any[]).find(perm => perm.id === 'kinship-source') as any;
+
+    expect(result.appliedSteps.some(step => step.kind === 'look_top')).toBe(true);
+    expect(result.appliedSteps.some(step => step.kind === 'reveal_top')).toBe(false);
+    expect(result.appliedSteps.some(step => step.kind === 'add_counter')).toBe(false);
+    expect(source?.counters?.['+1/+1'] ?? 0).toBe(0);
     expect(result.automationGaps).toEqual([]);
   });
 

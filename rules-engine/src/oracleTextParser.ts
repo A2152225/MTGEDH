@@ -476,6 +476,7 @@ const INSTEAD_PATTERN = /If\s+(.+?)\s+would\s+(.+?),\s+(.+?)\s+instead\.?/i;
 // by the IR parser as spell instructions with follow-up modifiers.
 const ENTERS_WITH_PATTERN = /^([^.;]+?)\s+enters the battlefield\s+([^.;]+?)[.;]?$/i;
 const SELF_ENTERS_SHORT_PATTERN = /^(This\s+[^.;]+?)\s+enters\s+([^.;]+?)[.;]?$/i;
+const CONDITIONAL_SELF_ENTERS_PATTERN = /^If\s+(.+?),\s+((?:This\s+[^.;]+?|It)\s+enters(?: the battlefield)?\s+[^.;]+?)[.;]?$/i;
 const ENTERS_AS_PATTERN = /^As\s+(.+?)\s+enters the battlefield,\s+(.+)$/i;
 
 /**
@@ -506,6 +507,16 @@ export function parseReplacementEffect(text: string): ParsedAbility | null {
       effect,
       isOptional: effect.toLowerCase().includes('you may'),
       requiresChoice: choiceReq,
+    };
+  }
+
+  const conditionalSelfEntersMatch = text.match(CONDITIONAL_SELF_ENTERS_PATTERN);
+  if (conditionalSelfEntersMatch) {
+    return {
+      type: AbilityType.REPLACEMENT,
+      text,
+      triggerCondition: conditionalSelfEntersMatch[1].trim(),
+      effect: conditionalSelfEntersMatch[2].trim(),
     };
   }
   
@@ -758,8 +769,11 @@ export function parseOracleText(oracleText: string, cardName?: string): OracleTe
       }
     }
     
-    // Step 2a: Check for "If ... instead" (replacement effect)
-    if (/^if\s+.+instead/i.test(trimmed)) {
+    // Step 2a: Check for "If ... instead" or conditional self-entry replacement effects
+    if (
+      /^if\s+.+instead/i.test(trimmed) ||
+      /^if\s+.+,\s+(?:it|this\s+[^.;]+?)\s+enters\b/i.test(trimmed)
+    ) {
       const replacement = parseReplacementEffect(trimmed);
       if (replacement) {
         abilities.push(replacement);

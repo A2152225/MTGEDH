@@ -1175,6 +1175,14 @@ describe('Oracle Text Parser', () => {
       expect(result?.type).toBe(AbilityType.REPLACEMENT);
       expect(result?.isOptional).toBe(true);
     });
+
+    it('should parse conditional self-entry modifier text as a replacement effect', () => {
+      const result = parseReplacementEffect('If this creature was kicked, it enters with two +1/+1 counters on it.');
+      expect(result).not.toBeNull();
+      expect(result?.type).toBe(AbilityType.REPLACEMENT);
+      expect(result?.triggerCondition).toBe('this creature was kicked');
+      expect(result?.effect).toBe('it enters with two +1/+1 counters on it');
+    });
   });
 
   describe('parseKeywordActions', () => {

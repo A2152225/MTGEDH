@@ -9,10 +9,12 @@ import {
   evaluateGraveyardCondition,
   evaluateHandCondition,
   evaluateLifeTotalCondition,
+  evaluateManaSpentGreaterThanSelfStatsCondition,
   evaluateNoNamedCounterCondition,
   evaluateOpponentControlCondition,
   evaluateQualifiedSpellCastCondition,
   evaluateRenownedCondition,
+  evaluateSelfIsCreatureCondition,
   evaluateSelfBecomesMonstrousCondition,
   evaluateSelfEntersBattlefieldCondition,
   evaluateSelfCastSpellCondition,
@@ -181,6 +183,18 @@ export function evaluateTriggerCondition(
   const evolveComparison = evaluateEvolveComparisonCondition(conditionLower, eventData, sourceId);
   if (evolveComparison !== null) {
     return evolveComparison;
+  }
+  const selfIsCreature = evaluateSelfIsCreatureCondition(conditionLower, eventData, sourceId);
+  if (selfIsCreature !== null) {
+    return selfIsCreature;
+  }
+  const manaSpentGreaterThanSelfStats = evaluateManaSpentGreaterThanSelfStatsCondition(
+    conditionLower,
+    eventData,
+    sourceId
+  );
+  if (manaSpentGreaterThanSelfStats !== null) {
+    return manaSpentGreaterThanSelfStats;
   }
   const noNamedCounter = evaluateNoNamedCounterCondition(conditionLower, eventData);
   if (noNamedCounter !== null) {

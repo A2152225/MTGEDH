@@ -499,6 +499,18 @@ export function tryParseSimpleActionClause(args: {
   }
 
   {
+    const earthbendMatch = clause.match(/^earthbend\s+(a|an|\d+|x|[a-z]+)$/i);
+    if (earthbendMatch) {
+      return withMeta({
+        kind: 'earthbend',
+        target: parseObjectSelector('target land you control'),
+        amount: parseQuantity(earthbendMatch[1]),
+        raw: rawClause,
+        });
+    }
+  }
+
+  {
     const openAttractionMatch = clause.match(new RegExp(`^${PLAYER_SUBJECT_PREFIX}(?:open|opens)\\s+an\\s+attraction$`, 'i'));
     if (openAttractionMatch) {
       return withMeta({

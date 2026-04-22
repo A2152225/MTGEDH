@@ -73,6 +73,7 @@ import {
   expandVoteChoiceCountAbilities,
   pruneRedundantAnyPlayerMayActivateUnknownAbilities,
   pruneRedundantActivationRestrictionUnknownAbilities,
+  pruneRedundantXCantBeZeroUnknownAbilities,
   pruneRedundantHandRevealDiscardChoiceUnknownAbilities,
   pruneRedundantStationChargeCounterReminderUnknownAbilities,
   pruneRedundantVanishingReminderAbilities,
@@ -81,6 +82,7 @@ import {
   pruneRedundantBuybackCostReminderUnknownAbilities,
   pruneRedundantCastAdditionalCostUnknownAbilities,
   expandMixedBattlefieldAndGraveyardExileAbilities,
+  mergeDanglingCopySpellAbilities,
   expandMoveZoneCopiedSpellAbilities,
   expandMoveZoneHasteFollowupAbilities,
   expandChosenColorProtectionAbilities,
@@ -118,6 +120,7 @@ import {
   pruneRedundantTimingRulesReminderUnknownAbilities,
   pruneRedundantBestowReminderUnknownAbilities,
   pruneRedundantCrewReminderAbilities,
+  pruneRedundantChampionReminderAbilities,
   pruneExternallyHandledStaticUnknownAbilities,
   pruneExternallyHandledTemporaryLandBonusUnknownSteps,
   pruneLateKeywordReminderOnlyAbilities,
@@ -148,6 +151,7 @@ import {
   mergeExilePermissionCastCounterFollowupAbilities,
   mergeDeterministicGraveyardPermissionFollowupAbilities,
   mergeDeterministicKeywordFollowupAbilities,
+  mergeKinshipRevealConditionalAbilities,
   mergeConditionalMoveZoneCounterFollowupAbilities,
   mergeConditionalGraveyardReminderFollowupAbilities,
   expandStandaloneTopLibraryInfoAbilities,
@@ -1375,7 +1379,9 @@ export function parseOracleTextToIR(oracleText: string, cardName?: string): Orac
   abilities = expandWinLossUnknownAbilities(abilities);
   abilities = expandTapMatchingPermanentCountAbilities(abilities);
   abilities = expandSimpleConditionalUnknownAbilities(abilities);
+  abilities = mergeKinshipRevealConditionalAbilities(abilities);
   abilities = expandCopySpellUnknownAbilities(abilities);
+  abilities = mergeDanglingCopySpellAbilities(abilities);
   abilities = upgradeConditionalIfYouDoImpulseAbilities(abilities);
   abilities = expandUnlessSacrificeAbilities(abilities);
   abilities = expandOtherwiseConditionalUnknownAbilities(abilities);
@@ -1408,6 +1414,7 @@ export function parseOracleTextToIR(oracleText: string, cardName?: string): Orac
   abilities = pruneRedundantFaceDownReminderUnknownAbilities(abilities);
   abilities = pruneRedundantAttackRequirementAbilities(abilities);
   abilities = pruneRedundantCrewReminderAbilities(abilities);
+  abilities = pruneRedundantChampionReminderAbilities(abilities);
   abilities = pruneRedundantArtifactTokenReminderUnknownAbilities(abilities);
   abilities = pruneRedundantDecayedReminderUnknownAbilities(abilities);
   abilities = pruneRedundantEldraziTokenManaReminderUnknownAbilities(abilities);
@@ -1461,6 +1468,7 @@ export function parseOracleTextToIR(oracleText: string, cardName?: string): Orac
   abilities = mergeDestroyCantRegenerateFollowupAbilities(abilities);
   abilities = expandVoteChoiceCountAbilities(abilities);
   abilities = pruneRedundantActivationRestrictionUnknownAbilities(abilities);
+  abilities = pruneRedundantXCantBeZeroUnknownAbilities(abilities);
   abilities = pruneRedundantHandRevealDiscardChoiceUnknownAbilities(abilities);
   abilities = pruneRedundantStationChargeCounterReminderUnknownAbilities(abilities);
   abilities = pruneRedundantVanishingReminderAbilities(abilities);

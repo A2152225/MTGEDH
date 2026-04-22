@@ -184,6 +184,27 @@ describe('Delayed Triggered Abilities', () => {
       expect(fire).toHaveLength(1);
     });
 
+    it('should fire when-dies-or-exiled triggers for the watched permanent', () => {
+      let registry = createDelayedTriggerRegistry();
+      registry = registerDelayedTrigger(registry,
+        createDelayedTrigger('s1', 'Earthbend', 'p1', DelayedTriggerTiming.WHEN_DIES_OR_EXILED, 'Return card', 1, {
+          watchingPermanentId: 'earth-land'
+        })
+      );
+
+      const { triggersToFire: noFire } = checkDelayedTriggers(registry, {
+        type: 'dies_or_exiled',
+        permanentId: 'other-perm',
+      });
+      expect(noFire).toHaveLength(0);
+
+      const { triggersToFire: fire } = checkDelayedTriggers(registry, {
+        type: 'dies_or_exiled',
+        permanentId: 'earth-land',
+      });
+      expect(fire).toHaveLength(1);
+    });
+
     it('should fire when-control-lost triggers only for the watched permanent and controller', () => {
       let registry = createDelayedTriggerRegistry();
       registry = registerDelayedTrigger(registry,

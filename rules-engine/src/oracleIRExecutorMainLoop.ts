@@ -34,6 +34,7 @@ import {
   applyDoubleCountersStep,
   applyDestroyStep,
   applyDetainStep,
+  applyEarthbendStep,
   applyExertStep,
   applyExileStep,
   applyGainClassLevelStep,
@@ -733,6 +734,11 @@ export function applyOracleIRStepsToGameStateImpl(
           lastMovedBattlefieldPermanentIds,
           lastMovedCards,
         });
+        applyHandledStepResult(step, result);
+        break;
+      }
+      case 'earthbend': {
+        const result = applyEarthbendStep(nextState, step, currentCtx);
         applyHandledStepResult(step, result);
         break;
       }

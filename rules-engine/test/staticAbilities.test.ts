@@ -421,6 +421,53 @@ describe('Enhanced Static Abilities', () => {
     });
   });
 
+  describe('Characteristic-Defining P/T', () => {
+    it('should parse lands-you-control power and toughness setters', () => {
+      const terrainElemental = {
+        id: 'terrain-1',
+        name: 'Terrain Elemental Variant',
+        type_line: 'Creature — Elemental',
+        oracle_text: "This creature's power and toughness are each equal to the number of lands you control.",
+        power: '*',
+        toughness: '*',
+      } as KnownCardRef;
+
+      const abilities = parseStaticAbilities(terrainElemental, 'terrain-1', 'player1');
+
+      expect(abilities).toContainEqual(
+        expect.objectContaining({
+          effectType: StaticEffectType.SET_PT,
+          value: 'count',
+          filter: { selfOnly: true },
+          countFilter: {
+            cardTypes: ['land'],
+            controller: 'you',
+          },
+        })
+      );
+    });
+
+    it('should set power and toughness to the number of lands you control', () => {
+      const terrainElemental = createMockPermanent(
+        'terrain-1',
+        'player1',
+        'Terrain Elemental Variant',
+        'Creature — Elemental',
+        "This creature's power and toughness are each equal to the number of lands you control."
+      );
+      const land1 = createMockPermanent('land-1', 'player1', 'Forest', 'Basic Land — Forest');
+      const land2 = createMockPermanent('land-2', 'player1', 'Island', 'Basic Land — Island');
+      const offColorLand = createMockPermanent('land-3', 'player2', 'Mountain', 'Basic Land — Mountain');
+
+      const battlefield = [terrainElemental, land1, land2, offColorLand];
+      const staticAbilities = collectStaticAbilities(battlefield);
+      const result = calculateEffectivePT(terrainElemental, battlefield, staticAbilities);
+
+      expect(result.power).toBe(2);
+      expect(result.toughness).toBe(2);
+    });
+  });
+
   describe('Aura Control Effects', () => {
     it('should give the Aura controller control of the enchanted creature', () => {
       const enchantedCreature = createMockPermanent(
@@ -447,6 +494,35 @@ describe('Enhanced Static Abilities', () => {
       const processedCreature = processed.find(permanent => permanent.id === 'bear-1');
 
       expect(processedCreature?.controller).toBe('player1');
+    });
+
+    it('should apply enchanted creature pump-plus-keyword bonuses from an attached Aura', () => {
+      const enchantedCreature = createMockPermanent(
+        'bear-2',
+        'player1',
+        'Silvercoat Lion',
+        'Creature — Cat',
+        '',
+        2,
+        2
+      );
+      const aura = {
+        ...createMockPermanent(
+          'flight-1',
+          'player1',
+          'Flight Variant',
+          'Enchantment — Aura',
+          'Enchant creature\nEnchanted creature gets +2/+2 and has flying.'
+        ),
+        attachedTo: 'bear-2',
+      } as BattlefieldPermanent;
+
+      const processed = applyStaticAbilitiesToBattlefield([enchantedCreature, aura]);
+      const processedCreature = processed.find(permanent => permanent.id === 'bear-2') as any;
+
+      expect(processedCreature?.effectivePower).toBe(4);
+      expect(processedCreature?.effectiveToughness).toBe(4);
+      expect(processedCreature?.grantedAbilities).toContain('flying');
     });
   });
 });

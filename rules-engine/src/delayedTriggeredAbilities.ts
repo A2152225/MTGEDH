@@ -53,6 +53,8 @@ export enum DelayedTriggerTiming {
   WHEN_LEAVES = 'when_leaves',
   /** When a specific permanent dies */
   WHEN_DIES = 'when_dies',
+  /** When a specific permanent dies or is put into exile */
+  WHEN_DIES_OR_EXILED = 'when_dies_or_exiled',
   /** When the controller loses control of a watched permanent */
   WHEN_CONTROL_LOST = 'when_control_lost',
   /** Until end of turn (expires at cleanup) */
@@ -170,7 +172,17 @@ export function registerDelayedTrigger(
 export function checkDelayedTriggers(
   registry: Readonly<DelayedTriggerRegistry>,
   currentEvent: {
-    type: 'end_step' | 'upkeep' | 'combat_end' | 'combat_begin' | 'cleanup' | 'permanent_left' | 'dies' | 'control_lost' | 'turn_start';
+    type:
+      | 'end_step'
+      | 'upkeep'
+      | 'combat_end'
+      | 'combat_begin'
+      | 'cleanup'
+      | 'permanent_left'
+      | 'dies'
+      | 'dies_or_exiled'
+      | 'control_lost'
+      | 'turn_start';
     playerId?: PlayerID;
     activePlayerId?: PlayerID;
     permanentId?: string;
@@ -266,6 +278,15 @@ export function checkDelayedTriggers(
       case DelayedTriggerTiming.WHEN_DIES:
         if (currentEvent.type === 'dies' &&
             currentEvent.permanentId === trigger.watchingPermanentId) {
+          shouldFire = true;
+        }
+        break;
+
+      case DelayedTriggerTiming.WHEN_DIES_OR_EXILED:
+        if (
+          (currentEvent.type === 'dies' || currentEvent.type === 'dies_or_exiled') &&
+          currentEvent.permanentId === trigger.watchingPermanentId
+        ) {
           shouldFire = true;
         }
         break;
