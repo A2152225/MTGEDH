@@ -1,7 +1,10 @@
 {
-  "generatedAt": "2026-04-06T08:25:47.584Z",
+  "generatedAt": "2026-04-22T08:54:02.006Z",
   "source": "oracle-cards.json",
   "targetQueueSize": 200,
+  "queueOffset": 0,
+  "queueStartIndex": 1,
+  "queueEndIndex": 200,
   "actualQueueSize": 200,
   "familySummaries": [
     {
@@ -54,8 +57,8 @@
       "title": "Exact-Target Graveyard To Library",
       "category": "Near-Term Graveyard Move-Zone",
       "targetCount": 30,
-      "queuedCount": 15,
-      "availableCount": 15,
+      "queuedCount": 16,
+      "availableCount": 16,
       "notes": "Covers top/bottom placement variants that reuse current exact-target graveyard selectors."
     },
     {
@@ -63,8 +66,8 @@
       "title": "Exact-Target Graveyard Exile",
       "category": "Near-Term Graveyard Move-Zone",
       "targetCount": 110,
-      "queuedCount": 109,
-      "availableCount": 110,
+      "queuedCount": 110,
+      "availableCount": 115,
       "notes": "Large real-card family that benefits from variant locks and remaining qualifier coverage."
     },
     {
@@ -72,8 +75,8 @@
       "title": "Your Graveyard To Hand",
       "category": "Near-Term Graveyard Move-Zone",
       "targetCount": 80,
-      "queuedCount": 36,
-      "availableCount": 340,
+      "queuedCount": 34,
+      "availableCount": 341,
       "notes": "High-volume self-recursion family; good for tightening direct target binding and context-driven return paths."
     },
     {
@@ -82,7 +85,7 @@
       "category": "Contextual Graveyard Recursion",
       "targetCount": 40,
       "queuedCount": 0,
-      "availableCount": 40,
+      "availableCount": 41,
       "notes": "Needs stronger antecedent binding from the dying object into the follow-up move-zone action."
     },
     {
@@ -127,7 +130,7 @@
       "category": "Graveyard Permission / Replacement",
       "targetCount": 35,
       "queuedCount": 0,
-      "availableCount": 392,
+      "availableCount": 403,
       "notes": "Useful for later test runs because these create lots of visible automation gaps when not modeled cleanly."
     },
     {
@@ -145,7 +148,7 @@
       "category": "Graveyard Permission / Replacement",
       "targetCount": 60,
       "queuedCount": 0,
-      "availableCount": 220,
+      "availableCount": 230,
       "notes": "Stable, populous graveyard-casting family to validate once permission windows and replacement text are tightened."
     },
     {
@@ -172,7 +175,7 @@
       "category": "High-Population Follow-On Seams",
       "targetCount": 1800,
       "queuedCount": 0,
-      "availableCount": 3264,
+      "availableCount": 3299,
       "notes": "Large practical seam spanning straightforward token creation, tapped/token modifier variants, and delayed cleanup follow-ups."
     },
     {
@@ -181,7 +184,7 @@
       "category": "High-Population Follow-On Seams",
       "targetCount": 1600,
       "queuedCount": 0,
-      "availableCount": 2550,
+      "availableCount": 2572,
       "notes": "Covers direct damage sentences, symmetric sweepers, and that-much/excess-damage follow-up families."
     },
     {
@@ -190,7 +193,7 @@
       "category": "High-Population Follow-On Seams",
       "targetCount": 1400,
       "queuedCount": 0,
-      "availableCount": 3626,
+      "availableCount": 3668,
       "notes": "Dense seam for raw draw, target draw, each-player draw, and draw-scaling follow-up text."
     },
     {
@@ -199,7 +202,7 @@
       "category": "High-Population Follow-On Seams",
       "targetCount": 1200,
       "queuedCount": 0,
-      "availableCount": 3677,
+      "availableCount": 3690,
       "notes": "Useful after the graveyard slice because it overlaps strongly with death/reanimation bookkeeping and delayed cleanup."
     },
     {
@@ -208,7 +211,7 @@
       "category": "High-Population Follow-On Seams",
       "targetCount": 1200,
       "queuedCount": 0,
-      "availableCount": 3724,
+      "availableCount": 3786,
       "notes": "Large seam with lots of deterministic counter placement, ETB modifiers, and count-based follow-up clauses."
     },
     {
@@ -217,7 +220,7 @@
       "category": "High-Population Follow-On Seams",
       "targetCount": 1000,
       "queuedCount": 0,
-      "availableCount": 2342,
+      "availableCount": 2383,
       "notes": "Dense practical seam for gain/lose life, target-player life swings, and equal-to/reference clauses."
     },
     {
@@ -226,7 +229,7 @@
       "category": "High-Population Follow-On Seams",
       "targetCount": 900,
       "queuedCount": 0,
-      "availableCount": 1160,
+      "availableCount": 1173,
       "notes": "Broad removal seam that tends to be straightforward once target binding and rider text are preserved."
     },
     {
@@ -235,7 +238,7 @@
       "category": "High-Population Follow-On Seams",
       "targetCount": 900,
       "queuedCount": 0,
-      "availableCount": 1004,
+      "availableCount": 1011,
       "notes": "Large queue for search workflows, especially once resolution-queue driven player choice paths are tightened further."
     },
     {
@@ -244,7 +247,7 @@
       "category": "High-Population Follow-On Seams",
       "targetCount": 700,
       "queuedCount": 0,
-      "availableCount": 715,
+      "availableCount": 722,
       "notes": "Captures both battlefield bounce and zone-return effects that tend to be good deterministic automation candidates."
     },
     {
@@ -253,7 +256,7 @@
       "category": "High-Population Follow-On Seams",
       "targetCount": 700,
       "queuedCount": 0,
-      "availableCount": 2005,
+      "availableCount": 2028,
       "notes": "Useful for queueing both deterministic discard counts and player-choice discard families for later resolution support."
     },
     {
@@ -262,7 +265,7 @@
       "category": "High-Population Follow-On Seams",
       "targetCount": 500,
       "queuedCount": 0,
-      "availableCount": 995,
+      "availableCount": 1019,
       "notes": "Good post-graveyard seam because it is common, visible in tests, and already has some queue-backed infrastructure on the server side."
     },
     {
@@ -271,7 +274,7 @@
       "category": "High-Population Follow-On Seams",
       "targetCount": 500,
       "queuedCount": 0,
-      "availableCount": 609,
+      "availableCount": 615,
       "notes": "Broad tactical seam with many deterministic single-target and each-target templates."
     },
     {
@@ -280,7 +283,7 @@
       "category": "High-Population Follow-On Seams",
       "targetCount": 400,
       "queuedCount": 0,
-      "availableCount": 291,
+      "availableCount": 294,
       "notes": "Queue for explicit spell/ability countering and related stack-target clauses."
     },
     {
@@ -289,7 +292,7 @@
       "category": "High-Population Follow-On Seams",
       "targetCount": 300,
       "queuedCount": 0,
-      "availableCount": 510,
+      "availableCount": 516,
       "notes": "Smaller but clean seam for library-to-graveyard movement and count scaling."
     },
     {
@@ -298,7 +301,7 @@
       "category": "High-Population Follow-On Seams",
       "targetCount": 500,
       "queuedCount": 0,
-      "availableCount": 262,
+      "availableCount": 267,
       "notes": "Natural next seam after graveyard and cast-from-zone work; high visibility in actual gameplay and already partially automated."
     },
     {
@@ -316,7 +319,7 @@
       "category": "High-Population Follow-On Seams",
       "targetCount": 120,
       "queuedCount": 0,
-      "availableCount": 150,
+      "availableCount": 152,
       "notes": "Included as a modest spillover seam once higher-volume deterministic text families are exhausted."
     }
   ],
@@ -329,7 +332,7 @@
       "notes": "High-yield follow-up to the new static mana-value cap support; keep runtime-dependent caps explicit and conservative.",
       "name": "Narset, Enlightened Exile",
       "oracleId": "d92725de-ead0-4a6c-83db-55ec3acc7184",
-      "edhrecRank": 4958,
+      "edhrecRank": 5028,
       "typeLine": "Legendary Creature — Human Monk",
       "clause": "Whenever Narset attacks, exile target noncreature, nonland card with mana value less than Narset's power from a graveyard and copy it."
     },
@@ -341,7 +344,7 @@
       "notes": "Extends the current with-counters support to more real-card variants, especially where extra legality or follow-up state matters.",
       "name": "From the Catacombs",
       "oracleId": "cc21b29f-2d1a-4769-9b65-f92bd2ca1cc8",
-      "edhrecRank": 7668,
+      "edhrecRank": 7804,
       "typeLine": "Sorcery",
       "clause": "Put target creature card from a graveyard onto the battlefield under your control with a corpse counter on it."
     },
@@ -353,7 +356,7 @@
       "notes": "Extends the current with-counters support to more real-card variants, especially where extra legality or follow-up state matters.",
       "name": "Coalstoke Gearhulk",
       "oracleId": "2cdbaa4e-8907-49dc-9fa9-0df70db3bf23",
-      "edhrecRank": 8921,
+      "edhrecRank": 8802,
       "typeLine": "Artifact Creature — Construct",
       "clause": "When this creature enters, put target creature card with mana value 4 or less from a graveyard onto the battlefield under your control with a finality counter on it."
     },
@@ -365,7 +368,7 @@
       "notes": "Extends the current with-counters support to more real-card variants, especially where extra legality or follow-up state matters.",
       "name": "Necromantic Summons",
       "oracleId": "2f921740-de98-4276-8196-47a38a1e4591",
-      "edhrecRank": 17789,
+      "edhrecRank": 17829,
       "typeLine": "Sorcery",
       "clause": "Put target creature card from a graveyard onto the battlefield under your control. Spell mastery — If there are two or more instant and/or sorcery cards in your graveyard, that creature enters with two additional +1/+..."
     },
@@ -377,7 +380,7 @@
       "notes": "Broadens the exact-target graveyard move family with remaining qualifiers, riders, and follow-up text.",
       "name": "Reanimate",
       "oracleId": "a044474a-cd72-4e9d-bd8d-a08f2de9cdc0",
-      "edhrecRank": 59,
+      "edhrecRank": 57,
       "typeLine": "Sorcery",
       "clause": "Put target creature card from a graveyard onto the battlefield under your control."
     },
@@ -389,7 +392,7 @@
       "notes": "Broadens the exact-target graveyard move family with remaining qualifiers, riders, and follow-up text.",
       "name": "Necromancy",
       "oracleId": "699b192c-f3f2-4ac5-9ca9-e35bcf08ad8a",
-      "edhrecRank": 938,
+      "edhrecRank": 950,
       "typeLine": "Enchantment",
       "clause": "When this enchantment enters, if it's on the battlefield, it becomes an Aura with \"enchant creature put onto the battlefield with Necromancy.\" Put target creature card from a graveyard onto the battlefield under your control and attach this enchantment to it."
     },
@@ -401,7 +404,7 @@
       "notes": "Broadens the exact-target graveyard move family with remaining qualifiers, riders, and follow-up text.",
       "name": "Portal to Phyrexia",
       "oracleId": "301d1d8e-d3fc-4010-8b29-4724fa0b31cd",
-      "edhrecRank": 1056,
+      "edhrecRank": 1082,
       "typeLine": "Artifact",
       "clause": "At the beginning of your upkeep, put target creature card from a graveyard onto the battlefield under your control."
     },
@@ -413,7 +416,7 @@
       "notes": "Broadens the exact-target graveyard move family with remaining qualifiers, riders, and follow-up text.",
       "name": "Junji, the Midnight Sky",
       "oracleId": "78a48f4e-ba4c-4d8d-938a-9ddb342a885b",
-      "edhrecRank": 1183,
+      "edhrecRank": 1188,
       "typeLine": "Legendary Creature — Dragon Spirit",
       "clause": "• Put target non-Dragon creature card from a graveyard onto the battlefield under your control."
     },
@@ -425,7 +428,7 @@
       "notes": "Broadens the exact-target graveyard move family with remaining qualifiers, riders, and follow-up text.",
       "name": "The Eldest Reborn",
       "oracleId": "44ed4c0c-a012-4895-a547-b04150553bba",
-      "edhrecRank": 1794,
+      "edhrecRank": 1815,
       "typeLine": "Enchantment — Saga",
       "clause": "III — Put target creature or planeswalker card from a graveyard onto the battlefield under your control."
     },
@@ -437,7 +440,7 @@
       "notes": "Broadens the exact-target graveyard move family with remaining qualifiers, riders, and follow-up text.",
       "name": "The Cruelty of Gix",
       "oracleId": "2b5c62af-af5f-4beb-9688-19604ca46918",
-      "edhrecRank": 3753,
+      "edhrecRank": 3809,
       "typeLine": "Enchantment — Saga",
       "clause": "III — Put target creature card from a graveyard onto the battlefield under your control."
     },
@@ -449,7 +452,7 @@
       "notes": "Broadens the exact-target graveyard move family with remaining qualifiers, riders, and follow-up text.",
       "name": "Beacon of Unrest",
       "oracleId": "aef874fa-93c0-4f86-8b0d-dc24ec51467d",
-      "edhrecRank": 4130,
+      "edhrecRank": 4189,
       "typeLine": "Sorcery",
       "clause": "Put target artifact or creature card from a graveyard onto the battlefield under your control."
     },
@@ -461,7 +464,7 @@
       "notes": "Broadens the exact-target graveyard move family with remaining qualifiers, riders, and follow-up text.",
       "name": "Vat Emergence",
       "oracleId": "03e59169-d8f8-40da-b5f7-645d16365e7b",
-      "edhrecRank": 4602,
+      "edhrecRank": 4679,
       "typeLine": "Sorcery",
       "clause": "Put target creature card from a graveyard onto the battlefield under your control."
     },
@@ -473,7 +476,7 @@
       "notes": "Broadens the exact-target graveyard move family with remaining qualifiers, riders, and follow-up text.",
       "name": "Chainer, Dementia Master",
       "oracleId": "cb905eb0-bb20-41c0-9695-0f5c71972561",
-      "edhrecRank": 5019,
+      "edhrecRank": 5097,
       "typeLine": "Legendary Creature — Human Minion",
       "clause": "{B}{B}{B}, Pay 3 life: Put target creature card from a graveyard onto the battlefield under your control."
     },
@@ -485,7 +488,7 @@
       "notes": "Broadens the exact-target graveyard move family with remaining qualifiers, riders, and follow-up text.",
       "name": "Liliana, Waker of the Dead",
       "oracleId": "e0df8e2a-96d2-4e4d-b065-aa2e162abbfe",
-      "edhrecRank": 5456,
+      "edhrecRank": 5527,
       "typeLine": "Legendary Planeswalker — Liliana",
       "clause": "−7: You get an emblem with \"At the beginning of combat on your turn, put target creature card from a graveyard onto the battlefield under your control."
     },
@@ -497,7 +500,7 @@
       "notes": "Broadens the exact-target graveyard move family with remaining qualifiers, riders, and follow-up text.",
       "name": "Staff of Eden, Vault's Key",
       "oracleId": "c4fe63e7-bb4c-4aff-b74f-d385d0128def",
-      "edhrecRank": 5726,
+      "edhrecRank": 5625,
       "typeLine": "Legendary Artifact",
       "clause": "When Staff of Eden enters, put target legendary permanent card not named Staff of Eden, Vault's Key from a graveyard onto the battlefield under your control."
     },
@@ -509,7 +512,7 @@
       "notes": "Broadens the exact-target graveyard move family with remaining qualifiers, riders, and follow-up text.",
       "name": "Too Greedily, Too Deep",
       "oracleId": "af65bbf9-e328-4b8b-8caa-c6dff743867b",
-      "edhrecRank": 7095,
+      "edhrecRank": 7109,
       "typeLine": "Sorcery",
       "clause": "Put target creature card from a graveyard onto the battlefield under your control."
     },
@@ -521,7 +524,7 @@
       "notes": "Broadens the exact-target graveyard move family with remaining qualifiers, riders, and follow-up text.",
       "name": "Debtors' Knell",
       "oracleId": "a9ff368b-5208-4ada-bb99-eccbf8eaea28",
-      "edhrecRank": 7228,
+      "edhrecRank": 7291,
       "typeLine": "Enchantment",
       "clause": "At the beginning of your upkeep, put target creature card from a graveyard onto the battlefield under your control."
     },
@@ -533,7 +536,7 @@
       "notes": "Broadens the exact-target graveyard move family with remaining qualifiers, riders, and follow-up text.",
       "name": "Gravespawn Sovereign",
       "oracleId": "4235c99b-50de-4190-8938-3ce5ec5c5248",
-      "edhrecRank": 7243,
+      "edhrecRank": 7356,
       "typeLine": "Creature — Zombie",
       "clause": "Tap five untapped Zombies you control: Put target creature card from a graveyard onto the battlefield under your control."
     },
@@ -545,7 +548,7 @@
       "notes": "Broadens the exact-target graveyard move family with remaining qualifiers, riders, and follow-up text.",
       "name": "Teneb, the Harvester",
       "oracleId": "d41f0357-f1d6-45cc-b8ea-4efa41da1448",
-      "edhrecRank": 7628,
+      "edhrecRank": 7732,
       "typeLine": "Legendary Creature — Dragon",
       "clause": "If you do, put target creature card from a graveyard onto the battlefield under your control."
     },
@@ -557,7 +560,7 @@
       "notes": "Broadens the exact-target graveyard move family with remaining qualifiers, riders, and follow-up text.",
       "name": "Demon of Dark Schemes",
       "oracleId": "2b2f2abd-6c0f-49a5-a44b-f366614c944d",
-      "edhrecRank": 8297,
+      "edhrecRank": 8392,
       "typeLine": "Creature — Demon",
       "clause": "{2}{B}, Pay {E}{E}{E}{E}: Put target creature card from a graveyard onto the battlefield under your control tapped."
     },
@@ -569,7 +572,7 @@
       "notes": "Broadens the exact-target graveyard move family with remaining qualifiers, riders, and follow-up text.",
       "name": "Quest for the Necropolis",
       "oracleId": "407d9d09-3db6-49b0-9e80-4e1538156e44",
-      "edhrecRank": 9346,
+      "edhrecRank": 9267,
       "typeLine": "Enchantment",
       "clause": "{5}{B}, Sacrifice this enchantment: Put target creature card from a graveyard onto the battlefield under your control."
     },
@@ -581,7 +584,7 @@
       "notes": "Broadens the exact-target graveyard move family with remaining qualifiers, riders, and follow-up text.",
       "name": "Fated Return",
       "oracleId": "0eeab568-9186-4813-87e7-9c1e6a7c76e7",
-      "edhrecRank": 10328,
+      "edhrecRank": 10373,
       "typeLine": "Instant",
       "clause": "Put target creature card from a graveyard onto the battlefield under your control."
     },
@@ -593,7 +596,7 @@
       "notes": "Broadens the exact-target graveyard move family with remaining qualifiers, riders, and follow-up text.",
       "name": "Rise from the Grave",
       "oracleId": "4e769107-0f32-4181-9e57-ffebc2228d3a",
-      "edhrecRank": 10366,
+      "edhrecRank": 10405,
       "typeLine": "Sorcery",
       "clause": "Put target creature card from a graveyard onto the battlefield under your control."
     },
@@ -605,7 +608,7 @@
       "notes": "Broadens the exact-target graveyard move family with remaining qualifiers, riders, and follow-up text.",
       "name": "Ashiok, Sculptor of Fears",
       "oracleId": "ce79bbd2-edf0-4d5e-9aaf-717ec3960c48",
-      "edhrecRank": 11248,
+      "edhrecRank": 11292,
       "typeLine": "Legendary Planeswalker — Ashiok",
       "clause": "−5: Put target creature card from a graveyard onto the battlefield under your control."
     },
@@ -617,7 +620,7 @@
       "notes": "Broadens the exact-target graveyard move family with remaining qualifiers, riders, and follow-up text.",
       "name": "Nomad Mythmaker",
       "oracleId": "591ce7dc-8407-43ed-acfc-e3d8fd547125",
-      "edhrecRank": 12519,
+      "edhrecRank": 12621,
       "typeLine": "Creature — Human Nomad Cleric",
       "clause": "{W}, {T}: Put target Aura card from a graveyard onto the battlefield under your control attached to a creature you control."
     },
@@ -629,7 +632,7 @@
       "notes": "Broadens the exact-target graveyard move family with remaining qualifiers, riders, and follow-up text.",
       "name": "Waking the Trolls",
       "oracleId": "c8cdabc4-e147-491b-9c44-96e57f6ec3b4",
-      "edhrecRank": 13372,
+      "edhrecRank": 13523,
       "typeLine": "Enchantment — Saga",
       "clause": "II — Put target land card from a graveyard onto the battlefield under your control."
     },
@@ -641,7 +644,7 @@
       "notes": "Broadens the exact-target graveyard move family with remaining qualifiers, riders, and follow-up text.",
       "name": "Grave Upheaval",
       "oracleId": "e5b43523-809a-4baf-b76d-9f59b82846b6",
-      "edhrecRank": 13930,
+      "edhrecRank": 13981,
       "typeLine": "Sorcery",
       "clause": "Put target creature card from a graveyard onto the battlefield under your control."
     },
@@ -653,7 +656,7 @@
       "notes": "Broadens the exact-target graveyard move family with remaining qualifiers, riders, and follow-up text.",
       "name": "Endless Obedience",
       "oracleId": "312a831a-5da9-4a22-9974-f2d90ae3eb75",
-      "edhrecRank": 14052,
+      "edhrecRank": 14115,
       "typeLine": "Sorcery",
       "clause": "Put target creature card from a graveyard onto the battlefield under your control."
     },
@@ -665,7 +668,7 @@
       "notes": "Broadens the exact-target graveyard move family with remaining qualifiers, riders, and follow-up text.",
       "name": "Restore",
       "oracleId": "cf3165bf-1d59-4e63-8650-bbda119e6335",
-      "edhrecRank": 14639,
+      "edhrecRank": 14786,
       "typeLine": "Sorcery",
       "clause": "Put target land card from a graveyard onto the battlefield under your control."
     },
@@ -677,7 +680,7 @@
       "notes": "Broadens the exact-target graveyard move family with remaining qualifiers, riders, and follow-up text.",
       "name": "Iridescent Drake",
       "oracleId": "f8cf31db-6c33-4bfb-a24c-f22644ccd377",
-      "edhrecRank": 24180,
+      "edhrecRank": 24414,
       "typeLine": "Creature — Drake",
       "clause": "When this creature enters, put target Aura card from a graveyard onto the battlefield under your control attached to this creature."
     },
@@ -689,7 +692,7 @@
       "notes": "Small but important owner-control corner for deterministic reanimation.",
       "name": "Kenrith, the Returned King",
       "oracleId": "d209b948-9afb-4fd1-a961-72c87282878c",
-      "edhrecRank": 2959,
+      "edhrecRank": 2976,
       "typeLine": "Legendary Creature — Human Noble",
       "clause": "{4}{B}: Put target creature card from a graveyard onto the battlefield under its owner's control."
     },
@@ -701,7 +704,7 @@
       "notes": "Useful parity family for real recursion spells that still need variant coverage and corpus locks.",
       "name": "Naya Charm",
       "oracleId": "20cc0f3e-de69-4e5f-88b3-ae7e6c6b5996",
-      "edhrecRank": 2840,
+      "edhrecRank": 2892,
       "typeLine": "Instant",
       "clause": "• Return target card from a graveyard to its owner's hand."
     },
@@ -713,7 +716,7 @@
       "notes": "Useful parity family for real recursion spells that still need variant coverage and corpus locks.",
       "name": "Grave Scrabbler",
       "oracleId": "b1afaf1c-2311-4fdc-b78c-98bf1892d1de",
-      "edhrecRank": 9876,
+      "edhrecRank": 9979,
       "typeLine": "Creature — Zombie",
       "clause": "When this creature enters, if its madness cost was paid, you may return target creature card from a graveyard to its owner's hand."
     },
@@ -725,7 +728,7 @@
       "notes": "Useful parity family for real recursion spells that still need variant coverage and corpus locks.",
       "name": "Pulse of Murasa",
       "oracleId": "d5b446a4-a761-42f0-acf0-ea0a1a9538d6",
-      "edhrecRank": 10175,
+      "edhrecRank": 10239,
       "typeLine": "Instant",
       "clause": "Return target creature or land card from a graveyard to its owner's hand."
     },
@@ -737,7 +740,7 @@
       "notes": "Useful parity family for real recursion spells that still need variant coverage and corpus locks.",
       "name": "Revive the Fallen",
       "oracleId": "2f857ef6-c1e5-4b85-b3fb-8163be4895b5",
-      "edhrecRank": 12086,
+      "edhrecRank": 12063,
       "typeLine": "Sorcery",
       "clause": "Return target creature card from a graveyard to its owner's hand."
     },
@@ -749,7 +752,7 @@
       "notes": "Useful parity family for real recursion spells that still need variant coverage and corpus locks.",
       "name": "Mine Excavation",
       "oracleId": "9bd5dc7a-11b0-48eb-bf52-2956dd3989ab",
-      "edhrecRank": 19661,
+      "edhrecRank": 19804,
       "typeLine": "Sorcery",
       "clause": "Return target artifact or enchantment card from a graveyard to its owner's hand."
     },
@@ -761,7 +764,7 @@
       "notes": "Useful parity family for real recursion spells that still need variant coverage and corpus locks.",
       "name": "Endbringer's Revel",
       "oracleId": "4ca2511d-76f0-470c-b522-b75fb08932d9",
-      "edhrecRank": 22650,
+      "edhrecRank": 22788,
       "typeLine": "Enchantment",
       "clause": "{4}: Return target creature card from a graveyard to its owner's hand."
     },
@@ -771,11 +774,11 @@
       "familyTitle": "Exact-Target Graveyard To Hand",
       "category": "Near-Term Graveyard Move-Zone",
       "notes": "Useful parity family for real recursion spells that still need variant coverage and corpus locks.",
-      "name": "Disturbing Plot",
-      "oracleId": "3efecb6c-7c21-4b3b-9612-e3916f91c680",
-      "edhrecRank": 23904,
-      "typeLine": "Sorcery",
-      "clause": "Return target creature card from a graveyard to its owner's hand."
+      "name": "Vampire Charmseeker",
+      "oracleId": "993bc179-4e24-4161-866f-5e146cbdd2f5",
+      "edhrecRank": 24064,
+      "typeLine": "Creature — Vampire Wizard",
+      "clause": "When this creature enters, return target instant, sorcery, or creature card from a graveyard to its owner's hand."
     },
     {
       "queueIndex": 39,
@@ -783,11 +786,11 @@
       "familyTitle": "Exact-Target Graveyard To Hand",
       "category": "Near-Term Graveyard Move-Zone",
       "notes": "Useful parity family for real recursion spells that still need variant coverage and corpus locks.",
-      "name": "Vampire Charmseeker",
-      "oracleId": "993bc179-4e24-4161-866f-5e146cbdd2f5",
-      "edhrecRank": 23919,
-      "typeLine": "Creature — Vampire Wizard",
-      "clause": "When this creature enters, return target instant, sorcery, or creature card from a graveyard to its owner's hand."
+      "name": "Disturbing Plot",
+      "oracleId": "3efecb6c-7c21-4b3b-9612-e3916f91c680",
+      "edhrecRank": 24126,
+      "typeLine": "Sorcery",
+      "clause": "Return target creature card from a graveyard to its owner's hand."
     },
     {
       "queueIndex": 40,
@@ -809,7 +812,7 @@
       "notes": "Covers top/bottom placement variants that reuse current exact-target graveyard selectors.",
       "name": "Noxious Revival",
       "oracleId": "97cabeda-9fe3-490d-99b4-4c8d87c17157",
-      "edhrecRank": 609,
+      "edhrecRank": 608,
       "typeLine": "Instant",
       "clause": "Put target card from a graveyard on top of its owner's library."
     },
@@ -821,7 +824,7 @@
       "notes": "Covers top/bottom placement variants that reuse current exact-target graveyard selectors.",
       "name": "Chrome Companion",
       "oracleId": "1ac6fabb-71db-442f-8c14-ba9e659f906c",
-      "edhrecRank": 11534,
+      "edhrecRank": 11285,
       "typeLine": "Artifact Creature — Dog",
       "clause": "{2}, {T}: Put target card from a graveyard on the bottom of its owner's library."
     },
@@ -833,7 +836,7 @@
       "notes": "Covers top/bottom placement variants that reuse current exact-target graveyard selectors.",
       "name": "Junktroller",
       "oracleId": "6ef46fd7-82db-45d3-b02e-7312384577f3",
-      "edhrecRank": 11602,
+      "edhrecRank": 11635,
       "typeLine": "Artifact Creature — Golem",
       "clause": "{T}: Put target card from a graveyard on the bottom of its owner's library."
     },
@@ -845,7 +848,7 @@
       "notes": "Covers top/bottom placement variants that reuse current exact-target graveyard selectors.",
       "name": "Vessel of Endless Rest",
       "oracleId": "8031285b-2add-42da-aa97-03c3f2fff226",
-      "edhrecRank": 12947,
+      "edhrecRank": 13000,
       "typeLine": "Artifact",
       "clause": "When this artifact enters, put target card from a graveyard on the bottom of its owner's library."
     },
@@ -857,7 +860,7 @@
       "notes": "Covers top/bottom placement variants that reuse current exact-target graveyard selectors.",
       "name": "Hoverstone Pilgrim",
       "oracleId": "64399663-2c1e-447e-a3ed-c49ebd9f2231",
-      "edhrecRank": 14250,
+      "edhrecRank": 14328,
       "typeLine": "Artifact Creature — Golem",
       "clause": "{2}: Put target card from a graveyard on the bottom of its owner's library."
     },
@@ -869,7 +872,7 @@
       "notes": "Covers top/bottom placement variants that reuse current exact-target graveyard selectors.",
       "name": "Reito Lantern",
       "oracleId": "ea871b01-ebaf-4987-a2bf-949cdd367ad1",
-      "edhrecRank": 14583,
+      "edhrecRank": 14702,
       "typeLine": "Artifact",
       "clause": "{3}: Put target card from a graveyard on the bottom of its owner's library."
     },
@@ -881,7 +884,7 @@
       "notes": "Covers top/bottom placement variants that reuse current exact-target graveyard selectors.",
       "name": "Reito Sentinel",
       "oracleId": "e574bfdb-505b-4d61-a376-6d26f03cd9b1",
-      "edhrecRank": 15304,
+      "edhrecRank": 15417,
       "typeLine": "Artifact Creature — Construct",
       "clause": "{3}: Put target card from a graveyard on the bottom of its owner's library."
     },
@@ -893,7 +896,7 @@
       "notes": "Covers top/bottom placement variants that reuse current exact-target graveyard selectors.",
       "name": "Jade-Cast Sentinel",
       "oracleId": "985192cd-ceb6-48ad-80b9-e10fc544260e",
-      "edhrecRank": 18125,
+      "edhrecRank": 17985,
       "typeLine": "Artifact Creature — Ape Snake",
       "clause": "{2}, {T}: Put target card from a graveyard on the bottom of its owner's library."
     },
@@ -905,7 +908,7 @@
       "notes": "Covers top/bottom placement variants that reuse current exact-target graveyard selectors.",
       "name": "Malevolent Chandelier",
       "oracleId": "437553c1-0aa4-4093-b6e5-c175ede5f278",
-      "edhrecRank": 18404,
+      "edhrecRank": 18505,
       "typeLine": "Artifact Creature — Construct",
       "clause": "{2}: Put target card from a graveyard on the bottom of its owner's library."
     },
@@ -917,7 +920,7 @@
       "notes": "Covers top/bottom placement variants that reuse current exact-target graveyard selectors.",
       "name": "Dutiful Knowledge Seeker",
       "oracleId": "b58a70e2-3609-441a-993a-dccb9a2cf242",
-      "edhrecRank": 19401,
+      "edhrecRank": 19155,
       "typeLine": "Creature — Fox Spirit",
       "clause": "{3}: Put target card from a graveyard on the bottom of its owner's library."
     },
@@ -929,7 +932,7 @@
       "notes": "Covers top/bottom placement variants that reuse current exact-target graveyard selectors.",
       "name": "Phyrexian Archivist",
       "oracleId": "cdef800d-033e-4095-964d-9b6066f9fd36",
-      "edhrecRank": 21684,
+      "edhrecRank": 21867,
       "typeLine": "Artifact Creature — Phyrexian Construct",
       "clause": "{2}, {T}: Put target card from a graveyard on the bottom of its owner's library."
     },
@@ -941,7 +944,7 @@
       "notes": "Covers top/bottom placement variants that reuse current exact-target graveyard selectors.",
       "name": "Cogwork Archivist",
       "oracleId": "60674ef7-f8e2-41e8-bab3-0100cfc9fbe9",
-      "edhrecRank": 22883,
+      "edhrecRank": 22975,
       "typeLine": "Artifact Creature — Construct",
       "clause": "{2}, {T}: Put target card from a graveyard on the bottom of its owner's library."
     },
@@ -953,7 +956,7 @@
       "notes": "Covers top/bottom placement variants that reuse current exact-target graveyard selectors.",
       "name": "Nantuko Tracer",
       "oracleId": "4fd567cb-0b8e-41dd-a2b7-87a196de294a",
-      "edhrecRank": 25616,
+      "edhrecRank": 25849,
       "typeLine": "Creature — Insect Druid",
       "clause": "When this creature enters, you may put target card from a graveyard on the bottom of its owner's library."
     },
@@ -965,7 +968,7 @@
       "notes": "Covers top/bottom placement variants that reuse current exact-target graveyard selectors.",
       "name": "Keeper of the Cadence",
       "oracleId": "3b3c5fc6-6c4a-4e23-9625-5954d1986160",
-      "edhrecRank": 26283,
+      "edhrecRank": 26603,
       "typeLine": "Creature — Human Wizard",
       "clause": "{3}: Put target artifact, instant, or sorcery card from a graveyard on the bottom of its owner's library."
     },
@@ -977,21 +980,21 @@
       "notes": "Covers top/bottom placement variants that reuse current exact-target graveyard selectors.",
       "name": "Grazing Kelpie",
       "oracleId": "a2db1035-008e-4de3-b5e5-2a0de83082b2",
-      "edhrecRank": 26733,
+      "edhrecRank": 26925,
       "typeLine": "Creature — Beast",
       "clause": "{G/U}, Sacrifice this creature: Put target card from a graveyard on the bottom of its owner's library."
     },
     {
       "queueIndex": 56,
-      "familyId": "gy_exile_target",
-      "familyTitle": "Exact-Target Graveyard Exile",
+      "familyId": "gy_to_library",
+      "familyTitle": "Exact-Target Graveyard To Library",
       "category": "Near-Term Graveyard Move-Zone",
-      "notes": "Large real-card family that benefits from variant locks and remaining qualifier coverage.",
-      "name": "Deathrite Shaman",
-      "oracleId": "22f1a4a4-c423-4d1c-8775-0ed604a9fa51",
-      "edhrecRank": 583,
-      "typeLine": "Creature — Elf Shaman",
-      "clause": "{T}: Exile target land card from a graveyard."
+      "notes": "Covers top/bottom placement variants that reuse current exact-target graveyard selectors.",
+      "name": "Sundering Archaic",
+      "oracleId": "b095526e-94a4-416b-83de-d6271804ccf3",
+      "edhrecRank": 29915,
+      "typeLine": "Creature — Avatar",
+      "clause": "{2}: Put target card from a graveyard on the bottom of its owner's library."
     },
     {
       "queueIndex": 57,
@@ -999,11 +1002,11 @@
       "familyTitle": "Exact-Target Graveyard Exile",
       "category": "Near-Term Graveyard Move-Zone",
       "notes": "Large real-card family that benefits from variant locks and remaining qualifier coverage.",
-      "name": "Return to Nature",
-      "oracleId": "777b8ec4-a783-4297-96b7-4f200d0eb734",
-      "edhrecRank": 657,
-      "typeLine": "Instant",
-      "clause": "• Exile target card from a graveyard."
+      "name": "Deathrite Shaman",
+      "oracleId": "22f1a4a4-c423-4d1c-8775-0ed604a9fa51",
+      "edhrecRank": 584,
+      "typeLine": "Creature — Elf Shaman",
+      "clause": "{T}: Exile target land card from a graveyard."
     },
     {
       "queueIndex": 58,
@@ -1011,11 +1014,11 @@
       "familyTitle": "Exact-Target Graveyard Exile",
       "category": "Near-Term Graveyard Move-Zone",
       "notes": "Large real-card family that benefits from variant locks and remaining qualifier coverage.",
-      "name": "Soul-Guide Lantern",
-      "oracleId": "1b5e6560-ff2e-4475-96cb-63f64c8a86db",
-      "edhrecRank": 1359,
-      "typeLine": "Artifact",
-      "clause": "When this artifact enters, exile target card from a graveyard."
+      "name": "Return to Nature",
+      "oracleId": "777b8ec4-a783-4297-96b7-4f200d0eb734",
+      "edhrecRank": 673,
+      "typeLine": "Instant",
+      "clause": "• Exile target card from a graveyard."
     },
     {
       "queueIndex": 59,
@@ -1023,11 +1026,11 @@
       "familyTitle": "Exact-Target Graveyard Exile",
       "category": "Near-Term Graveyard Move-Zone",
       "notes": "Large real-card family that benefits from variant locks and remaining qualifier coverage.",
-      "name": "Agatha's Soul Cauldron",
-      "oracleId": "c259e16f-2a44-4552-8678-815f757a02e8",
-      "edhrecRank": 1376,
-      "typeLine": "Legendary Artifact",
-      "clause": "{T}: Exile target card from a graveyard."
+      "name": "Soul-Guide Lantern",
+      "oracleId": "1b5e6560-ff2e-4475-96cb-63f64c8a86db",
+      "edhrecRank": 1358,
+      "typeLine": "Artifact",
+      "clause": "When this artifact enters, exile target card from a graveyard."
     },
     {
       "queueIndex": 60,
@@ -1035,11 +1038,11 @@
       "familyTitle": "Exact-Target Graveyard Exile",
       "category": "Near-Term Graveyard Move-Zone",
       "notes": "Large real-card family that benefits from variant locks and remaining qualifier coverage.",
-      "name": "Scavenging Ooze",
-      "oracleId": "1ff25f67-36a7-4cfa-a2b1-2135b5b6fb67",
-      "edhrecRank": 1420,
-      "typeLine": "Creature — Ooze",
-      "clause": "{G}: Exile target card from a graveyard."
+      "name": "Agatha's Soul Cauldron",
+      "oracleId": "c259e16f-2a44-4552-8678-815f757a02e8",
+      "edhrecRank": 1382,
+      "typeLine": "Legendary Artifact",
+      "clause": "{T}: Exile target card from a graveyard."
     },
     {
       "queueIndex": 61,
@@ -1047,11 +1050,11 @@
       "familyTitle": "Exact-Target Graveyard Exile",
       "category": "Near-Term Graveyard Move-Zone",
       "notes": "Large real-card family that benefits from variant locks and remaining qualifier coverage.",
-      "name": "Lion Sash",
-      "oracleId": "50330e48-db74-4c5f-a0bc-f9a8607e8f31",
-      "edhrecRank": 1586,
-      "typeLine": "Artifact Creature — Equipment Cat",
-      "clause": "{W}: Exile target card from a graveyard."
+      "name": "Scavenging Ooze",
+      "oracleId": "1ff25f67-36a7-4cfa-a2b1-2135b5b6fb67",
+      "edhrecRank": 1460,
+      "typeLine": "Creature — Ooze",
+      "clause": "{G}: Exile target card from a graveyard."
     },
     {
       "queueIndex": 62,
@@ -1059,11 +1062,11 @@
       "familyTitle": "Exact-Target Graveyard Exile",
       "category": "Near-Term Graveyard Move-Zone",
       "notes": "Large real-card family that benefits from variant locks and remaining qualifier coverage.",
-      "name": "The Scarab God",
-      "oracleId": "c75e55f2-fd6c-4816-9d96-21eeb8369aff",
-      "edhrecRank": 1699,
-      "typeLine": "Legendary Creature — God",
-      "clause": "{2}{U}{B}: Exile target creature card from a graveyard."
+      "name": "Lion Sash",
+      "oracleId": "50330e48-db74-4c5f-a0bc-f9a8607e8f31",
+      "edhrecRank": 1622,
+      "typeLine": "Artifact Creature — Equipment Cat",
+      "clause": "{W}: Exile target card from a graveyard."
     },
     {
       "queueIndex": 63,
@@ -1071,11 +1074,11 @@
       "familyTitle": "Exact-Target Graveyard Exile",
       "category": "Near-Term Graveyard Move-Zone",
       "notes": "Large real-card family that benefits from variant locks and remaining qualifier coverage.",
-      "name": "Cemetery Reaper",
-      "oracleId": "70fa209f-5e79-44de-81ce-1d8d0d8c1006",
-      "edhrecRank": 2029,
-      "typeLine": "Creature — Zombie",
-      "clause": "{2}{B}, {T}: Exile target creature card from a graveyard."
+      "name": "The Scarab God",
+      "oracleId": "c75e55f2-fd6c-4816-9d96-21eeb8369aff",
+      "edhrecRank": 1697,
+      "typeLine": "Legendary Creature — God",
+      "clause": "{2}{U}{B}: Exile target creature card from a graveyard."
     },
     {
       "queueIndex": 64,
@@ -1083,11 +1086,11 @@
       "familyTitle": "Exact-Target Graveyard Exile",
       "category": "Near-Term Graveyard Move-Zone",
       "notes": "Large real-card family that benefits from variant locks and remaining qualifier coverage.",
-      "name": "Hazel's Brewmaster",
-      "oracleId": "e8180024-1979-4677-9a0d-e08d4b7c825a",
-      "edhrecRank": 2413,
-      "typeLine": "Creature — Squirrel Warlock",
-      "clause": "Whenever this creature enters or attacks, exile up to one target card from a graveyard and create a Food token."
+      "name": "Cemetery Reaper",
+      "oracleId": "70fa209f-5e79-44de-81ce-1d8d0d8c1006",
+      "edhrecRank": 2063,
+      "typeLine": "Creature — Zombie",
+      "clause": "{2}{B}, {T}: Exile target creature card from a graveyard."
     },
     {
       "queueIndex": 65,
@@ -1095,11 +1098,11 @@
       "familyTitle": "Exact-Target Graveyard Exile",
       "category": "Near-Term Graveyard Move-Zone",
       "notes": "Large real-card family that benefits from variant locks and remaining qualifier coverage.",
-      "name": "Restless Cottage",
-      "oracleId": "7e16595f-bdeb-422e-b99a-bfc0ed52e9f8",
-      "edhrecRank": 2947,
-      "typeLine": "Land",
-      "clause": "Whenever this land attacks, create a Food token and exile up to one target card from a graveyard."
+      "name": "Hazel's Brewmaster",
+      "oracleId": "e8180024-1979-4677-9a0d-e08d4b7c825a",
+      "edhrecRank": 2385,
+      "typeLine": "Creature — Squirrel Warlock",
+      "clause": "Whenever this creature enters or attacks, exile up to one target card from a graveyard and create a Food token."
     },
     {
       "queueIndex": 66,
@@ -1109,7 +1112,7 @@
       "notes": "Large real-card family that benefits from variant locks and remaining qualifier coverage.",
       "name": "Heritage Reclamation",
       "oracleId": "09955b4b-6052-4c27-8b63-9548482b3c5c",
-      "edhrecRank": 3055,
+      "edhrecRank": 2966,
       "typeLine": "Instant",
       "clause": "• Exile up to one target card from a graveyard."
     },
@@ -1119,11 +1122,11 @@
       "familyTitle": "Exact-Target Graveyard Exile",
       "category": "Near-Term Graveyard Move-Zone",
       "notes": "Large real-card family that benefits from variant locks and remaining qualifier coverage.",
-      "name": "General's Enforcer",
-      "oracleId": "8e953251-aa5c-4aa3-8e69-1ff1f609f3ff",
-      "edhrecRank": 3138,
-      "typeLine": "Creature — Human Soldier",
-      "clause": "{2}{W}{B}: Exile target card from a graveyard."
+      "name": "Restless Cottage",
+      "oracleId": "7e16595f-bdeb-422e-b99a-bfc0ed52e9f8",
+      "edhrecRank": 2990,
+      "typeLine": "Land",
+      "clause": "Whenever this land attacks, create a Food token and exile up to one target card from a graveyard."
     },
     {
       "queueIndex": 68,
@@ -1133,7 +1136,7 @@
       "notes": "Large real-card family that benefits from variant locks and remaining qualifier coverage.",
       "name": "Abyssal Harvester",
       "oracleId": "68cc5065-0514-4adf-885f-da554e1db00a",
-      "edhrecRank": 3214,
+      "edhrecRank": 3188,
       "typeLine": "Creature — Demon Warlock",
       "clause": "{T}: Exile target creature card from a graveyard that was put there this turn."
     },
@@ -1143,11 +1146,11 @@
       "familyTitle": "Exact-Target Graveyard Exile",
       "category": "Near-Term Graveyard Move-Zone",
       "notes": "Large real-card family that benefits from variant locks and remaining qualifier coverage.",
-      "name": "Mnemonic Deluge",
-      "oracleId": "56de4cdc-4db0-48ec-8a16-f66086507233",
-      "edhrecRank": 3926,
-      "typeLine": "Sorcery",
-      "clause": "Exile target instant or sorcery card from a graveyard."
+      "name": "General's Enforcer",
+      "oracleId": "8e953251-aa5c-4aa3-8e69-1ff1f609f3ff",
+      "edhrecRank": 3193,
+      "typeLine": "Creature — Human Soldier",
+      "clause": "{2}{W}{B}: Exile target card from a graveyard."
     },
     {
       "queueIndex": 70,
@@ -1157,7 +1160,7 @@
       "notes": "Large real-card family that benefits from variant locks and remaining qualifier coverage.",
       "name": "Ghost Vacuum",
       "oracleId": "4ef583ab-e0a0-4e4b-bd65-af766038b1fd",
-      "edhrecRank": 4025,
+      "edhrecRank": 3892,
       "typeLine": "Artifact",
       "clause": "{T}: Exile target card from a graveyard."
     },
@@ -1167,11 +1170,11 @@
       "familyTitle": "Exact-Target Graveyard Exile",
       "category": "Near-Term Graveyard Move-Zone",
       "notes": "Large real-card family that benefits from variant locks and remaining qualifier coverage.",
-      "name": "Armored Scrapgorger",
-      "oracleId": "0d3a4db2-df79-4946-8f87-b174cf9c293c",
-      "edhrecRank": 4237,
-      "typeLine": "Creature — Phyrexian Beast",
-      "clause": "Whenever this creature becomes tapped, exile target card from a graveyard and put an oil counter on this creature."
+      "name": "Mnemonic Deluge",
+      "oracleId": "56de4cdc-4db0-48ec-8a16-f66086507233",
+      "edhrecRank": 3895,
+      "typeLine": "Sorcery",
+      "clause": "Exile target instant or sorcery card from a graveyard."
     },
     {
       "queueIndex": 72,
@@ -1179,11 +1182,11 @@
       "familyTitle": "Exact-Target Graveyard Exile",
       "category": "Near-Term Graveyard Move-Zone",
       "notes": "Large real-card family that benefits from variant locks and remaining qualifier coverage.",
-      "name": "Ardyn, the Usurper",
-      "oracleId": "9ae13026-960a-4d31-b775-d47209a1e313",
-      "edhrecRank": 4631,
-      "typeLine": "Legendary Creature — Elder Human Noble",
-      "clause": "Starscourge — At the beginning of combat on your turn, exile up to one target creature card from a graveyard."
+      "name": "Armored Scrapgorger",
+      "oracleId": "0d3a4db2-df79-4946-8f87-b174cf9c293c",
+      "edhrecRank": 4294,
+      "typeLine": "Creature — Phyrexian Beast",
+      "clause": "Whenever this creature becomes tapped, exile target card from a graveyard and put an oil counter on this creature."
     },
     {
       "queueIndex": 73,
@@ -1191,11 +1194,11 @@
       "familyTitle": "Exact-Target Graveyard Exile",
       "category": "Near-Term Graveyard Move-Zone",
       "notes": "Large real-card family that benefits from variant locks and remaining qualifier coverage.",
-      "name": "Klothys, God of Destiny",
-      "oracleId": "e8473969-195f-41ee-a84d-463cc8c0ef02",
-      "edhrecRank": 4818,
-      "typeLine": "Legendary Enchantment Creature — God",
-      "clause": "At the beginning of your first main phase, exile target card from a graveyard."
+      "name": "Ardyn, the Usurper",
+      "oracleId": "9ae13026-960a-4d31-b775-d47209a1e313",
+      "edhrecRank": 4360,
+      "typeLine": "Legendary Creature — Elder Human Noble",
+      "clause": "Starscourge — At the beginning of combat on your turn, exile up to one target creature card from a graveyard."
     },
     {
       "queueIndex": 74,
@@ -1203,11 +1206,11 @@
       "familyTitle": "Exact-Target Graveyard Exile",
       "category": "Near-Term Graveyard Move-Zone",
       "notes": "Large real-card family that benefits from variant locks and remaining qualifier coverage.",
-      "name": "Verdant Command",
-      "oracleId": "5a5d426b-e5eb-44f0-b5fe-c258bec6d59e",
-      "edhrecRank": 5405,
-      "typeLine": "Instant",
-      "clause": "• Exile target card from a graveyard."
+      "name": "Klothys, God of Destiny",
+      "oracleId": "e8473969-195f-41ee-a84d-463cc8c0ef02",
+      "edhrecRank": 4868,
+      "typeLine": "Legendary Enchantment Creature — God",
+      "clause": "At the beginning of your first main phase, exile target card from a graveyard."
     },
     {
       "queueIndex": 75,
@@ -1217,7 +1220,7 @@
       "notes": "Large real-card family that benefits from variant locks and remaining qualifier coverage.",
       "name": "Emperor of Bones",
       "oracleId": "cb70a360-898e-443a-b053-38e35ea2baa2",
-      "edhrecRank": 5464,
+      "edhrecRank": 5395,
       "typeLine": "Creature — Skeleton Noble",
       "clause": "At the beginning of combat on your turn, exile up to one target card from a graveyard."
     },
@@ -1227,11 +1230,11 @@
       "familyTitle": "Exact-Target Graveyard Exile",
       "category": "Near-Term Graveyard Move-Zone",
       "notes": "Large real-card family that benefits from variant locks and remaining qualifier coverage.",
-      "name": "Intrepid Paleontologist",
-      "oracleId": "d6026309-aae9-43e7-938b-69db7af7139c",
-      "edhrecRank": 5509,
-      "typeLine": "Creature — Human Druid",
-      "clause": "{2}: Exile target card from a graveyard."
+      "name": "Verdant Command",
+      "oracleId": "5a5d426b-e5eb-44f0-b5fe-c258bec6d59e",
+      "edhrecRank": 5414,
+      "typeLine": "Instant",
+      "clause": "• Exile target card from a graveyard."
     },
     {
       "queueIndex": 77,
@@ -1239,11 +1242,11 @@
       "familyTitle": "Exact-Target Graveyard Exile",
       "category": "Near-Term Graveyard Move-Zone",
       "notes": "Large real-card family that benefits from variant locks and remaining qualifier coverage.",
-      "name": "Dino DNA",
-      "oracleId": "26e988da-52cf-4382-8646-a27c5ad1b92d",
-      "edhrecRank": 5968,
-      "typeLine": "Artifact",
-      "clause": "Imprint — {1}, {T}: Exile target creature card from a graveyard."
+      "name": "Intrepid Paleontologist",
+      "oracleId": "d6026309-aae9-43e7-938b-69db7af7139c",
+      "edhrecRank": 5585,
+      "typeLine": "Creature — Human Druid",
+      "clause": "{2}: Exile target card from a graveyard."
     },
     {
       "queueIndex": 78,
@@ -1251,11 +1254,11 @@
       "familyTitle": "Exact-Target Graveyard Exile",
       "category": "Near-Term Graveyard Move-Zone",
       "notes": "Large real-card family that benefits from variant locks and remaining qualifier coverage.",
-      "name": "Dawnbringer Cleric",
-      "oracleId": "0146f430-da82-48d3-a576-c2b05101797f",
-      "edhrecRank": 6205,
-      "typeLine": "Creature — Human Cleric",
-      "clause": "• Gentle Repose — Exile target card from a graveyard."
+      "name": "Dino DNA",
+      "oracleId": "26e988da-52cf-4382-8646-a27c5ad1b92d",
+      "edhrecRank": 6023,
+      "typeLine": "Artifact",
+      "clause": "Imprint — {1}, {T}: Exile target creature card from a graveyard."
     },
     {
       "queueIndex": 79,
@@ -1263,11 +1266,11 @@
       "familyTitle": "Exact-Target Graveyard Exile",
       "category": "Near-Term Graveyard Move-Zone",
       "notes": "Large real-card family that benefits from variant locks and remaining qualifier coverage.",
-      "name": "Mastermind Plum",
-      "oracleId": "4605d8b3-b714-4717-8ff3-155fabfc1999",
-      "edhrecRank": 6312,
-      "typeLine": "Legendary Creature — Human Wizard",
-      "clause": "Whenever Mastermind Plum attacks, exile up to one target card from a graveyard."
+      "name": "Dawnbringer Cleric",
+      "oracleId": "0146f430-da82-48d3-a576-c2b05101797f",
+      "edhrecRank": 6271,
+      "typeLine": "Creature — Human Cleric",
+      "clause": "• Gentle Repose — Exile target card from a graveyard."
     },
     {
       "queueIndex": 80,
@@ -1275,11 +1278,11 @@
       "familyTitle": "Exact-Target Graveyard Exile",
       "category": "Near-Term Graveyard Move-Zone",
       "notes": "Large real-card family that benefits from variant locks and remaining qualifier coverage.",
-      "name": "Immersturm Predator",
-      "oracleId": "fcb6c6d4-ea8d-49cf-b6df-377084bdb757",
-      "edhrecRank": 6622,
-      "typeLine": "Creature — Vampire Dragon",
-      "clause": "Whenever this creature becomes tapped, exile up to one target card from a graveyard and put a +1/+1 counter on this creature."
+      "name": "Mastermind Plum",
+      "oracleId": "4605d8b3-b714-4717-8ff3-155fabfc1999",
+      "edhrecRank": 6437,
+      "typeLine": "Legendary Creature — Human Wizard",
+      "clause": "Whenever Mastermind Plum attacks, exile up to one target card from a graveyard."
     },
     {
       "queueIndex": 81,
@@ -1287,11 +1290,11 @@
       "familyTitle": "Exact-Target Graveyard Exile",
       "category": "Near-Term Graveyard Move-Zone",
       "notes": "Large real-card family that benefits from variant locks and remaining qualifier coverage.",
-      "name": "Cremate",
-      "oracleId": "c6a2e410-b182-48d1-aeb2-bc8de27e9cd2",
-      "edhrecRank": 7035,
-      "typeLine": "Instant",
-      "clause": "Exile target card from a graveyard."
+      "name": "Immersturm Predator",
+      "oracleId": "fcb6c6d4-ea8d-49cf-b6df-377084bdb757",
+      "edhrecRank": 6701,
+      "typeLine": "Creature — Vampire Dragon",
+      "clause": "Whenever this creature becomes tapped, exile up to one target card from a graveyard and put a +1/+1 counter on this creature."
     },
     {
       "queueIndex": 82,
@@ -1299,11 +1302,11 @@
       "familyTitle": "Exact-Target Graveyard Exile",
       "category": "Near-Term Graveyard Move-Zone",
       "notes": "Large real-card family that benefits from variant locks and remaining qualifier coverage.",
-      "name": "Myr Welder",
-      "oracleId": "ea2cbf5a-2def-450b-9db8-40a5b6a604d0",
-      "edhrecRank": 7320,
-      "typeLine": "Artifact Creature — Myr",
-      "clause": "Imprint — {T}: Exile target artifact card from a graveyard."
+      "name": "Cremate",
+      "oracleId": "c6a2e410-b182-48d1-aeb2-bc8de27e9cd2",
+      "edhrecRank": 7059,
+      "typeLine": "Instant",
+      "clause": "Exile target card from a graveyard."
     },
     {
       "queueIndex": 83,
@@ -1311,11 +1314,11 @@
       "familyTitle": "Exact-Target Graveyard Exile",
       "category": "Near-Term Graveyard Move-Zone",
       "notes": "Large real-card family that benefits from variant locks and remaining qualifier coverage.",
-      "name": "Honored Heirloom",
-      "oracleId": "4bf0427e-5e87-4d32-ad34-1d8946ab96fd",
-      "edhrecRank": 7818,
-      "typeLine": "Artifact",
-      "clause": "{2}, {T}: Exile target card from a graveyard."
+      "name": "The Ooze",
+      "oracleId": "82a6fa6f-13c2-4ea3-bec2-c51b56b2783b",
+      "edhrecRank": 7312,
+      "typeLine": "Legendary Artifact",
+      "clause": "{T}: Exile target card from a graveyard."
     },
     {
       "queueIndex": 84,
@@ -1323,11 +1326,11 @@
       "familyTitle": "Exact-Target Graveyard Exile",
       "category": "Near-Term Graveyard Move-Zone",
       "notes": "Large real-card family that benefits from variant locks and remaining qualifier coverage.",
-      "name": "Cling to Dust",
-      "oracleId": "9c44e556-4c7a-48bf-a108-c584f69c2cfa",
-      "edhrecRank": 7834,
-      "typeLine": "Instant",
-      "clause": "Exile target card from a graveyard."
+      "name": "Myr Welder",
+      "oracleId": "ea2cbf5a-2def-450b-9db8-40a5b6a604d0",
+      "edhrecRank": 7334,
+      "typeLine": "Artifact Creature — Myr",
+      "clause": "Imprint — {T}: Exile target artifact card from a graveyard."
     },
     {
       "queueIndex": 85,
@@ -1335,11 +1338,11 @@
       "familyTitle": "Exact-Target Graveyard Exile",
       "category": "Near-Term Graveyard Move-Zone",
       "notes": "Large real-card family that benefits from variant locks and remaining qualifier coverage.",
-      "name": "The Animus",
-      "oracleId": "7e0062fb-aff8-4c41-96eb-1af656d8b195",
-      "edhrecRank": 8012,
-      "typeLine": "Legendary Artifact",
-      "clause": "At the beginning of your end step, exile up to one target legendary creature card from a graveyard with a memory counter on it."
+      "name": "Cling to Dust",
+      "oracleId": "9c44e556-4c7a-48bf-a108-c584f69c2cfa",
+      "edhrecRank": 7882,
+      "typeLine": "Instant",
+      "clause": "Exile target card from a graveyard."
     },
     {
       "queueIndex": 86,
@@ -1347,11 +1350,11 @@
       "familyTitle": "Exact-Target Graveyard Exile",
       "category": "Near-Term Graveyard Move-Zone",
       "notes": "Large real-card family that benefits from variant locks and remaining qualifier coverage.",
-      "name": "Scrabbling Claws",
-      "oracleId": "4538ec2c-867e-412b-b6e3-a57f8e29ba84",
-      "edhrecRank": 8140,
+      "name": "Honored Heirloom",
+      "oracleId": "4bf0427e-5e87-4d32-ad34-1d8946ab96fd",
+      "edhrecRank": 7910,
       "typeLine": "Artifact",
-      "clause": "{1}, Sacrifice this artifact: Exile target card from a graveyard."
+      "clause": "{2}, {T}: Exile target card from a graveyard."
     },
     {
       "queueIndex": 87,
@@ -1359,11 +1362,11 @@
       "familyTitle": "Exact-Target Graveyard Exile",
       "category": "Near-Term Graveyard Move-Zone",
       "notes": "Large real-card family that benefits from variant locks and remaining qualifier coverage.",
-      "name": "Wizard's Spellbook",
-      "oracleId": "740fe41a-16bb-4c97-a03c-f678f15a0a0c",
-      "edhrecRank": 8545,
-      "typeLine": "Artifact",
-      "clause": "{T}: Exile target instant or sorcery card from a graveyard."
+      "name": "The Animus",
+      "oracleId": "7e0062fb-aff8-4c41-96eb-1af656d8b195",
+      "edhrecRank": 8036,
+      "typeLine": "Legendary Artifact",
+      "clause": "At the beginning of your end step, exile up to one target legendary creature card from a graveyard with a memory counter on it."
     },
     {
       "queueIndex": 88,
@@ -1373,7 +1376,7 @@
       "notes": "Large real-card family that benefits from variant locks and remaining qualifier coverage.",
       "name": "Dawnhand Dissident",
       "oracleId": "2cabf7a4-17af-45c7-b314-a84f5dc0d070",
-      "edhrecRank": 8765,
+      "edhrecRank": 8154,
       "typeLine": "Creature — Elf Warlock",
       "clause": "{T}, Blight 2: Exile target card from a graveyard."
     },
@@ -1383,11 +1386,11 @@
       "familyTitle": "Exact-Target Graveyard Exile",
       "category": "Near-Term Graveyard Move-Zone",
       "notes": "Large real-card family that benefits from variant locks and remaining qualifier coverage.",
-      "name": "Withered Wretch",
-      "oracleId": "29e13ec1-a239-4217-a2bd-24ff90745ec0",
-      "edhrecRank": 9269,
-      "typeLine": "Creature — Zombie Cleric",
-      "clause": "{1}: Exile target card from a graveyard."
+      "name": "Scrabbling Claws",
+      "oracleId": "4538ec2c-867e-412b-b6e3-a57f8e29ba84",
+      "edhrecRank": 8167,
+      "typeLine": "Artifact",
+      "clause": "{1}, Sacrifice this artifact: Exile target card from a graveyard."
     },
     {
       "queueIndex": 90,
@@ -1395,11 +1398,11 @@
       "familyTitle": "Exact-Target Graveyard Exile",
       "category": "Near-Term Graveyard Move-Zone",
       "notes": "Large real-card family that benefits from variant locks and remaining qualifier coverage.",
-      "name": "Pharika, God of Affliction",
-      "oracleId": "b7d05d00-1e69-4d11-bff0-c1ca2026aad6",
-      "edhrecRank": 9275,
-      "typeLine": "Legendary Enchantment Creature — God",
-      "clause": "{B}{G}: Exile target creature card from a graveyard."
+      "name": "Wizard's Spellbook",
+      "oracleId": "740fe41a-16bb-4c97-a03c-f678f15a0a0c",
+      "edhrecRank": 8635,
+      "typeLine": "Artifact — Book",
+      "clause": "{T}: Exile target instant or sorcery card from a graveyard."
     },
     {
       "queueIndex": 91,
@@ -1407,11 +1410,11 @@
       "familyTitle": "Exact-Target Graveyard Exile",
       "category": "Near-Term Graveyard Move-Zone",
       "notes": "Large real-card family that benefits from variant locks and remaining qualifier coverage.",
-      "name": "Psionic Ritual",
-      "oracleId": "1c3e6980-97fe-4e15-93a0-368280da8608",
-      "edhrecRank": 9352,
-      "typeLine": "Sorcery",
-      "clause": "Exile target instant or sorcery card from a graveyard and copy it."
+      "name": "Pharika, God of Affliction",
+      "oracleId": "b7d05d00-1e69-4d11-bff0-c1ca2026aad6",
+      "edhrecRank": 9337,
+      "typeLine": "Legendary Enchantment Creature — God",
+      "clause": "{B}{G}: Exile target creature card from a graveyard."
     },
     {
       "queueIndex": 92,
@@ -1419,11 +1422,11 @@
       "familyTitle": "Exact-Target Graveyard Exile",
       "category": "Near-Term Graveyard Move-Zone",
       "notes": "Large real-card family that benefits from variant locks and remaining qualifier coverage.",
-      "name": "Necrogenesis",
-      "oracleId": "ad08952a-bcae-41d6-8093-c18535dad7d5",
-      "edhrecRank": 9462,
-      "typeLine": "Enchantment",
-      "clause": "{2}: Exile target creature card from a graveyard."
+      "name": "Withered Wretch",
+      "oracleId": "29e13ec1-a239-4217-a2bd-24ff90745ec0",
+      "edhrecRank": 9363,
+      "typeLine": "Creature — Zombie Cleric",
+      "clause": "{1}: Exile target card from a graveyard."
     },
     {
       "queueIndex": 93,
@@ -1431,11 +1434,11 @@
       "familyTitle": "Exact-Target Graveyard Exile",
       "category": "Near-Term Graveyard Move-Zone",
       "notes": "Large real-card family that benefits from variant locks and remaining qualifier coverage.",
-      "name": "The Ooze",
-      "oracleId": "82a6fa6f-13c2-4ea3-bec2-c51b56b2783b",
-      "edhrecRank": 9652,
-      "typeLine": "Legendary Artifact",
-      "clause": "{T}: Exile target card from a graveyard."
+      "name": "Psionic Ritual",
+      "oracleId": "1c3e6980-97fe-4e15-93a0-368280da8608",
+      "edhrecRank": 9440,
+      "typeLine": "Sorcery",
+      "clause": "Exile target instant or sorcery card from a graveyard and copy it."
     },
     {
       "queueIndex": 94,
@@ -1443,11 +1446,11 @@
       "familyTitle": "Exact-Target Graveyard Exile",
       "category": "Near-Term Graveyard Move-Zone",
       "notes": "Large real-card family that benefits from variant locks and remaining qualifier coverage.",
-      "name": "Keen-Eyed Curator",
-      "oracleId": "46ce3698-e4e6-44e9-8b99-2b12a703e91e",
-      "edhrecRank": 9696,
-      "typeLine": "Creature — Raccoon Scout",
-      "clause": "{1}: Exile target card from a graveyard."
+      "name": "Necrogenesis",
+      "oracleId": "ad08952a-bcae-41d6-8093-c18535dad7d5",
+      "edhrecRank": 9543,
+      "typeLine": "Enchantment",
+      "clause": "{2}: Exile target creature card from a graveyard."
     },
     {
       "queueIndex": 95,
@@ -1455,11 +1458,11 @@
       "familyTitle": "Exact-Target Graveyard Exile",
       "category": "Near-Term Graveyard Move-Zone",
       "notes": "Large real-card family that benefits from variant locks and remaining qualifier coverage.",
-      "name": "Summoner's Sending",
-      "oracleId": "46b01055-4839-4b95-aa53-b954e9669e03",
-      "edhrecRank": 10378,
-      "typeLine": "Enchantment",
-      "clause": "At the beginning of your end step, you may exile target creature card from a graveyard."
+      "name": "Keen-Eyed Curator",
+      "oracleId": "46ce3698-e4e6-44e9-8b99-2b12a703e91e",
+      "edhrecRank": 9634,
+      "typeLine": "Creature — Raccoon Scout",
+      "clause": "{1}: Exile target card from a graveyard."
     },
     {
       "queueIndex": 96,
@@ -1467,11 +1470,11 @@
       "familyTitle": "Exact-Target Graveyard Exile",
       "category": "Near-Term Graveyard Move-Zone",
       "notes": "Large real-card family that benefits from variant locks and remaining qualifier coverage.",
-      "name": "Misfortune Teller",
-      "oracleId": "bd1ccc6f-d281-413e-889e-1e022c3f2a99",
-      "edhrecRank": 10645,
-      "typeLine": "Creature — Human Warlock",
-      "clause": "Whenever this creature enters or deals combat damage to a player, exile target card from a graveyard."
+      "name": "Summoner's Sending",
+      "oracleId": "46b01055-4839-4b95-aa53-b954e9669e03",
+      "edhrecRank": 10030,
+      "typeLine": "Enchantment",
+      "clause": "At the beginning of your end step, you may exile target creature card from a graveyard."
     },
     {
       "queueIndex": 97,
@@ -1479,11 +1482,11 @@
       "familyTitle": "Exact-Target Graveyard Exile",
       "category": "Near-Term Graveyard Move-Zone",
       "notes": "Large real-card family that benefits from variant locks and remaining qualifier coverage.",
-      "name": "Selesnya Eulogist",
-      "oracleId": "a0335224-9523-47d5-8944-486f2d4a6b8f",
-      "edhrecRank": 11033,
-      "typeLine": "Creature — Centaur Druid",
-      "clause": "{2}{G}: Exile target creature card from a graveyard, then populate."
+      "name": "Misfortune Teller",
+      "oracleId": "bd1ccc6f-d281-413e-889e-1e022c3f2a99",
+      "edhrecRank": 10882,
+      "typeLine": "Creature — Human Warlock",
+      "clause": "Whenever this creature enters or deals combat damage to a player, exile target card from a graveyard."
     },
     {
       "queueIndex": 98,
@@ -1491,11 +1494,11 @@
       "familyTitle": "Exact-Target Graveyard Exile",
       "category": "Near-Term Graveyard Move-Zone",
       "notes": "Large real-card family that benefits from variant locks and remaining qualifier coverage.",
-      "name": "Deathgorge Scavenger",
-      "oracleId": "17da3654-7517-473b-89e7-0303f6f030cb",
-      "edhrecRank": 11084,
-      "typeLine": "Creature — Dinosaur",
-      "clause": "Whenever this creature enters or attacks, you may exile target card from a graveyard."
+      "name": "Ignis Scientia",
+      "oracleId": "23320d55-80cb-4da3-a53c-8c75abdc8c8f",
+      "edhrecRank": 11085,
+      "typeLine": "Legendary Creature — Human Advisor",
+      "clause": "— {1}{G}{U}, {T}: Exile target card from a graveyard."
     },
     {
       "queueIndex": 99,
@@ -1503,11 +1506,11 @@
       "familyTitle": "Exact-Target Graveyard Exile",
       "category": "Near-Term Graveyard Move-Zone",
       "notes": "Large real-card family that benefits from variant locks and remaining qualifier coverage.",
-      "name": "Ignis Scientia",
-      "oracleId": "23320d55-80cb-4da3-a53c-8c75abdc8c8f",
-      "edhrecRank": 11243,
-      "typeLine": "Legendary Creature — Human Advisor",
-      "clause": "— {1}{G}{U}, {T}: Exile target card from a graveyard."
+      "name": "Selesnya Eulogist",
+      "oracleId": "a0335224-9523-47d5-8944-486f2d4a6b8f",
+      "edhrecRank": 11209,
+      "typeLine": "Creature — Centaur Druid",
+      "clause": "{2}{G}: Exile target creature card from a graveyard, then populate."
     },
     {
       "queueIndex": 100,
@@ -1515,11 +1518,11 @@
       "familyTitle": "Exact-Target Graveyard Exile",
       "category": "Near-Term Graveyard Move-Zone",
       "notes": "Large real-card family that benefits from variant locks and remaining qualifier coverage.",
-      "name": "Lantern of the Lost",
-      "oracleId": "f0c4414f-f153-40f6-a3b3-94bcbf1d3e29",
-      "edhrecRank": 11569,
-      "typeLine": "Artifact",
-      "clause": "When this artifact enters, exile target card from a graveyard."
+      "name": "Deathgorge Scavenger",
+      "oracleId": "17da3654-7517-473b-89e7-0303f6f030cb",
+      "edhrecRank": 11214,
+      "typeLine": "Creature — Dinosaur",
+      "clause": "Whenever this creature enters or attacks, you may exile target card from a graveyard."
     },
     {
       "queueIndex": 101,
@@ -1527,11 +1530,11 @@
       "familyTitle": "Exact-Target Graveyard Exile",
       "category": "Near-Term Graveyard Move-Zone",
       "notes": "Large real-card family that benefits from variant locks and remaining qualifier coverage.",
-      "name": "Urborg Scavengers",
-      "oracleId": "d27f3338-4900-49eb-9d8b-994afd524abe",
-      "edhrecRank": 11787,
-      "typeLine": "Creature — Spirit",
-      "clause": "Whenever this creature enters or attacks, exile target card from a graveyard."
+      "name": "Lantern of the Lost",
+      "oracleId": "f0c4414f-f153-40f6-a3b3-94bcbf1d3e29",
+      "edhrecRank": 11619,
+      "typeLine": "Artifact",
+      "clause": "When this artifact enters, exile target card from a graveyard."
     },
     {
       "queueIndex": 102,
@@ -1539,11 +1542,11 @@
       "familyTitle": "Exact-Target Graveyard Exile",
       "category": "Near-Term Graveyard Move-Zone",
       "notes": "Large real-card family that benefits from variant locks and remaining qualifier coverage.",
-      "name": "Heap Doll",
-      "oracleId": "aa7f0f15-bcbb-4af5-ad31-ff215dd81e71",
-      "edhrecRank": 11976,
-      "typeLine": "Artifact Creature — Scarecrow",
-      "clause": "Sacrifice this creature: Exile target card from a graveyard."
+      "name": "Raven Eagle",
+      "oracleId": "f75ac0a3-8795-48b4-91fd-4717900ef5b7",
+      "edhrecRank": 11844,
+      "typeLine": "Creature — Bird Assassin",
+      "clause": "Whenever this creature enters or attacks, exile up to one target card from a graveyard."
     },
     {
       "queueIndex": 103,
@@ -1551,11 +1554,11 @@
       "familyTitle": "Exact-Target Graveyard Exile",
       "category": "Near-Term Graveyard Move-Zone",
       "notes": "Large real-card family that benefits from variant locks and remaining qualifier coverage.",
-      "name": "Dimir Doppelganger",
-      "oracleId": "1916f120-4418-404a-aed5-b95ebf60d3a3",
-      "edhrecRank": 12210,
-      "typeLine": "Creature — Shapeshifter",
-      "clause": "{1}{U}{B}: Exile target creature card from a graveyard."
+      "name": "Urborg Scavengers",
+      "oracleId": "d27f3338-4900-49eb-9d8b-994afd524abe",
+      "edhrecRank": 11864,
+      "typeLine": "Creature — Spirit",
+      "clause": "Whenever this creature enters or attacks, exile target card from a graveyard."
     },
     {
       "queueIndex": 104,
@@ -1563,11 +1566,11 @@
       "familyTitle": "Exact-Target Graveyard Exile",
       "category": "Near-Term Graveyard Move-Zone",
       "notes": "Large real-card family that benefits from variant locks and remaining qualifier coverage.",
-      "name": "Raven Eagle",
-      "oracleId": "f75ac0a3-8795-48b4-91fd-4717900ef5b7",
-      "edhrecRank": 12266,
-      "typeLine": "Creature — Bird Assassin",
-      "clause": "Whenever this creature enters or attacks, exile up to one target card from a graveyard."
+      "name": "Heap Doll",
+      "oracleId": "aa7f0f15-bcbb-4af5-ad31-ff215dd81e71",
+      "edhrecRank": 12068,
+      "typeLine": "Artifact Creature — Scarecrow",
+      "clause": "Sacrifice this creature: Exile target card from a graveyard."
     },
     {
       "queueIndex": 105,
@@ -1575,11 +1578,11 @@
       "familyTitle": "Exact-Target Graveyard Exile",
       "category": "Near-Term Graveyard Move-Zone",
       "notes": "Large real-card family that benefits from variant locks and remaining qualifier coverage.",
-      "name": "Stonecloaker",
-      "oracleId": "b2d597f4-162f-4adc-9dc9-6d44815b7a68",
-      "edhrecRank": 12700,
-      "typeLine": "Creature — Gargoyle",
-      "clause": "When this creature enters, exile target card from a graveyard."
+      "name": "Dimir Doppelganger",
+      "oracleId": "1916f120-4418-404a-aed5-b95ebf60d3a3",
+      "edhrecRank": 12299,
+      "typeLine": "Creature — Shapeshifter",
+      "clause": "{1}{U}{B}: Exile target creature card from a graveyard."
     },
     {
       "queueIndex": 106,
@@ -1587,11 +1590,11 @@
       "familyTitle": "Exact-Target Graveyard Exile",
       "category": "Near-Term Graveyard Move-Zone",
       "notes": "Large real-card family that benefits from variant locks and remaining qualifier coverage.",
-      "name": "Venom, Deadly Devourer",
-      "oracleId": "f064fc04-28fb-423f-a4f3-bb567c71168f",
-      "edhrecRank": 12954,
-      "typeLine": "Legendary Creature — Symbiote Villain",
-      "clause": "{3}: Exile target creature card from a graveyard."
+      "name": "Stonecloaker",
+      "oracleId": "b2d597f4-162f-4adc-9dc9-6d44815b7a68",
+      "edhrecRank": 12784,
+      "typeLine": "Creature — Gargoyle",
+      "clause": "When this creature enters, exile target card from a graveyard."
     },
     {
       "queueIndex": 107,
@@ -1599,11 +1602,11 @@
       "familyTitle": "Exact-Target Graveyard Exile",
       "category": "Near-Term Graveyard Move-Zone",
       "notes": "Large real-card family that benefits from variant locks and remaining qualifier coverage.",
-      "name": "Lazav, Wearer of Faces",
-      "oracleId": "4ec0b64d-c793-47a6-9c26-9ad4d9e9c182",
-      "edhrecRank": 13003,
-      "typeLine": "Legendary Creature — Shapeshifter Detective",
-      "clause": "Whenever Lazav attacks, exile target card from a graveyard, then investigate."
+      "name": "Venom, Deadly Devourer",
+      "oracleId": "f064fc04-28fb-423f-a4f3-bb567c71168f",
+      "edhrecRank": 12863,
+      "typeLine": "Legendary Creature — Symbiote Villain",
+      "clause": "{3}: Exile target creature card from a graveyard."
     },
     {
       "queueIndex": 108,
@@ -1611,11 +1614,11 @@
       "familyTitle": "Exact-Target Graveyard Exile",
       "category": "Near-Term Graveyard Move-Zone",
       "notes": "Large real-card family that benefits from variant locks and remaining qualifier coverage.",
-      "name": "Rotten Reunion",
-      "oracleId": "1bde8eaa-9beb-4529-b540-5e0155c09713",
-      "edhrecRank": 13361,
-      "typeLine": "Instant",
-      "clause": "Exile up to one target card from a graveyard."
+      "name": "Lazav, Wearer of Faces",
+      "oracleId": "4ec0b64d-c793-47a6-9c26-9ad4d9e9c182",
+      "edhrecRank": 13174,
+      "typeLine": "Legendary Creature — Shapeshifter Detective",
+      "clause": "Whenever Lazav attacks, exile target card from a graveyard, then investigate."
     },
     {
       "queueIndex": 109,
@@ -1623,11 +1626,11 @@
       "familyTitle": "Exact-Target Graveyard Exile",
       "category": "Near-Term Graveyard Move-Zone",
       "notes": "Large real-card family that benefits from variant locks and remaining qualifier coverage.",
-      "name": "Boiling Rock Rioter",
-      "oracleId": "5193172c-9024-409e-bd9e-0387971d65fe",
-      "edhrecRank": 13752,
-      "typeLine": "Creature — Human Rogue Ally",
-      "clause": "Tap an untapped Ally you control: Exile target card from a graveyard."
+      "name": "Rotten Reunion",
+      "oracleId": "1bde8eaa-9beb-4529-b540-5e0155c09713",
+      "edhrecRank": 13441,
+      "typeLine": "Instant",
+      "clause": "Exile up to one target card from a graveyard."
     },
     {
       "queueIndex": 110,
@@ -1635,11 +1638,11 @@
       "familyTitle": "Exact-Target Graveyard Exile",
       "category": "Near-Term Graveyard Move-Zone",
       "notes": "Large real-card family that benefits from variant locks and remaining qualifier coverage.",
-      "name": "Lara Croft, Tomb Raider",
-      "oracleId": "ddfd9dca-c886-4e13-b467-990469c31a61",
-      "edhrecRank": 13786,
-      "typeLine": "Legendary Creature — Human Ranger",
-      "clause": "Whenever Lara Croft attacks, exile up to one target legendary artifact card or legendary land card from a graveyard and put a discovery counter on it."
+      "name": "Boiling Rock Rioter",
+      "oracleId": "5193172c-9024-409e-bd9e-0387971d65fe",
+      "edhrecRank": 13640,
+      "typeLine": "Creature — Human Rogue Ally",
+      "clause": "Tap an untapped Ally you control: Exile target card from a graveyard."
     },
     {
       "queueIndex": 111,
@@ -1647,11 +1650,11 @@
       "familyTitle": "Exact-Target Graveyard Exile",
       "category": "Near-Term Graveyard Move-Zone",
       "notes": "Large real-card family that benefits from variant locks and remaining qualifier coverage.",
-      "name": "Magic Pot",
-      "oracleId": "caed9999-74b8-43e3-a319-fa505c04c71c",
-      "edhrecRank": 14838,
-      "typeLine": "Artifact Creature — Goblin Construct",
-      "clause": "{2}, {T}: Exile target card from a graveyard."
+      "name": "Lara Croft, Tomb Raider",
+      "oracleId": "ddfd9dca-c886-4e13-b467-990469c31a61",
+      "edhrecRank": 13976,
+      "typeLine": "Legendary Creature — Human Ranger",
+      "clause": "Whenever Lara Croft attacks, exile up to one target legendary artifact card or legendary land card from a graveyard and put a discovery counter on it."
     },
     {
       "queueIndex": 112,
@@ -1659,11 +1662,11 @@
       "familyTitle": "Exact-Target Graveyard Exile",
       "category": "Near-Term Graveyard Move-Zone",
       "notes": "Large real-card family that benefits from variant locks and remaining qualifier coverage.",
-      "name": "Break Ties",
-      "oracleId": "1e44bb4e-aeea-4f43-9cbd-4c24a9b6b022",
-      "edhrecRank": 15060,
-      "typeLine": "Instant",
-      "clause": "• Exile target card from a graveyard."
+      "name": "Magic Pot",
+      "oracleId": "caed9999-74b8-43e3-a319-fa505c04c71c",
+      "edhrecRank": 14671,
+      "typeLine": "Artifact Creature — Goblin Construct",
+      "clause": "{2}, {T}: Exile target card from a graveyard."
     },
     {
       "queueIndex": 113,
@@ -1671,10 +1674,10 @@
       "familyTitle": "Exact-Target Graveyard Exile",
       "category": "Near-Term Graveyard Move-Zone",
       "notes": "Large real-card family that benefits from variant locks and remaining qualifier coverage.",
-      "name": "Cleanup Crew",
-      "oracleId": "12e0321b-1cd7-4519-8929-3261cf11a1a9",
-      "edhrecRank": 15172,
-      "typeLine": "Creature — Human Citizen",
+      "name": "Break Ties",
+      "oracleId": "1e44bb4e-aeea-4f43-9cbd-4c24a9b6b022",
+      "edhrecRank": 15152,
+      "typeLine": "Instant",
       "clause": "• Exile target card from a graveyard."
     },
     {
@@ -1685,7 +1688,7 @@
       "notes": "Large real-card family that benefits from variant locks and remaining qualifier coverage.",
       "name": "Jack-o'-Lantern",
       "oracleId": "192b5dd7-f420-4d5b-86d6-66e86fa67f41",
-      "edhrecRank": 15226,
+      "edhrecRank": 15224,
       "typeLine": "Artifact",
       "clause": "{1}, {T}, Sacrifice this artifact: Exile up to one target card from a graveyard."
     },
@@ -1695,11 +1698,11 @@
       "familyTitle": "Exact-Target Graveyard Exile",
       "category": "Near-Term Graveyard Move-Zone",
       "notes": "Large real-card family that benefits from variant locks and remaining qualifier coverage.",
-      "name": "Mechanical Mobster",
-      "oracleId": "b0672aa3-3207-4ff8-af8f-bdabacbb4d04",
-      "edhrecRank": 15617,
-      "typeLine": "Artifact Creature — Human Robot Villain",
-      "clause": "When this creature enters, exile up to one target card from a graveyard."
+      "name": "Cleanup Crew",
+      "oracleId": "12e0321b-1cd7-4519-8929-3261cf11a1a9",
+      "edhrecRank": 15254,
+      "typeLine": "Creature — Human Citizen",
+      "clause": "• Exile target card from a graveyard."
     },
     {
       "queueIndex": 116,
@@ -1707,11 +1710,11 @@
       "familyTitle": "Exact-Target Graveyard Exile",
       "category": "Near-Term Graveyard Move-Zone",
       "notes": "Large real-card family that benefits from variant locks and remaining qualifier coverage.",
-      "name": "Mardu Woe-Reaper",
-      "oracleId": "636ed3e3-c31d-403a-a3e7-03e01350ce4f",
-      "edhrecRank": 16152,
-      "typeLine": "Creature — Human Warrior",
-      "clause": "Whenever this creature or another Warrior you control enters, you may exile target creature card from a graveyard."
+      "name": "Mechanical Mobster",
+      "oracleId": "b0672aa3-3207-4ff8-af8f-bdabacbb4d04",
+      "edhrecRank": 15550,
+      "typeLine": "Artifact Creature — Human Robot Villain",
+      "clause": "When this creature enters, exile up to one target card from a graveyard."
     },
     {
       "queueIndex": 117,
@@ -1719,11 +1722,11 @@
       "familyTitle": "Exact-Target Graveyard Exile",
       "category": "Near-Term Graveyard Move-Zone",
       "notes": "Large real-card family that benefits from variant locks and remaining qualifier coverage.",
-      "name": "Ambush Wolf",
-      "oracleId": "4c48de92-e053-4af7-b936-d7ec0875e0d3",
-      "edhrecRank": 16493,
-      "typeLine": "Creature — Wolf",
-      "clause": "When this creature enters, exile up to one target card from a graveyard."
+      "name": "Mardu Woe-Reaper",
+      "oracleId": "636ed3e3-c31d-403a-a3e7-03e01350ce4f",
+      "edhrecRank": 16280,
+      "typeLine": "Creature — Human Warrior",
+      "clause": "Whenever this creature or another Warrior you control enters, you may exile target creature card from a graveyard."
     },
     {
       "queueIndex": 118,
@@ -1731,10 +1734,10 @@
       "familyTitle": "Exact-Target Graveyard Exile",
       "category": "Near-Term Graveyard Move-Zone",
       "notes": "Large real-card family that benefits from variant locks and remaining qualifier coverage.",
-      "name": "Crossroads Candleguide",
-      "oracleId": "1b817184-4965-4186-bfa9-6d9cf198050e",
-      "edhrecRank": 16624,
-      "typeLine": "Artifact Creature — Scarecrow",
+      "name": "Ambush Wolf",
+      "oracleId": "4c48de92-e053-4af7-b936-d7ec0875e0d3",
+      "edhrecRank": 16518,
+      "typeLine": "Creature — Wolf",
       "clause": "When this creature enters, exile up to one target card from a graveyard."
     },
     {
@@ -1745,7 +1748,7 @@
       "notes": "Large real-card family that benefits from variant locks and remaining qualifier coverage.",
       "name": "Wreck Remover",
       "oracleId": "89c89499-23a8-412d-9406-1a7ffc88c64d",
-      "edhrecRank": 16705,
+      "edhrecRank": 16660,
       "typeLine": "Artifact Creature — Construct",
       "clause": "Whenever this creature enters or attacks, exile up to one target card from a graveyard."
     },
@@ -1755,11 +1758,11 @@
       "familyTitle": "Exact-Target Graveyard Exile",
       "category": "Near-Term Graveyard Move-Zone",
       "notes": "Large real-card family that benefits from variant locks and remaining qualifier coverage.",
-      "name": "Phyrexian Furnace",
-      "oracleId": "4aafb7e7-b9fc-44ae-9c54-da11fd9dcc17",
-      "edhrecRank": 16796,
-      "typeLine": "Artifact",
-      "clause": "{1}, Sacrifice this artifact: Exile target card from a graveyard."
+      "name": "Crossroads Candleguide",
+      "oracleId": "1b817184-4965-4186-bfa9-6d9cf198050e",
+      "edhrecRank": 16737,
+      "typeLine": "Artifact Creature — Scarecrow",
+      "clause": "When this creature enters, exile up to one target card from a graveyard."
     },
     {
       "queueIndex": 121,
@@ -1767,11 +1770,11 @@
       "familyTitle": "Exact-Target Graveyard Exile",
       "category": "Near-Term Graveyard Move-Zone",
       "notes": "Large real-card family that benefits from variant locks and remaining qualifier coverage.",
-      "name": "Vile Rebirth",
-      "oracleId": "6845a62f-e0f1-448c-beeb-abac2dabd975",
-      "edhrecRank": 16937,
-      "typeLine": "Instant",
-      "clause": "Exile target creature card from a graveyard."
+      "name": "Phyrexian Furnace",
+      "oracleId": "4aafb7e7-b9fc-44ae-9c54-da11fd9dcc17",
+      "edhrecRank": 16926,
+      "typeLine": "Artifact",
+      "clause": "{1}, Sacrifice this artifact: Exile target card from a graveyard."
     },
     {
       "queueIndex": 122,
@@ -1779,11 +1782,11 @@
       "familyTitle": "Exact-Target Graveyard Exile",
       "category": "Near-Term Graveyard Move-Zone",
       "notes": "Large real-card family that benefits from variant locks and remaining qualifier coverage.",
-      "name": "Blood Operative",
-      "oracleId": "ef75da10-1b33-4066-bd42-1111b5a94f75",
-      "edhrecRank": 17037,
-      "typeLine": "Creature — Vampire Assassin",
-      "clause": "When this creature enters, you may exile target card from a graveyard."
+      "name": "Vile Rebirth",
+      "oracleId": "6845a62f-e0f1-448c-beeb-abac2dabd975",
+      "edhrecRank": 17108,
+      "typeLine": "Instant",
+      "clause": "Exile target creature card from a graveyard."
     },
     {
       "queueIndex": 123,
@@ -1791,11 +1794,11 @@
       "familyTitle": "Exact-Target Graveyard Exile",
       "category": "Near-Term Graveyard Move-Zone",
       "notes": "Large real-card family that benefits from variant locks and remaining qualifier coverage.",
-      "name": "Veteran Survivor",
-      "oracleId": "cc5b1276-d13e-4392-988d-1315bc90a9b1",
-      "edhrecRank": 17548,
-      "typeLine": "Creature — Human Survivor",
-      "clause": "Survival — At the beginning of your second main phase, if this creature is tapped, exile up to one target card from a graveyard."
+      "name": "Blood Operative",
+      "oracleId": "ef75da10-1b33-4066-bd42-1111b5a94f75",
+      "edhrecRank": 17209,
+      "typeLine": "Creature — Vampire Assassin",
+      "clause": "When this creature enters, you may exile target card from a graveyard."
     },
     {
       "queueIndex": 124,
@@ -1803,11 +1806,11 @@
       "familyTitle": "Exact-Target Graveyard Exile",
       "category": "Near-Term Graveyard Move-Zone",
       "notes": "Large real-card family that benefits from variant locks and remaining qualifier coverage.",
-      "name": "Sungold Sentinel",
-      "oracleId": "410f5067-3380-4afb-9881-4b3bf0268493",
-      "edhrecRank": 17695,
-      "typeLine": "Creature — Human Soldier",
-      "clause": "Whenever this creature enters or attacks, exile up to one target card from a graveyard."
+      "name": "Veteran Survivor",
+      "oracleId": "cc5b1276-d13e-4392-988d-1315bc90a9b1",
+      "edhrecRank": 17646,
+      "typeLine": "Creature — Human Survivor",
+      "clause": "Survival — At the beginning of your second main phase, if this creature is tapped, exile up to one target card from a graveyard."
     },
     {
       "queueIndex": 125,
@@ -1815,11 +1818,11 @@
       "familyTitle": "Exact-Target Graveyard Exile",
       "category": "Near-Term Graveyard Move-Zone",
       "notes": "Large real-card family that benefits from variant locks and remaining qualifier coverage.",
-      "name": "Shamble Back",
-      "oracleId": "11a20648-fdb6-4f52-8fda-c66985e0c044",
-      "edhrecRank": 17917,
-      "typeLine": "Sorcery",
-      "clause": "Exile target creature card from a graveyard."
+      "name": "Sungold Sentinel",
+      "oracleId": "410f5067-3380-4afb-9881-4b3bf0268493",
+      "edhrecRank": 17856,
+      "typeLine": "Creature — Human Soldier",
+      "clause": "Whenever this creature enters or attacks, exile up to one target card from a graveyard."
     },
     {
       "queueIndex": 126,
@@ -1829,7 +1832,7 @@
       "notes": "Large real-card family that benefits from variant locks and remaining qualifier coverage.",
       "name": "Beckon Apparition",
       "oracleId": "10762505-ebaa-47de-9f3e-08d48f2ac240",
-      "edhrecRank": 18063,
+      "edhrecRank": 17977,
       "typeLine": "Instant",
       "clause": "Exile target card from a graveyard."
     },
@@ -1839,11 +1842,11 @@
       "familyTitle": "Exact-Target Graveyard Exile",
       "category": "Near-Term Graveyard Move-Zone",
       "notes": "Large real-card family that benefits from variant locks and remaining qualifier coverage.",
-      "name": "Offalsnout",
-      "oracleId": "f0a20c62-035d-408a-9385-8f2bc2a6d332",
-      "edhrecRank": 18944,
-      "typeLine": "Creature — Elemental",
-      "clause": "When this creature leaves the battlefield, exile target card from a graveyard."
+      "name": "Shamble Back",
+      "oracleId": "11a20648-fdb6-4f52-8fda-c66985e0c044",
+      "edhrecRank": 18012,
+      "typeLine": "Sorcery",
+      "clause": "Exile target creature card from a graveyard."
     },
     {
       "queueIndex": 128,
@@ -1851,11 +1854,11 @@
       "familyTitle": "Exact-Target Graveyard Exile",
       "category": "Near-Term Graveyard Move-Zone",
       "notes": "Large real-card family that benefits from variant locks and remaining qualifier coverage.",
-      "name": "Diregraf Scavenger",
-      "oracleId": "54731e3f-a84a-4fc9-8c02-2f769133c71c",
-      "edhrecRank": 19058,
-      "typeLine": "Creature — Zombie Bear",
-      "clause": "When this creature enters, exile up to one target card from a graveyard."
+      "name": "Feral Appetite",
+      "oracleId": "adf731a1-fc4d-4260-bb85-535edb1d82e9",
+      "edhrecRank": 18079,
+      "typeLine": "Enchantment",
+      "clause": "{1}{G}: Exile target card from a graveyard."
     },
     {
       "queueIndex": 129,
@@ -1863,11 +1866,11 @@
       "familyTitle": "Exact-Target Graveyard Exile",
       "category": "Near-Term Graveyard Move-Zone",
       "notes": "Large real-card family that benefits from variant locks and remaining qualifier coverage.",
-      "name": "Corpse Appraiser",
-      "oracleId": "bd3cdd9b-aa67-4bf5-80c8-53574d2c221e",
-      "edhrecRank": 19139,
-      "typeLine": "Creature — Vampire Rogue",
-      "clause": "When this creature enters, exile up to one target creature card from a graveyard."
+      "name": "Sequence Engine",
+      "oracleId": "87c1bd51-6a85-4a14-af7b-a5b02ab69d73",
+      "edhrecRank": 19027,
+      "typeLine": "Artifact",
+      "clause": "{X}, {T}: Exile target creature card with mana value X from a graveyard."
     },
     {
       "queueIndex": 130,
@@ -1875,11 +1878,11 @@
       "familyTitle": "Exact-Target Graveyard Exile",
       "category": "Near-Term Graveyard Move-Zone",
       "notes": "Large real-card family that benefits from variant locks and remaining qualifier coverage.",
-      "name": "Ashnod's Harvester",
-      "oracleId": "9ea87566-43da-4ebd-a904-ae8b8830c3a2",
-      "edhrecRank": 19270,
-      "typeLine": "Artifact Creature — Construct",
-      "clause": "Whenever this creature attacks, exile target card from a graveyard."
+      "name": "Diregraf Scavenger",
+      "oracleId": "54731e3f-a84a-4fc9-8c02-2f769133c71c",
+      "edhrecRank": 19082,
+      "typeLine": "Creature — Zombie Bear",
+      "clause": "When this creature enters, exile up to one target card from a graveyard."
     },
     {
       "queueIndex": 131,
@@ -1887,11 +1890,11 @@
       "familyTitle": "Exact-Target Graveyard Exile",
       "category": "Near-Term Graveyard Move-Zone",
       "notes": "Large real-card family that benefits from variant locks and remaining qualifier coverage.",
-      "name": "Sequence Engine",
-      "oracleId": "87c1bd51-6a85-4a14-af7b-a5b02ab69d73",
-      "edhrecRank": 19329,
-      "typeLine": "Artifact",
-      "clause": "{X}, {T}: Exile target creature card with mana value X from a graveyard."
+      "name": "Offalsnout",
+      "oracleId": "f0a20c62-035d-408a-9385-8f2bc2a6d332",
+      "edhrecRank": 19136,
+      "typeLine": "Creature — Elemental",
+      "clause": "When this creature leaves the battlefield, exile target card from a graveyard."
     },
     {
       "queueIndex": 132,
@@ -1901,7 +1904,7 @@
       "notes": "Large real-card family that benefits from variant locks and remaining qualifier coverage.",
       "name": "The Spot, Living Portal",
       "oracleId": "a5dfa7ad-9637-4da8-9ed2-0ac863617d9a",
-      "edhrecRank": 19474,
+      "edhrecRank": 19328,
       "typeLine": "Legendary Creature — Human Scientist Villain",
       "clause": "When The Spot enters, exile up to one target nonland permanent and up to one target nonland permanent card from a graveyard."
     },
@@ -1911,11 +1914,11 @@
       "familyTitle": "Exact-Target Graveyard Exile",
       "category": "Near-Term Graveyard Move-Zone",
       "notes": "Large real-card family that benefits from variant locks and remaining qualifier coverage.",
-      "name": "Crook of Condemnation",
-      "oracleId": "afc8df6d-7291-400e-b768-0c0c3e3fdc32",
-      "edhrecRank": 19961,
-      "typeLine": "Artifact",
-      "clause": "{1}, {T}: Exile target card from a graveyard."
+      "name": "Corpse Appraiser",
+      "oracleId": "bd3cdd9b-aa67-4bf5-80c8-53574d2c221e",
+      "edhrecRank": 19380,
+      "typeLine": "Creature — Vampire Rogue",
+      "clause": "When this creature enters, exile up to one target creature card from a graveyard."
     },
     {
       "queueIndex": 134,
@@ -1923,11 +1926,11 @@
       "familyTitle": "Exact-Target Graveyard Exile",
       "category": "Near-Term Graveyard Move-Zone",
       "notes": "Large real-card family that benefits from variant locks and remaining qualifier coverage.",
-      "name": "Territorial Kavu",
-      "oracleId": "5f0be4ce-898e-4849-ab8f-a85fb05c3017",
-      "edhrecRank": 20203,
-      "typeLine": "Creature — Kavu",
-      "clause": "• Exile up to one target card from a graveyard."
+      "name": "Ashnod's Harvester",
+      "oracleId": "9ea87566-43da-4ebd-a904-ae8b8830c3a2",
+      "edhrecRank": 19511,
+      "typeLine": "Artifact Creature — Construct",
+      "clause": "Whenever this creature attacks, exile target card from a graveyard."
     },
     {
       "queueIndex": 135,
@@ -1935,11 +1938,11 @@
       "familyTitle": "Exact-Target Graveyard Exile",
       "category": "Near-Term Graveyard Move-Zone",
       "notes": "Large real-card family that benefits from variant locks and remaining qualifier coverage.",
-      "name": "Morbid Bloom",
-      "oracleId": "aacec73f-9c60-4c3f-b323-6261eab342af",
-      "edhrecRank": 20372,
-      "typeLine": "Sorcery",
-      "clause": "Exile target creature card from a graveyard, then create X 1/1 green Saproling creature tokens, where X is the exiled card's toughness."
+      "name": "Crook of Condemnation",
+      "oracleId": "afc8df6d-7291-400e-b768-0c0c3e3fdc32",
+      "edhrecRank": 20066,
+      "typeLine": "Artifact",
+      "clause": "{1}, {T}: Exile target card from a graveyard."
     },
     {
       "queueIndex": 136,
@@ -1949,7 +1952,7 @@
       "notes": "Large real-card family that benefits from variant locks and remaining qualifier coverage.",
       "name": "Purify the Grave",
       "oracleId": "1dafc03b-6c45-4f28-8a1f-b4f1044adc97",
-      "edhrecRank": 20414,
+      "edhrecRank": 20207,
       "typeLine": "Instant",
       "clause": "Exile target card from a graveyard."
     },
@@ -1959,11 +1962,11 @@
       "familyTitle": "Exact-Target Graveyard Exile",
       "category": "Near-Term Graveyard Move-Zone",
       "notes": "Large real-card family that benefits from variant locks and remaining qualifier coverage.",
-      "name": "Gravestone Strider",
-      "oracleId": "9ea58a77-9b2e-4ae2-8a31-a51804900a3b",
-      "edhrecRank": 20959,
-      "typeLine": "Artifact Creature — Golem",
-      "clause": "{2}, Exile this card from your graveyard: Exile target card from a graveyard."
+      "name": "Morbid Bloom",
+      "oracleId": "aacec73f-9c60-4c3f-b323-6261eab342af",
+      "edhrecRank": 20292,
+      "typeLine": "Sorcery",
+      "clause": "Exile target creature card from a graveyard, then create X 1/1 green Saproling creature tokens, where X is the exiled card's toughness."
     },
     {
       "queueIndex": 138,
@@ -1971,11 +1974,11 @@
       "familyTitle": "Exact-Target Graveyard Exile",
       "category": "Near-Term Graveyard Move-Zone",
       "notes": "Large real-card family that benefits from variant locks and remaining qualifier coverage.",
-      "name": "Apostle of Purifying Light",
-      "oracleId": "0b49dbdc-4f1d-4895-b263-a48c7b7e6b44",
-      "edhrecRank": 21748,
-      "typeLine": "Creature — Human Cleric",
-      "clause": "{2}: Exile target card from a graveyard."
+      "name": "Territorial Kavu",
+      "oracleId": "5f0be4ce-898e-4849-ab8f-a85fb05c3017",
+      "edhrecRank": 20387,
+      "typeLine": "Creature — Kavu",
+      "clause": "• Exile up to one target card from a graveyard."
     },
     {
       "queueIndex": 139,
@@ -1983,11 +1986,11 @@
       "familyTitle": "Exact-Target Graveyard Exile",
       "category": "Near-Term Graveyard Move-Zone",
       "notes": "Large real-card family that benefits from variant locks and remaining qualifier coverage.",
-      "name": "Coffin Purge",
-      "oracleId": "9db5aa54-3deb-45ee-82a2-e88a4367c6d9",
-      "edhrecRank": 21812,
-      "typeLine": "Instant",
-      "clause": "Exile target card from a graveyard."
+      "name": "Gravestone Strider",
+      "oracleId": "9ea58a77-9b2e-4ae2-8a31-a51804900a3b",
+      "edhrecRank": 21183,
+      "typeLine": "Artifact Creature — Golem",
+      "clause": "{2}, Exile this card from your graveyard: Exile target card from a graveyard."
     },
     {
       "queueIndex": 140,
@@ -1995,11 +1998,11 @@
       "familyTitle": "Exact-Target Graveyard Exile",
       "category": "Near-Term Graveyard Move-Zone",
       "notes": "Large real-card family that benefits from variant locks and remaining qualifier coverage.",
-      "name": "Conversion Chamber",
-      "oracleId": "46af64c9-2ab5-4e63-98db-cfb885a96109",
-      "edhrecRank": 22409,
-      "typeLine": "Artifact",
-      "clause": "{2}, {T}: Exile target artifact card from a graveyard."
+      "name": "Apostle of Purifying Light",
+      "oracleId": "0b49dbdc-4f1d-4895-b263-a48c7b7e6b44",
+      "edhrecRank": 21882,
+      "typeLine": "Creature — Human Cleric",
+      "clause": "{2}: Exile target card from a graveyard."
     },
     {
       "queueIndex": 141,
@@ -2007,11 +2010,11 @@
       "familyTitle": "Exact-Target Graveyard Exile",
       "category": "Near-Term Graveyard Move-Zone",
       "notes": "Large real-card family that benefits from variant locks and remaining qualifier coverage.",
-      "name": "Rotfeaster Maggot",
-      "oracleId": "67d0df0f-37d1-46da-b1c3-4fc9d1e3cc05",
-      "edhrecRank": 22918,
-      "typeLine": "Creature — Insect",
-      "clause": "When this creature enters, exile target creature card from a graveyard."
+      "name": "Coffin Purge",
+      "oracleId": "9db5aa54-3deb-45ee-82a2-e88a4367c6d9",
+      "edhrecRank": 21956,
+      "typeLine": "Instant",
+      "clause": "Exile target card from a graveyard."
     },
     {
       "queueIndex": 142,
@@ -2019,11 +2022,11 @@
       "familyTitle": "Exact-Target Graveyard Exile",
       "category": "Near-Term Graveyard Move-Zone",
       "notes": "Large real-card family that benefits from variant locks and remaining qualifier coverage.",
-      "name": "Fade from Memory",
-      "oracleId": "7c943883-06af-45a4-b5ed-b4564835dbb0",
-      "edhrecRank": 23170,
-      "typeLine": "Instant",
-      "clause": "Exile target card from a graveyard."
+      "name": "Conversion Chamber",
+      "oracleId": "46af64c9-2ab5-4e63-98db-cfb885a96109",
+      "edhrecRank": 22609,
+      "typeLine": "Artifact",
+      "clause": "{2}, {T}: Exile target artifact card from a graveyard."
     },
     {
       "queueIndex": 143,
@@ -2031,11 +2034,11 @@
       "familyTitle": "Exact-Target Graveyard Exile",
       "category": "Near-Term Graveyard Move-Zone",
       "notes": "Large real-card family that benefits from variant locks and remaining qualifier coverage.",
-      "name": "Boneclad Necromancer",
-      "oracleId": "6494e3c4-5489-44a5-94b6-4ee2d7830896",
-      "edhrecRank": 23515,
-      "typeLine": "Creature — Human Wizard",
-      "clause": "When this creature enters, you may exile target creature card from a graveyard."
+      "name": "Rotfeaster Maggot",
+      "oracleId": "67d0df0f-37d1-46da-b1c3-4fc9d1e3cc05",
+      "edhrecRank": 23020,
+      "typeLine": "Creature — Insect",
+      "clause": "When this creature enters, exile target creature card from a graveyard."
     },
     {
       "queueIndex": 144,
@@ -2043,11 +2046,11 @@
       "familyTitle": "Exact-Target Graveyard Exile",
       "category": "Near-Term Graveyard Move-Zone",
       "notes": "Large real-card family that benefits from variant locks and remaining qualifier coverage.",
-      "name": "Crypt Creeper",
-      "oracleId": "00b3971b-5bf7-4a3f-9607-6265f9af9098",
-      "edhrecRank": 24608,
-      "typeLine": "Creature — Zombie",
-      "clause": "Sacrifice this creature: Exile target card from a graveyard."
+      "name": "Fade from Memory",
+      "oracleId": "7c943883-06af-45a4-b5ed-b4564835dbb0",
+      "edhrecRank": 23317,
+      "typeLine": "Instant",
+      "clause": "Exile target card from a graveyard."
     },
     {
       "queueIndex": 145,
@@ -2055,11 +2058,11 @@
       "familyTitle": "Exact-Target Graveyard Exile",
       "category": "Near-Term Graveyard Move-Zone",
       "notes": "Large real-card family that benefits from variant locks and remaining qualifier coverage.",
-      "name": "Mourner's Shield",
-      "oracleId": "34cadd9d-b8e6-422c-b0ec-a2420cd983ad",
-      "edhrecRank": 25695,
-      "typeLine": "Artifact",
-      "clause": "Imprint — When this artifact enters, you may exile target card from a graveyard."
+      "name": "Boneclad Necromancer",
+      "oracleId": "6494e3c4-5489-44a5-94b6-4ee2d7830896",
+      "edhrecRank": 23725,
+      "typeLine": "Creature — Human Wizard",
+      "clause": "When this creature enters, you may exile target creature card from a graveyard."
     },
     {
       "queueIndex": 146,
@@ -2067,11 +2070,11 @@
       "familyTitle": "Exact-Target Graveyard Exile",
       "category": "Near-Term Graveyard Move-Zone",
       "notes": "Large real-card family that benefits from variant locks and remaining qualifier coverage.",
-      "name": "Shadowfeed",
-      "oracleId": "7681ea90-be9d-4a43-845e-ba051b438429",
-      "edhrecRank": 25696,
-      "typeLine": "Instant",
-      "clause": "Exile target card from a graveyard."
+      "name": "Crypt Creeper",
+      "oracleId": "00b3971b-5bf7-4a3f-9607-6265f9af9098",
+      "edhrecRank": 24693,
+      "typeLine": "Creature — Zombie",
+      "clause": "Sacrifice this creature: Exile target card from a graveyard."
     },
     {
       "queueIndex": 147,
@@ -2079,11 +2082,11 @@
       "familyTitle": "Exact-Target Graveyard Exile",
       "category": "Near-Term Graveyard Move-Zone",
       "notes": "Large real-card family that benefits from variant locks and remaining qualifier coverage.",
-      "name": "Soul-Guide Gryff",
-      "oracleId": "e26a08de-6108-4051-9c42-b5ce9dd8b533",
-      "edhrecRank": 25724,
-      "typeLine": "Creature — Hippogriff Spirit",
-      "clause": "When this creature enters, exile up to one target card from a graveyard."
+      "name": "Shadowfeed",
+      "oracleId": "7681ea90-be9d-4a43-845e-ba051b438429",
+      "edhrecRank": 25781,
+      "typeLine": "Instant",
+      "clause": "Exile target card from a graveyard."
     },
     {
       "queueIndex": 148,
@@ -2091,11 +2094,11 @@
       "familyTitle": "Exact-Target Graveyard Exile",
       "category": "Near-Term Graveyard Move-Zone",
       "notes": "Large real-card family that benefits from variant locks and remaining qualifier coverage.",
-      "name": "Carrion Imp",
-      "oracleId": "bba44fad-b3ca-4892-b7d1-2d03478062af",
-      "edhrecRank": 26082,
-      "typeLine": "Creature — Imp",
-      "clause": "When this creature enters, you may exile target creature card from a graveyard."
+      "name": "Mourner's Shield",
+      "oracleId": "34cadd9d-b8e6-422c-b0ec-a2420cd983ad",
+      "edhrecRank": 25856,
+      "typeLine": "Artifact",
+      "clause": "Imprint — When this artifact enters, you may exile target card from a graveyard."
     },
     {
       "queueIndex": 149,
@@ -2103,11 +2106,11 @@
       "familyTitle": "Exact-Target Graveyard Exile",
       "category": "Near-Term Graveyard Move-Zone",
       "notes": "Large real-card family that benefits from variant locks and remaining qualifier coverage.",
-      "name": "Mirror Golem",
-      "oracleId": "3460e86f-c182-4ca9-bd90-7949b0759c98",
-      "edhrecRank": 26468,
-      "typeLine": "Artifact Creature — Golem",
-      "clause": "Imprint — When this creature enters, you may exile target card from a graveyard."
+      "name": "Soul-Guide Gryff",
+      "oracleId": "e26a08de-6108-4051-9c42-b5ce9dd8b533",
+      "edhrecRank": 25865,
+      "typeLine": "Creature — Hippogriff Spirit",
+      "clause": "When this creature enters, exile up to one target card from a graveyard."
     },
     {
       "queueIndex": 150,
@@ -2115,11 +2118,11 @@
       "familyTitle": "Exact-Target Graveyard Exile",
       "category": "Near-Term Graveyard Move-Zone",
       "notes": "Large real-card family that benefits from variant locks and remaining qualifier coverage.",
-      "name": "Thraben Heretic",
-      "oracleId": "67247945-17b7-4cb8-ba65-d0dfec367b77",
-      "edhrecRank": 26815,
-      "typeLine": "Creature — Human Wizard",
-      "clause": "{T}: Exile target creature card from a graveyard."
+      "name": "Carrion Imp",
+      "oracleId": "bba44fad-b3ca-4892-b7d1-2d03478062af",
+      "edhrecRank": 26233,
+      "typeLine": "Creature — Imp",
+      "clause": "When this creature enters, you may exile target creature card from a graveyard."
     },
     {
       "queueIndex": 151,
@@ -2127,11 +2130,11 @@
       "familyTitle": "Exact-Target Graveyard Exile",
       "category": "Near-Term Graveyard Move-Zone",
       "notes": "Large real-card family that benefits from variant locks and remaining qualifier coverage.",
-      "name": "Funeral Pyre",
-      "oracleId": "02af53c1-83e6-447f-908b-2757c8aa445c",
-      "edhrecRank": 26894,
-      "typeLine": "Instant",
-      "clause": "Exile target card from a graveyard."
+      "name": "Mirror Golem",
+      "oracleId": "3460e86f-c182-4ca9-bd90-7949b0759c98",
+      "edhrecRank": 26747,
+      "typeLine": "Artifact Creature — Golem",
+      "clause": "Imprint — When this creature enters, you may exile target card from a graveyard."
     },
     {
       "queueIndex": 152,
@@ -2139,11 +2142,11 @@
       "familyTitle": "Exact-Target Graveyard Exile",
       "category": "Near-Term Graveyard Move-Zone",
       "notes": "Large real-card family that benefits from variant locks and remaining qualifier coverage.",
-      "name": "Rise of Extus",
-      "oracleId": "810f2b50-59c7-490a-8e6a-00f982cd16a0",
-      "edhrecRank": 27745,
-      "typeLine": "Sorcery",
-      "clause": "Exile up to one target instant or sorcery card from a graveyard."
+      "name": "Thraben Heretic",
+      "oracleId": "67247945-17b7-4cb8-ba65-d0dfec367b77",
+      "edhrecRank": 26933,
+      "typeLine": "Creature — Human Wizard",
+      "clause": "{T}: Exile target creature card from a graveyard."
     },
     {
       "queueIndex": 153,
@@ -2151,9 +2154,9 @@
       "familyTitle": "Exact-Target Graveyard Exile",
       "category": "Near-Term Graveyard Move-Zone",
       "notes": "Large real-card family that benefits from variant locks and remaining qualifier coverage.",
-      "name": "Headstone",
-      "oracleId": "cbf767d4-9be4-417a-bbf7-0c72ede727b4",
-      "edhrecRank": 27826,
+      "name": "Funeral Pyre",
+      "oracleId": "02af53c1-83e6-447f-908b-2757c8aa445c",
+      "edhrecRank": 27118,
       "typeLine": "Instant",
       "clause": "Exile target card from a graveyard."
     },
@@ -2163,11 +2166,11 @@
       "familyTitle": "Exact-Target Graveyard Exile",
       "category": "Near-Term Graveyard Move-Zone",
       "notes": "Large real-card family that benefits from variant locks and remaining qualifier coverage.",
-      "name": "Mortiphobia",
-      "oracleId": "4fb8312c-058a-415c-93ab-59d37ebad270",
-      "edhrecRank": 28441,
-      "typeLine": "Enchantment",
-      "clause": "{1}{B}, Discard a card: Exile target card from a graveyard."
+      "name": "Rise of Extus",
+      "oracleId": "810f2b50-59c7-490a-8e6a-00f982cd16a0",
+      "edhrecRank": 27938,
+      "typeLine": "Sorcery",
+      "clause": "Exile up to one target instant or sorcery card from a graveyard."
     },
     {
       "queueIndex": 155,
@@ -2175,11 +2178,11 @@
       "familyTitle": "Exact-Target Graveyard Exile",
       "category": "Near-Term Graveyard Move-Zone",
       "notes": "Large real-card family that benefits from variant locks and remaining qualifier coverage.",
-      "name": "Grixis Sojourners",
-      "oracleId": "21f507fd-6a26-455c-879a-f838e0aa2a43",
-      "edhrecRank": 28799,
-      "typeLine": "Creature — Zombie Ogre",
-      "clause": "When you cycle this card and when this creature dies, you may exile target card from a graveyard."
+      "name": "Headstone",
+      "oracleId": "cbf767d4-9be4-417a-bbf7-0c72ede727b4",
+      "edhrecRank": 28015,
+      "typeLine": "Instant",
+      "clause": "Exile target card from a graveyard."
     },
     {
       "queueIndex": 156,
@@ -2187,11 +2190,11 @@
       "familyTitle": "Exact-Target Graveyard Exile",
       "category": "Near-Term Graveyard Move-Zone",
       "notes": "Large real-card family that benefits from variant locks and remaining qualifier coverage.",
-      "name": "Creakwood Ghoul",
-      "oracleId": "94c47804-bb64-4a91-85c5-9241c39685aa",
-      "edhrecRank": 28972,
-      "typeLine": "Creature — Plant Zombie",
-      "clause": "{B/G}{B/G}: Exile target card from a graveyard."
+      "name": "Glorious Decay",
+      "oracleId": "ac4277d7-d78a-4d6e-8d6d-11f9e56f8ae7",
+      "edhrecRank": 28242,
+      "typeLine": "Instant",
+      "clause": "• Exile target card from a graveyard."
     },
     {
       "queueIndex": 157,
@@ -2199,11 +2202,11 @@
       "familyTitle": "Exact-Target Graveyard Exile",
       "category": "Near-Term Graveyard Move-Zone",
       "notes": "Large real-card family that benefits from variant locks and remaining qualifier coverage.",
-      "name": "Sewerdreg",
-      "oracleId": "f05e3fb4-a7e0-4dfa-9f3e-5109be79ef16",
-      "edhrecRank": 29567,
-      "typeLine": "Creature — Spirit",
-      "clause": "Sacrifice this creature: Exile target card from a graveyard."
+      "name": "Mortiphobia",
+      "oracleId": "4fb8312c-058a-415c-93ab-59d37ebad270",
+      "edhrecRank": 28659,
+      "typeLine": "Enchantment",
+      "clause": "{1}{B}, Discard a card: Exile target card from a graveyard."
     },
     {
       "queueIndex": 158,
@@ -2211,11 +2214,11 @@
       "familyTitle": "Exact-Target Graveyard Exile",
       "category": "Near-Term Graveyard Move-Zone",
       "notes": "Large real-card family that benefits from variant locks and remaining qualifier coverage.",
-      "name": "Grave Robbers",
-      "oracleId": "6698b059-f1ed-4023-9d44-fbdf39fb159a",
-      "edhrecRank": 29995,
-      "typeLine": "Creature — Human Rogue",
-      "clause": "{B}, {T}: Exile target artifact card from a graveyard."
+      "name": "Creakwood Ghoul",
+      "oracleId": "94c47804-bb64-4a91-85c5-9241c39685aa",
+      "edhrecRank": 29073,
+      "typeLine": "Creature — Plant Zombie",
+      "clause": "{B/G}{B/G}: Exile target card from a graveyard."
     },
     {
       "queueIndex": 159,
@@ -2223,11 +2226,11 @@
       "familyTitle": "Exact-Target Graveyard Exile",
       "category": "Near-Term Graveyard Move-Zone",
       "notes": "Large real-card family that benefits from variant locks and remaining qualifier coverage.",
-      "name": "Moratorium Stone",
-      "oracleId": "bb0d89e7-4ae6-4ac2-a0e6-51ab08226069",
-      "edhrecRank": 30352,
-      "typeLine": "Artifact",
-      "clause": "{2}, {T}: Exile target card from a graveyard."
+      "name": "Grixis Sojourners",
+      "oracleId": "21f507fd-6a26-455c-879a-f838e0aa2a43",
+      "edhrecRank": 29092,
+      "typeLine": "Creature — Zombie Ogre",
+      "clause": "When you cycle this card and when this creature dies, you may exile target card from a graveyard."
     },
     {
       "queueIndex": 160,
@@ -2235,11 +2238,11 @@
       "familyTitle": "Exact-Target Graveyard Exile",
       "category": "Near-Term Graveyard Move-Zone",
       "notes": "Large real-card family that benefits from variant locks and remaining qualifier coverage.",
-      "name": "Steamclaw",
-      "oracleId": "8cbc0fa4-4f62-47e1-90dc-c21d2682a493",
-      "edhrecRank": 30442,
-      "typeLine": "Artifact",
-      "clause": "{3}, {T}: Exile target card from a graveyard."
+      "name": "Sewerdreg",
+      "oracleId": "f05e3fb4-a7e0-4dfa-9f3e-5109be79ef16",
+      "edhrecRank": 29911,
+      "typeLine": "Creature — Spirit",
+      "clause": "Sacrifice this creature: Exile target card from a graveyard."
     },
     {
       "queueIndex": 161,
@@ -2247,11 +2250,11 @@
       "familyTitle": "Exact-Target Graveyard Exile",
       "category": "Near-Term Graveyard Move-Zone",
       "notes": "Large real-card family that benefits from variant locks and remaining qualifier coverage.",
-      "name": "Selfless Exorcist",
-      "oracleId": "78e875b1-e621-4bf0-ad81-24ed9e2b43f8",
-      "edhrecRank": 30452,
-      "typeLine": "Creature — Human Cleric",
-      "clause": "{T}: Exile target creature card from a graveyard."
+      "name": "Startled Relic Sloth",
+      "oracleId": "5d46e85f-4a04-48b1-afe9-3a47678041d4",
+      "edhrecRank": 30071,
+      "typeLine": "Creature — Sloth Beast",
+      "clause": "At the beginning of combat on your turn, exile up to one target card from a graveyard."
     },
     {
       "queueIndex": 162,
@@ -2259,11 +2262,11 @@
       "familyTitle": "Exact-Target Graveyard Exile",
       "category": "Near-Term Graveyard Move-Zone",
       "notes": "Large real-card family that benefits from variant locks and remaining qualifier coverage.",
-      "name": "Color Pie",
-      "oracleId": "11b9e781-4ca5-4a27-b179-eb18344b65bd",
-      "edhrecRank": null,
-      "typeLine": "Artifact — Food",
-      "clause": "Exile up to one target card from a graveyard."
+      "name": "Grave Robbers",
+      "oracleId": "6698b059-f1ed-4023-9d44-fbdf39fb159a",
+      "edhrecRank": 30272,
+      "typeLine": "Creature — Human Rogue",
+      "clause": "{B}, {T}: Exile target artifact card from a graveyard."
     },
     {
       "queueIndex": 163,
@@ -2271,11 +2274,11 @@
       "familyTitle": "Exact-Target Graveyard Exile",
       "category": "Near-Term Graveyard Move-Zone",
       "notes": "Large real-card family that benefits from variant locks and remaining qualifier coverage.",
-      "name": "The Many Deeds of Belzenlok",
-      "oracleId": "db99d574-b082-4383-b7f4-70ae7b2c8a37",
-      "edhrecRank": null,
-      "typeLine": "Enchantment — Saga",
-      "clause": "I — Exile up to one target Saga card from a graveyard."
+      "name": "Ascendant Dustspeaker",
+      "oracleId": "295f8b8d-102a-47af-93c2-f8182c5f11ca",
+      "edhrecRank": 30351,
+      "typeLine": "Creature — Orc Cleric",
+      "clause": "At the beginning of combat on your turn, exile up to one target card from a graveyard."
     },
     {
       "queueIndex": 164,
@@ -2283,35 +2286,35 @@
       "familyTitle": "Exact-Target Graveyard Exile",
       "category": "Near-Term Graveyard Move-Zone",
       "notes": "Large real-card family that benefits from variant locks and remaining qualifier coverage.",
-      "name": "Trained Blessed Mind",
-      "oracleId": "7a1ff7f3-0b3e-47fe-9e89-522c04f53869",
-      "edhrecRank": null,
-      "typeLine": "Stickers",
-      "clause": "{TK}{TK} — {T}: Exile target card from a graveyard."
+      "name": "Moratorium Stone",
+      "oracleId": "bb0d89e7-4ae6-4ac2-a0e6-51ab08226069",
+      "edhrecRank": 30627,
+      "typeLine": "Artifact",
+      "clause": "{2}, {T}: Exile target card from a graveyard."
     },
     {
       "queueIndex": 165,
-      "familyId": "your_gy_to_hand",
-      "familyTitle": "Your Graveyard To Hand",
+      "familyId": "gy_exile_target",
+      "familyTitle": "Exact-Target Graveyard Exile",
       "category": "Near-Term Graveyard Move-Zone",
-      "notes": "High-volume self-recursion family; good for tightening direct target binding and context-driven return paths.",
-      "name": "Eternal Witness",
-      "oracleId": "30b24e8e-3b0e-4d8e-90f3-f66eb7c1858c",
-      "edhrecRank": 99,
-      "typeLine": "Creature — Human Shaman",
-      "clause": "When this creature enters, you may return target card from your graveyard to your hand."
+      "notes": "Large real-card family that benefits from variant locks and remaining qualifier coverage.",
+      "name": "Steamclaw",
+      "oracleId": "8cbc0fa4-4f62-47e1-90dc-c21d2682a493",
+      "edhrecRank": 30761,
+      "typeLine": "Artifact",
+      "clause": "{3}, {T}: Exile target card from a graveyard."
     },
     {
       "queueIndex": 166,
-      "familyId": "your_gy_to_hand",
-      "familyTitle": "Your Graveyard To Hand",
+      "familyId": "gy_exile_target",
+      "familyTitle": "Exact-Target Graveyard Exile",
       "category": "Near-Term Graveyard Move-Zone",
-      "notes": "High-volume self-recursion family; good for tightening direct target binding and context-driven return paths.",
-      "name": "Buried Ruin",
-      "oracleId": "3644f316-f9a3-46c9-9b1e-747f86cf4ead",
-      "edhrecRank": 194,
-      "typeLine": "Land",
-      "clause": "{2}, {T}, Sacrifice this land: Return target artifact card from your graveyard to your hand."
+      "notes": "Large real-card family that benefits from variant locks and remaining qualifier coverage.",
+      "name": "Selfless Exorcist",
+      "oracleId": "78e875b1-e621-4bf0-ad81-24ed9e2b43f8",
+      "edhrecRank": 30768,
+      "typeLine": "Creature — Human Cleric",
+      "clause": "{T}: Exile target creature card from a graveyard."
     },
     {
       "queueIndex": 167,
@@ -2319,14 +2322,50 @@
       "familyTitle": "Your Graveyard To Hand",
       "category": "Near-Term Graveyard Move-Zone",
       "notes": "High-volume self-recursion family; good for tightening direct target binding and context-driven return paths.",
+      "name": "Eternal Witness",
+      "oracleId": "30b24e8e-3b0e-4d8e-90f3-f66eb7c1858c",
+      "edhrecRank": 100,
+      "typeLine": "Creature — Human Shaman",
+      "clause": "When this creature enters, you may return target card from your graveyard to your hand."
+    },
+    {
+      "queueIndex": 168,
+      "familyId": "your_gy_to_hand",
+      "familyTitle": "Your Graveyard To Hand",
+      "category": "Near-Term Graveyard Move-Zone",
+      "notes": "High-volume self-recursion family; good for tightening direct target binding and context-driven return paths.",
+      "name": "Buried Ruin",
+      "oracleId": "3644f316-f9a3-46c9-9b1e-747f86cf4ead",
+      "edhrecRank": 195,
+      "typeLine": "Land",
+      "clause": "{2}, {T}, Sacrifice this land: Return target artifact card from your graveyard to your hand."
+    },
+    {
+      "queueIndex": 169,
+      "familyId": "your_gy_to_hand",
+      "familyTitle": "Your Graveyard To Hand",
+      "category": "Near-Term Graveyard Move-Zone",
+      "notes": "High-volume self-recursion family; good for tightening direct target binding and context-driven return paths.",
       "name": "Phyrexian Reclamation",
       "oracleId": "647ca69e-cc01-4b2b-b376-bee2a98331e8",
-      "edhrecRank": 912,
+      "edhrecRank": 916,
       "typeLine": "Enchantment",
       "clause": "{1}{B}, Pay 2 life: Return target creature card from your graveyard to your hand."
     },
     {
-      "queueIndex": 168,
+      "queueIndex": 170,
+      "familyId": "your_gy_to_hand",
+      "familyTitle": "Your Graveyard To Hand",
+      "category": "Near-Term Graveyard Move-Zone",
+      "notes": "High-volume self-recursion family; good for tightening direct target binding and context-driven return paths.",
+      "name": "Evolution Witness",
+      "oracleId": "0e07f1af-5ff6-4da5-8683-aea4cc390975",
+      "edhrecRank": 939,
+      "typeLine": "Creature — Elf Shaman Mutant",
+      "clause": "Whenever one or more +1/+1 counters are put on this creature, return target permanent card from your graveyard to your hand."
+    },
+    {
+      "queueIndex": 171,
       "familyId": "your_gy_to_hand",
       "familyTitle": "Your Graveyard To Hand",
       "category": "Near-Term Graveyard Move-Zone",
@@ -2338,52 +2377,16 @@
       "clause": "When this creature enters, return target instant or sorcery card from your graveyard to your hand."
     },
     {
-      "queueIndex": 169,
-      "familyId": "your_gy_to_hand",
-      "familyTitle": "Your Graveyard To Hand",
-      "category": "Near-Term Graveyard Move-Zone",
-      "notes": "High-volume self-recursion family; good for tightening direct target binding and context-driven return paths.",
-      "name": "Evolution Witness",
-      "oracleId": "0e07f1af-5ff6-4da5-8683-aea4cc390975",
-      "edhrecRank": 969,
-      "typeLine": "Creature — Elf Shaman Mutant",
-      "clause": "Whenever one or more +1/+1 counters are put on this creature, return target permanent card from your graveyard to your hand."
-    },
-    {
-      "queueIndex": 170,
+      "queueIndex": 172,
       "familyId": "your_gy_to_hand",
       "familyTitle": "Your Graveyard To Hand",
       "category": "Near-Term Graveyard Move-Zone",
       "notes": "High-volume self-recursion family; good for tightening direct target binding and context-driven return paths.",
       "name": "Haven of the Spirit Dragon",
       "oracleId": "acc9c16a-5e72-43bd-87e1-56a16aa892f5",
-      "edhrecRank": 1136,
+      "edhrecRank": 1129,
       "typeLine": "Land",
       "clause": "{2}, {T}, Sacrifice this land: Return target Dragon creature card or Ugin planeswalker card from your graveyard to your hand."
-    },
-    {
-      "queueIndex": 171,
-      "familyId": "your_gy_to_hand",
-      "familyTitle": "Your Graveyard To Hand",
-      "category": "Near-Term Graveyard Move-Zone",
-      "notes": "High-volume self-recursion family; good for tightening direct target binding and context-driven return paths.",
-      "name": "Timeless Witness",
-      "oracleId": "a52a06aa-56fc-4845-bbcd-a54f16369b34",
-      "edhrecRank": 1210,
-      "typeLine": "Creature — Human Shaman",
-      "clause": "When this creature enters, return target card from your graveyard to your hand."
-    },
-    {
-      "queueIndex": 172,
-      "familyId": "your_gy_to_hand",
-      "familyTitle": "Your Graveyard To Hand",
-      "category": "Near-Term Graveyard Move-Zone",
-      "notes": "High-volume self-recursion family; good for tightening direct target binding and context-driven return paths.",
-      "name": "Regrowth",
-      "oracleId": "e6e4a8bd-5c40-4654-8de1-0da9afed90fd",
-      "edhrecRank": 1312,
-      "typeLine": "Sorcery",
-      "clause": "Return target card from your graveyard to your hand."
     },
     {
       "queueIndex": 173,
@@ -2391,11 +2394,11 @@
       "familyTitle": "Your Graveyard To Hand",
       "category": "Near-Term Graveyard Move-Zone",
       "notes": "High-volume self-recursion family; good for tightening direct target binding and context-driven return paths.",
-      "name": "Unnatural Restoration",
-      "oracleId": "05d1e797-bda2-4411-a546-919493768650",
-      "edhrecRank": 1366,
-      "typeLine": "Sorcery",
-      "clause": "Return target permanent card from your graveyard to your hand."
+      "name": "Timeless Witness",
+      "oracleId": "a52a06aa-56fc-4845-bbcd-a54f16369b34",
+      "edhrecRank": 1218,
+      "typeLine": "Creature — Human Shaman",
+      "clause": "When this creature enters, return target card from your graveyard to your hand."
     },
     {
       "queueIndex": 174,
@@ -2403,11 +2406,11 @@
       "familyTitle": "Your Graveyard To Hand",
       "category": "Near-Term Graveyard Move-Zone",
       "notes": "High-volume self-recursion family; good for tightening direct target binding and context-driven return paths.",
-      "name": "Honest Rutstein",
-      "oracleId": "439bf6d1-bd65-474b-a70c-7fdd446de4bb",
-      "edhrecRank": 1558,
-      "typeLine": "Legendary Creature — Human Warlock",
-      "clause": "When Honest Rutstein enters, return target creature card from your graveyard to your hand."
+      "name": "Regrowth",
+      "oracleId": "e6e4a8bd-5c40-4654-8de1-0da9afed90fd",
+      "edhrecRank": 1321,
+      "typeLine": "Sorcery",
+      "clause": "Return target card from your graveyard to your hand."
     },
     {
       "queueIndex": 175,
@@ -2415,11 +2418,11 @@
       "familyTitle": "Your Graveyard To Hand",
       "category": "Near-Term Graveyard Move-Zone",
       "notes": "High-volume self-recursion family; good for tightening direct target binding and context-driven return paths.",
-      "name": "Tortured Existence",
-      "oracleId": "fa9dfcf7-069c-4441-9ea0-133de47ecada",
-      "edhrecRank": 1567,
-      "typeLine": "Enchantment",
-      "clause": "{B}, Discard a creature card: Return target creature card from your graveyard to your hand."
+      "name": "Unnatural Restoration",
+      "oracleId": "05d1e797-bda2-4411-a546-919493768650",
+      "edhrecRank": 1379,
+      "typeLine": "Sorcery",
+      "clause": "Return target permanent card from your graveyard to your hand."
     },
     {
       "queueIndex": 176,
@@ -2427,14 +2430,38 @@
       "familyTitle": "Your Graveyard To Hand",
       "category": "Near-Term Graveyard Move-Zone",
       "notes": "High-volume self-recursion family; good for tightening direct target binding and context-driven return paths.",
+      "name": "Tortured Existence",
+      "oracleId": "fa9dfcf7-069c-4441-9ea0-133de47ecada",
+      "edhrecRank": 1563,
+      "typeLine": "Enchantment",
+      "clause": "{B}, Discard a creature card: Return target creature card from your graveyard to your hand."
+    },
+    {
+      "queueIndex": 177,
+      "familyId": "your_gy_to_hand",
+      "familyTitle": "Your Graveyard To Hand",
+      "category": "Near-Term Graveyard Move-Zone",
+      "notes": "High-volume self-recursion family; good for tightening direct target binding and context-driven return paths.",
+      "name": "Honest Rutstein",
+      "oracleId": "439bf6d1-bd65-474b-a70c-7fdd446de4bb",
+      "edhrecRank": 1565,
+      "typeLine": "Legendary Creature — Human Warlock",
+      "clause": "When Honest Rutstein enters, return target creature card from your graveyard to your hand."
+    },
+    {
+      "queueIndex": 178,
+      "familyId": "your_gy_to_hand",
+      "familyTitle": "Your Graveyard To Hand",
+      "category": "Near-Term Graveyard Move-Zone",
+      "notes": "High-volume self-recursion family; good for tightening direct target binding and context-driven return paths.",
       "name": "Oversold Cemetery",
       "oracleId": "ed4cd3a1-688b-4c05-948d-39d3336e00c0",
-      "edhrecRank": 1588,
+      "edhrecRank": 1609,
       "typeLine": "Enchantment",
       "clause": "At the beginning of your upkeep, if you have four or more creature cards in your graveyard, you may return target creature card from your graveyard to your hand."
     },
     {
-      "queueIndex": 177,
+      "queueIndex": 179,
       "familyId": "your_gy_to_hand",
       "familyTitle": "Your Graveyard To Hand",
       "category": "Near-Term Graveyard Move-Zone",
@@ -2446,40 +2473,16 @@
       "clause": "{1}{B}{G}, Exile this creature: Return target card from your graveyard to your hand."
     },
     {
-      "queueIndex": 178,
+      "queueIndex": 180,
       "familyId": "your_gy_to_hand",
       "familyTitle": "Your Graveyard To Hand",
       "category": "Near-Term Graveyard Move-Zone",
       "notes": "High-volume self-recursion family; good for tightening direct target binding and context-driven return paths.",
       "name": "Stitch Together",
       "oracleId": "bc3d5911-3580-4132-9daf-2826495b5739",
-      "edhrecRank": 1746,
+      "edhrecRank": 1721,
       "typeLine": "Sorcery",
       "clause": "Return target creature card from your graveyard to your hand."
-    },
-    {
-      "queueIndex": 179,
-      "familyId": "your_gy_to_hand",
-      "familyTitle": "Your Graveyard To Hand",
-      "category": "Near-Term Graveyard Move-Zone",
-      "notes": "High-volume self-recursion family; good for tightening direct target binding and context-driven return paths.",
-      "name": "Emeria Shepherd",
-      "oracleId": "473da1b6-232b-4428-a66d-30262246b47a",
-      "edhrecRank": 1958,
-      "typeLine": "Creature — Angel",
-      "clause": "Landfall — Whenever a land you control enters, you may return target nonland permanent card from your graveyard to your hand."
-    },
-    {
-      "queueIndex": 180,
-      "familyId": "your_gy_to_hand",
-      "familyTitle": "Your Graveyard To Hand",
-      "category": "Near-Term Graveyard Move-Zone",
-      "notes": "High-volume self-recursion family; good for tightening direct target binding and context-driven return paths.",
-      "name": "Trading Post",
-      "oracleId": "63788566-e25a-44bb-bb55-197e1b93b3e8",
-      "edhrecRank": 2028,
-      "typeLine": "Artifact",
-      "clause": "{1}, {T}, Sacrifice a creature: Return target artifact card from your graveyard to your hand."
     },
     {
       "queueIndex": 181,
@@ -2487,11 +2490,11 @@
       "familyTitle": "Your Graveyard To Hand",
       "category": "Near-Term Graveyard Move-Zone",
       "notes": "High-volume self-recursion family; good for tightening direct target binding and context-driven return paths.",
-      "name": "Sword of Light and Shadow",
-      "oracleId": "01c8a554-45a6-46ca-b40a-af0fd4529e40",
-      "edhrecRank": 2147,
-      "typeLine": "Artifact — Equipment",
-      "clause": "Whenever equipped creature deals combat damage to a player, you gain 3 life and you may return up to one target creature card from your graveyard to your hand."
+      "name": "Emeria Shepherd",
+      "oracleId": "473da1b6-232b-4428-a66d-30262246b47a",
+      "edhrecRank": 1997,
+      "typeLine": "Creature — Angel",
+      "clause": "Landfall — Whenever a land you control enters, you may return target nonland permanent card from your graveyard to your hand."
     },
     {
       "queueIndex": 182,
@@ -2499,11 +2502,11 @@
       "familyTitle": "Your Graveyard To Hand",
       "category": "Near-Term Graveyard Move-Zone",
       "notes": "High-volume self-recursion family; good for tightening direct target binding and context-driven return paths.",
-      "name": "Abstergo Entertainment",
-      "oracleId": "d06a8026-1657-4404-8dff-64e44f1a14f8",
-      "edhrecRank": 2200,
-      "typeLine": "Legendary Land",
-      "clause": "{3}, {T}, Exile Abstergo Entertainment: Return up to one target historic card from your graveyard to your hand, then exile all graveyards."
+      "name": "Trading Post",
+      "oracleId": "63788566-e25a-44bb-bb55-197e1b93b3e8",
+      "edhrecRank": 2064,
+      "typeLine": "Artifact",
+      "clause": "{1}, {T}, Sacrifice a creature: Return target artifact card from your graveyard to your hand."
     },
     {
       "queueIndex": 183,
@@ -2511,11 +2514,11 @@
       "familyTitle": "Your Graveyard To Hand",
       "category": "Near-Term Graveyard Move-Zone",
       "notes": "High-volume self-recursion family; good for tightening direct target binding and context-driven return paths.",
-      "name": "Samwise Gamgee",
-      "oracleId": "7ce37c26-91ea-493f-bfc3-a890d4538bc1",
-      "edhrecRank": 2289,
-      "typeLine": "Legendary Creature — Halfling Peasant",
-      "clause": "Sacrifice three Foods: Return target historic card from your graveyard to your hand."
+      "name": "Sword of Light and Shadow",
+      "oracleId": "01c8a554-45a6-46ca-b40a-af0fd4529e40",
+      "edhrecRank": 2156,
+      "typeLine": "Artifact — Equipment",
+      "clause": "Whenever equipped creature deals combat damage to a player, you gain 3 life and you may return up to one target creature card from your graveyard to your hand."
     },
     {
       "queueIndex": 184,
@@ -2523,11 +2526,11 @@
       "familyTitle": "Your Graveyard To Hand",
       "category": "Near-Term Graveyard Move-Zone",
       "notes": "High-volume self-recursion family; good for tightening direct target binding and context-driven return paths.",
-      "name": "Codex Shredder",
-      "oracleId": "ef7b11ab-24e7-4e7c-91a7-920bade6e60b",
-      "edhrecRank": 2324,
-      "typeLine": "Artifact",
-      "clause": "{5}, {T}, Sacrifice this artifact: Return target card from your graveyard to your hand."
+      "name": "Abstergo Entertainment",
+      "oracleId": "d06a8026-1657-4404-8dff-64e44f1a14f8",
+      "edhrecRank": 2157,
+      "typeLine": "Legendary Land",
+      "clause": "{3}, {T}, Exile Abstergo Entertainment: Return up to one target historic card from your graveyard to your hand, then exile all graveyards."
     },
     {
       "queueIndex": 185,
@@ -2535,11 +2538,11 @@
       "familyTitle": "Your Graveyard To Hand",
       "category": "Near-Term Graveyard Move-Zone",
       "notes": "High-volume self-recursion family; good for tightening direct target binding and context-driven return paths.",
-      "name": "Peerless Recycling",
-      "oracleId": "938c03fc-8adf-4c7a-8ae1-eca8401f7a83",
-      "edhrecRank": 2799,
-      "typeLine": "Instant",
-      "clause": "Return target permanent card from your graveyard to your hand."
+      "name": "Samwise Gamgee",
+      "oracleId": "7ce37c26-91ea-493f-bfc3-a890d4538bc1",
+      "edhrecRank": 2307,
+      "typeLine": "Legendary Creature — Halfling Peasant",
+      "clause": "Sacrifice three Foods: Return target historic card from your graveyard to your hand."
     },
     {
       "queueIndex": 186,
@@ -2547,11 +2550,11 @@
       "familyTitle": "Your Graveyard To Hand",
       "category": "Near-Term Graveyard Move-Zone",
       "notes": "High-volume self-recursion family; good for tightening direct target binding and context-driven return paths.",
-      "name": "Mudflat Village",
-      "oracleId": "aeeab1df-0b8b-4bc4-a5f9-aac413449bec",
-      "edhrecRank": 2821,
-      "typeLine": "Land",
-      "clause": "{1}{B}, {T}, Sacrifice this land: Return target Bat, Lizard, Rat, or Squirrel card from your graveyard to your hand."
+      "name": "Codex Shredder",
+      "oracleId": "ef7b11ab-24e7-4e7c-91a7-920bade6e60b",
+      "edhrecRank": 2336,
+      "typeLine": "Artifact",
+      "clause": "{5}, {T}, Sacrifice this artifact: Return target card from your graveyard to your hand."
     },
     {
       "queueIndex": 187,
@@ -2559,11 +2562,11 @@
       "familyTitle": "Your Graveyard To Hand",
       "category": "Near-Term Graveyard Move-Zone",
       "notes": "High-volume self-recursion family; good for tightening direct target binding and context-driven return paths.",
-      "name": "Spawnbed Protector",
-      "oracleId": "256a7f54-0e8e-4d22-a0f7-ff2830e8884e",
-      "edhrecRank": 2825,
-      "typeLine": "Creature — Eldrazi",
-      "clause": "At the beginning of your end step, return up to one target Eldrazi creature card from your graveyard to your hand."
+      "name": "Peerless Recycling",
+      "oracleId": "938c03fc-8adf-4c7a-8ae1-eca8401f7a83",
+      "edhrecRank": 2762,
+      "typeLine": "Instant",
+      "clause": "Return target permanent card from your graveyard to your hand."
     },
     {
       "queueIndex": 188,
@@ -2571,11 +2574,11 @@
       "familyTitle": "Your Graveyard To Hand",
       "category": "Near-Term Graveyard Move-Zone",
       "notes": "High-volume self-recursion family; good for tightening direct target binding and context-driven return paths.",
-      "name": "Revive the Shire",
-      "oracleId": "67afcfef-3f0c-4823-b690-01732f28a005",
-      "edhrecRank": 2855,
-      "typeLine": "Sorcery",
-      "clause": "Return target permanent card from your graveyard to your hand."
+      "name": "Mudflat Village",
+      "oracleId": "aeeab1df-0b8b-4bc4-a5f9-aac413449bec",
+      "edhrecRank": 2785,
+      "typeLine": "Land",
+      "clause": "{1}{B}, {T}, Sacrifice this land: Return target Bat, Lizard, Rat, or Squirrel card from your graveyard to your hand."
     },
     {
       "queueIndex": 189,
@@ -2583,11 +2586,11 @@
       "familyTitle": "Your Graveyard To Hand",
       "category": "Near-Term Graveyard Move-Zone",
       "notes": "High-volume self-recursion family; good for tightening direct target binding and context-driven return paths.",
-      "name": "Graveshifter",
-      "oracleId": "1eebc02a-9a64-49b0-8322-c5ce671457ce",
-      "edhrecRank": 2899,
-      "typeLine": "Creature — Shapeshifter",
-      "clause": "When this creature enters, you may return target creature card from your graveyard to your hand."
+      "name": "Spawnbed Protector",
+      "oracleId": "256a7f54-0e8e-4d22-a0f7-ff2830e8884e",
+      "edhrecRank": 2805,
+      "typeLine": "Creature — Eldrazi",
+      "clause": "At the beginning of your end step, return up to one target Eldrazi creature card from your graveyard to your hand."
     },
     {
       "queueIndex": 190,
@@ -2595,11 +2598,11 @@
       "familyTitle": "Your Graveyard To Hand",
       "category": "Near-Term Graveyard Move-Zone",
       "notes": "High-volume self-recursion family; good for tightening direct target binding and context-driven return paths.",
-      "name": "Memorial to Folly",
-      "oracleId": "2bc38f14-0314-4351-8138-e2b8bf041404",
-      "edhrecRank": 2914,
-      "typeLine": "Land",
-      "clause": "{2}{B}, {T}, Sacrifice this land: Return target creature card from your graveyard to your hand."
+      "name": "Graveshifter",
+      "oracleId": "1eebc02a-9a64-49b0-8322-c5ce671457ce",
+      "edhrecRank": 2862,
+      "typeLine": "Creature — Shapeshifter",
+      "clause": "When this creature enters, you may return target creature card from your graveyard to your hand."
     },
     {
       "queueIndex": 191,
@@ -2607,11 +2610,11 @@
       "familyTitle": "Your Graveyard To Hand",
       "category": "Near-Term Graveyard Move-Zone",
       "notes": "High-volume self-recursion family; good for tightening direct target binding and context-driven return paths.",
-      "name": "Witch of the Moors",
-      "oracleId": "7ad97dd9-1342-4ed4-bea9-1bb21d748e04",
-      "edhrecRank": 2954,
-      "typeLine": "Creature — Human Warlock",
-      "clause": "At the beginning of your end step, if you gained life this turn, each opponent sacrifices a creature of their choice and you return up to one target creature card from your graveyard to your hand."
+      "name": "Revive the Shire",
+      "oracleId": "67afcfef-3f0c-4823-b690-01732f28a005",
+      "edhrecRank": 2870,
+      "typeLine": "Sorcery",
+      "clause": "Return target permanent card from your graveyard to your hand."
     },
     {
       "queueIndex": 192,
@@ -2619,11 +2622,11 @@
       "familyTitle": "Your Graveyard To Hand",
       "category": "Near-Term Graveyard Move-Zone",
       "notes": "High-volume self-recursion family; good for tightening direct target binding and context-driven return paths.",
-      "name": "Tezzeret, Master of the Bridge",
-      "oracleId": "d097991c-41df-47de-a439-57a0693b9581",
-      "edhrecRank": 3069,
-      "typeLine": "Legendary Planeswalker — Tezzeret",
-      "clause": "−3: Return target artifact card from your graveyard to your hand."
+      "name": "Witch of the Moors",
+      "oracleId": "7ad97dd9-1342-4ed4-bea9-1bb21d748e04",
+      "edhrecRank": 2874,
+      "typeLine": "Creature — Human Warlock",
+      "clause": "At the beginning of your end step, if you gained life this turn, each opponent sacrifices a creature of their choice and you return up to one target creature card from your graveyard to your hand."
     },
     {
       "queueIndex": 193,
@@ -2631,11 +2634,11 @@
       "familyTitle": "Your Graveyard To Hand",
       "category": "Near-Term Graveyard Move-Zone",
       "notes": "High-volume self-recursion family; good for tightening direct target binding and context-driven return paths.",
-      "name": "Skullwinder",
-      "oracleId": "d3d8dd6e-a80b-4063-a542-ff67ef8dad4f",
-      "edhrecRank": 3236,
-      "typeLine": "Creature — Snake",
-      "clause": "When this creature enters, return target card from your graveyard to your hand, then choose an opponent."
+      "name": "Memorial to Folly",
+      "oracleId": "2bc38f14-0314-4351-8138-e2b8bf041404",
+      "edhrecRank": 2902,
+      "typeLine": "Land",
+      "clause": "{2}{B}, {T}, Sacrifice this land: Return target creature card from your graveyard to your hand."
     },
     {
       "queueIndex": 194,
@@ -2643,11 +2646,11 @@
       "familyTitle": "Your Graveyard To Hand",
       "category": "Near-Term Graveyard Move-Zone",
       "notes": "High-volume self-recursion family; good for tightening direct target binding and context-driven return paths.",
-      "name": "Golgari Thug",
-      "oracleId": "a426a258-fd8b-489c-8642-9868ee47de85",
-      "edhrecRank": 3246,
-      "typeLine": "Creature — Human Warrior",
-      "clause": "When this creature dies, put target creature card from your graveyard on top of your library. Dredge 4 (If you would draw a card, you may mill four cards instead. If you do, return this card from your graveyard to you..."
+      "name": "Tezzeret, Master of the Bridge",
+      "oracleId": "d097991c-41df-47de-a439-57a0693b9581",
+      "edhrecRank": 3093,
+      "typeLine": "Legendary Planeswalker — Tezzeret",
+      "clause": "−3: Return target artifact card from your graveyard to your hand."
     },
     {
       "queueIndex": 195,
@@ -2655,11 +2658,11 @@
       "familyTitle": "Your Graveyard To Hand",
       "category": "Near-Term Graveyard Move-Zone",
       "notes": "High-volume self-recursion family; good for tightening direct target binding and context-driven return paths.",
-      "name": "Kolaghan's Command",
-      "oracleId": "45f1e957-09f0-4d46-8e32-238f26060a87",
-      "edhrecRank": 3361,
-      "typeLine": "Instant",
-      "clause": "• Return target creature card from your graveyard to your hand."
+      "name": "Skullwinder",
+      "oracleId": "d3d8dd6e-a80b-4063-a542-ff67ef8dad4f",
+      "edhrecRank": 3286,
+      "typeLine": "Creature — Snake",
+      "clause": "When this creature enters, return target card from your graveyard to your hand, then choose an opponent."
     },
     {
       "queueIndex": 196,
@@ -2667,11 +2670,11 @@
       "familyTitle": "Your Graveyard To Hand",
       "category": "Near-Term Graveyard Move-Zone",
       "notes": "High-volume self-recursion family; good for tightening direct target binding and context-driven return paths.",
-      "name": "Lord of the Undead",
-      "oracleId": "7714af0e-41d9-4609-967f-27233b46055f",
-      "edhrecRank": 3376,
-      "typeLine": "Creature — Zombie",
-      "clause": "{1}{B}, {T}: Return target Zombie card from your graveyard to your hand."
+      "name": "Golgari Thug",
+      "oracleId": "a426a258-fd8b-489c-8642-9868ee47de85",
+      "edhrecRank": 3288,
+      "typeLine": "Creature — Human Warrior",
+      "clause": "When this creature dies, put target creature card from your graveyard on top of your library. Dredge 4 (If you would draw a card, you may mill four cards instead. If you do, return this card from your graveyard to you..."
     },
     {
       "queueIndex": 197,
@@ -2679,11 +2682,11 @@
       "familyTitle": "Your Graveyard To Hand",
       "category": "Near-Term Graveyard Move-Zone",
       "notes": "High-volume self-recursion family; good for tightening direct target binding and context-driven return paths.",
-      "name": "Trailtracker Scout",
-      "oracleId": "d38646dc-d1ea-473c-aaf1-df8ba327459f",
-      "edhrecRank": 3433,
-      "typeLine": "Creature — Raccoon Scout",
-      "clause": "Whenever you expend 8, return up to one target permanent card from your graveyard to your hand."
+      "name": "Cid, Freeflier Pilot",
+      "oracleId": "d3bdfb25-dfb2-4df4-b502-ef0909a39f86",
+      "edhrecRank": 3394,
+      "typeLine": "Legendary Creature — Human Warrior Pilot",
+      "clause": "{2}, {T}: Return target Equipment or Vehicle card from your graveyard to your hand."
     },
     {
       "queueIndex": 198,
@@ -2691,11 +2694,11 @@
       "familyTitle": "Your Graveyard To Hand",
       "category": "Near-Term Graveyard Move-Zone",
       "notes": "High-volume self-recursion family; good for tightening direct target binding and context-driven return paths.",
-      "name": "Cid, Freeflier Pilot",
-      "oracleId": "d3bdfb25-dfb2-4df4-b502-ef0909a39f86",
-      "edhrecRank": 3513,
-      "typeLine": "Legendary Creature — Human Warrior Pilot",
-      "clause": "{2}, {T}: Return target Equipment or Vehicle card from your graveyard to your hand."
+      "name": "Trailtracker Scout",
+      "oracleId": "d38646dc-d1ea-473c-aaf1-df8ba327459f",
+      "edhrecRank": 3397,
+      "typeLine": "Creature — Raccoon Scout",
+      "clause": "Whenever you expend 8, return up to one target permanent card from your graveyard to your hand."
     },
     {
       "queueIndex": 199,
@@ -2703,11 +2706,11 @@
       "familyTitle": "Your Graveyard To Hand",
       "category": "Near-Term Graveyard Move-Zone",
       "notes": "High-volume self-recursion family; good for tightening direct target binding and context-driven return paths.",
-      "name": "Court of Ardenvale",
-      "oracleId": "be14d3be-295e-431c-b891-590164b730dd",
-      "edhrecRank": 3533,
-      "typeLine": "Enchantment",
-      "clause": "At the beginning of your upkeep, return target permanent card with mana value 3 or less from your graveyard to your hand."
+      "name": "Kolaghan's Command",
+      "oracleId": "45f1e957-09f0-4d46-8e32-238f26060a87",
+      "edhrecRank": 3398,
+      "typeLine": "Instant",
+      "clause": "• Return target creature card from your graveyard to your hand."
     },
     {
       "queueIndex": 200,
@@ -2715,11 +2718,11 @@
       "familyTitle": "Your Graveyard To Hand",
       "category": "Near-Term Graveyard Move-Zone",
       "notes": "High-volume self-recursion family; good for tightening direct target binding and context-driven return paths.",
-      "name": "Colossal Skyturtle",
-      "oracleId": "871e4c4e-8105-4cb9-b1cd-53c5f8e64494",
-      "edhrecRank": 3597,
-      "typeLine": "Enchantment Creature — Turtle",
-      "clause": "Channel — {2}{G}, Discard this card: Return target card from your graveyard to your hand."
+      "name": "Lord of the Undead",
+      "oracleId": "7714af0e-41d9-4609-967f-27233b46055f",
+      "edhrecRank": 3420,
+      "typeLine": "Creature — Zombie",
+      "clause": "{1}{B}, {T}: Return target Zombie card from your graveyard to your hand."
     }
   ]
 }
