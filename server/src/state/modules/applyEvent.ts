@@ -49,7 +49,7 @@ import {
   movePermanentToExile,
 } from "./counters_tokens";
 import { cleanupCardLeavingExile } from "./playable-from-exile";
-import { clearPreparedPermanent } from "./prepared.js";
+import { clearPreparedPermanent, syncPreparedPermanentAfterControlChange } from "./prepared.js";
 import { applyMyriadTokenCopies, pushStack, resolveTopOfStack, playLand, castSpell, triggerETBEffectsForToken } from "./stack";
 import { exileEntireStack } from "./stack";
 import { permanentHasKeyword } from "./keyword-handlers";
@@ -922,7 +922,9 @@ function applyAIActivateAbilityReplay(ctx: GameContext, e: any): void {
         ? (ctx.state.battlefield as any[]).find((entry: any) => entry && String(entry.id || '') === permanentId)
         : null;
       if (humbleDefector) {
+        const previousController = String((humbleDefector as any).controller || '');
         (humbleDefector as any).controller = targetOpponentId;
+        syncPreparedPermanentAfterControlChange(ctx.state, humbleDefector, previousController);
         (humbleDefector as any).summoningSickness = true;
       }
     }
@@ -5416,6 +5418,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           const permanent = battlefield.find((entry: any) => entry && String(entry.id || '') === permanentId) as any;
           if (permanent) {
             permanent.controller = newController;
+            syncPreparedPermanentAfterControlChange(ctx.state, permanent, oldController);
           }
 
           if (duration === 'eot' || duration === 'turn') {
@@ -6155,7 +6158,9 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
                 const battlefield = Array.isArray(ctx.state?.battlefield) ? ctx.state.battlefield : [];
                 const humbleDefector = battlefield.find((entry: any) => entry && String(entry.id || '') === String(permId || '')) as any;
                 if (humbleDefector) {
+                  const previousController = String(humbleDefector.controller || '');
                   humbleDefector.controller = targetOpponentId;
+                  syncPreparedPermanentAfterControlChange(ctx.state, humbleDefector, previousController);
                   humbleDefector.summoningSickness = true;
                 }
               }
@@ -10697,7 +10702,9 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
 
           if (effectType === 'control_change') {
             if (permanent) {
+              const previousController = String(permanent.controller || '');
               permanent.controller = selectedPlayerId;
+              syncPreparedPermanentAfterControlChange(ctx.state, permanent, previousController);
               delete (permanent as any).pendingPlayerSelection;
 
               const typeLine = String(permanent?.card?.type_line || '').toLowerCase();

@@ -3,6 +3,7 @@ import { ensureGame, broadcastGame, getPlayerName } from "./util";
 import { appendEvent } from "../db";
 import { debug, debugWarn, debugError } from "../utils/debug.js";
 import type { PlayerID } from "../../../shared/src/types";
+import { syncPreparedPermanentAfterControlChange } from "../state/modules/prepared.js";
 import { ResolutionQueueManager } from "../state/resolution/index.js";
 import { ResolutionStepType } from "../state/resolution/types.js";
 
@@ -270,7 +271,9 @@ export function applyPlayerSelectionEffect(
       if (effectData.permanentId) {
         const permanent = battlefield.find((p: any) => p && p.id === effectData.permanentId);
         if (permanent) {
+          const previousController = String(permanent.controller || '');
           permanent.controller = selectedPlayerId;
+          syncPreparedPermanentAfterControlChange(game.state, permanent, previousController);
           delete (permanent as any).pendingPlayerSelection;
 
           const typeLine = String(permanent?.card?.type_line || '').toLowerCase();

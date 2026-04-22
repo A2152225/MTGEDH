@@ -33,6 +33,49 @@ export function canPermanentBePrepared(permanent: any): boolean {
   return Boolean(sourceCard && getPreparedSpellFace(sourceCard));
 }
 
+function getPreparedCopyId(permanent: any): string {
+  return String(
+    permanent?.preparedExileCopyCardId ||
+    permanent?.card?.preparedExileCopyCardId ||
+    '',
+  ).trim();
+}
+
+function isPermanentPrepared(permanent: any): boolean {
+  return Boolean(
+    permanent?.prepared === true ||
+    permanent?.isPrepared === true ||
+    permanent?.card?.prepared === true ||
+    permanent?.card?.isPrepared === true,
+  );
+}
+
+function findPreparedCopyInExileZones(state: any, copyId: string): {
+  controllerId: string;
+  exile: any[];
+  index: number;
+  copy: any;
+} | null {
+  if (!state?.zones || !copyId) {
+    return null;
+  }
+
+  for (const [controllerId, zone] of Object.entries(state.zones)) {
+    const exile = Array.isArray((zone as any)?.exile) ? (zone as any).exile : [];
+    const index = exile.findIndex((card: any) => String(card?.id || '').trim() === copyId);
+    if (index !== -1) {
+      return {
+        controllerId,
+        exile,
+        index,
+        copy: exile[index],
+      };
+    }
+  }
+
+  return null;
+}
+
 function ensurePlayerExileZone(state: any, playerId: string): any[] {
   state.zones = state.zones || {};
   state.zones[playerId] = state.zones[playerId] || {
@@ -133,6 +176,81 @@ export function isPreparedCopyActive(state: any, exiledCard: any, playerId?: str
   return true;
 }
 
+export function syncPreparedPermanentAfterControlChange(
+  state: any,
+  permanent: any,
+  previousControllerId?: string,
+): any | null {
+  if (!state || !permanent) {
+    return null;
+  }
+
+  const newController = String(permanent?.controller || permanent?.owner || '').trim();
+  const oldController = String(previousControllerId || '').trim();
+  const copyId = getPreparedCopyId(permanent);
+  const prepared = isPermanentPrepared(permanent);
+
+  if (!newController || (!prepared && !copyId) || !canPermanentBePrepared(permanent)) {
+    return null;
+  }
+
+  permanent.card = permanent.card || {};
+  if (copyId) {
+    permanent.preparedExileCopyCardId = copyId;
+    permanent.card.preparedExileCopyCardId = copyId;
+  }
+
+  let preparedCopy: any | null = null;
+  if (copyId && oldController && oldController !== newController) {
+    const oldExile = ensurePlayerExileZone(state, oldController);
+    const oldIndex = oldExile.findIndex((card: any) => String(card?.id || '').trim() === copyId);
+    if (oldIndex !== -1) {
+      [preparedCopy] = oldExile.splice(oldIndex, 1);
+      state.zones[oldController].exileCount = oldExile.length;
+    }
+  }
+
+  if (!preparedCopy && copyId) {
+    const located = findPreparedCopyInExileZones(state, copyId);
+    if (located) {
+      preparedCopy = located.copy;
+      if (located.controllerId !== newController) {
+        located.exile.splice(located.index, 1);
+        state.zones[located.controllerId].exileCount = located.exile.length;
+      }
+    }
+  }
+
+  if (!prepared) {
+    return null;
+  }
+
+  if (!preparedCopy) {
+    return setPermanentPrepared(state, permanent);
+  }
+
+  const targetExile = ensurePlayerExileZone(state, newController);
+  preparedCopy.zone = 'exile';
+  preparedCopy.canBePlayedBy = newController;
+  preparedCopy.playableUntilTurn = true;
+  preparedCopy.preparedSourcePermanentId = String(permanent?.id || '').trim();
+  preparedCopy.preparedSourceCardId = String(permanent?.card?.id || preparedCopy?.preparedSourceCardId || '').trim();
+
+  if (!targetExile.some((card: any) => String(card?.id || '').trim() === String(preparedCopy?.id || '').trim())) {
+    targetExile.push(preparedCopy);
+  }
+  state.zones[newController].exileCount = targetExile.length;
+
+  permanent.prepared = true;
+  permanent.isPrepared = true;
+  permanent.preparedExileCopyCardId = preparedCopy.id;
+  permanent.card.prepared = true;
+  permanent.card.isPrepared = true;
+  permanent.card.preparedExileCopyCardId = preparedCopy.id;
+
+  return preparedCopy;
+}
+
 export function setPermanentPrepared(state: any, permanent: any): any | null {
   if (!state || !permanent || !canPermanentBePrepared(permanent)) {
     return null;
@@ -159,6 +277,7 @@ export function setPermanentPrepared(state: any, permanent: any): any | null {
     existingCopy.canBePlayedBy = controller;
     existingCopy.playableUntilTurn = true;
     existingCopy.preparedSourcePermanentId = String(permanent?.id || '').trim();
+    permanent.preparedExileCopyCardId = existingCopy.id;
     permanent.card.preparedExileCopyCardId = existingCopy.id;
     return existingCopy;
   }

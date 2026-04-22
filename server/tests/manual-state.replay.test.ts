@@ -6,6 +6,35 @@ import { ensureGame } from '../src/socket/util.js';
 import { registerGameActions } from '../src/socket/game-actions.js';
 import { registerManaHandlers } from '../src/socket/mana-handlers.js';
 import { games } from '../src/socket/socket.js';
+import { setPermanentPrepared } from '../src/state/modules/prepared.js';
+
+function buildPreparedControlCard() {
+  return {
+    id: 'prepared_control_card',
+    name: 'Prepared Envoy // Swift Reply',
+    layout: 'prepare',
+    mana_cost: '{2}{W} // {1}{W}',
+    type_line: 'Creature — Human Advisor // Instant',
+    colors: ['W'],
+    color_identity: ['W'],
+    card_faces: [
+      {
+        name: 'Prepared Envoy',
+        mana_cost: '{2}{W}',
+        type_line: 'Creature — Human Advisor',
+        oracle_text: "This creature enters prepared. (While it's prepared, you may cast a copy of its spell. Doing so unprepares it.)",
+        power: '2',
+        toughness: '3',
+      },
+      {
+        name: 'Swift Reply',
+        mana_cost: '{1}{W}',
+        type_line: 'Instant',
+        oracle_text: 'Tap target creature.',
+      },
+    ],
+  };
+}
 
 function createMockIo(emitted: Array<{ room?: string; event: string; payload: any }>) {
   return {
@@ -242,5 +271,97 @@ describe('manual state replay persistence', () => {
         appliedAt: Number(persisted.payload?.appliedAt || 0),
       },
     ]);
+  });
+
+  it('moves prepared exile copies during live and replayed changePermanentControl', async () => {
+    const controlGameId = `${gameId}_control`;
+    const p1 = 'p1';
+    const p2 = 'p2';
+    const preparedCard = buildPreparedControlCard();
+    const frontFace = preparedCard.card_faces[0];
+
+    createGameIfNotExists(controlGameId, 'commander', 40, undefined, p1);
+    const game = ensureGame(controlGameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [
+      { id: p1, name: 'P1', spectator: false, life: 40 },
+      { id: p2, name: 'P2', spectator: false, life: 40 },
+    ];
+    (game.state as any).zones = {
+      p1: { hand: [], handCount: 0, library: [], libraryCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0 },
+      p2: { hand: [], handCount: 0, library: [], libraryCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0 },
+    };
+    const permanent = {
+      id: 'perm_prepared_1',
+      controller: p1,
+      owner: p1,
+      tapped: false,
+      card: {
+        ...preparedCard,
+        name: frontFace.name,
+        mana_cost: frontFace.mana_cost,
+        type_line: frontFace.type_line,
+        oracle_text: frontFace.oracle_text,
+      },
+    } as any;
+    (game.state as any).battlefield = [permanent];
+    setPermanentPrepared((game.state as any), permanent);
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket({ playerId: p1, spectator: false, gameId: controlGameId }, emitted);
+    socket.rooms.add(controlGameId);
+
+    registerGameActions(createMockIo(emitted) as any, socket as any);
+
+    await handlers['changePermanentControl']({
+      gameId: controlGameId,
+      permanentId: 'perm_prepared_1',
+      newController: p2,
+    });
+
+    expect((game.state as any).zones.p1.exile).toHaveLength(0);
+    expect((game.state as any).zones.p2.exile).toHaveLength(1);
+    expect((game.state as any).zones.p2.exile[0]).toMatchObject({
+      canBePlayedBy: p2,
+      preparedSourcePermanentId: 'perm_prepared_1',
+    });
+
+    const persisted = [...getEvents(controlGameId)].reverse().find((event: any) => event?.type === 'changePermanentControl') as any;
+    expect(persisted).toBeDefined();
+
+    const replayGame = createInitialGameState(`${controlGameId}_rehydrated_prepared`);
+    (replayGame.state as any).players = [
+      { id: p1, name: 'P1', spectator: false, life: 40 },
+      { id: p2, name: 'P2', spectator: false, life: 40 },
+    ];
+    (replayGame.state as any).zones = {
+      p1: { hand: [], handCount: 0, library: [], libraryCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0 },
+      p2: { hand: [], handCount: 0, library: [], libraryCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0 },
+    };
+    const replayPermanent = {
+      id: 'perm_prepared_1',
+      controller: p1,
+      owner: p1,
+      tapped: false,
+      card: {
+        ...preparedCard,
+        name: frontFace.name,
+        mana_cost: frontFace.mana_cost,
+        type_line: frontFace.type_line,
+        oracle_text: frontFace.oracle_text,
+      },
+    } as any;
+    (replayGame.state as any).battlefield = [replayPermanent];
+    setPermanentPrepared((replayGame.state as any), replayPermanent);
+
+    replayGame.applyEvent({ type: 'changePermanentControl', ...(persisted.payload || {}) } as any);
+
+    expect((replayGame.state as any).zones.p1.exile).toHaveLength(0);
+    expect((replayGame.state as any).zones.p2.exile).toHaveLength(1);
+    expect((replayGame.state as any).zones.p2.exile[0]).toMatchObject({
+      canBePlayedBy: p2,
+      preparedSourcePermanentId: 'perm_prepared_1',
+    });
   });
 });

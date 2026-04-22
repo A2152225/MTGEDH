@@ -65,7 +65,7 @@ import type { OracleEffectStep, OraclePlayerSelector, OracleQuantity } from "../
 import { parseTriggeredAbilitiesFromText, TriggerEvent as ParsedTriggerEvent } from "../../../../rules-engine/src/triggeredAbilities.js";
 import { updateLandPlayPermissions, updateAllLandPlayPermissions } from "./land-permissions.js";
 import { applyDayNightTransforms, ensureInitialDayNightDesignationFromBattlefield, setDayNightState, transformPermanentToFace } from "./day-night.js";
-import { cardEntersPrepared, clearPreparedPermanent, setPermanentPrepared } from "./prepared.js";
+import { cardEntersPrepared, clearPreparedPermanent, setPermanentPrepared, syncPreparedPermanentAfterControlChange } from "./prepared.js";
 import { parseCreateTokenDescriptor } from "../planeswalker/templates/utils.js";
 import { buildOpponentMayPayRecordedOutcome } from "./opponent-may-pay-utils.js";
 import { resolveGiftAwareOracleText } from "../../utils/gift.js";
@@ -6667,7 +6667,9 @@ export function executeTriggerEffect(
         ? state.battlefield.find((perm: any) => perm && String(perm.id || '') === sourceId)
         : null;
       if (sourcePerm) {
+        const previousController = String((sourcePerm as any).controller || '');
         (sourcePerm as any).controller = attackingPlayerId;
+        syncPreparedPermanentAfterControlChange(state, sourcePerm, previousController);
         (sourcePerm as any).tapped = false;
       }
     }

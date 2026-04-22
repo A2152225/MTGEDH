@@ -5,10 +5,39 @@ import { PRIORITY_TIMEOUT_MS, games } from '../src/socket/socket.js';
 import { broadcastGame, clearPriorityTimer, schedulePriorityTimeout } from '../src/socket/util.js';
 import { createContext } from '../src/state/context.js';
 import { passPriority } from '../src/state/modules/priority.js';
+import { setPermanentPrepared } from '../src/state/modules/prepared.js';
 import { nextStep } from '../src/state/modules/turn.js';
 import { viewFor } from '../src/state/modules/view.js';
 import { createInitialGameState } from '../src/state/index.js';
 import type { PlayerID } from '../../shared/src/index.js';
+
+function buildPreparedCleanupCard() {
+  return {
+    id: 'prepared_cleanup_card',
+    name: 'Prepared Borrower // Sudden Pivot',
+    layout: 'prepare',
+    mana_cost: '{2}{U} // {1}{U}',
+    type_line: 'Creature — Human Rogue // Instant',
+    colors: ['U'],
+    color_identity: ['U'],
+    card_faces: [
+      {
+        name: 'Prepared Borrower',
+        mana_cost: '{2}{U}',
+        type_line: 'Creature — Human Rogue',
+        oracle_text: "This creature enters prepared. (While it's prepared, you may cast a copy of its spell. Doing so unprepares it.)",
+        power: '2',
+        toughness: '3',
+      },
+      {
+        name: 'Sudden Pivot',
+        mana_cost: '{1}{U}',
+        type_line: 'Instant',
+        oracle_text: 'Return target creature to its owner\'s hand.',
+      },
+    ],
+  };
+}
 
 function createNoopIo() {
   const emit = vi.fn();
@@ -101,8 +130,10 @@ describe('replay nextStep persistence integration', () => {
   afterEach(() => {
     clearPriorityTimer('replay_autopass_persists_nextstep');
     clearPriorityTimer('replay_cleanup_timeout_persists_nextstep');
+    clearPriorityTimer('replay_cleanup_timeout_reverts_prepared_control');
     games.delete('replay_autopass_persists_nextstep');
     games.delete('replay_cleanup_timeout_persists_nextstep');
+    games.delete('replay_cleanup_timeout_reverts_prepared_control');
     vi.useRealTimers();
   });
 
@@ -187,6 +218,104 @@ describe('replay nextStep persistence integration', () => {
     }
     replayGame.replay(replayEvents as any);
 
+    expect((replayGame.state as any).turnNumber).toBe(2);
+    expect((replayGame.state as any).turn).toBe(2);
+    expect(String((replayGame.state as any).step || '').toUpperCase()).toBe('UNTAP');
+  });
+
+  it('reverts temporary prepared control changes during cleanup timeout and replay', async () => {
+    const gameId = 'replay_cleanup_timeout_reverts_prepared_control';
+    const preparedCard = buildPreparedCleanupCard();
+    const frontFace = preparedCard.card_faces[0];
+    const createPreparedPermanent = () => ({
+      id: 'prepared_cleanup_perm',
+      controller: 'p2',
+      owner: 'p1',
+      tapped: false,
+      card: {
+        ...preparedCard,
+        name: frontFace.name,
+        mana_cost: frontFace.mana_cost,
+        type_line: frontFace.type_line,
+        oracle_text: frontFace.oracle_text,
+        zone: 'battlefield',
+      },
+    });
+
+    createGameIfNotExists(gameId, 'commander', 40);
+    const { game, io } = createStepPersistenceHarness(gameId, {
+      priority: null,
+      phase: 'ending',
+      step: 'CLEANUP',
+      priorityPassedBy: new Set<string>(),
+      battlefield: [createPreparedPermanent()],
+      controlChangeEffects: [
+        {
+          permanentId: 'prepared_cleanup_perm',
+          originalController: 'p1',
+          newController: 'p2',
+          duration: 'eot',
+          appliedAt: 1,
+        },
+      ],
+    });
+    games.set(gameId, game);
+
+    setPermanentPrepared(game.state as any, (game.state as any).battlefield[0]);
+    expect((game.state as any).zones.p2.exile).toHaveLength(1);
+
+    schedulePriorityTimeout(io, game, gameId);
+    await vi.advanceTimersByTimeAsync(PRIORITY_TIMEOUT_MS);
+
+    const livePermanent = (game.state as any).battlefield.find((entry: any) => entry.id === 'prepared_cleanup_perm');
+    expect(livePermanent?.controller).toBe('p1');
+    expect((game.state as any).zones.p2.exile).toHaveLength(0);
+    expect((game.state as any).zones.p1.exile).toHaveLength(1);
+    expect((game.state as any).controlChangeEffects).toBeUndefined();
+
+    const replayEvents = toReplayEvents(gameId);
+    const nextStepEvents = replayEvents.filter((event: any) => event.type === 'nextStep');
+    expect(nextStepEvents).toHaveLength(1);
+
+    const replayGame = createInitialGameState(`${gameId}_replay`);
+    replayGame.applyEvent({ type: 'join', playerId: 'p1', name: 'Player 1' } as any);
+    replayGame.applyEvent({ type: 'join', playerId: 'p2', name: 'Player 2' } as any);
+    Object.assign(replayGame.state as any, {
+      turnPlayer: 'p1',
+      priority: null,
+      turnNumber: 1,
+      turn: 1,
+      phase: 'ending',
+      step: 'CLEANUP',
+      stack: [],
+      battlefield: [createPreparedPermanent()],
+      priorityPassedBy: new Set<string>(),
+      controlChangeEffects: [
+        {
+          permanentId: 'prepared_cleanup_perm',
+          originalController: 'p1',
+          newController: 'p2',
+          duration: 'eot',
+          appliedAt: 1,
+        },
+      ],
+    });
+    setPermanentPrepared(replayGame.state as any, (replayGame.state as any).battlefield[0]);
+
+    if (typeof replayGame.replay !== 'function') {
+      throw new Error('replayGame.replay is not available');
+    }
+    replayGame.replay(replayEvents as any);
+
+    const replayPermanent = (replayGame.state as any).battlefield.find((entry: any) => entry.id === 'prepared_cleanup_perm');
+    expect(replayPermanent?.controller).toBe('p1');
+    expect((replayGame.state as any).zones.p2.exile).toHaveLength(0);
+    expect((replayGame.state as any).zones.p1.exile).toHaveLength(1);
+    expect((replayGame.state as any).zones.p1.exile[0]).toMatchObject({
+      canBePlayedBy: 'p1',
+      preparedSourcePermanentId: 'prepared_cleanup_perm',
+    });
+    expect((replayGame.state as any).controlChangeEffects).toBeUndefined();
     expect((replayGame.state as any).turnNumber).toBe(2);
     expect((replayGame.state as any).turn).toBe(2);
     expect(String((replayGame.state as any).step || '').toUpperCase()).toBe('UNTAP');

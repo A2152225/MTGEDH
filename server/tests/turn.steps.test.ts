@@ -2,6 +2,35 @@ import { describe, it, expect } from 'vitest';
 import { createInitialGameState } from '../src/state/gameState';
 import type { PlayerID, KnownCardRef } from '../../shared/src';
 import { GamePhase, GameStep } from '../../shared/src';
+import { setPermanentPrepared } from '../src/state/modules/prepared.js';
+
+function buildPreparedCleanupCard() {
+  return {
+    id: 'prepared_cleanup_card',
+    name: 'Prepared Borrower // Sudden Pivot',
+    layout: 'prepare',
+    mana_cost: '{2}{U} // {1}{U}',
+    type_line: 'Creature — Human Rogue // Instant',
+    colors: ['U'],
+    color_identity: ['U'],
+    card_faces: [
+      {
+        name: 'Prepared Borrower',
+        mana_cost: '{2}{U}',
+        type_line: 'Creature — Human Rogue',
+        oracle_text: "This creature enters prepared. (While it's prepared, you may cast a copy of its spell. Doing so unprepares it.)",
+        power: '2',
+        toughness: '3',
+      },
+      {
+        name: 'Sudden Pivot',
+        mana_cost: '{1}{U}',
+        type_line: 'Instant',
+        oracle_text: 'Return target creature to its owner\'s hand.',
+      },
+    ],
+  };
+}
 
 describe('Turn step engine basics', () => {
   it('advances steps with untap and draw automation, and maps phases for main steps', () => {
@@ -144,5 +173,69 @@ describe('Turn step engine basics', () => {
     expect(g.state.turnPlayer).not.toBe(prevTurnPlayer);
     expect(g.state.phase).toBe(GamePhase.BEGINNING);
     expect(g.state.step).toBe(GameStep.UNTAP);
+  });
+
+  it('reverts temporary control changes and migrates prepared copies during cleanup', () => {
+    const g = createInitialGameState('t_steps_control_revert_prepared');
+    const p1 = 'p1' as PlayerID;
+    const p2 = 'p2' as PlayerID;
+    const preparedCard = buildPreparedCleanupCard();
+    const frontFace = preparedCard.card_faces[0];
+
+    (g.state as any).players = [
+      { id: p1, name: 'P1', spectator: false, life: 40 },
+      { id: p2, name: 'P2', spectator: false, life: 40 },
+    ];
+    (g.state as any).turnOrder = [p1, p2];
+    (g.state as any).turnPlayer = p1;
+    (g.state as any).activePlayer = p1;
+    (g.state as any).phase = GamePhase.ENDING;
+    (g.state as any).step = GameStep.CLEANUP;
+    (g.state as any).stack = [];
+    (g.state as any).zones = {
+      [p1]: { hand: [], handCount: 0, library: [], libraryCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0 },
+      [p2]: { hand: [], handCount: 0, library: [], libraryCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0 },
+    };
+
+    const permanent = {
+      id: 'prepared_cleanup_perm',
+      controller: p2,
+      owner: p1,
+      tapped: false,
+      card: {
+        ...preparedCard,
+        name: frontFace.name,
+        mana_cost: frontFace.mana_cost,
+        type_line: frontFace.type_line,
+        oracle_text: frontFace.oracle_text,
+        zone: 'battlefield',
+      },
+    } as any;
+    (g.state as any).battlefield = [permanent];
+    setPermanentPrepared((g.state as any), permanent);
+    (g.state as any).controlChangeEffects = [
+      {
+        permanentId: 'prepared_cleanup_perm',
+        originalController: p1,
+        newController: p2,
+        duration: 'eot',
+        appliedAt: 1,
+      },
+    ];
+
+    expect((g.state as any).zones[p2].exile).toHaveLength(1);
+    expect((g.state as any).zones[p1].exile).toHaveLength(0);
+
+    g.applyEvent({ type: 'nextStep' } as any);
+
+    const updatedPermanent = (g.state as any).battlefield.find((entry: any) => entry.id === 'prepared_cleanup_perm');
+    expect(updatedPermanent?.controller).toBe(p1);
+    expect((g.state as any).zones[p2].exile).toHaveLength(0);
+    expect((g.state as any).zones[p1].exile).toHaveLength(1);
+    expect((g.state as any).zones[p1].exile[0]).toMatchObject({
+      canBePlayedBy: p1,
+      preparedSourcePermanentId: 'prepared_cleanup_perm',
+    });
+    expect((g.state as any).controlChangeEffects).toBeUndefined();
   });
 });

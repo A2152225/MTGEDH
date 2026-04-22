@@ -37,7 +37,7 @@ import { shouldSuppressMandatoryTriggeredAbilityPrompt } from "./trigger-shortcu
 import { hasMutateAlternateCost, parseMutateCost, getValidMutateTargets } from "../state/modules/alternate-costs.js";
 import { getCommandZoneCommanderCandidates, type SharedCommanderAvailabilityCandidate } from "../state/modules/can-respond.js";
 import { cleanupCardLeavingExile } from "../state/modules/playable-from-exile.js";
-import { isPreparedCopyActive } from "../state/modules/prepared.js";
+import { isPreparedCopyActive, syncPreparedPermanentAfterControlChange } from "../state/modules/prepared.js";
 import { getEffectiveBasicLandTypes } from "../state/modules/mana-abilities.js";
 import { parseOracleTextToIR } from '../../../rules-engine/src/oracleIRParser.js';
 import { applyOracleIRStepsToGameState } from '../../../rules-engine/src/oracleIRExecutor.js';
@@ -13810,6 +13810,7 @@ export function registerGameActions(io: Server, socket: Socket) {
       
       // Change control
       permanent.controller = newController;
+      syncPreparedPermanentAfterControlChange(game.state, permanent, String(oldController || ''));
       
       // Track control change for end-of-turn cleanup if temporary
       if (duration === 'eot' || duration === 'turn') {

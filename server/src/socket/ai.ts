@@ -43,6 +43,7 @@ import { isOpeningHandBattlefieldCard } from "./opening-hand.js";
 import { getDominantCreatureType } from "./creature-type.js";
 import { handlePlayLandRequest, requestCastSpellForSocket, runPostResolutionPermanentPromptChecks } from "./game-actions.js";
 import { flushPendingDamageTriggersAfterStepAdvance } from "./step-advance.js";
+import { syncPreparedPermanentAfterControlChange } from "../state/modules/prepared.js";
 
 /** AI timing delays for more natural behavior */
 const AI_THINK_TIME_MS = 500;
@@ -8097,7 +8098,9 @@ async function executeAILegacyActivateAbility(
       if (opponents.length > 0) {
         const randomOpponent = opponents[Math.floor(Math.random() * opponents.length)];
         persistedChosenOpponentId = String(randomOpponent);
+        const previousController = String(permanent.controller || '');
         permanent.controller = randomOpponent;
+        syncPreparedPermanentAfterControlChange(game.state, permanent, previousController);
         
         // Reset summoning sickness for the new controller
         permanent.summoningSickness = true;

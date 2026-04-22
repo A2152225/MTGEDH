@@ -40,6 +40,7 @@ import { applyDamageToPermanentWithCounterEffects, applyShieldCounterDamagePreve
 import { calculateAllPTBonuses, calculateVariablePT, parsePT, uid, triggerLifeGainEffects } from "../utils.js";
 import { canAct, canRespond } from "./can-respond.js";
 import { cleanupCardLeavingExile } from "./playable-from-exile.js";
+import { syncPreparedPermanentAfterControlChange } from "./prepared.js";
 import { recordCardPutIntoGraveyardThisTurn } from "./turn-tracking.js";
 import { removeExpiredGoads } from "./goad-effects.js";
 import { tryAutoPass } from "./priority.js";
@@ -2692,6 +2693,48 @@ function endTemporaryEffects(ctx: GameContext) {
           permanent.grantedTypes = permanent.grantedTypes.filter((t: string) => t !== 'Creature');
         }
         endedCount++;
+      }
+    }
+
+    // Revert temporary control changes recorded for cleanup.
+    if (Array.isArray((state as any).controlChangeEffects) && (state as any).controlChangeEffects.length > 0) {
+      const expiringDurations = new Set(['eot', 'turn', 'until_end_of_turn', 'this_turn']);
+      const expiringEffects = ((state as any).controlChangeEffects as any[]).filter((effect: any) =>
+        expiringDurations.has(String(effect?.duration || '').trim().toLowerCase())
+      );
+      const remainingEffects = ((state as any).controlChangeEffects as any[]).filter((effect: any) =>
+        !expiringDurations.has(String(effect?.duration || '').trim().toLowerCase())
+      );
+
+      const firstExpiringByPermanent = new Map<string, any>();
+      for (const effect of expiringEffects) {
+        const permanentId = String(effect?.permanentId || '').trim();
+        if (!permanentId || firstExpiringByPermanent.has(permanentId)) continue;
+        firstExpiringByPermanent.set(permanentId, effect);
+      }
+
+      for (const [permanentId, effect] of firstExpiringByPermanent.entries()) {
+        const permanent = battlefield.find((entry: any) => entry && String(entry.id || '').trim() === permanentId);
+        if (!permanent) continue;
+
+        const originalController = String(effect?.originalController || '').trim();
+        const previousController = String(permanent.controller || '').trim();
+        if (!originalController) continue;
+
+        permanent.controller = originalController;
+        syncPreparedPermanentAfterControlChange(state, permanent, previousController);
+
+        const typeLine = String(permanent?.card?.type_line || '').toLowerCase();
+        if (typeLine.includes('creature')) {
+          permanent.summoningSickness = true;
+        }
+        endedCount++;
+      }
+
+      if (remainingEffects.length > 0) {
+        (state as any).controlChangeEffects = remainingEffects;
+      } else {
+        delete (state as any).controlChangeEffects;
       }
     }
     

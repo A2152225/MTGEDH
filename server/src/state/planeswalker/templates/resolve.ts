@@ -12,6 +12,7 @@ import { ResolutionQueueManager } from "../../resolution/index.js";
 import { ResolutionStepType } from "../../resolution/types.js";
 import { permanentHasCreatureTypeNow } from "../../creatureTypeNow.js";
 import { applyDamageToPermanentWithCounterEffects } from "../../modules/counter-common-effects.js";
+import { syncPreparedPermanentAfterControlChange } from "../../modules/prepared.js";
 import { getPlaneswalkerTemplateMatch } from "./registry.js";
 import { getBattlefield, getGameId, getPlaneswalkerX, getTargets, modifyLifeLikeStack, normalizeOracleEffectText, parseCountTokenWord, parseCreateTokenDescriptor } from "./utils.js";
 
@@ -11033,7 +11034,9 @@ export function tryResolvePlaneswalkerLoyaltyTemplate(
       const typeLine = String(target?.card?.type_line || "").toLowerCase();
       if (!typeLine.includes("creature")) return true;
 
+      const previousController = String(target.controller || '');
       target.controller = controller;
+      syncPreparedPermanentAfterControlChange(ctx.state, target, previousController);
       (ctx as any).bumpSeq?.();
       debug(2, `[planeswalker/templates] ${sourceName}: resolved ${match.id}`);
       return true;
@@ -11050,7 +11053,9 @@ export function tryResolvePlaneswalkerLoyaltyTemplate(
       const typeLine = String(target?.card?.type_line || "").toLowerCase();
       if (!typeLine.includes("artifact")) return true;
 
+      const previousController = String(target.controller || '');
       target.controller = controller;
+      syncPreparedPermanentAfterControlChange(ctx.state, target, previousController);
       (ctx as any).bumpSeq?.();
       debug(2, `[planeswalker/templates] ${sourceName}: resolved ${match.id}`);
       return true;
@@ -11070,7 +11075,9 @@ export function tryResolvePlaneswalkerLoyaltyTemplate(
 
         const typeLine = String(perm?.card?.type_line || "").toLowerCase();
         if (!typeLine.includes("creature")) continue;
+        const previousController = String(perm.controller || '');
         perm.controller = controller;
+        syncPreparedPermanentAfterControlChange(ctx.state, perm, previousController);
       }
 
       (ctx as any).bumpSeq?.();
@@ -11126,6 +11133,7 @@ export function tryResolvePlaneswalkerLoyaltyTemplate(
       const originalController = target.controller;
       if (originalController !== controller) {
         target.controller = controller;
+        syncPreparedPermanentAfterControlChange(ctx.state, target, String(originalController || ''));
         stateAny.controlChangeEffects.push({
           permanentId: target.id,
           originalController,
@@ -11181,6 +11189,7 @@ export function tryResolvePlaneswalkerLoyaltyTemplate(
       const originalController = target.controller;
       if (originalController !== controller) {
         target.controller = controller;
+        syncPreparedPermanentAfterControlChange(ctx.state, target, String(originalController || ''));
         stateAny.controlChangeEffects.push({
           permanentId: target.id,
           originalController,
@@ -12230,7 +12239,9 @@ export function tryResolvePlaneswalkerLoyaltyTemplate(
         if (String(perm.controller || '') !== String(targetOpponent)) continue;
         const tl = String(perm.card?.type_line || '').toLowerCase();
         if (!tl.includes('artifact') && !tl.includes('creature')) continue;
+        const previousController = String(perm.controller || '');
         perm.controller = controller;
+        syncPreparedPermanentAfterControlChange(ctx.state, perm, previousController);
         changed++;
       }
 
