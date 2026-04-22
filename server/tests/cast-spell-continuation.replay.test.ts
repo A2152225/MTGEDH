@@ -26,8 +26,11 @@ describe('castSpellContinuation replay semantics', () => {
       't_cast_spell_continuation_mutate_mode_prompt_replay',
       't_cast_spell_continuation_mutate_target_prompt_replay',
       't_cast_spell_continuation_multi_target_prompt_replay',
+      't_cast_spell_continuation_donate_target_prompt_replay',
+      't_cast_spell_continuation_exchange_explicit_prompt_replay',
       't_cast_spell_continuation_payment_prompt_replay',
       't_cast_spell_continuation_targeted_payment_prompt_replay',
+      't_cast_spell_continuation_donate_payment_prompt_replay',
       't_cast_spell_continuation_mutate_payment_prompt_replay',
       't_cast_spell_continuation_blight_prompt_replay',
     ]) {
@@ -797,6 +800,291 @@ describe('castSpellContinuation replay semantics', () => {
     expect(String((queue.steps[1] as any)?.targetDescription || '').toLowerCase()).toContain('target artifact');
   });
 
+  it('replays queued mixed player and permanent target-selection prompts for Harmless Offering', () => {
+    const gameId = 't_cast_spell_continuation_donate_target_prompt_replay';
+    const game = createInitialGameState(gameId);
+    const p1 = 'p1' as PlayerID;
+    const p2 = 'p2' as PlayerID;
+    addPlayer(game, p1, 'P1');
+    addPlayer(game, p2, 'P2');
+
+    const zones = (game.state as any).zones[p1];
+    zones.hand = [
+      {
+        id: 'harmless_offering_1',
+        name: 'Harmless Offering',
+        type_line: 'Sorcery',
+        mana_cost: '{2}{R}',
+        oracle_text: 'Target opponent gains control of target permanent you control.',
+        zone: 'hand',
+      },
+    ];
+    zones.handCount = 1;
+    (game.state as any).battlefield = [
+      {
+        id: 'gift_perm_1',
+        controller: p1,
+        owner: p1,
+        tapped: false,
+        counters: {},
+        card: {
+          id: 'gift_perm_card_1',
+          name: 'Loaned Relic',
+          type_line: 'Artifact',
+          oracle_text: '',
+          zone: 'battlefield',
+        },
+      },
+    ];
+
+    game.applyEvent({
+      type: 'castSpellContinuation',
+      playerId: p1,
+      cardId: 'harmless_offering_1',
+      effectId: 'cast_harmless_offering_1_replay',
+      pendingSpellCast: {
+        effectId: 'cast_harmless_offering_1_replay',
+        cardId: 'harmless_offering_1',
+        cardName: 'Harmless Offering',
+        manaCost: '{2}{R}',
+        rawManaCost: '{2}{R}',
+        fromZone: 'hand',
+        playerId: p1,
+        validTargetIds: [p2, 'gift_perm_1'],
+        card: {
+          id: 'harmless_offering_1',
+          name: 'Harmless Offering',
+          type_line: 'Sorcery',
+          mana_cost: '{2}{R}',
+          oracle_text: 'Target opponent gains control of target permanent you control.',
+          zone: 'hand',
+        },
+      },
+      queuedResolutionSteps: [
+        {
+          id: 'queued_harmless_target_1',
+          type: ResolutionStepType.TARGET_SELECTION,
+          playerId: p1,
+          description: 'Choose target opponent for Harmless Offering',
+          mandatory: true,
+          sourceId: 'cast_harmless_offering_1_replay',
+          sourceName: 'Harmless Offering',
+          validTargets: [
+            {
+              id: p2,
+              label: 'P2',
+              description: 'player',
+              type: 'player',
+              isOpponent: true,
+            },
+          ],
+          targetTypes: ['spell_target'],
+          minTargets: 1,
+          maxTargets: 1,
+          targetDescription: 'target opponent',
+          spellCastContext: {
+            cardId: 'harmless_offering_1',
+            cardName: 'Harmless Offering',
+            manaCost: '{2}{R}',
+            rawManaCost: '{2}{R}',
+            playerId: p1,
+            effectId: 'cast_harmless_offering_1_replay',
+            oracleText: 'Target opponent gains control of target permanent you control.',
+          },
+        },
+        {
+          id: 'queued_harmless_target_2',
+          type: ResolutionStepType.TARGET_SELECTION,
+          playerId: p1,
+          description: 'Choose target permanent you control for Harmless Offering',
+          mandatory: true,
+          sourceId: 'cast_harmless_offering_1_replay',
+          sourceName: 'Harmless Offering',
+          validTargets: [
+            {
+              id: 'gift_perm_1',
+              label: 'Loaned Relic',
+              description: 'permanent',
+              type: 'permanent',
+              controller: p1,
+              isOpponent: false,
+            },
+          ],
+          targetTypes: ['spell_target'],
+          minTargets: 1,
+          maxTargets: 1,
+          targetDescription: 'target permanent you control',
+          spellCastContext: {
+            cardId: 'harmless_offering_1',
+            cardName: 'Harmless Offering',
+            manaCost: '{2}{R}',
+            rawManaCost: '{2}{R}',
+            playerId: p1,
+            effectId: 'cast_harmless_offering_1_replay',
+            oracleText: 'Target opponent gains control of target permanent you control.',
+          },
+        },
+      ],
+    } as any);
+
+    expect(((game.state as any).pendingSpellCasts || {}).cast_harmless_offering_1_replay?.cardId).toBe('harmless_offering_1');
+    const queue = ResolutionQueueManager.getQueue(gameId);
+    expect(queue.steps).toHaveLength(2);
+    expect(String((queue.steps[0] as any)?.id || '')).toBe('queued_harmless_target_1');
+    expect(String((queue.steps[1] as any)?.id || '')).toBe('queued_harmless_target_2');
+    expect(String((queue.steps[0] as any)?.targetDescription || '').toLowerCase()).toContain('target opponent');
+    expect(String((queue.steps[1] as any)?.targetDescription || '').toLowerCase()).toContain('target permanent you control');
+  });
+
+  it('replays queued explicit exchange target-selection prompts before the spell is cast', () => {
+    const gameId = 't_cast_spell_continuation_exchange_explicit_prompt_replay';
+    const game = createInitialGameState(gameId);
+    const p1 = 'p1' as PlayerID;
+    const p2 = 'p2' as PlayerID;
+    addPlayer(game, p1, 'P1');
+    addPlayer(game, p2, 'P2');
+
+    const zones = (game.state as any).zones[p1];
+    zones.hand = [
+      {
+        id: 'swap_contrivance_1',
+        name: 'Swap Contrivance',
+        type_line: 'Sorcery',
+        mana_cost: '{2}{U}',
+        oracle_text: 'Exchange control of target creature you control and target creature an opponent controls.',
+        zone: 'hand',
+      },
+    ];
+    zones.handCount = 1;
+    (game.state as any).battlefield = [
+      {
+        id: 'exchange_creature_1',
+        controller: p1,
+        owner: p1,
+        tapped: false,
+        counters: {},
+        card: {
+          id: 'exchange_creature_card_1',
+          name: 'Loaned Bear',
+          type_line: 'Creature — Bear',
+          oracle_text: '',
+          zone: 'battlefield',
+        },
+      },
+      {
+        id: 'exchange_creature_2',
+        controller: p2,
+        owner: p2,
+        tapped: false,
+        counters: {},
+        card: {
+          id: 'exchange_creature_card_2',
+          name: 'Opponent Bear',
+          type_line: 'Creature — Bear',
+          oracle_text: '',
+          zone: 'battlefield',
+        },
+      },
+    ];
+
+    game.applyEvent({
+      type: 'castSpellContinuation',
+      playerId: p1,
+      cardId: 'swap_contrivance_1',
+      effectId: 'cast_swap_contrivance_1_replay',
+      pendingSpellCast: {
+        effectId: 'cast_swap_contrivance_1_replay',
+        cardId: 'swap_contrivance_1',
+        cardName: 'Swap Contrivance',
+        manaCost: '{2}{U}',
+        rawManaCost: '{2}{U}',
+        fromZone: 'hand',
+        playerId: p1,
+        validTargetIds: ['exchange_creature_1', 'exchange_creature_2'],
+        card: {
+          id: 'swap_contrivance_1',
+          name: 'Swap Contrivance',
+          type_line: 'Sorcery',
+          mana_cost: '{2}{U}',
+          oracle_text: 'Exchange control of target creature you control and target creature an opponent controls.',
+          zone: 'hand',
+        },
+      },
+      queuedResolutionSteps: [
+        {
+          id: 'queued_exchange_target_1',
+          type: ResolutionStepType.TARGET_SELECTION,
+          playerId: p1,
+          description: 'Choose target creature you control for Swap Contrivance',
+          mandatory: true,
+          sourceId: 'cast_swap_contrivance_1_replay',
+          sourceName: 'Swap Contrivance',
+          validTargets: [
+            {
+              id: 'exchange_creature_1',
+              label: 'Loaned Bear',
+              description: 'permanent',
+              type: 'permanent',
+              controller: p1,
+              isOpponent: false,
+            },
+          ],
+          targetTypes: ['spell_target'],
+          minTargets: 1,
+          maxTargets: 1,
+          targetDescription: 'target creature you control',
+          spellCastContext: {
+            cardId: 'swap_contrivance_1',
+            cardName: 'Swap Contrivance',
+            manaCost: '{2}{U}',
+            rawManaCost: '{2}{U}',
+            playerId: p1,
+            effectId: 'cast_swap_contrivance_1_replay',
+            oracleText: 'Exchange control of target creature you control and target creature an opponent controls.',
+          },
+        },
+        {
+          id: 'queued_exchange_target_2',
+          type: ResolutionStepType.TARGET_SELECTION,
+          playerId: p1,
+          description: 'Choose target creature an opponent controls for Swap Contrivance',
+          mandatory: true,
+          sourceId: 'cast_swap_contrivance_1_replay',
+          sourceName: 'Swap Contrivance',
+          validTargets: [
+            {
+              id: 'exchange_creature_2',
+              label: 'Opponent Bear',
+              description: 'permanent',
+              type: 'permanent',
+              controller: p2,
+              isOpponent: true,
+            },
+          ],
+          targetTypes: ['spell_target'],
+          minTargets: 1,
+          maxTargets: 1,
+          targetDescription: 'target creature an opponent controls',
+          spellCastContext: {
+            cardId: 'swap_contrivance_1',
+            cardName: 'Swap Contrivance',
+            manaCost: '{2}{U}',
+            rawManaCost: '{2}{U}',
+            playerId: p1,
+            effectId: 'cast_swap_contrivance_1_replay',
+            oracleText: 'Exchange control of target creature you control and target creature an opponent controls.',
+          },
+        },
+      ],
+    } as any);
+
+    expect(((game.state as any).pendingSpellCasts || {}).cast_swap_contrivance_1_replay?.cardId).toBe('swap_contrivance_1');
+    const queue = ResolutionQueueManager.getQueue(gameId);
+    expect(queue.steps).toHaveLength(2);
+    expect(String((queue.steps[0] as any)?.targetDescription || '').toLowerCase()).toContain('target creature you control');
+    expect(String((queue.steps[1] as any)?.targetDescription || '').toLowerCase()).toContain('target creature an opponent controls');
+  });
+
   it('replays queued no-target spell payment prompts before the spell is cast', () => {
     const gameId = 't_cast_spell_continuation_payment_prompt_replay';
     const game = createInitialGameState(gameId);
@@ -935,6 +1223,76 @@ describe('castSpellContinuation replay semantics', () => {
     expect(queue.steps).toHaveLength(1);
     expect((queue.steps[0] as any)?.type).toBe('mana_payment_choice');
     expect((queue.steps[0] as any)?.targets).toEqual([p2, 'sol_ring_1']);
+  });
+
+  it('replays queued mixed-target payment prompts after Harmless Offering targets are selected', () => {
+    const gameId = 't_cast_spell_continuation_donate_payment_prompt_replay';
+    const game = createInitialGameState(gameId);
+    const p1 = 'p1' as PlayerID;
+    const p2 = 'p2' as PlayerID;
+    addPlayer(game, p1, 'P1');
+    addPlayer(game, p2, 'P2');
+
+    const zones = (game.state as any).zones[p1];
+    zones.hand = [
+      {
+        id: 'harmless_offering_1',
+        name: 'Harmless Offering',
+        type_line: 'Sorcery',
+        mana_cost: '{2}{R}',
+        oracle_text: 'Target opponent gains control of target permanent you control.',
+        zone: 'hand',
+      },
+    ];
+    zones.handCount = 1;
+
+    game.applyEvent({
+      type: 'castSpellContinuation',
+      playerId: p1,
+      cardId: 'harmless_offering_1',
+      effectId: 'cast_harmless_offering_payment_replay',
+      pendingSpellCast: {
+        effectId: 'cast_harmless_offering_payment_replay',
+        cardId: 'harmless_offering_1',
+        cardName: 'Harmless Offering',
+        manaCost: '{2}{R}',
+        rawManaCost: '{2}{R}',
+        finalManaCost: '{2}{R}',
+        fromZone: 'hand',
+        playerId: p1,
+        targets: [p2, 'gift_perm_1'],
+        validTargetIds: [p2, 'gift_perm_1'],
+        card: {
+          id: 'harmless_offering_1',
+          name: 'Harmless Offering',
+          type_line: 'Sorcery',
+          mana_cost: '{2}{R}',
+          oracle_text: 'Target opponent gains control of target permanent you control.',
+          zone: 'hand',
+        },
+      },
+      queuedResolutionStep: {
+        id: 'queued_harmless_payment_1',
+        type: ResolutionStepType.MANA_PAYMENT_CHOICE,
+        playerId: p1,
+        sourceId: 'harmless_offering_1',
+        sourceName: 'Harmless Offering',
+        description: 'Pay costs to cast Harmless Offering.',
+        mandatory: true,
+        spellPaymentRequired: true,
+        cardId: 'harmless_offering_1',
+        cardName: 'Harmless Offering',
+        manaCost: '{2}{R}',
+        effectId: 'cast_harmless_offering_payment_replay',
+        targets: [p2, 'gift_perm_1'],
+      },
+    } as any);
+
+    expect(((game.state as any).pendingSpellCasts || {}).cast_harmless_offering_payment_replay?.targets).toEqual([p2, 'gift_perm_1']);
+    const queue = ResolutionQueueManager.getQueue(gameId);
+    expect(queue.steps).toHaveLength(1);
+    expect((queue.steps[0] as any)?.type).toBe('mana_payment_choice');
+    expect((queue.steps[0] as any)?.targets).toEqual([p2, 'gift_perm_1']);
   });
 
   it('replays queued mutate payment prompts after a mutate target is chosen', () => {

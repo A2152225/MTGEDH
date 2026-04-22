@@ -572,13 +572,22 @@ export function parseTargetRequirements(oracleText?: string, options?: DynamicMa
   }
   
   // Check for standard "target X" patterns
-  const targetMatch = t.match(/target\s+(creature|permanent|artifact|enchantment|land|battle|player|opponent|planeswalker|spell|nonland\s+permanent|noncreature\s+permanent)/i);
+  const targetMatch = t.match(/target\s+(creature|permanent|artifact|enchantment|land|battle|player|opponent|planeswalker|spell|nonland\s+permanent|noncreature\s+permanent)(?:\s+(you\s+control|an\s+opponent\s+controls))?/i);
   if (targetMatch) {
     minTargets = 1;
     maxTargets = 1;
     targetTypes.push(targetMatch[1]);
-    targetDescription = `target ${targetMatch[1]}`;
-    return { needsTargets: true, targetTypes, minTargets, maxTargets, targetDescription };
+    const scope = String(targetMatch[2] || '').trim().toLowerCase();
+    targetDescription = `target ${targetMatch[1]}${scope ? ` ${scope}` : ''}`;
+    return {
+      needsTargets: true,
+      targetTypes,
+      minTargets,
+      maxTargets,
+      targetDescription,
+      ...(scope === 'you control' ? { targetControllerConstraint: 'you' as const } : {}),
+      ...(scope === 'an opponent controls' ? { targetControllerConstraint: 'opponent' as const } : {}),
+    };
   }
   
   // Check for "target activated or triggered ability"
@@ -2454,6 +2463,46 @@ export function categorizeSpell(_name: string, oracleText?: string): SpellSpec |
     return { op: 'DESTROY_TARGET', filter: 'PERMANENT', minTargets: 1, maxTargets: 1 };
   }
   
+  // Generic scoped permanent target patterns for spells that only need targeting metadata.
+  {
+    const m = t.match(/^target\s+(creature|permanent|artifact|enchantment|land|planeswalker|nonland\s+permanent|noncreature\s+permanent)\s+(you\s+control|an\s+opponent\s+controls)\b/i);
+    if (m && !(/enchant/.test(t)) && !(/\bdamage\b/.test(t))) {
+      const targetType = String(m[1] || '').toLowerCase();
+      const scope = String(m[2] || '').toLowerCase();
+      const nonlandOnly = targetType === 'nonland permanent';
+      const filter: PermanentFilter =
+        targetType === 'creature' ? 'CREATURE' :
+        targetType === 'artifact' ? 'ARTIFACT' :
+        targetType === 'enchantment' ? 'ENCHANTMENT' :
+        targetType === 'land' ? 'LAND' :
+        targetType === 'planeswalker' ? 'PLANESWALKER' :
+        'PERMANENT';
+      const targetDescription = `target ${targetType} ${scope}`;
+      if (targetType === 'creature') {
+        return {
+          op: 'TARGET_CREATURE',
+          filter,
+          minTargets: 1,
+          maxTargets: 1,
+          ...(scope === 'you control' ? { controllerOnly: true } : {}),
+          ...(scope === 'an opponent controls' ? { opponentOnly: true } : {}),
+          targetDescription,
+        };
+      }
+
+      return {
+        op: 'TARGET_PERMANENT',
+        filter,
+        minTargets: 1,
+        maxTargets: 1,
+        ...(nonlandOnly ? { nonlandOnly: true } : {}),
+        ...(scope === 'you control' ? { controllerOnly: true } : {}),
+        ...(scope === 'an opponent controls' ? { opponentOnly: true } : {}),
+        targetDescription,
+      };
+    }
+  }
+
   // Generic "target permanent" patterns for spells that affect permanents
   // These should only provide targeting metadata. The actual spell text still needs
   // a concrete resolution path elsewhere in the engine.

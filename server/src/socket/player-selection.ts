@@ -207,6 +207,15 @@ export function handleDeclinedPlayerSelection(
 ): void {
   const game = ensureGame(gameId);
   if (!game) return;
+
+  if (effectData.permanentId) {
+    const battlefield = Array.isArray(game.state?.battlefield) ? game.state.battlefield : [];
+    const permanent = battlefield.find((entry: any) => entry && entry.id === effectData.permanentId);
+    if (permanent) {
+      delete (permanent as any).pendingPlayerSelection;
+      delete (permanent as any).pendingControlChange;
+    }
+  }
   
   // For control change effects, keep permanent under original controller
   if (effectData.type === 'control_change') {
@@ -260,6 +269,7 @@ export function applyPlayerSelectionEffect(
         if (permanent) {
           (permanent as any).chosenPlayer = selectedPlayerId;
           delete (permanent as any).pendingPlayerSelection;
+          delete (permanent as any).pendingControlChange;
           debug(2, `[playerSelection] Set chosenPlayer for ${cardName} to ${selectedPlayerId}`);
         }
       }
@@ -275,6 +285,7 @@ export function applyPlayerSelectionEffect(
           permanent.controller = selectedPlayerId;
           syncPreparedPermanentAfterControlChange(game.state, permanent, previousController);
           delete (permanent as any).pendingPlayerSelection;
+          delete (permanent as any).pendingControlChange;
 
           const typeLine = String(permanent?.card?.type_line || '').toLowerCase();
           if (typeLine.includes('creature')) {

@@ -67,6 +67,9 @@ describe('castSpellFromHand prompt persistence (integration)', () => {
     `${gameId}_target_graveyard_dynamic`,
     `${gameId}_modal`,
     `${gameId}_target_multi`,
+    `${gameId}_target_mixed`,
+    `${gameId}_target_exchange`,
+    `${gameId}_target_exchange_explicit`,
     `${gameId}_overload`,
     `${gameId}_spree`,
   ];
@@ -444,6 +447,212 @@ describe('castSpellFromHand prompt persistence (integration)', () => {
     expect(queuedCastEvent?.payload?.queuedResolutionSteps).toHaveLength(2);
     expect(String(queuedCastEvent?.payload?.queuedResolutionSteps?.[0]?.targetDescription || '').toLowerCase()).toContain('any target');
     expect(String(queuedCastEvent?.payload?.queuedResolutionSteps?.[1]?.targetDescription || '').toLowerCase()).toContain('target artifact');
+  });
+
+  it('persists mixed player and permanent target prompts for Harmless Offering', async () => {
+    const testGameId = `${gameId}_target_mixed`;
+    const game = await setupBaseGame(testGameId, playerId, opponentId);
+    (game.state as any).battlefield = [
+      {
+        id: 'offering_target_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        card: { name: 'Loaned Relic', type_line: 'Artifact', oracle_text: '' },
+      },
+      {
+        id: 'offering_target_2',
+        controller: opponentId,
+        owner: opponentId,
+        tapped: false,
+        card: { name: 'Opponent Relic', type_line: 'Artifact', oracle_text: '' },
+      },
+    ];
+    (game.state as any).zones = {
+      [playerId]: {
+        hand: [
+          {
+            id: 'harmless_offering_1',
+            name: 'Harmless Offering',
+            mana_cost: '{2}{R}',
+            manaCost: '{2}{R}',
+            type_line: 'Sorcery',
+            oracle_text: 'Target opponent gains control of target permanent you control.',
+            image_uris: { small: 'https://example.com/harmless-offering.jpg' },
+          },
+        ],
+        handCount: 1,
+        exile: [],
+        exileCount: 0,
+        graveyard: [],
+        graveyardCount: 0,
+      },
+      [opponentId]: {
+        hand: [],
+        handCount: 0,
+        exile: [],
+        exileCount: 0,
+        graveyard: [],
+        graveyardCount: 0,
+      },
+    };
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(playerId, testGameId, emitted);
+    registerGameActions(createNoopIo() as any, socket as any);
+
+    await handlers.castSpellFromHand({ gameId: testGameId, cardId: 'harmless_offering_1' });
+
+    const queue = ResolutionQueueManager.getQueue(testGameId);
+    const targetSteps = queue.steps.filter((entry: any) => entry.type === 'target_selection') as any[];
+    expect(targetSteps).toHaveLength(2);
+
+    const queuedCastEvent = [...getEvents(testGameId)].reverse().find((event: any) => event.type === 'castSpellContinuation' && Array.isArray((event as any)?.payload?.queuedResolutionSteps)) as any;
+    expect(queuedCastEvent?.payload?.cardId).toBe('harmless_offering_1');
+    expect(queuedCastEvent?.payload?.pendingSpellCast?.cardId).toBe('harmless_offering_1');
+    expect(queuedCastEvent?.payload?.queuedResolutionSteps).toHaveLength(2);
+    expect(String(queuedCastEvent?.payload?.queuedResolutionSteps?.[0]?.targetDescription || '').toLowerCase()).toContain('target opponent');
+    expect(String(queuedCastEvent?.payload?.queuedResolutionSteps?.[1]?.targetDescription || '').toLowerCase()).toContain('target permanent you control');
+
+    const playerTargetStep = targetSteps.find((step: any) => String(step.targetDescription || '').toLowerCase().includes('target opponent')) as any;
+    const permanentTargetStep = targetSteps.find((step: any) => String(step.targetDescription || '').toLowerCase().includes('target permanent you control')) as any;
+    expect(playerTargetStep?.validTargets?.map((target: any) => String(target.id))).toEqual([opponentId]);
+    expect(permanentTargetStep?.validTargets?.map((target: any) => String(target.id))).toEqual(['offering_target_1']);
+  });
+
+  it('persists paired permanent targeting for exchange-control spells', async () => {
+    const testGameId = `${gameId}_target_exchange`;
+    const game = await setupBaseGame(testGameId, playerId, opponentId);
+    (game.state as any).battlefield = [
+      {
+        id: 'exchange_target_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        card: { name: 'Loaned Relic', type_line: 'Artifact', oracle_text: '' },
+      },
+      {
+        id: 'exchange_target_2',
+        controller: opponentId,
+        owner: opponentId,
+        tapped: false,
+        card: { name: 'Opponent Relic', type_line: 'Artifact', oracle_text: '' },
+      },
+    ];
+    (game.state as any).zones = {
+      [playerId]: {
+        hand: [
+          {
+            id: 'market_chaos_1',
+            name: 'Market Chaos',
+            mana_cost: '{2}{U}',
+            manaCost: '{2}{U}',
+            type_line: 'Sorcery',
+            oracle_text: 'Exchange control of two target permanents that share a card type.',
+            image_uris: { small: 'https://example.com/market-chaos.jpg' },
+          },
+        ],
+        handCount: 1,
+        exile: [],
+        exileCount: 0,
+        graveyard: [],
+        graveyardCount: 0,
+      },
+      [opponentId]: {
+        hand: [],
+        handCount: 0,
+        exile: [],
+        exileCount: 0,
+        graveyard: [],
+        graveyardCount: 0,
+      },
+    };
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(playerId, testGameId, emitted);
+    registerGameActions(createNoopIo() as any, socket as any);
+
+    await handlers.castSpellFromHand({ gameId: testGameId, cardId: 'market_chaos_1' });
+
+    const queue = ResolutionQueueManager.getQueue(testGameId);
+    const targetStep = queue.steps.find((entry: any) => entry.type === 'target_selection') as any;
+    expect(targetStep).toBeDefined();
+    expect(targetStep?.minTargets).toBe(2);
+    expect(targetStep?.maxTargets).toBe(2);
+    expect(String(targetStep?.targetDescription || '').toLowerCase()).toContain('two target permanents');
+    expect(targetStep?.validTargets?.map((target: any) => String(target.id))).toEqual(['exchange_target_1', 'exchange_target_2']);
+  });
+
+  it('persists explicit target-and-target exchange prompts with scoped target lists', async () => {
+    const testGameId = `${gameId}_target_exchange_explicit`;
+    const game = await setupBaseGame(testGameId, playerId, opponentId);
+    (game.state as any).battlefield = [
+      {
+        id: 'exchange_explicit_target_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        card: { name: 'Loaned Bear', type_line: 'Creature — Bear', oracle_text: '' },
+      },
+      {
+        id: 'exchange_explicit_target_2',
+        controller: opponentId,
+        owner: opponentId,
+        tapped: false,
+        card: { name: 'Opponent Bear', type_line: 'Creature — Bear', oracle_text: '' },
+      },
+    ];
+    (game.state as any).zones = {
+      [playerId]: {
+        hand: [
+          {
+            id: 'swap_contrivance_1',
+            name: 'Swap Contrivance',
+            mana_cost: '{2}{U}',
+            manaCost: '{2}{U}',
+            type_line: 'Sorcery',
+            oracle_text: 'Exchange control of target creature you control and target creature an opponent controls.',
+            image_uris: { small: 'https://example.com/swap-contrivance.jpg' },
+          },
+        ],
+        handCount: 1,
+        exile: [],
+        exileCount: 0,
+        graveyard: [],
+        graveyardCount: 0,
+      },
+      [opponentId]: {
+        hand: [],
+        handCount: 0,
+        exile: [],
+        exileCount: 0,
+        graveyard: [],
+        graveyardCount: 0,
+      },
+    };
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(playerId, testGameId, emitted);
+    registerGameActions(createNoopIo() as any, socket as any);
+
+    await handlers.castSpellFromHand({ gameId: testGameId, cardId: 'swap_contrivance_1' });
+
+    const queue = ResolutionQueueManager.getQueue(testGameId);
+    const targetSteps = queue.steps.filter((entry: any) => entry.type === 'target_selection') as any[];
+    expect(targetSteps).toHaveLength(2);
+
+    const firstStep = targetSteps.find((step: any) => String(step.targetDescription || '').toLowerCase().includes('target creature you control')) as any;
+    const secondStep = targetSteps.find((step: any) => String(step.targetDescription || '').toLowerCase().includes('target creature an opponent controls')) as any;
+    expect(firstStep).toBeDefined();
+    expect(secondStep).toBeDefined();
+    expect(firstStep?.validTargets?.map((target: any) => String(target.id))).toEqual(['exchange_explicit_target_1']);
+    expect(secondStep?.validTargets?.map((target: any) => String(target.id))).toEqual(['exchange_explicit_target_2']);
+
+    const queuedCastEvent = [...getEvents(testGameId)].reverse().find((event: any) => event.type === 'castSpellContinuation' && Array.isArray((event as any)?.payload?.queuedResolutionSteps)) as any;
+    expect(queuedCastEvent?.payload?.cardId).toBe('swap_contrivance_1');
+    expect(queuedCastEvent?.payload?.queuedResolutionSteps).toHaveLength(2);
+    expect(String(queuedCastEvent?.payload?.queuedResolutionSteps?.[0]?.targetDescription || '').toLowerCase()).toContain('target creature you control');
+    expect(String(queuedCastEvent?.payload?.queuedResolutionSteps?.[1]?.targetDescription || '').toLowerCase()).toContain('target creature an opponent controls');
   });
 
   it('persists direct overload mode prompts', async () => {

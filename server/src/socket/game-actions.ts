@@ -880,20 +880,69 @@ function splitSpellTargetClauses(oracleText: string): string[] {
     .filter(Boolean);
 }
 
+function expandEmbeddedTargetClauses(clauseText: string): string[] {
+  const normalized = String(clauseText || '').trim();
+  if (!normalized) {
+    return [];
+  }
+
+  const donateMatch = normalized.match(/target\s+(opponent|player)\s+gains\s+control\s+of\s+target\s+([^.]+)$/i);
+  if (donateMatch) {
+    return [
+      `target ${String(donateMatch[1] || '').trim()}`,
+      `target ${String(donateMatch[2] || '').trim()}`,
+    ];
+  }
+
+  const exchangeMatch = normalized.match(/exchange\s+control\s+of\s+target\s+(.+?)\s+and\s+target\s+([^.]+)$/i);
+  if (exchangeMatch) {
+    return [
+      `target ${String(exchangeMatch[1] || '').trim()}`,
+      `target ${String(exchangeMatch[2] || '').trim()}`,
+    ];
+  }
+
+  return [normalized];
+}
+
+function normalizeRequirementTargetType(rawTargetType: string | undefined): string {
+  return String(rawTargetType || '')
+    .toLowerCase()
+    .replace(/[.,]/g, ' ')
+    .replace(/\bthat share a card type\b/g, ' ')
+    .replace(/\bthat player controls\b/g, ' ')
+    .replace(/\byou control\b/g, ' ')
+    .replace(/\ban opponent controls\b/g, ' ')
+    .replace(/\bwith different controllers\b/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/^nonland permanents?$/g, 'nonland permanent')
+    .replace(/^noncreature permanents?$/g, 'noncreature permanent')
+    .replace(/^creatures?$/g, 'creature')
+    .replace(/^permanents?$/g, 'permanent')
+    .replace(/^artifacts?$/g, 'artifact')
+    .replace(/^enchantments?$/g, 'enchantment')
+    .replace(/^lands?$/g, 'land')
+    .replace(/^planeswalkers?$/g, 'planeswalker');
+}
+
 function matchesSpellGraveyardCardTargetType(card: any, targetType: string): boolean {
   return matchesSharedGraveyardCardTargetType(card, targetType);
 }
 
 function buildSpellTargetListFromRequirements(game: any, playerId: string, targetReqs: any): Array<{ id: string; kind: string; name: string; isOpponent?: boolean; controller?: string; imageUrl?: string; typeLine?: string; life?: number }> {
   const validTargetList: Array<{ id: string; kind: string; name: string; isOpponent?: boolean; controller?: string; imageUrl?: string; typeLine?: string; life?: number }> = [];
+  const targetControllerConstraint = String(targetReqs?.targetControllerConstraint || 'any').toLowerCase();
 
   for (const rawTargetType of Array.isArray(targetReqs?.targetTypes) ? targetReqs.targetTypes : []) {
-    const targetTypeLower = String(rawTargetType || '').toLowerCase();
+    const targetTypeLower = normalizeRequirementTargetType(rawTargetType);
     if (targetTypeLower === 'creature' || targetTypeLower === 'permanent' || targetTypeLower === 'artifact' ||
         targetTypeLower === 'enchantment' || targetTypeLower === 'land' || targetTypeLower === 'planeswalker' ||
         targetTypeLower.includes('nonland') || targetTypeLower.includes('noncreature')) {
       const permanents = (game.state.battlefield || []).filter((permanent: any) => {
         const typeLine = String(permanent?.card?.type_line || '').toLowerCase();
+        if (targetControllerConstraint === 'you' && String(permanent?.controller || '') !== playerId) return false;
+        if (targetControllerConstraint === 'opponent' && String(permanent?.controller || '') === playerId) return false;
         if (targetTypeLower === 'permanent') return true;
         if (targetTypeLower.includes('nonland')) return !typeLine.includes('land');
         if (targetTypeLower.includes('noncreature')) return !typeLine.includes('creature');
@@ -915,7 +964,11 @@ function buildSpellTargetListFromRequirements(game: any, playerId: string, targe
     }
 
     if (targetTypeLower === 'player' || targetTypeLower === 'opponent' || targetTypeLower === 'any') {
-      const players = (game.state.players || []).filter((player: any) => targetTypeLower !== 'opponent' || player.id !== playerId);
+      const players = (game.state.players || []).filter((player: any) => {
+        if (targetTypeLower === 'opponent' && player.id === playerId) return false;
+        if (targetControllerConstraint === 'opponent' && player.id === playerId) return false;
+        return true;
+      });
       for (const player of players) {
         validTargetList.push({
           id: player.id,
@@ -1039,7 +1092,7 @@ function buildSpellTargetSelectionClauses(
   maxTargets: number;
   targetDescription: string;
 }> {
-  const clauses = splitSpellTargetClauses(oracleText);
+  const clauses = splitSpellTargetClauses(oracleText).flatMap((clauseText) => expandEmbeddedTargetClauses(clauseText));
   const targetClauses: Array<{
     clauseText: string;
     validTargetList: Array<{ id: string; kind: string; name: string; isOpponent?: boolean; controller?: string; imageUrl?: string; typeLine?: string; life?: number }>;

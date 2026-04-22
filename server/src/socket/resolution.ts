@@ -23514,6 +23514,43 @@ async function handlePlayerChoiceResponse(
     return;
   }
 
+  if (stepData?.controlChangeData) {
+    const effectData = {
+      type: 'control_change',
+      permanentId: String(stepData.controlChangeData?.permanentId || stepData.permanentId || step.sourceId || '').trim(),
+      goadsOnChange: stepData.controlChangeData?.goadsOnChange === true,
+      mustAttackEachCombat: stepData.controlChangeData?.mustAttackEachCombat === true,
+      cantAttackOwner: stepData.controlChangeData?.cantAttackOwner === true,
+    } as any;
+
+    if (response.cancelled) {
+      const cardName = stepData.sourceName || 'Choose Player';
+      handleDeclinedPlayerSelection(io, gameId, response.playerId as PlayerID, cardName, effectData);
+      return;
+    }
+
+    let selectedPlayerId: string;
+    if (typeof response.selections === 'string') {
+      selectedPlayerId = response.selections;
+    } else if (Array.isArray(response.selections) && response.selections.length > 0) {
+      selectedPlayerId = response.selections[0];
+    } else {
+      debugError(1, `[Resolution] Invalid control change response: ${JSON.stringify(response.selections)}`);
+      return;
+    }
+
+    applyPlayerSelectionEffect(
+      io,
+      gameId,
+      response.playerId as PlayerID,
+      selectedPlayerId as PlayerID,
+      stepData.sourceName || 'Choose Player',
+      effectData,
+      false,
+    );
+    return;
+  }
+
   // Handle different types of selections
   let selectedPlayerId: string;
   if (typeof response.selections === 'string') {

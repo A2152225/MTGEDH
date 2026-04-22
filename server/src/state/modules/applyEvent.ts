@@ -10706,6 +10706,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
               permanent.controller = selectedPlayerId;
               syncPreparedPermanentAfterControlChange(ctx.state, permanent, previousController);
               delete (permanent as any).pendingPlayerSelection;
+              delete (permanent as any).pendingControlChange;
 
               const typeLine = String(permanent?.card?.type_line || '').toLowerCase();
               if (typeLine.includes('creature')) {

@@ -6067,10 +6067,26 @@ export function triggerETBEffectsForPermanent(
     
     // Queue a resolution step for the control change
     const gameId = (ctx as any).gameId || 'unknown';
-    const { ResolutionQueueManager, ResolutionStepType } = require('../resolution/index.js');
     
-    if (controlChangeInfo.type === 'may_give_opponent' || controlChangeInfo.type === 'enters_under_opponent_control') {
+    if (
+      controlChangeInfo.type === 'may_give_opponent' ||
+      controlChangeInfo.type === 'enters_under_opponent_control' ||
+      controlChangeInfo.type === 'opponent_gains'
+    ) {
       const isOptional = controlChangeInfo.type === 'may_give_opponent';
+      const validOpponents = Array.isArray(state.players)
+        ? state.players
+            .filter((player: any) => player && String(player.id || '') !== String(controller) && !player.hasLost)
+            .map((player: any) => ({
+              id: String(player.id || ''),
+              name: String(player.name || player.id || ''),
+              life: Number(state?.life?.[player.id] ?? player.life ?? 40),
+              libraryCount: Number((state?.zones?.[player.id] as any)?.libraryCount ?? 0),
+              isOpponent: true,
+              isSelf: false,
+            }))
+            .filter((player: any) => player.id)
+        : [];
       
       ResolutionQueueManager.addStep(gameId, {
         type: ResolutionStepType.PLAYER_CHOICE,
@@ -6081,12 +6097,15 @@ export function triggerETBEffectsForPermanent(
         mandatory: !isOptional,
         sourceId: permanent.id,
         sourceName: permanent.card?.name,
+        permanentId: permanent.id,
         sourceImage: permanent.card?.image_uris?.small || permanent.card?.image_uris?.normal,
         promptTitle: isOptional ? "Control Change (Optional)" : "Choose Opponent",
         promptDescription: isOptional
           ? `Do you want to give control of ${permanent.card?.name} to an opponent? If you do, it will be goaded.`
           : `Choose which opponent will control ${permanent.card?.name}.`,
         options: [], // Will be filled with opponent list by the resolution handler
+        opponentOnly: true,
+        players: validOpponents,
         controlChangeData: {
           permanentId: permanent.id,
           isOptional,
@@ -10006,6 +10025,26 @@ export function executeTriggerEffect(
         targetPerm.tapped = true;
         debug(2, `[executeTriggerEffect] Tapped ${targetPerm.card?.name || targetPerm.id}`);
       }
+    }
+    return;
+  }
+
+  if (/^each player gains control of all creatures they own\.?$/i.test(desc.trim())) {
+    const battlefield = Array.isArray(state.battlefield) ? state.battlefield : [];
+    for (const permanent of battlefield) {
+      if (!permanent) continue;
+
+      const typeLine = String(permanent.card?.type_line || '').toLowerCase();
+      if (!typeLine.includes('creature')) continue;
+
+      const ownerId = String(permanent.owner || '').trim();
+      const previousController = String(permanent.controller || '').trim();
+      if (!ownerId || ownerId === previousController) continue;
+
+      permanent.controller = ownerId;
+      syncPreparedPermanentAfterControlChange(state, permanent, previousController);
+      (permanent as any).summoningSickness = true;
+      debug(2, `[executeTriggerEffect] ${permanent.card?.name || permanent.id} returned to owner control (${ownerId})`);
     }
     return;
   }
@@ -14655,6 +14694,194 @@ export function resolveTopOfStack(ctx: GameContext) {
         state.life = state.life || {};
         state.life[controller] = currentLife + lifeAmount;
         debug(2, `[resolveTopOfStack] ${effectiveCard.name}: ${controller} gained ${lifeAmount} life (${currentLife} -> ${state.life[controller]})`);
+      }
+    }
+
+    const selectedModeDescriptions = Array.isArray((item as any)?.selectedModeDescriptions)
+      ? ((item as any).selectedModeDescriptions as any[])
+          .map((mode: any) => String(mode || '').toLowerCase().trim())
+          .filter(Boolean)
+      : [];
+    const controlChangeResolutionTexts = selectedModeDescriptions.length > 0
+      ? selectedModeDescriptions
+      : [oracleTextLower];
+    const applyControllerChange = (permanent: any, newController: string, options?: { temporary?: boolean }) => {
+      const originalController = String(permanent?.controller || '').trim();
+      if (!newController || !originalController || originalController === newController) {
+        return false;
+      }
+
+      permanent.controller = newController;
+      syncPreparedPermanentAfterControlChange(state, permanent, originalController);
+
+      const typeLine = String(permanent?.card?.type_line || '').toLowerCase();
+      if (typeLine.includes('creature')) {
+        (permanent as any).summoningSickness = true;
+      }
+
+      if (options?.temporary) {
+        recordTemporaryControlChange(String(permanent.id || ''), originalController, newController);
+      }
+
+      return true;
+    };
+    const grantTemporaryHaste = (permanent: any) => {
+      (permanent as any).grantedAbilities = Array.isArray((permanent as any).grantedAbilities)
+        ? (permanent as any).grantedAbilities
+        : [];
+      if (!(permanent as any).grantedAbilities.some((ability: any) => String(ability || '').toLowerCase() === 'haste')) {
+        (permanent as any).grantedAbilities.push('Haste');
+      }
+
+      if (!(permanent as any).untilEndOfTurn || typeof (permanent as any).untilEndOfTurn !== 'object') {
+        (permanent as any).untilEndOfTurn = {};
+      }
+      (permanent as any).untilEndOfTurn.grantedAbilitiesToRemove = Array.isArray((permanent as any).untilEndOfTurn.grantedAbilitiesToRemove)
+        ? (permanent as any).untilEndOfTurn.grantedAbilitiesToRemove
+        : [];
+      if (!(permanent as any).untilEndOfTurn.grantedAbilitiesToRemove.includes('Haste')) {
+        (permanent as any).untilEndOfTurn.grantedAbilitiesToRemove.push('Haste');
+      }
+    };
+    const recordTemporaryControlChange = (permanentId: string, originalController: string, newController: string) => {
+      const stateAny = state as any;
+      stateAny.controlChangeEffects = Array.isArray(stateAny.controlChangeEffects) ? stateAny.controlChangeEffects : [];
+      stateAny.controlChangeEffects.push({
+        permanentId,
+        originalController,
+        newController,
+        duration: 'eot',
+        appliedAt: Date.now(),
+      });
+    };
+    const hasExchangeCreaturesEffect = controlChangeResolutionTexts.some((text: string) =>
+      text.includes('exchange control of all creatures') ||
+      text.includes('each gain control of all creatures the other controls until end of turn')
+    );
+    const hasDonateTargetPermanentEffect = controlChangeResolutionTexts.some((text: string) =>
+      /target (?:opponent|player) gains control of target [^.]+/i.test(text)
+    );
+    const hasExchangeTargetPermanentsEffect = controlChangeResolutionTexts.some((text: string) =>
+      /exchange control of two target permanents/i.test(text)
+      || /exchange control of target [^.]+ and target [^.]+/i.test(text)
+    );
+    const hasTemporaryGainControlEffect = controlChangeResolutionTexts.some((text: string) =>
+      text.includes('gain control of target creature') && text.includes('until end of turn')
+    );
+    const hasPermanentGainControlEffect = !hasTemporaryGainControlEffect && controlChangeResolutionTexts.some((text: string) =>
+      text.includes('gain control of target creature')
+    );
+
+    if (hasExchangeCreaturesEffect && targets.length > 0) {
+      const targetOpponentId = String(typeof targets[0] === 'string' ? targets[0] : targets[0]?.id || '').trim();
+      const players = Array.isArray((state as any).players) ? (state as any).players : [];
+      const isTargetOpponent = players.some((player: any) => player && String(player.id || '') === targetOpponentId)
+        && targetOpponentId !== String(controller || '');
+
+      if (isTargetOpponent) {
+        const battlefield = Array.isArray(state.battlefield) ? state.battlefield : [];
+        const controllerId = String(controller || '');
+        const exchangeCandidates = battlefield.filter((permanent: any) => {
+          if (!permanent) return false;
+          const typeLine = String(permanent.card?.type_line || '').toLowerCase();
+          if (!typeLine.includes('creature')) return false;
+          const currentController = String(permanent.controller || '').trim();
+          return currentController === controllerId || currentController === targetOpponentId;
+        });
+
+        const controllerCreatures = exchangeCandidates.filter((permanent: any) => String(permanent.controller || '').trim() === controllerId);
+        const opponentCreatures = exchangeCandidates.filter((permanent: any) => String(permanent.controller || '').trim() === targetOpponentId);
+
+        for (const permanent of exchangeCandidates) {
+          permanent.tapped = false;
+        }
+
+        for (const permanent of controllerCreatures) {
+          const originalController = String(permanent.controller || '').trim();
+          permanent.controller = targetOpponentId;
+          syncPreparedPermanentAfterControlChange(state, permanent, originalController);
+          (permanent as any).summoningSickness = true;
+          recordTemporaryControlChange(String(permanent.id || ''), originalController, targetOpponentId);
+          grantTemporaryHaste(permanent);
+        }
+
+        for (const permanent of opponentCreatures) {
+          const originalController = String(permanent.controller || '').trim();
+          permanent.controller = controllerId;
+          syncPreparedPermanentAfterControlChange(state, permanent, originalController);
+          (permanent as any).summoningSickness = true;
+          recordTemporaryControlChange(String(permanent.id || ''), originalController, controllerId);
+          grantTemporaryHaste(permanent);
+        }
+
+        debug(2, `[resolveTopOfStack] ${effectiveCard.name}: exchanged control of ${exchangeCandidates.length} creature(s) between ${controllerId} and ${targetOpponentId}`);
+      }
+    }
+
+    if (hasDonateTargetPermanentEffect && targets.length > 1) {
+      const battlefield = Array.isArray(state.battlefield) ? state.battlefield : [];
+      const players = Array.isArray((state as any).players) ? (state as any).players : [];
+      const targetPlayerId = targets
+        .map((target: any) => String(typeof target === 'string' ? target : target?.id || '').trim())
+        .find((targetId: string) => players.some((player: any) => player && String(player.id || '') === targetId));
+      const targetPermanentId = targets
+        .map((target: any) => String(typeof target === 'string' ? target : target?.id || '').trim())
+        .find((targetId: string) => battlefield.some((permanent: any) => permanent && String(permanent.id || '') === targetId));
+
+      if (targetPlayerId && targetPermanentId) {
+        const targetPermanent = battlefield.find((permanent: any) => permanent && String(permanent.id || '') === targetPermanentId);
+        if (targetPermanent && applyControllerChange(targetPermanent, targetPlayerId, { temporary: false })) {
+          debug(2, `[resolveTopOfStack] ${effectiveCard.name}: ${targetPermanent.card?.name || targetPermanent.id} donated to ${targetPlayerId}`);
+        }
+      }
+    }
+
+    if (hasExchangeTargetPermanentsEffect && targets.length > 1) {
+      const battlefield = Array.isArray(state.battlefield) ? state.battlefield : [];
+      const targetPermanentIds = targets
+        .map((target: any) => String(typeof target === 'string' ? target : target?.id || '').trim())
+        .filter((targetId: string) => battlefield.some((permanent: any) => permanent && String(permanent.id || '') === targetId));
+
+      if (targetPermanentIds.length >= 2) {
+        const firstPermanent = battlefield.find((permanent: any) => permanent && String(permanent.id || '') === targetPermanentIds[0]);
+        const secondPermanent = battlefield.find((permanent: any) => permanent && String(permanent.id || '') === targetPermanentIds[1]);
+
+        if (firstPermanent && secondPermanent) {
+          const firstController = String(firstPermanent.controller || '').trim();
+          const secondController = String(secondPermanent.controller || '').trim();
+
+          if (firstController && secondController && firstController !== secondController) {
+            applyControllerChange(firstPermanent, secondController, { temporary: false });
+            applyControllerChange(secondPermanent, firstController, { temporary: false });
+            debug(2, `[resolveTopOfStack] ${effectiveCard.name}: exchanged control of ${firstPermanent.card?.name || firstPermanent.id} and ${secondPermanent.card?.name || secondPermanent.id}`);
+          }
+        }
+      }
+    }
+
+    if ((hasTemporaryGainControlEffect || hasPermanentGainControlEffect) && targets.length > 0) {
+      const targetId = typeof targets[0] === 'string' ? targets[0] : targets[0]?.id;
+      const targetPermanent = (state.battlefield || []).find((perm: any) => perm && String(perm.id || '') === String(targetId || ''));
+
+      if (targetPermanent) {
+        const typeLine = String(targetPermanent.card?.type_line || '').toLowerCase();
+        if (typeLine.includes('creature')) {
+          const newController = String(controller || '');
+          const shouldUntap = controlChangeResolutionTexts.some((text: string) => text.includes('untap'));
+          const shouldGrantHaste = controlChangeResolutionTexts.some((text: string) => text.includes('gains haste') || text.includes('gain haste'));
+
+          applyControllerChange(targetPermanent, newController, { temporary: hasTemporaryGainControlEffect });
+
+          if (shouldUntap) {
+            targetPermanent.tapped = false;
+          }
+
+          if (shouldGrantHaste) {
+            grantTemporaryHaste(targetPermanent);
+          }
+
+          debug(2, `[resolveTopOfStack] ${effectiveCard.name}: applied ${hasTemporaryGainControlEffect ? 'temporary' : 'permanent'} control change to ${targetPermanent.card?.name || targetPermanent.id}`);
+        }
       }
     }
     

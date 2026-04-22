@@ -6,6 +6,7 @@ import '../src/state/modules/priority.js';
 import { registerInteractionHandlers } from '../src/socket/interaction.js';
 import { initializePriorityResolutionHandler, registerResolutionHandlers } from '../src/socket/resolution.js';
 import { ResolutionQueueManager } from '../src/state/resolution/index.js';
+import { setPermanentPrepared } from '../src/state/modules/prepared.js';
 import { calculateEquipmentBonus } from '../src/state/utils.js';
 import { games } from '../src/socket/socket.js';
 
@@ -91,6 +92,7 @@ describe('activateBattlefieldAbility detector routing uses selected ability text
     `${gameId}_graveyard_battlefield_mana_value`,
     `${gameId}_graveyard_battlefield_total_power`,
     `${gameId}_control_change`,
+    `${gameId}_homeward_path`,
     `${gameId}_token_tutor`,
   ];
 
@@ -3260,5 +3262,144 @@ describe('activateBattlefieldAbility detector routing uses selected ability text
     const source = (game.state as any).battlefield.find((permanent: any) => permanent.id === 'control_device_1');
     expect(source?.controller).toBe(playerId);
     expect(Boolean(source?.tapped)).toBe(true);
+  });
+
+  it('routes Homeward Path to the selected non-mana ability and restores creatures to owner control on resolution', async () => {
+    const homewardPathGameId = `${gameId}_homeward_path`;
+    await resetGame(homewardPathGameId);
+
+    createGameIfNotExists(homewardPathGameId, 'commander', 40);
+    const game = ensureGame(homewardPathGameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const playerId = 'p1';
+    const opponentId = 'p2';
+    (game.state as any).players = [
+      { id: playerId, name: 'P1', spectator: false, life: 40 },
+      { id: opponentId, name: 'P2', spectator: false, life: 40 },
+    ];
+    (game.state as any).startingLife = 40;
+    (game.state as any).life = { [playerId]: 40, [opponentId]: 40 };
+    (game.state as any).turnOrder = [playerId, opponentId];
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).manaPool = {
+      [playerId]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+      [opponentId]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+    };
+    (game.state as any).zones = {
+      [playerId]: { hand: [], handCount: 0, graveyard: [], graveyardCount: 0, library: [], libraryCount: 0, exile: [], exileCount: 0 },
+      [opponentId]: { hand: [], handCount: 0, graveyard: [], graveyardCount: 0, library: [], libraryCount: 0, exile: [], exileCount: 0 },
+    };
+
+    const preparedCard = {
+      id: 'prepared_homeward_card',
+      name: 'Prepared Host // Sudden Recall',
+      layout: 'prepare',
+      mana_cost: '{2}{U} // {1}{U}',
+      type_line: 'Creature — Human Advisor // Instant',
+      colors: ['U'],
+      color_identity: ['U'],
+      card_faces: [
+        {
+          name: 'Prepared Host',
+          mana_cost: '{2}{U}',
+          type_line: 'Creature — Human Advisor',
+          oracle_text: "This creature enters prepared. (While it's prepared, you may cast a copy of its spell. Doing so unprepares it.)",
+          power: '2',
+          toughness: '3',
+        },
+        {
+          name: 'Sudden Recall',
+          mana_cost: '{1}{U}',
+          type_line: 'Instant',
+          oracle_text: 'Return target creature to its owner\'s hand.',
+        },
+      ],
+    };
+
+    const preparedPermanent = {
+      id: 'prepared_homeward_perm',
+      controller: opponentId,
+      owner: playerId,
+      tapped: false,
+      summoningSickness: false,
+      counters: {},
+      card: {
+        ...preparedCard,
+        name: 'Prepared Host',
+        mana_cost: '{2}{U}',
+        type_line: 'Creature — Human Advisor',
+        oracle_text: preparedCard.card_faces[0].oracle_text,
+        zone: 'battlefield',
+      },
+    } as any;
+
+    (game.state as any).battlefield = [
+      {
+        id: 'homeward_path_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        card: {
+          id: 'homeward_path_card_1',
+          name: 'Homeward Path',
+          type_line: 'Land',
+          oracle_text: '{T}: Add {C}.\n{T}: Each player gains control of all creatures they own.',
+        },
+      },
+      preparedPermanent,
+      {
+        id: 'stolen_bear_1',
+        controller: playerId,
+        owner: opponentId,
+        tapped: false,
+        summoningSickness: false,
+        counters: {},
+        card: {
+          id: 'stolen_bear_card_1',
+          name: 'Stolen Bear',
+          type_line: 'Creature — Bear',
+          oracle_text: '',
+        },
+      },
+    ];
+    setPermanentPrepared((game.state as any), preparedPermanent);
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(playerId, emitted);
+    socket.rooms.add(homewardPathGameId);
+    const io = createMockIo(emitted, [socket]);
+
+    registerResolutionHandlers(io as any, socket as any);
+    registerInteractionHandlers(io as any, socket as any);
+
+    await handlers['activateBattlefieldAbility']({ gameId: homewardPathGameId, permanentId: 'homeward_path_1', abilityId: 'homeward_path_1-ability-1' });
+
+    const queue = ResolutionQueueManager.getQueue(homewardPathGameId);
+    expect(queue.steps).toHaveLength(0);
+
+    const stack = (game.state as any).stack || [];
+    expect(stack).toHaveLength(1);
+    expect(String(stack[0]?.description || '').toLowerCase()).toContain('each player gains control of all creatures they own');
+
+    const source = (game.state as any).battlefield.find((permanent: any) => permanent.id === 'homeward_path_1');
+    expect(Boolean(source?.tapped)).toBe(true);
+
+    game.resolveTopOfStack();
+
+    const updatedPrepared = (game.state as any).battlefield.find((permanent: any) => permanent.id === 'prepared_homeward_perm');
+    const updatedBear = (game.state as any).battlefield.find((permanent: any) => permanent.id === 'stolen_bear_1');
+
+    expect(updatedPrepared?.controller).toBe(playerId);
+    expect(updatedPrepared?.summoningSickness).toBe(true);
+    expect(updatedBear?.controller).toBe(opponentId);
+    expect(updatedBear?.summoningSickness).toBe(true);
+    expect((game.state as any).zones[opponentId].exile).toHaveLength(0);
+    expect((game.state as any).zones[playerId].exile).toHaveLength(1);
+    expect((game.state as any).zones[playerId].exile[0]).toMatchObject({
+      canBePlayedBy: playerId,
+      preparedSourcePermanentId: 'prepared_homeward_perm',
+    });
   });
 });

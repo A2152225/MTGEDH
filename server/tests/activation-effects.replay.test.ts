@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { createInitialGameState } from '../src/state/gameState.js';
+import { setPermanentPrepared } from '../src/state/modules/prepared.js';
 import { ResolutionQueueManager } from '../src/state/resolution/index.js';
 import type { PlayerID } from '../../shared/src';
 
@@ -918,6 +919,135 @@ describe('activation effect replay semantics', () => {
 
     const creature = ((game.state as any).battlefield || []).find((perm: any) => String(perm?.id) === 'creature_1');
     expect(Boolean(creature?.tapped)).toBe(true);
+  });
+
+  it('replays Homeward Path battlefield activations by rebuilding the selected ability stack item and restoring owner control', () => {
+    const game = createInitialGameState('t_activate_homeward_path_replay');
+    const p1 = 'p1' as PlayerID;
+    const p2 = 'p2' as PlayerID;
+    addPlayer(game, p1, 'P1');
+    addPlayer(game, p2, 'P2');
+
+    (game.state as any).manaPool = {
+      [p1]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+      [p2]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+    };
+    (game.state as any).zones = {
+      [p1]: { hand: [], handCount: 0, graveyard: [], graveyardCount: 0, library: [], libraryCount: 0, exile: [], exileCount: 0 },
+      [p2]: { hand: [], handCount: 0, graveyard: [], graveyardCount: 0, library: [], libraryCount: 0, exile: [], exileCount: 0 },
+    };
+
+    const preparedCard = {
+      id: 'prepared_homeward_card',
+      name: 'Prepared Host // Sudden Recall',
+      layout: 'prepare',
+      mana_cost: '{2}{U} // {1}{U}',
+      type_line: 'Creature — Human Advisor // Instant',
+      colors: ['U'],
+      color_identity: ['U'],
+      card_faces: [
+        {
+          name: 'Prepared Host',
+          mana_cost: '{2}{U}',
+          type_line: 'Creature — Human Advisor',
+          oracle_text: "This creature enters prepared. (While it's prepared, you may cast a copy of its spell. Doing so unprepares it.)",
+          power: '2',
+          toughness: '3',
+        },
+        {
+          name: 'Sudden Recall',
+          mana_cost: '{1}{U}',
+          type_line: 'Instant',
+          oracle_text: 'Return target creature to its owner\'s hand.',
+        },
+      ],
+    };
+
+    const preparedPermanent = {
+      id: 'prepared_homeward_perm',
+      controller: p2,
+      owner: p1,
+      tapped: false,
+      summoningSickness: false,
+      counters: {},
+      card: {
+        ...preparedCard,
+        name: 'Prepared Host',
+        mana_cost: '{2}{U}',
+        type_line: 'Creature — Human Advisor',
+        oracle_text: preparedCard.card_faces[0].oracle_text,
+        zone: 'battlefield',
+      },
+    } as any;
+
+    (game.state as any).battlefield = [
+      {
+        id: 'homeward_path_1',
+        controller: p1,
+        owner: p1,
+        tapped: false,
+        counters: {},
+        card: {
+          id: 'homeward_path_card_1',
+          name: 'Homeward Path',
+          type_line: 'Land',
+          oracle_text: '{T}: Add {C}.\n{T}: Each player gains control of all creatures they own.',
+          zone: 'battlefield',
+        },
+      },
+      preparedPermanent,
+      {
+        id: 'stolen_bear_1',
+        controller: p1,
+        owner: p2,
+        tapped: false,
+        summoningSickness: false,
+        counters: {},
+        card: {
+          id: 'stolen_bear_card_1',
+          name: 'Stolen Bear',
+          type_line: 'Creature - Bear',
+          oracle_text: '',
+          zone: 'battlefield',
+        },
+      },
+    ];
+    setPermanentPrepared((game.state as any), preparedPermanent);
+
+    game.applyEvent({
+      type: 'activateBattlefieldAbility',
+      playerId: p1,
+      permanentId: 'homeward_path_1',
+      abilityId: 'homeward_path_1-ability-1',
+      cardName: 'Homeward Path',
+      abilityText: 'Each player gains control of all creatures they own.',
+      activatedAbilityText: '{T}: Each player gains control of all creatures they own.',
+      usesStack: true,
+      tappedPermanents: ['homeward_path_1'],
+    } as any);
+
+    const source = ((game.state as any).battlefield || []).find((perm: any) => String(perm?.id) === 'homeward_path_1');
+    expect(Boolean(source?.tapped)).toBe(true);
+
+    const stack = (game.state as any).stack || [];
+    expect(stack).toHaveLength(1);
+    expect(String(stack[0]?.description || '')).toBe('Each player gains control of all creatures they own.');
+    expect(String(stack[0]?.activatedAbilityText || '')).toBe('{T}: Each player gains control of all creatures they own.');
+
+    game.resolveTopOfStack();
+
+    const updatedPrepared = ((game.state as any).battlefield || []).find((perm: any) => String(perm?.id) === 'prepared_homeward_perm');
+    const updatedBear = ((game.state as any).battlefield || []).find((perm: any) => String(perm?.id) === 'stolen_bear_1');
+    expect(updatedPrepared?.controller).toBe(p1);
+    expect(updatedPrepared?.summoningSickness).toBe(true);
+    expect(updatedBear?.controller).toBe(p2);
+    expect(updatedBear?.summoningSickness).toBe(true);
+    expect((game.state as any).zones[p2].exile).toHaveLength(0);
+    expect((game.state as any).zones[p1].exile).toHaveLength(1);
+    expect((game.state as any).zones[p1].exile[0]).toMatchObject({
+      canBePlayedBy: p1,
+      preparedSourcePermanentId: 'prepared_homeward_perm',
+    });
   });
 
   it('replays targeted discard-cost battlefield activations by rebuilding the stack item and resolving the graveyard return effect', () => {
