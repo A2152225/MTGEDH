@@ -20,6 +20,7 @@ describe('queued battlefield prompt replay semantics', () => {
       't_activate_tap_untap_prompt_replay',
       't_activate_crew_prompt_replay',
       't_activate_mana_color_prompt_replay',
+      't_activate_battlefield_target_selection_resolved_replay',
       't_activate_battlefield_payment_prompt_replay',
     ]) {
       resetGame(gameId);
@@ -367,6 +368,97 @@ describe('queued battlefield prompt replay semantics', () => {
     expect((queue.steps[0] as any)?.amount).toBe(1);
     expect((queue.steps[0] as any)?.tappedPermanentsForCost).toEqual(['mana_creature_1']);
     expect((game.state as any).stack || []).toHaveLength(0);
+  });
+
+  it('clears replayed battlefield target-selection prompts once the activation is fully persisted', () => {
+    const gameId = 't_activate_battlefield_target_selection_resolved_replay';
+    const game = createInitialGameState(gameId);
+    const p1 = 'p1' as PlayerID;
+    addPlayer(game, p1, 'P1');
+
+    (game.state as any).battlefield = [
+      {
+        id: 'trade_relay_1',
+        controller: p1,
+        owner: p1,
+        tapped: true,
+        counters: {},
+        card: {
+          id: 'trade_relay_card_1',
+          name: 'Trade Relay',
+          type_line: 'Artifact',
+          oracle_text: '{2}, {T}: Exchange control of two target permanents that share a card type.',
+          zone: 'battlefield',
+        },
+      },
+    ];
+
+    game.applyEvent({
+      type: 'activateBattlefieldAbility',
+      playerId: p1,
+      permanentId: 'trade_relay_1',
+      abilityId: 'trade_relay_1-ability-0',
+      cardName: 'Trade Relay',
+      abilityText: 'Exchange control of two target permanents that share a card type.',
+      activatedAbilityText: '{2}, {T}: Exchange control of two target permanents that share a card type.',
+      queuedResolutionStep: {
+        id: 'queued_trade_relay_targets',
+        type: ResolutionStepType.TARGET_SELECTION,
+        playerId: p1,
+        sourceId: 'trade_relay_1',
+        sourceName: 'Trade Relay',
+        description: 'Choose two target permanents that share a card type for Trade Relay',
+        mandatory: true,
+        validTargets: [
+          {
+            id: 'player_relic_1',
+            label: 'Player Relic',
+            description: 'Artifact',
+            imageUrl: undefined,
+          },
+          {
+            id: 'opponent_relic_1',
+            label: 'Opponent Relic',
+            description: 'Artifact',
+            imageUrl: undefined,
+          },
+        ],
+        targetTypes: ['permanent', 'permanent'],
+        minTargets: 2,
+        maxTargets: 2,
+        targetDescription: 'two target permanents that share a card type',
+        battlefieldAbilityTargetSelection: true,
+        permanentId: 'trade_relay_1',
+        cardName: 'Trade Relay',
+        abilityId: 'trade_relay_1-ability-0',
+        abilityText: 'Exchange control of two target permanents that share a card type.',
+        activatedAbilityText: '{2}, {T}: Exchange control of two target permanents that share a card type.',
+      },
+    } as any);
+
+    expect(ResolutionQueueManager.getQueue(gameId).steps).toHaveLength(1);
+    expect((game.state as any).stack || []).toHaveLength(0);
+
+    game.applyEvent({
+      type: 'activateBattlefieldAbility',
+      playerId: p1,
+      permanentId: 'trade_relay_1',
+      abilityId: 'trade_relay_1-ability-0',
+      cardName: 'Trade Relay',
+      abilityText: 'Exchange control of two target permanents that share a card type.',
+      activatedAbilityText: '{2}, {T}: Exchange control of two target permanents that share a card type.',
+      stackItemId: 'stack_trade_relay_1',
+      targets: ['player_relic_1', 'opponent_relic_1'],
+    } as any);
+
+    expect(ResolutionQueueManager.getQueue(gameId).steps).toEqual([]);
+    expect((game.state as any).stack || []).toHaveLength(1);
+    expect((game.state as any).stack[0]).toMatchObject({
+      id: 'stack_trade_relay_1',
+      source: 'trade_relay_1',
+      controller: p1,
+      targets: ['player_relic_1', 'opponent_relic_1'],
+    });
   });
 
   it('replays queued activation payment prompts after battlefield target selection resolves', () => {

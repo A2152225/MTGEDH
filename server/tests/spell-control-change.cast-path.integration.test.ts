@@ -106,6 +106,7 @@ describe('spell control change cast path (integration)', () => {
   const derivedGameIds = [
     `${gameId}_donate`,
     `${gameId}_exchange_explicit`,
+    `${gameId}_exchange_shared_type`,
   ];
 
   beforeAll(async () => {
@@ -361,5 +362,126 @@ describe('spell control change cast path (integration)', () => {
       canBePlayedBy: opponentId,
       preparedSourcePermanentId: 'prepared_exchange_perm',
     });
+  });
+
+  it('rejects invalid shared-type exchange targets before payment and allows a valid retry', async () => {
+    const testGameId = `${gameId}_exchange_shared_type`;
+    const game = await setupBaseGame(testGameId, playerId, opponentId);
+    (game.state as any).manaPool = {
+      [playerId]: { white: 0, blue: 1, black: 0, red: 0, green: 0, colorless: 2 },
+      [opponentId]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+    };
+
+    (game.state as any).battlefield = [
+      {
+        id: 'exchange_artifact_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        card: { name: 'Loaned Relic', type_line: 'Artifact', oracle_text: '' },
+      },
+      {
+        id: 'exchange_creature_1',
+        controller: opponentId,
+        owner: opponentId,
+        tapped: false,
+        card: { name: 'Opponent Bear', type_line: 'Creature — Bear', oracle_text: '', power: '2', toughness: '2' },
+      },
+      {
+        id: 'exchange_artifact_2',
+        controller: opponentId,
+        owner: opponentId,
+        tapped: false,
+        card: { name: 'Opponent Relic', type_line: 'Artifact', oracle_text: '' },
+      },
+    ];
+    (game.state as any).zones = {
+      [playerId]: {
+        hand: [
+          {
+            id: 'market_chaos_1',
+            name: 'Market Chaos',
+            mana_cost: '{2}{U}',
+            manaCost: '{2}{U}',
+            type_line: 'Sorcery',
+            oracle_text: 'Exchange control of two target permanents that share a card type.',
+            image_uris: { small: 'https://example.com/market-chaos.jpg' },
+            colors: ['U'],
+          },
+        ],
+        handCount: 1,
+        graveyard: [],
+        graveyardCount: 0,
+        exile: [],
+        exileCount: 0,
+        library: [],
+        libraryCount: 0,
+      },
+      [opponentId]: {
+        hand: [],
+        handCount: 0,
+        graveyard: [],
+        graveyardCount: 0,
+        exile: [],
+        exileCount: 0,
+        library: [],
+        libraryCount: 0,
+      },
+    };
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(playerId, testGameId, emitted);
+    const io = createMockIo(emitted, [socket]);
+    registerResolutionHandlers(io as any, socket as any);
+    registerGameActions(io as any, socket as any);
+
+    await handlers.castSpellFromHand({ gameId: testGameId, cardId: 'market_chaos_1' });
+
+    let queue = ResolutionQueueManager.getQueue(testGameId);
+    const targetStep = queue.steps.find((entry: any) => entry.type === 'target_selection') as any;
+    expect(targetStep).toBeDefined();
+    expect(targetStep?.minTargets).toBe(2);
+    expect(targetStep?.maxTargets).toBe(2);
+
+    emitted.length = 0;
+    await handlers.submitResolutionResponse({
+      gameId: testGameId,
+      stepId: String(targetStep.id),
+      selections: ['exchange_artifact_1', 'exchange_creature_1'],
+    });
+
+    const invalidSelectionError = emitted.find((event) => event.event === 'error' && event.payload?.code === 'INVALID_SELECTION');
+    expect(String(invalidSelectionError?.payload?.message || '').toLowerCase()).toContain('share a card type');
+
+    queue = ResolutionQueueManager.getQueue(testGameId);
+    expect(queue.steps.some((entry: any) => entry.type === 'target_selection')).toBe(true);
+    expect(queue.steps.some((entry: any) => entry.type === 'mana_payment_choice')).toBe(false);
+
+    emitted.length = 0;
+    await handlers.submitResolutionResponse({
+      gameId: testGameId,
+      stepId: String(targetStep.id),
+      selections: ['exchange_artifact_1', 'exchange_artifact_2'],
+    });
+
+    queue = ResolutionQueueManager.getQueue(testGameId);
+    const paymentStep = queue.steps.find((step: any) => step.type === 'mana_payment_choice' && (step as any).spellPaymentRequired === true) as any;
+    expect(paymentStep).toBeDefined();
+
+    await handlers.completeCastSpell({
+      gameId: testGameId,
+      cardId: 'market_chaos_1',
+      effectId: String(paymentStep.effectId),
+    });
+
+    expect((game.state as any).stack).toHaveLength(1);
+    game.resolveTopOfStack();
+
+    const firstArtifact = ((game.state as any).battlefield || []).find((perm: any) => perm && perm.id === 'exchange_artifact_1');
+    const secondArtifact = ((game.state as any).battlefield || []).find((perm: any) => perm && perm.id === 'exchange_artifact_2');
+    const untouchedCreature = ((game.state as any).battlefield || []).find((perm: any) => perm && perm.id === 'exchange_creature_1');
+    expect(firstArtifact?.controller).toBe(opponentId);
+    expect(secondArtifact?.controller).toBe(playerId);
+    expect(untouchedCreature?.controller).toBe(opponentId);
   });
 });

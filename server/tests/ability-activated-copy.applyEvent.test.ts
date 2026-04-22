@@ -329,6 +329,71 @@ describe('ability-activated copy retarget metadata via applyEvent', () => {
     expect(item.copyRetargetTargetDescription).toBe('target player');
   });
 
+  it('replay activateBattlefieldAbility rebuilds generic multi-target stack items with persisted retarget metadata', () => {
+    const ctx: any = {
+      state: {
+        battlefield: [
+          {
+            id: 'trade_relay_1',
+            controller: 'p1',
+            owner: 'p1',
+            tapped: true,
+            card: {
+              id: 'trade_relay_card_1',
+              name: 'Trade Relay',
+              type_line: 'Artifact',
+              oracle_text: '{2}, {T}: Exchange control of two target permanents that share a card type.',
+            },
+          },
+        ],
+        stack: [],
+      },
+      bumpSeq() {},
+    };
+
+    applyEvent(ctx, {
+      type: 'activateBattlefieldAbility',
+      playerId: 'p1',
+      permanentId: 'trade_relay_1',
+      abilityId: 'trade_relay_1-ability-0',
+      cardName: 'Trade Relay',
+      abilityText: 'Exchange control of two target permanents that share a card type.',
+      activatedAbilityText: '{2}, {T}: Exchange control of two target permanents that share a card type.',
+      targets: ['player_relic_1', 'opponent_relic_1'],
+      copyRetargetValidTargets: [
+        { id: 'player_relic_1', name: 'Player Relic', type: 'permanent' },
+        { id: 'opponent_relic_1', name: 'Opponent Relic', type: 'permanent' },
+        { id: 'player_bear_1', name: 'Player Bear', type: 'permanent' },
+        { id: 'opponent_bear_1', name: 'Opponent Bear', type: 'permanent' },
+      ],
+      copyRetargetTargetTypes: ['permanent', 'permanent'],
+      copyRetargetMinTargets: 2,
+      copyRetargetMaxTargets: 2,
+      copyRetargetTargetDescription: 'two target permanents that share a card type',
+    } as any);
+
+    expect(ctx.state.stack).toHaveLength(1);
+    expect(ctx.state.stack[0]).toMatchObject({
+      type: 'ability',
+      controller: 'p1',
+      source: 'trade_relay_1',
+      sourceName: 'Trade Relay',
+      description: 'Exchange control of two target permanents that share a card type.',
+      activatedAbilityText: '{2}, {T}: Exchange control of two target permanents that share a card type.',
+      targets: ['player_relic_1', 'opponent_relic_1'],
+      copyRetargetTargetTypes: ['permanent', 'permanent'],
+      copyRetargetMinTargets: 2,
+      copyRetargetMaxTargets: 2,
+      copyRetargetTargetDescription: 'two target permanents that share a card type',
+    });
+    expect(ctx.state.stack[0].copyRetargetValidTargets).toEqual([
+      { id: 'player_relic_1', name: 'Player Relic', type: 'permanent' },
+      { id: 'opponent_relic_1', name: 'Opponent Relic', type: 'permanent' },
+      { id: 'player_bear_1', name: 'Player Bear', type: 'permanent' },
+      { id: 'opponent_bear_1', name: 'Opponent Bear', type: 'permanent' },
+    ]);
+  });
+
   it('replay activatePlaneswalkerAbility reattaches persisted retarget metadata to the matching stack item', () => {
     const ctx: any = {
       state: {

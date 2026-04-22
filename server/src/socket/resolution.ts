@@ -89,7 +89,7 @@ import { movePermanentToExile } from "../state/modules/counters_tokens.js";
 import { trackCountersPlacedThisTurn } from "../state/modules/counters_tokens.js";
 import { updateCounters } from "../state/modules/counters_tokens.js";
 import { recordCardLeftGraveyardThisTurn, recordCardPutIntoGraveyardThisTurn } from "../state/modules/turn-tracking.js";
-import { canPermanentBeTargetedByPlayer, categorizeSpell, evaluateTargeting, matchesGraveyardCardTargetType as matchesSharedGraveyardCardTargetType, parseTargetRequirements, type SpellSpec } from "../rules-engine/targeting";
+import { canPermanentBeTargetedByPlayer, categorizeSpell, evaluateTargeting, matchesGraveyardCardTargetType as matchesSharedGraveyardCardTargetType, parseTargetRequirements, permanentsShareCardType, selectionRequiresSharedCardType, type SpellSpec } from "../rules-engine/targeting";
 import { getWardCost, counterStackItem } from "../state/modules/stack-mechanics.js";
 import { checkGraveyardTrigger } from "../state/modules/triggered-abilities.js";
 import { applyPlayerSelectionEffect, handleDeclinedPlayerSelection } from "./player-selection.js";
@@ -3928,6 +3928,18 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
       if (!selectedIds.every(id => validTargetIds.has(id))) {
         socket.emit("error", { code: "INVALID_SELECTION", message: "One or more selected targets are not valid" });
         return;
+      }
+
+      if (selectionRequiresSharedCardType(targetStepData.targetDescription, targetStepData.description)) {
+        const battlefield: any[] = Array.isArray((game.state as any)?.battlefield) ? (game.state as any).battlefield : [];
+        const selectedPermanents = selectedIds
+          .map((id) => battlefield.find((permanent: any) => String(permanent?.id || '') === String(id)))
+          .filter(Boolean);
+
+        if (selectedPermanents.length !== selectedIds.length || !permanentsShareCardType(selectedPermanents)) {
+          socket.emit("error", { code: "INVALID_SELECTION", message: "Selected permanents must share a card type" });
+          return;
+        }
       }
 
       // Some TARGET_SELECTION steps are used as generic “pick an object” prompts for
@@ -11143,6 +11155,7 @@ async function handleStepResponse(
       const isManaAbility =
         /add\s+(\{[wubrgc]\}|\{[wubrgc]\}\{[wubrgc]\}|one mana|two mana|three mana|mana of any|any color|[xX] mana|an amount of|mana in any combination)/i.test(abilityText) &&
         !/target/i.test(abilityText);
+      let stackItemId: string | undefined;
 
       if (!isManaAbility) {
         const stackItem = {
@@ -11162,6 +11175,7 @@ async function handleStepResponse(
 
         game.state.stack = game.state.stack || [];
         game.state.stack.push(stackItem);
+        stackItemId = String(stackItem.id || '').trim() || undefined;
         fireBattlefieldAbilityActivatedTriggers(game, pid, permanentId, abilityText, gameId, stackItem.id);
 
         io.to(gameId).emit('chat', {
@@ -11182,6 +11196,7 @@ async function handleStepResponse(
           playerId: pid,
           permanentId,
           abilityId: stepData.abilityId,
+          stackItemId,
           cardName,
           abilityText,
           activatedAbilityText: activatedAbilityText || undefined,
@@ -16437,6 +16452,7 @@ async function handleTargetSelectionResponse(
         playerId: controllerId,
         permanentId,
         abilityId: abilityId || undefined,
+        stackItemId: String(stackItem.id || '').trim() || undefined,
         cardName,
         abilityText,
         activatedAbilityText: activatedAbilityText || undefined,
@@ -24668,6 +24684,17 @@ async function handleOptionChoiceResponse(
       return;
     }
 
+    try {
+      await appendEvent(gameId, (game as any).seq ?? 0, 'optionalPaymentPromptResolve', {
+        playerId,
+        sourceId: String(stepData?.sourceId || step.sourceId || '').trim() || undefined,
+        resolvedStepId: String(step.id || '').trim() || undefined,
+        choiceId: String(choiceId || '').trim() || undefined,
+      });
+    } catch (err) {
+      debugWarn(1, '[Resolution] appendEvent(optionalPaymentPromptResolve) failed:', err);
+    }
+
     if (!response.cancelled && isOptionalPaymentPayChoice(stepData, choiceId)) {
       await callback.onPay();
       return;
@@ -27184,6 +27211,17 @@ async function handleOptionChoiceResponse(
     const choiceId = extractId(selectedOption);
     const copyStackItemId = stepData.retargetSpellCopyStackItemId as string | undefined;
     if (!copyStackItemId) return;
+    try {
+      await appendEvent(gameId, (game as any).seq ?? 0, 'copyRetargetChoiceResolve', {
+        playerId,
+        sourceId: String(copyStackItemId || '').trim() || undefined,
+        resolvedStepId: String(step.id || '').trim() || undefined,
+        choiceId: String(choiceId || '').trim() || undefined,
+        copyKind: 'spell',
+      });
+    } catch (err) {
+      debugWarn(1, '[Resolution] appendEvent(copyRetargetChoiceResolve spell) failed:', err);
+    }
     if (!choiceId || choiceId === 'keep') {
       if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
       return;
@@ -27220,6 +27258,17 @@ async function handleOptionChoiceResponse(
     const choiceId = extractId(selectedOption);
     const copyStackItemId = stepData.retargetAbilityCopyStackItemId as string | undefined;
     if (!copyStackItemId) return;
+    try {
+      await appendEvent(gameId, (game as any).seq ?? 0, 'copyRetargetChoiceResolve', {
+        playerId,
+        sourceId: String(copyStackItemId || '').trim() || undefined,
+        resolvedStepId: String(step.id || '').trim() || undefined,
+        choiceId: String(choiceId || '').trim() || undefined,
+        copyKind: 'ability',
+      });
+    } catch (err) {
+      debugWarn(1, '[Resolution] appendEvent(copyRetargetChoiceResolve ability) failed:', err);
+    }
     if (!choiceId || choiceId === 'keep') {
       if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
       return;

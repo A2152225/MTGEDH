@@ -682,6 +682,8 @@ describe('ability-activated copy triggers (integration)', () => {
       .steps.find((queuedStep: any) => (queuedStep as any).retargetAbilityCopyTargetSelection === true);
     expect(retargetTargetStep).toBeDefined();
 
+    const copiedTargetsBeforeInvalidRetarget = JSON.parse(JSON.stringify((((game.state as any).stack || [])[1]?.targets || [])));
+
     await handlers['submitResolutionResponse']({
       gameId,
       stepId: String((retargetTargetStep as any).id),
@@ -991,6 +993,404 @@ describe('ability-activated copy triggers (integration)', () => {
 
     game.resolveTopOfStack();
     expect((game.state as any).battlefield.find((perm: any) => perm.id === 'sword_1')?.attachedTo).toBe('creature_1');
+  });
+
+  it('copies generic multi-target shared-type exchange activations and retargets the copied ability', async () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const opponentId = 'p2';
+    (game.state as any).players = [
+      { id: playerId, name: 'P1', spectator: false, life: 40 },
+      { id: opponentId, name: 'P2', spectator: false, life: 40 },
+    ];
+    (game.state as any).startingLife = 40;
+    (game.state as any).life = { [playerId]: 40, [opponentId]: 40 };
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).manaPool = {
+      [playerId]: {
+        white: 0,
+        blue: 0,
+        black: 0,
+        red: 0,
+        green: 0,
+        colorless: 4,
+      },
+      [opponentId]: {
+        white: 0,
+        blue: 0,
+        black: 0,
+        red: 0,
+        green: 0,
+        colorless: 0,
+      },
+    };
+    (game.state as any).battlefield = [
+      {
+        id: 'rings_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        card: {
+          id: 'rings_card_1',
+          name: 'Rings of Brighthearth',
+          oracle_text: 'Whenever you activate an ability, if it is not a mana ability, you may pay {2}. If you do, copy that ability. You may choose new targets for the copy.',
+          type_line: 'Legendary Artifact',
+        },
+      },
+      {
+        id: 'trade_relay_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        card: {
+          id: 'trade_relay_card_1',
+          name: 'Trade Relay',
+          oracle_text: '{2}, {T}: Exchange control of two target permanents that share a card type.',
+          type_line: 'Artifact',
+        },
+      },
+      {
+        id: 'player_relic_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        card: {
+          id: 'player_relic_card_1',
+          name: 'Player Relic',
+          type_line: 'Artifact',
+        },
+      },
+      {
+        id: 'opponent_relic_1',
+        controller: opponentId,
+        owner: opponentId,
+        tapped: false,
+        card: {
+          id: 'opponent_relic_card_1',
+          name: 'Opponent Relic',
+          type_line: 'Artifact',
+        },
+      },
+      {
+        id: 'player_bear_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        basePower: 2,
+        baseToughness: 2,
+        card: {
+          id: 'player_bear_card_1',
+          name: 'Player Bear',
+          type_line: 'Creature — Bear',
+        },
+      },
+      {
+        id: 'opponent_bear_1',
+        controller: opponentId,
+        owner: opponentId,
+        tapped: false,
+        basePower: 2,
+        baseToughness: 2,
+        card: {
+          id: 'opponent_bear_card_1',
+          name: 'Opponent Bear',
+          type_line: 'Creature — Bear',
+        },
+      },
+    ];
+    (game.state as any).stack = [];
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(playerId, emitted);
+    socket.rooms.add(gameId);
+    const io = createMockIo(emitted, [socket]);
+    registerInteractionHandlers(io as any, socket as any);
+    registerResolutionHandlers(io as any, socket as any);
+
+    await handlers['activateBattlefieldAbility']({
+      gameId,
+      permanentId: 'trade_relay_1',
+      abilityId: 'trade_relay_1-ability-0',
+    });
+
+    const targetStep = ResolutionQueueManager
+      .getQueue(gameId)
+      .steps.find((queuedStep: any) => (queuedStep as any).battlefieldAbilityTargetSelection === true && String((queuedStep as any).permanentId || queuedStep.sourceId) === 'trade_relay_1');
+    expect(targetStep).toBeDefined();
+    expect((targetStep as any).minTargets).toBe(2);
+    expect((targetStep as any).maxTargets).toBe(2);
+
+    await handlers['submitResolutionResponse']({
+      gameId,
+      stepId: String((targetStep as any).id),
+      selections: ['player_relic_1', 'opponent_relic_1'],
+      cancelled: false,
+    });
+
+    expect((game.state as any).stack).toHaveLength(2);
+    const originalAbility = (game.state as any).stack[0];
+    expect(originalAbility.targets).toEqual(['player_relic_1', 'opponent_relic_1']);
+    expect(originalAbility.copyRetargetMinTargets).toBe(2);
+    expect(originalAbility.copyRetargetMaxTargets).toBe(2);
+
+    game.resolveTopOfStack();
+
+    const payStep = ResolutionQueueManager
+      .getQueue(gameId)
+      .steps.find((queuedStep: any) => (queuedStep as any).optionalPaymentPrompt === true);
+    expect(payStep).toBeDefined();
+
+    await handlers['submitResolutionResponse']({
+      gameId,
+      stepId: String((payStep as any).id),
+      selections: ['pay'],
+      cancelled: false,
+    });
+
+    const retargetChoiceStep = ResolutionQueueManager
+      .getQueue(gameId)
+      .steps.find((queuedStep: any) => (queuedStep as any).retargetAbilityCopy === true);
+    expect(retargetChoiceStep).toBeDefined();
+
+    await handlers['submitResolutionResponse']({
+      gameId,
+      stepId: String((retargetChoiceStep as any).id),
+      selections: ['retarget'],
+      cancelled: false,
+    });
+
+    const retargetTargetStep = ResolutionQueueManager
+      .getQueue(gameId)
+      .steps.find((queuedStep: any) => (queuedStep as any).retargetAbilityCopyTargetSelection === true);
+    expect(retargetTargetStep).toBeDefined();
+    expect((retargetTargetStep as any).minTargets).toBe(2);
+    expect((retargetTargetStep as any).maxTargets).toBe(2);
+
+    await handlers['submitResolutionResponse']({
+      gameId,
+      stepId: String((retargetTargetStep as any).id),
+      selections: ['player_bear_1', 'opponent_bear_1'],
+      cancelled: false,
+    });
+
+    expect((game.state as any).stack).toHaveLength(2);
+    const copiedAbility = (game.state as any).stack[1];
+    expect(copiedAbility.copiedFromStackItemId).toBe(originalAbility.id);
+    expect(copiedAbility.targets).toEqual(['player_bear_1', 'opponent_bear_1']);
+
+    game.resolveTopOfStack();
+
+    expect((game.state as any).battlefield.find((perm: any) => perm.id === 'player_bear_1')?.controller).toBe(opponentId);
+    expect((game.state as any).battlefield.find((perm: any) => perm.id === 'opponent_bear_1')?.controller).toBe(playerId);
+
+    game.resolveTopOfStack();
+
+    expect((game.state as any).battlefield.find((perm: any) => perm.id === 'player_relic_1')?.controller).toBe(opponentId);
+    expect((game.state as any).battlefield.find((perm: any) => perm.id === 'opponent_relic_1')?.controller).toBe(playerId);
+  });
+
+  it('rejects invalid shared-type retarget selections for copied multi-target activations and allows a valid retry', async () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const opponentId = 'p2';
+    (game.state as any).players = [
+      { id: playerId, name: 'P1', spectator: false, life: 40 },
+      { id: opponentId, name: 'P2', spectator: false, life: 40 },
+    ];
+    (game.state as any).startingLife = 40;
+    (game.state as any).life = { [playerId]: 40, [opponentId]: 40 };
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).manaPool = {
+      [playerId]: {
+        white: 0,
+        blue: 0,
+        black: 0,
+        red: 0,
+        green: 0,
+        colorless: 4,
+      },
+      [opponentId]: {
+        white: 0,
+        blue: 0,
+        black: 0,
+        red: 0,
+        green: 0,
+        colorless: 0,
+      },
+    };
+    (game.state as any).battlefield = [
+      {
+        id: 'rings_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        card: {
+          id: 'rings_card_1',
+          name: 'Rings of Brighthearth',
+          oracle_text: 'Whenever you activate an ability, if it is not a mana ability, you may pay {2}. If you do, copy that ability. You may choose new targets for the copy.',
+          type_line: 'Legendary Artifact',
+        },
+      },
+      {
+        id: 'trade_relay_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        card: {
+          id: 'trade_relay_card_1',
+          name: 'Trade Relay',
+          oracle_text: '{2}, {T}: Exchange control of two target permanents that share a card type.',
+          type_line: 'Artifact',
+        },
+      },
+      {
+        id: 'player_relic_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        card: {
+          id: 'player_relic_card_1',
+          name: 'Player Relic',
+          type_line: 'Artifact',
+        },
+      },
+      {
+        id: 'opponent_relic_1',
+        controller: opponentId,
+        owner: opponentId,
+        tapped: false,
+        card: {
+          id: 'opponent_relic_card_1',
+          name: 'Opponent Relic',
+          type_line: 'Artifact',
+        },
+      },
+      {
+        id: 'player_bear_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        basePower: 2,
+        baseToughness: 2,
+        card: {
+          id: 'player_bear_card_1',
+          name: 'Player Bear',
+          type_line: 'Creature — Bear',
+        },
+      },
+      {
+        id: 'opponent_bear_1',
+        controller: opponentId,
+        owner: opponentId,
+        tapped: false,
+        basePower: 2,
+        baseToughness: 2,
+        card: {
+          id: 'opponent_bear_card_1',
+          name: 'Opponent Bear',
+          type_line: 'Creature — Bear',
+        },
+      },
+    ];
+    (game.state as any).stack = [];
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(playerId, emitted);
+    socket.rooms.add(gameId);
+    const io = createMockIo(emitted, [socket]);
+    registerInteractionHandlers(io as any, socket as any);
+    registerResolutionHandlers(io as any, socket as any);
+
+    await handlers['activateBattlefieldAbility']({
+      gameId,
+      permanentId: 'trade_relay_1',
+      abilityId: 'trade_relay_1-ability-0',
+    });
+
+    const targetStep = ResolutionQueueManager
+      .getQueue(gameId)
+      .steps.find((queuedStep: any) => (queuedStep as any).battlefieldAbilityTargetSelection === true && String((queuedStep as any).permanentId || queuedStep.sourceId) === 'trade_relay_1');
+    expect(targetStep).toBeDefined();
+
+    await handlers['submitResolutionResponse']({
+      gameId,
+      stepId: String((targetStep as any).id),
+      selections: ['player_relic_1', 'opponent_relic_1'],
+      cancelled: false,
+    });
+
+    game.resolveTopOfStack();
+
+    const payStep = ResolutionQueueManager
+      .getQueue(gameId)
+      .steps.find((queuedStep: any) => (queuedStep as any).optionalPaymentPrompt === true);
+    expect(payStep).toBeDefined();
+
+    await handlers['submitResolutionResponse']({
+      gameId,
+      stepId: String((payStep as any).id),
+      selections: ['pay'],
+      cancelled: false,
+    });
+
+    const retargetChoiceStep = ResolutionQueueManager
+      .getQueue(gameId)
+      .steps.find((queuedStep: any) => (queuedStep as any).retargetAbilityCopy === true);
+    expect(retargetChoiceStep).toBeDefined();
+
+    await handlers['submitResolutionResponse']({
+      gameId,
+      stepId: String((retargetChoiceStep as any).id),
+      selections: ['retarget'],
+      cancelled: false,
+    });
+
+    const retargetTargetStep = ResolutionQueueManager
+      .getQueue(gameId)
+      .steps.find((queuedStep: any) => (queuedStep as any).retargetAbilityCopyTargetSelection === true);
+    expect(retargetTargetStep).toBeDefined();
+
+    const copiedTargetsBeforeInvalidRetarget = JSON.parse(JSON.stringify((((game.state as any).stack || [])[1]?.targets || [])));
+
+    await handlers['submitResolutionResponse']({
+      gameId,
+      stepId: String((retargetTargetStep as any).id),
+      selections: ['player_relic_1', 'opponent_bear_1'],
+      cancelled: false,
+    });
+
+    const invalidSelectionError = emitted.find((event) => event.event === 'error' && event.payload?.code === 'INVALID_SELECTION');
+    expect(invalidSelectionError).toBeTruthy();
+
+    const copiedAbilityAfterInvalid = ((game.state as any).stack || [])[1];
+    expect(copiedAbilityAfterInvalid?.targets).toEqual(copiedTargetsBeforeInvalidRetarget);
+
+    const retryQueue = ResolutionQueueManager.getQueue(gameId);
+    expect(retryQueue.steps.some((queuedStep: any) => (queuedStep as any).retargetAbilityCopyTargetSelection === true)).toBe(true);
+
+    await handlers['submitResolutionResponse']({
+      gameId,
+      stepId: String((retargetTargetStep as any).id),
+      selections: ['player_bear_1', 'opponent_bear_1'],
+      cancelled: false,
+    });
+
+    const copiedAbility = ((game.state as any).stack || [])[1];
+    expect(copiedAbility?.targets).toEqual(['player_bear_1', 'opponent_bear_1']);
+
+    game.resolveTopOfStack();
+    expect((game.state as any).battlefield.find((perm: any) => perm.id === 'player_bear_1')?.controller).toBe(opponentId);
+    expect((game.state as any).battlefield.find((perm: any) => perm.id === 'opponent_bear_1')?.controller).toBe(playerId);
+
+    game.resolveTopOfStack();
+    expect((game.state as any).battlefield.find((perm: any) => perm.id === 'player_relic_1')?.controller).toBe(opponentId);
+    expect((game.state as any).battlefield.find((perm: any) => perm.id === 'opponent_relic_1')?.controller).toBe(playerId);
   });
 
   it('offers a Rings payment prompt for discard-cost activations resumed in resolution', async () => {

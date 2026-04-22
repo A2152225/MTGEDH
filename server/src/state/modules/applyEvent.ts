@@ -2874,6 +2874,138 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
         break;
       }
 
+      case "optionalPaymentPromptResolve": {
+        try {
+          const replayGameId = String((ctx as any).gameId || '').trim();
+          const sourceId = String((e as any).sourceId || '').trim();
+          const resolvedStepId = String((e as any).resolvedStepId || '').trim();
+
+          if (replayGameId) {
+            clearReplayQueuedSteps(replayGameId, (step: any) => {
+              if (!step) return false;
+              const stepId = String((step as any)?.id || '').trim();
+              if (resolvedStepId && stepId === resolvedStepId) {
+                return true;
+              }
+
+              return (
+                String((step as any)?.type || '') === String(ResolutionStepType.OPTION_CHOICE) &&
+                (step as any)?.optionalPaymentPrompt === true &&
+                sourceId.length > 0 &&
+                String((step as any)?.sourceId || '').trim() === sourceId
+              );
+            });
+          }
+
+          ctx.bumpSeq();
+        } catch (err) {
+          debugWarn(1, 'applyEvent(optionalPaymentPromptResolve): failed', err);
+        }
+        break;
+      }
+
+      case "copyTriggeredAbilityResolve": {
+        try {
+          const paid = (e as any).paid !== false;
+          const triggerStackItemId = String((e as any).triggerStackItemId || '').trim();
+          const triggeringStackItemId = String((e as any).triggeringStackItemId || '').trim();
+          const copiedStackItemId = String((e as any).copiedStackItemId || '').trim();
+          const controllerId = String((e as any).controllerId || '').trim();
+          const sourceName = String((e as any).sourceName || 'Ability').trim() || 'Ability';
+          const manaCost = String((e as any).manaCost || '').trim();
+
+          ctx.state.stack = Array.isArray(ctx.state.stack) ? ctx.state.stack : [];
+          const stack = ctx.state.stack as any[];
+          if (triggerStackItemId) {
+            const triggerIndex = stack.findIndex((item: any) => item && String(item.id || '').trim() === triggerStackItemId);
+            if (triggerIndex >= 0) {
+              stack.splice(triggerIndex, 1);
+            }
+          }
+          if (!paid) {
+            ctx.bumpSeq();
+            break;
+          }
+          if (!triggeringStackItemId) break;
+
+          const existingCopiedItem = copiedStackItemId
+            ? stack.find((item: any) => item && String(item.id || '').trim() === copiedStackItemId)
+            : null;
+          if (!existingCopiedItem) {
+            const original = stack.find((item: any) => item && String(item.id || '').trim() === triggeringStackItemId);
+            if (!original) break;
+
+            const copiedItem: any = {
+              ...original,
+              id: copiedStackItemId || generateDeterministicId(ctx, 'copied_ability', triggeringStackItemId),
+              controller: String((original as any).controller || controllerId),
+              targets: Array.isArray((original as any).targets)
+                ? (original as any).targets.map((target: any) => (
+                    target && typeof target === 'object' && !Array.isArray(target)
+                      ? { ...target }
+                      : target
+                  ))
+                : (original as any).targets,
+              card: (original as any).card ? { ...(original as any).card } : (original as any).card,
+              ability: (original as any).ability ? { ...(original as any).ability } : (original as any).ability,
+              searchParams: (original as any).searchParams ? { ...(original as any).searchParams } : (original as any).searchParams,
+              upgradeData: (original as any).upgradeData ? { ...(original as any).upgradeData } : (original as any).upgradeData,
+              equipParams: (original as any).equipParams ? { ...(original as any).equipParams } : (original as any).equipParams,
+              fortifyParams: (original as any).fortifyParams ? { ...(original as any).fortifyParams } : (original as any).fortifyParams,
+              reconfigureParams: (original as any).reconfigureParams ? { ...(original as any).reconfigureParams } : (original as any).reconfigureParams,
+              copiedFromStackItemId: triggeringStackItemId,
+              copiedBySourceName: sourceName,
+              isCopy: true,
+            };
+
+            stack.push(copiedItem);
+          }
+
+          const stateAny = ctx.state as any;
+          const manaPool = controllerId ? stateAny?.manaPool?.[controllerId] : null;
+          if (manaPool && manaCost) {
+            consumeRecordedManaCostFromPool(manaPool, manaCost);
+          }
+
+          ctx.bumpSeq();
+        } catch (err) {
+          debugWarn(1, 'applyEvent(copyTriggeredAbilityResolve): failed', err);
+        }
+        break;
+      }
+
+      case "copyRetargetChoiceResolve": {
+        try {
+          const replayGameId = String((ctx as any).gameId || '').trim();
+          const sourceId = String((e as any).sourceId || '').trim();
+          const resolvedStepId = String((e as any).resolvedStepId || '').trim();
+          const copyKind = String((e as any).copyKind || '').trim().toLowerCase();
+
+          if (replayGameId) {
+            clearReplayQueuedSteps(replayGameId, (step: any) => {
+              if (!step) return false;
+              const stepId = String((step as any)?.id || '').trim();
+              if (resolvedStepId && stepId === resolvedStepId) {
+                return true;
+              }
+
+              return (
+                String((step as any)?.type || '') === String(ResolutionStepType.OPTION_CHOICE) &&
+                ((copyKind === 'spell' && (step as any)?.retargetSpellCopy === true) ||
+                  (copyKind !== 'spell' && (step as any)?.retargetAbilityCopy === true)) &&
+                sourceId.length > 0 &&
+                String((step as any)?.sourceId || '').trim() === sourceId
+              );
+            });
+          }
+
+          ctx.bumpSeq();
+        } catch (err) {
+          debugWarn(1, 'applyEvent(copyRetargetChoiceResolve): failed', err);
+        }
+        break;
+      }
+
       case "targetSelectionWardPrompt": {
         try {
           const replayGameId = String((ctx as any).gameId || '').trim();
@@ -5715,11 +5847,34 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
         // We only use it for replay-stable evidence tracking.
         try {
           const stateAny = ctx.state as any;
+          const replayGameId = String((ctx as any).gameId || '').trim();
           const playerId = (e as any).playerId;
           const permId = (e as any).permanentId;
           const abilityId = (e as any).abilityId;
           const abilityText = String((e as any).abilityText || '');
           const activatedAbilityText = String((e as any).activatedAbilityText || '');
+          const persistedStackItemId = String((e as any).stackItemId || '').trim();
+          const persistedTargets = Array.isArray((e as any).targets)
+            ? ((e as any).targets as any[]).map((value: any) => String(value || '').trim()).filter(Boolean)
+            : [];
+
+          if (replayGameId && (persistedStackItemId || persistedTargets.length > 0)) {
+            clearReplayQueuedSteps(replayGameId, (step: any) => {
+              if (!step) return false;
+              if (String((step as any)?.type || '') !== String(ResolutionStepType.TARGET_SELECTION)) return false;
+              if ((step as any)?.battlefieldAbilityTargetSelection !== true) return false;
+
+              const stepPermId = String((step as any)?.permanentId || (step as any)?.sourceId || '').trim();
+              if (permId != null && stepPermId !== String(permId)) return false;
+              if (playerId != null && String((step as any)?.playerId || '').trim() !== String(playerId)) return false;
+
+              const stepAbilityId = String((step as any)?.abilityId || '').trim();
+              const eventAbilityId = String(abilityId || '').trim();
+              if (stepAbilityId && eventAbilityId && stepAbilityId !== eventAbilityId) return false;
+
+              return true;
+            });
+          }
 
           // If the server persisted which cards were discarded from hand to pay activation costs,
           // apply those discards during replay so zones are deterministic.
@@ -6200,6 +6355,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
             const retargetMaxTargets = Number((e as any).copyRetargetMaxTargets ?? NaN);
             const retargetTargetDescription = String((e as any).copyRetargetTargetDescription || '');
             const persistedTargets = Array.isArray((e as any).targets) ? (e as any).targets : null;
+            const persistedStackItemId = String((e as any).stackItemId || '').trim();
             const persistedTapUntapAction = String((e as any).tapUntapAction || '').trim().toLowerCase();
             const persistedAbilityType = String((e as any).abilityType || (e as any).abilityId || '').trim().toLowerCase();
             const isEquipActivation = persistedAbilityType === 'equip';
@@ -6251,11 +6407,20 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
                 ? stack.find((item: any) =>
                     item &&
                     String(item.type || '') === 'ability' &&
-                    String(item.controller || '') === String(playerId) &&
-                    String(item.source || '') === String(permId) &&
-                    (!replayAbilityDescription || String(item.description || '') === replayAbilityDescription)
+                    (
+                      (persistedStackItemId && String(item.id || '') === persistedStackItemId) ||
+                      (
+                        String(item.controller || '') === String(playerId) &&
+                        String(item.source || '') === String(permId) &&
+                        (!replayAbilityDescription || String(item.description || '') === replayAbilityDescription)
+                      )
+                    )
                   )
                 : null;
+
+              if (existingStackItem && persistedStackItemId && String((existingStackItem as any).id || '') !== persistedStackItemId) {
+                (existingStackItem as any).id = persistedStackItemId;
+              }
 
               if (!existingStackItem && permanent) {
                 const manaCost = (String(activatedAbilityText || '').match(/\{[^}]+\}/g) || [])
@@ -6273,7 +6438,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
                 }
 
                 const rebuiltStackItem: any = {
-                  id: generateDeterministicId(ctx, 'ability_battlefield', `${String(permId)}:${persistedAbilityType || replayAbilityDescription || activatedAbilityText}`),
+                  id: persistedStackItemId || generateDeterministicId(ctx, 'ability_battlefield', `${String(permId)}:${persistedAbilityType || replayAbilityDescription || activatedAbilityText}`),
                   type: 'ability',
                   controller: String(playerId),
                   source: String(permId),
@@ -10909,11 +11074,21 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
 
       case "retargetAbilityCopyResolve": {
         try {
+          const replayGameId = String((ctx as any).gameId || '').trim();
           const stackItemId = String((e as any).stackItemId || '').trim();
           const targets = Array.isArray((e as any).targets)
             ? ((e as any).targets as any[]).map((value: any) => String(value || '').trim()).filter(Boolean)
             : [];
           if (!stackItemId || targets.length === 0) break;
+
+          if (replayGameId) {
+            clearReplayQueuedSteps(replayGameId, (step: any) => {
+              if (!step) return false;
+              if (String((step as any)?.type || '') !== String(ResolutionStepType.TARGET_SELECTION)) return false;
+              if ((step as any)?.retargetAbilityCopyTargetSelection !== true) return false;
+              return String((step as any)?.sourceId || '').trim() === stackItemId;
+            });
+          }
 
           const stack = Array.isArray(ctx.state?.stack) ? ctx.state.stack : [];
           const copiedItem = stack.find((item: any) => item && String(item.id || '') === stackItemId);

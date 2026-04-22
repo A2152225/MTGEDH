@@ -108,6 +108,84 @@ export type SpellSpec = {
   creatureRestriction?: TargetRestriction; // For restrictions that only apply to creatures when multiFilter includes CREATURE (Atraxa's Fall)
 };
 
+const CARD_TYPE_WORDS = [
+  'artifact',
+  'battle',
+  'conspiracy',
+  'creature',
+  'enchantment',
+  'instant',
+  'kindred',
+  'land',
+  'phenomenon',
+  'plane',
+  'planeswalker',
+  'scheme',
+  'sorcery',
+  'tribal',
+  'vanguard',
+] as const;
+
+function extractCardTypesFromTypeLine(typeLine: unknown): string[] {
+  const normalized = String(typeLine || '').toLowerCase();
+  if (!normalized) return [];
+
+  const cardTypeSegment = normalized.split(/[—-]/)[0] || normalized;
+  return CARD_TYPE_WORDS.filter((cardType) => new RegExp(`\\b${cardType}\\b`, 'i').test(cardTypeSegment));
+}
+
+export function selectionRequiresSharedCardType(...texts: unknown[]): boolean {
+  return texts.some((text) => /\bshare\s+a\s+(?:card|permanent)\s+type\b/i.test(String(text || '')));
+}
+
+export function permanentsShareCardType(permanents: any[]): boolean {
+  const candidates = Array.isArray(permanents) ? permanents.filter(Boolean) : [];
+  if (candidates.length < 2) return false;
+
+  let sharedTypes: Set<string> | null = null;
+  for (const permanent of candidates) {
+    const typeSet = new Set(
+      extractCardTypesFromTypeLine(
+        permanent?.card?.type_line || permanent?.type_line || permanent?.typeLine || ''
+      )
+    );
+    if (typeSet.size === 0) return false;
+
+    if (!sharedTypes) {
+      sharedTypes = typeSet;
+      continue;
+    }
+
+    sharedTypes = new Set([...sharedTypes].filter((cardType) => typeSet.has(cardType)));
+    if (sharedTypes.size === 0) {
+      return false;
+    }
+  }
+
+  return Boolean(sharedTypes && sharedTypes.size > 0);
+}
+
+export function normalizeRequirementTargetType(rawTargetType: string | undefined): string {
+  return String(rawTargetType || '')
+    .toLowerCase()
+    .replace(/[.,]/g, ' ')
+    .replace(/\bthat share a card type\b/g, ' ')
+    .replace(/\bthat player controls\b/g, ' ')
+    .replace(/\byou control\b/g, ' ')
+    .replace(/\ban opponent controls\b/g, ' ')
+    .replace(/\bwith different controllers\b/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/^nonland permanents?$/g, 'nonland permanent')
+    .replace(/^noncreature permanents?$/g, 'noncreature permanent')
+    .replace(/^creatures?$/g, 'creature')
+    .replace(/^permanents?$/g, 'permanent')
+    .replace(/^artifacts?$/g, 'artifact')
+    .replace(/^enchantments?$/g, 'enchantment')
+    .replace(/^lands?$/g, 'land')
+    .replace(/^planeswalkers?$/g, 'planeswalker');
+}
+
 function parseCountWord(raw: string | undefined): number | null {
   if (!raw) return null;
   const t = String(raw).trim().toLowerCase();

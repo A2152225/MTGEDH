@@ -32,7 +32,7 @@ import { debug, debugWarn, debugError } from "../utils/debug.js";
 import { filterLibraryCardsForSearch } from "./library-search.js";
 import { pushWheneverYouExertTriggersOntoStack } from "./exert-triggers.js";
 import { registerManaHandlers } from "./mana-handlers.js";
-import { canPermanentBeTargetedByPlayer, matchesGraveyardCardTargetType as matchesSharedGraveyardCardTargetType, parseAbilityTargeting, parseTargetRequirements } from "../rules-engine/targeting.js";
+import { canPermanentBeTargetedByPlayer, matchesGraveyardCardTargetType as matchesSharedGraveyardCardTargetType, normalizeRequirementTargetType, parseAbilityTargeting, parseTargetRequirements, selectionRequiresSharedCardType } from "../rules-engine/targeting.js";
 import { requestPlayerSelection } from "./player-selection.js";
 import { serializeAbilityActivatedTriggeredStackItem, triggerAbilityActivatedTriggers } from "../state/modules/triggers/ability-activated.js";
 import { isCreatureNow } from "../state/creatureTypeNow.js";
@@ -10823,6 +10823,168 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
               tappedPermanentsForCost,
               ...(requiresSelfExert ? { requiresSelfExertForCost: true } : null),
             };
+        const targetStep = ResolutionQueueManager.addStep(gameId, queuedStep as any);
+
+        if (typeof game.bumpSeq === 'function') {
+          game.bumpSeq();
+        }
+
+        persistQueuedBattlefieldAbilityStepActivation({
+          gameId,
+          game,
+          playerId: String(pid),
+          permanentId: String(permanentId),
+          abilityId: String(abilityId),
+          cardName,
+          abilityText: resolvedAbilityText,
+          activatedAbilityText: activatedAbilityTextForStack,
+          tappedPermanents: tappedPermanentsForCost,
+          queuedStep: {
+            ...queuedStep,
+            id: String((targetStep as any).id || ''),
+          },
+        });
+
+        broadcastGame(io, game, gameId);
+        return;
+      }
+
+      const hasParsedMultiTargetSelection = parsedGraveyardTargetReqs.needsTargets
+        && Array.isArray(parsedGraveyardTargetReqs.targetTypes)
+        && parsedGraveyardTargetReqs.targetTypes.length > 0
+        && !hasParsedGraveyardTargets
+        && (
+          Number(parsedGraveyardTargetReqs.maxTargets ?? parsedGraveyardTargetReqs.minTargets ?? 0) > 1
+          || selectionRequiresSharedCardType(parsedGraveyardTargetReqs.targetDescription, resolvedAbilityText)
+        );
+
+      if (hasParsedMultiTargetSelection) {
+        const battlefield = Array.isArray(game.state?.battlefield) ? game.state.battlefield : [];
+        const players = Array.isArray(game.state?.players) ? game.state.players : [];
+        const targetControllerConstraint = String(parsedGraveyardTargetReqs.targetControllerConstraint || 'any').toLowerCase();
+        const validTargets: Array<Record<string, any>> = [];
+
+        for (const rawTargetType of parsedGraveyardTargetReqs.targetTypes) {
+          const targetType = normalizeRequirementTargetType(String(rawTargetType || ''));
+
+          if (
+            targetType === 'creature'
+            || targetType === 'permanent'
+            || targetType === 'artifact'
+            || targetType === 'enchantment'
+            || targetType === 'land'
+            || targetType === 'planeswalker'
+            || targetType.includes('nonland')
+            || targetType.includes('noncreature')
+          ) {
+            validTargets.push(...battlefield
+              .filter((target: any) => {
+                if (!target?.id || !target?.card) return false;
+
+                const typeLine = String(target.card?.type_line || '').toLowerCase();
+                if (targetControllerConstraint === 'you' && String(target.controller || '') !== String(pid)) return false;
+                if (targetControllerConstraint === 'opponent' && String(target.controller || '') === String(pid)) return false;
+                if (targetType === 'permanent' && !canPermanentBeTargetedByPlayer(target as any, game.state as any, pid as any)) return false;
+                if (targetType.includes('nonland') && typeLine.includes('land')) return false;
+                if (targetType.includes('noncreature') && typeLine.includes('creature')) return false;
+                if (!targetType.includes('nonland') && !targetType.includes('noncreature') && targetType !== 'permanent' && !typeLine.includes(targetType)) return false;
+
+                return canPermanentBeTargetedByPlayer(target as any, game.state as any, pid as any);
+              })
+              .map((target: any) => ({
+                id: String(target.id),
+                label: target.card?.name || 'Permanent',
+                description: target.card?.type_line || 'Permanent',
+                imageUrl: target.card?.image_uris?.small || target.card?.image_uris?.normal,
+                type: 'permanent',
+                controller: target.controller,
+                tapped: target.tapped === true,
+                typeLine: target.card?.type_line,
+                oracleText: target.card?.oracle_text,
+                cmc: Number(target.card?.cmc ?? 0),
+                isToken: target.isToken === true,
+                isOpponent: String(target.controller || '') !== String(pid),
+              })));
+            continue;
+          }
+
+          if (targetType === 'player' || targetType === 'opponent' || targetType === 'any') {
+            const lifeDict = game.state?.life || {};
+            const startingLife = game.state?.startingLife || 40;
+
+            validTargets.push(...players
+              .filter((player: any) => {
+                if (!player?.id) return false;
+                if (targetType === 'opponent' && String(player.id) === String(pid)) return false;
+                if (targetControllerConstraint === 'opponent' && String(player.id) === String(pid)) return false;
+                return true;
+              })
+              .map((player: any) => ({
+                id: String(player.id),
+                label: player.name || String(player.id),
+                description: 'Player',
+                type: 'player',
+                isOpponent: String(player.id) !== String(pid),
+                life: lifeDict[player.id] ?? player.life ?? startingLife,
+              })));
+
+            if (targetType === 'any') {
+              validTargets.push(...battlefield
+                .filter((target: any) => {
+                  if (!target?.id || !target?.card) return false;
+                  const typeLine = String(target.card?.type_line || '').toLowerCase();
+                  if (!typeLine.includes('creature') && !typeLine.includes('planeswalker')) return false;
+                  return canPermanentBeTargetedByPlayer(target as any, game.state as any, pid as any);
+                })
+                .map((target: any) => ({
+                  id: String(target.id),
+                  label: target.card?.name || 'Permanent',
+                  description: target.card?.type_line || 'Permanent',
+                  imageUrl: target.card?.image_uris?.small || target.card?.image_uris?.normal,
+                  type: 'permanent',
+                  controller: target.controller,
+                  tapped: target.tapped === true,
+                  typeLine: target.card?.type_line,
+                  oracleText: target.card?.oracle_text,
+                  cmc: Number(target.card?.cmc ?? 0),
+                  isToken: target.isToken === true,
+                  isOpponent: String(target.controller || '') !== String(pid),
+                })));
+            }
+          }
+        }
+
+        const uniqueTargets = validTargets.filter((target, index, all) => all.findIndex((candidate) => String(candidate.id) === String(target.id)) === index);
+        if (uniqueTargets.length < parsedGraveyardTargetReqs.minTargets) {
+          socket.emit('error', {
+            code: 'NO_VALID_TARGETS',
+            message: `${cardName}'s ability requires at least ${parsedGraveyardTargetReqs.minTargets} target(s) but only ${uniqueTargets.length} are available.`,
+          });
+          return;
+        }
+
+        const queuedStep = {
+          type: ResolutionStepType.TARGET_SELECTION,
+          playerId: pid as PlayerID,
+          sourceId: permanentId,
+          sourceName: cardName,
+          sourceImage: (permanent as any).card?.image_uris?.small || (permanent as any).card?.image_uris?.normal,
+          description: `Choose ${parsedGraveyardTargetReqs.targetDescription} for ${cardName}`,
+          mandatory: parsedGraveyardTargetReqs.minTargets > 0,
+          validTargets: uniqueTargets,
+          targetTypes: parsedGraveyardTargetReqs.targetTypes,
+          minTargets: parsedGraveyardTargetReqs.minTargets,
+          maxTargets: parsedGraveyardTargetReqs.maxTargets,
+          targetDescription: parsedGraveyardTargetReqs.targetDescription,
+          battlefieldAbilityTargetSelection: true,
+          permanentId,
+          abilityId,
+          cardName,
+          abilityText: resolvedAbilityText,
+          activatedAbilityText: activatedAbilityTextForStack,
+          tappedPermanentsForCost,
+          ...(requiresSelfExert ? { requiresSelfExertForCost: true } : null),
+        };
         const targetStep = ResolutionQueueManager.addStep(gameId, queuedStep as any);
 
         if (typeof game.bumpSeq === 'function') {

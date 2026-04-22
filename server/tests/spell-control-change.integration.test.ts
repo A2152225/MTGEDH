@@ -694,4 +694,74 @@ describe('spell control change resolution', () => {
       preparedSourcePermanentId: 'prepared_exchange_explicit_perm',
     });
   });
+
+  it('does not exchange control when selected permanents do not share a card type', () => {
+    const game = createInitialGameState('t_spell_control_change_exchange_invalid_types');
+    const p1 = 'p1' as PlayerID;
+    const p2 = 'p2' as PlayerID;
+
+    addPlayer(game, p1, 'P1');
+    addPlayer(game, p2, 'P2');
+
+    (game.state as any).zones = {
+      [p1]: { hand: [], handCount: 0, graveyard: [], graveyardCount: 0, library: [], libraryCount: 0, exile: [], exileCount: 0 },
+      [p2]: { hand: [], handCount: 0, graveyard: [], graveyardCount: 0, library: [], libraryCount: 0, exile: [], exileCount: 0 },
+    };
+
+    (game.state as any).battlefield = [
+      {
+        id: 'exchange_invalid_artifact',
+        controller: p1,
+        owner: p1,
+        tapped: false,
+        summoningSickness: false,
+        counters: {},
+        card: {
+          id: 'exchange_invalid_artifact_card',
+          name: 'Loaned Relic',
+          type_line: 'Artifact',
+          oracle_text: '',
+          zone: 'battlefield',
+        },
+      },
+      {
+        id: 'exchange_invalid_creature',
+        controller: p2,
+        owner: p2,
+        tapped: false,
+        summoningSickness: false,
+        counters: {},
+        card: {
+          id: 'exchange_invalid_creature_card',
+          name: 'Opponent Bear',
+          type_line: 'Creature — Bear',
+          oracle_text: '',
+          zone: 'battlefield',
+        },
+      },
+    ];
+
+    (game.state as any).stack = [
+      {
+        id: 'stack_exchange_invalid_types_1',
+        type: 'spell',
+        controller: p1,
+        card: {
+          id: 'exchange_invalid_types_1',
+          name: 'Market Chaos',
+          type_line: 'Sorcery',
+          oracle_text: 'Exchange control of two target permanents that share a card type.',
+        },
+        targets: ['exchange_invalid_artifact', 'exchange_invalid_creature'],
+      },
+    ] as any;
+
+    game.resolveTopOfStack();
+
+    const firstTarget = ((game.state as any).battlefield || []).find((perm: any) => perm && perm.id === 'exchange_invalid_artifact');
+    const secondTarget = ((game.state as any).battlefield || []).find((perm: any) => perm && perm.id === 'exchange_invalid_creature');
+    expect(firstTarget?.controller).toBe(p1);
+    expect(secondTarget?.controller).toBe(p2);
+    expect((game.state as any).controlChangeEffects || []).toHaveLength(0);
+  });
 });

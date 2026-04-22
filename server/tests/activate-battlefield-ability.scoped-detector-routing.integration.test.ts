@@ -92,6 +92,7 @@ describe('activateBattlefieldAbility detector routing uses selected ability text
     `${gameId}_graveyard_battlefield_mana_value`,
     `${gameId}_graveyard_battlefield_total_power`,
     `${gameId}_control_change`,
+    `${gameId}_shared_type_exchange`,
     `${gameId}_homeward_path`,
     `${gameId}_token_tutor`,
   ];
@@ -3401,5 +3402,264 @@ describe('activateBattlefieldAbility detector routing uses selected ability text
       canBePlayedBy: playerId,
       preparedSourcePermanentId: 'prepared_homeward_perm',
     });
+  });
+
+  it('routes generic shared-type exchange abilities through multi-target selection and resolves them', async () => {
+    const sharedTypeExchangeGameId = `${gameId}_shared_type_exchange`;
+    await resetGame(sharedTypeExchangeGameId);
+
+    createGameIfNotExists(sharedTypeExchangeGameId, 'commander', 40);
+    const game = ensureGame(sharedTypeExchangeGameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const playerId = 'p1';
+    const opponentId = 'p2';
+    (game.state as any).players = [
+      { id: playerId, name: 'P1', spectator: false, life: 40 },
+      { id: opponentId, name: 'P2', spectator: false, life: 40 },
+    ];
+    (game.state as any).startingLife = 40;
+    (game.state as any).life = { [playerId]: 40, [opponentId]: 40 };
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).manaPool = {
+      [playerId]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 2 },
+      [opponentId]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+    };
+    (game.state as any).zones = {
+      [playerId]: { hand: [], handCount: 0, graveyard: [], graveyardCount: 0, library: [], libraryCount: 0, exile: [], exileCount: 0 },
+      [opponentId]: { hand: [], handCount: 0, graveyard: [], graveyardCount: 0, library: [], libraryCount: 0, exile: [], exileCount: 0 },
+    };
+    (game.state as any).battlefield = [
+      {
+        id: 'trade_relay_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        card: {
+          id: 'trade_relay_card_1',
+          name: 'Trade Relay',
+          type_line: 'Artifact',
+          oracle_text: '{2}, {T}: Exchange control of two target permanents that share a card type.',
+        },
+      },
+      {
+        id: 'player_relic_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        card: {
+          id: 'player_relic_card_1',
+          name: 'Player Relic',
+          type_line: 'Artifact',
+          oracle_text: '',
+        },
+      },
+      {
+        id: 'opponent_relic_1',
+        controller: opponentId,
+        owner: opponentId,
+        tapped: false,
+        card: {
+          id: 'opponent_relic_card_1',
+          name: 'Opponent Relic',
+          type_line: 'Artifact',
+          oracle_text: '',
+        },
+      },
+      {
+        id: 'opponent_bear_1',
+        controller: opponentId,
+        owner: opponentId,
+        tapped: false,
+        basePower: 2,
+        baseToughness: 2,
+        card: {
+          id: 'opponent_bear_card_1',
+          name: 'Opponent Bear',
+          type_line: 'Creature — Bear',
+          oracle_text: '',
+        },
+      },
+    ];
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(playerId, emitted);
+    socket.rooms.add(sharedTypeExchangeGameId);
+    const io = createMockIo(emitted, [socket]);
+
+    registerResolutionHandlers(io as any, socket as any);
+    registerInteractionHandlers(io as any, socket as any);
+
+    await handlers['activateBattlefieldAbility']({
+      gameId: sharedTypeExchangeGameId,
+      permanentId: 'trade_relay_1',
+      abilityId: 'trade_relay_1-ability-0',
+    });
+
+    const queue = ResolutionQueueManager.getQueue(sharedTypeExchangeGameId);
+    expect(queue.steps).toHaveLength(1);
+    expect(queue.steps[0]).toEqual(
+      expect.objectContaining({
+        type: 'target_selection',
+        battlefieldAbilityTargetSelection: true,
+        minTargets: 2,
+        maxTargets: 2,
+      })
+    );
+    expect(String((queue.steps[0] as any)?.targetDescription || '').toLowerCase()).toContain('share a card type');
+    const validTargetIds = ((queue.steps[0] as any).validTargets || []).map((target: any) => String(target?.id));
+    expect(validTargetIds).toContain('player_relic_1');
+    expect(validTargetIds).toContain('opponent_relic_1');
+
+    await handlers['submitResolutionResponse']({
+      gameId: sharedTypeExchangeGameId,
+      stepId: String((queue.steps[0] as any).id),
+      selections: ['player_relic_1', 'opponent_relic_1'],
+      cancelled: false,
+    });
+
+    const stack = (game.state as any).stack || [];
+    expect(stack).toHaveLength(1);
+    expect(String(stack[0]?.description || '').toLowerCase()).toContain('exchange control of two target permanents that share a card type');
+
+    game.resolveTopOfStack();
+
+    const playerRelic = (game.state as any).battlefield.find((permanent: any) => permanent.id === 'player_relic_1');
+    const opponentRelic = (game.state as any).battlefield.find((permanent: any) => permanent.id === 'opponent_relic_1');
+    const source = (game.state as any).battlefield.find((permanent: any) => permanent.id === 'trade_relay_1');
+
+    expect(playerRelic?.controller).toBe(opponentId);
+    expect(opponentRelic?.controller).toBe(playerId);
+    expect(Boolean(source?.tapped)).toBe(true);
+  });
+
+  it('rejects invalid shared-type exchange selections for activated abilities and allows a valid retry', async () => {
+    const sharedTypeRetryGameId = `${gameId}_shared_type_exchange_retry`;
+    await resetGame(sharedTypeRetryGameId);
+
+    createGameIfNotExists(sharedTypeRetryGameId, 'commander', 40);
+    const game = ensureGame(sharedTypeRetryGameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const playerId = 'p1';
+    const opponentId = 'p2';
+    (game.state as any).players = [
+      { id: playerId, name: 'P1', spectator: false, life: 40 },
+      { id: opponentId, name: 'P2', spectator: false, life: 40 },
+    ];
+    (game.state as any).startingLife = 40;
+    (game.state as any).life = { [playerId]: 40, [opponentId]: 40 };
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).manaPool = {
+      [playerId]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 2 },
+      [opponentId]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+    };
+    (game.state as any).zones = {
+      [playerId]: { hand: [], handCount: 0, graveyard: [], graveyardCount: 0, library: [], libraryCount: 0, exile: [], exileCount: 0 },
+      [opponentId]: { hand: [], handCount: 0, graveyard: [], graveyardCount: 0, library: [], libraryCount: 0, exile: [], exileCount: 0 },
+    };
+    (game.state as any).battlefield = [
+      {
+        id: 'trade_relay_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        card: {
+          id: 'trade_relay_card_1',
+          name: 'Trade Relay',
+          type_line: 'Artifact',
+          oracle_text: '{2}, {T}: Exchange control of two target permanents that share a card type.',
+        },
+      },
+      {
+        id: 'player_relic_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        card: {
+          id: 'player_relic_card_1',
+          name: 'Player Relic',
+          type_line: 'Artifact',
+          oracle_text: '',
+        },
+      },
+      {
+        id: 'opponent_relic_1',
+        controller: opponentId,
+        owner: opponentId,
+        tapped: false,
+        card: {
+          id: 'opponent_relic_card_1',
+          name: 'Opponent Relic',
+          type_line: 'Artifact',
+          oracle_text: '',
+        },
+      },
+      {
+        id: 'opponent_bear_1',
+        controller: opponentId,
+        owner: opponentId,
+        tapped: false,
+        basePower: 2,
+        baseToughness: 2,
+        card: {
+          id: 'opponent_bear_card_1',
+          name: 'Opponent Bear',
+          type_line: 'Creature — Bear',
+          oracle_text: '',
+        },
+      },
+    ];
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(playerId, emitted);
+    socket.rooms.add(sharedTypeRetryGameId);
+    const io = createMockIo(emitted, [socket]);
+
+    registerResolutionHandlers(io as any, socket as any);
+    registerInteractionHandlers(io as any, socket as any);
+
+    await handlers['activateBattlefieldAbility']({
+      gameId: sharedTypeRetryGameId,
+      permanentId: 'trade_relay_1',
+      abilityId: 'trade_relay_1-ability-0',
+    });
+
+    const queue = ResolutionQueueManager.getQueue(sharedTypeRetryGameId);
+    expect(queue.steps).toHaveLength(1);
+
+    await handlers['submitResolutionResponse']({
+      gameId: sharedTypeRetryGameId,
+      stepId: String((queue.steps[0] as any).id),
+      selections: ['player_relic_1', 'opponent_bear_1'],
+      cancelled: false,
+    });
+
+    const invalidSelectionError = emitted.find((event) => event.event === 'error' && event.payload?.code === 'INVALID_SELECTION');
+    expect(invalidSelectionError).toBeTruthy();
+    expect(((game.state as any).stack || [])).toHaveLength(0);
+
+    const retryQueue = ResolutionQueueManager.getQueue(sharedTypeRetryGameId);
+    expect(retryQueue.steps).toHaveLength(1);
+
+    await handlers['submitResolutionResponse']({
+      gameId: sharedTypeRetryGameId,
+      stepId: String((retryQueue.steps[0] as any).id),
+      selections: ['player_relic_1', 'opponent_relic_1'],
+      cancelled: false,
+    });
+
+    const stack = (game.state as any).stack || [];
+    expect(stack).toHaveLength(1);
+
+    game.resolveTopOfStack();
+
+    const playerRelic = (game.state as any).battlefield.find((permanent: any) => permanent.id === 'player_relic_1');
+    const opponentRelic = (game.state as any).battlefield.find((permanent: any) => permanent.id === 'opponent_relic_1');
+
+    expect(playerRelic?.controller).toBe(opponentId);
+    expect(opponentRelic?.controller).toBe(playerId);
   });
 });

@@ -19,7 +19,7 @@ import {
   type KeywordTriggerResult,
   type KeywordTriggerContext
 } from "./keyword-handlers.js";
-import { canPermanentBeTargetedByPlayer, categorizeSpell, resolveSpell, type EngineEffect, type TargetRef } from "../../rules-engine/targeting.js";
+import { canPermanentBeTargetedByPlayer, categorizeSpell, permanentsShareCardType, resolveSpell, selectionRequiresSharedCardType, type EngineEffect, type TargetRef } from "../../rules-engine/targeting.js";
 import { inferManaValueConstraintFromText, type DynamicManaValueContext } from "./graveyard-mana-value.js";
 import { debug, debugWarn, debugError, debugEnv } from "../../utils/debug.js";
 import { appendEvent } from '../../db/index.js';
@@ -2701,7 +2701,11 @@ function cloneStackItemForAbilityCopy(
     id: uid('copied_ability'),
     controller: String((original as any).controller || controller),
     targets: Array.isArray((original as any).targets)
-      ? (original as any).targets.map((target: any) => ({ ...target }))
+      ? (original as any).targets.map((target: any) => (
+          target && typeof target === 'object' && !Array.isArray(target)
+            ? { ...target }
+            : target
+        ))
       : (original as any).targets,
     card: (original as any).card ? { ...(original as any).card } : (original as any).card,
     ability: (original as any).ability ? { ...(original as any).ability } : (original as any).ability,
@@ -2735,6 +2739,40 @@ function cloneStackItemForAbilityCopy(
     broadcastGame(io as any, ctx as any, gameId);
   }
   return copiedItem;
+}
+
+function appendCopyTriggeredAbilityResolveEvent(
+  ctx: GameContext,
+  options: {
+    sourceId?: string;
+    sourceName: string;
+    controllerId?: string;
+    paid?: boolean;
+    manaCost?: string;
+    triggerStackItemId?: string;
+    triggeringStackItemId?: string;
+    copiedStackItemId?: string;
+  },
+): void {
+  const gameId = String((ctx as any).gameId || 'unknown');
+  if (!gameId || gameId === 'unknown' || (ctx as any).isReplaying) {
+    return;
+  }
+
+  try {
+    appendEvent(gameId, Number((ctx as any).seq?.value ?? (ctx as any).seq ?? (ctx.state as any)?.seq ?? 0), 'copyTriggeredAbilityResolve', {
+      sourceId: String(options.sourceId || '').trim() || undefined,
+      sourceName: String(options.sourceName || 'Ability').trim() || 'Ability',
+      controllerId: String(options.controllerId || '').trim() || undefined,
+      paid: options.paid !== false,
+      manaCost: String(options.manaCost || '').trim() || undefined,
+      triggerStackItemId: String(options.triggerStackItemId || '').trim() || undefined,
+      triggeringStackItemId: String(options.triggeringStackItemId || '').trim() || undefined,
+      copiedStackItemId: String(options.copiedStackItemId || '').trim() || undefined,
+    });
+  } catch (err) {
+    debugWarn(1, `[resolveTopOfStack] appendEvent(copyTriggeredAbilityResolve) failed for ${String(options.sourceName || 'Ability')}:`, err);
+  }
 }
 
 function queueAbilityCopyRetargetPrompt(
@@ -11469,6 +11507,218 @@ function attachEquipmentToCreature(
   return true;
 }
 
+function resolveTextDrivenActivatedControlChange(
+  state: any,
+  controller: string,
+  targets: any[],
+  texts: string[],
+  sourceName: string,
+): boolean {
+  const normalizedTexts = texts
+    .map((text) => String(text || '').toLowerCase().trim())
+    .filter(Boolean);
+  if (normalizedTexts.length === 0) {
+    return false;
+  }
+
+  const recordTemporaryControlChange = (permanentId: string, originalController: string, newController: string) => {
+    const stateAny = state as any;
+    stateAny.controlChangeEffects = Array.isArray(stateAny.controlChangeEffects) ? stateAny.controlChangeEffects : [];
+    stateAny.controlChangeEffects.push({
+      permanentId,
+      originalController,
+      newController,
+      duration: 'eot',
+      appliedAt: Date.now(),
+    });
+  };
+
+  const applyControllerChange = (permanent: any, newController: string, options?: { temporary?: boolean }) => {
+    const originalController = String(permanent?.controller || '').trim();
+    if (!newController || !originalController || originalController === newController) {
+      return false;
+    }
+
+    permanent.controller = newController;
+    syncPreparedPermanentAfterControlChange(state, permanent, originalController);
+
+    const typeLine = String(permanent?.card?.type_line || '').toLowerCase();
+    if (typeLine.includes('creature')) {
+      (permanent as any).summoningSickness = true;
+    }
+
+    if (options?.temporary) {
+      recordTemporaryControlChange(String(permanent.id || ''), originalController, newController);
+    }
+
+    return true;
+  };
+
+  const grantTemporaryHaste = (permanent: any) => {
+    (permanent as any).grantedAbilities = Array.isArray((permanent as any).grantedAbilities)
+      ? (permanent as any).grantedAbilities
+      : [];
+    if (!(permanent as any).grantedAbilities.some((ability: any) => String(ability || '').toLowerCase() === 'haste')) {
+      (permanent as any).grantedAbilities.push('Haste');
+    }
+
+    if (!(permanent as any).untilEndOfTurn || typeof (permanent as any).untilEndOfTurn !== 'object') {
+      (permanent as any).untilEndOfTurn = {};
+    }
+    (permanent as any).untilEndOfTurn.grantedAbilitiesToRemove = Array.isArray((permanent as any).untilEndOfTurn.grantedAbilitiesToRemove)
+      ? (permanent as any).untilEndOfTurn.grantedAbilitiesToRemove
+      : [];
+    if (!(permanent as any).untilEndOfTurn.grantedAbilitiesToRemove.includes('Haste')) {
+      (permanent as any).untilEndOfTurn.grantedAbilitiesToRemove.push('Haste');
+    }
+  };
+
+  const hasExchangeCreaturesEffect = normalizedTexts.some((text) =>
+    text.includes('exchange control of all creatures') ||
+    text.includes('each gain control of all creatures the other controls until end of turn')
+  );
+  const hasDonateTargetPermanentEffect = normalizedTexts.some((text) =>
+    /target (?:opponent|player) gains control of target [^.]+/i.test(text)
+  );
+  const hasExchangeTargetPermanentsEffect = normalizedTexts.some((text) =>
+    /exchange control of two target permanents/i.test(text) ||
+    /exchange control of target [^.]+ and target [^.]+/i.test(text)
+  );
+  const exchangeTargetsMustShareCardType = hasExchangeTargetPermanentsEffect
+    && normalizedTexts.some((text) => selectionRequiresSharedCardType(text));
+  const hasTemporaryGainControlEffect = normalizedTexts.some((text) =>
+    text.includes('gain control of target creature') && text.includes('until end of turn')
+  );
+  const hasPermanentGainControlEffect = !hasTemporaryGainControlEffect && normalizedTexts.some((text) =>
+    text.includes('gain control of target creature')
+  );
+
+  let applied = false;
+
+  if (hasExchangeCreaturesEffect && targets.length > 0) {
+    const targetOpponentId = String(typeof targets[0] === 'string' ? targets[0] : targets[0]?.id || '').trim();
+    const players = Array.isArray((state as any).players) ? (state as any).players : [];
+    const isTargetOpponent = players.some((player: any) => player && String(player.id || '') === targetOpponentId)
+      && targetOpponentId !== String(controller || '');
+
+    if (isTargetOpponent) {
+      const battlefield = Array.isArray(state.battlefield) ? state.battlefield : [];
+      const exchangeCandidates = battlefield.filter((permanent: any) => {
+        if (!permanent) return false;
+        const typeLine = String(permanent.card?.type_line || '').toLowerCase();
+        if (!typeLine.includes('creature')) return false;
+        const currentController = String(permanent.controller || '').trim();
+        return currentController === controller || currentController === targetOpponentId;
+      });
+
+      const controllerCreatures = exchangeCandidates.filter((permanent: any) => String(permanent.controller || '').trim() === controller);
+      const opponentCreatures = exchangeCandidates.filter((permanent: any) => String(permanent.controller || '').trim() === targetOpponentId);
+
+      for (const permanent of exchangeCandidates) {
+        permanent.tapped = false;
+      }
+
+      for (const permanent of controllerCreatures) {
+        const originalController = String(permanent.controller || '').trim();
+        permanent.controller = targetOpponentId;
+        syncPreparedPermanentAfterControlChange(state, permanent, originalController);
+        (permanent as any).summoningSickness = true;
+        recordTemporaryControlChange(String(permanent.id || ''), originalController, targetOpponentId);
+        grantTemporaryHaste(permanent);
+        applied = true;
+      }
+
+      for (const permanent of opponentCreatures) {
+        const originalController = String(permanent.controller || '').trim();
+        permanent.controller = controller;
+        syncPreparedPermanentAfterControlChange(state, permanent, originalController);
+        (permanent as any).summoningSickness = true;
+        recordTemporaryControlChange(String(permanent.id || ''), originalController, controller);
+        grantTemporaryHaste(permanent);
+        applied = true;
+      }
+
+      if (applied) {
+        debug(2, `[resolveTopOfStack] ${sourceName}: exchanged control of ${exchangeCandidates.length} creature(s) between ${controller} and ${targetOpponentId}`);
+      }
+    }
+  }
+
+  if (hasDonateTargetPermanentEffect && targets.length > 1) {
+    const battlefield = Array.isArray(state.battlefield) ? state.battlefield : [];
+    const players = Array.isArray((state as any).players) ? (state as any).players : [];
+    const targetPlayerId = targets
+      .map((target: any) => String(typeof target === 'string' ? target : target?.id || '').trim())
+      .find((targetId: string) => players.some((player: any) => player && String(player.id || '') === targetId));
+    const targetPermanentId = targets
+      .map((target: any) => String(typeof target === 'string' ? target : target?.id || '').trim())
+      .find((targetId: string) => battlefield.some((permanent: any) => permanent && String(permanent.id || '') === targetId));
+
+    if (targetPlayerId && targetPermanentId) {
+      const targetPermanent = battlefield.find((permanent: any) => permanent && String(permanent.id || '') === targetPermanentId);
+      if (targetPermanent && applyControllerChange(targetPermanent, targetPlayerId, { temporary: false })) {
+        applied = true;
+        debug(2, `[resolveTopOfStack] ${sourceName}: ${targetPermanent.card?.name || targetPermanent.id} donated to ${targetPlayerId}`);
+      }
+    }
+  }
+
+  if (hasExchangeTargetPermanentsEffect && targets.length > 1) {
+    const battlefield = Array.isArray(state.battlefield) ? state.battlefield : [];
+    const targetPermanentIds = targets
+      .map((target: any) => String(typeof target === 'string' ? target : target?.id || '').trim())
+      .filter((targetId: string) => battlefield.some((permanent: any) => permanent && String(permanent.id || '') === targetId));
+
+    if (targetPermanentIds.length >= 2) {
+      const firstPermanent = battlefield.find((permanent: any) => permanent && String(permanent.id || '') === targetPermanentIds[0]);
+      const secondPermanent = battlefield.find((permanent: any) => permanent && String(permanent.id || '') === targetPermanentIds[1]);
+
+      if (firstPermanent && secondPermanent) {
+        if (exchangeTargetsMustShareCardType && !permanentsShareCardType([firstPermanent, secondPermanent])) {
+          debug(2, `[resolveTopOfStack] ${sourceName}: skipped exchange because the selected permanents do not share a card type`);
+        } else {
+          const firstController = String(firstPermanent.controller || '').trim();
+          const secondController = String(secondPermanent.controller || '').trim();
+
+          if (firstController && secondController && firstController !== secondController) {
+            applyControllerChange(firstPermanent, secondController, { temporary: false });
+            applyControllerChange(secondPermanent, firstController, { temporary: false });
+            applied = true;
+            debug(2, `[resolveTopOfStack] ${sourceName}: exchanged control of ${firstPermanent.card?.name || firstPermanent.id} and ${secondPermanent.card?.name || secondPermanent.id}`);
+          }
+        }
+      }
+    }
+  }
+
+  if ((hasTemporaryGainControlEffect || hasPermanentGainControlEffect) && targets.length > 0) {
+    const targetId = typeof targets[0] === 'string' ? targets[0] : targets[0]?.id;
+    const targetPermanent = (state.battlefield || []).find((perm: any) => perm && String(perm.id || '') === String(targetId || ''));
+
+    if (targetPermanent) {
+      const typeLine = String(targetPermanent.card?.type_line || '').toLowerCase();
+      if (typeLine.includes('creature')) {
+        const shouldUntap = normalizedTexts.some((text) => text.includes('untap'));
+        const shouldGrantHaste = normalizedTexts.some((text) => text.includes('gains haste') || text.includes('gain haste'));
+
+        const changed = applyControllerChange(targetPermanent, controller, { temporary: hasTemporaryGainControlEffect });
+        if (shouldUntap) {
+          targetPermanent.tapped = false;
+        }
+        if (hasTemporaryGainControlEffect && shouldGrantHaste) {
+          grantTemporaryHaste(targetPermanent);
+        }
+        if (changed) {
+          applied = true;
+          debug(2, `[resolveTopOfStack] ${sourceName}: ${targetPermanent.card?.name || targetPermanent.id} now controlled by ${controller}`);
+        }
+      }
+    }
+  }
+
+  return applied;
+}
+
 /* Resolve the top item - moves permanent spells to battlefield */
 export function resolveTopOfStack(ctx: GameContext) {
   const item = popStackItem(ctx);
@@ -11568,6 +11818,8 @@ export function resolveTopOfStack(ctx: GameContext) {
     const resolvedText = `${String((item as any)?.description || '')}\n${String((effectiveCard as any)?.oracle_text || '')}`;
     applyExplicitDayNightChangeFromText(state as any, resolvedText);
   } catch {}
+
+  const fallbackOracleText = `${String((item as any)?.activatedAbilityText || '')}\n${String((item as any)?.description || '')}`.trim();
   
   // Handle activated abilities (like fetch lands)
   if ((item as any).type === 'ability') {
@@ -12237,6 +12489,15 @@ export function resolveTopOfStack(ctx: GameContext) {
       return;
     }
 
+    const activatedAbilityText = String((item as any).activatedAbilityText || '').trim();
+    resolveTextDrivenActivatedControlChange(
+      state,
+      String(controller || ''),
+      targets,
+      [activatedAbilityText, description],
+      String(sourceName || 'Activated ability'),
+    );
+
     // Handle other activated abilities - execute their effects
     // Use the same effect execution logic as triggered abilities
     debug(2, `[resolveTopOfStack] Executing activated ability from ${sourceName} for ${controller}: ${description}`);
@@ -12384,6 +12645,19 @@ export function resolveTopOfStack(ctx: GameContext) {
     if (optionalCopyAbilityMatch && !(ctx as any).isReplaying) {
       const manaCost = String(optionalCopyAbilityMatch[1] || '').trim();
       const gameId = (ctx as any).gameId || 'unknown';
+      const persistCopyTriggeredAbilityResolve = (paid: boolean, copiedItemId?: string) => {
+        appendCopyTriggeredAbilityResolveEvent(ctx, {
+          sourceId: String((item as any).source || sourceId || '').trim() || undefined,
+          sourceName,
+          controllerId: String(triggerController || '').trim(),
+          paid,
+          manaCost,
+          triggerStackItemId: String((item as any).id || '').trim() || undefined,
+          triggeringStackItemId: String((item as any).triggeringStackItemId || '').trim(),
+          copiedStackItemId: String(copiedItemId || '').trim() || undefined,
+        });
+      };
+
       queueOptionalPaymentStep(gameId, {
         playerId: triggerController as PlayerID,
         sourceName,
@@ -12408,11 +12682,15 @@ export function resolveTopOfStack(ctx: GameContext) {
           const pool = getOrInitManaPool(state as any, triggerController as PlayerID);
           consumeManaFromPool(pool as any, parsedCost.colors, parsedCost.generic, `[copyAbilityTrigger:${sourceName}]`);
           const copiedItem = cloneStackItemForAbilityCopy(ctx, sourceName, triggerController as PlayerID, (item as any).triggeringStackItemId);
+          if (copiedItem) {
+            persistCopyTriggeredAbilityResolve(true, String((copiedItem as any).id || '').trim());
+          }
           if (copiedItem && allowsRetargetingCopy) {
             queueAbilityCopyRetargetPrompt(ctx, sourceName, triggerController as PlayerID, copiedItem);
           }
         },
         onDecline: async () => {
+          persistCopyTriggeredAbilityResolve(false);
           if (typeof (ctx as any).bumpSeq === 'function') {
             (ctx as any).bumpSeq();
           }
@@ -12428,6 +12706,17 @@ export function resolveTopOfStack(ctx: GameContext) {
 
     if (isDirectAbilityCopy) {
       const copiedItem = cloneStackItemForAbilityCopy(ctx, sourceName, triggerController as PlayerID, (item as any).triggeringStackItemId);
+      if (copiedItem) {
+        appendCopyTriggeredAbilityResolveEvent(ctx, {
+          sourceId: String((item as any).source || sourceId || '').trim() || undefined,
+          sourceName,
+          controllerId: String(triggerController || '').trim(),
+          paid: true,
+          triggerStackItemId: String((item as any).id || '').trim() || undefined,
+          triggeringStackItemId: String((item as any).triggeringStackItemId || '').trim(),
+          copiedStackItemId: String((copiedItem as any).id || '').trim() || undefined,
+        });
+      }
       if (copiedItem && allowsRetargetingCopy) {
         queueAbilityCopyRetargetPrompt(ctx, sourceName, triggerController as PlayerID, copiedItem);
       }
@@ -13137,7 +13426,7 @@ export function resolveTopOfStack(ctx: GameContext) {
     
     // Special handling for Jeska, Thrice Reborn and similar cards
     // "Jeska enters with a loyalty counter on her for each time you've cast a commander from the command zone this game."
-    const oracleTextLower = ((effectiveCard.oracle_text || "")).toLowerCase();
+    const oracleTextLower = String((effectiveCard as any)?.oracle_text || fallbackOracleText || '').toLowerCase();
     if (isPlaneswalker && (
       oracleTextLower.includes("enters with a loyalty counter") && 
       oracleTextLower.includes("for each time") && 
@@ -14765,6 +15054,8 @@ export function resolveTopOfStack(ctx: GameContext) {
       /exchange control of two target permanents/i.test(text)
       || /exchange control of target [^.]+ and target [^.]+/i.test(text)
     );
+    const exchangeTargetsMustShareCardType = hasExchangeTargetPermanentsEffect
+      && controlChangeResolutionTexts.some((text: string) => selectionRequiresSharedCardType(text));
     const hasTemporaryGainControlEffect = controlChangeResolutionTexts.some((text: string) =>
       text.includes('gain control of target creature') && text.includes('until end of turn')
     );
@@ -14847,13 +15138,17 @@ export function resolveTopOfStack(ctx: GameContext) {
         const secondPermanent = battlefield.find((permanent: any) => permanent && String(permanent.id || '') === targetPermanentIds[1]);
 
         if (firstPermanent && secondPermanent) {
-          const firstController = String(firstPermanent.controller || '').trim();
-          const secondController = String(secondPermanent.controller || '').trim();
+          if (exchangeTargetsMustShareCardType && !permanentsShareCardType([firstPermanent, secondPermanent])) {
+            debug(2, `[resolveTopOfStack] ${effectiveCard.name}: skipped exchange because the selected permanents do not share a card type`);
+          } else {
+            const firstController = String(firstPermanent.controller || '').trim();
+            const secondController = String(secondPermanent.controller || '').trim();
 
-          if (firstController && secondController && firstController !== secondController) {
-            applyControllerChange(firstPermanent, secondController, { temporary: false });
-            applyControllerChange(secondPermanent, firstController, { temporary: false });
-            debug(2, `[resolveTopOfStack] ${effectiveCard.name}: exchanged control of ${firstPermanent.card?.name || firstPermanent.id} and ${secondPermanent.card?.name || secondPermanent.id}`);
+            if (firstController && secondController && firstController !== secondController) {
+              applyControllerChange(firstPermanent, secondController, { temporary: false });
+              applyControllerChange(secondPermanent, firstController, { temporary: false });
+              debug(2, `[resolveTopOfStack] ${effectiveCard.name}: exchanged control of ${firstPermanent.card?.name || firstPermanent.id} and ${secondPermanent.card?.name || secondPermanent.id}`);
+            }
           }
         }
       }
