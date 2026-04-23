@@ -322,6 +322,74 @@ describe('scavenge and encore graveyard replay semantics (integration)', () => {
     expect(attackError?.payload?.code).toBe('ATTACK_REQUIREMENT');
   });
 
+  it('live encore queues and persists each token self ETB trigger', async () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const playerId = 'p1';
+    const opponentA = 'p2';
+    const opponentB = 'p3';
+    (game.state as any).players = [
+      { id: playerId, name: 'P1', spectator: false, life: 40 },
+      { id: opponentA, name: 'P2', spectator: false, life: 40 },
+      { id: opponentB, name: 'P3', spectator: false, life: 40 },
+    ];
+    (game.state as any).zones = {
+      [playerId]: {
+        hand: [],
+        handCount: 0,
+        library: [],
+        libraryCount: 0,
+        graveyard: [
+          {
+            id: 'encore_card_2',
+            name: 'Encore Visionary',
+            type_line: 'Creature - Elf Shaman',
+            oracle_text: 'When Encore Visionary enters, draw a card.\nEncore {3}{R}{R}',
+            power: '2',
+            toughness: '2',
+            zone: 'graveyard',
+          },
+        ],
+        graveyardCount: 1,
+        exile: [],
+        exileCount: 0,
+      },
+    };
+    (game.state as any).battlefield = [];
+    (game.state as any).manaPool = {
+      [playerId]: { white: 0, blue: 0, black: 0, red: 2, green: 0, colorless: 3 },
+    };
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).phase = 'main';
+    (game.state as any).stack = [];
+
+    const eventStart = getEvents(gameId).length;
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const io = createMockIo(emitted);
+    const { socket, handlers } = createMockSocket(playerId, gameId, emitted);
+
+    registerInteractionHandlers(io as any, socket as any);
+
+    await handlers['activateGraveyardAbility']({
+      gameId,
+      cardId: 'encore_card_2',
+      abilityId: 'encore',
+    });
+
+    const battlefield = (game.state as any).battlefield || [];
+    expect(battlefield).toHaveLength(2);
+    expect((game.state as any).stack).toHaveLength(2);
+    const stackSources = ((game.state as any).stack || []).map((item: any) => String(item?.source || '')).sort();
+    expect(stackSources).toEqual(battlefield.map((perm: any) => String(perm?.id || '')).sort());
+
+    const triggerEvents = getEvents(gameId).slice(eventStart).filter((event: any) => event.type === 'pushTriggeredAbility');
+    expect(triggerEvents).toHaveLength(2);
+    const persistedSourceIds = triggerEvents.map((event: any) => String(event?.payload?.sourceId || '')).sort();
+    expect(persistedSourceIds).toEqual(battlefield.map((perm: any) => String(perm?.id || '')).sort());
+  });
+
   it('live encore requires sorcery-speed timing', async () => {
     createGameIfNotExists(gameId, 'commander', 40);
     const game = ensureGame(gameId);

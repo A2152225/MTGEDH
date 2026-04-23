@@ -11,7 +11,7 @@ import {
 import { parseSacrificeCost, type SacrificeType } from "../../../shared/src/textUtils";
 import { getLandfallTriggers, getETBTriggersForPermanent, getLoyaltyActivationLimit, detectUtilityLandAbility, detectHideawayAbility } from "../state/modules/triggered-abilities";
 import { movePermanentToGraveyard, trackPermanentSacrificedThisTurn } from "../state/modules/counters_tokens.js";
-import { triggerETBEffectsForToken } from "../state/modules/stack";
+import { queueSelfETBTriggersForPermanent, triggerETBEffectsForPermanent, triggerETBEffectsForToken } from "../state/modules/stack";
 import { recordCardLeftGraveyardThisTurn } from "../state/modules/turn-tracking.js";
 import { 
   getManaAbilitiesForPermanent, 
@@ -23,6 +23,7 @@ import {
 } from "../state/modules/mana-abilities";
 import { canPayManaCost, getAvailableMana } from "../state/modules/mana-check.js";
 import { cardManaValue, exchangePermanentOracleText, parsePT, parseWordNumber } from "../state/utils";
+import { buildEmbalmOrEternalizeTokenPermanent } from "../state/modules/graveyard-tokens.js";
 import { ResolutionQueueManager, ResolutionStepType, createResolutionStep } from "../state/resolution/index.js";
 import { parseUpgradeAbilities as parseCreatureUpgradeAbilities } from "../../../rules-engine/src/creatureUpgradeAbilities";
 import { isAIPlayer } from "./ai.js";
@@ -1150,6 +1151,22 @@ function enforceSorcerySpeedGraveyardAbility(socket: any, game: any, playerId: s
   }
 
   return true;
+}
+
+function queueSelfEtbForLiveGraveyardEntry(game: any, gameId: string, playerId: string, permanent: any): void {
+  const ctx = {
+    state: game.state,
+    gameId,
+    inactive: new Set(),
+    libraries: (game as any).libraries,
+    players: game.state?.players,
+  };
+  queueSelfETBTriggersForPermanent(ctx as any, permanent, playerId as any);
+  if (permanent?.isToken === true) {
+    triggerETBEffectsForToken(ctx as any, permanent, playerId as any);
+    return;
+  }
+  triggerETBEffectsForPermanent(ctx as any, permanent, playerId as any, false);
 }
 
 function buildDisturbCastCard(card: any): any {
@@ -3118,7 +3135,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       // Add to battlefield
       game.state.battlefield = game.state.battlefield || [];
         const createdPermanentId = generateId("perm");
-        game.state.battlefield.push({
+        const createdPermanent = {
           id: createdPermanentId,
         controller: pid,
         owner: pid,
@@ -3127,7 +3144,9 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         unearthed: true,
         counters: {},
         card: { ...card, zone: "battlefield", unearth: true, wasUnearthed: true },
-      } as any);
+      } as any;
+        game.state.battlefield.push(createdPermanent);
+        queueSelfEtbForLiveGraveyardEntry(game, gameId, String(pid), createdPermanent);
       
       if (typeof game.bumpSeq === "function") {
         game.bumpSeq();
@@ -3169,7 +3188,6 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         consumeManaFromPool(pool, parsedCost.colors, parsedCost.generic, `[activateGraveyardAbility:${cardName}]`);
       }
 
-      // Create token copy (simplified - doesn't track token properties properly)
       // Exile original from graveyard
       zones.graveyard.splice(cardIndex, 1);
       zones.graveyardCount = zones.graveyard.length;
@@ -3180,26 +3198,16 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       zones.exile.push({ ...card, zone: "exile" });
       zones.exileCount = zones.exile.length;
       
-      // Create token on battlefield
-      const tokenName = abilityId === "eternalize" ? `${cardName} (4/4 Zombie)` : `${cardName} (Zombie)`;
       game.state.battlefield = game.state.battlefield || [];
       const createdPermanentId = generateId("token");
-      game.state.battlefield.push({
-        id: createdPermanentId,
-        controller: pid,
-        owner: pid,
-        tapped: false,
-        counters: {},
-        isToken: true,
-        card: { 
-          ...card, 
-          name: tokenName,
-          zone: "battlefield", 
-          type_line: card.type_line?.includes("Zombie") ? card.type_line : `Zombie ${card.type_line}`,
-        },
-        basePower: abilityId === "eternalize" ? 4 : undefined,
-        baseToughness: abilityId === "eternalize" ? 4 : undefined,
-      } as any);
+      const createdToken = buildEmbalmOrEternalizeTokenPermanent(
+        card,
+        abilityId as 'embalm' | 'eternalize',
+        String(pid),
+        createdPermanentId,
+      );
+      game.state.battlefield.push(createdToken as any);
+      queueSelfEtbForLiveGraveyardEntry(game, gameId, String(pid), createdToken);
       
       if (typeof game.bumpSeq === "function") {
         game.bumpSeq();
@@ -3442,14 +3450,16 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         // Move to battlefield
         game.state.battlefield = game.state.battlefield || [];
         createdPermanentId = generateId("perm");
-        game.state.battlefield.push({
+        const createdPermanent = {
           id: createdPermanentId,
           controller: pid,
           owner: pid,
           tapped: false,
           counters: {},
           card: { ...card, zone: "battlefield" },
-        } as any);
+        } as any;
+        game.state.battlefield.push(createdPermanent);
+        queueSelfEtbForLiveGraveyardEntry(game, gameId, String(pid), createdPermanent);
         
         io.to(gameId).emit("chat", {
           id: `m_${Date.now()}`,
@@ -3633,7 +3643,9 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       for (const targetPlayerId of encoreTargetPlayerIds) {
         const tokenId = generateId("token");
         createdPermanentIds.push(tokenId);
-        game.state.battlefield.push(createEncoreToken(game.state, pid, card, tokenId, targetPlayerId));
+        const token = createEncoreToken(game.state, pid, card, tokenId, targetPlayerId);
+        game.state.battlefield.push(token);
+        queueSelfEtbForLiveGraveyardEntry(game, gameId, String(pid), token);
         (game.state as any).pendingSacrificeAtNextEndStep.push({
           permanentId: tokenId,
           fireAtTurnNumber,

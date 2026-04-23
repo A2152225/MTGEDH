@@ -294,6 +294,7 @@ export function buildMyriadTokenCopy(
       }
 
       for (const token of newTokens) {
+        queueSelfETBTriggersForPermanent(ctx, token, controller as any);
         triggerETBEffectsForToken(ctx, token, controller);
       }
       runSBA(ctx);
@@ -5247,6 +5248,42 @@ function matchesRequiredTypePhrase(typeLine: string, requiredPhrase: string, isT
  * @param token - The token permanent that just entered
  * @param controller - Controller of the token
  */
+function persistTriggeredAbilityPush(ctx: GameContext, stackItem: any): void {
+  const state = (ctx as any).state;
+  const gameId = String((ctx as any).gameId || '').trim();
+  if (!gameId || gameId === 'unknown' || !stackItem?.id) {
+    return;
+  }
+
+  try {
+    appendEvent(gameId, (state as any).seq ?? 0, 'pushTriggeredAbility', {
+      triggerId: stackItem.id,
+      sourceId: stackItem.source,
+      permanentId: stackItem.permanentId || stackItem.source,
+      sourceName: stackItem.sourceName,
+      controllerId: stackItem.controller,
+      description: stackItem.description,
+      triggerType: stackItem.triggerType,
+      ...(stackItem.effect ? { effect: stackItem.effect } : null),
+      mandatory: typeof stackItem.mandatory === 'boolean' ? stackItem.mandatory : true,
+      ...(typeof stackItem.requiresChoice === 'boolean' ? { requiresChoice: stackItem.requiresChoice } : null),
+      ...(typeof stackItem.requiresTarget === 'boolean' ? { requiresTarget: stackItem.requiresTarget } : null),
+      ...(typeof stackItem.needsTargetSelection === 'boolean' ? { needsTargetSelection: stackItem.needsTargetSelection } : null),
+      ...(stackItem.targetType ? { targetType: stackItem.targetType } : null),
+      ...(stackItem.targetConstraint ? { targetConstraint: stackItem.targetConstraint } : null),
+      ...(typeof stackItem.isModal === 'boolean' ? { isModal: stackItem.isModal } : null),
+      ...(Array.isArray(stackItem.modalOptions) ? { modalOptions: stackItem.modalOptions } : null),
+      ...(stackItem.targetPlayer ? { targetPlayer: stackItem.targetPlayer } : null),
+      ...(stackItem.defendingPlayer ? { defendingPlayer: stackItem.defendingPlayer } : null),
+      ...(stackItem.triggeringPlayer != null ? { triggeringPlayer: stackItem.triggeringPlayer } : null),
+      ...(typeof stackItem.value !== 'undefined' ? { value: stackItem.value } : null),
+      ...(stackItem.effectData && typeof stackItem.effectData === 'object' ? { effectData: stackItem.effectData } : null),
+    });
+  } catch (err) {
+    debugWarn(1, '[persistTriggeredAbilityPush] appendEvent(pushTriggeredAbility) failed:', err);
+  }
+}
+
 export function triggerETBEffectsForToken(
   ctx: GameContext,
   token: any,
@@ -5417,7 +5454,7 @@ export function triggerETBEffectsForToken(
         state.stack = state.stack || [];
         const triggerId = uid("trigger");
         
-        state.stack.push({
+        const stackItem = {
           id: triggerId,
           type: 'triggered_ability',
           controller: triggerController,
@@ -5427,7 +5464,9 @@ export function triggerETBEffectsForToken(
           triggerType: trigger.triggerType,
           mandatory: trigger.mandatory,
           ...(triggeringPlayerForStack ? { triggeringPlayer: triggeringPlayerForStack } : {}),
-        } as any);
+        } as any;
+        state.stack.push(stackItem);
+        persistTriggeredAbilityPush(ctx, stackItem);
         
         debug(2, `[triggerETBEffectsForToken] ⚡ ${trigger.cardName}'s triggered ability for token: ${trigger.description}`);
       }
@@ -5481,7 +5520,7 @@ export function triggerETBEffectsForToken(
         state.stack = state.stack || [];
         const triggerId = uid("trigger");
         
-        state.stack.push({
+        const stackItem = {
           id: triggerId,
           type: 'triggered_ability',
           controller: triggerController,
@@ -5491,7 +5530,9 @@ export function triggerETBEffectsForToken(
           triggerType: trigger.triggerType,
           mandatory: trigger.mandatory,
           ...(triggeringPlayerForStack ? { triggeringPlayer: triggeringPlayerForStack } : {}),
-        } as any);
+        } as any;
+        state.stack.push(stackItem);
+        persistTriggeredAbilityPush(ctx, stackItem);
         
         debug(2, `[triggerETBEffectsForToken] ⚡ ${trigger.cardName}'s triggered ability for token: ${trigger.description}`);
       }
@@ -5531,7 +5572,7 @@ export function triggerETBEffectsForToken(
         state.stack = state.stack || [];
         const triggerId = uid("trigger");
         
-        state.stack.push({
+        const stackItem = {
           id: triggerId,
           type: 'triggered_ability',
           controller: triggerController,
@@ -5540,7 +5581,9 @@ export function triggerETBEffectsForToken(
           description: trigger.description,
           triggerType: trigger.triggerType,
           mandatory: trigger.mandatory,
-        } as any);
+        } as any;
+        state.stack.push(stackItem);
+        persistTriggeredAbilityPush(ctx, stackItem);
         
         debug(2, `[triggerETBEffectsForToken] ⚡ ${trigger.cardName}'s triggered ability for token: ${trigger.description}`);
       }
@@ -5583,7 +5626,7 @@ export function triggerETBEffectsForToken(
           state.stack = state.stack || [];
           const triggerId = uid("trigger");
           
-          state.stack.push({
+          const stackItem = {
             id: triggerId,
             type: 'triggered_ability',
             controller: triggerController,
@@ -5594,7 +5637,9 @@ export function triggerETBEffectsForToken(
             mandatory: trigger.mandatory,
             // Store the entering creature's controller for effects like "that player loses 1 life"
             targetPlayer: controller,
-          } as any);
+          } as any;
+          state.stack.push(stackItem);
+          persistTriggeredAbilityPush(ctx, stackItem);
           
           debug(2, `[triggerETBEffectsForToken] ⚡ ${trigger.cardName}'s opponent creature ETB trigger: ${trigger.description}`);
         }
@@ -5612,7 +5657,8 @@ export function triggerETBEffectsForToken(
 export function triggerETBEffectsForPermanent(
   ctx: GameContext,
   permanent: any,
-  controller: PlayerID
+  controller: PlayerID,
+  includeSelfTriggers = true,
 ): void {
   const state = (ctx as any).state;
   if (!state?.battlefield) return;
@@ -5849,7 +5895,7 @@ export function triggerETBEffectsForPermanent(
           // Conservative fallback: keep the trigger if evaluation fails.
         }
         
-        state.stack.push({
+        const stackItem = {
           id: triggerId,
           type: 'triggered_ability',
           controller: triggerController,
@@ -5859,7 +5905,9 @@ export function triggerETBEffectsForPermanent(
           triggerType: trigger.triggerType,
           mandatory: trigger.mandatory,
           ...(triggeringPlayerForStack ? { triggeringPlayer: triggeringPlayerForStack } : {}),
-        } as any);
+        } as any;
+        state.stack.push(stackItem);
+        persistTriggeredAbilityPush(ctx, stackItem);
         
         debug(2, `[triggerETBEffectsForPermanent] ⚡ ${trigger.cardName}'s triggered ability: ${trigger.description}`);
       }
@@ -5913,7 +5961,7 @@ export function triggerETBEffectsForPermanent(
         state.stack = state.stack || [];
         const triggerId = uid("trigger");
         
-        state.stack.push({
+        const stackItem = {
           id: triggerId,
           type: 'triggered_ability',
           controller: triggerController,
@@ -5923,7 +5971,9 @@ export function triggerETBEffectsForPermanent(
           triggerType: trigger.triggerType,
           mandatory: trigger.mandatory,
           ...(triggeringPlayerForStack ? { triggeringPlayer: triggeringPlayerForStack } : {}),
-        } as any);
+        } as any;
+        state.stack.push(stackItem);
+        persistTriggeredAbilityPush(ctx, stackItem);
         
         debug(2, `[triggerETBEffectsForPermanent] ⚡ ${trigger.cardName}'s triggered ability: ${trigger.description}`);
       }
@@ -5965,7 +6015,7 @@ export function triggerETBEffectsForPermanent(
         state.stack = state.stack || [];
         const triggerId = uid("trigger");
         
-        state.stack.push({
+        const stackItem = {
           id: triggerId,
           type: 'triggered_ability',
           controller: triggerController,
@@ -5975,7 +6025,9 @@ export function triggerETBEffectsForPermanent(
           triggerType: trigger.triggerType,
           mandatory: trigger.mandatory,
           ...(triggeringPlayerForStack ? { triggeringPlayer: triggeringPlayerForStack } : {}),
-        } as any);
+        } as any;
+        state.stack.push(stackItem);
+        persistTriggeredAbilityPush(ctx, stackItem);
         
         debug(2, `[triggerETBEffectsForPermanent] ⚡ ${trigger.cardName}'s triggered ability: ${trigger.description}`);
       }
@@ -6018,7 +6070,7 @@ export function triggerETBEffectsForPermanent(
           state.stack = state.stack || [];
           const triggerId = uid("trigger");
           
-          state.stack.push({
+          const stackItem = {
             id: triggerId,
             type: 'triggered_ability',
             controller: triggerController,
@@ -6029,7 +6081,9 @@ export function triggerETBEffectsForPermanent(
             mandatory: trigger.mandatory,
             // Store the entering creature's controller for effects like "that player loses 1 life"
             targetPlayer: controller,
-          } as any);
+          } as any;
+          state.stack.push(stackItem);
+          persistTriggeredAbilityPush(ctx, stackItem);
           
           debug(2, `[triggerETBEffectsForPermanent] ⚡ ${trigger.cardName}'s opponent creature ETB trigger: ${trigger.description}`);
         }
@@ -6038,7 +6092,7 @@ export function triggerETBEffectsForPermanent(
   }
   
   // Also check if the permanent itself has ETB triggers
-  const selfTriggers = getETBTriggersForPermanent(permanent.card, permanent);
+  const selfTriggers = includeSelfTriggers ? getETBTriggersForPermanent(permanent.card, permanent) : [];
   for (const trigger of selfTriggers) {
     if (trigger.triggerType === 'etb') {
       const triggerController = controller;
@@ -6093,6 +6147,7 @@ export function triggerETBEffectsForPermanent(
       };
       
       state.stack.push(triggerObj);
+      persistTriggeredAbilityPush(ctx, triggerObj);
       
       debug(2, `[triggerETBEffectsForPermanent] ⚡ ${trigger.cardName}'s own ETB trigger: ${trigger.description}${trigger.requiresTarget ? ` (requires ${trigger.targetType} target)` : ''}`);
     }
@@ -9179,6 +9234,7 @@ export function executeTriggerEffect(
     debug(2, `[executeTriggerEffect] Created token copy of ${originalCard.name || 'creature'} (not legendary${hasHaste ? ', with haste' : ''})`);
     
     // Trigger ETB effects for the copy token (Cathars' Crusade, Soul Warden, etc.)
+    queueSelfETBTriggersForPermanent(ctx, tokenCopy, controller as any);
     triggerETBEffectsForToken(ctx, tokenCopy, controller);
     return;
   }
@@ -14385,6 +14441,7 @@ export function resolveTopOfStack(ctx: GameContext) {
           state.battlefield.push(tokenPermanent);
           
           // Trigger ETB effects for each squad token
+          queueSelfETBTriggersForPermanent(ctx, tokenPermanent, controller as any);
           triggerETBEffectsForToken(ctx, tokenPermanent, controller);
           
           debug(2, `[resolveTopOfStack] Squad: Created token copy #${i + 1} of ${effectiveCard.name}`);

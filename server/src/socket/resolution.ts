@@ -13225,7 +13225,7 @@ async function handleTributeChoiceResponse(
   } as any;
 
   queueSelfETBTriggersForPermanent(tributeCtx, permanent, controllerId as any);
-  triggerETBEffectsForPermanent(tributeCtx, permanent, controllerId as any);
+  triggerETBEffectsForPermanent(tributeCtx, permanent, controllerId as any, false);
 
   if (typeof game.bumpSeq === 'function') {
     game.bumpSeq();
@@ -22108,7 +22108,7 @@ async function putCardOntoBattlefield(
   const tributeChoiceDeferred = queueTributeChoiceOnEntry(ctx as any, newPermanent, controller as any);
   if (!tributeChoiceDeferred) {
     queueSelfETBTriggersForPermanent(ctx as any, newPermanent, controller as any);
-    triggerETBEffectsForPermanent(ctx as any, newPermanent, controller);
+    triggerETBEffectsForPermanent(ctx as any, newPermanent, controller, false);
   } else {
     debug(2, `[putCardOntoBattlefield] ${cardName} tribute choice queued before ETB triggers are created`);
   }

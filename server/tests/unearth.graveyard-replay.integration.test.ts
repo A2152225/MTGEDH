@@ -1,6 +1,6 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
-import { createGameIfNotExists, deleteGame, initDb } from '../src/db/index.js';
+import { createGameIfNotExists, deleteGame, getEvents, initDb } from '../src/db/index.js';
 import { registerInteractionHandlers } from '../src/socket/interaction.js';
 import { games } from '../src/socket/socket.js';
 import { ensureGame } from '../src/socket/util.js';
@@ -107,6 +107,155 @@ describe('unearth graveyard replay semantics (integration)', () => {
     expect(Boolean(battlefield[0]?.unearthed)).toBe(true);
     expect(Boolean(battlefield[0]?.card?.wasUnearthed)).toBe(true);
     expect((game.state as any).manaPool?.[playerId]).toEqual({ white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 });
+  });
+
+  it('queues and persists self ETB triggers for live unearth battlefield returns', async () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const playerId = 'p1';
+    (game.state as any).players = [{ id: playerId, name: 'P1', spectator: false, life: 40 }];
+    (game.state as any).zones = {
+      [playerId]: {
+        hand: [],
+        handCount: 0,
+        library: [],
+        libraryCount: 0,
+        graveyard: [
+          {
+            id: 'unearth_card_2',
+            name: 'Unearthed Visionary',
+            type_line: 'Creature - Elemental Wizard',
+            oracle_text: 'When Unearthed Visionary enters, draw a card.\nUnearth {1}{R}',
+            power: '2',
+            toughness: '1',
+            zone: 'graveyard',
+          },
+        ],
+        graveyardCount: 1,
+        exile: [],
+        exileCount: 0,
+      },
+    };
+    (game.state as any).manaPool = {
+      [playerId]: { white: 0, blue: 0, black: 0, red: 1, green: 0, colorless: 1 },
+    };
+    (game.state as any).battlefield = [];
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).phase = 'main';
+    (game.state as any).stack = [];
+
+    const eventStart = getEvents(gameId).length;
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const io = createMockIo(emitted);
+    const { socket, handlers } = createMockSocket(playerId, gameId, emitted);
+
+    registerInteractionHandlers(io as any, socket as any);
+
+    await handlers['activateGraveyardAbility']({
+      gameId,
+      cardId: 'unearth_card_2',
+      abilityId: 'unearth',
+    });
+
+    const battlefield = (game.state as any).battlefield || [];
+    expect(battlefield).toHaveLength(1);
+    expect((game.state as any).stack).toHaveLength(1);
+    expect(String((game.state as any).stack[0]?.source || '')).toBe(String(battlefield[0]?.id || ''));
+
+    const persistedTrigger = getEvents(gameId)
+      .slice(eventStart)
+      .find((event: any) => event.type === 'pushTriggeredAbility') as any;
+    expect(persistedTrigger).toBeTruthy();
+    expect(String(persistedTrigger?.payload?.sourceId || '')).toBe(String(battlefield[0]?.id || ''));
+    expect(String(persistedTrigger?.payload?.sourceName || '')).toBe('Unearthed Visionary');
+  });
+
+  it('queues and persists external ETB watcher triggers for live unearth battlefield returns', async () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const playerId = 'p1';
+    (game.state as any).players = [{ id: playerId, name: 'P1', spectator: false, life: 40 }];
+    (game.state as any).zones = {
+      [playerId]: {
+        hand: [],
+        handCount: 0,
+        library: [],
+        libraryCount: 0,
+        graveyard: [
+          {
+            id: 'unearth_card_3',
+            name: 'Hellspark Elemental',
+            type_line: 'Creature - Elemental',
+            oracle_text: 'Trample, haste\nUnearth {1}{R}',
+            power: '3',
+            toughness: '1',
+            zone: 'graveyard',
+          },
+        ],
+        graveyardCount: 1,
+        exile: [],
+        exileCount: 0,
+      },
+    };
+    (game.state as any).manaPool = {
+      [playerId]: { white: 0, blue: 0, black: 0, red: 1, green: 0, colorless: 1 },
+    };
+    (game.state as any).battlefield = [
+      {
+        id: 'soul_warden_perm_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        counters: {},
+        card: {
+          id: 'soul_warden_card_1',
+          name: 'Soul Warden',
+          type_line: 'Creature - Human Cleric',
+          oracle_text: 'Whenever another creature enters the battlefield, you gain 1 life.',
+          power: '1',
+          toughness: '1',
+          zone: 'battlefield',
+        },
+      },
+    ];
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).phase = 'main';
+    (game.state as any).stack = [];
+
+    const eventStart = getEvents(gameId).length;
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const io = createMockIo(emitted);
+    const { socket, handlers } = createMockSocket(playerId, gameId, emitted);
+
+    registerInteractionHandlers(io as any, socket as any);
+
+    await handlers['activateGraveyardAbility']({
+      gameId,
+      cardId: 'unearth_card_3',
+      abilityId: 'unearth',
+    });
+
+    const liveTrigger = ((game.state as any).stack || []).find((item: any) => item?.source === 'soul_warden_perm_1') as any;
+    expect(liveTrigger).toBeTruthy();
+    expect(liveTrigger).toMatchObject({
+      sourceName: 'Soul Warden',
+      triggerType: 'creature_etb',
+    });
+
+    const persistedTrigger = getEvents(gameId)
+      .slice(eventStart)
+      .find((event: any) => event.type === 'pushTriggeredAbility' && event.payload?.sourceId === 'soul_warden_perm_1') as any;
+    expect(persistedTrigger).toBeTruthy();
+    expect(persistedTrigger.payload).toMatchObject({
+      sourceId: 'soul_warden_perm_1',
+      permanentId: 'soul_warden_perm_1',
+      sourceName: 'Soul Warden',
+      triggerType: 'creature_etb',
+    });
   });
 
   it('requires sorcery-speed timing for live unearth activation', async () => {

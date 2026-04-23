@@ -1,6 +1,6 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
-import { createGameIfNotExists, deleteGame, initDb } from '../src/db/index.js';
+import { createGameIfNotExists, deleteGame, getEvents, initDb } from '../src/db/index.js';
 import { registerInteractionHandlers } from '../src/socket/interaction.js';
 import { games } from '../src/socket/socket.js';
 import { ensureGame } from '../src/socket/util.js';
@@ -99,6 +99,67 @@ describe('simple return-from-graveyard replay semantics (integration)', () => {
     expect((zones?.hand || [])[0]?.id).toBe('phoenix_card_1');
     expect((game.state as any).cardLeftGraveyardThisTurn?.[playerId]).toBe(true);
     expect((game.state as any).manaPool?.[playerId]).toEqual({ white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 });
+  });
+
+  it('queues and persists self ETB triggers when the simple return path puts the card onto the battlefield', async () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const playerId = 'p1';
+    (game.state as any).players = [{ id: playerId, name: 'P1', spectator: false, life: 40 }];
+    (game.state as any).zones = {
+      [playerId]: {
+        hand: [],
+        handCount: 0,
+        library: [],
+        libraryCount: 0,
+        graveyard: [
+          {
+            id: 'battlefield_return_card_1',
+            name: 'Battlefield Visionary',
+            type_line: 'Creature - Human Wizard',
+            oracle_text: '{1}{W}: Return this card from your graveyard to the battlefield. When Battlefield Visionary enters, draw a card.',
+            power: '2',
+            toughness: '2',
+            zone: 'graveyard',
+          },
+        ],
+        graveyardCount: 1,
+        exile: [],
+        exileCount: 0,
+      },
+    };
+    (game.state as any).manaPool = {
+      [playerId]: { white: 1, blue: 0, black: 0, red: 0, green: 0, colorless: 1 },
+    };
+    (game.state as any).battlefield = [];
+    (game.state as any).stack = [];
+
+    const eventStart = getEvents(gameId).length;
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const io = createMockIo(emitted);
+    const { socket, handlers } = createMockSocket(playerId, gameId, emitted);
+
+    registerInteractionHandlers(io as any, socket as any);
+
+    await handlers['activateGraveyardAbility']({
+      gameId,
+      cardId: 'battlefield_return_card_1',
+      abilityId: 'return-from-graveyard',
+    });
+
+    const battlefield = (game.state as any).battlefield || [];
+    expect(battlefield).toHaveLength(1);
+    expect((game.state as any).stack).toHaveLength(1);
+    expect(String((game.state as any).stack[0]?.source || '')).toBe(String(battlefield[0]?.id || ''));
+
+    const persistedTrigger = getEvents(gameId)
+      .slice(eventStart)
+      .find((event: any) => event.type === 'pushTriggeredAbility') as any;
+    expect(persistedTrigger).toBeTruthy();
+    expect(String(persistedTrigger?.payload?.sourceId || '')).toBe(String(battlefield[0]?.id || ''));
+    expect(String(persistedTrigger?.payload?.sourceName || '')).toBe('Battlefield Visionary');
   });
 
   it('respects sorcery-speed timing on generic return-from-graveyard abilities when the oracle text requires it', async () => {

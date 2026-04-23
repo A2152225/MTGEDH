@@ -183,7 +183,8 @@ export function moveKynaiosLandFromHandToBattlefield(
         players: game.state?.players,
       } as any,
       permanent,
-      playerId
+      playerId,
+      false
     );
   }
 

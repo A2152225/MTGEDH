@@ -1,7 +1,7 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 import GameManager from '../src/GameManager.js';
-import { createGameIfNotExists, deleteGame, initDb } from '../src/db/index.js';
+import { createGameIfNotExists, deleteGame, getEvents, initDb } from '../src/db/index.js';
 import { chooseAIOptionSelectionsForStep } from '../src/socket/ai.js';
 import { registerCombatHandlers } from '../src/socket/combat.js';
 import { initializePriorityResolutionHandler, registerResolutionHandlers } from '../src/socket/resolution.js';
@@ -119,6 +119,19 @@ function createMyriadAttacker(playerId: string) {
       keywords: ['Myriad'],
       power: '3',
       toughness: '3',
+    },
+  };
+}
+
+function createMyriadEtbAttacker(playerId: string) {
+  const base = createMyriadAttacker(playerId) as any;
+  return {
+    ...base,
+    card: {
+      ...base.card,
+      name: 'Myriad Visionary',
+      oracle_text:
+        "When Myriad Visionary enters, draw a card.\nMyriad (Whenever this creature attacks, for each opponent other than defending player, you may create a token that's a copy of this creature that's tapped and attacking that player. Exile the tokens at end of combat.)",
     },
   };
 }
@@ -261,6 +274,60 @@ describe('myriad keyword automation (integration)', () => {
     expect((game.state as any).tokensCreatedThisTurn?.[playerId]).toBe(2);
     expect(ResolutionQueueManager.getStepsForPlayer(gameId, playerId).some((entry: any) => entry?.myriadChoice === true)).toBe(false);
     expect(emitted.some((entry) => entry.event === 'error')).toBe(false);
+  });
+
+  it('queues and persists self ETB triggers for copied Myriad tokens', async () => {
+    const gameId = createGameId();
+    trackedGameIds.add(gameId);
+    const playerId = 'p1' as PlayerID;
+    const defendingPlayerId = 'p2' as PlayerID;
+    const opponentA = 'p3' as PlayerID;
+    const opponentB = 'p4' as PlayerID;
+    const game = seedCombatGame(gameId, playerId, defendingPlayerId, [opponentA, opponentB]);
+
+    (game.state as any).battlefield = [createMyriadEtbAttacker(playerId)];
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(playerId, emitted, gameId);
+    const io = createMockIo(emitted, [socket]);
+    registerResolutionHandlers(io as any, socket as any);
+    registerCombatHandlers(io as any, socket as any);
+
+    await handlers.declareAttackers({
+      gameId,
+      attackers: [{ creatureId: 'myriad_attacker', targetPlayerId: defendingPlayerId }],
+    });
+
+    resolveUntilMyriadStep(game, gameId, playerId);
+
+    const step = findMyriadStep(gameId, playerId) as any;
+    expect(step).toBeDefined();
+
+    const eventStart = getEvents(gameId).length;
+    await handlers.submitResolutionResponse({
+      gameId,
+      stepId: String(step.id),
+      selections: [opponentA, opponentB],
+    });
+
+    const battlefield = ((game.state as any).battlefield || []) as any[];
+    const tokens = battlefield.filter((permanent: any) => permanent?.isToken === true);
+    const liveTriggers = ((game.state as any).stack || []).filter(
+      (entry: any) => entry?.sourceName === 'Myriad Visionary' && entry?.triggerType === 'etb',
+    );
+    expect(tokens).toHaveLength(2);
+    expect(liveTriggers).toHaveLength(2);
+    expect(liveTriggers.map((entry: any) => String(entry?.source || '')).sort()).toEqual(
+      tokens.map((permanent: any) => String(permanent?.id || '')).sort(),
+    );
+
+    const persistedTriggers = getEvents(gameId)
+      .slice(eventStart)
+      .filter((event: any) => event.type === 'pushTriggeredAbility' && event.payload?.sourceName === 'Myriad Visionary');
+    expect(persistedTriggers).toHaveLength(2);
+    expect(persistedTriggers.map((event: any) => String(event.payload?.sourceId || '')).sort()).toEqual(
+      tokens.map((permanent: any) => String(permanent?.id || '')).sort(),
+    );
   });
 
   it('allows declining Myriad by submitting no selections', async () => {

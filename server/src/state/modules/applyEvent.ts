@@ -48,6 +48,7 @@ import {
   movePermanentToExile,
 } from "./counters_tokens";
 import { cleanupCardLeavingExile } from "./playable-from-exile";
+import { buildEmbalmOrEternalizeTokenPermanent } from "./graveyard-tokens.js";
 import { clearPreparedPermanent, syncPreparedPermanentAfterControlChange } from "./prepared.js";
 import { applyMyriadTokenCopies, pushStack, resolveTopOfStack, playLand, castSpell, triggerETBEffectsForToken } from "./stack";
 import { exileEntireStack } from "./stack";
@@ -7417,27 +7418,12 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
                 const createdPermanentIds = Array.isArray((e as any).createdPermanentIds)
                   ? ((e as any).createdPermanentIds as any[]).map((value: any) => String(value || '').trim()).filter(Boolean)
                   : [];
-                const cardName = String(card?.name || 'Unknown');
-                const tokenName = abilityType === 'eternalize' ? `${cardName} (4/4 Zombie)` : `${cardName} (Zombie)`;
                 ctx.state.battlefield = ctx.state.battlefield || [];
-                (ctx.state.battlefield as any[]).push({
-                  id: createdPermanentIds.shift() || generateDeterministicId(ctx, abilityType === 'eternalize' ? 'token_eternalize' : 'token_embalm', String(cardId)),
-                  controller: pid,
-                  owner: pid,
-                  tapped: false,
-                  counters: {},
-                  isToken: true,
-                  card: {
-                    ...card,
-                    name: tokenName,
-                    zone: 'battlefield',
-                    type_line: String(card?.type_line || '').includes('Zombie')
-                      ? card.type_line
-                      : `Zombie ${String(card?.type_line || '').trim()}`.trim(),
-                  },
-                  basePower: abilityType === 'eternalize' ? 4 : undefined,
-                  baseToughness: abilityType === 'eternalize' ? 4 : undefined,
-                });
+                const createdPermanentId = createdPermanentIds.shift()
+                  || generateDeterministicId(ctx, abilityType === 'eternalize' ? 'token_eternalize' : 'token_embalm', String(cardId));
+                (ctx.state.battlefield as any[]).push(
+                  buildEmbalmOrEternalizeTokenPermanent(card, abilityType as 'embalm' | 'eternalize', String(pid), createdPermanentId),
+                );
               }
             }
           } else if (cardId && pid && abilityType === 'disturb') {
