@@ -7311,6 +7311,26 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
                 const stateAny = ctx.state as any;
                 stateAny.castFromGraveyardThisTurn = stateAny.castFromGraveyardThisTurn || {};
                 stateAny.castFromGraveyardThisTurn[String(pid)] = true;
+                stateAny.spellsCastThisTurn = Array.isArray(stateAny.spellsCastThisTurn) ? stateAny.spellsCastThisTurn : [];
+                stateAny.spellsCastThisTurn.push({
+                  id: card?.id || cardId,
+                  name: card?.name,
+                  casterId: pid,
+                  castSourceZone: 'graveyard',
+                  card: {
+                    id: card?.id || cardId,
+                    name: card?.name,
+                    type_line: card?.type_line,
+                    colors: card?.colors,
+                    color_identity: card?.color_identity,
+                    castSourceZone: 'graveyard',
+                  },
+                });
+                if (!String(card?.type_line || '').toLowerCase().includes('creature')) {
+                  stateAny.noncreatureSpellsCastThisTurn = stateAny.noncreatureSpellsCastThisTurn || {};
+                  stateAny.noncreatureSpellsCastThisTurn[String(pid)] =
+                    ((stateAny.noncreatureSpellsCastThisTurn[String(pid)] as number | undefined) || 0) + 1;
+                }
               }
             }
           } else if (cardId && pid && abilityType === 'unearth') {
@@ -7420,6 +7440,26 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
                 const stateAny = ctx.state as any;
                 stateAny.castFromGraveyardThisTurn = stateAny.castFromGraveyardThisTurn || {};
                 stateAny.castFromGraveyardThisTurn[String(pid)] = true;
+                stateAny.spellsCastThisTurn = Array.isArray(stateAny.spellsCastThisTurn) ? stateAny.spellsCastThisTurn : [];
+                stateAny.spellsCastThisTurn.push({
+                  id: card?.id || cardId,
+                  name: card?.name,
+                  casterId: pid,
+                  castSourceZone: 'graveyard',
+                  card: {
+                    id: card?.id || cardId,
+                    name: card?.name,
+                    type_line: card?.type_line,
+                    colors: card?.colors,
+                    color_identity: card?.color_identity,
+                    castSourceZone: 'graveyard',
+                  },
+                });
+                if (!String(card?.type_line || '').toLowerCase().includes('creature')) {
+                  stateAny.noncreatureSpellsCastThisTurn = stateAny.noncreatureSpellsCastThisTurn || {};
+                  stateAny.noncreatureSpellsCastThisTurn[String(pid)] =
+                    ((stateAny.noncreatureSpellsCastThisTurn[String(pid)] as number | undefined) || 0) + 1;
+                }
 
                 const stackId = String((e as any).stackId || '').trim() || generateDeterministicId(ctx, 'stack', String(cardId));
                 ctx.state.stack = ctx.state.stack || [];

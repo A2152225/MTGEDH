@@ -27,7 +27,7 @@ import { ResolutionQueueManager, ResolutionStepType, createResolutionStep } from
 import { parseUpgradeAbilities as parseCreatureUpgradeAbilities } from "../../../rules-engine/src/creatureUpgradeAbilities";
 import { isAIPlayer } from "./ai.js";
 import { getActivatedAbilityConfig } from "../../../rules-engine/src/cards/activatedAbilityCards.js";
-import { creatureHasHaste } from "./game-actions.js";
+import { creatureHasHaste, processOpponentSpellCastTriggersForCast, processSpellCastTriggersForCast, recordSpellCastThisTurn } from "./game-actions.js";
 import { debug, debugWarn, debugError } from "../utils/debug.js";
 import { filterLibraryCardsForSearch } from "./library-search.js";
 import { pushWheneverYouExertTriggersOntoStack } from "./exert-triggers.js";
@@ -2591,6 +2591,10 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         message: `${getPlayerName(game, pid)} cast ${cardName} using ${abilityId}.`,
         ts: Date.now(),
       });
+
+      recordSpellCastThisTurn(game, pid, stackItem.card, 'graveyard');
+      processSpellCastTriggersForCast(gameId, game, io as any, pid, stackItem.card, 'graveyard', stackId);
+      processOpponentSpellCastTriggersForCast(gameId, game, io as any, pid, stackItem.card);
     } else if (abilityId === "unearth") {
       const recordedManaCost = String(getKeywordGraveyardActivationManaCost(card, abilityId) || '').trim();
       if (recordedManaCost) {

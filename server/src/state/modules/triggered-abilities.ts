@@ -3358,7 +3358,7 @@ export interface SpellCastTrigger {
   tribalType?: string; // For tribal triggers like "Merfolk spell"
   copiesSpell?: boolean;
   firstSpellThisTurn?: boolean;
-  sourceZoneRequirement?: 'library' | 'exile' | 'not_hand';
+  sourceZoneRequirement?: 'library' | 'exile' | 'graveyard' | 'not_hand';
   requiresTarget?: boolean;
   targetType?: string; // e.g., "permanent" for tap/untap effects
   createsToken?: boolean;
@@ -3396,6 +3396,78 @@ export function detectSpellCastTriggers(card: any, permanent: any): SpellCastTri
   const cardName = card?.name || "Unknown";
   const permanentId = permanent?.id || "";
   const controllerId = permanent?.controller || "";
+
+  const getSpellCastConditionData = (spellType: string): Pick<SpellCastTrigger, 'spellCondition' | 'tribalType'> => {
+    let spellCondition: SpellCastTrigger['spellCondition'] = 'any';
+    let tribalType: string | undefined;
+
+    if (spellType === 'creature') {
+      spellCondition = 'creature';
+    } else if (spellType === 'noncreature') {
+      spellCondition = 'noncreature';
+    } else if (spellType === 'colorless') {
+      spellCondition = 'colorless';
+    } else if (spellType === 'instant' || spellType === 'sorcery' || spellType === 'instant or sorcery') {
+      spellCondition = 'instant_sorcery';
+    } else if (!['a', 'an', 'spell'].includes(spellType)) {
+      spellCondition = 'tribal_type';
+      tribalType = spellType;
+    }
+
+    return { spellCondition, tribalType };
+  };
+
+  const getSpellCastEffectMetadata = (effectText: string, tribalType?: string) => {
+    const copiesSpell = effectText.toLowerCase().includes('copy that spell') || effectText.toLowerCase().includes('copy it');
+    const isTapUntap = lowerOracle.includes('tap or untap') ||
+      lowerOracle.includes('untap target') ||
+      lowerOracle.includes('tap target');
+    const tokenMatch = effectText.match(/create (?:a |an )?(\d+)\/(\d+)[^.]*token/i);
+    let createsToken = false;
+    let tokenDetails: SpellCastTrigger['tokenDetails'];
+
+    if (tokenMatch || lowerOracle.includes('create a') && lowerOracle.includes('token')) {
+      createsToken = true;
+      const tokenPowerMatch = effectText.match(/(\d+)\/(\d+)/);
+      if (tokenPowerMatch) {
+        const typeMatch = effectText.match(/(\d+\/\d+)\s+(white|blue|black|red|green|colorless)?\s*((?:\w+\s+)*\w+)\s+(?:artifact\s+)?creature\s+token/i);
+        const tokenColor = String(typeMatch?.[2] || '').trim().toLowerCase();
+        const rawTokenType = String(typeMatch?.[3] || tribalType || 'Token').trim();
+        const tokenTypeDisplay = rawTokenType
+          .split(/\s+/)
+          .filter(Boolean)
+          .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+          .join(' ') || 'Token';
+        const tokenColorDisplay = tokenColor
+          ? `${tokenColor.charAt(0).toUpperCase() + tokenColor.slice(1)} `
+          : '';
+        const abilityMatch = effectText.match(/token\s+with\s+([^.]+)/i);
+        const abilities = abilityMatch
+          ? abilityMatch[1]
+              .split(/\s+and\s+|,\s*/i)
+              .map((ability) => ability.trim().toLowerCase().replace(/^"+|"+$/g, '').replace(/\.$/, ''))
+              .filter(Boolean)
+          : undefined;
+        const isArtifact = effectText.toLowerCase().includes('artifact creature token');
+
+        tokenDetails = {
+          name: `${tokenColorDisplay}${tokenTypeDisplay}`.trim(),
+          power: parseInt(tokenPowerMatch[1]),
+          toughness: parseInt(tokenPowerMatch[2]),
+          types: `${isArtifact ? 'Artifact ' : ''}Creature — ${tokenTypeDisplay}`,
+          abilities,
+        };
+      }
+    }
+
+    return {
+      copiesSpell,
+      isTapUntap,
+      createsToken,
+      tokenDetails,
+      isOptional: effectText.toLowerCase().includes('you may'),
+    };
+  };
   
   // Pattern: "Whenever you cast a [TYPE] spell, [EFFECT]"
   const spellCastPatterns = [
@@ -3411,62 +3483,19 @@ export function detectSpellCastTriggers(card: any, permanent: any): SpellCastTri
     while ((match = pattern.exec(oracleText)) !== null) {
       const spellType = match[1].toLowerCase();
       const effectText = extendSpellCopyEffectText(oracleText, match[0], match[2].trim(), match.index);
-      const copiesSpell = effectText.toLowerCase().includes('copy that spell') || effectText.toLowerCase().includes('copy it');
       const lowerMatchText = String(match[0] || '').toLowerCase();
 
       if (
         lowerMatchText.includes('spell of the chosen type') ||
         lowerMatchText.includes('spell from your library') ||
+        lowerMatchText.includes('spell from your graveyard') ||
         lowerMatchText.includes('spell from exile') ||
         lowerMatchText.includes('spell from anywhere other than your hand')
       ) {
         continue;
       }
-      
-      // Determine spell condition
-      let spellCondition: SpellCastTrigger['spellCondition'] = 'any';
-      let tribalType: string | undefined;
-      
-      if (spellType === 'creature') {
-        spellCondition = 'creature';
-      } else if (spellType === 'noncreature') {
-        spellCondition = 'noncreature';
-      } else if (spellType === 'colorless') {
-        spellCondition = 'colorless';
-      } else if (spellType === 'instant' || spellType === 'sorcery' || spellType === 'instant or sorcery') {
-        spellCondition = 'instant_sorcery';
-      } else if (!['a', 'an', 'spell'].includes(spellType)) {
-        // Likely a tribal type like "Merfolk", "Goblin", "Elf"
-        spellCondition = 'tribal_type';
-        tribalType = spellType;
-      }
-      
-      // Check for tap/untap effects (Merrow Reejerey pattern)
-      const isTapUntap = lowerOracle.includes('tap or untap') || 
-                         lowerOracle.includes('untap target') ||
-                         lowerOracle.includes('tap target');
-      
-      // Check for token creation (Deeproot Waters pattern)
-      const tokenMatch = effectText.match(/create (?:a |an )?(\d+)\/(\d+)[^.]*token/i);
-      let createsToken = false;
-      let tokenDetails: SpellCastTrigger['tokenDetails'];
-      
-      if (tokenMatch || lowerOracle.includes('create a') && lowerOracle.includes('token')) {
-        createsToken = true;
-        // Try to parse token details
-        const tokenPowerMatch = effectText.match(/(\d+)\/(\d+)/);
-        if (tokenPowerMatch) {
-          tokenDetails = {
-            name: tribalType ? `${tribalType} Token` : 'Token',
-            power: parseInt(tokenPowerMatch[1]),
-            toughness: parseInt(tokenPowerMatch[2]),
-            types: `Creature — ${tribalType || 'Token'}`,
-          };
-        }
-      }
-      
-      // Check if it's a "may" ability
-      const isOptional = effectText.toLowerCase().includes('you may');
+      const { spellCondition, tribalType } = getSpellCastConditionData(spellType);
+      const { copiesSpell, isTapUntap, createsToken, tokenDetails, isOptional } = getSpellCastEffectMetadata(effectText, tribalType);
       
       // Avoid duplicates
       if (!triggers.some((t) =>
@@ -3499,6 +3528,10 @@ export function detectSpellCastTriggers(card: any, permanent: any): SpellCastTri
       sourceZoneRequirement: 'library' as const,
     },
     {
+      pattern: /whenever you cast (?:a |an )?(creature|noncreature|instant|sorcery|instant or sorcery|colorless|\w+) spell from your graveyard,?\s*([^.]+)/gi,
+      sourceZoneRequirement: 'graveyard' as const,
+    },
+    {
       pattern: /whenever you cast (?:a |an )?(creature|noncreature|instant|sorcery|instant or sorcery|colorless|\w+) spell from exile,?\s*([^.]+)/gi,
       sourceZoneRequirement: 'exile' as const,
     },
@@ -3514,46 +3547,8 @@ export function detectSpellCastTriggers(card: any, permanent: any): SpellCastTri
     while ((match = pattern.exec(oracleText)) !== null) {
       const spellType = match[1].toLowerCase();
       const effectText = extendSpellCopyEffectText(oracleText, match[0], match[2].trim(), match.index);
-      const copiesSpell = effectText.toLowerCase().includes('copy that spell') || effectText.toLowerCase().includes('copy it');
-
-      let spellCondition: SpellCastTrigger['spellCondition'] = 'any';
-      let tribalType: string | undefined;
-
-      if (spellType === 'creature') {
-        spellCondition = 'creature';
-      } else if (spellType === 'noncreature') {
-        spellCondition = 'noncreature';
-      } else if (spellType === 'colorless') {
-        spellCondition = 'colorless';
-      } else if (spellType === 'instant' || spellType === 'sorcery' || spellType === 'instant or sorcery') {
-        spellCondition = 'instant_sorcery';
-      } else if (!['a', 'an', 'spell'].includes(spellType)) {
-        spellCondition = 'tribal_type';
-        tribalType = spellType;
-      }
-
-      const isTapUntap = lowerOracle.includes('tap or untap') ||
-        lowerOracle.includes('untap target') ||
-        lowerOracle.includes('tap target');
-
-      const tokenMatch = effectText.match(/create (?:a |an )?(\d+)\/(\d+)[^.]*token/i);
-      let createsToken = false;
-      let tokenDetails: SpellCastTrigger['tokenDetails'];
-
-      if (tokenMatch || lowerOracle.includes('create a') && lowerOracle.includes('token')) {
-        createsToken = true;
-        const tokenPowerMatch = effectText.match(/(\d+)\/(\d+)/);
-        if (tokenPowerMatch) {
-          tokenDetails = {
-            name: tribalType ? `${tribalType} Token` : 'Token',
-            power: parseInt(tokenPowerMatch[1]),
-            toughness: parseInt(tokenPowerMatch[2]),
-            types: `Creature — ${tribalType || 'Token'}`,
-          };
-        }
-      }
-
-      const isOptional = effectText.toLowerCase().includes('you may');
+      const { spellCondition, tribalType } = getSpellCastConditionData(spellType);
+      const { copiesSpell, isTapUntap, createsToken, tokenDetails, isOptional } = getSpellCastEffectMetadata(effectText, tribalType);
 
       if (!triggers.some((trigger) =>
         trigger.effect === effectText &&
@@ -3567,6 +3562,8 @@ export function detectSpellCastTriggers(card: any, permanent: any): SpellCastTri
           controllerId,
           description: sourceZoneRequirement === 'library'
             ? `Whenever you cast a ${tribalType || spellType} spell from your library, ${effectText}`
+            : sourceZoneRequirement === 'graveyard'
+              ? `Whenever you cast a ${tribalType || spellType} spell from your graveyard, ${effectText}`
             : sourceZoneRequirement === 'exile'
               ? `Whenever you cast a ${tribalType || spellType} spell from exile, ${effectText}`
             : `Whenever you cast a ${tribalType || spellType} spell from anywhere other than your hand, ${effectText}`,
@@ -3596,25 +3593,8 @@ export function detectSpellCastTriggers(card: any, permanent: any): SpellCastTri
     while ((match = pattern.exec(oracleText)) !== null) {
       const spellType = match[1].toLowerCase();
       const effectText = extendSpellCopyEffectText(oracleText, match[0], match[2].trim(), match.index);
-      const copiesSpell = effectText.toLowerCase().includes('copy that spell') || effectText.toLowerCase().includes('copy it');
-
-      let spellCondition: SpellCastTrigger['spellCondition'] = 'any';
-      let tribalType: string | undefined;
-
-      if (spellType === 'creature') {
-        spellCondition = 'creature';
-      } else if (spellType === 'noncreature') {
-        spellCondition = 'noncreature';
-      } else if (spellType === 'colorless') {
-        spellCondition = 'colorless';
-      } else if (spellType === 'instant' || spellType === 'sorcery' || spellType === 'instant or sorcery') {
-        spellCondition = 'instant_sorcery';
-      } else if (!['a', 'an', 'spell'].includes(spellType)) {
-        spellCondition = 'tribal_type';
-        tribalType = spellType;
-      }
-
-      const isOptional = effectText.toLowerCase().includes('you may');
+      const { spellCondition, tribalType } = getSpellCastConditionData(spellType);
+      const { copiesSpell, isOptional } = getSpellCastEffectMetadata(effectText, tribalType);
 
       if (!triggers.some((trigger) =>
         trigger.effect === effectText &&
@@ -3633,6 +3613,51 @@ export function detectSpellCastTriggers(card: any, permanent: any): SpellCastTri
           copiesSpell,
           firstSpellThisTurn: true,
           oncePerTurn: true,
+          mandatory: !isOptional,
+        });
+      }
+    }
+  }
+
+  const firstSourceQualifiedSpellEachTurnPatterns = [
+    {
+      pattern: /whenever you cast your first (creature|noncreature|instant|sorcery|instant or sorcery|colorless|\w+) spell from your graveyard each turn,?\s*([^.]+)/gi,
+      sourceZoneRequirement: 'graveyard' as const,
+    },
+  ];
+
+  for (const { pattern, sourceZoneRequirement } of firstSourceQualifiedSpellEachTurnPatterns) {
+    let match;
+    pattern.lastIndex = 0;
+    while ((match = pattern.exec(oracleText)) !== null) {
+      const spellType = match[1].toLowerCase();
+      const effectText = extendSpellCopyEffectText(oracleText, match[0], match[2].trim(), match.index);
+      const { spellCondition, tribalType } = getSpellCastConditionData(spellType);
+      const { copiesSpell, isTapUntap, createsToken, tokenDetails, isOptional } = getSpellCastEffectMetadata(effectText, tribalType);
+
+      if (!triggers.some((trigger) =>
+        trigger.effect === effectText &&
+        trigger.spellCondition === spellCondition &&
+        trigger.firstSpellThisTurn === true &&
+        trigger.sourceZoneRequirement === sourceZoneRequirement &&
+        String(trigger.tribalType || '').toLowerCase() === String(tribalType || '').toLowerCase()
+      )) {
+        triggers.push({
+          permanentId,
+          cardName,
+          controllerId,
+          description: `Whenever you cast your first ${tribalType || spellType} spell from your graveyard each turn, ${effectText}`,
+          effect: effectText,
+          spellCondition,
+          tribalType,
+          copiesSpell,
+          firstSpellThisTurn: true,
+          oncePerTurn: true,
+          sourceZoneRequirement,
+          requiresTarget: isTapUntap,
+          targetType: isTapUntap ? 'permanent' : undefined,
+          createsToken,
+          tokenDetails,
           mandatory: !isOptional,
         });
       }

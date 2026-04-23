@@ -1,47 +1,15 @@
-/**
- * triggers/spell-cast.ts
- * 
- * Spell-cast trigger detection and processing.
- * Includes "whenever you cast a spell" triggers, magecraft abilities, and storm.
- * 
- * Categories:
- * - Spell-cast triggers: detectSpellCastTriggers, getSpellCastTriggers
- * - Spell-cast untap effects: detectSpellCastUntapEffects, getSpellCastUntapEffects, applySpellCastUntapEffect
- * - Storm mechanic: detectStormAbility, getStormCount
- */
-
 import type { GameContext } from "../../context.js";
+import type { SpellCastTrigger, SpellCastUntapEffect } from "./types.js";
 
-// ============================================================================
-// Type Definitions
-// ============================================================================
+export type { SpellCastTrigger, SpellCastUntapEffect } from "./types.js";
 
-export interface SpellCastUntapEffect {
-  permanentId: string;
-  cardName: string;
-  controllerId: string;
-  description: string;
-  untapType: 'nonland_permanents' | 'creatures' | 'all';
-  spellCondition: 'noncreature' | 'any' | 'instant_sorcery';
+/**
 }
-
-export interface SpellCastTrigger {
-  permanentId: string;
-  cardName: string;
-  controllerId: string;
-  description: string;
-  effect: string;
-  spellCondition: 'any' | 'creature' | 'noncreature' | 'instant_sorcery' | 'tribal_type';
-  tribalType?: string;
-  requiresTarget?: boolean;
-  targetType?: string;
-  createsToken?: boolean;
-  tokenDetails?: {
-    name: string;
-    power: number;
-    toughness: number;
-    types: string;
-    abilities?: string[];
+  // Pattern: 'Whenever you cast a [TYPE] spell [FROM_ZONE], [EFFECT]'
+  const spellCastPatterns = [
+    /whenever (?:you cast|an? [^,.]+ enters.*?whenever you cast) (?:a |an )?(\w+)?\s*spell(?: from (?:your )?\w+)?(?:,?\s*choose[^.]+)?,\s*([^.]+)/gi,
+    /whenever you cast (?:a |an )?(creature|noncreature|instant|sorcery|instant or sorcery) spell(?: from (?:your )?\w+)?,\s*([^.]+)/gi,
+  ];
   };
   addsLoyaltyCounters?: number; // Number of loyalty counters to add (for planeswalkers like Ral, Crackling Wit)
   mandatory: boolean;
@@ -69,7 +37,7 @@ export function detectSpellCastUntapEffects(card: any, permanent: any): SpellCas
       cardName,
       controllerId,
       description: "Whenever you cast a spell, untap all nonland permanents you control",
-      untapType: 'nonland_permanents',
+      effectType: 'untap_all_nonland',
       spellCondition: 'any',
     });
   }
@@ -82,7 +50,7 @@ export function detectSpellCastUntapEffects(card: any, permanent: any): SpellCas
       cardName,
       controllerId,
       description: "Whenever you cast a noncreature spell, untap creatures you control",
-      untapType: 'creatures',
+      effectType: 'untap_all_creatures',
       spellCondition: 'noncreature',
     });
   }
@@ -100,7 +68,7 @@ export function detectSpellCastUntapEffects(card: any, permanent: any): SpellCas
       cardName,
       controllerId,
       description: `Whenever you cast a ${spellType} spell, untap`,
-      untapType: 'nonland_permanents',
+      effectType: 'untap_all_nonland',
       spellCondition,
     });
   }
@@ -167,15 +135,15 @@ export function applySpellCastUntapEffect(ctx: GameContext, effect: SpellCastUnt
     const typeLine = (permanent.card?.type_line || '').toLowerCase();
     let shouldUntap = false;
     
-    switch (effect.untapType) {
-      case 'nonland_permanents':
+    switch (effect.effectType) {
+      case 'untap_all_nonland':
         shouldUntap = !typeLine.includes('land');
         break;
-      case 'creatures':
+      case 'untap_all_creatures':
         shouldUntap = typeLine.includes('creature');
         break;
-      case 'all':
-        shouldUntap = true;
+      case 'untap_equipped':
+        shouldUntap = false;
         break;
     }
     
@@ -270,7 +238,7 @@ export function detectSpellCastTriggers(card: any, permanent: any): SpellCastTri
         const tokenPowerMatch = effectText.match(/(\d+)\/(\d+)/);
         if (tokenPowerMatch) {
           // Extract color and creature type: "1/1 white Warrior creature token"
-          const typeMatch = effectText.match(/(\d+\/\d+)\s+(white|blue|black|red|green|colorless)?\s*(\w+)\s+(?:artifact\s+)?creature\s+token/i);
+          const typeMatch = effectText.match(/(\d+\/\d+)\s+(?:(white|blue|black|red|green|colorless)\s+)?([A-Z][a-z]+(?: [A-Z][a-z]+)*)?\s*(?:artifact\s+)?creature\s+token/i);
           const tokenColor = typeMatch?.[2] || '';
           const tokenType = typeMatch?.[3] || tribalType || 'Token';
           

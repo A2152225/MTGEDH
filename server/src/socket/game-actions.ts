@@ -88,7 +88,7 @@ function getTopLibraryCard(game: any, playerId: string): any | null {
   return library.length > 0 ? library[0] : null;
 }
 
-type SpellCastSourceZone = 'hand' | 'exile' | 'graveyard' | 'library' | 'command';
+export type SpellCastSourceZone = 'hand' | 'exile' | 'graveyard' | 'library' | 'command';
 
 function normalizeSpellCastSourceZone(value: unknown): SpellCastSourceZone | undefined {
   return value === 'hand' || value === 'exile' || value === 'graveyard' || value === 'library' || value === 'command'
@@ -2472,14 +2472,17 @@ function getSpellCastTriggersForCard(game: any, casterId: string, spellCard: any
   const triggers: SpellCastTrigger[] = [];
   const battlefield = game.state?.battlefield || [];
 
-  const matchesSpellCastTriggerCondition = (card: any, trigger: SpellCastTrigger): boolean => {
-    if (trigger.sourceZoneRequirement === 'library' && castSourceZone !== 'library') {
+  const matchesSpellCastTriggerCondition = (card: any, trigger: SpellCastTrigger, spellSourceZone = castSourceZone): boolean => {
+    if (trigger.sourceZoneRequirement === 'library' && spellSourceZone !== 'library') {
       return false;
     }
-    if (trigger.sourceZoneRequirement === 'exile' && castSourceZone !== 'exile') {
+    if (trigger.sourceZoneRequirement === 'exile' && spellSourceZone !== 'exile') {
       return false;
     }
-    if (trigger.sourceZoneRequirement === 'not_hand' && castSourceZone === 'hand') {
+    if (trigger.sourceZoneRequirement === 'graveyard' && spellSourceZone !== 'graveyard') {
+      return false;
+    }
+    if (trigger.sourceZoneRequirement === 'not_hand' && spellSourceZone === 'hand') {
       return false;
     }
 
@@ -2525,7 +2528,13 @@ function getSpellCastTriggersForCard(game: any, casterId: string, spellCard: any
       if (shouldTrigger && trigger.firstSpellThisTurn === true) {
         const matchingSpellsCastThisTurn = (Array.isArray(game.state?.spellsCastThisTurn) ? game.state.spellsCastThisTurn : [])
           .filter((castEntry: any) => String(castEntry?.casterId || '') === String(casterId))
-          .filter((castEntry: any) => matchesSpellCastTriggerCondition(castEntry?.card || castEntry, trigger))
+          .filter((castEntry: any) => {
+            const castCard = castEntry?.card || castEntry;
+            const castEntrySourceZone = normalizeSpellCastSourceZone(
+              castEntry?.castSourceZone ?? castEntry?.fromZone ?? castCard?.castSourceZone ?? castCard?.fromZone
+            );
+            return matchesSpellCastTriggerCondition(castCard, trigger, castEntrySourceZone);
+          })
           .length;
         shouldTrigger = matchingSpellsCastThisTurn === 1;
       }
@@ -2567,6 +2576,420 @@ function appendCopyTriggeredSpellResolveEvent(
     appendEvent(gameId, (game as any).seq ?? 0, 'copyTriggeredSpellResolve', payload);
   } catch (err) {
     debugWarn(1, '[castSpellFromHand] appendEvent(copyTriggeredSpellResolve) failed:', err);
+  }
+}
+
+export function recordSpellCastThisTurn(
+  game: any,
+  casterId: string,
+  spellCard: any,
+  castSourceZone?: SpellCastSourceZone,
+): void {
+  try {
+    game.state.spellsCastThisTurn = game.state.spellsCastThisTurn || [];
+    game.state.spellsCastThisTurn.push({
+      id: spellCard?.id,
+      name: spellCard?.name,
+      casterId,
+      ts: Date.now(),
+      ...(castSourceZone ? { castSourceZone } : {}),
+      card: {
+        id: spellCard?.id,
+        name: spellCard?.name,
+        type_line: spellCard?.type_line,
+        colors: spellCard?.colors,
+        color_identity: spellCard?.color_identity,
+        ...(castSourceZone ? { castSourceZone } : {}),
+      },
+    });
+  } catch (err) {
+    debugWarn(2, '[recordSpellCastThisTurn] Failed to track spellsCastThisTurn:', err);
+  }
+}
+
+export function processSpellCastTriggersForCast(
+  gameId: string,
+  game: any,
+  io: Server,
+  casterId: string,
+  spellCard: any,
+  castSourceZone?: SpellCastSourceZone,
+  triggeringStackItemId?: string,
+): void {
+  try {
+    const ctxForInterveningIf = { state: game.state } as any;
+    const stackArr: any[] = Array.isArray((game.state as any)?.stack) ? (game.state as any).stack : [];
+    let triggeringStackItem: any = null;
+    const normalizedTriggeringStackItemId = String(triggeringStackItemId || '').trim();
+
+    if (normalizedTriggeringStackItemId) {
+      triggeringStackItem = stackArr.find((item: any) => item && String(item.id || '') === normalizedTriggeringStackItemId) || null;
+    }
+
+    if (!triggeringStackItem) {
+      for (let i = stackArr.length - 1; i >= 0; i--) {
+        const item = stackArr[i];
+        if (!item || String(item.controller || '') !== String(casterId)) continue;
+        const itemCardId = String(item?.card?.id || '');
+        if (itemCardId && itemCardId === String(spellCard?.id || '')) {
+          triggeringStackItem = item;
+          break;
+        }
+      }
+    }
+
+    const resolvedTriggeringStackItemId = triggeringStackItem ? String(triggeringStackItem.id || '') : undefined;
+    const spellCastTriggers = getSpellCastTriggersForCard(game, casterId, spellCard, castSourceZone);
+    for (const trigger of spellCastTriggers) {
+      if (hasSpellCastTriggerTriggeredThisTurn(game, trigger)) {
+        debug(2, `[processSpellCastTriggersForCast] Skipping once-per-turn spell-cast trigger already used: ${trigger.cardName}`);
+        continue;
+      }
+
+      const raw = String(trigger.description || trigger.effect || '').trim();
+      let triggerText = raw;
+      if (triggerText && !/^(?:when|whenever|at)\b/i.test(triggerText)) {
+        triggerText = `Whenever you cast a spell, ${triggerText}`;
+      }
+      const sourcePerm = (game.state?.battlefield || []).find((perm: any) => perm && perm.id === trigger.permanentId);
+      const needsThatPlayerRef = /\bthat player\b/i.test(triggerText);
+      const baseRefs: any = {
+        triggeringStackItemId: resolvedTriggeringStackItemId,
+        stackItem: triggeringStackItem || undefined,
+      };
+      const ok = isInterveningIfSatisfied(
+        ctxForInterveningIf,
+        String(trigger.controllerId || casterId),
+        triggerText,
+        sourcePerm,
+        needsThatPlayerRef
+          ? {
+              ...baseRefs,
+              thatPlayerId: String(casterId),
+              referencedPlayerId: String(casterId),
+              theirPlayerId: String(casterId),
+            }
+          : baseRefs,
+      );
+      if (ok === false) {
+        debug(2, `[processSpellCastTriggersForCast] Skipping spell-cast trigger due to unmet intervening-if: ${trigger.cardName} - ${triggerText}`);
+        continue;
+      }
+
+      debug(2, `[processSpellCastTriggersForCast] Triggered: ${trigger.cardName} - ${trigger.description}`);
+
+      if (trigger.replacementEffect?.kind === 'bottom_spell_reveal_until_nonland') {
+        markSpellCastTriggerTriggeredThisTurn(game, trigger);
+
+        const queuedRevealChoiceStep = createResolutionStep({
+          type: ResolutionStepType.OPTION_CHOICE,
+          playerId: casterId as any,
+          description: `${trigger.cardName}: Put ${spellCard.name} on the bottom of its owner's library and reveal until a nonland card?`,
+          mandatory: false,
+          sourceId: trigger.permanentId,
+          sourceName: trigger.cardName,
+          options: [
+            { id: 'yes', label: 'Use ability' },
+            { id: 'no', label: 'Decline' },
+          ],
+          minSelections: 1,
+          maxSelections: 1,
+          spellBottomRevealUntilNonlandChoice: true,
+          triggeringStackItemId: resolvedTriggeringStackItemId,
+          triggeringSpellControllerId: casterId,
+          triggeringSpellCard: {
+            ...spellCard,
+            owner: (spellCard as any).owner || casterId,
+          },
+          revealFromLibraryPlayerId: trigger.controllerId,
+          revealSourcePermanentId: trigger.permanentId,
+          revealSourceCardName: trigger.cardName,
+        } as any);
+
+        persistQueuedSpellCastStepContinuation(gameId, game, {
+          playerId: casterId,
+          cardId: String(spellCard?.id || ''),
+          queuedResolutionStep: queuedRevealChoiceStep,
+        });
+
+        ResolutionQueueManager.addStep(gameId, queuedRevealChoiceStep as any);
+        continue;
+      }
+
+      const effectLower = trigger.effect.toLowerCase();
+      if (effectLower.includes('draw a card') || effectLower.includes('draw cards') || effectLower.includes('draws a card')) {
+        if (typeof game.drawCards === 'function') {
+          game.drawCards(casterId, 1);
+          io.to(gameId).emit('chat', {
+            id: `m_${Date.now()}`,
+            gameId,
+            from: 'system',
+            message: `${trigger.cardName}: ${getPlayerName(game, casterId)} draws a card.`,
+            ts: Date.now(),
+          });
+        }
+      }
+
+      if (effectLower.includes('untap')) {
+        applySpellCastUntapTrigger(game, casterId);
+      }
+
+      if (trigger.copiesSpell === true) {
+        cloneTriggeredSpellCopy(gameId, game, io, trigger, casterId, resolvedTriggeringStackItemId);
+      }
+
+      if (trigger.cardName.toLowerCase().includes('consuming aberration') || effectLower.includes('until they reveal a land card')) {
+        const opponents = (game.state.players || []).filter((player: any) => player.id !== casterId);
+        for (const opponent of opponents) {
+          const millResult = millUntilLand(game, opponent.id);
+          if (millResult.milled.length > 0) {
+            io.to(gameId).emit('chat', {
+              id: `m_${Date.now()}`,
+              gameId,
+              from: 'system',
+              message: `${trigger.cardName}: ${getPlayerName(game, opponent.id)} mills ${millResult.milled.length} card(s)${millResult.landHit ? ` (stopped at ${millResult.landHit.name})` : ''}.`,
+              ts: Date.now(),
+            });
+          }
+        }
+      }
+
+      if (trigger.createsToken && trigger.tokenDetails) {
+        const tokenId = `token_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+        let oracleText = '';
+        const abilitiesText = trigger.tokenDetails.abilities
+          ? trigger.tokenDetails.abilities.map((ability) => ability.charAt(0).toUpperCase() + ability.slice(1)).join(', ')
+          : '';
+        if (abilitiesText) {
+          oracleText = abilitiesText;
+        }
+
+        const token = {
+          id: tokenId,
+          controller: casterId,
+          owner: casterId,
+          tapped: false,
+          counters: {},
+          basePower: trigger.tokenDetails.power,
+          baseToughness: trigger.tokenDetails.toughness,
+          summoningSickness: true,
+          isToken: true,
+          card: {
+            id: tokenId,
+            name: trigger.tokenDetails.name,
+            type_line: trigger.tokenDetails.types,
+            power: String(trigger.tokenDetails.power),
+            toughness: String(trigger.tokenDetails.toughness),
+            oracle_text: oracleText,
+            zone: 'battlefield',
+          },
+        };
+        game.state.battlefield = game.state.battlefield || [];
+        game.state.battlefield.push(token as any);
+
+        const abilitiesDisplay = abilitiesText ? ` with ${abilitiesText}` : '';
+        io.to(gameId).emit('chat', {
+          id: `m_${Date.now()}`,
+          gameId,
+          from: 'system',
+          message: `${trigger.cardName}: ${getPlayerName(game, casterId)} creates a ${trigger.tokenDetails.power}/${trigger.tokenDetails.toughness} ${trigger.tokenDetails.name}${abilitiesDisplay}.`,
+          ts: Date.now(),
+        });
+      }
+
+      if (trigger.addsLoyaltyCounters && trigger.addsLoyaltyCounters > 0) {
+        const battlefield = game.state?.battlefield || [];
+        const planeswalker = battlefield.find((perm: any) => perm.id === trigger.permanentId && perm.controller === casterId);
+        if (planeswalker) {
+          planeswalker.counters = planeswalker.counters || {};
+          const currentLoyalty = parseInt(String(planeswalker.counters.loyalty || planeswalker.card?.loyalty || 0), 10) || 0;
+          const newLoyalty = currentLoyalty + trigger.addsLoyaltyCounters;
+          (planeswalker.counters as any).loyalty = newLoyalty;
+
+          io.to(gameId).emit('chat', {
+            id: `m_${Date.now()}`,
+            gameId,
+            from: 'system',
+            message: `${trigger.cardName}: ${getPlayerName(game, casterId)} adds ${trigger.addsLoyaltyCounters} loyalty counter${trigger.addsLoyaltyCounters > 1 ? 's' : ''} (now ${newLoyalty}).`,
+            ts: Date.now(),
+          });
+
+          debug(2, `[processSpellCastTriggersForCast] ${trigger.cardName}: Added ${trigger.addsLoyaltyCounters} loyalty counter(s), now at ${newLoyalty}`);
+        }
+      }
+
+      if (trigger.requiresTarget && (effectLower.includes('tap or untap target') || effectLower.includes('untap target') || effectLower.includes('tap target'))) {
+        const targetedOk = isInterveningIfSatisfied(
+          ctxForInterveningIf,
+          String(trigger.controllerId || casterId),
+          triggerText,
+          sourcePerm,
+          needsThatPlayerRef
+            ? {
+                thatPlayerId: String(casterId),
+                referencedPlayerId: String(casterId),
+                theirPlayerId: String(casterId),
+              }
+            : undefined,
+        );
+        if (targetedOk === false) {
+          debug(2, `[processSpellCastTriggersForCast] Skipping targeted spell-cast trigger due to unmet intervening-if: ${trigger.cardName} - ${triggerText}`);
+          continue;
+        }
+
+        const triggerId = `trigger_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+        game.state.stack = game.state.stack || [];
+        game.state.stack.push({
+          id: triggerId,
+          type: 'triggered_ability',
+          controller: casterId,
+          source: trigger.permanentId,
+          sourceName: trigger.cardName,
+          description: trigger.description,
+          triggerType: 'cast_creature_type',
+          effect: trigger.effect,
+          mandatory: trigger.mandatory,
+          requiresTarget: true,
+          targetType: trigger.targetType || 'permanent',
+        } as any);
+
+        try {
+          appendEvent(gameId, (game as any).seq ?? 0, 'pushTriggeredAbility', {
+            triggerId,
+            sourceId: trigger.permanentId,
+            sourceName: trigger.cardName,
+            controllerId: casterId,
+            description: trigger.description,
+            triggerType: 'cast_creature_type',
+            effect: trigger.effect,
+            mandatory: trigger.mandatory,
+            requiresTarget: true,
+            targetType: trigger.targetType || 'permanent',
+          });
+        } catch (err) {
+          debugWarn(1, '[processSpellCastTriggersForCast] appendEvent(pushTriggeredAbility spell-cast targeted) failed:', err);
+        }
+
+        io.to(gameId).emit('chat', {
+          id: `m_${Date.now()}`,
+          gameId,
+          from: 'system',
+          message: `${trigger.cardName} triggers: ${getPlayerName(game, casterId)} may tap or untap target permanent.`,
+          ts: Date.now(),
+        });
+      }
+    }
+  } catch (err) {
+    debugWarn(1, '[processSpellCastTriggersForCast] Failed to process spell-cast triggers:', err);
+  }
+}
+
+export function processOpponentSpellCastTriggersForCast(
+  gameId: string,
+  game: any,
+  io: Server,
+  casterId: string,
+  spellCard: any,
+): void {
+  try {
+    const allPlayerIds = (game.state?.players || []).map((player: any) => player.id);
+    const battlefield = game.state?.battlefield || [];
+    const ctxForInterveningIf = { state: game.state } as any;
+    const spellTypeLine = String(spellCard?.type_line || '').toLowerCase();
+    const isNoncreatureSpell = !spellTypeLine.includes('creature');
+    const noncreatureSpellsThisTurn = (game.state?.noncreatureSpellsCastThisTurn || {})[casterId] || 0;
+    const isFirstNoncreatureThisTurn = isNoncreatureSpell && noncreatureSpellsThisTurn === 0;
+
+    if (isNoncreatureSpell) {
+      game.state.noncreatureSpellsCastThisTurn = game.state.noncreatureSpellsCastThisTurn || {};
+      game.state.noncreatureSpellsCastThisTurn[casterId] = noncreatureSpellsThisTurn + 1;
+    }
+
+    const opponentTriggers = getOpponentSpellCastTriggers(
+      battlefield,
+      casterId,
+      spellCard,
+      allPlayerIds,
+      isFirstNoncreatureThisTurn,
+    );
+
+    for (const trigger of opponentTriggers) {
+      const raw = String(trigger.description || (trigger as any).effect || '').trim();
+      let triggerText = raw;
+      if (triggerText && !/^(?:when|whenever|at)\b/i.test(triggerText)) {
+        triggerText = `Whenever an opponent casts a spell, ${triggerText}`;
+      }
+      const resolvedCasterId = String((trigger as any).casterId || casterId || '').trim();
+      const sourcePerm = (game.state?.battlefield || []).find((perm: any) => perm && perm.id === (trigger as any).permanentId);
+      const needsThatPlayerRef = /\bthat player\b/i.test(triggerText);
+      const ok = isInterveningIfSatisfied(
+        ctxForInterveningIf,
+        String(trigger.controllerId),
+        triggerText,
+        sourcePerm,
+        needsThatPlayerRef && resolvedCasterId
+          ? {
+              thatPlayerId: resolvedCasterId,
+              referencedPlayerId: resolvedCasterId,
+              theirPlayerId: resolvedCasterId,
+            }
+          : undefined,
+      );
+      if (ok === false) {
+        debug(2, `[processOpponentSpellCastTriggersForCast] Skipping opponent spell trigger due to unmet intervening-if: ${trigger.cardName} - ${triggerText}`);
+        continue;
+      }
+
+      game.state.stack = game.state.stack || [];
+      const triggerId = `trigger_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      const stackItem: any = {
+        id: triggerId,
+        type: 'triggered_ability',
+        controller: trigger.controllerId,
+        source: trigger.permanentId,
+        sourceName: trigger.cardName,
+        description: trigger.description,
+        triggerType: trigger.triggerType,
+        mandatory: trigger.mandatory,
+        targetPlayer: String((trigger as any).casterId || casterId || ''),
+        triggeringPlayer: String((trigger as any).casterId || casterId || ''),
+        effectData: {
+          casterId: trigger.casterId,
+          paymentCost: trigger.paymentCost,
+          paymentAmount: trigger.paymentAmount,
+          benefitIfNotPaid: trigger.benefitIfNotPaid,
+        },
+      };
+      game.state.stack.push(stackItem);
+
+      try {
+        appendEvent(gameId, (game as any).seq ?? 0, 'pushTriggeredAbility', {
+          triggerId,
+          sourceId: trigger.permanentId,
+          sourceName: trigger.cardName,
+          controllerId: trigger.controllerId,
+          description: trigger.description,
+          triggerType: trigger.triggerType,
+          effect: (trigger as any).effect || trigger.description,
+          mandatory: trigger.mandatory,
+          targetPlayer: stackItem.targetPlayer,
+          triggeringPlayer: stackItem.triggeringPlayer,
+          effectData: stackItem.effectData,
+        });
+      } catch (err) {
+        debugWarn(1, '[processOpponentSpellCastTriggersForCast] appendEvent(pushTriggeredAbility opponent spell-cast) failed:', err);
+      }
+
+      io.to(gameId).emit('chat', {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: 'system',
+        message: `ΓÜí ${trigger.cardName}'s triggered ability: ${trigger.description}`,
+        ts: Date.now(),
+      });
+    }
+  } catch (err) {
+    debugWarn(1, '[processOpponentSpellCastTriggersForCast] Failed to process opponent spell triggers:', err);
   }
 }
 
@@ -9078,7 +9501,7 @@ export function registerGameActions(io: Server, socket: Socket) {
           debugWarn(1, `[castSpellFromHand] appendEvent(pushTriggeredAbility ${reason}) failed:`, err);
         }
       };
-      
+
       // Check for "When you cast this spell" triggers on the spell itself (Kozilek, Ulamog, etc.)
       try {
         const eldraziEffect = detectEldraziEffect(cardInHand, { id: cardId, controller: playerId });
@@ -9138,26 +9561,7 @@ export function registerGameActions(io: Server, socket: Socket) {
       // Check for spell-cast triggers (Jeskai Ascendancy, Beast Whisperer, etc.)
       try {
         // Track spells cast this turn (for Storm and other "cast this turn" checks)
-        try {
-          game.state.spellsCastThisTurn = game.state.spellsCastThisTurn || [];
-          game.state.spellsCastThisTurn.push({
-            id: cardId,
-            name: cardInHand?.name,
-            casterId: playerId,
-            ts: Date.now(),
-            // Store minimal card metadata so intervening-if templates can evaluate
-            // spell characteristics (e.g., creature vs noncreature, spell colors).
-            card: {
-              id: cardInHand?.id,
-              name: cardInHand?.name,
-              type_line: cardInHand?.type_line,
-              colors: (cardInHand as any)?.colors,
-              color_identity: (cardInHand as any)?.color_identity,
-            },
-          });
-        } catch (err) {
-          debugWarn(2, '[castSpellFromHand] Failed to track spellsCastThisTurn:', err);
-        }
+        recordSpellCastThisTurn(game, playerId, cardInHand, castSourceZone);
 
         // Track: "no opponent cast a spell since your last turn ended" (best-effort)
         // Only flips `false -> true` for already-known opponent entries to avoid guessing in team games.
@@ -9177,292 +9581,18 @@ export function registerGameActions(io: Server, socket: Socket) {
           debugWarn(2, '[castSpellFromHand] Failed to update opponentCastSpellSinceYourLastTurnEnded:', err);
         }
 
-        const ctxForInterveningIf = { state: game.state } as any;
+        let triggeringStackItemId: string | undefined;
         const stackArr: any[] = Array.isArray((game.state as any)?.stack) ? (game.state as any).stack : [];
-        let triggeringStackItem: any = null;
         for (let i = stackArr.length - 1; i >= 0; i--) {
-          const it = stackArr[i];
-          if (!it || String(it.controller || '') !== String(playerId)) continue;
-          const cid = String(it?.card?.id || '');
-          if (cid && cid === String(cardId)) {
-            triggeringStackItem = it;
+          const item = stackArr[i];
+          if (!item || String(item.controller || '') !== String(playerId)) continue;
+          if (String(item?.card?.id || '') === String(cardId)) {
+            triggeringStackItemId = String(item.id || '');
             break;
           }
         }
-        const triggeringStackItemId = triggeringStackItem ? String(triggeringStackItem.id || '') : undefined;
 
-        const spellCastTriggers = getSpellCastTriggersForCard(game, playerId, cardInHand, castSourceZone);
-        for (const trigger of spellCastTriggers) {
-          if (hasSpellCastTriggerTriggeredThisTurn(game, trigger)) {
-            debug(2, `[castSpellFromHand] Skipping once-per-turn spell-cast trigger already used: ${trigger.cardName}`);
-            continue;
-          }
-
-          // Intervening-if (Rule 603.4): if recognized and false at trigger time, do not trigger.
-          const raw = String(trigger.description || trigger.effect || "").trim();
-          let triggerText = raw;
-          if (triggerText && !/^(?:when|whenever|at)\b/i.test(triggerText)) {
-            triggerText = `Whenever you cast a spell, ${triggerText}`;
-          }
-          const sourcePerm = (game.state?.battlefield || []).find((p: any) => p && p.id === (trigger as any).permanentId);
-          const needsThatPlayerRef = /\bthat player\b/i.test(triggerText);
-          const baseRefs: any = {
-            triggeringStackItemId,
-            stackItem: triggeringStackItem || undefined,
-          };
-          const ok = isInterveningIfSatisfied(
-            ctxForInterveningIf,
-            String(trigger.controllerId || playerId),
-            triggerText,
-            sourcePerm,
-            needsThatPlayerRef
-              ? {
-                  ...baseRefs,
-                  thatPlayerId: String(playerId),
-                  referencedPlayerId: String(playerId),
-                  theirPlayerId: String(playerId),
-                }
-              : baseRefs
-          );
-          if (ok === false) {
-            debug(2, `[castSpellFromHand] Skipping spell-cast trigger due to unmet intervening-if: ${trigger.cardName} - ${triggerText}`);
-            continue;
-          }
-
-          debug(2, `[castSpellFromHand] Triggered: ${trigger.cardName} - ${trigger.description}`);
-
-          if (trigger.replacementEffect?.kind === 'bottom_spell_reveal_until_nonland') {
-            markSpellCastTriggerTriggeredThisTurn(game, trigger);
-
-            const queuedRevealChoiceStep = createResolutionStep({
-              type: ResolutionStepType.OPTION_CHOICE,
-              playerId: playerId as any,
-              description: `${trigger.cardName}: Put ${cardInHand.name} on the bottom of its owner's library and reveal until a nonland card?`,
-              mandatory: false,
-              sourceId: trigger.permanentId,
-              sourceName: trigger.cardName,
-              options: [
-                { id: 'yes', label: 'Use ability' },
-                { id: 'no', label: 'Decline' },
-              ],
-              minSelections: 1,
-              maxSelections: 1,
-              spellBottomRevealUntilNonlandChoice: true,
-              triggeringStackItemId,
-              triggeringSpellControllerId: playerId,
-              triggeringSpellCard: {
-                ...cardInHand,
-                owner: (cardInHand as any).owner || playerId,
-              },
-              revealFromLibraryPlayerId: trigger.controllerId,
-              revealSourcePermanentId: trigger.permanentId,
-              revealSourceCardName: trigger.cardName,
-            } as any);
-
-            persistQueuedSpellCastStepContinuation(gameId, game, {
-              playerId,
-              cardId: String(cardInHand?.id || ''),
-              queuedResolutionStep: queuedRevealChoiceStep,
-            });
-
-            ResolutionQueueManager.addStep(gameId, queuedRevealChoiceStep as any);
-            continue;
-          }
-          
-          // Handle different trigger effects
-          const effectLower = trigger.effect.toLowerCase();
-          if (effectLower.includes('draw a card') || 
-              effectLower.includes('draw cards') ||
-              effectLower.includes('draws a card')) {
-            // Draw a card effect (Beast Whisperer, Archmage Emeritus)
-            if (typeof game.drawCards === 'function') {
-              const drawn = game.drawCards(playerId, 1);
-              io.to(gameId).emit("chat", {
-                id: `m_${Date.now()}`,
-                gameId,
-                from: "system",
-                message: `${trigger.cardName}: ${getPlayerName(game, playerId)} draws a card.`,
-                ts: Date.now(),
-              });
-            }
-          }
-          
-          if (effectLower.includes('untap')) {
-            // Untap effect (Jeskai Ascendancy)
-            applySpellCastUntapTrigger(game, playerId);
-          }
-
-          if (trigger.copiesSpell === true) {
-            cloneTriggeredSpellCopy(gameId, game, io, trigger, playerId, triggeringStackItemId);
-          }
-          
-          // Consuming Aberration - mill each opponent until land, boost handled via graveyard counts
-          if (trigger.cardName.toLowerCase().includes('consuming aberration') ||
-              effectLower.includes('until they reveal a land card')) {
-            const opponents = (game.state.players || []).filter((p: any) => p.id !== playerId);
-            for (const opp of opponents) {
-              const millResult = millUntilLand(game, opp.id);
-              if (millResult.milled.length > 0) {
-                io.to(gameId).emit("chat", {
-                  id: `m_${Date.now()}`,
-                  gameId,
-                  from: "system",
-                  message: `${trigger.cardName}: ${getPlayerName(game, opp.id)} mills ${millResult.milled.length} card(s)${millResult.landHit ? ` (stopped at ${millResult.landHit.name})` : ''}.`,
-                  ts: Date.now(),
-                });
-              }
-            }
-          }
-          
-          // Token creation handled separately
-          if (trigger.createsToken && trigger.tokenDetails) {
-            // Create the token (Deeproot Waters, Murmuring Mystic, Oketra's Monument)
-            const tokenId = `token_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-            
-            // Build oracle text from abilities if present
-            let oracleText = '';
-            const abilitiesText = trigger.tokenDetails.abilities 
-              ? trigger.tokenDetails.abilities.map(a => a.charAt(0).toUpperCase() + a.slice(1)).join(', ')
-              : '';
-            if (abilitiesText) {
-              oracleText = abilitiesText;
-            }
-            
-            const token = {
-              id: tokenId,
-              controller: playerId,
-              owner: playerId,
-              tapped: false,
-              counters: {},
-              basePower: trigger.tokenDetails.power,
-              baseToughness: trigger.tokenDetails.toughness,
-              summoningSickness: true,
-              isToken: true,
-              card: {
-                id: tokenId,
-                name: trigger.tokenDetails.name,
-                type_line: trigger.tokenDetails.types,
-                power: String(trigger.tokenDetails.power),
-                toughness: String(trigger.tokenDetails.toughness),
-                oracle_text: oracleText,
-                zone: "battlefield",
-              },
-            };
-            game.state.battlefield = game.state.battlefield || [];
-            game.state.battlefield.push(token as any);
-            
-            const abilitiesDisplay = abilitiesText ? ` with ${abilitiesText}` : '';
-            io.to(gameId).emit("chat", {
-              id: `m_${Date.now()}`,
-              gameId,
-              from: "system",
-              message: `${trigger.cardName}: ${getPlayerName(game, playerId)} creates a ${trigger.tokenDetails.power}/${trigger.tokenDetails.toughness} ${trigger.tokenDetails.name}${abilitiesDisplay}.`,
-              ts: Date.now(),
-            });
-          }
-          
-          // Loyalty counter effect (Ral, Crackling Wit and similar planeswalkers)
-          if (trigger.addsLoyaltyCounters && trigger.addsLoyaltyCounters > 0) {
-            // Find the planeswalker permanent on the battlefield
-            const battlefield = game.state?.battlefield || [];
-            const planeswalker = battlefield.find((perm: any) => 
-              perm.id === trigger.permanentId && 
-              perm.controller === playerId
-            );
-            
-            if (planeswalker) {
-              planeswalker.counters = planeswalker.counters || {};
-              const currentLoyalty = parseInt(String(planeswalker.counters.loyalty || planeswalker.card?.loyalty || 0), 10) || 0;
-              const newLoyalty = currentLoyalty + trigger.addsLoyaltyCounters;
-              // Cast to any to bypass readonly restriction
-              (planeswalker.counters as any).loyalty = newLoyalty;
-              
-              io.to(gameId).emit("chat", {
-                id: `m_${Date.now()}`,
-                gameId,
-                from: "system",
-                message: `${trigger.cardName}: ${getPlayerName(game, playerId)} adds ${trigger.addsLoyaltyCounters} loyalty counter${trigger.addsLoyaltyCounters > 1 ? 's' : ''} (now ${newLoyalty}).`,
-                ts: Date.now(),
-              });
-              
-              debug(2, `[castSpellFromHand] ${trigger.cardName}: Added ${trigger.addsLoyaltyCounters} loyalty counter(s), now at ${newLoyalty}`);
-            }
-          }
-          
-          // Tap/Untap target permanent effect (Merrow Reejerey, Stonybrook Schoolmaster, etc.)
-          // These are "may" abilities that require target selection - push to stack for targeting
-          if (trigger.requiresTarget && 
-              (effectLower.includes('tap or untap target') || 
-               effectLower.includes('untap target') ||
-               effectLower.includes('tap target'))) {
-            // Intervening-if (Rule 603.4): if recognized and false at trigger time, do not trigger.
-            const raw = String(trigger.description || trigger.effect || "").trim();
-            let triggerText = raw;
-            if (triggerText && !/^(?:when|whenever|at)\b/i.test(triggerText)) {
-              triggerText = `Whenever you cast a spell, ${triggerText}`;
-            }
-            const sourcePerm = (game.state?.battlefield || []).find((p: any) => p && p.id === (trigger as any).permanentId);
-            const needsThatPlayerRef = /\bthat player\b/i.test(triggerText);
-            const ok = isInterveningIfSatisfied(
-              ctxForInterveningIf,
-              String(playerId),
-              triggerText,
-              sourcePerm,
-              needsThatPlayerRef
-                ? {
-                    thatPlayerId: String(playerId),
-                    referencedPlayerId: String(playerId),
-                    theirPlayerId: String(playerId),
-                  }
-                : undefined
-            );
-            if (ok === false) {
-              debug(2, `[castSpellFromHand] Skipping targeted spell-cast trigger due to unmet intervening-if: ${trigger.cardName} - ${triggerText}`);
-              continue;
-            }
-
-            // Push to stack for target selection
-            game.state.stack = game.state.stack || [];
-            const triggerId = `trigger_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-            
-            game.state.stack.push({
-              id: triggerId,
-              type: 'triggered_ability',
-              controller: playerId,
-              source: trigger.permanentId,
-              sourceName: trigger.cardName,
-              description: trigger.description,
-              triggerType: 'cast_creature_type',
-              effect: trigger.effect,
-              mandatory: trigger.mandatory,
-              requiresTarget: true,
-              targetType: trigger.targetType || 'permanent',
-            } as any);
-
-            persistTriggeredAbilityPush({
-              triggerId,
-              sourceId: trigger.permanentId,
-              sourceName: trigger.cardName,
-              controllerId: playerId,
-              description: trigger.description,
-              triggerType: 'cast_creature_type',
-              effect: trigger.effect,
-              mandatory: trigger.mandatory,
-              requiresTarget: true,
-              targetType: trigger.targetType || 'permanent',
-            }, 'spell-cast targeted');
-            
-            debug(2, `[castSpellFromHand] Pushed ${trigger.cardName} trigger to stack for target selection`);
-            
-            io.to(gameId).emit("chat", {
-              id: `m_${Date.now()}`,
-              gameId,
-              from: "system",
-              message: `${trigger.cardName} triggers: ${getPlayerName(game, playerId)} may tap or untap target permanent.`,
-              ts: Date.now(),
-            });
-          }
-        }
+        processSpellCastTriggersForCast(gameId, game, io, playerId, cardInHand, castSourceZone, triggeringStackItemId);
       } catch (err) {
         debugWarn(1, '[castSpellFromHand] Failed to process spell-cast triggers:', err);
       }

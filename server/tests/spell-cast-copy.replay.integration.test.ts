@@ -3,6 +3,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { createGameIfNotExists, deleteGame, getEvents, initDb } from '../src/db/index.js';
 import GameManager from '../src/GameManager.js';
 import { registerGameActions } from '../src/socket/game-actions.js';
+import { registerInteractionHandlers } from '../src/socket/interaction.js';
 import { initializePriorityResolutionHandler, registerResolutionHandlers } from '../src/socket/resolution.js';
 import { ensureGame } from '../src/socket/util.js';
 import '../src/state/modules/priority.js';
@@ -159,6 +160,27 @@ function buildMelekCard() {
     name: 'Melek, Izzet Paragon',
     type_line: 'Legendary Creature — Weird Wizard',
     oracle_text: 'Play with the top card of your library revealed. You may cast instant and sorcery spells from the top of your library. Whenever you cast an instant or sorcery spell from your library, copy it. You may choose new targets for the copy.',
+  };
+}
+
+function buildSevinneCard() {
+  return {
+    id: 'sevinne_card',
+    name: 'Sevinne, the Chronoclasm',
+    type_line: 'Legendary Creature — Human Wizard',
+    oracle_text: 'Prevent all damage that would be dealt to Sevinne. Whenever you cast your first instant or sorcery spell from your graveyard each turn, copy that spell. You may choose new targets for the copy.',
+  };
+}
+
+function buildFlashbackDrawSpell() {
+  return {
+    id: 'flashback_draw_1',
+    name: 'Think Twice',
+    mana_cost: '{1}{U}',
+    manaCost: '{1}{U}',
+    type_line: 'Instant',
+    oracle_text: 'Draw a card. Flashback {U}.',
+    zone: 'graveyard',
   };
 }
 
@@ -1027,5 +1049,108 @@ describe('spell-cast copy replay integration', () => {
     expect((replayRetargetChoiceStep as any)?.retargetSpellCopyValidTargets.map((target: any) => String(target?.id || ''))).toEqual(
       expect.arrayContaining(['p1', 'p2']),
     );
+  });
+
+  it('copies and replays the first instant-sorcery spell cast from your graveyard each turn', async () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    seedSpellCopyTriggerGame(game, false);
+    (game.state as any).battlefield = [
+      {
+        id: 'sevinne_perm_1',
+        controller: 'p1',
+        owner: 'p1',
+        tapped: false,
+        card: { ...buildSevinneCard(), zone: 'battlefield' },
+      },
+    ];
+    (game.state as any).spellsCastThisTurn = [
+      {
+        id: 'prior_hand_instant',
+        name: 'Prior Hand Instant',
+        casterId: 'p1',
+        ts: 1,
+        castSourceZone: 'hand',
+        card: {
+          id: 'prior_hand_instant',
+          name: 'Prior Hand Instant',
+          type_line: 'Instant',
+          castSourceZone: 'hand',
+        },
+      },
+    ];
+    (game.state as any).zones.p1.graveyard = [buildFlashbackDrawSpell()];
+    (game.state as any).zones.p1.graveyardCount = 1;
+    (game.state as any).manaPool = {
+      p1: { white: 0, blue: 1, black: 0, red: 0, green: 0, colorless: 0 },
+      p2: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+    };
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket('p1', gameId, emitted);
+    const io = createMockIo(emitted, [socket]);
+    registerInteractionHandlers(io as any, socket as any);
+    const eventStart = getEvents(gameId).length;
+
+    await handlers['activateGraveyardAbility']({
+      gameId,
+      cardId: 'flashback_draw_1',
+      abilityId: 'flashback',
+    });
+
+    expect((game.state as any).stack).toHaveLength(2);
+    const copiedSpell = ((game.state as any).stack || []).find((item: any) => item?.copiedFromStackItemId);
+    expect(copiedSpell).toBeDefined();
+
+    const replayEvents = toReplayEvents(gameId, eventStart);
+    expect(replayEvents.map((event: any) => event.type)).toEqual(
+      expect.arrayContaining(['activateGraveyardAbility', 'copyTriggeredSpellResolve']),
+    );
+
+    const replayGameId = `${gameId}_replay`;
+    const replayGame = createInitialGameState(replayGameId);
+    seedSpellCopyTriggerGame(replayGame, false);
+    (replayGame.state as any).battlefield = [
+      {
+        id: 'sevinne_perm_1',
+        controller: 'p1',
+        owner: 'p1',
+        tapped: false,
+        card: { ...buildSevinneCard(), zone: 'battlefield' },
+      },
+    ];
+    (replayGame.state as any).spellsCastThisTurn = [
+      {
+        id: 'prior_hand_instant',
+        name: 'Prior Hand Instant',
+        casterId: 'p1',
+        ts: 1,
+        castSourceZone: 'hand',
+        card: {
+          id: 'prior_hand_instant',
+          name: 'Prior Hand Instant',
+          type_line: 'Instant',
+          castSourceZone: 'hand',
+        },
+      },
+    ];
+    (replayGame.state as any).zones.p1.graveyard = [buildFlashbackDrawSpell()];
+    (replayGame.state as any).zones.p1.graveyardCount = 1;
+
+    if (typeof replayGame.replay !== 'function') {
+      throw new Error('replayGame.replay is not available');
+    }
+
+    replayGame.replay(replayEvents as any);
+
+    expect((replayGame.state as any).stack).toHaveLength(2);
+    expect(((replayGame.state as any).stack || []).some((item: any) => item?.copiedFromStackItemId)).toBe(true);
+    expect(
+      ((replayGame.state as any).spellsCastThisTurn || []).some(
+        (entry: any) => String(entry?.id || '') === 'flashback_draw_1' && String(entry?.castSourceZone || '') === 'graveyard'
+      )
+    ).toBe(true);
   });
 });

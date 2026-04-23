@@ -304,6 +304,7 @@ describe('cast-from-graveyard replay semantics (integration)', () => {
       expect(stack[0]?.card?.id).toBe(`${abilityId}_1`);
       expect(stack[0]?.card?.castWithAbility).toBe(abilityId);
       expect((game.state as any).castFromGraveyardThisTurn?.[playerId]).toBe(true);
+      expect((game.state as any).noncreatureSpellsCastThisTurn?.[playerId]).toBe(1);
       if (abilityId === 'flashback') {
         expect((game.state as any).manaPool?.[playerId]).toEqual({ white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 });
         expect((game.state as any).life?.[playerId]).toBe(17);
@@ -333,6 +334,7 @@ describe('cast-from-graveyard replay semantics (integration)', () => {
     expect(stack[0]?.id).toBe('stack_flashback_live_1');
     expect(stack[0]?.card?.id).toBe('flashback_stack_id_1');
     expect(stack[0]?.card?.castWithAbility).toBe('flashback');
+    expect((game.state as any).noncreatureSpellsCastThisTurn?.[playerId]).toBe(1);
   });
 
   it('replay applies recorded jump-start discard choices before moving the spell to the stack', async () => {
