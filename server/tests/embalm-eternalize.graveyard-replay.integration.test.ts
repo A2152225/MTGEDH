@@ -81,6 +81,9 @@ describe('embalm and eternalize graveyard replay semantics (integration)', () =>
       [playerId]: { white: 1, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
     };
     (game.state as any).battlefield = [];
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).phase = 'main';
+    (game.state as any).stack = [];
 
     const emitted: Array<{ room?: string; event: string; payload: any }> = [];
     const io = createMockIo(emitted);

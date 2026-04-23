@@ -94,10 +94,12 @@ describe('cast spell trigger persistence (integration)', () => {
   const grafkeeperFlashbackGameId = 'test_spell_cast_trigger_persistence_grafkeeper_flashback';
   const rhysticFlashbackGameId = 'test_spell_cast_trigger_persistence_rhystic_flashback';
   const ominousRoostFlashbackGameId = 'test_spell_cast_trigger_persistence_ominous_roost_flashback';
+  const ominousRoostFlashbackAuraGameId = 'test_spell_cast_trigger_persistence_ominous_roost_flashback_aura';
   const heroicFlashbackGameId = 'test_spell_cast_trigger_persistence_heroic_flashback';
+  const heroicFlashbackAuraGameId = 'test_spell_cast_trigger_persistence_heroic_flashback_aura';
   const jumpStartTargetGameId = 'test_spell_cast_trigger_persistence_jump_start_target';
   const disturbTriggerGameId = 'test_spell_cast_trigger_persistence_disturb_trigger';
-  const resetGameIds = [merrowGameId, rhysticGameId, vegaHandGameId, vegaExileGameId, appaHandGameId, appaExileGameId, grafkeeperFlashbackGameId, rhysticFlashbackGameId, ominousRoostFlashbackGameId, heroicFlashbackGameId, jumpStartTargetGameId, disturbTriggerGameId];
+  const resetGameIds = [merrowGameId, rhysticGameId, vegaHandGameId, vegaExileGameId, appaHandGameId, appaExileGameId, grafkeeperFlashbackGameId, rhysticFlashbackGameId, ominousRoostFlashbackGameId, ominousRoostFlashbackAuraGameId, heroicFlashbackGameId, heroicFlashbackAuraGameId, jumpStartTargetGameId, disturbTriggerGameId];
 
   beforeAll(async () => {
     await initDb();
@@ -658,6 +660,93 @@ describe('cast spell trigger persistence (integration)', () => {
     expect(String((tokenPermanent as any)?.card?.oracle_text || '')).toContain('Flying');
   });
 
+  it('queues Aura target selection for flashback casts and still fires graveyard spell-cast triggers', async () => {
+    const game = setupCastingGame(ominousRoostFlashbackAuraGameId);
+    (game.state as any).battlefield = [
+      {
+        id: 'ominous_roost_aura_1',
+        controller: 'p1',
+        owner: 'p1',
+        tapped: false,
+        card: {
+          id: 'ominous_roost_aura_card',
+          name: 'Ominous Roost',
+          type_line: 'Enchantment',
+          oracle_text: 'Whenever you cast a spell from your graveyard, create a 1/1 blue Bird creature token with flying.',
+        },
+      },
+      {
+        id: 'aura_target_creature_1',
+        controller: 'p1',
+        owner: 'p1',
+        tapped: false,
+        card: {
+          id: 'aura_target_creature_card',
+          name: 'Helpful Spirit',
+          type_line: 'Creature - Spirit',
+          oracle_text: '',
+        },
+      },
+    ];
+    (game.state as any).manaPool = {
+      p1: { white: 1, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+      p2: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+    };
+    (game.state as any).zones.p1.graveyard = [
+      {
+        id: 'flashback_aura_1',
+        name: 'Memory Bond',
+        mana_cost: '{W}',
+        manaCost: '{W}',
+        type_line: 'Enchantment - Aura',
+        oracle_text: 'Enchant creature\nEnchanted creature gets +1/+1.\nFlashback {W}',
+        zone: 'graveyard',
+      },
+    ];
+    (game.state as any).zones.p1.graveyardCount = 1;
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket('p1', ominousRoostFlashbackAuraGameId, emitted);
+    const io = createMockIo(emitted, [socket]);
+    registerInteractionHandlers(io as any, socket as any);
+    registerResolutionHandlers(io as any, socket as any);
+
+    await handlers['activateGraveyardAbility']({
+      gameId: ominousRoostFlashbackAuraGameId,
+      cardId: 'flashback_aura_1',
+      abilityId: 'flashback',
+    });
+
+    const targetStep = ResolutionQueueManager
+      .getStepsForPlayer(ominousRoostFlashbackAuraGameId, 'p1')
+      .find((step: any) => (step as any)?.graveyardSpellCastTargetSelection === true) as any;
+    expect(targetStep).toBeDefined();
+    expect(targetStep.sourceName).toBe('Memory Bond');
+    expect(targetStep.targetTypes).toEqual(['aura_target']);
+    expect(targetStep.targetDescription).toBe('Enchant creature');
+    expect((targetStep.validTargets || []).map((target: any) => target.id)).toEqual(['aura_target_creature_1']);
+
+    await handlers['submitResolutionResponse']({
+      gameId: ominousRoostFlashbackAuraGameId,
+      stepId: String(targetStep.id),
+      selections: ['aura_target_creature_1'],
+    });
+
+    const stack = (game.state as any).stack || [];
+    expect(stack).toHaveLength(1);
+    expect(stack[0]?.card?.id).toBe('flashback_aura_1');
+    expect(stack[0]?.targets).toEqual(['aura_target_creature_1']);
+
+    const playerPermanents = ((game.state as any).battlefield || []).filter((perm: any) => String(perm?.controller || '') === 'p1');
+    expect(playerPermanents).toHaveLength(3);
+    const tokenPermanent = playerPermanents.find((perm: any) => (perm as any)?.isToken === true);
+    expect(tokenPermanent).toBeDefined();
+    expect(String((tokenPermanent as any)?.card?.name || '')).toContain('Bird');
+
+    const activateEvent = [...getEvents(ominousRoostFlashbackAuraGameId)].reverse().find((event) => event.type === 'activateGraveyardAbility') as any;
+    expect(activateEvent?.payload?.targets).toEqual(['aura_target_creature_1']);
+  });
+
   it('fires graveyard spell-cast triggers for live disturb casts', async () => {
     const game = setupCastingGame(disturbTriggerGameId);
     (game.state as any).battlefield = [
@@ -757,6 +846,74 @@ describe('cast spell trigger persistence (integration)', () => {
     expect(stack).toHaveLength(1);
     expect(stack[0]?.card?.id).toBe('flashback_blessing_1');
     expect(stack[0]?.targets).toEqual(['heroic_1']);
+  });
+
+  it('fires heroic triggers for queued Aura flashback casts after target selection', async () => {
+    const game = setupCastingGame(heroicFlashbackAuraGameId);
+    (game.state as any).battlefield = [
+      {
+        id: 'heroic_aura_target_1',
+        controller: 'p1',
+        owner: 'p1',
+        tapped: false,
+        counters: {},
+        card: {
+          id: 'favored_hoplite_aura_card',
+          name: 'Favored Hoplite',
+          type_line: 'Creature - Human Soldier',
+          oracle_text: 'Heroic — Whenever you cast a spell that targets Favored Hoplite, put a +1/+1 counter on Favored Hoplite.',
+        },
+      },
+    ];
+    (game.state as any).manaPool = {
+      p1: { white: 1, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+      p2: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+    };
+    (game.state as any).zones.p1.graveyard = [
+      {
+        id: 'flashback_aura_blessing_1',
+        name: 'Memory Bond',
+        mana_cost: '{W}',
+        manaCost: '{W}',
+        type_line: 'Enchantment - Aura',
+        oracle_text: 'Enchant creature\nEnchanted creature gets +1/+1.\nFlashback {W}',
+        zone: 'graveyard',
+      },
+    ];
+    (game.state as any).zones.p1.graveyardCount = 1;
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket('p1', heroicFlashbackAuraGameId, emitted);
+    const io = createMockIo(emitted, [socket]);
+    registerInteractionHandlers(io as any, socket as any);
+    registerResolutionHandlers(io as any, socket as any);
+
+    await handlers['activateGraveyardAbility']({
+      gameId: heroicFlashbackAuraGameId,
+      cardId: 'flashback_aura_blessing_1',
+      abilityId: 'flashback',
+    });
+
+    const targetStep = ResolutionQueueManager
+      .getStepsForPlayer(heroicFlashbackAuraGameId, 'p1')
+      .find((step: any) => (step as any)?.graveyardSpellCastTargetSelection === true) as any;
+    expect(targetStep).toBeDefined();
+    expect(targetStep.targetTypes).toEqual(['aura_target']);
+    expect((targetStep.validTargets || []).map((target: any) => target.id)).toEqual(['heroic_aura_target_1']);
+
+    await handlers['submitResolutionResponse']({
+      gameId: heroicFlashbackAuraGameId,
+      stepId: String(targetStep.id),
+      selections: ['heroic_aura_target_1'],
+    });
+
+    const heroicPermanent = ((game.state as any).battlefield || []).find((item: any) => item?.id === 'heroic_aura_target_1');
+    expect(heroicPermanent?.counters?.['+1/+1']).toBe(1);
+
+    const stack = (game.state as any).stack || [];
+    expect(stack).toHaveLength(1);
+    expect(stack[0]?.card?.id).toBe('flashback_aura_blessing_1');
+    expect(stack[0]?.targets).toEqual(['heroic_aura_target_1']);
   });
 
   it('preserves jump-start targets across the discard-cost continuation', async () => {

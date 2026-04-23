@@ -7485,12 +7485,15 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
                 }
 
                 const stackId = String((e as any).stackId || '').trim() || generateDeterministicId(ctx, 'stack', String(cardId));
+                const recordedTargets = Array.isArray((e as any).targets)
+                  ? ((e as any).targets as any[]).map((targetId: any) => String(targetId || '').trim()).filter(Boolean)
+                  : [];
                 ctx.state.stack = ctx.state.stack || [];
                 (ctx.state.stack as any[]).push({
                   id: stackId,
                   controller: pid,
                   card: disturbSpellCard,
-                  targets: [],
+                  targets: recordedTargets,
                 });
               }
             }
@@ -7999,9 +8002,37 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
       case "counterTargetChosen": {
         const targetId = String((e as any).targetId || '').trim();
         const counterType = String((e as any).counterType || '').trim();
+        const sourceId = String((e as any).sourceId || '').trim();
+        const clearQueuedScavengePrompt = (e as any).clearQueuedScavengePrompt === true;
+        const replayGameId = String((ctx as any).gameId || '').trim();
 
         try {
           if (!targetId || !counterType) break;
+
+          if (clearQueuedScavengePrompt && sourceId && replayGameId) {
+            const queue = ResolutionQueueManager.getQueue(replayGameId);
+            const matchingStepIds: string[] = [];
+
+            if ((queue as any)?.activeStep && (queue as any).activeStep.scavengeTargetSelection === true) {
+              const activeStep = (queue as any).activeStep as any;
+              if (String(activeStep.cardId || activeStep.sourceId || '').trim() === sourceId) {
+                matchingStepIds.push(String(activeStep.id || '').trim());
+              }
+            }
+
+            if (Array.isArray((queue as any)?.steps)) {
+              for (const pendingStep of (queue as any).steps) {
+                const stepAny = pendingStep as any;
+                if (stepAny?.scavengeTargetSelection !== true) continue;
+                if (String(stepAny.cardId || stepAny.sourceId || '').trim() !== sourceId) continue;
+                matchingStepIds.push(String(stepAny.id || '').trim());
+              }
+            }
+
+            for (const stepId of Array.from(new Set(matchingStepIds)).filter(Boolean)) {
+              ResolutionQueueManager.cancelStep(replayGameId, stepId);
+            }
+          }
 
           const battlefield = Array.isArray(ctx.state.battlefield) ? ctx.state.battlefield : [];
           const targetPermanent = battlefield.find((perm: any) => perm && String(perm.id || '') === targetId);

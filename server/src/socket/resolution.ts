@@ -18495,6 +18495,71 @@ async function handleTargetSelectionResponse(
     }
     return;
   }
+
+  if ((step as any)?.scavengeTargetSelection === true) {
+    const selectedTargetId = Array.isArray(selections)
+      ? selections
+          .map((entry: any) => {
+            if (typeof entry === 'string') return String(entry || '').trim();
+            if (entry && typeof entry === 'object') return String((entry as any).id || '').trim();
+            return '';
+          })
+          .filter(Boolean)[0]
+      : '';
+    if (!selectedTargetId) {
+      emitToPlayer(io, pid as any, 'error', {
+        code: 'INVALID_TARGET',
+        message: 'Scavenge requires a target creature.',
+      });
+      return;
+    }
+
+    const battlefield = Array.isArray(game.state?.battlefield) ? game.state.battlefield : [];
+    const targetPermanent = battlefield.find((permanent: any) => String(permanent?.id || '') === selectedTargetId) as any;
+    if (!targetPermanent) {
+      emitToPlayer(io, pid as any, 'error', {
+        code: 'INVALID_TARGET',
+        message: 'The chosen scavenge target is no longer on the battlefield.',
+      });
+      return;
+    }
+
+    const counterCount = Math.max(0, Number((step as any)?.counterCount || 0));
+    if (counterCount > 0) {
+      updateCounters(game as any, selectedTargetId, { '+1/+1': counterCount });
+    }
+
+    io.to(gameId).emit('chat', {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: 'system',
+      message: `${(step as any)?.cardName || step.sourceName || 'Scavenge'}: ${(targetPermanent?.card?.name || 'target creature')} gets ${counterCount} +1/+1 counter${counterCount === 1 ? '' : 's'}.`,
+      ts: Date.now(),
+    });
+
+    for (let index = 0; index < counterCount; index += 1) {
+      try {
+        await appendEvent(gameId, (game as any).seq ?? 0, 'counterTargetChosen', {
+          playerId: pid,
+          sourceName: (step as any)?.cardName || step.sourceName,
+          sourceId: String((step as any)?.cardId || step.sourceId || '').trim() || undefined,
+          targetId: selectedTargetId,
+          targetName: targetPermanent?.card?.name || 'Creature',
+          counterType: '+1/+1',
+          clearQueuedScavengePrompt: index === 0,
+        });
+      } catch (e) {
+        debugWarn(1, '[Resolution] appendEvent(counterTargetChosen) failed for scavenge:', e);
+      }
+    }
+
+    if (typeof game.bumpSeq === 'function') {
+      game.bumpSeq();
+    }
+
+    broadcastGame(io, game, gameId);
+    return;
+  }
   
   debug(1, `[Resolution] Target selection: ${selections?.join(', ')}`);
   

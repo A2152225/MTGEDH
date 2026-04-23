@@ -101,6 +101,74 @@ describe('simple return-from-graveyard replay semantics (integration)', () => {
     expect((game.state as any).manaPool?.[playerId]).toEqual({ white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 });
   });
 
+  it('respects sorcery-speed timing on generic return-from-graveyard abilities when the oracle text requires it', async () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const playerId = 'p1';
+    (game.state as any).players = [{ id: playerId, name: 'P1', spectator: false, life: 40 }];
+    (game.state as any).zones = {
+      [playerId]: {
+        hand: [],
+        handCount: 0,
+        library: [],
+        libraryCount: 0,
+        graveyard: [
+          {
+            id: 'phoenix_card_timing_1',
+            name: 'Magma Phoenix',
+            type_line: 'Creature - Phoenix',
+            oracle_text: '{3}{R}{R}: Return this card from your graveyard to your hand. Activate only as a sorcery.',
+            power: '3',
+            toughness: '3',
+            zone: 'graveyard',
+          },
+        ],
+        graveyardCount: 1,
+        exile: [],
+        exileCount: 0,
+      },
+    };
+    (game.state as any).manaPool = {
+      [playerId]: { white: 0, blue: 0, black: 0, red: 2, green: 0, colorless: 3 },
+    };
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).phase = 'main';
+    (game.state as any).stack = [
+      {
+        id: 'return_stack_spell_1',
+        type: 'spell',
+        controller: playerId,
+        card: {
+          id: 'return_stack_spell_card_1',
+          name: 'Shock',
+          type_line: 'Instant',
+        },
+      },
+    ];
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const io = createMockIo(emitted);
+    const { socket, handlers } = createMockSocket(playerId, gameId, emitted);
+
+    registerInteractionHandlers(io as any, socket as any);
+
+    await handlers['activateGraveyardAbility']({
+      gameId,
+      cardId: 'phoenix_card_timing_1',
+      abilityId: 'return-from-graveyard',
+    });
+
+    const errorEntry = emitted.filter((entry) => entry.event === 'error').at(-1);
+    expect(errorEntry?.payload?.code).toBe('SORCERY_SPEED_ONLY');
+
+    const zones = (game.state as any).zones?.[playerId];
+    expect(zones?.graveyardCount).toBe(1);
+    expect(zones?.handCount).toBe(0);
+    expect((game.state as any).manaPool?.[playerId]).toEqual({ white: 0, blue: 0, black: 0, red: 2, green: 0, colorless: 3 });
+  });
+
   it('replays return-from-graveyard to battlefield for the simple destination path', () => {
     createGameIfNotExists(gameId, 'commander', 40);
     const game = ensureGame(gameId);
