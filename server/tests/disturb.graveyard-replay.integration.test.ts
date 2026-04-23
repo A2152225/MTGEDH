@@ -85,6 +85,7 @@ describe('disturb graveyard replay semantics (integration)', () => {
     const emitted: Array<{ room?: string; event: string; payload: any }> = [];
     const io = createMockIo(emitted);
     const { socket, handlers } = createMockSocket(playerId, gameId, emitted);
+    const beforeNoncreatureCount = Number((game.state as any).noncreatureSpellsCastThisTurn?.[playerId] || 0);
 
     registerInteractionHandlers(io as any, socket as any);
 
@@ -161,5 +162,142 @@ describe('disturb graveyard replay semantics (integration)', () => {
     expect(stack[0]?.card?.castWithAbility).toBe('disturb');
     expect(Boolean(stack[0]?.card?.transformed)).toBe(true);
     expect((game.state as any).manaPool?.[playerId]).toEqual({ white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 });
+  });
+
+  it('live disturb uses the transformed back face for noncreature spell bookkeeping', async () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const playerId = 'p1';
+    (game.state as any).players = [{ id: playerId, name: 'P1', spectator: false, life: 40 }];
+    (game.state as any).zones = {
+      [playerId]: {
+        hand: [],
+        handCount: 0,
+        library: [],
+        libraryCount: 0,
+        graveyard: [
+          {
+            id: 'disturb_aura_1',
+            name: 'Lantern Bearer',
+            type_line: 'Creature - Spirit',
+            oracle_text: 'Disturb {3}{U}',
+            layout: 'transform',
+            card_faces: [
+              {
+                name: 'Lantern Bearer',
+                type_line: 'Creature - Spirit',
+                oracle_text: 'Disturb {3}{U}',
+                mana_cost: '{U}',
+                colors: ['U'],
+              },
+              {
+                name: 'Lanterns\' Lift',
+                type_line: 'Enchantment - Aura',
+                oracle_text: 'Enchant creature\nEnchanted creature gets +1/+1 and has flying.',
+                mana_cost: '{3}{U}',
+                colors: ['U'],
+              },
+            ],
+            zone: 'graveyard',
+          },
+        ],
+        graveyardCount: 1,
+        exile: [],
+        exileCount: 0,
+      },
+    };
+    (game.state as any).manaPool = {
+      [playerId]: { white: 0, blue: 1, black: 0, red: 0, green: 0, colorless: 3 },
+    };
+    (game.state as any).stack = [];
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const io = createMockIo(emitted);
+    const { socket, handlers } = createMockSocket(playerId, gameId, emitted);
+    const beforeNoncreatureCount = Number((game.state as any).noncreatureSpellsCastThisTurn?.[playerId] || 0);
+
+    registerInteractionHandlers(io as any, socket as any);
+
+    await handlers['activateGraveyardAbility']({
+      gameId,
+      cardId: 'disturb_aura_1',
+      abilityId: 'disturb',
+    });
+
+    const stack = (game.state as any).stack || [];
+    expect(stack).toHaveLength(1);
+    expect(stack[0]?.card?.name).toBe('Lanterns\' Lift');
+    expect(stack[0]?.card?.type_line).toBe('Enchantment - Aura');
+    expect(stack[0]?.card?.faceIndex).toBe(1);
+    expect((game.state as any).noncreatureSpellsCastThisTurn?.[playerId]).toBe(beforeNoncreatureCount + 1);
+  });
+
+  it('replay disturb uses the transformed back face for noncreature spell bookkeeping', () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const playerId = 'p1';
+    (game.state as any).players = [{ id: playerId, name: 'P1', spectator: false, life: 40 }];
+    (game.state as any).zones = {
+      [playerId]: {
+        hand: [],
+        handCount: 0,
+        library: [],
+        libraryCount: 0,
+        graveyard: [
+          {
+            id: 'disturb_aura_1',
+            name: 'Lantern Bearer',
+            type_line: 'Creature - Spirit',
+            oracle_text: 'Disturb {3}{U}',
+            layout: 'transform',
+            card_faces: [
+              {
+                name: 'Lantern Bearer',
+                type_line: 'Creature - Spirit',
+                oracle_text: 'Disturb {3}{U}',
+                mana_cost: '{U}',
+                colors: ['U'],
+              },
+              {
+                name: 'Lanterns\' Lift',
+                type_line: 'Enchantment - Aura',
+                oracle_text: 'Enchant creature\nEnchanted creature gets +1/+1 and has flying.',
+                mana_cost: '{3}{U}',
+                colors: ['U'],
+              },
+            ],
+            zone: 'graveyard',
+          },
+        ],
+        graveyardCount: 1,
+        exile: [],
+        exileCount: 0,
+      },
+    };
+    (game.state as any).manaPool = {
+      [playerId]: { white: 0, blue: 1, black: 0, red: 0, green: 0, colorless: 3 },
+    };
+    (game.state as any).stack = [];
+    const beforeNoncreatureCount = Number((game.state as any).noncreatureSpellsCastThisTurn?.[playerId] || 0);
+
+    game.applyEvent({
+      type: 'activateGraveyardAbility',
+      playerId,
+      cardId: 'disturb_aura_1',
+      abilityId: 'disturb',
+      stackId: 'stack_disturb_aura_1',
+      manaCost: '{3}{U}',
+    });
+
+    const stack = (game.state as any).stack || [];
+    expect(stack).toHaveLength(1);
+    expect(stack[0]?.card?.name).toBe('Lanterns\' Lift');
+    expect(stack[0]?.card?.type_line).toBe('Enchantment - Aura');
+    expect(stack[0]?.card?.faceIndex).toBe(1);
+    expect((game.state as any).noncreatureSpellsCastThisTurn?.[playerId]).toBe(beforeNoncreatureCount + 1);
   });
 });

@@ -3175,13 +3175,14 @@ function getHeroicTriggers(game: any, casterId: string, targetIds: string[]): He
     
     const oracleText = (permanent.card.oracle_text || '');
     const lowerOracle = oracleText.toLowerCase();
+    const lowerCardName = String(permanent.card.name || '').toLowerCase();
     
     // Check for heroic pattern: "Heroic ΓÇö Whenever you cast a spell that targets ~"
     // Must match the specific keyword ability format with em-dash or colon
     // Also check for non-keyworded heroic: "Whenever you cast a spell that targets this creature"
-    const heroicKeywordMatch = /heroic\s*[ΓÇö:\-]/i.test(oracleText);
+    const heroicKeywordMatch = /heroic\s*(?:—|–|:|-|ΓÇö)/i.test(oracleText);
     const hasTargetTrigger = lowerOracle.includes('whenever you cast a spell that targets') && 
-                             (lowerOracle.includes('this creature') || lowerOracle.includes('~'));
+                 (lowerOracle.includes('this creature') || lowerOracle.includes('~') || (!!lowerCardName && lowerOracle.includes(`targets ${lowerCardName}`)));
     
     if (heroicKeywordMatch || hasTargetTrigger) {
       // Extract the effect text - handle multi-sentence effects by capturing until end of ability
@@ -3189,12 +3190,13 @@ function getHeroicTriggers(game: any, casterId: string, targetIds: string[]): He
       
       // Try to match heroic pattern with em-dash/colon - capture everything after the trigger condition
       // Use a more permissive pattern that captures until newline or end of text
-      const heroicMatch = oracleText.match(/heroic\s*[ΓÇö:\-]\s*whenever you cast a spell that targets [^,\n]+,?\s*(.+?)(?:\n|$)/i);
+      const heroicMatch = oracleText.match(/heroic\s*(?:—|–|:|-|ΓÇö)\s*whenever you cast a spell that targets [^,\n]+,?\s*(.+?)(?:\n|$)/i);
       if (heroicMatch) {
         effectText = heroicMatch[1].trim();
       } else {
         // Try generic pattern for non-keyworded heroic
-        const genericMatch = oracleText.match(/whenever you cast a spell that targets (?:this creature|~),?\s*(.+?)(?:\n|$)/i);
+        const escapedCardName = lowerCardName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const genericMatch = oracleText.match(new RegExp(`whenever you cast a spell that targets (?:this creature|~|${escapedCardName}),?\\s*(.+?)(?:\\n|$)`, 'i'));
         if (genericMatch) {
           effectText = genericMatch[1].trim();
         }
@@ -3314,6 +3316,29 @@ function applyHeroicTrigger(game: any, trigger: HeroicTrigger, io: any, gameId: 
     message: `${trigger.cardName}'s Heroic triggers! ${trigger.effect}`,
     ts: Date.now(),
   });
+}
+
+export function processHeroicTriggersForTargets(
+  game: any,
+  casterId: string,
+  targetIds: string[],
+  io: any,
+  gameId: string,
+): void {
+  const normalizedTargetIds = Array.from(new Set(
+    (Array.isArray(targetIds) ? targetIds : [])
+      .map((targetId) => String(targetId || '').trim())
+      .filter(Boolean),
+  ));
+  if (normalizedTargetIds.length === 0) {
+    return;
+  }
+
+  const heroicTriggers = getHeroicTriggers(game, casterId, normalizedTargetIds);
+  for (const trigger of heroicTriggers) {
+    debug(2, `[processHeroicTriggersForTargets] Heroic triggered: ${trigger.cardName} - ${trigger.description}`);
+    applyHeroicTrigger(game, trigger, io, gameId);
+  }
 }
 
 /**

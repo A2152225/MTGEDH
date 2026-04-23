@@ -27,7 +27,7 @@ import { ResolutionQueueManager, ResolutionStepType, createResolutionStep } from
 import { parseUpgradeAbilities as parseCreatureUpgradeAbilities } from "../../../rules-engine/src/creatureUpgradeAbilities";
 import { isAIPlayer } from "./ai.js";
 import { getActivatedAbilityConfig } from "../../../rules-engine/src/cards/activatedAbilityCards.js";
-import { creatureHasHaste, processOpponentSpellCastTriggersForCast, processSpellCastTriggersForCast, recordSpellCastThisTurn } from "./game-actions.js";
+import { creatureHasHaste, processHeroicTriggersForTargets, processOpponentSpellCastTriggersForCast, processSpellCastTriggersForCast, recordSpellCastThisTurn } from "./game-actions.js";
 import { debug, debugWarn, debugError } from "../utils/debug.js";
 import { filterLibraryCardsForSearch } from "./library-search.js";
 import { pushWheneverYouExertTriggersOntoStack } from "./exert-triggers.js";
@@ -1124,6 +1124,592 @@ function markCastFromGraveyardLive(game: any, playerId: string): void {
   } catch {
     // best-effort only
   }
+}
+
+function buildDisturbCastCard(card: any): any {
+  const disturbFace = Array.isArray(card?.card_faces) ? card.card_faces[1] : undefined;
+  const manaCost = disturbFace?.mana_cost ?? disturbFace?.manaCost ?? card?.mana_cost ?? card?.manaCost;
+  return {
+    ...card,
+    ...(disturbFace || {}),
+    id: card?.id,
+    name: disturbFace?.name || card?.name,
+    type_line: disturbFace?.type_line || disturbFace?.typeLine || card?.type_line,
+    oracle_text: disturbFace?.oracle_text || disturbFace?.oracleText || card?.oracle_text,
+    mana_cost: manaCost,
+    manaCost,
+    colors: Array.isArray(disturbFace?.colors) ? disturbFace.colors : card?.colors,
+    image_uris: disturbFace?.image_uris || card?.image_uris,
+    faceIndex: disturbFace ? 1 : (card?.faceIndex ?? 0),
+    zone: 'stack',
+    castWithAbility: 'disturb',
+    transformed: true,
+  };
+}
+
+function normalizeSelectedTargetIds(targets: unknown): string[] {
+  if (!Array.isArray(targets)) {
+    return [];
+  }
+
+  return Array.from(new Set(
+    targets
+      .map((entry: any) => {
+        if (typeof entry === 'string') return String(entry || '').trim();
+        if (entry && typeof entry === 'object') return String((entry as any).id || '').trim();
+        return '';
+      })
+      .filter(Boolean),
+  ));
+}
+
+function buildGraveyardSpellCastValidTargets(
+  game: any,
+  controllerId: string,
+  targetReqs: ReturnType<typeof parseTargetRequirements>,
+): Array<{ id: string; name: string; type: string; controller?: string; zoneOwnerId?: string; imageUrl?: string; life?: number; isOpponent?: boolean; typeLine?: string }> {
+  const validTargets: Array<{ id: string; name: string; type: string; controller?: string; zoneOwnerId?: string; imageUrl?: string; life?: number; isOpponent?: boolean; typeLine?: string }> = [];
+  const battlefield = Array.isArray(game.state?.battlefield) ? game.state.battlefield : [];
+  const players = Array.isArray(game.state?.players) ? game.state.players : [];
+  const zones = game.state?.zones || {};
+  const lifeDict = game.state?.life || {};
+  const startingLife = game.state?.startingLife || 40;
+  const targetControllerConstraint = String((targetReqs as any)?.targetControllerConstraint || 'any').toLowerCase();
+
+  const controllerMatches = (candidateController: string | undefined): boolean => {
+    const normalizedController = String(candidateController || '').trim();
+    if (!normalizedController) return targetControllerConstraint === 'any';
+    if (targetControllerConstraint === 'you') return normalizedController === controllerId;
+    if (targetControllerConstraint === 'opponent') return normalizedController !== controllerId;
+    return true;
+  };
+
+  for (const rawTargetType of targetReqs.targetTypes || []) {
+    const targetType = normalizeRequirementTargetType(String(rawTargetType || ''));
+    switch (targetType) {
+      case 'creature':
+      case 'permanent':
+      case 'artifact':
+      case 'enchantment':
+      case 'planeswalker':
+      case 'land':
+      case 'nonland':
+      case 'noncreature':
+        validTargets.push(...battlefield
+          .filter((permanent: any) => {
+            if (!permanent?.id || !permanent?.card) return false;
+            if (!controllerMatches(String(permanent.controller || ''))) return false;
+            if (!canPermanentBeTargetedByPlayer(permanent as any, game.state as any, controllerId as any)) return false;
+
+            const typeLine = String(permanent.card?.type_line || '').toLowerCase();
+            if (targetType === 'permanent') return true;
+            if (targetType === 'nonland') return !typeLine.includes('land');
+            if (targetType === 'noncreature') return !typeLine.includes('creature');
+            return typeLine.includes(targetType);
+          })
+          .map((permanent: any) => ({
+            id: String(permanent.id),
+            name: permanent.card?.name || 'Permanent',
+            type: 'permanent',
+            controller: String(permanent.controller || ''),
+            imageUrl: permanent.card?.image_uris?.small || permanent.card?.image_uris?.normal,
+            isOpponent: String(permanent.controller || '') !== controllerId,
+            typeLine: permanent.card?.type_line,
+          })));
+        break;
+      case 'player':
+      case 'opponent':
+        validTargets.push(...players
+          .filter((player: any) => player?.id)
+          .filter((player: any) => targetType !== 'opponent' || String(player.id) !== controllerId)
+          .map((player: any) => ({
+            id: String(player.id),
+            name: player.name || String(player.id),
+            type: 'player',
+            life: lifeDict[player.id] ?? player.life ?? startingLife,
+            isOpponent: String(player.id) !== controllerId,
+          })));
+        break;
+      case 'spell':
+        validTargets.push(...((Array.isArray(game.state?.stack) ? game.state.stack : [])
+          .filter((item: any) => item?.card)
+          .map((item: any) => ({
+            id: String(item.id),
+            name: item.card?.name || item.sourceName || 'Spell',
+            type: 'card',
+            controller: String(item.controller || ''),
+            imageUrl: item.card?.image_uris?.small || item.card?.image_uris?.normal,
+            isOpponent: String(item.controller || '') !== controllerId,
+            typeLine: item.card?.type_line,
+          }))));
+        break;
+      case 'ability':
+        validTargets.push(...((Array.isArray(game.state?.stack) ? game.state.stack : [])
+          .filter((item: any) => item?.type === 'ability' || item?.type === 'triggered_ability' || item?.type === 'activated_ability')
+          .map((item: any) => ({
+            id: String(item.id),
+            name: item.sourceName || item.description || 'Ability',
+            type: 'card',
+            controller: String(item.controller || ''),
+            imageUrl: item.sourceImage || item.imageUrl,
+            isOpponent: String(item.controller || '') !== controllerId,
+            typeLine: item.type,
+          }))));
+        break;
+      case 'any':
+        validTargets.push(...battlefield
+          .filter((permanent: any) => {
+            if (!permanent?.id || !permanent?.card) return false;
+            if (!controllerMatches(String(permanent.controller || ''))) return false;
+            if (!canPermanentBeTargetedByPlayer(permanent as any, game.state as any, controllerId as any)) return false;
+            const typeLine = String(permanent.card?.type_line || '').toLowerCase();
+            return typeLine.includes('creature') || typeLine.includes('planeswalker');
+          })
+          .map((permanent: any) => ({
+            id: String(permanent.id),
+            name: permanent.card?.name || 'Permanent',
+            type: 'permanent',
+            controller: String(permanent.controller || ''),
+            imageUrl: permanent.card?.image_uris?.small || permanent.card?.image_uris?.normal,
+            isOpponent: String(permanent.controller || '') !== controllerId,
+            typeLine: permanent.card?.type_line,
+          })));
+        validTargets.push(...players
+          .filter((player: any) => player?.id)
+          .map((player: any) => ({
+            id: String(player.id),
+            name: player.name || String(player.id),
+            type: 'player',
+            life: lifeDict[player.id] ?? player.life ?? startingLife,
+            isOpponent: String(player.id) !== controllerId,
+          })));
+        break;
+      default:
+        if (!targetType.startsWith('graveyard_')) {
+          break;
+        }
+
+        for (const ownerId of (targetReqs.graveyardScope === 'any'
+          ? players.filter((player: any) => player?.id).map((player: any) => String(player.id))
+          : [controllerId])) {
+          const graveyard = Array.isArray(zones?.[ownerId]?.graveyard) ? zones[ownerId].graveyard : [];
+          validTargets.push(...graveyard
+            .filter((card: any) => {
+              if (!matchesSharedGraveyardCardTargetType(card, targetType)) {
+                return false;
+              }
+              if (typeof (targetReqs as any).targetFilterExactManaValue === 'number' && Number.isFinite((targetReqs as any).targetFilterExactManaValue)) {
+                if (cardManaValue(card) !== Number((targetReqs as any).targetFilterExactManaValue)) {
+                  return false;
+                }
+              }
+              if (typeof (targetReqs as any).targetFilterMinManaValue === 'number' && Number.isFinite((targetReqs as any).targetFilterMinManaValue)) {
+                if (cardManaValue(card) < Number((targetReqs as any).targetFilterMinManaValue)) {
+                  return false;
+                }
+              }
+              if (typeof (targetReqs as any).targetFilterMaxManaValue === 'number' && Number.isFinite((targetReqs as any).targetFilterMaxManaValue)) {
+                if (cardManaValue(card) > Number((targetReqs as any).targetFilterMaxManaValue)) {
+                  return false;
+                }
+              }
+              return true;
+            })
+            .map((card: any) => ({
+              id: String(card.id),
+              name: card.name || 'Card',
+              type: 'graveyard_card',
+              controller: ownerId,
+              zoneOwnerId: ownerId,
+              imageUrl: card.image_uris?.small || card.image_uris?.normal,
+              isOpponent: ownerId !== controllerId,
+              typeLine: card.type_line,
+            })));
+        }
+        break;
+    }
+  }
+
+  return validTargets.filter((target, index, all) => all.findIndex((candidate) => candidate.id === target.id) === index);
+}
+
+function queueGraveyardSpellCastTargetSelection(params: {
+  gameId: string;
+  game: any;
+  playerId: string;
+  cardId: string;
+  abilityId: string;
+  card: any;
+  manaCost?: string;
+  lifeToPayForCost?: number;
+  discardedCardIdsForCost?: string[];
+  exiledCardIdsFromGraveyardForCost?: string[];
+  emitError: (payload: { code: string; message: string }) => void;
+}): 'queued' | 'error' | null {
+  const cardName = String(params.card?.name || 'Spell');
+  const targetReqs = parseTargetRequirements(String(params.card?.oracle_text || ''), {
+    gameState: params.game.state,
+    controllerId: String(params.playerId),
+    sourceName: cardName,
+  });
+  if (!targetReqs.needsTargets) {
+    return null;
+  }
+
+  const minTargets = Number(targetReqs.minTargets ?? 1);
+  const maxTargets = Number(targetReqs.maxTargets ?? minTargets);
+  const validTargets = buildGraveyardSpellCastValidTargets(params.game, String(params.playerId), targetReqs);
+  if (validTargets.length < minTargets) {
+    params.emitError({
+      code: 'NO_VALID_TARGETS',
+      message: `${cardName} requires at least ${minTargets} target(s), but only ${validTargets.length} are available.`,
+    });
+    return 'error';
+  }
+
+  const existing = ResolutionQueueManager
+    .getStepsForPlayer(params.gameId, params.playerId as any)
+    .find((step: any) =>
+      step?.type === ResolutionStepType.TARGET_SELECTION
+      && (step as any)?.graveyardSpellCastTargetSelection === true
+      && String((step as any)?.cardId || step?.sourceId || '') === String(params.cardId)
+    );
+  if (!existing) {
+    const targetDescription = String(targetReqs.targetDescription || 'target');
+    const targetStep = ResolutionQueueManager.addStep(params.gameId, {
+      type: ResolutionStepType.TARGET_SELECTION,
+      playerId: params.playerId as PlayerID,
+      sourceId: params.cardId,
+      sourceName: cardName,
+      sourceImage: params.card?.image_uris?.small || params.card?.image_uris?.normal,
+      description: `Choose ${targetDescription} for ${cardName}`,
+      mandatory: minTargets > 0,
+      validTargets: validTargets.map((target) => ({
+        id: target.id,
+        label: target.name,
+        description: target.typeLine || target.type,
+        imageUrl: target.imageUrl,
+        type: target.type === 'player' ? 'player' : (target.type === 'card' ? 'card' : 'permanent'),
+        controller: target.controller,
+        life: target.life,
+        isOpponent: target.isOpponent,
+        typeLine: target.typeLine,
+        zoneOwnerId: target.zoneOwnerId,
+      })),
+      targetTypes: Array.isArray(targetReqs.targetTypes) ? targetReqs.targetTypes : ['spell_target'],
+      minTargets,
+      maxTargets,
+      targetDescription,
+      graveyardSpellCastTargetSelection: true,
+      cardId: params.cardId,
+      abilityId: params.abilityId,
+      cardName,
+      manaCost: params.manaCost || undefined,
+      lifeToPayForCost: Number(params.lifeToPayForCost || 0) > 0 ? Number(params.lifeToPayForCost || 0) : undefined,
+      discardedCardIdsForCost: Array.isArray(params.discardedCardIdsForCost) && params.discardedCardIdsForCost.length > 0
+        ? params.discardedCardIdsForCost.slice()
+        : undefined,
+      exiledCardIdsFromGraveyardForCost: Array.isArray(params.exiledCardIdsFromGraveyardForCost) && params.exiledCardIdsFromGraveyardForCost.length > 0
+        ? params.exiledCardIdsFromGraveyardForCost.slice()
+        : undefined,
+    } as any);
+
+    persistQueuedGraveyardAbilityStepActivation({
+      gameId: params.gameId,
+      game: params.game,
+      playerId: String(params.playerId),
+      cardId: String(params.cardId),
+      abilityId: String(params.abilityId),
+      queuedStep: {
+        ...(targetStep as any),
+      },
+    });
+  }
+
+  return 'queued';
+}
+
+export function finalizeGraveyardSpellCast(params: {
+  gameId: string;
+  game: any;
+  io: Server;
+  playerId: string;
+  cardId: string;
+  abilityId: string;
+  targets?: unknown;
+  manaCost?: string;
+  lifePaidForCost?: number;
+  discardedCardIds?: string[];
+  exiledCardIdsFromGraveyardForCost?: string[];
+  stackId?: string;
+  emitError: (payload: { code: string; message: string }) => void;
+}): 'cast' | 'error' {
+  const zones = (params.game.state as any)?.zones?.[params.playerId];
+  const graveyard = Array.isArray(zones?.graveyard) ? zones.graveyard : [];
+  const cardIndex = graveyard.findIndex((entry: any) => entry && String(entry.id) === String(params.cardId));
+  if (cardIndex === -1) {
+    params.emitError({ code: 'CARD_NOT_IN_GRAVEYARD', message: 'Card not found in graveyard' });
+    return 'error';
+  }
+
+  const normalizedTargets = normalizeSelectedTargetIds(params.targets);
+  const [card] = graveyard.splice(cardIndex, 1);
+  zones.graveyardCount = graveyard.length;
+  markCardLeftGraveyardLive(params.game, params.playerId, card);
+  markCastFromGraveyardLive(params.game, params.playerId);
+
+  const stackId = String(params.stackId || '').trim() || generateId('stack');
+  const stackItem = {
+    id: stackId,
+    controller: params.playerId,
+    card: { ...card, zone: 'stack', castWithAbility: params.abilityId },
+    targets: normalizedTargets,
+  };
+
+  params.game.state.stack = params.game.state.stack || [];
+  params.game.state.stack.push(stackItem as any);
+
+  if (typeof params.game.bumpSeq === 'function') {
+    params.game.bumpSeq();
+  }
+
+  try {
+    appendEvent(params.gameId, (params.game as any).seq ?? 0, 'activateGraveyardAbility', {
+      playerId: params.playerId,
+      cardId: params.cardId,
+      abilityId: params.abilityId,
+      stackId,
+      manaCost: params.manaCost || undefined,
+      lifePaidForCost: Number(params.lifePaidForCost || 0) > 0 ? Number(params.lifePaidForCost || 0) : undefined,
+      discardedCardIds: Array.isArray(params.discardedCardIds) && params.discardedCardIds.length > 0 ? params.discardedCardIds.slice() : undefined,
+      exiledCardIdsFromGraveyardForCost: Array.isArray(params.exiledCardIdsFromGraveyardForCost) && params.exiledCardIdsFromGraveyardForCost.length > 0
+        ? params.exiledCardIdsFromGraveyardForCost.slice()
+        : undefined,
+      targets: normalizedTargets.length > 0 ? normalizedTargets.slice() : undefined,
+    });
+  } catch (err) {
+    debugWarn(1, 'appendEvent(activateGraveyardAbility) failed:', err);
+  }
+
+  params.io.to(params.gameId).emit('chat', {
+    id: `m_${Date.now()}`,
+    gameId: params.gameId,
+    from: 'system',
+    message: `${getPlayerName(params.game, params.playerId)} cast ${String(card?.name || 'that spell')} using ${params.abilityId}.`,
+    ts: Date.now(),
+  });
+
+  recordSpellCastThisTurn(params.game, params.playerId, stackItem.card, 'graveyard');
+  processSpellCastTriggersForCast(params.gameId, params.game, params.io as any, params.playerId, stackItem.card, 'graveyard', stackId);
+  if (normalizedTargets.length > 0) {
+    processHeroicTriggersForTargets(params.game, params.playerId, normalizedTargets, params.io as any, params.gameId);
+  }
+  processOpponentSpellCastTriggersForCast(params.gameId, params.game, params.io as any, params.playerId, stackItem.card);
+
+  return 'cast';
+}
+
+export function continueCastFromGraveyardAbility(params: {
+  gameId: string;
+  game: any;
+  io: Server;
+  playerId: string;
+  cardId: string;
+  abilityId: string;
+  targets?: unknown;
+  discardedCardIds?: string[];
+  exiledCardIdsFromGraveyardForCost?: string[];
+  emitError: (payload: { code: string; message: string }) => void;
+}): 'queued' | 'cast' | 'error' {
+  const zones = (params.game.state as any)?.zones?.[params.playerId];
+  if (!zones || !Array.isArray(zones.graveyard)) {
+    params.emitError({ code: 'GRAVEYARD_NOT_FOUND', message: 'Graveyard not found' });
+    return 'error';
+  }
+
+  const cardIndex = zones.graveyard.findIndex((entry: any) => entry?.id === params.cardId);
+  if (cardIndex === -1) {
+    params.emitError({ code: 'CARD_NOT_IN_GRAVEYARD', message: 'Card not found in graveyard' });
+    return 'error';
+  }
+
+  const card = zones.graveyard[cardIndex];
+  const cardName = card?.name || 'Unknown';
+  const normalizedTargets = normalizeSelectedTargetIds(params.targets);
+  const activationCost = getCastFromGraveyardActivationCost(card, params.abilityId);
+  const recordedManaCost = String(activationCost.manaCost || '').trim();
+  const recordedLifeCost = Number(activationCost.lifeCost || 0);
+  const discardCost = getCastFromGraveyardDiscardCost(params.abilityId);
+  const exileCost = getCastFromGraveyardExileCost(card, params.abilityId);
+
+  if (discardCost && !(Array.isArray(params.discardedCardIds) && params.discardedCardIds.length >= discardCost.discardCount)) {
+    const hand = Array.isArray(zones.hand) ? zones.hand : [];
+    const eligibleHand = discardCost.discardTypeRestriction
+      ? hand.filter((entry: any) => String(entry?.type_line || '').toLowerCase().includes(discardCost.discardTypeRestriction as string))
+      : hand;
+
+    if (eligibleHand.length < discardCost.discardCount) {
+      params.emitError({
+        code: 'CANNOT_PAY_COST',
+        message: discardCost.discardTypeRestriction
+          ? `Cannot cast ${cardName} using ${params.abilityId}: you need to discard ${discardCost.discardCount} ${discardCost.discardTypeRestriction} card${discardCost.discardCount === 1 ? '' : 's'}.`
+          : `Cannot cast ${cardName} using ${params.abilityId}: you need to discard ${discardCost.discardCount} card${discardCost.discardCount === 1 ? '' : 's'}.`,
+      });
+      return 'error';
+    }
+
+    const discardTypeLabel = discardCost.discardTypeRestriction ? `${discardCost.discardTypeRestriction} ` : '';
+    const discardStep = ResolutionQueueManager.addStep(params.gameId, {
+      type: ResolutionStepType.DISCARD_SELECTION,
+      playerId: params.playerId as PlayerID,
+      sourceId: params.cardId,
+      sourceName: cardName,
+      sourceImage: (card as any)?.image_uris?.small || (card as any)?.image_uris?.normal,
+      description: `${cardName}: Discard ${discardCost.discardCount} ${discardTypeLabel}card${discardCost.discardCount === 1 ? '' : 's'} to cast it using ${params.abilityId}.`,
+      mandatory: false,
+      hand: eligibleHand,
+      discardCount: discardCost.discardCount,
+      currentHandSize: eligibleHand.length,
+      maxHandSize: Math.max(7, eligibleHand.length),
+      reason: 'activation_cost',
+      graveyardCastDiscardAsCost: true,
+      cardId: params.cardId,
+      abilityId: params.abilityId,
+      cardName,
+      manaCost: recordedManaCost || undefined,
+      lifeToPayForCost: recordedLifeCost > 0 ? recordedLifeCost : undefined,
+      discardTypeRestriction: discardCost.discardTypeRestriction || undefined,
+      targetsForCast: normalizedTargets.length > 0 ? normalizedTargets : undefined,
+    } as any);
+
+    persistQueuedGraveyardAbilityStepActivation({
+      gameId: params.gameId,
+      game: params.game,
+      playerId: String(params.playerId),
+      cardId: String(params.cardId),
+      abilityId: String(params.abilityId),
+      queuedStep: {
+        ...(discardStep as any),
+      },
+    });
+    return 'queued';
+  }
+
+  if (exileCost && !(Array.isArray(params.exiledCardIdsFromGraveyardForCost) && params.exiledCardIdsFromGraveyardForCost.length >= exileCost.exileCount)) {
+    const graveyardCards = Array.isArray(zones.graveyard) ? zones.graveyard : [];
+    const eligibleGraveyardCards = graveyardCards.filter((entry: any) => String(entry?.id || '') !== String(params.cardId));
+
+    if (eligibleGraveyardCards.length < exileCost.exileCount) {
+      params.emitError({
+        code: 'CANNOT_PAY_COST',
+        message: `Cannot cast ${cardName} using ${params.abilityId}: you need to exile ${exileCost.exileCount} other card${exileCost.exileCount === 1 ? '' : 's'} from your graveyard.`,
+      });
+      return 'error';
+    }
+
+    const exileStep = ResolutionQueueManager.addStep(params.gameId, {
+      type: ResolutionStepType.GRAVEYARD_SELECTION,
+      playerId: params.playerId as PlayerID,
+      sourceId: params.cardId,
+      sourceName: cardName,
+      sourceImage: (card as any)?.image_uris?.small || (card as any)?.image_uris?.normal,
+      description: `${cardName}: Exile ${exileCost.exileCount} other card${exileCost.exileCount === 1 ? '' : 's'} from your graveyard to cast it using ${params.abilityId}.`,
+      mandatory: false,
+      targetPlayerId: params.playerId,
+      minTargets: exileCost.exileCount,
+      maxTargets: exileCost.exileCount,
+      destination: 'exile',
+      cardId: params.cardId,
+      cardName,
+      title: `Exile ${exileCost.exileCount} other card${exileCost.exileCount === 1 ? '' : 's'} for ${cardName}`,
+      validTargets: eligibleGraveyardCards.map((graveyardCard: any) => ({
+        id: graveyardCard.id,
+        label: graveyardCard.name || 'Card',
+        description: graveyardCard.type_line || 'Card',
+        imageUrl: graveyardCard.image_uris?.small || graveyardCard.image_uris?.normal,
+      })),
+      graveyardCastExileAsCost: true,
+      abilityId: params.abilityId,
+      manaCost: recordedManaCost || undefined,
+      lifeToPayForCost: recordedLifeCost > 0 ? recordedLifeCost : undefined,
+      targetsForCast: normalizedTargets.length > 0 ? normalizedTargets : undefined,
+    } as any);
+
+    persistQueuedGraveyardAbilityStepActivation({
+      gameId: params.gameId,
+      game: params.game,
+      playerId: String(params.playerId),
+      cardId: String(params.cardId),
+      abilityId: String(params.abilityId),
+      queuedStep: {
+        ...(exileStep as any),
+      },
+    });
+    return 'queued';
+  }
+
+  if (normalizedTargets.length === 0) {
+    const targetSelectionResult = queueGraveyardSpellCastTargetSelection({
+      gameId: params.gameId,
+      game: params.game,
+      playerId: params.playerId,
+      cardId: params.cardId,
+      abilityId: params.abilityId,
+      card,
+      manaCost: recordedManaCost,
+      lifeToPayForCost: recordedLifeCost,
+      discardedCardIdsForCost: params.discardedCardIds,
+      exiledCardIdsFromGraveyardForCost: params.exiledCardIdsFromGraveyardForCost,
+      emitError: params.emitError,
+    });
+    if (targetSelectionResult) {
+      return targetSelectionResult;
+    }
+  }
+
+  if (recordedManaCost) {
+    const parsedCost = parseManaCost(recordedManaCost);
+    const pool = getOrInitManaPool(params.game.state, params.playerId);
+    const totalAvailable = calculateTotalAvailableMana(pool, []);
+    const validationError = validateManaPayment(totalAvailable, parsedCost.colors, parsedCost.generic);
+    if (validationError) {
+      params.emitError({ code: 'INSUFFICIENT_MANA', message: `Cannot pay ${recordedManaCost}: ${validationError}` });
+      return 'error';
+    }
+    consumeManaFromPool(pool, parsedCost.colors, parsedCost.generic, `[activateGraveyardAbility:${cardName}]`);
+  }
+
+  if (recordedLifeCost > 0) {
+    const currentLife = Number(params.game.state.life?.[params.playerId] ?? params.game.state.startingLife ?? 40);
+    if (!Number.isFinite(currentLife) || currentLife <= recordedLifeCost) {
+      params.emitError({
+        code: 'INSUFFICIENT_LIFE',
+        message: `Cannot pay ${recordedLifeCost} life (you have ${Number.isFinite(currentLife) ? currentLife : 0} life)`,
+      });
+      return 'error';
+    }
+    params.game.state.life = params.game.state.life || {};
+    params.game.state.life[params.playerId] = currentLife - recordedLifeCost;
+    try {
+      (params.game.state as any).lifeLostThisTurn = (params.game.state as any).lifeLostThisTurn || {};
+      (params.game.state as any).lifeLostThisTurn[String(params.playerId)] = ((params.game.state as any).lifeLostThisTurn[String(params.playerId)] || 0) + recordedLifeCost;
+    } catch {}
+  }
+
+  return finalizeGraveyardSpellCast({
+    gameId: params.gameId,
+    game: params.game,
+    io: params.io,
+    playerId: params.playerId,
+    cardId: params.cardId,
+    abilityId: params.abilityId,
+    targets: normalizedTargets,
+    manaCost: recordedManaCost || undefined,
+    lifePaidForCost: recordedLifeCost > 0 ? recordedLifeCost : undefined,
+    discardedCardIds: params.discardedCardIds,
+    exiledCardIdsFromGraveyardForCost: params.exiledCardIdsFromGraveyardForCost,
+    emitError: params.emitError,
+  });
 }
 
 function getNextEndStepFireTurnNumber(state: any): number {
@@ -2294,7 +2880,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
   // Handle graveyard ability activation
   socket.on(
     "activateGraveyardAbility",
-    (payload?: { gameId?: unknown; cardId?: unknown; abilityId?: unknown }) => {
+    (payload?: { gameId?: unknown; cardId?: unknown; abilityId?: unknown; targets?: unknown }) => {
       const gameIdRaw = payload?.gameId;
       const cardId = payload?.cardId;
       const abilityId = payload?.abilityId;
@@ -2341,260 +2927,20 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     
     // Handle different graveyard abilities
     if (abilityId === "flashback" || abilityId === "jump-start" || abilityId === "retrace" || abilityId === "escape") {
-      const activationCost = getCastFromGraveyardActivationCost(card, abilityId);
-      const recordedManaCost = String(activationCost.manaCost || '').trim();
-      const recordedLifeCost = Number(activationCost.lifeCost || 0);
-      const discardCost = getCastFromGraveyardDiscardCost(abilityId);
-      const exileCost = getCastFromGraveyardExileCost(card, abilityId);
-
-      if (discardCost) {
-        const hand = Array.isArray(zones.hand) ? zones.hand : [];
-        const eligibleHand = discardCost.discardTypeRestriction
-          ? hand.filter((entry: any) => String(entry?.type_line || '').toLowerCase().includes(discardCost.discardTypeRestriction as string))
-          : hand;
-
-        if (eligibleHand.length < discardCost.discardCount) {
-          socket.emit("error", {
-            code: "CANNOT_PAY_COST",
-            message: discardCost.discardTypeRestriction
-              ? `Cannot cast ${cardName} using ${abilityId}: you need to discard ${discardCost.discardCount} ${discardCost.discardTypeRestriction} card${discardCost.discardCount === 1 ? '' : 's'}.`
-              : `Cannot cast ${cardName} using ${abilityId}: you need to discard ${discardCost.discardCount} card${discardCost.discardCount === 1 ? '' : 's'}.`,
-          });
-          return;
-        }
-
-        const existing = ResolutionQueueManager
-          .getStepsForPlayer(gameId, pid as any)
-          .find(
-            (s: any) =>
-              s?.type === ResolutionStepType.DISCARD_SELECTION &&
-              (s as any)?.graveyardCastDiscardAsCost === true &&
-              String((s as any)?.cardId || s?.sourceId || '') === String(cardId)
-          );
-
-        if (!existing) {
-          const discardTypeLabel = discardCost.discardTypeRestriction ? `${discardCost.discardTypeRestriction} ` : '';
-          const discardStep = ResolutionQueueManager.addStep(gameId, {
-            type: ResolutionStepType.DISCARD_SELECTION,
-            playerId: pid as PlayerID,
-            sourceId: cardId,
-            sourceName: cardName,
-            sourceImage: (card as any)?.image_uris?.small || (card as any)?.image_uris?.normal,
-            description: `${cardName}: Discard ${discardCost.discardCount} ${discardTypeLabel}card${discardCost.discardCount === 1 ? '' : 's'} to cast it using ${abilityId}.`,
-            mandatory: false,
-            hand: eligibleHand,
-            discardCount: discardCost.discardCount,
-            currentHandSize: eligibleHand.length,
-            maxHandSize: Math.max(7, eligibleHand.length),
-            reason: 'activation_cost',
-            graveyardCastDiscardAsCost: true,
-            cardId,
-            abilityId,
-            cardName,
-            manaCost: recordedManaCost || undefined,
-            lifeToPayForCost: recordedLifeCost > 0 ? recordedLifeCost : undefined,
-            discardTypeRestriction: discardCost.discardTypeRestriction || undefined,
-          } as any);
-
-          persistQueuedGraveyardAbilityStepActivation({
-            gameId,
-            game,
-            playerId: String(pid),
-            cardId: String(cardId),
-            abilityId: String(abilityId),
-            queuedStep: {
-              id: String((discardStep as any).id || ''),
-              type: ResolutionStepType.DISCARD_SELECTION,
-              playerId: pid,
-              sourceId: cardId,
-              sourceName: cardName,
-              sourceImage: (card as any)?.image_uris?.small || (card as any)?.image_uris?.normal,
-              description: `${cardName}: Discard ${discardCost.discardCount} ${discardTypeLabel}card${discardCost.discardCount === 1 ? '' : 's'} to cast it using ${abilityId}.`,
-              mandatory: false,
-              hand: eligibleHand,
-              discardCount: discardCost.discardCount,
-              currentHandSize: eligibleHand.length,
-              maxHandSize: Math.max(7, eligibleHand.length),
-              reason: 'activation_cost',
-              graveyardCastDiscardAsCost: true,
-              cardId,
-              abilityId,
-              cardName,
-              manaCost: recordedManaCost || undefined,
-              lifeToPayForCost: recordedLifeCost > 0 ? recordedLifeCost : undefined,
-              discardTypeRestriction: discardCost.discardTypeRestriction || undefined,
-            },
-          });
-        }
-
-        broadcastGame(io, game, gameId);
-        return;
-      }
-
-      if (exileCost) {
-        const graveyardCards = Array.isArray(zones.graveyard) ? zones.graveyard : [];
-        const eligibleGraveyardCards = graveyardCards.filter((entry: any) => String(entry?.id || '') !== String(cardId));
-
-        if (eligibleGraveyardCards.length < exileCost.exileCount) {
-          socket.emit("error", {
-            code: "CANNOT_PAY_COST",
-            message: `Cannot cast ${cardName} using ${abilityId}: you need to exile ${exileCost.exileCount} other card${exileCost.exileCount === 1 ? '' : 's'} from your graveyard.`,
-          });
-          return;
-        }
-
-        const existing = ResolutionQueueManager
-          .getStepsForPlayer(gameId, pid as any)
-          .find(
-            (s: any) =>
-              s?.type === ResolutionStepType.GRAVEYARD_SELECTION &&
-              (s as any)?.graveyardCastExileAsCost === true &&
-              String((s as any)?.cardId || s?.sourceId || '') === String(cardId)
-          );
-
-        if (!existing) {
-          const exileStep = ResolutionQueueManager.addStep(gameId, {
-            type: ResolutionStepType.GRAVEYARD_SELECTION,
-            playerId: pid as PlayerID,
-            sourceId: cardId,
-            sourceName: cardName,
-            sourceImage: (card as any)?.image_uris?.small || (card as any)?.image_uris?.normal,
-            description: `${cardName}: Exile ${exileCost.exileCount} other card${exileCost.exileCount === 1 ? '' : 's'} from your graveyard to cast it using ${abilityId}.`,
-            mandatory: false,
-            targetPlayerId: pid,
-            minTargets: exileCost.exileCount,
-            maxTargets: exileCost.exileCount,
-            destination: 'exile',
-            cardId,
-            cardName,
-            title: `Exile ${exileCost.exileCount} other card${exileCost.exileCount === 1 ? '' : 's'} for ${cardName}`,
-            validTargets: eligibleGraveyardCards.map((graveyardCard: any) => ({
-              id: graveyardCard.id,
-              label: graveyardCard.name || 'Card',
-              description: graveyardCard.type_line || 'Card',
-              imageUrl: graveyardCard.image_uris?.small || graveyardCard.image_uris?.normal,
-            })),
-            graveyardCastExileAsCost: true,
-            abilityId,
-            manaCost: recordedManaCost || undefined,
-            lifeToPayForCost: recordedLifeCost > 0 ? recordedLifeCost : undefined,
-          } as any);
-
-          persistQueuedGraveyardAbilityStepActivation({
-            gameId,
-            game,
-            playerId: String(pid),
-            cardId: String(cardId),
-            abilityId: String(abilityId),
-            queuedStep: {
-              id: String((exileStep as any).id || ''),
-              type: ResolutionStepType.GRAVEYARD_SELECTION,
-              playerId: pid,
-              sourceId: cardId,
-              sourceName: cardName,
-              sourceImage: (card as any)?.image_uris?.small || (card as any)?.image_uris?.normal,
-              description: `${cardName}: Exile ${exileCost.exileCount} other card${exileCost.exileCount === 1 ? '' : 's'} from your graveyard to cast it using ${abilityId}.`,
-              mandatory: false,
-              targetPlayerId: pid,
-              minTargets: exileCost.exileCount,
-              maxTargets: exileCost.exileCount,
-              destination: 'exile',
-              cardId,
-              cardName,
-              title: `Exile ${exileCost.exileCount} other card${exileCost.exileCount === 1 ? '' : 's'} for ${cardName}`,
-              validTargets: eligibleGraveyardCards.map((graveyardCard: any) => ({
-                id: graveyardCard.id,
-                label: graveyardCard.name || 'Card',
-                description: graveyardCard.type_line || 'Card',
-                imageUrl: graveyardCard.image_uris?.small || graveyardCard.image_uris?.normal,
-              })),
-              graveyardCastExileAsCost: true,
-              abilityId,
-              manaCost: recordedManaCost || undefined,
-              lifeToPayForCost: recordedLifeCost > 0 ? recordedLifeCost : undefined,
-            },
-          });
-        }
-
-        broadcastGame(io, game, gameId);
-        return;
-      }
-
-      if (recordedManaCost) {
-        const parsedCost = parseManaCost(recordedManaCost);
-        const pool = getOrInitManaPool(game.state, pid);
-        const totalAvailable = calculateTotalAvailableMana(pool, []);
-        const validationError = validateManaPayment(totalAvailable, parsedCost.colors, parsedCost.generic);
-        if (validationError) {
-          socket.emit("error", {
-            code: "INSUFFICIENT_MANA",
-            message: `Cannot pay ${recordedManaCost}: ${validationError}`,
-          });
-          return;
-        }
-        consumeManaFromPool(pool, parsedCost.colors, parsedCost.generic, `[activateGraveyardAbility:${cardName}]`);
-      }
-
-      if (recordedLifeCost > 0) {
-        const currentLife = Number(game.state.life?.[pid] ?? game.state.startingLife ?? 40);
-        if (!Number.isFinite(currentLife) || currentLife <= recordedLifeCost) {
-          socket.emit("error", {
-            code: "INSUFFICIENT_LIFE",
-            message: `Cannot pay ${recordedLifeCost} life (you have ${Number.isFinite(currentLife) ? currentLife : 0} life)`,
-          });
-          return;
-        }
-        game.state.life = game.state.life || {};
-        game.state.life[pid] = currentLife - recordedLifeCost;
-        try {
-          (game.state as any).lifeLostThisTurn = (game.state as any).lifeLostThisTurn || {};
-          (game.state as any).lifeLostThisTurn[String(pid)] = ((game.state as any).lifeLostThisTurn[String(pid)] || 0) + recordedLifeCost;
-        } catch {}
-      }
-
-      // Cast from graveyard - move to stack
-      // Remove from graveyard
-      zones.graveyard.splice(cardIndex, 1);
-      zones.graveyardCount = zones.graveyard.length;
-      markCardLeftGraveyardLive(game, pid, card);
-      markCastFromGraveyardLive(game, pid);
-      
-      // Add to stack
-      const stackId = generateId("stack");
-      const stackItem = {
-        id: stackId,
-        controller: pid,
-        card: { ...card, zone: "stack", castWithAbility: abilityId },
-        targets: [],
-      };
-      
-      game.state.stack = game.state.stack || [];
-      game.state.stack.push(stackItem as any);
-      
-      if (typeof game.bumpSeq === "function") {
-        game.bumpSeq();
-      }
-      
-      appendEvent(gameId, (game as any).seq ?? 0, "activateGraveyardAbility", {
-        playerId: pid,
-        cardId,
-        abilityId,
-        stackId,
-        manaCost: recordedManaCost || undefined,
-        lifePaidForCost: recordedLifeCost > 0 ? recordedLifeCost : undefined,
-      });
-      
-      io.to(gameId).emit("chat", {
-        id: `m_${Date.now()}`,
+      const result = continueCastFromGraveyardAbility({
         gameId,
-        from: "system",
-        message: `${getPlayerName(game, pid)} cast ${cardName} using ${abilityId}.`,
-        ts: Date.now(),
+        game,
+        io: io as any,
+        playerId: String(pid),
+        cardId: String(cardId),
+        abilityId: String(abilityId),
+        targets: payload?.targets,
+        emitError: (errorPayload) => socket.emit('error', errorPayload),
       });
-
-      recordSpellCastThisTurn(game, pid, stackItem.card, 'graveyard');
-      processSpellCastTriggersForCast(gameId, game, io as any, pid, stackItem.card, 'graveyard', stackId);
-      processOpponentSpellCastTriggersForCast(gameId, game, io as any, pid, stackItem.card);
+      if (result !== 'error') {
+        broadcastGame(io, game, gameId);
+      }
+      return;
     } else if (abilityId === "unearth") {
       const recordedManaCost = String(getKeywordGraveyardActivationManaCost(card, abilityId) || '').trim();
       if (recordedManaCost) {
@@ -3121,7 +3467,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       const stackItem = {
         id: stackId,
         controller: pid,
-        card: { ...card, zone: "stack", castWithAbility: "disturb", transformed: true },
+        card: buildDisturbCastCard(card),
         targets: [],
       };
       
@@ -3147,6 +3493,10 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         message: `${getPlayerName(game, pid)} cast ${cardName} using disturb (transformed).`,
         ts: Date.now(),
       });
+
+      recordSpellCastThisTurn(game, pid, stackItem.card, 'graveyard');
+      processSpellCastTriggersForCast(gameId, game, io as any, pid, stackItem.card, 'graveyard', stackId);
+      processOpponentSpellCastTriggersForCast(gameId, game, io as any, pid, stackItem.card);
     } else if (abilityId === "exile-to-add-counters" || oracleText.includes("exile this card from your graveyard") && oracleText.includes("counter")) {
       // Cards like Valiant Veteran: "{3}{W}{W}, Exile this card from your graveyard: Put a +1/+1 counter on each Soldier you control."
       // Parse the creature type from oracle text

@@ -4,6 +4,7 @@ import { createGameIfNotExists, deleteGame, getEvents, initDb } from '../src/db/
 import GameManager from '../src/GameManager.js';
 import { registerGameActions } from '../src/socket/game-actions.js';
 import { registerInteractionHandlers } from '../src/socket/interaction.js';
+import { registerResolutionHandlers } from '../src/socket/resolution.js';
 import { games } from '../src/socket/socket.js';
 import { ensureGame } from '../src/socket/util.js';
 import { ResolutionQueueManager } from '../src/state/resolution/index.js';
@@ -93,7 +94,10 @@ describe('cast spell trigger persistence (integration)', () => {
   const grafkeeperFlashbackGameId = 'test_spell_cast_trigger_persistence_grafkeeper_flashback';
   const rhysticFlashbackGameId = 'test_spell_cast_trigger_persistence_rhystic_flashback';
   const ominousRoostFlashbackGameId = 'test_spell_cast_trigger_persistence_ominous_roost_flashback';
-  const resetGameIds = [merrowGameId, rhysticGameId, vegaHandGameId, vegaExileGameId, appaHandGameId, appaExileGameId, grafkeeperFlashbackGameId, rhysticFlashbackGameId, ominousRoostFlashbackGameId];
+  const heroicFlashbackGameId = 'test_spell_cast_trigger_persistence_heroic_flashback';
+  const jumpStartTargetGameId = 'test_spell_cast_trigger_persistence_jump_start_target';
+  const disturbTriggerGameId = 'test_spell_cast_trigger_persistence_disturb_trigger';
+  const resetGameIds = [merrowGameId, rhysticGameId, vegaHandGameId, vegaExileGameId, appaHandGameId, appaExileGameId, grafkeeperFlashbackGameId, rhysticFlashbackGameId, ominousRoostFlashbackGameId, heroicFlashbackGameId, jumpStartTargetGameId, disturbTriggerGameId];
 
   beforeAll(async () => {
     await initDb();
@@ -652,5 +656,192 @@ describe('cast spell trigger persistence (integration)', () => {
     expect(String((tokenPermanent as any)?.card?.name || '')).toContain('Bird');
     expect(String((tokenPermanent as any)?.card?.type_line || '')).toContain('Bird');
     expect(String((tokenPermanent as any)?.card?.oracle_text || '')).toContain('Flying');
+  });
+
+  it('fires graveyard spell-cast triggers for live disturb casts', async () => {
+    const game = setupCastingGame(disturbTriggerGameId);
+    (game.state as any).battlefield = [
+      {
+        id: 'ominous_roost_disturb_1',
+        controller: 'p1',
+        owner: 'p1',
+        tapped: false,
+        card: {
+          id: 'ominous_roost_disturb_card',
+          name: 'Ominous Roost',
+          type_line: 'Enchantment',
+          oracle_text: 'Whenever you cast a spell from your graveyard, create a 1/1 blue Bird creature token with flying.',
+        },
+      },
+    ];
+    (game.state as any).manaPool = {
+      p1: { white: 0, blue: 1, black: 0, red: 0, green: 0, colorless: 2 },
+      p2: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+    };
+    (game.state as any).zones.p1.graveyard = [
+      {
+        id: 'disturb_spell_1',
+        name: 'Baithook Angler',
+        mana_cost: '{1}{U}',
+        manaCost: '{1}{U}',
+        type_line: 'Creature - Human Peasant',
+        oracle_text: 'Disturb {2}{U}',
+        zone: 'graveyard',
+      },
+    ];
+    (game.state as any).zones.p1.graveyardCount = 1;
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket('p1', disturbTriggerGameId, emitted);
+    const io = createMockIo(emitted, [socket]);
+    registerInteractionHandlers(io as any, socket as any);
+
+    await handlers['activateGraveyardAbility']({
+      gameId: disturbTriggerGameId,
+      cardId: 'disturb_spell_1',
+      abilityId: 'disturb',
+    });
+
+    const playerPermanents = ((game.state as any).battlefield || []).filter((perm: any) => String(perm?.controller || '') === 'p1');
+    expect(playerPermanents).toHaveLength(2);
+    const tokenPermanent = playerPermanents.find((perm: any) => (perm as any)?.isToken === true);
+    expect(tokenPermanent).toBeDefined();
+    expect(String((tokenPermanent as any)?.card?.name || '')).toContain('Bird');
+  });
+
+  it('fires heroic triggers for targeted flashback casts', async () => {
+    const game = setupCastingGame(heroicFlashbackGameId);
+    (game.state as any).battlefield = [
+      {
+        id: 'heroic_1',
+        controller: 'p1',
+        owner: 'p1',
+        tapped: false,
+        counters: {},
+        card: {
+          id: 'favored_hoplite_card',
+          name: 'Favored Hoplite',
+          type_line: 'Creature - Human Soldier',
+          oracle_text: 'Heroic — Whenever you cast a spell that targets Favored Hoplite, put a +1/+1 counter on Favored Hoplite.',
+        },
+      },
+    ];
+    (game.state as any).zones.p1.graveyard = [
+      {
+        id: 'flashback_blessing_1',
+        name: 'Heroic Blessing',
+        mana_cost: '{0}',
+        manaCost: '{0}',
+        type_line: 'Instant',
+        oracle_text: 'Target creature gets +1/+1 until end of turn.\nFlashback {0}',
+      },
+    ];
+    (game.state as any).zones.p1.graveyardCount = 1;
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket('p1', heroicFlashbackGameId, emitted);
+    const io = createMockIo(emitted, [socket]);
+    registerInteractionHandlers(io as any, socket as any);
+
+    await handlers['activateGraveyardAbility']({
+      gameId: heroicFlashbackGameId,
+      cardId: 'flashback_blessing_1',
+      abilityId: 'flashback',
+      targets: ['heroic_1'],
+    });
+
+    const heroicPermanent = ((game.state as any).battlefield || []).find((item: any) => item?.id === 'heroic_1');
+    expect(heroicPermanent?.counters?.['+1/+1']).toBe(1);
+
+    const stack = (game.state as any).stack || [];
+    expect(stack).toHaveLength(1);
+    expect(stack[0]?.card?.id).toBe('flashback_blessing_1');
+    expect(stack[0]?.targets).toEqual(['heroic_1']);
+  });
+
+  it('preserves jump-start targets across the discard-cost continuation', async () => {
+    const game = setupCastingGame(jumpStartTargetGameId);
+    (game.state as any).battlefield = [
+      {
+        id: 'heroic_target_1',
+        controller: 'p1',
+        owner: 'p1',
+        tapped: false,
+        counters: {},
+        card: {
+          id: 'heroic_target_card',
+          name: 'Favored Hoplite',
+          type_line: 'Creature - Human Soldier',
+          oracle_text: 'Heroic — Whenever you cast a spell that targets Favored Hoplite, put a +1/+1 counter on Favored Hoplite.',
+        },
+      },
+    ];
+    (game.state as any).zones.p1.graveyard = [
+      {
+        id: 'jump_start_blessing_1',
+        name: 'Jump-Start Blessing',
+        mana_cost: '{0}',
+        manaCost: '{0}',
+        type_line: 'Instant',
+        oracle_text: 'Target creature gets +1/+1 until end of turn.\nJump-start {0}',
+      },
+    ];
+    (game.state as any).zones.p1.graveyardCount = 1;
+    (game.state as any).zones.p1.hand = [
+      {
+        id: 'discard_for_jump_start_1',
+        name: 'Spare Card',
+        type_line: 'Sorcery',
+        oracle_text: '',
+        zone: 'hand',
+      },
+    ];
+    (game.state as any).zones.p1.handCount = 1;
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket('p1', jumpStartTargetGameId, emitted);
+    const io = createMockIo(emitted, [socket]);
+    registerInteractionHandlers(io as any, socket as any);
+    registerResolutionHandlers(io as any, socket as any);
+
+    await handlers['activateGraveyardAbility']({
+      gameId: jumpStartTargetGameId,
+      cardId: 'jump_start_blessing_1',
+      abilityId: 'jump-start',
+    });
+
+    let queue = ResolutionQueueManager.getQueue(jumpStartTargetGameId);
+    const discardStep = queue.steps.find((step: any) => (step as any)?.graveyardCastDiscardAsCost === true) as any;
+    expect(discardStep).toBeDefined();
+
+    await handlers['submitResolutionResponse']({
+      gameId: jumpStartTargetGameId,
+      stepId: String(discardStep.id),
+      selections: ['discard_for_jump_start_1'],
+    });
+
+    queue = ResolutionQueueManager.getQueue(jumpStartTargetGameId);
+    const targetStep = queue.steps.find((step: any) => (step as any)?.graveyardSpellCastTargetSelection === true) as any;
+    expect(targetStep).toBeDefined();
+    expect((targetStep.validTargets || []).map((target: any) => target.id)).toContain('heroic_target_1');
+    expect(targetStep.discardedCardIdsForCost).toEqual(['discard_for_jump_start_1']);
+
+    await handlers['submitResolutionResponse']({
+      gameId: jumpStartTargetGameId,
+      stepId: String(targetStep.id),
+      selections: ['heroic_target_1'],
+    });
+
+    const stack = (game.state as any).stack || [];
+    expect(stack).toHaveLength(1);
+    expect(stack[0]?.card?.id).toBe('jump_start_blessing_1');
+    expect(stack[0]?.targets).toEqual(['heroic_target_1']);
+
+    const heroicPermanent = ((game.state as any).battlefield || []).find((item: any) => item?.id === 'heroic_target_1');
+    expect(heroicPermanent?.counters?.['+1/+1']).toBe(1);
+
+    const activateEvent = [...getEvents(jumpStartTargetGameId)].reverse().find((event) => event.type === 'activateGraveyardAbility') as any;
+    expect(activateEvent?.payload?.targets).toEqual(['heroic_target_1']);
+    expect(activateEvent?.payload?.discardedCardIds).toEqual(['discard_for_jump_start_1']);
   });
 });

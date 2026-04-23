@@ -85,6 +85,7 @@ describe('cast-from-graveyard replay semantics (integration)', () => {
     `${gameId}_retrace`,
     `${gameId}_escape`,
     `${gameId}_flashback_stack_id`,
+    `${gameId}_flashback_targets`,
     `${gameId}_jump_start_replay`,
     `${gameId}_retrace_prompt_replay`,
     `${gameId}_escape_prompt_replay`,
@@ -210,12 +211,26 @@ describe('cast-from-graveyard replay semantics (integration)', () => {
       selections: ['retrace_land_1'],
     });
 
+    const retraceTargetStep = ResolutionQueueManager
+      .getStepsForPlayer(retraceGameId, playerId)
+      .find((queuedStep) => (queuedStep as any)?.graveyardSpellCastTargetSelection === true) as any;
+    expect(retraceTargetStep).toBeDefined();
+    const retraceTargetId = (retraceTargetStep.validTargets || []).map((target: any) => target.id).find(Boolean);
+    expect(retraceTargetId).toBeDefined();
+
+    await handlers['submitResolutionResponse']({
+      gameId: retraceGameId,
+      stepId: String(retraceTargetStep.id),
+      selections: [retraceTargetId],
+    });
+
     const zones = (game.state as any).zones?.[playerId];
     expect((zones?.graveyard || []).map((card: any) => card.id)).toEqual(['retrace_land_1']);
     const stack = (game.state as any).stack || [];
     expect(stack).toHaveLength(1);
     expect(stack[0]?.card?.id).toBe('retrace_1');
     expect(stack[0]?.card?.castWithAbility).toBe('retrace');
+    expect(stack[0]?.targets).toEqual([retraceTargetId]);
   });
 
   it('live escape activation requires exiling other cards from your graveyard', async () => {
@@ -226,6 +241,7 @@ describe('cast-from-graveyard replay semantics (integration)', () => {
         { id: 'escape_cost_1', name: 'Card One', type_line: 'Instant', oracle_text: '' },
         { id: 'escape_cost_2', name: 'Card Two', type_line: 'Sorcery', oracle_text: '' },
         { id: 'escape_cost_3', name: 'Card Three', type_line: 'Creature - Human', oracle_text: '' },
+        { id: 'escape_target_1', name: 'Target Creature', type_line: 'Creature - Elf', oracle_text: '' },
       ],
     });
     const emitted: Array<{ room?: string; event: string; payload: any }> = [];
@@ -244,13 +260,13 @@ describe('cast-from-graveyard replay semantics (integration)', () => {
     const steps = ResolutionQueueManager.getStepsForPlayer(escapeGameId, playerId);
     const selectionStep = steps.find(step => step.type === ResolutionStepType.GRAVEYARD_SELECTION) as any;
     expect(selectionStep).toBeDefined();
-    expect((selectionStep.validTargets || []).map((card: any) => card.id).sort()).toEqual(['escape_cost_1', 'escape_cost_2', 'escape_cost_3']);
+    expect((selectionStep.validTargets || []).map((card: any) => card.id).sort()).toEqual(['escape_cost_1', 'escape_cost_2', 'escape_cost_3', 'escape_target_1']);
 
     const queuedEscapeEvent = [...getEvents(escapeGameId)].reverse().find((event) => event.type === 'activateGraveyardAbility') as any;
     expect(queuedEscapeEvent?.payload?.cardId).toBe('escape_1');
     expect(queuedEscapeEvent?.payload?.queuedResolutionStep?.type).toBe('graveyard_selection');
     expect(queuedEscapeEvent?.payload?.queuedResolutionStep?.graveyardCastExileAsCost).toBe(true);
-    expect((queuedEscapeEvent?.payload?.queuedResolutionStep?.validTargets || []).map((card: any) => card.id).sort()).toEqual(['escape_cost_1', 'escape_cost_2', 'escape_cost_3']);
+    expect((queuedEscapeEvent?.payload?.queuedResolutionStep?.validTargets || []).map((card: any) => card.id).sort()).toEqual(['escape_cost_1', 'escape_cost_2', 'escape_cost_3', 'escape_target_1']);
 
     await handlers['submitResolutionResponse']({
       gameId: escapeGameId,
@@ -258,13 +274,26 @@ describe('cast-from-graveyard replay semantics (integration)', () => {
       selections: ['escape_cost_1', 'escape_cost_2', 'escape_cost_3'],
     });
 
+    const escapeTargetStep = ResolutionQueueManager
+      .getStepsForPlayer(escapeGameId, playerId)
+      .find((queuedStep) => (queuedStep as any)?.graveyardSpellCastTargetSelection === true) as any;
+    expect(escapeTargetStep).toBeDefined();
+    expect((escapeTargetStep.validTargets || []).map((target: any) => target.id)).toEqual(['escape_target_1']);
+
+    await handlers['submitResolutionResponse']({
+      gameId: escapeGameId,
+      stepId: String(escapeTargetStep.id),
+      selections: ['escape_target_1'],
+    });
+
     const zones = (game.state as any).zones?.[playerId];
-    expect((zones?.graveyard || []).map((card: any) => card.id)).toEqual([]);
+    expect((zones?.graveyard || []).map((card: any) => card.id)).toEqual(['escape_target_1']);
     expect((zones?.exile || []).map((card: any) => card.id).sort()).toEqual(['escape_cost_1', 'escape_cost_2', 'escape_cost_3']);
     const stack = (game.state as any).stack || [];
     expect(stack).toHaveLength(1);
     expect(stack[0]?.card?.id).toBe('escape_1');
     expect(stack[0]?.card?.castWithAbility).toBe('escape');
+    expect(stack[0]?.targets).toEqual(['escape_target_1']);
     expect((game.state as any).castFromGraveyardThisTurn?.[playerId]).toBe(true);
     expect((game.state as any).cardLeftGraveyardThisTurn?.[playerId]).toBe(true);
   });
@@ -335,6 +364,29 @@ describe('cast-from-graveyard replay semantics (integration)', () => {
     expect(stack[0]?.card?.id).toBe('flashback_stack_id_1');
     expect(stack[0]?.card?.castWithAbility).toBe('flashback');
     expect((game.state as any).noncreatureSpellsCastThisTurn?.[playerId]).toBe(1);
+  });
+  
+  it('replay restores persisted targets for graveyard spell casts', async () => {
+    const replayGameId = `${gameId}_flashback_targets`;
+    const { game, playerId } = await seedGame(replayGameId, 'flashback_targeted_1', 'Target creature gets +1/+1 until end of turn.\nFlashback {U}', {
+      manaPool: { white: 0, blue: 1, black: 0, red: 0, green: 0, colorless: 0 },
+    });
+
+    game.applyEvent({
+      type: 'activateGraveyardAbility',
+      playerId,
+      cardId: 'flashback_targeted_1',
+      abilityId: 'flashback',
+      stackId: 'stack_flashback_targeted_1',
+      manaCost: '{U}',
+      targets: ['battlefield_target_1'],
+    });
+
+    const stack = (game.state as any).stack || [];
+    expect(stack).toHaveLength(1);
+    expect(stack[0]?.id).toBe('stack_flashback_targeted_1');
+    expect(stack[0]?.card?.id).toBe('flashback_targeted_1');
+    expect(stack[0]?.targets).toEqual(['battlefield_target_1']);
   });
 
   it('replay applies recorded jump-start discard choices before moving the spell to the stack', async () => {

@@ -10,7 +10,6 @@
 // - remove(ctx, playerId)
 //
 // Defensive implementation: tolerates unknown event types and missing engine helpers.
-
 import { createContext, type GameContext } from "../context";
 import type { PlayerID, GameEvent } from "../types";
 
@@ -560,7 +559,7 @@ function applyManaAbilityLifeLoss(ctx: any, playerId: string, amount: number, tr
   }
 
   const player = ((ctx.state as any).players || []).find((p: any) => p?.id === playerId);
-  if (player) {
+  if (player) { 
     player.life = (ctx.state as any).life[playerId];
   }
 }
@@ -587,6 +586,27 @@ function applyRecordedLifePayment(ctx: GameContext, playerId: string, rawAmount:
   if (player) {
     player.life = (ctx.state as any).life[playerId];
   }
+}
+
+function buildDisturbCastCard(card: any): any {
+  const disturbFace = Array.isArray(card?.card_faces) ? card.card_faces[1] : undefined;
+  const manaCost = disturbFace?.mana_cost ?? disturbFace?.manaCost ?? card?.mana_cost ?? card?.manaCost;
+  return {
+    ...card,
+    ...(disturbFace || {}),
+    id: card?.id,
+    name: disturbFace?.name || card?.name,
+    type_line: disturbFace?.type_line || disturbFace?.typeLine || card?.type_line,
+    oracle_text: disturbFace?.oracle_text || disturbFace?.oracleText || card?.oracle_text,
+    mana_cost: manaCost,
+    manaCost,
+    colors: Array.isArray(disturbFace?.colors) ? disturbFace.colors : card?.colors,
+    image_uris: disturbFace?.image_uris || card?.image_uris,
+    faceIndex: disturbFace ? 1 : (card?.faceIndex ?? 0),
+    zone: 'stack',
+    castWithAbility: 'disturb',
+    transformed: true,
+  };
 }
 
 function getOrInitReplayPlayerZones(state: any, playerId: string): any {
@@ -717,6 +737,7 @@ function applyReplaySacrificedPermanent(ctx: GameContext, permanentId: string): 
 function applyRecordedPlayLandReplayState(ctx: GameContext, event: any): void {
   const playerId = String(event?.playerId || '').trim();
   const cardId = String(event?.card?.id || event?.cardId || '').trim();
+  const persistedPermanentId = String(event?.permanentId || '').trim();
   if (!playerId || !cardId) return;
 
   const battlefield = Array.isArray((ctx.state as any)?.battlefield) ? ((ctx.state as any).battlefield as any[]) : [];
@@ -724,8 +745,6 @@ function applyRecordedPlayLandReplayState(ctx: GameContext, event: any): void {
     String(entry?.controller || '') === playerId && String(entry?.card?.id || '') === cardId
   );
   if (!permanent) return;
-
-  const persistedPermanentId = String(event?.permanentId || '').trim();
   if (persistedPermanentId) {
     permanent.id = persistedPermanentId;
   }
@@ -7300,12 +7319,15 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
                 applyRecordedLifePayment(ctx, String(pid), (e as any).lifePaidForCost);
 
                 const stackId = String((e as any).stackId || '').trim() || generateDeterministicId(ctx, 'stack', String(cardId));
+                const recordedTargets = Array.isArray((e as any).targets)
+                  ? ((e as any).targets as any[]).map((targetId: any) => String(targetId || '').trim()).filter(Boolean)
+                  : [];
                 ctx.state.stack = ctx.state.stack || [];
                 (ctx.state.stack as any[]).push({
                   id: stackId,
                   controller: pid,
                   card: { ...card, zone: 'stack', castWithAbility: String(abilityType) },
-                  targets: [],
+                  targets: recordedTargets,
                 });
 
                 const stateAny = ctx.state as any;
@@ -7440,22 +7462,23 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
                 const stateAny = ctx.state as any;
                 stateAny.castFromGraveyardThisTurn = stateAny.castFromGraveyardThisTurn || {};
                 stateAny.castFromGraveyardThisTurn[String(pid)] = true;
+                const disturbSpellCard = buildDisturbCastCard(card);
                 stateAny.spellsCastThisTurn = Array.isArray(stateAny.spellsCastThisTurn) ? stateAny.spellsCastThisTurn : [];
                 stateAny.spellsCastThisTurn.push({
-                  id: card?.id || cardId,
-                  name: card?.name,
+                  id: disturbSpellCard?.id || cardId,
+                  name: disturbSpellCard?.name,
                   casterId: pid,
                   castSourceZone: 'graveyard',
                   card: {
-                    id: card?.id || cardId,
-                    name: card?.name,
-                    type_line: card?.type_line,
-                    colors: card?.colors,
+                    id: disturbSpellCard?.id || cardId,
+                    name: disturbSpellCard?.name,
+                    type_line: disturbSpellCard?.type_line,
+                    colors: disturbSpellCard?.colors,
                     color_identity: card?.color_identity,
                     castSourceZone: 'graveyard',
                   },
                 });
-                if (!String(card?.type_line || '').toLowerCase().includes('creature')) {
+                if (!String(disturbSpellCard?.type_line || '').toLowerCase().includes('creature')) {
                   stateAny.noncreatureSpellsCastThisTurn = stateAny.noncreatureSpellsCastThisTurn || {};
                   stateAny.noncreatureSpellsCastThisTurn[String(pid)] =
                     ((stateAny.noncreatureSpellsCastThisTurn[String(pid)] as number | undefined) || 0) + 1;
@@ -7466,7 +7489,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
                 (ctx.state.stack as any[]).push({
                   id: stackId,
                   controller: pid,
-                  card: { ...card, zone: 'stack', castWithAbility: 'disturb', transformed: true },
+                  card: disturbSpellCard,
                   targets: [],
                 });
               }

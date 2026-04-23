@@ -110,7 +110,7 @@ import {
   getExtraManaProduction,
   getManaMultiplier,
 } from "../state/modules/mana-abilities.js";
-import { resolveManaAbilityActivationShape } from "./interaction.js";
+import { continueCastFromGraveyardAbility, resolveManaAbilityActivationShape } from "./interaction.js";
 import {
   advanceDungeonProgress,
   createDungeonProgress,
@@ -13991,9 +13991,6 @@ async function handleDiscardResponse(
       const controllerId = String(pid);
       const cardId = String(stepAny?.cardId || step.sourceId || '').trim();
       const abilityId = String(stepAny?.abilityId || '').trim();
-      const cardName = String(stepAny?.cardName || step.sourceName || 'Spell');
-      const manaCost = String(stepAny?.manaCost || '').trim();
-      const lifeToPayForCost = Number(stepAny?.lifeToPayForCost || 0);
 
       const playerZones = (game.state as any)?.zones?.[controllerId];
       const graveyard = Array.isArray(playerZones?.graveyard) ? playerZones.graveyard : [];
@@ -14003,69 +14000,21 @@ async function handleDiscardResponse(
         return;
       }
 
-      if (manaCost) {
-        const { getOrInitManaPool, validateAndConsumeManaCostFromPool } = await import('./util.js');
-        const pool = getOrInitManaPool(game.state, controllerId) as any;
-        const paid = validateAndConsumeManaCostFromPool(pool, manaCost, { logPrefix: '[graveyardCastDiscardAsCost]' });
-        if (!paid.ok) {
-          emitToPlayer(io, controllerId, 'error', { code: 'INSUFFICIENT_MANA', message: (paid as any).error || 'Insufficient mana.' });
-          return;
-        }
-      }
-
-      if (lifeToPayForCost > 0) {
-        const currentLife = Number((game.state as any)?.life?.[controllerId] ?? 40);
-        if (!Number.isFinite(currentLife) || currentLife <= lifeToPayForCost) {
-          emitToPlayer(io, controllerId, 'error', {
-            code: 'INSUFFICIENT_LIFE',
-            message: `Cannot pay ${lifeToPayForCost} life (you have ${Number.isFinite(currentLife) ? currentLife : 0} life).`,
-          });
-          return;
-        }
-        (game.state as any).life = (game.state as any).life || {};
-        (game.state as any).life[controllerId] = currentLife - lifeToPayForCost;
-      }
-
-      const [card] = graveyard.splice(cardIndex, 1);
-      playerZones.graveyardCount = graveyard.length;
-      recordCardLeftGraveyardThisTurn({ state: game.state } as any, controllerId, card);
-
-      game.state.stack = game.state.stack || [];
-      (game.state.stack as any[]).push({
-        id: `stack_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-        controller: controllerId,
-        card: { ...card, zone: 'stack', castWithAbility: abilityId },
-        targets: [],
-      });
-
-      const stateAny = game.state as any;
-      stateAny.castFromGraveyardThisTurn = stateAny.castFromGraveyardThisTurn || {};
-      stateAny.castFromGraveyardThisTurn[String(controllerId)] = true;
-
-      io.to(gameId).emit('chat', {
-        id: `m_${Date.now()}`,
+      const result = continueCastFromGraveyardAbility({
         gameId,
-        from: 'system',
-        message: `${getPlayerName(game, controllerId)} cast ${cardName} using ${abilityId}.`,
-        ts: Date.now(),
+        game,
+        io,
+        playerId: controllerId,
+        cardId,
+        abilityId,
+        discardedCardIds: selections.map((selection: any) => String(selection)).filter(Boolean),
+        targets: Array.isArray(stepAny?.targetsForCast) ? stepAny.targetsForCast : undefined,
+        emitError: (payload) => emitToPlayer(io, controllerId as any, 'error', payload),
       });
 
-      if (typeof game.bumpSeq === 'function') game.bumpSeq();
-
-      try {
-        appendEvent(gameId, (game as any).seq ?? 0, 'activateGraveyardAbility', {
-          playerId: controllerId,
-          cardId,
-          abilityId: abilityId || undefined,
-          manaCost: manaCost || undefined,
-          lifePaidForCost: lifeToPayForCost > 0 ? lifeToPayForCost : undefined,
-          discardedCardIds: selections,
-        });
-      } catch {
-        // ignore persistence failures
+      if (result !== 'error') {
+        broadcastGame(io, game, gameId);
       }
-
-      broadcastGame(io, game, gameId);
       return;
     } catch (err) {
       debugError(1, '[Resolution] Failed to resume graveyard discard-cost cast', err);
@@ -18520,6 +18469,30 @@ async function handleTargetSelectionResponse(
     }
     
     broadcastGame(io, game, gameId);
+    return;
+  }
+
+  if ((step as any)?.graveyardSpellCastTargetSelection === true) {
+    const result = continueCastFromGraveyardAbility({
+      gameId,
+      game,
+      io,
+      playerId: String(pid),
+      cardId: String((step as any)?.cardId || step.sourceId || '').trim(),
+      abilityId: String((step as any)?.abilityId || '').trim(),
+      targets: selections,
+      discardedCardIds: Array.isArray((step as any)?.discardedCardIdsForCost)
+        ? (step as any).discardedCardIdsForCost.map((id: any) => String(id)).filter(Boolean)
+        : undefined,
+      exiledCardIdsFromGraveyardForCost: Array.isArray((step as any)?.exiledCardIdsFromGraveyardForCost)
+        ? (step as any).exiledCardIdsFromGraveyardForCost.map((id: any) => String(id)).filter(Boolean)
+        : undefined,
+      emitError: (payload) => emitToPlayer(io, pid as any, 'error', payload),
+    });
+
+    if (result !== 'error') {
+      broadcastGame(io, game, gameId);
+    }
     return;
   }
   
@@ -29208,9 +29181,6 @@ async function handleGraveyardSelectionResponse(
       const controllerId = String(pid);
       const cardId = String(stepAny?.cardId || step.sourceId || '').trim();
       const abilityId = String(stepAny?.abilityId || '').trim();
-      const cardName = String(stepAny?.cardName || step.sourceName || 'Spell');
-      const manaCost = String(stepAny?.manaCost || '').trim();
-      const lifeToPayForCost = Number(stepAny?.lifeToPayForCost || 0);
 
       const playerZones = (game.state as any)?.zones?.[controllerId];
       const graveyard = Array.isArray(playerZones?.graveyard) ? playerZones.graveyard : [];
@@ -29220,69 +29190,21 @@ async function handleGraveyardSelectionResponse(
         return;
       }
 
-      if (manaCost) {
-        const { getOrInitManaPool, validateAndConsumeManaCostFromPool } = await import('./util.js');
-        const pool = getOrInitManaPool(game.state, controllerId) as any;
-        const paid = validateAndConsumeManaCostFromPool(pool, manaCost, { logPrefix: '[graveyardCastExileAsCost]' });
-        if (!paid.ok) {
-          emitToPlayer(io, controllerId, 'error', { code: 'INSUFFICIENT_MANA', message: (paid as any).error || 'Insufficient mana.' });
-          return;
-        }
-      }
-
-      if (lifeToPayForCost > 0) {
-        const currentLife = Number((game.state as any)?.life?.[controllerId] ?? 40);
-        if (!Number.isFinite(currentLife) || currentLife <= lifeToPayForCost) {
-          emitToPlayer(io, controllerId, 'error', {
-            code: 'INSUFFICIENT_LIFE',
-            message: `Cannot pay ${lifeToPayForCost} life (you have ${Number.isFinite(currentLife) ? currentLife : 0} life).`,
-          });
-          return;
-        }
-        (game.state as any).life = (game.state as any).life || {};
-        (game.state as any).life[controllerId] = currentLife - lifeToPayForCost;
-      }
-
-      const [card] = graveyard.splice(cardIndex, 1);
-      playerZones.graveyardCount = graveyard.length;
-      recordCardLeftGraveyardThisTurn({ state: game.state } as any, controllerId, card);
-
-      game.state.stack = game.state.stack || [];
-      (game.state.stack as any[]).push({
-        id: `stack_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-        controller: controllerId,
-        card: { ...card, zone: 'stack', castWithAbility: abilityId },
-        targets: [],
-      });
-
-      const stateAny = game.state as any;
-      stateAny.castFromGraveyardThisTurn = stateAny.castFromGraveyardThisTurn || {};
-      stateAny.castFromGraveyardThisTurn[String(controllerId)] = true;
-
-      io.to(gameId).emit('chat', {
-        id: `m_${Date.now()}`,
+      const result = continueCastFromGraveyardAbility({
         gameId,
-        from: 'system',
-        message: `${getPlayerName(game, controllerId)} cast ${cardName} using ${abilityId}.`,
-        ts: Date.now(),
+        game,
+        io,
+        playerId: controllerId,
+        cardId,
+        abilityId,
+        exiledCardIdsFromGraveyardForCost: movedCardIds,
+        targets: Array.isArray(stepAny?.targetsForCast) ? stepAny.targetsForCast : undefined,
+        emitError: (payload) => emitToPlayer(io, controllerId as any, 'error', payload),
       });
 
-      if (typeof game.bumpSeq === 'function') game.bumpSeq();
-
-      try {
-        appendEvent(gameId, (game as any).seq ?? 0, 'activateGraveyardAbility', {
-          playerId: controllerId,
-          cardId,
-          abilityId: abilityId || undefined,
-          manaCost: manaCost || undefined,
-          lifePaidForCost: lifeToPayForCost > 0 ? lifeToPayForCost : undefined,
-          exiledCardIdsFromGraveyardForCost: movedCardIds,
-        });
-      } catch {
-        // ignore persistence failures
+      if (result !== 'error') {
+        broadcastGame(io, game, gameId);
       }
-
-      broadcastGame(io, game, gameId);
       return;
     } catch (err) {
       debugError(1, '[Resolution] Failed to resume graveyard exile-cost cast', err);
