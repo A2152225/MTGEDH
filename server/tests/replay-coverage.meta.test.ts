@@ -117,6 +117,7 @@ const REPLAY_GUARDED_EVENT_TYPES = new Set([
   'ventureChooseRoomResolve',
   'voteSubmit',
   'exchangeTextBoxes',
+  'assignTriggeredAbilityTargets',
 ]);
 
 const REPLAY_GUARD_EXEMPTIONS: Record<string, string> = {

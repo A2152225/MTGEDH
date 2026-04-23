@@ -28675,6 +28675,39 @@ async function handleGraveyardSelectionResponse(
     return null;
   };
 
+  if (stepData?.triggeredAbilityGraveyardChoice === true) {
+    const triggerStackItemId = String(stepData?.triggerStackItemId || step.sourceId || '').trim();
+    if (!triggerStackItemId) {
+      emitToPlayer(io, pid, 'error', {
+        code: 'INVALID_TRIGGER_TARGET',
+        message: 'Triggered ability stack item missing for graveyard target selection.',
+      });
+      return;
+    }
+    const stack: any[] = Array.isArray((game.state as any)?.stack) ? (game.state as any).stack : [];
+    const stackItem = stack.find((item: any) => item && String(item?.id || '') === triggerStackItemId);
+    if (!stackItem) {
+      // The trigger may have already been resolved or removed; treat as a benign no-op.
+      debug(2, `[Resolution] triggeredAbilityGraveyardChoice: stack item ${triggerStackItemId} not found, dropping selection`);
+      if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
+      broadcastGame(io, game, gameId);
+      return;
+    }
+    stackItem.targets = selectedCardIds.slice();
+    try {
+      appendEvent(gameId, (game as any).seq ?? 0, 'assignTriggeredAbilityTargets', {
+        triggerStackItemId,
+        targets: selectedCardIds.slice(),
+      });
+    } catch (err) {
+      debugWarn(1, '[Resolution] appendEvent(assignTriggeredAbilityTargets) failed:', err);
+    }
+    debug(2, `[Resolution] Stamped graveyard target [${selectedCardIds.join(', ')}] onto trigger ${triggerStackItemId}`);
+    if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
+    broadcastGame(io, game, gameId);
+    return;
+  }
+
   if (stepData?.exertGraveyardTargetChoice === true) {
     const selectedCardId = String(selectedCardIds[0] || '').trim();
     const boundGraveyardOwnerId = selectedCardId ? findSelectedCardSourceOwner(selectedCardId) : null;

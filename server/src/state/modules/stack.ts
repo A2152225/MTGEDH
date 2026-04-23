@@ -19,7 +19,7 @@ import {
   type KeywordTriggerResult,
   type KeywordTriggerContext
 } from "./keyword-handlers.js";
-import { canPermanentBeTargetedByPlayer, categorizeSpell, permanentsShareCardType, resolveSpell, selectionRequiresSharedCardType, type EngineEffect, type TargetRef } from "../../rules-engine/targeting.js";
+import { canPermanentBeTargetedByPlayer, categorizeSpell, matchesGraveyardCardTargetType, permanentsShareCardType, resolveSpell, selectionRequiresSharedCardType, type EngineEffect, type TargetRef } from "../../rules-engine/targeting.js";
 import { inferManaValueConstraintFromText, type DynamicManaValueContext } from "./graveyard-mana-value.js";
 import { debug, debugWarn, debugError, debugEnv } from "../../utils/debug.js";
 import { appendEvent } from '../../db/index.js';
@@ -1885,6 +1885,22 @@ export function queueSelfETBTriggersForPermanent(
 
     state.stack = state.stack || [];
     const triggerId = uid('trigger');
+
+    // Enrich graveyard / zone / filter metadata for self-ETB triggered abilities so
+    // that downstream target-selection (TARGET_SELECTION step builders in
+    // socket/resolution.ts and socket/game-actions.ts) can enumerate graveyard
+    // targets for ETB-triggered reanimation effects (Coalstoke Gearhulk,
+    // Iridescent Drake, etc.). Mirrors the pattern used by exploit/exert paths
+    // and the modal-trigger handler in socket/resolution.ts.
+    const enrichedMetadata = (trigger.requiresTarget || (trigger as any)?.targetZone)
+      ? inferTriggeredAbilityTargetMetadata(String(trigger.effect || trigger.description || ''), {
+          gameState: (ctx as any).state,
+          controllerId: String(controller),
+          sourceName: String(trigger.cardName || permanent.card?.name || ''),
+          sourcePermanent: permanent,
+        } as any)
+      : ({} as ReturnType<typeof inferTriggeredAbilityTargetMetadata>);
+
     const stackItem = {
       id: triggerId,
       type: 'triggered_ability',
@@ -1898,14 +1914,33 @@ export function queueSelfETBTriggersForPermanent(
       effect: trigger.effect || trigger.description,
       requiresChoice: trigger.requiresChoice,
       requiresTarget: trigger.requiresTarget,
-      targetType: trigger.targetType,
-      targetConstraint: trigger.targetConstraint,
+      targetType: enrichedMetadata.targetType || trigger.targetType,
+      targetConstraint: enrichedMetadata.targetConstraint || trigger.targetConstraint,
       needsTargetSelection: trigger.requiresTarget || false,
       isModal: triggerAny.isModal,
       modalOptions: triggerAny.modalOptions,
       targetPlayer: triggerAny.targetPlayer,
       value: trigger.value,
       effectData: triggerAny.effectData,
+      ...(enrichedMetadata.targetZone ? { targetZone: enrichedMetadata.targetZone } : null),
+      ...(enrichedMetadata.targetDestination ? { targetDestination: enrichedMetadata.targetDestination } : null),
+      ...(enrichedMetadata.targetGraveyardScope ? { targetGraveyardScope: enrichedMetadata.targetGraveyardScope } : null),
+      ...(enrichedMetadata.destinationUsesSelectedCardOwner === true ? { destinationUsesSelectedCardOwner: true } : null),
+      ...(enrichedMetadata.battlefieldControllerMode ? { battlefieldControllerMode: enrichedMetadata.battlefieldControllerMode } : null),
+      ...(enrichedMetadata.battlefieldCounters ? { battlefieldCounters: enrichedMetadata.battlefieldCounters } : null),
+      ...(enrichedMetadata.targetAction ? { targetAction: enrichedMetadata.targetAction } : null),
+      ...(Array.isArray(enrichedMetadata.targetFilterTypes) ? { targetFilterTypes: enrichedMetadata.targetFilterTypes } : null),
+      ...(Array.isArray((enrichedMetadata as any).targetFilterRequiredTypeWords) ? { targetFilterRequiredTypeWords: (enrichedMetadata as any).targetFilterRequiredTypeWords } : null),
+      ...(Array.isArray(enrichedMetadata.targetFilterExcludeTypes) ? { targetFilterExcludeTypes: enrichedMetadata.targetFilterExcludeTypes } : null),
+      ...(enrichedMetadata.targetFilterPermanentOnly === true ? { targetFilterPermanentOnly: true } : null),
+      ...(typeof (enrichedMetadata as any).targetFilterExactManaValue === 'number' ? { targetFilterExactManaValue: (enrichedMetadata as any).targetFilterExactManaValue } : null),
+      ...(typeof (enrichedMetadata as any).targetFilterMinManaValue === 'number' ? { targetFilterMinManaValue: (enrichedMetadata as any).targetFilterMinManaValue } : null),
+      ...(typeof enrichedMetadata.targetFilterMaxManaValue === 'number' ? { targetFilterMaxManaValue: enrichedMetadata.targetFilterMaxManaValue } : null),
+      ...(typeof enrichedMetadata.targetTotalPowerLimit === 'number' ? { targetTotalPowerLimit: enrichedMetadata.targetTotalPowerLimit } : null),
+      ...(enrichedMetadata.targetCastWithoutPayingManaCost === true ? { targetCastWithoutPayingManaCost: true } : null),
+      ...(enrichedMetadata.targetCastIsOptional === true ? { targetCastIsOptional: true } : null),
+      ...(typeof enrichedMetadata.minTargets === 'number' ? { minTargets: enrichedMetadata.minTargets } : null),
+      ...(typeof enrichedMetadata.maxTargets === 'number' ? { maxTargets: enrichedMetadata.maxTargets } : null),
     } as any;
     state.stack.push(stackItem);
 
@@ -1924,20 +1959,169 @@ export function queueSelfETBTriggersForPermanent(
           mandatory: trigger.mandatory,
           requiresChoice: trigger.requiresChoice,
           requiresTarget: trigger.requiresTarget,
-          targetType: trigger.targetType,
-          targetConstraint: trigger.targetConstraint,
+          targetType: enrichedMetadata.targetType || trigger.targetType,
+          targetConstraint: enrichedMetadata.targetConstraint || trigger.targetConstraint,
           needsTargetSelection: trigger.requiresTarget || false,
           isModal: triggerAny.isModal,
           modalOptions: triggerAny.modalOptions,
           targetPlayer: triggerAny.targetPlayer,
           value: trigger.value,
           effectData: triggerAny.effectData,
+          ...(enrichedMetadata.targetZone ? { targetZone: enrichedMetadata.targetZone } : null),
+          ...(enrichedMetadata.targetDestination ? { targetDestination: enrichedMetadata.targetDestination } : null),
+          ...(enrichedMetadata.targetGraveyardScope ? { targetGraveyardScope: enrichedMetadata.targetGraveyardScope } : null),
+          ...(enrichedMetadata.destinationUsesSelectedCardOwner === true ? { destinationUsesSelectedCardOwner: true } : null),
+          ...(enrichedMetadata.battlefieldControllerMode ? { battlefieldControllerMode: enrichedMetadata.battlefieldControllerMode } : null),
+          ...(enrichedMetadata.battlefieldCounters ? { battlefieldCounters: enrichedMetadata.battlefieldCounters } : null),
+          ...(enrichedMetadata.targetAction ? { targetAction: enrichedMetadata.targetAction } : null),
+          ...(Array.isArray(enrichedMetadata.targetFilterTypes) ? { targetFilterTypes: enrichedMetadata.targetFilterTypes } : null),
+          ...(Array.isArray((enrichedMetadata as any).targetFilterRequiredTypeWords) ? { targetFilterRequiredTypeWords: (enrichedMetadata as any).targetFilterRequiredTypeWords } : null),
+          ...(Array.isArray(enrichedMetadata.targetFilterExcludeTypes) ? { targetFilterExcludeTypes: enrichedMetadata.targetFilterExcludeTypes } : null),
+          ...(enrichedMetadata.targetFilterPermanentOnly === true ? { targetFilterPermanentOnly: true } : null),
+          ...(typeof (enrichedMetadata as any).targetFilterExactManaValue === 'number' ? { targetFilterExactManaValue: (enrichedMetadata as any).targetFilterExactManaValue } : null),
+          ...(typeof (enrichedMetadata as any).targetFilterMinManaValue === 'number' ? { targetFilterMinManaValue: (enrichedMetadata as any).targetFilterMinManaValue } : null),
+          ...(typeof enrichedMetadata.targetFilterMaxManaValue === 'number' ? { targetFilterMaxManaValue: enrichedMetadata.targetFilterMaxManaValue } : null),
+          ...(typeof enrichedMetadata.targetTotalPowerLimit === 'number' ? { targetTotalPowerLimit: enrichedMetadata.targetTotalPowerLimit } : null),
+          ...(enrichedMetadata.targetCastWithoutPayingManaCost === true ? { targetCastWithoutPayingManaCost: true } : null),
+          ...(enrichedMetadata.targetCastIsOptional === true ? { targetCastIsOptional: true } : null),
+          ...(typeof enrichedMetadata.minTargets === 'number' ? { minTargets: enrichedMetadata.minTargets } : null),
+          ...(typeof enrichedMetadata.maxTargets === 'number' ? { maxTargets: enrichedMetadata.maxTargets } : null),
         });
       } catch (err) {
         debugWarn(1, '[queueSelfETBTriggersForPermanent] appendEvent(pushTriggeredAbility self ETB) failed:', err);
       }
     }
+
+    // ETB-trigger graveyard target selection wiring (Coalstoke Gearhulk,
+    // Iridescent Drake, etc.). When the just-pushed self-ETB triggered ability
+    // requires targeting a graveyard card, queue a GRAVEYARD_SELECTION step so
+    // the player can pick before the trigger resolves. The response handler in
+    // socket/resolution.ts (triggeredAbilityGraveyardChoice branch) will stamp
+    // the chosen card id onto stackItem.targets, after which normal trigger
+    // resolution proceeds via executeTriggerEffect's graveyardToBattlefieldMatch
+    // (and friends).
+    try {
+      const gameIdLocal = String((ctx as any).gameId || '').trim();
+      const isReplayingLocal = !!(ctx as any).isReplaying;
+      const requiresGraveyardTarget =
+        gameIdLocal && gameIdLocal !== 'unknown' && !isReplayingLocal &&
+        trigger.requiresTarget === true &&
+        String((enrichedMetadata as any).targetZone || '').toLowerCase() === 'graveyard';
+      if (requiresGraveyardTarget) {
+        const validTargets = buildTriggeredAbilityGraveyardValidTargets(
+          ctx,
+          String(controller),
+          enrichedMetadata as any,
+        );
+        if (validTargets.length > 0) {
+          const graveyardScope = String((enrichedMetadata as any).targetGraveyardScope || 'your').toLowerCase();
+          const targetPlayerId = graveyardScope === 'your' ? String(controller) : '';
+          const minTargets = typeof enrichedMetadata.minTargets === 'number' ? enrichedMetadata.minTargets : 1;
+          const maxTargets = typeof enrichedMetadata.maxTargets === 'number' ? enrichedMetadata.maxTargets : 1;
+          const sourceName = String(trigger.cardName || permanent.card?.name || 'Triggered ability');
+          const queueStep = ResolutionQueueManager.addStep(gameIdLocal, {
+            type: ResolutionStepType.GRAVEYARD_SELECTION,
+            playerId: controller as any,
+            sourceId: triggerId,
+            sourceName,
+            description: `${sourceName}: choose target card from a graveyard.`,
+            mandatory: trigger.mandatory !== false,
+            validTargets,
+            minTargets,
+            maxTargets,
+            targetPlayerId,
+            destination: String(enrichedMetadata.targetDestination || 'battlefield').toLowerCase(),
+            destinationUsesSelectedCardOwner: enrichedMetadata.destinationUsesSelectedCardOwner === true,
+            ...(enrichedMetadata.battlefieldControllerMode ? { battlefieldControllerMode: enrichedMetadata.battlefieldControllerMode } : null),
+            ...(enrichedMetadata.battlefieldCounters ? { battlefieldCounters: enrichedMetadata.battlefieldCounters } : null),
+            triggeredAbilityGraveyardChoice: true,
+            triggerStackItemId: triggerId,
+            triggerSourcePermanentId: String(permanent.id || ''),
+          } as any);
+          appendQueuedResolutionPromptEvent(ctx, {
+            playerId: String(controller),
+            sourceId: triggerId,
+            queuedResolutionStep: queueStep,
+          });
+          debug(2, `[queueSelfETBTriggersForPermanent] queued GRAVEYARD_SELECTION for ETB trigger ${sourceName} (${validTargets.length} valid targets)`);
+        }
+      }
+    } catch (err) {
+      debugWarn(1, '[queueSelfETBTriggersForPermanent] graveyard target selection wiring failed:', err);
+    }
   }
+}
+
+/**
+ * Build the list of valid graveyard cards for a triggered-ability target
+ * selection step. Mirrors the existing exert helper in resolution.ts but
+ * works directly off ctx.state and the metadata bundle produced by
+ * inferTriggeredAbilityTargetMetadata. Used to wire ETB-trigger graveyard
+ * reanimation (Coalstoke Gearhulk, Iridescent Drake, etc.).
+ */
+function buildTriggeredAbilityGraveyardValidTargets(
+  ctx: GameContext,
+  controllerId: string,
+  metadata: ReturnType<typeof inferTriggeredAbilityTargetMetadata>,
+): Array<{ id: string; name: string; typeLine: string; manaCost?: string; imageUrl?: string; zoneOwnerId: string }> {
+  const state = (ctx as any).state || {};
+  const zones = (state.zones || {}) as Record<string, any>;
+  const graveyardScope = String((metadata as any).targetGraveyardScope || 'your').toLowerCase();
+  const owners = graveyardScope === 'any'
+    ? Object.keys(zones).filter((pid) => Array.isArray(zones[pid]?.graveyard))
+    : graveyardScope === 'opponent'
+      ? Object.keys(zones).filter((pid) => String(pid) !== String(controllerId) && Array.isArray(zones[pid]?.graveyard))
+      : [String(controllerId)];
+
+  // Reconstruct the graveyard target type token using the same naming the
+  // matchesGraveyardCardTargetType helper expects. Prefer the most specific
+  // representation available on the metadata bundle.
+  const filterTypes = Array.isArray(metadata.targetFilterTypes) ? metadata.targetFilterTypes : [];
+  const excludeTypes = Array.isArray(metadata.targetFilterExcludeTypes) ? metadata.targetFilterExcludeTypes : [];
+  const requiredTypeWords = Array.isArray((metadata as any).targetFilterRequiredTypeWords) ? (metadata as any).targetFilterRequiredTypeWords : [];
+  let baseToken: string;
+  if (excludeTypes.length === 1 && filterTypes.length === 1) {
+    baseToken = `graveyard_non-${String(excludeTypes[0]).toLowerCase()}_${String(filterTypes[0]).toLowerCase()}_card`;
+  } else if (excludeTypes.length === 1 && filterTypes.length === 0) {
+    baseToken = `graveyard_non-${String(excludeTypes[0]).toLowerCase()}_card`;
+  } else if (filterTypes.length === 1) {
+    baseToken = `graveyard_${String(filterTypes[0]).toLowerCase()}_card`;
+  } else if ((metadata as any).targetFilterPermanentOnly === true) {
+    baseToken = 'graveyard_permanent_card';
+  } else {
+    baseToken = 'graveyard_card';
+  }
+
+  const exactMV = typeof (metadata as any).targetFilterExactManaValue === 'number' ? Number((metadata as any).targetFilterExactManaValue) : undefined;
+  const minMV = typeof (metadata as any).targetFilterMinManaValue === 'number' ? Number((metadata as any).targetFilterMinManaValue) : undefined;
+  const maxMV = typeof metadata.targetFilterMaxManaValue === 'number' ? Number(metadata.targetFilterMaxManaValue) : undefined;
+
+  const results: Array<{ id: string; name: string; typeLine: string; manaCost?: string; imageUrl?: string; zoneOwnerId: string }> = [];
+  for (const ownerId of owners) {
+    const graveyard = Array.isArray(zones[ownerId]?.graveyard) ? zones[ownerId].graveyard : [];
+    for (const card of graveyard) {
+      if (!matchesGraveyardCardTargetType(card, baseToken)) continue;
+      // Required-type words must all appear in the type line (e.g. "Dragon" for
+      // "target Dragon creature card from your graveyard"). Hyphens are tolerated.
+      if (requiredTypeWords.length > 0) {
+        const typeLine = String(card?.type_line || '').toLowerCase();
+        if (!requiredTypeWords.every((word: string) => typeLine.includes(String(word).toLowerCase()))) continue;
+      }
+      const mv = cardManaValue(card);
+      if (typeof exactMV === 'number' && Number.isFinite(exactMV) && mv !== exactMV) continue;
+      if (typeof minMV === 'number' && Number.isFinite(minMV) && mv < minMV) continue;
+      if (typeof maxMV === 'number' && Number.isFinite(maxMV) && mv > maxMV) continue;
+      results.push({
+        id: String(card?.id || ''),
+        name: String(card?.name || card?.id || 'Card'),
+        typeLine: String(card?.type_line || ''),
+        manaCost: String(card?.mana_cost || ''),
+        imageUrl: card?.image_uris?.small || card?.image_uris?.normal,
+        zoneOwnerId: String(ownerId),
+      });
+    }
+  }
+  return results.filter((entry) => Boolean(entry.id));
 }
 
 function resolveOracleQuantityToNumber(q: OracleQuantity, xValue?: number): number | null {
@@ -10469,7 +10653,7 @@ export function executeTriggerEffect(
     }
 
     // Pattern: "return target [type] card from a graveyard to the battlefield"
-    const graveyardToBattlefieldMatch = desc.match(/^(?:return|put)\s+(?:up\s+to\s+one\s+)?target\s+(?:(?:[^.]+?)\s+)?card(?:\s+with\s+mana\s+value\s+.+?)?\s+from\s+(?:your|a|any|an\s+opponent['’]?s?)\s+graveyard\s+(?:to|onto)\s+the\s+battlefield(?:\s+tapped)?(?:\s+under\s+(your|its owner['’]s)\s+control)?(?:\s+with\s+[^.]+?\s+counters?\s+on\s+it)?\.?$/i);
+    const graveyardToBattlefieldMatch = desc.match(/^(?:return|put)\s+(?:up\s+to\s+one\s+)?target\s+(?:(?:[^.]+?)\s+)?card(?:\s+with\s+mana\s+value\s+.+?)?\s+from\s+(?:your|a|any|an\s+opponent['’]?s?)\s+graveyard\s+(?:to|onto)\s+the\s+battlefield(?:\s+tapped)?(?:\s+under\s+(your|its owner['’]s)\s+control)?(?:\s+with\s+[^.]+?\s+counters?\s+on\s+it)?(?:\s+attached\s+to\s+[^.]+?)?\.?$/i);
     if (graveyardToBattlefieldMatch) {
       const targets = Array.isArray(triggerItem.targets) ? triggerItem.targets : [];
       const targetId = String(targets[0] || '').trim();
@@ -10533,6 +10717,145 @@ export function executeTriggerEffect(
 
       battlefield.push(permanent);
       debug(2, `[executeTriggerEffect] ${sourceName} returned ${card?.name || targetId} from ${sourceOwnerId}'s graveyard to the battlefield under ${battlefieldControllerId}'s control`);
+
+      // Trailing keyword-grant rider on trigger/activated graveyard reanimation —
+      // "It gains haste.", "That creature gains indestructible.", etc.
+      try {
+        const KEYWORD_GRANT_VOCAB_TRIG = [
+          'indestructible','haste','flying','trample','lifelink','deathtouch',
+          'vigilance','menace','reach','first strike','double strike',
+          'hexproof','shroud','flash','defender',
+        ];
+        const kwAlt = KEYWORD_GRANT_VOCAB_TRIG.map((k) => k.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&')).join('|');
+        const grantPattern = new RegExp(
+          `(?:that\\s+(?:creature|permanent|card)|it)\\s+gains?\\s+((?:${kwAlt})(?:\\s*(?:,|and)\\s*(?:${kwAlt}))*)`,
+          'gi'
+        );
+        const granted: string[] = [];
+        let gm: RegExpExecArray | null;
+        while ((gm = grantPattern.exec(desc)) !== null) {
+          const list = String(gm[1] || '').toLowerCase();
+          for (const kw of KEYWORD_GRANT_VOCAB_TRIG) {
+            if (list.includes(kw)) granted.push(kw);
+          }
+        }
+        if (granted.length > 0) {
+          permanent.grantedAbilities = Array.isArray(permanent.grantedAbilities) ? permanent.grantedAbilities : [];
+          for (const kw of granted) {
+            if (!permanent.grantedAbilities.some((a: any) => String(a || '').toLowerCase() === kw)) {
+              permanent.grantedAbilities.push(kw);
+            }
+          }
+          // Granting haste should clear summoning sickness.
+          if (granted.includes('haste')) {
+            permanent.summoningSickness = false;
+          }
+          debug(2, `[executeTriggerEffect] ${sourceName} granted [${granted.join(', ')}] to ${permanent.card?.name || targetId}`);
+        }
+      } catch (err) {
+        debugWarn(1, '[executeTriggerEffect] trigger-side keyword-grant rider failed:', err);
+      }
+
+      // Trailing color/type rider — "That creature is a black Zombie in addition to its other colors and types."
+      try {
+        const COLOR_WORD_TO_LETTER_TRIG: Record<string, string> = {
+          white: 'W', blue: 'U', black: 'B', red: 'R', green: 'G',
+        };
+        const colorTypePattern = /(?:that\s+(?:creature|permanent|card)|it)\s+is\s+a\s+(white|blue|black|red|green)\s+([A-Za-z][A-Za-z'-]+)\s+in\s+addition\s+to\s+(?:its|their)\s+other\s+colors?\s+and\s+types?/i;
+        const ctMatch = colorTypePattern.exec(desc);
+        if (ctMatch) {
+          const colorWord = String(ctMatch[1] || '').toLowerCase();
+          const subtype = String(ctMatch[2] || '').replace(/^./, (c) => c.toUpperCase());
+          const colorLetter = COLOR_WORD_TO_LETTER_TRIG[colorWord];
+          if (subtype) {
+            addCreatureType(permanent, subtype);
+          }
+          if (colorLetter) {
+            permanent.card = permanent.card || {};
+            permanent.card.colors = Array.isArray(permanent.card.colors) ? permanent.card.colors.slice() : [];
+            if (!permanent.card.colors.includes(colorLetter)) {
+              permanent.card.colors.push(colorLetter);
+            }
+          }
+          debug(2, `[executeTriggerEffect] ${sourceName} added color/type ${colorWord}/${subtype} to ${permanent.card?.name || targetId}`);
+        }
+      } catch (err) {
+        debugWarn(1, '[executeTriggerEffect] trigger-side color/type rider failed:', err);
+      }
+
+      // Trailing scry rider — "Scry N." or "If it's your turn, scry N."
+      try {
+        const stateAnyT: any = (ctx as any).state;
+        const gameIdLocalT: string | undefined = (ctx as any).gameId;
+        const isReplayingT = !!(ctx as any).isReplaying;
+        if (gameIdLocalT && gameIdLocalT !== 'unknown' && !isReplayingT) {
+          const scryRiderPatternT = /(?:^|\.\s+|\s)(?:if\s+it['\u2019]s\s+your\s+turn\s*,\s*)?scry\s+(\d+)\s*(?:\.|$)/i;
+          const sm = scryRiderPatternT.exec(desc);
+          if (sm) {
+            const scryN = Math.max(0, Number(sm[1] || 0));
+            const requiresOwnTurn = /if\s+it['\u2019]s\s+your\s+turn/i.test(String(sm[0] || ''));
+            const turnPlayer = String(stateAnyT?.turnPlayer || '');
+            const controllerId = String(battlefieldControllerId);
+            const ownTurn = !requiresOwnTurn || turnPlayer === controllerId;
+            if (scryN > 0 && ownTurn) {
+              const sourceIdStr = String((triggerItem as any).id || (triggerItem as any).source || '');
+              const existing = ResolutionQueueManager
+                .getStepsForPlayer(gameIdLocalT, controllerId as any)
+                .find((s: any) => s.type === ResolutionStepType.SCRY && (s as any)?.sourceId && sourceIdStr && String((s as any).sourceId) === sourceIdStr);
+              if (!existing) {
+                const step = ResolutionQueueManager.addStep(gameIdLocalT, {
+                  type: ResolutionStepType.SCRY,
+                  playerId: controllerId,
+                  description: `${sourceName}: Scry ${scryN}`,
+                  mandatory: true,
+                  sourceId: sourceIdStr || undefined,
+                  sourceName,
+                  scryCount: scryN,
+                } as any);
+                appendQueuedResolutionPromptEvent(ctx, {
+                  playerId: controllerId as any,
+                  sourceId: sourceIdStr || String((step as any)?.sourceId || '').trim(),
+                  queuedResolutionStep: step,
+                });
+                debug(2, `[executeTriggerEffect] ${sourceName} queued trailing scry ${scryN} for ${controllerId}`);
+              }
+            }
+          }
+        }
+      } catch (err) {
+        debugWarn(1, '[executeTriggerEffect] trigger-side scry rider failed:', err);
+      }
+
+      // Trailing Aura "attached to ..." rider — Iridescent Drake / Animate-Dead family.
+      // When the just-reanimated card is an Aura and the trigger text says
+      // "attached to <self> / it / <source name>", set permanent.attachedTo to the
+      // trigger source permanent so the Aura enters legally attached.
+      try {
+        const reanimatedTypeLine = String(permanent.card?.type_line || '').toLowerCase();
+        const isAura = reanimatedTypeLine.includes('aura');
+        if (isAura) {
+          const triggerSourceId = String((triggerItem as any).source || '').trim();
+          const sourceNameLower = String(sourceName || '').toLowerCase();
+          const escapedSourceName = sourceNameLower.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&');
+          const attachAlternation = escapedSourceName
+            ? `(?:it|~|${escapedSourceName})`
+            : `(?:it|~)`;
+          const attachPattern = new RegExp(`attached\\s+to\\s+${attachAlternation}\\b`, 'i');
+          if (attachPattern.test(desc) && triggerSourceId) {
+            // Verify the trigger source still exists on the battlefield as a creature
+            // (Auras attach to creatures by default; defer non-creature subtype handling
+            // for now since current Iridescent Drake / Animate Dead patterns target creatures).
+            const attachTarget = (state.battlefield || []).find((p: any) => String(p?.id || '') === triggerSourceId);
+            if (attachTarget) {
+              permanent.attachedTo = triggerSourceId;
+              debug(2, `[executeTriggerEffect] ${sourceName} attached reanimated Aura ${permanent.card?.name || targetId} to ${triggerSourceId}`);
+            }
+          }
+        }
+      } catch (err) {
+        debugWarn(1, '[executeTriggerEffect] trigger-side aura-attach rider failed:', err);
+      }
+
       return;
       }
     }
@@ -14969,6 +15292,140 @@ export function resolveTopOfStack(ctx: GameContext) {
               perm.counters['+1/+1'] = Number(perm.counters['+1/+1'] || 0) + bonus;
               debug(2, `[resolveTopOfStack] ${effectiveCard.name} spell mastery added ${bonus} +1/+1 counters to ${perm?.card?.name || tid}`);
             }
+          }
+        }
+
+        // Trailing keyword grant rider — "That creature gains indestructible." (Fated Return),
+        // "That creature gains haste." (Rise from the Grave-style), etc.
+        // Applied to the just-reanimated targets via permanent.grantedAbilities (consumed by combat / rules-engine checks).
+        if (targetIdSet.size > 0) {
+          const KEYWORD_GRANT_VOCAB = [
+            'indestructible',
+            'haste',
+            'flying',
+            'trample',
+            'lifelink',
+            'deathtouch',
+            'vigilance',
+            'menace',
+            'reach',
+            'first strike',
+            'double strike',
+            'hexproof',
+            'shroud',
+            'flash',
+            'defender',
+          ];
+          const keywordAlt = KEYWORD_GRANT_VOCAB.map((k) => k.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&')).join('|');
+          const grantPattern = new RegExp(
+            `that\\s+(?:creature|permanent|card)\\s+gains?\\s+((?:${keywordAlt})(?:\\s*(?:,|and)\\s*(?:${keywordAlt}))*)`,
+            'gi'
+          );
+          const granted: string[] = [];
+          let gm: RegExpExecArray | null;
+          while ((gm = grantPattern.exec(graveyardEffectiveOracleText)) !== null) {
+            const list = String(gm[1] || '').toLowerCase();
+            for (const kw of KEYWORD_GRANT_VOCAB) {
+              if (list.includes(kw)) granted.push(kw);
+            }
+          }
+          if (granted.length > 0) {
+            const battlefield: any[] = Array.isArray((ctx as any).state?.battlefield) ? (ctx as any).state.battlefield : [];
+            for (const tid of targetIdSet) {
+              const perm = battlefield.find((p: any) => String(p?.card?.id || p?.id || '') === tid);
+              if (!perm) continue;
+              perm.grantedAbilities = Array.isArray(perm.grantedAbilities) ? perm.grantedAbilities : [];
+              for (const kw of granted) {
+                if (!perm.grantedAbilities.some((a: any) => String(a || '').toLowerCase() === kw)) {
+                  perm.grantedAbilities.push(kw);
+                }
+              }
+              debug(2, `[resolveTopOfStack] ${effectiveCard.name} granted [${granted.join(', ')}] to ${perm?.card?.name || tid}`);
+            }
+          }
+        }
+
+        // Trailing color/type rider — "That creature is a black Zombie in addition to its other colors and types."
+        // (Rise from the Grave family). Adds the named subtype via addCreatureType and merges the named color
+        // into permanent.card.colors.
+        if (targetIdSet.size > 0) {
+          const COLOR_WORD_TO_LETTER: Record<string, string> = {
+            white: 'W',
+            blue: 'U',
+            black: 'B',
+            red: 'R',
+            green: 'G',
+          };
+          const colorTypePattern = /that\s+(?:creature|permanent|card)\s+is\s+a\s+(white|blue|black|red|green)\s+([A-Za-z][A-Za-z'-]+)\s+in\s+addition\s+to\s+(?:its|their)\s+other\s+colors?\s+and\s+types?/i;
+          const ctMatch = colorTypePattern.exec(graveyardEffectiveOracleText);
+          if (ctMatch) {
+            const colorWord = String(ctMatch[1] || '').toLowerCase();
+            const subtype = String(ctMatch[2] || '').replace(/^./, (c) => c.toUpperCase());
+            const colorLetter = COLOR_WORD_TO_LETTER[colorWord];
+            const battlefield: any[] = Array.isArray((ctx as any).state?.battlefield) ? (ctx as any).state.battlefield : [];
+            for (const tid of targetIdSet) {
+              const perm = battlefield.find((p: any) => String(p?.card?.id || p?.id || '') === tid);
+              if (!perm) continue;
+              if (subtype) {
+                addCreatureType(perm, subtype);
+              }
+              if (colorLetter) {
+                perm.card = perm.card || {};
+                perm.card.colors = Array.isArray(perm.card.colors) ? perm.card.colors.slice() : [];
+                if (!perm.card.colors.includes(colorLetter)) {
+                  perm.card.colors.push(colorLetter);
+                }
+              }
+              debug(2, `[resolveTopOfStack] ${effectiveCard.name} added color/type ${colorWord}/${subtype} to ${perm?.card?.name || tid}`);
+            }
+          }
+        }
+
+        // Trailing scry rider — "Scry N." or "If it's your turn, scry N."
+        // Queues a SCRY resolution step for the spell's controller. The intervening-if
+        // "if it's your turn" is enforced against state.turnPlayer.
+        if (targetIdSet.size > 0) {
+          try {
+            const stateAny: any = (ctx as any).state;
+            const gameIdLocal: string | undefined = (ctx as any).gameId;
+            const isReplaying = !!(ctx as any).isReplaying;
+            if (gameIdLocal && gameIdLocal !== 'unknown' && !isReplaying) {
+              const scryRiderPattern = /(?:^|\.\s+|\s)(?:if\s+it['\u2019]s\s+your\s+turn\s*,\s*)?scry\s+(\d+)\s*(?:\.|$)/i;
+              const sm = scryRiderPattern.exec(graveyardEffectiveOracleText);
+              if (sm) {
+                const scryN = Math.max(0, Number(sm[1] || 0));
+                const requiresOwnTurn = /if\s+it['\u2019]s\s+your\s+turn/i.test(String(sm[0] || ''));
+                const turnPlayer = String(stateAny?.turnPlayer || '');
+                const controllerId = String(controller);
+                const ownTurn = !requiresOwnTurn || turnPlayer === controllerId;
+                if (scryN > 0 && ownTurn) {
+                  const sourceIdStr = String((item as any).id || (card as any)?.id || '');
+                  // Avoid duplicates for the same source.
+                  const existing = ResolutionQueueManager
+                    .getStepsForPlayer(gameIdLocal, controllerId as any)
+                    .find((s: any) => s.type === ResolutionStepType.SCRY && (s as any)?.sourceId && sourceIdStr && String((s as any).sourceId) === sourceIdStr);
+                  if (!existing) {
+                    const step = ResolutionQueueManager.addStep(gameIdLocal, {
+                      type: ResolutionStepType.SCRY,
+                      playerId: controllerId,
+                      description: `${effectiveCard.name || 'spell'}: Scry ${scryN}`,
+                      mandatory: true,
+                      sourceId: sourceIdStr || undefined,
+                      sourceName: effectiveCard.name || 'spell',
+                      scryCount: scryN,
+                    } as any);
+                    appendQueuedResolutionPromptEvent(ctx, {
+                      playerId: controllerId as any,
+                      sourceId: sourceIdStr || String((step as any)?.sourceId || '').trim(),
+                      queuedResolutionStep: step,
+                    });
+                    debug(2, `[resolveTopOfStack] ${effectiveCard.name} queued trailing scry ${scryN} for ${controllerId}`);
+                  }
+                }
+              }
+            }
+          } catch (err) {
+            debugWarn(1, '[resolveTopOfStack] Trailing scry rider failed:', err);
           }
         }
       } catch (err) {

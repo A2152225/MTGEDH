@@ -242,6 +242,18 @@ export function matchesGraveyardCardTargetType(card: any, rawTargetType: string)
   const targetType = String(rawTargetType || '').trim().toLowerCase();
   const typeLine = String(card?.type_line || '').toLowerCase();
 
+  // Generic non-<subtype> exclusion (e.g. "graveyard_non-dragon_creature_card",
+  // "graveyard_non-zombie_card"). The subtype must NOT appear anywhere in the
+  // card's type line; the remaining tokens (if any) form the base requirement.
+  const nonSubtypeMatch = targetType.match(/^graveyard_non-([a-z][a-z0-9'-]*)(?:_(.+?))?_card$/);
+  if (nonSubtypeMatch) {
+    const excludedSubtype = String(nonSubtypeMatch[1] || '').toLowerCase();
+    if (excludedSubtype && typeLine.includes(excludedSubtype)) return false;
+    const remainder = String(nonSubtypeMatch[2] || '').trim();
+    if (!remainder) return true;
+    return matchesGraveyardCardTargetType(card, `graveyard_${remainder}_card`);
+  }
+
   switch (targetType) {
     case 'graveyard_card':
       return true;

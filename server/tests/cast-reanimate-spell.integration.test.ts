@@ -84,7 +84,7 @@ describe('cast-reanimate-spell integration (cast-side graveyard reanimation)', (
   });
 
   afterEach(async () => {
-    for (const suffix of ['_reanimate', '_catacombs', '_beacon', '_restore', '_demon', '_corpse', '_noxious', '_cremate', '_necsummons', '_pulse', '_naya', '_kenrith', '_oppgy']) {
+    for (const suffix of ['_reanimate', '_catacombs', '_beacon', '_restore', '_demon', '_corpse', '_noxious', '_cremate', '_necsummons', '_pulse', '_naya', '_kenrith', '_oppgy', '_fated', '_rise', '_vile']) {
       await resetGame(`${baseId}${suffix}`);
     }
     await resetGame(baseId);
@@ -1164,5 +1164,324 @@ describe('cast-reanimate-spell integration (cast-side graveyard reanimation)', (
 
     const opponentGraveyard = (game.state as any).zones?.[opponentId]?.graveyard || [];
     expect(opponentGraveyard.find((c: any) => c?.id === 'gy_opp_creature')).toBeUndefined();
+  });
+
+  it("Fated Return-style: 'That creature gains indestructible.' rider grants indestructible to the reanimated creature", async () => {
+    const testGameId = `${baseId}_fated`;
+    const game = await setupGame(testGameId, playerId, opponentId);
+    (game.state as any).manaPool = {
+      [playerId]: { white: 0, blue: 0, black: 3, red: 0, green: 0, colorless: 5 },
+      [opponentId]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+    };
+    (game.state as any).zones = {
+      [playerId]: {
+        hand: [
+          {
+            id: 'fated_return_1',
+            name: 'Fated Return',
+            mana_cost: '{5}{B}{B}{B}',
+            manaCost: '{5}{B}{B}{B}',
+            type_line: 'Instant',
+            oracle_text: 'Put target creature card from a graveyard onto the battlefield under your control. That creature gains indestructible. If it\u2019s your turn, scry 2.',
+            colors: ['B'],
+          },
+        ],
+        handCount: 1,
+        graveyard: [],
+        graveyardCount: 0,
+        exile: [],
+        exileCount: 0,
+        library: [],
+        libraryCount: 0,
+      },
+      [opponentId]: {
+        hand: [],
+        handCount: 0,
+        graveyard: [
+          {
+            id: 'gy_fated_target',
+            name: 'Hill Giant',
+            type_line: 'Creature \u2014 Giant',
+            mana_cost: '{3}{R}',
+            cmc: 4,
+            power: '3',
+            toughness: '3',
+          },
+        ],
+        graveyardCount: 1,
+        exile: [],
+        exileCount: 0,
+        library: [],
+        libraryCount: 0,
+      },
+    };
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(playerId, testGameId, emitted);
+    const io = createMockIo(emitted);
+    registerGameActions(io as any, socket as any);
+    registerResolutionHandlers(io as any, socket as any);
+
+    await handlers.castSpellFromHand({ gameId: testGameId, cardId: 'fated_return_1' });
+
+    let queue = ResolutionQueueManager.getQueue(testGameId);
+    const targetStep = queue.steps.find((entry: any) => entry.type === ResolutionStepType.TARGET_SELECTION) as any;
+    expect(targetStep).toBeDefined();
+    await handlers.submitResolutionResponse({
+      gameId: testGameId,
+      stepId: String(targetStep.id),
+      selections: ['gy_fated_target'],
+      cancelled: false,
+    });
+
+    queue = ResolutionQueueManager.getQueue(testGameId);
+    const paymentStep = queue.steps.find((entry: any) =>
+      entry.type === ResolutionStepType.MANA_PAYMENT_CHOICE && (entry as any).spellPaymentRequired === true,
+    ) as any;
+    expect(paymentStep).toBeDefined();
+    await handlers.submitResolutionResponse({
+      gameId: testGameId,
+      stepId: String(paymentStep.id),
+      selections: {
+        payment: [
+          { permanentId: '__pool__:black', mana: 'B', count: 3 },
+          { permanentId: '__pool__:colorless', mana: 'C', count: 5 },
+        ],
+      },
+    });
+
+    let safety = 0;
+    while ((game.state as any).stack.length > 0 && safety++ < 10) {
+      (game as any).resolveTopOfStack();
+    }
+
+    const battlefield = (game.state as any).battlefield || [];
+    const reanimated = battlefield.find((perm: any) => perm?.card?.name === 'Hill Giant');
+    expect(reanimated).toBeDefined();
+    expect(reanimated.controller).toBe(playerId);
+    expect(Array.isArray(reanimated.grantedAbilities)).toBe(true);
+    expect(reanimated.grantedAbilities.map((a: any) => String(a).toLowerCase())).toContain('indestructible');
+
+    const opponentGraveyard = (game.state as any).zones?.[opponentId]?.graveyard || [];
+    expect(opponentGraveyard.find((c: any) => c?.id === 'gy_fated_target')).toBeUndefined();
+
+    // Trailing rider: "If it's your turn, scry 2." should queue a SCRY step
+    // for the caster (since turnPlayer is the caster).
+    const scryStep = ResolutionQueueManager.getQueue(testGameId).steps.find(
+      (entry: any) => entry.type === ResolutionStepType.SCRY && String(entry.playerId) === playerId,
+    ) as any;
+    expect(scryStep).toBeDefined();
+    expect(Number(scryStep?.scryCount ?? 0)).toBe(2);
+  });
+
+  it("Rise from the Grave-style: 'That creature is a black Zombie in addition to its other colors and types.' rider adds color and subtype", async () => {
+    const testGameId = `${baseId}_rise`;
+    const game = await setupGame(testGameId, playerId, opponentId);
+    (game.state as any).manaPool = {
+      [playerId]: { white: 0, blue: 0, black: 1, red: 0, green: 0, colorless: 4 },
+      [opponentId]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+    };
+    (game.state as any).zones = {
+      [playerId]: {
+        hand: [
+          {
+            id: 'rise_grave_1',
+            name: 'Rise from the Grave',
+            mana_cost: '{4}{B}',
+            manaCost: '{4}{B}',
+            type_line: 'Sorcery',
+            oracle_text: 'Put target creature card from a graveyard onto the battlefield under your control. That creature is a black Zombie in addition to its other colors and types.',
+            colors: ['B'],
+          },
+        ],
+        handCount: 1,
+        graveyard: [],
+        graveyardCount: 0,
+        exile: [],
+        exileCount: 0,
+        library: [],
+        libraryCount: 0,
+      },
+      [opponentId]: {
+        hand: [],
+        handCount: 0,
+        graveyard: [
+          {
+            id: 'gy_rise_target',
+            name: 'Grizzled Knight',
+            type_line: 'Creature \u2014 Human Knight',
+            mana_cost: '{2}{W}',
+            cmc: 3,
+            power: '2',
+            toughness: '3',
+            colors: ['W'],
+          },
+        ],
+        graveyardCount: 1,
+        exile: [],
+        exileCount: 0,
+        library: [],
+        libraryCount: 0,
+      },
+    };
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(playerId, testGameId, emitted);
+    const io = createMockIo(emitted);
+    registerGameActions(io as any, socket as any);
+    registerResolutionHandlers(io as any, socket as any);
+
+    await handlers.castSpellFromHand({ gameId: testGameId, cardId: 'rise_grave_1' });
+
+    let queue = ResolutionQueueManager.getQueue(testGameId);
+    const targetStep = queue.steps.find((entry: any) => entry.type === ResolutionStepType.TARGET_SELECTION) as any;
+    expect(targetStep).toBeDefined();
+    await handlers.submitResolutionResponse({
+      gameId: testGameId,
+      stepId: String(targetStep.id),
+      selections: ['gy_rise_target'],
+      cancelled: false,
+    });
+
+    queue = ResolutionQueueManager.getQueue(testGameId);
+    const paymentStep = queue.steps.find((entry: any) =>
+      entry.type === ResolutionStepType.MANA_PAYMENT_CHOICE && (entry as any).spellPaymentRequired === true,
+    ) as any;
+    expect(paymentStep).toBeDefined();
+    await handlers.submitResolutionResponse({
+      gameId: testGameId,
+      stepId: String(paymentStep.id),
+      selections: {
+        payment: [
+          { permanentId: '__pool__:black', mana: 'B', count: 1 },
+          { permanentId: '__pool__:colorless', mana: 'C', count: 4 },
+        ],
+      },
+    });
+
+    let safety = 0;
+    while ((game.state as any).stack.length > 0 && safety++ < 10) {
+      (game as any).resolveTopOfStack();
+    }
+
+    const battlefield = (game.state as any).battlefield || [];
+    const reanimated = battlefield.find((perm: any) => perm?.card?.name === 'Grizzled Knight');
+    expect(reanimated).toBeDefined();
+    expect(reanimated.controller).toBe(playerId);
+    // Subtype "Zombie" added in addition to "Human Knight"
+    expect(String(reanimated.card?.type_line || '').toLowerCase()).toContain('zombie');
+    // Original subtypes preserved
+    expect(String(reanimated.card?.type_line || '').toLowerCase()).toContain('knight');
+    // Black color added in addition to original (white)
+    expect(Array.isArray(reanimated.card?.colors)).toBe(true);
+    expect(reanimated.card.colors).toContain('B');
+    expect(reanimated.card.colors).toContain('W');
+
+    const opponentGraveyard = (game.state as any).zones?.[opponentId]?.graveyard || [];
+    expect(opponentGraveyard.find((c: any) => c?.id === 'gy_rise_target')).toBeUndefined();
+  });
+
+  it("Vile Rebirth-style: 'Exile target creature card from a graveyard. Create a 2/2 black Zombie creature token.' chains exile and IR-driven token creation", async () => {
+    const testGameId = `${baseId}_vile`;
+    const game = await setupGame(testGameId, playerId, opponentId);
+    (game.state as any).manaPool = {
+      [playerId]: { white: 0, blue: 0, black: 1, red: 0, green: 0, colorless: 1 },
+      [opponentId]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+    };
+    (game.state as any).zones = {
+      [playerId]: {
+        hand: [
+          {
+            id: 'vile_rebirth_1',
+            name: 'Vile Rebirth',
+            mana_cost: '{B}',
+            manaCost: '{B}',
+            type_line: 'Instant',
+            oracle_text: "Exile target creature card from a graveyard. Create a 2/2 black Zombie creature token.",
+            colors: ['B'],
+          },
+        ],
+        handCount: 1,
+        graveyard: [],
+        graveyardCount: 0,
+        exile: [],
+        exileCount: 0,
+        library: [],
+        libraryCount: 0,
+      },
+      [opponentId]: {
+        hand: [],
+        handCount: 0,
+        graveyard: [
+          {
+            id: 'gy_vile_target',
+            name: 'Doomed Bear',
+            type_line: 'Creature \u2014 Bear',
+            mana_cost: '{1}{G}',
+            cmc: 2,
+            power: '2',
+            toughness: '2',
+          },
+        ],
+        graveyardCount: 1,
+        exile: [],
+        exileCount: 0,
+        library: [],
+        libraryCount: 0,
+      },
+    };
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(playerId, testGameId, emitted);
+    const io = createMockIo(emitted);
+    registerGameActions(io as any, socket as any);
+    registerResolutionHandlers(io as any, socket as any);
+
+    await handlers.castSpellFromHand({ gameId: testGameId, cardId: 'vile_rebirth_1' });
+
+    let queue = ResolutionQueueManager.getQueue(testGameId);
+    const targetStep = queue.steps.find((entry: any) => entry.type === ResolutionStepType.TARGET_SELECTION) as any;
+    expect(targetStep).toBeDefined();
+    await handlers.submitResolutionResponse({
+      gameId: testGameId,
+      stepId: String(targetStep.id),
+      selections: ['gy_vile_target'],
+      cancelled: false,
+    });
+
+    queue = ResolutionQueueManager.getQueue(testGameId);
+    const paymentStep = queue.steps.find((entry: any) =>
+      entry.type === ResolutionStepType.MANA_PAYMENT_CHOICE && (entry as any).spellPaymentRequired === true,
+    ) as any;
+    expect(paymentStep).toBeDefined();
+    await handlers.submitResolutionResponse({
+      gameId: testGameId,
+      stepId: String(paymentStep.id),
+      selections: {
+        payment: [
+          { permanentId: '__pool__:black', mana: 'B', count: 1 },
+        ],
+      },
+    });
+
+    let safety = 0;
+    while ((game.state as any).stack.length > 0 && safety++ < 10) {
+      (game as any).resolveTopOfStack();
+    }
+
+    // Exile rider: card removed from opponent graveyard and now in opponent's exile
+    const opponentGraveyard = (game.state as any).zones?.[opponentId]?.graveyard || [];
+    expect(opponentGraveyard.find((c: any) => c?.id === 'gy_vile_target')).toBeUndefined();
+    const opponentExile = (game.state as any).zones?.[opponentId]?.exile || [];
+    expect(opponentExile.find((c: any) => c?.id === 'gy_vile_target')).toBeDefined();
+
+    // Token creation rider: a 2/2 black Zombie token is on player's battlefield
+    const battlefield = (game.state as any).battlefield || [];
+    const zombieToken = battlefield.find(
+      (perm: any) =>
+        String(perm?.controller) === playerId &&
+        String(perm?.card?.type_line || '').toLowerCase().includes('zombie'),
+    );
+    expect(zombieToken).toBeDefined();
   });
 });

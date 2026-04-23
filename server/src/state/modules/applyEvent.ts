@@ -3116,6 +3116,22 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
         break;
       }
 
+      case "assignTriggeredAbilityTargets": {
+        try {
+          const triggerStackItemId = String((e as any).triggerStackItemId || '').trim();
+          const targets = Array.isArray((e as any).targets) ? (e as any).targets.map((t: any) => String(t)) : [];
+          if (!triggerStackItemId) break;
+          const stack: any[] = Array.isArray((ctx.state as any)?.stack) ? (ctx.state as any).stack : [];
+          const stackItem = stack.find((item: any) => item && String(item?.id || '') === triggerStackItemId);
+          if (stackItem) {
+            stackItem.targets = targets.slice();
+          }
+        } catch {
+          // best-effort replay
+        }
+        break;
+      }
+
       case "targetSelectionWardPrompt": {
         try {
           const replayGameId = String((ctx as any).gameId || '').trim();
