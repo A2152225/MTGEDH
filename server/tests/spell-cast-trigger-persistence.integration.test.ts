@@ -1,6 +1,7 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 import { createGameIfNotExists, deleteGame, getEvents, initDb } from '../src/db/index.js';
+import GameManager from '../src/GameManager.js';
 import { registerGameActions } from '../src/socket/game-actions.js';
 import { games } from '../src/socket/socket.js';
 import { ensureGame } from '../src/socket/util.js';
@@ -76,6 +77,7 @@ function setupCastingGame(gameId: string) {
 
 async function resetGame(gameId: string) {
   ResolutionQueueManager.removeQueue(gameId);
+  GameManager.deleteGame(gameId);
   games.delete(gameId as any);
   await deleteGame(gameId);
 }
@@ -83,7 +85,11 @@ async function resetGame(gameId: string) {
 describe('cast spell trigger persistence (integration)', () => {
   const merrowGameId = 'test_spell_cast_trigger_persistence_merrow';
   const rhysticGameId = 'test_spell_cast_trigger_persistence_rhystic';
-  const resetGameIds = [merrowGameId, rhysticGameId];
+  const vegaHandGameId = 'test_spell_cast_trigger_persistence_vega_hand';
+  const vegaExileGameId = 'test_spell_cast_trigger_persistence_vega_exile';
+  const appaHandGameId = 'test_spell_cast_trigger_persistence_appa_hand';
+  const appaExileGameId = 'test_spell_cast_trigger_persistence_appa_exile';
+  const resetGameIds = [merrowGameId, rhysticGameId, vegaHandGameId, vegaExileGameId, appaHandGameId, appaExileGameId];
 
   beforeAll(async () => {
     await initDb();
@@ -242,5 +248,209 @@ describe('cast spell trigger persistence (integration)', () => {
         casterId: 'p1',
       }),
     });
+  });
+
+  it('does not fire from-anywhere-other-than-hand triggers on ordinary hand casts', async () => {
+    const game = setupCastingGame(vegaHandGameId);
+    (game.state as any).battlefield = [
+      {
+        id: 'vega_1',
+        controller: 'p1',
+        owner: 'p1',
+        tapped: false,
+        card: {
+          id: 'vega_card',
+          name: 'Vega, the Watcher',
+          type_line: 'Legendary Creature — Bird Spirit',
+          oracle_text: 'Flying\nWhenever you cast a spell from anywhere other than your hand, draw a card.',
+        },
+      },
+    ];
+    (game.state as any).zones.p1.hand = [
+      {
+        id: 'hand_spell_1',
+        name: 'Hand Insight',
+        mana_cost: '',
+        manaCost: '{0}',
+        type_line: 'Sorcery',
+        oracle_text: 'Draw a card.',
+      },
+    ];
+    (game.state as any).zones.p1.handCount = 1;
+    (game.state as any).zones.p1.libraryCount = 1;
+    (game as any).libraries = new Map([
+      ['p1', [
+        {
+          id: 'library_draw_1',
+          name: 'Library Draw',
+          type_line: 'Instant',
+          oracle_text: 'Draw a card.',
+        },
+      ]],
+      ['p2', []],
+    ]);
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket('p1', vegaHandGameId, emitted);
+    const io = createMockIo(emitted, [socket]);
+    registerGameActions(io as any, socket as any);
+
+    await handlers['castSpellFromHand']({
+      gameId: vegaHandGameId,
+      cardId: 'hand_spell_1',
+      targets: [],
+    });
+
+    expect((game.state as any).zones.p1.handCount).toBe(0);
+    expect((((game.state as any).zones.p1.hand) || []).map((card: any) => card.id)).not.toContain('library_draw_1');
+    expect((game.state as any).zones.p1.libraryCount).toBe(1);
+  });
+
+  it('fires from-anywhere-other-than-hand triggers on exile casts', async () => {
+    const game = setupCastingGame(vegaExileGameId);
+    (game.state as any).battlefield = [
+      {
+        id: 'vega_1',
+        controller: 'p1',
+        owner: 'p1',
+        tapped: false,
+        card: {
+          id: 'vega_card',
+          name: 'Vega, the Watcher',
+          type_line: 'Legendary Creature — Bird Spirit',
+          oracle_text: 'Flying\nWhenever you cast a spell from anywhere other than your hand, draw a card.',
+        },
+      },
+    ];
+    (game.state as any).playableFromExile = { p1: { exile_spell_1: 999 } };
+    (game.state as any).zones.p1.exile = [
+      {
+        id: 'exile_spell_1',
+        name: 'Exile Insight',
+        mana_cost: '',
+        manaCost: '{0}',
+        type_line: 'Sorcery',
+        oracle_text: 'Draw a card.',
+        zone: 'exile',
+      },
+    ];
+    (game.state as any).zones.p1.exileCount = 1;
+    (game.state as any).zones.p1.libraryCount = 1;
+    (game as any).libraries = new Map([
+      ['p1', [
+        {
+          id: 'library_draw_1',
+          name: 'Library Draw',
+          type_line: 'Instant',
+          oracle_text: 'Draw a card.',
+        },
+      ]],
+      ['p2', []],
+    ]);
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket('p1', vegaExileGameId, emitted);
+    const io = createMockIo(emitted, [socket]);
+    registerGameActions(io as any, socket as any);
+
+    await handlers['castSpellFromHand']({
+      gameId: vegaExileGameId,
+      cardId: 'exile_spell_1',
+      fromZone: 'exile',
+      targets: [],
+    });
+
+    expect((game.state as any).zones.p1.handCount).toBe(1);
+    expect((((game.state as any).zones.p1.hand) || []).map((card: any) => card.id)).toContain('library_draw_1');
+    expect((game.state as any).zones.p1.libraryCount).toBe(0);
+  });
+
+  it('does not fire cast-from-exile triggers on ordinary hand casts', async () => {
+    const game = setupCastingGame(appaHandGameId);
+    (game.state as any).battlefield = [
+      {
+        id: 'appa_1',
+        controller: 'p1',
+        owner: 'p1',
+        tapped: false,
+        card: {
+          id: 'appa_card',
+          name: 'Appa, Steadfast Guardian',
+          type_line: 'Legendary Creature — Bison Ally',
+          oracle_text: 'Flash\nFlying\nWhenever you cast a spell from exile, create a 1/1 white Ally creature token.',
+        },
+      },
+    ];
+    (game.state as any).zones.p1.hand = [
+      {
+        id: 'hand_spell_1',
+        name: 'Hand Insight',
+        mana_cost: '',
+        manaCost: '{0}',
+        type_line: 'Sorcery',
+        oracle_text: 'Draw a card.',
+      },
+    ];
+    (game.state as any).zones.p1.handCount = 1;
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket('p1', appaHandGameId, emitted);
+    const io = createMockIo(emitted, [socket]);
+    registerGameActions(io as any, socket as any);
+
+    await handlers['castSpellFromHand']({
+      gameId: appaHandGameId,
+      cardId: 'hand_spell_1',
+      targets: [],
+    });
+
+    expect(((game.state as any).battlefield || []).filter((perm: any) => String(perm?.controller || '') === 'p1')).toHaveLength(1);
+  });
+
+  it('fires cast-from-exile triggers on exile casts', async () => {
+    const game = setupCastingGame(appaExileGameId);
+    (game.state as any).battlefield = [
+      {
+        id: 'appa_1',
+        controller: 'p1',
+        owner: 'p1',
+        tapped: false,
+        card: {
+          id: 'appa_card',
+          name: 'Appa, Steadfast Guardian',
+          type_line: 'Legendary Creature — Bison Ally',
+          oracle_text: 'Flash\nFlying\nWhenever you cast a spell from exile, create a 1/1 white Ally creature token.',
+        },
+      },
+    ];
+    (game.state as any).playableFromExile = { p1: { exile_spell_1: 999 } };
+    (game.state as any).zones.p1.exile = [
+      {
+        id: 'exile_spell_1',
+        name: 'Exile Insight',
+        mana_cost: '',
+        manaCost: '{0}',
+        type_line: 'Sorcery',
+        oracle_text: 'Draw a card.',
+        zone: 'exile',
+      },
+    ];
+    (game.state as any).zones.p1.exileCount = 1;
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket('p1', appaExileGameId, emitted);
+    const io = createMockIo(emitted, [socket]);
+    registerGameActions(io as any, socket as any);
+
+    await handlers['castSpellFromHand']({
+      gameId: appaExileGameId,
+      cardId: 'exile_spell_1',
+      fromZone: 'exile',
+      targets: [],
+    });
+
+    const playerPermanents = ((game.state as any).battlefield || []).filter((perm: any) => String(perm?.controller || '') === 'p1');
+    expect(playerPermanents).toHaveLength(2);
+    expect(playerPermanents.some((perm: any) => (perm as any)?.isToken === true)).toBe(true);
   });
 });

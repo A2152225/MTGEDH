@@ -13486,12 +13486,14 @@ export function resolveTopOfStack(ctx: GameContext) {
     state.battlefield.push(tempPerm as any);
     const modifiedCounters = applyCounterModifications(state, newPermId, retainedEntryCounters);
     state.battlefield.pop(); // Remove temp permanent
+    const copiedPermanentSpellBecomesToken = (item as any).isCopy === true;
     
     const newPermanent: any = {
       id: newPermId,
       controller,
       owner: controller,
       tapped: shouldEnterTapped,
+      ...(copiedPermanentSpellBecomesToken ? { isToken: true } : {}),
       counters: Object.keys(modifiedCounters).length > 0 ? modifiedCounters : undefined,
       basePower: baseP,
       baseToughness: baseT,
@@ -13511,6 +13513,10 @@ export function resolveTopOfStack(ctx: GameContext) {
       // Preserve isCommander flag from stack item if it exists
       isCommander: (item as any).card?.isCommander || (effectiveCard as any).isCommander || false,
     };
+
+    if (copiedPermanentSpellBecomesToken && newPermanent.card) {
+      (newPermanent.card as any).isToken = true;
+    }
 
     // Propagate relevant cast metadata from the stack item onto the permanent/card.
     // This enables ETB intervening-if clauses like "if {R} was spent to cast it".

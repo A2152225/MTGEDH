@@ -2437,6 +2437,11 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           const stackArr = (ctx.state.stack || []) as any[];
           if (stackArr.length > stackLengthBefore && stackArr.length > 0) {
             const topStackItem = stackArr[stackArr.length - 1];
+            const persistedStackItemId = String((e as any).stackItemId || '').trim();
+
+            if (persistedStackItemId) {
+              (topStackItem as any).id = persistedStackItemId;
+            }
 
             const applyToStackItem = (key: string, value: any) => {
               (topStackItem as any)[key] = value;
@@ -2488,6 +2493,25 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
             }
             if (typeof (e as any).giftType === 'string' && (e as any).giftType) {
               applyToStackItem('giftType', String((e as any).giftType));
+            }
+            if (Array.isArray((e as any).copyRetargetValidTargets)) {
+              applyToStackItem('copyRetargetValidTargets', (e as any).copyRetargetValidTargets.map((target: any) => (
+                target && typeof target === 'object' && !Array.isArray(target)
+                  ? { ...target }
+                  : target
+              )));
+            }
+            if (Array.isArray((e as any).copyRetargetTargetTypes)) {
+              applyToStackItem('copyRetargetTargetTypes', (e as any).copyRetargetTargetTypes.slice());
+            }
+            if (typeof (e as any).copyRetargetMinTargets === 'number') {
+              applyToStackItem('copyRetargetMinTargets', Number((e as any).copyRetargetMinTargets));
+            }
+            if (typeof (e as any).copyRetargetMaxTargets === 'number') {
+              applyToStackItem('copyRetargetMaxTargets', Number((e as any).copyRetargetMaxTargets));
+            }
+            if (typeof (e as any).copyRetargetTargetDescription === 'string' && (e as any).copyRetargetTargetDescription) {
+              applyToStackItem('copyRetargetTargetDescription', String((e as any).copyRetargetTargetDescription));
             }
 
             // Alternate-cost identifier
@@ -2970,6 +2994,72 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           ctx.bumpSeq();
         } catch (err) {
           debugWarn(1, 'applyEvent(copyTriggeredAbilityResolve): failed', err);
+        }
+        break;
+      }
+
+      case "copyTriggeredSpellResolve": {
+        try {
+          const sourceName = String((e as any).sourceName || 'Spell copy').trim() || 'Spell copy';
+          const controllerId = String((e as any).controllerId || '').trim();
+          const triggeringStackItemId = String((e as any).triggeringStackItemId || '').trim();
+          const copiedStackItemId = String((e as any).copiedStackItemId || '').trim();
+          if (!triggeringStackItemId) break;
+
+          const stack = ctx.state.stack as any[];
+          const existingCopiedItem = copiedStackItemId
+            ? stack.find((item: any) => item && String(item.id || '').trim() === copiedStackItemId)
+            : null;
+          if (!existingCopiedItem) {
+            const original = stack.find((item: any) => item && String(item.id || '').trim() === triggeringStackItemId);
+            if (!original) break;
+
+            const copiedItem: any = {
+              ...original,
+              id: copiedStackItemId || generateDeterministicId(ctx, 'copied_spell', triggeringStackItemId),
+              type: String((original as any).type || 'spell'),
+              controller: String((original as any).controller || controllerId),
+              targets: Array.isArray((original as any).targets)
+                ? (original as any).targets.map((target: any) => (
+                    target && typeof target === 'object' && !Array.isArray(target)
+                      ? { ...target }
+                      : target
+                  ))
+                : (original as any).targets,
+              card: (original as any).card ? { ...(original as any).card } : (original as any).card,
+              spell: (original as any).spell ? { ...(original as any).spell } : (original as any).spell,
+              searchParams: (original as any).searchParams ? { ...(original as any).searchParams } : (original as any).searchParams,
+              targetRequirements: (original as any).targetRequirements ? { ...(original as any).targetRequirements } : (original as any).targetRequirements,
+              manaPayment: (original as any).manaPayment
+                ? (Array.isArray((original as any).manaPayment) ? [...(original as any).manaPayment] : { ...(original as any).manaPayment })
+                : (original as any).manaPayment,
+              counterImmunity: (original as any).counterImmunity
+                ? (Array.isArray((original as any).counterImmunity) ? [...(original as any).counterImmunity] : { ...(original as any).counterImmunity })
+                : (original as any).counterImmunity,
+              entersBattlefieldWithCounters: (original as any).entersBattlefieldWithCounters
+                ? { ...(original as any).entersBattlefieldWithCounters }
+                : (original as any).entersBattlefieldWithCounters,
+              copyRetargetValidTargets: Array.isArray((original as any).copyRetargetValidTargets)
+                ? (original as any).copyRetargetValidTargets.map((target: any) => (
+                    target && typeof target === 'object' && !Array.isArray(target)
+                      ? { ...target }
+                      : target
+                  ))
+                : (original as any).copyRetargetValidTargets,
+              copyRetargetTargetTypes: Array.isArray((original as any).copyRetargetTargetTypes)
+                ? [...(original as any).copyRetargetTargetTypes]
+                : (original as any).copyRetargetTargetTypes,
+              copiedFromStackItemId: triggeringStackItemId,
+              copiedBySourceName: sourceName,
+              isCopy: true,
+            };
+
+            stack.push(copiedItem);
+          }
+
+          ctx.bumpSeq();
+        } catch (err) {
+          debugWarn(1, 'applyEvent(copyTriggeredSpellResolve): failed', err);
         }
         break;
       }
@@ -11122,6 +11212,37 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           ctx.bumpSeq();
         } catch (err) {
           debugWarn(1, 'applyEvent(retargetAbilityCopyResolve): failed', err);
+        }
+        break;
+      }
+
+      case "retargetSpellCopyResolve": {
+        try {
+          const replayGameId = String((ctx as any).gameId || '').trim();
+          const stackItemId = String((e as any).stackItemId || '').trim();
+          const targets = Array.isArray((e as any).targets)
+            ? ((e as any).targets as any[]).map((value: any) => String(value || '').trim()).filter(Boolean)
+            : [];
+          if (!stackItemId || targets.length === 0) break;
+
+          if (replayGameId) {
+            clearReplayQueuedSteps(replayGameId, (step: any) => {
+              if (!step) return false;
+              if (String((step as any)?.type || '') !== String(ResolutionStepType.TARGET_SELECTION)) return false;
+              if ((step as any)?.retargetSpellCopyTargetSelection !== true) return false;
+              return String((step as any)?.sourceId || '').trim() === stackItemId;
+            });
+          }
+
+          const stack = Array.isArray(ctx.state?.stack) ? ctx.state.stack : [];
+          const copiedItem = stack.find((item: any) => item && String(item.id || '') === stackItemId);
+          if (!copiedItem) break;
+
+          copiedItem.targets = [...targets];
+
+          ctx.bumpSeq();
+        } catch (err) {
+          debugWarn(1, 'applyEvent(retargetSpellCopyResolve): failed', err);
         }
         break;
       }

@@ -18343,6 +18343,44 @@ async function handleTargetSelectionResponse(
       }
     }
   }
+
+  if (stepAny?.retargetSpellCopyTargetSelection === true) {
+    const copyStackItemId = String(stepAny?.retargetSpellCopyStackItemId || step.sourceId || '').trim();
+    if (!copyStackItemId) {
+      return;
+    }
+
+    const stack = Array.isArray(game.state?.stack) ? game.state.stack : [];
+    const copiedItem = stack.find((item: any) => item && String(item.id || '') === copyStackItemId);
+    if (!copiedItem) {
+      emitToPlayer(io, pid as any, 'error', { code: 'STACK_ITEM_NOT_FOUND', message: 'Copied spell is no longer on the stack.' });
+      return;
+    }
+
+    copiedItem.targets = selections.map((value: any) => String(value)).filter(Boolean);
+
+    io.to(gameId).emit('chat', {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: 'system',
+      message: `${String(step.sourceName || 'Copied spell')} gets new target${copiedItem.targets.length === 1 ? '' : 's'}.`,
+      ts: Date.now(),
+    });
+
+    try {
+      await appendEvent(gameId, (game as any).seq ?? 0, 'retargetSpellCopyResolve', {
+        playerId: pid,
+        stackItemId: copyStackItemId,
+        targets: copiedItem.targets,
+      });
+    } catch (err) {
+      debugWarn(1, '[Resolution] Failed to persist retargetSpellCopyResolve event:', err);
+    }
+
+    if (typeof game.bumpSeq === 'function') game.bumpSeq();
+    broadcastGame(io, game, gameId);
+    return;
+  }
   
   // ========================================================================
   // SPELL CASTING TARGET SELECTION
@@ -27237,7 +27275,7 @@ async function handleOptionChoiceResponse(
       return;
     }
 
-    ResolutionQueueManager.addStep(gameId, {
+    const queuedResolutionStep = ResolutionQueueManager.addStep(gameId, {
       type: ResolutionStepType.TARGET_SELECTION,
       playerId: playerId as PlayerID,
       description: `Choose ${targetDescription} for the copied spell`,
@@ -27249,7 +27287,15 @@ async function handleOptionChoiceResponse(
       minTargets,
       maxTargets,
       targetDescription,
+      retargetSpellCopyTargetSelection: true,
+      retargetSpellCopyStackItemId: copyStackItemId,
     } as any);
+
+    appendQueuedResolutionPromptEvent(game, gameId, {
+      playerId,
+      sourceId: String(copyStackItemId || '').trim(),
+      queuedResolutionStep,
+    });
 
     return;
   }

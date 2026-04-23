@@ -2468,14 +2468,50 @@ export function extractCreatureTypes(typeLine: string): string[] {
  * Get spell-cast triggers that should fire for a spell being cast
  * Checks battlefield for permanents with spell-cast triggered abilities
  */
-function getSpellCastTriggersForCard(game: any, casterId: string, spellCard: any): SpellCastTrigger[] {
+function getSpellCastTriggersForCard(game: any, casterId: string, spellCard: any, castSourceZone?: SpellCastSourceZone): SpellCastTrigger[] {
   const triggers: SpellCastTrigger[] = [];
   const battlefield = game.state?.battlefield || [];
-  
-  const spellTypeLine = (spellCard?.type_line || '').toLowerCase();
-  const isCreatureSpell = spellTypeLine.includes('creature');
-  const isInstantOrSorcery = spellTypeLine.includes('instant') || spellTypeLine.includes('sorcery');
-  const isNoncreatureSpell = !isCreatureSpell;
+
+  const matchesSpellCastTriggerCondition = (card: any, trigger: SpellCastTrigger): boolean => {
+    if (trigger.sourceZoneRequirement === 'library' && castSourceZone !== 'library') {
+      return false;
+    }
+    if (trigger.sourceZoneRequirement === 'exile' && castSourceZone !== 'exile') {
+      return false;
+    }
+    if (trigger.sourceZoneRequirement === 'not_hand' && castSourceZone === 'hand') {
+      return false;
+    }
+
+    const spellTypeLine = String(card?.type_line || '').toLowerCase();
+    const isCreatureSpell = spellTypeLine.includes('creature');
+    const isInstantOrSorcery = spellTypeLine.includes('instant') || spellTypeLine.includes('sorcery');
+    const spellColors = Array.isArray(card?.colors)
+      ? card.colors
+      : (Array.isArray(card?.color_identity) ? card.color_identity : []);
+    const isColorlessSpell = spellColors.length === 0;
+
+    switch (trigger.spellCondition) {
+      case 'any':
+        return true;
+      case 'creature':
+        return isCreatureSpell;
+      case 'noncreature':
+        return !isCreatureSpell;
+      case 'instant_sorcery':
+        return isInstantOrSorcery;
+      case 'colorless':
+        return isColorlessSpell;
+      case 'tribal_type': {
+        if (!trigger.tribalType) return false;
+        const spellSubtypes = extractCreatureTypes(spellTypeLine);
+        return spellSubtypes.includes(trigger.tribalType.toLowerCase()) ||
+          spellTypeLine.includes(trigger.tribalType.toLowerCase());
+      }
+      default:
+        return false;
+    }
+  };
   
   for (const permanent of battlefield) {
     if (!permanent || !permanent.card) continue;
@@ -2484,29 +2520,14 @@ function getSpellCastTriggersForCard(game: any, casterId: string, spellCard: any
     const permTriggers = detectSpellCastTriggers(permanent.card, permanent);
     
     for (const trigger of permTriggers) {
-      let shouldTrigger = false;
-      
-      switch (trigger.spellCondition) {
-        case 'any':
-          shouldTrigger = true;
-          break;
-        case 'creature':
-          shouldTrigger = isCreatureSpell;
-          break;
-        case 'noncreature':
-          shouldTrigger = isNoncreatureSpell;
-          break;
-        case 'instant_sorcery':
-          shouldTrigger = isInstantOrSorcery;
-          break;
-        case 'tribal_type':
-          // Check if the spell has the required creature type
-          if (trigger.tribalType) {
-            const spellSubtypes = extractCreatureTypes(spellTypeLine);
-            shouldTrigger = spellSubtypes.includes(trigger.tribalType.toLowerCase()) ||
-                           spellTypeLine.includes(trigger.tribalType.toLowerCase());
-          }
-          break;
+      let shouldTrigger = matchesSpellCastTriggerCondition(spellCard, trigger);
+
+      if (shouldTrigger && trigger.firstSpellThisTurn === true) {
+        const matchingSpellsCastThisTurn = (Array.isArray(game.state?.spellsCastThisTurn) ? game.state.spellsCastThisTurn : [])
+          .filter((castEntry: any) => String(castEntry?.casterId || '') === String(casterId))
+          .filter((castEntry: any) => matchesSpellCastTriggerCondition(castEntry?.card || castEntry, trigger))
+          .length;
+        shouldTrigger = matchingSpellsCastThisTurn === 1;
       }
       
       if (shouldTrigger) {
@@ -2535,6 +2556,139 @@ function markSpellCastTriggerTriggeredThisTurn(game: any, trigger: SpellCastTrig
   const stateAny = game.state as any;
   stateAny.spellCastTriggerUsageThisTurn = stateAny.spellCastTriggerUsageThisTurn || {};
   stateAny.spellCastTriggerUsageThisTurn[getSpellCastTriggerUsageKey(trigger)] = Number(stateAny.turnNumber ?? 0);
+}
+
+function appendCopyTriggeredSpellResolveEvent(
+  gameId: string,
+  game: any,
+  payload: Record<string, unknown>,
+): void {
+  try {
+    appendEvent(gameId, (game as any).seq ?? 0, 'copyTriggeredSpellResolve', payload);
+  } catch (err) {
+    debugWarn(1, '[castSpellFromHand] appendEvent(copyTriggeredSpellResolve) failed:', err);
+  }
+}
+
+function cloneTriggeredSpellCopy(
+  gameId: string,
+  game: any,
+  io: Server,
+  trigger: SpellCastTrigger,
+  controllerId: string,
+  triggeringStackItemId?: string,
+): any | null {
+  const normalizedStackItemId = String(triggeringStackItemId || '').trim();
+  if (!normalizedStackItemId) {
+    return null;
+  }
+
+  const stack = Array.isArray((game.state as any)?.stack) ? (game.state as any).stack : [];
+  const original = stack.find((item: any) => item && String(item.id || '').trim() === normalizedStackItemId);
+  if (!original) {
+    return null;
+  }
+
+  const copiedItem: any = {
+    ...original,
+    id: uid('copied_spell'),
+    type: String((original as any).type || 'spell'),
+    controller: String((original as any).controller || controllerId),
+    targets: Array.isArray((original as any).targets)
+      ? (original as any).targets.map((target: any) => (
+          target && typeof target === 'object' && !Array.isArray(target)
+            ? { ...target }
+            : target
+        ))
+      : (original as any).targets,
+    card: (original as any).card ? { ...(original as any).card } : (original as any).card,
+    spell: (original as any).spell ? { ...(original as any).spell } : (original as any).spell,
+    searchParams: (original as any).searchParams ? { ...(original as any).searchParams } : (original as any).searchParams,
+    targetRequirements: (original as any).targetRequirements ? { ...(original as any).targetRequirements } : (original as any).targetRequirements,
+    manaPayment: (original as any).manaPayment
+      ? (Array.isArray((original as any).manaPayment) ? [...(original as any).manaPayment] : { ...(original as any).manaPayment })
+      : (original as any).manaPayment,
+    counterImmunity: (original as any).counterImmunity
+      ? (Array.isArray((original as any).counterImmunity) ? [...(original as any).counterImmunity] : { ...(original as any).counterImmunity })
+      : (original as any).counterImmunity,
+    entersBattlefieldWithCounters: (original as any).entersBattlefieldWithCounters
+      ? { ...(original as any).entersBattlefieldWithCounters }
+      : (original as any).entersBattlefieldWithCounters,
+    copyRetargetValidTargets: Array.isArray((original as any).copyRetargetValidTargets)
+      ? (original as any).copyRetargetValidTargets.map((target: any) => (
+          target && typeof target === 'object' && !Array.isArray(target)
+            ? { ...target }
+            : target
+        ))
+      : (original as any).copyRetargetValidTargets,
+    copyRetargetTargetTypes: Array.isArray((original as any).copyRetargetTargetTypes)
+      ? [...(original as any).copyRetargetTargetTypes]
+      : (original as any).copyRetargetTargetTypes,
+    copiedFromStackItemId: normalizedStackItemId,
+    copiedBySourceName: trigger.cardName,
+    isCopy: true,
+  };
+
+  stack.push(copiedItem);
+
+  appendCopyTriggeredSpellResolveEvent(gameId, game, {
+    sourceId: String(trigger.permanentId || '').trim() || undefined,
+    sourceName: String(trigger.cardName || 'Spell copy').trim() || 'Spell copy',
+    controllerId: String(controllerId || '').trim() || undefined,
+    triggeringStackItemId: normalizedStackItemId,
+    copiedStackItemId: String((copiedItem as any).id || '').trim() || undefined,
+  });
+
+  io.to(gameId).emit('chat', {
+    id: `m_${Date.now()}`,
+    gameId,
+    from: 'system',
+    message: `${trigger.cardName} copies ${String((original as any)?.card?.name || (original as any)?.sourceName || 'that spell')}.`,
+    ts: Date.now(),
+  });
+
+  const allowsRetargeting = /choose new targets for the copy\.?/i.test(`${String(trigger.description || '')} ${String(trigger.effect || '')}`);
+  const validTargets = Array.isArray((copiedItem as any).copyRetargetValidTargets)
+    ? (copiedItem as any).copyRetargetValidTargets
+    : [];
+  const currentTargets = Array.isArray((copiedItem as any).targets) ? (copiedItem as any).targets : [];
+
+  if (allowsRetargeting && validTargets.length > 0 && currentTargets.length > 0) {
+    const queuedResolutionStep = createResolutionStep({
+      type: ResolutionStepType.OPTION_CHOICE,
+      playerId: controllerId as any,
+      description: `${trigger.cardName}: You may choose new targets for the copy.`,
+      mandatory: false,
+      sourceId: String((copiedItem as any).id || '').trim() || undefined,
+      sourceName: trigger.cardName,
+      options: [
+        { id: 'keep', label: 'Keep current targets' },
+        { id: 'retarget', label: 'Choose new targets' },
+      ],
+      minSelections: 1,
+      maxSelections: 1,
+      retargetSpellCopy: true,
+      retargetSpellCopyStackItemId: String((copiedItem as any).id || '').trim(),
+      retargetSpellCopyValidTargets: validTargets.map((target: any) => ({ ...target })),
+      retargetSpellCopyMinTargets: Number((copiedItem as any).copyRetargetMinTargets || currentTargets.length || 1),
+      retargetSpellCopyMaxTargets: Number((copiedItem as any).copyRetargetMaxTargets || currentTargets.length || 1),
+      retargetSpellCopyTargetDescription: String((copiedItem as any).copyRetargetTargetDescription || 'target'),
+    } as any);
+
+    persistQueuedSpellCastStepContinuation(gameId, game, {
+      playerId: controllerId,
+      cardId: String((original as any)?.card?.id || ''),
+      queuedResolutionStep,
+    });
+
+    ResolutionQueueManager.addStep(gameId, queuedResolutionStep as any);
+  }
+
+  if (typeof game.bumpSeq === 'function') {
+    game.bumpSeq();
+  }
+
+  return copiedItem;
 }
 
 /**
@@ -8081,6 +8235,119 @@ export function registerGameActions(io: Server, socket: Socket) {
       try {
           // Check stack length before attempting to cast
           const stackLengthBefore = game.state.stack?.length || 0;
+          const spellCopyRetargetMetadata = (() => {
+            if (!Array.isArray(targets) || targets.length === 0) return null;
+            let minTargets = 1;
+            let maxTargets = 1;
+            let validTargetList: any[] = [];
+            let targetDescription = 'target';
+            let targetTypes: string[] = ['spell_target'];
+
+            if (isAura) {
+              if (!auraTargetType) return null;
+
+              targetTypes = ['aura_target'];
+              targetDescription = `Enchant ${auraTargetType}`;
+
+              if (auraTargetType === 'player') {
+                validTargetList = (game.state.players || []).map((player: any) => ({
+                  id: player.id,
+                  kind: 'player',
+                  name: player.name || player.id,
+                  isOpponent: player.id !== playerId,
+                }));
+              } else if (auraTargetType === 'opponent') {
+                validTargetList = (game.state.players || [])
+                  .filter((player: any) => player.id !== playerId)
+                  .map((player: any) => ({
+                    id: player.id,
+                    kind: 'player',
+                    name: player.name || player.id,
+                    isOpponent: true,
+                  }));
+              } else if (auraTargetType === 'creature') {
+                validTargetList = (game.state.battlefield || [])
+                  .filter((permanent: any) => {
+                    const permanentTypeLine = String(permanent?.card?.type_line || '').toLowerCase();
+                    if (!permanentTypeLine.includes('creature')) return false;
+                    if (auraControllerRestriction === 'you_control' && permanent.controller !== playerId) return false;
+                    if (auraControllerRestriction === 'opponent_controls' && permanent.controller === playerId) return false;
+                    return true;
+                  })
+                  .map((permanent: any) => ({
+                    id: permanent.id,
+                    kind: 'permanent',
+                    name: permanent.card?.name || 'Unknown',
+                    controller: permanent.controller,
+                    isOpponent: permanent.controller !== playerId,
+                    imageUrl: permanent.card?.image_uris?.small || permanent.card?.image_uris?.normal,
+                    typeLine: permanent.card?.type_line,
+                  }));
+              } else if (auraTargetType === 'permanent') {
+                validTargetList = (game.state.battlefield || []).map((permanent: any) => ({
+                  id: permanent.id,
+                  kind: 'permanent',
+                  name: permanent.card?.name || 'Unknown',
+                  controller: permanent.controller,
+                  isOpponent: permanent.controller !== playerId,
+                  imageUrl: permanent.card?.image_uris?.small || permanent.card?.image_uris?.normal,
+                  typeLine: permanent.card?.type_line,
+                }));
+              } else if (auraTargetType === 'artifact' || auraTargetType === 'land' || auraTargetType === 'enchantment') {
+                validTargetList = (game.state.battlefield || [])
+                  .filter((permanent: any) => String(permanent?.card?.type_line || '').toLowerCase().includes(auraTargetType))
+                  .map((permanent: any) => ({
+                    id: permanent.id,
+                    kind: 'permanent',
+                    name: permanent.card?.name || 'Unknown',
+                    controller: permanent.controller,
+                    isOpponent: permanent.controller !== playerId,
+                    imageUrl: permanent.card?.image_uris?.small || permanent.card?.image_uris?.normal,
+                    typeLine: permanent.card?.type_line,
+                  }));
+              }
+            } else {
+              if (multiTargetClauses.length > 1) return null;
+              if ((targetReqs as any)?.perOpponent === true) return null;
+
+              minTargets = spellSpec && !preferParsedTargetReqs
+                ? resolveTargetCount(spellSpec.minTargets, (spellSpec as any).minTargetsIsX === true, xValue)
+                : resolveTargetCount(targetReqs?.minTargets, (targetReqs as any)?.minTargetsIsX === true, xValue);
+              maxTargets = spellSpec && !preferParsedTargetReqs
+                ? resolveTargetCount(spellSpec.maxTargets, (spellSpec as any).maxTargetsIsX === true, xValue)
+                : resolveTargetCount(targetReqs?.maxTargets, (targetReqs as any)?.maxTargetsIsX === true, xValue);
+              if (!(maxTargets > 0)) return null;
+
+              validTargetList = spellSpec && !preferParsedTargetReqs
+                ? evaluateTargeting(game.state as any, playerId, spellSpec).map((targetRef: any) => mapSpellTargetRefToDisplay(game, String(playerId), targetRef))
+                : (targetReqs?.needsTargets ? buildSpellTargetListFromRequirements(game, String(playerId), targetReqs) : []);
+              targetDescription = preferParsedTargetReqs
+                ? targetReqs?.targetDescription || spellSpec?.targetDescription || 'target'
+                : spellSpec?.targetDescription || targetReqs?.targetDescription || 'target';
+              targetTypes = Array.isArray(targetReqs?.targetTypes) && targetReqs.targetTypes.length > 0
+                ? [...targetReqs.targetTypes]
+                : ['spell_target'];
+            }
+
+            if (!Array.isArray(validTargetList) || validTargetList.length === 0) return null;
+
+            return {
+              copyRetargetValidTargets: validTargetList.map((target: any) => ({
+                id: String(target?.id || ''),
+                name: String(target?.name || target?.label || 'Target'),
+                type: target?.kind === 'player' ? 'player' : (target?.kind === 'stack' ? 'card' : 'permanent'),
+                controller: target?.controller,
+                imageUrl: target?.imageUrl,
+                typeLine: target?.typeLine,
+                life: target?.life,
+                isOpponent: target?.isOpponent,
+              })),
+              copyRetargetTargetTypes: targetTypes,
+              copyRetargetMinTargets: minTargets,
+              copyRetargetMaxTargets: maxTargets,
+              copyRetargetTargetDescription: String(targetDescription || 'target'),
+            };
+          })();
           
           if (typeof game.applyEvent === 'function') {
             const castEv: any = {
@@ -8190,6 +8457,7 @@ export function registerGameActions(io: Server, socket: Socket) {
                     collectedEvidence: true,
                   }
                 : {}),
+              ...(spellCopyRetargetMetadata ? { ...spellCopyRetargetMetadata } : {}),
             };
             if (manaFromTreasureSpent === true) {
               // Preserve positive-only evidence when we don't have a replay-stable known/boolean.
@@ -8586,6 +8854,7 @@ export function registerGameActions(io: Server, socket: Socket) {
               // Track source zone for rebound and other "cast from hand" effects
               castFromHand: castSourceZone === 'hand',
               source: castSourceZone,
+              ...(spellCopyRetargetMetadata ? { ...spellCopyRetargetMetadata } : {}),
             };
             
             if (typeof game.pushStack === 'function') {
@@ -8646,6 +8915,27 @@ export function registerGameActions(io: Server, socket: Socket) {
           const gainsHasteUntilEndOfTurnFromManaSpent =
             stackItem.gainsHasteUntilEndOfTurnFromManaSpent === true
               || stackItem.card?.gainsHasteUntilEndOfTurnFromManaSpent === true;
+          const copyRetargetValidTargets = Array.isArray(stackItem.copyRetargetValidTargets)
+            ? stackItem.copyRetargetValidTargets.map((target: any) => (
+                target && typeof target === 'object' && !Array.isArray(target)
+                  ? { ...target }
+                  : target
+              ))
+            : (Array.isArray(stackItem.card?.copyRetargetValidTargets)
+              ? stackItem.card.copyRetargetValidTargets.map((target: any) => (
+                  target && typeof target === 'object' && !Array.isArray(target)
+                    ? { ...target }
+                    : target
+                ))
+              : undefined);
+          const copyRetargetTargetTypes = Array.isArray(stackItem.copyRetargetTargetTypes)
+            ? stackItem.copyRetargetTargetTypes.slice()
+            : (Array.isArray(stackItem.card?.copyRetargetTargetTypes)
+              ? stackItem.card.copyRetargetTargetTypes.slice()
+              : undefined);
+          const copyRetargetMinTargets = Number(stackItem.copyRetargetMinTargets ?? stackItem.card?.copyRetargetMinTargets ?? NaN);
+          const copyRetargetMaxTargets = Number(stackItem.copyRetargetMaxTargets ?? stackItem.card?.copyRetargetMaxTargets ?? NaN);
+          const copyRetargetTargetDescription = String(stackItem.copyRetargetTargetDescription ?? stackItem.card?.copyRetargetTargetDescription ?? '').trim();
 
           return {
             ...(manaPayment && typeof manaPayment === 'object'
@@ -8668,12 +8958,28 @@ export function registerGameActions(io: Server, socket: Socket) {
             ...(entersBattlefieldWithCounters && typeof entersBattlefieldWithCounters === 'object'
               ? { entersBattlefieldWithCounters: { ...entersBattlefieldWithCounters } }
               : {}),
+            ...(copyRetargetValidTargets && copyRetargetValidTargets.length > 0
+              ? { copyRetargetValidTargets }
+              : {}),
+            ...(copyRetargetTargetTypes && copyRetargetTargetTypes.length > 0
+              ? { copyRetargetTargetTypes }
+              : {}),
+            ...(Number.isFinite(copyRetargetMinTargets)
+              ? { copyRetargetMinTargets }
+              : {}),
+            ...(Number.isFinite(copyRetargetMaxTargets)
+              ? { copyRetargetMaxTargets }
+              : {}),
+            ...(copyRetargetTargetDescription
+              ? { copyRetargetTargetDescription }
+              : {}),
           };
         })();
         appendEvent(gameId, (game as any).seq ?? 0, "castSpell", { 
           playerId, 
           cardId, 
           targets,
+          ...(persistedCastStackItem?.id ? { stackItemId: String(persistedCastStackItem.id) } : {}),
           // Include full card data for replay to work correctly after server restart
           card: { ...cardInHand, ...(castSourceZone === 'command' ? { isCommander: true } : {}) },
           xValue,
@@ -8885,7 +9191,7 @@ export function registerGameActions(io: Server, socket: Socket) {
         }
         const triggeringStackItemId = triggeringStackItem ? String(triggeringStackItem.id || '') : undefined;
 
-        const spellCastTriggers = getSpellCastTriggersForCard(game, playerId, cardInHand);
+        const spellCastTriggers = getSpellCastTriggersForCard(game, playerId, cardInHand, castSourceZone);
         for (const trigger of spellCastTriggers) {
           if (hasSpellCastTriggerTriggeredThisTurn(game, trigger)) {
             debug(2, `[castSpellFromHand] Skipping once-per-turn spell-cast trigger already used: ${trigger.cardName}`);
@@ -8984,6 +9290,10 @@ export function registerGameActions(io: Server, socket: Socket) {
           if (effectLower.includes('untap')) {
             // Untap effect (Jeskai Ascendancy)
             applySpellCastUntapTrigger(game, playerId);
+          }
+
+          if (trigger.copiesSpell === true) {
+            cloneTriggeredSpellCopy(gameId, game, io, trigger, playerId, triggeringStackItemId);
           }
           
           // Consuming Aberration - mill each opponent until land, boost handled via graveyard counts
