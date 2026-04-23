@@ -1639,11 +1639,49 @@ function applySelectedManaPaymentForResolutionCost(
       }
     }
 
+    // Resolve hybrid cost symbols (e.g. {W/B}) into concrete colored requirements based on
+    // which colors the player selected to pay with. Without this step hybrid pip costs would
+    // be silently dropped when consuming from the selected payment totals.
+    const hybridResolvedColors: Record<string, number> = { ...parsedCost.colors } as Record<string, number>;
+    let hybridResolvedGeneric = parsedCost.generic;
+    const hybridSelectionPool: Record<string, number> = { ...selectedPaymentAvailableTotals };
+    const HYBRID_POOL_KEY: Record<string, string> = { W: 'white', U: 'blue', B: 'black', R: 'red', G: 'green', C: 'colorless' };
+    const hybridList = Array.isArray(parsedCost.hybrids) ? parsedCost.hybrids : [];
+    for (const hybrid of hybridList) {
+      if (!Array.isArray(hybrid) || hybrid.length === 0) continue;
+      let chosen: string | null = null;
+      for (const option of hybrid) {
+        const opt = String(option || '');
+        if (opt.startsWith('GENERIC:') || opt.startsWith('LIFE:')) continue;
+        const poolKey = HYBRID_POOL_KEY[opt];
+        if (poolKey && Number(hybridSelectionPool[poolKey] || 0) > 0) {
+          chosen = opt;
+          hybridSelectionPool[poolKey] = Number(hybridSelectionPool[poolKey] || 0) - 1;
+          break;
+        }
+      }
+      if (chosen) {
+        hybridResolvedColors[chosen] = (Number(hybridResolvedColors[chosen] || 0)) + 1;
+        continue;
+      }
+      // Fallback: treat as generic if a generic option exists, else first color option.
+      const genericOpt = hybrid.find((o) => String(o || '').startsWith('GENERIC:'));
+      if (genericOpt) {
+        const amount = Number(String(genericOpt).split(':')[1] || 0) || 0;
+        hybridResolvedGeneric += amount;
+      } else {
+        const firstColor = hybrid.find((o) => HYBRID_POOL_KEY[String(o || '')]);
+        if (firstColor) {
+          hybridResolvedColors[firstColor] = (Number(hybridResolvedColors[firstColor] || 0)) + 1;
+        }
+      }
+    }
+
     const selectedConsumption = consumeExplicitSelectedResolutionMana(
       manaPool,
       selectedPaymentAvailableTotals,
-      parsedCost.colors,
-      parsedCost.generic,
+      hybridResolvedColors,
+      hybridResolvedGeneric,
       '[resolutionSelectedPayment]',
     );
     if ('error' in selectedConsumption) {

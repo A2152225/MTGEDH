@@ -2,7 +2,7 @@ import type { PlayerID } from "../../../../shared/src/index.js";
 import { buildZoneObjectWithRetainedCounters, mergeRetainedCountersForBattlefieldEntry } from "../../../../shared/src/zoneRetainedCounters.js";
 import type { GameContext } from "../context.js";
 import { uid, parsePT, addEnergyCounters, addTokenCounters, triggerLifeGainEffects, calculateAllPTBonuses, cardManaValue, calculateVariablePT } from "../utils.js";
-import { recalculatePlayerEffects, hasMetalcraft, countArtifacts, detectSpellLandBonus, applyTemporaryLandBonus, processLifeChange, applyMillReplacements } from "./game-state-effects.js";
+import { recalculatePlayerEffects, hasMetalcraft, countArtifacts, detectSpellLandBonus, applyTemporaryLandBonus, processLifeChange, applyMillReplacements, hasSpellMastery } from "./game-state-effects.js";
 import { 
   detectKeywords, 
   getAttackTriggerKeywords, 
@@ -10144,7 +10144,7 @@ export function executeTriggerEffect(
   }
 
   // Pattern: "exile target [type] card from a graveyard" or "exile up to one target card from any graveyard"
-  if (/exile\s+(?:up\s+to\s+one\s+)?target\s+(?:(?:[^.]+?)\s+)?card(?:\s+with\s+mana\s+value\s+[^.]+?)?\s+from\s+(?:your|a|any)\s+graveyard/i.test(desc)) {
+  if (/exile\s+(?:up\s+to\s+one\s+)?target\s+(?:(?:[^.]+?)\s+)?card(?:\s+with\s+mana\s+value\s+[^.]+?)?\s+from\s+(?:your|a|any|an\s+opponent['’]?s?)\s+graveyard/i.test(desc)) {
     const targets = Array.isArray((triggerItem as any).targets) ? (triggerItem as any).targets : [];
     const targetCardId = String(targets[0] || '').trim();
     if (!targetCardId) {
@@ -10397,7 +10397,7 @@ export function executeTriggerEffect(
   }
 
     // Pattern: "return any number of target [type] cards with total power N or less from a graveyard to the battlefield"
-    const graveyardMultiToBattlefieldMatch = desc.match(/^(?:return|put)\s+any\s+number\s+of\s+target\s+(?:(?:creature|artifact|enchantment|land|instant|sorcery|planeswalker|nonland|noncreature)\s+)?cards?\s+with\s+total\s+power\s+\d+\s+or\s+less\s+from\s+(?:your|a|any)\s+graveyard\s+(?:to|onto)\s+the\s+battlefield(?:\s+tapped)?(?:\s+under\s+(your|its owner['’]s)\s+control)?(?:\s+with\s+[^.]+?\s+counters?\s+on\s+it)?\.?$/i);
+    const graveyardMultiToBattlefieldMatch = desc.match(/^(?:return|put)\s+any\s+number\s+of\s+target\s+(?:(?:creature|artifact|enchantment|land|instant|sorcery|planeswalker|nonland|noncreature)\s+)?cards?\s+with\s+total\s+power\s+\d+\s+or\s+less\s+from\s+(?:your|a|any|an\s+opponent['’]?s?)\s+graveyard\s+(?:to|onto)\s+the\s+battlefield(?:\s+tapped)?(?:\s+under\s+(your|its owner['’]s)\s+control)?(?:\s+with\s+[^.]+?\s+counters?\s+on\s+it)?\.?$/i);
     if (graveyardMultiToBattlefieldMatch) {
       const targetIds = Array.isArray(triggerItem.targets)
         ? triggerItem.targets.map((value: any) => String(value || '').trim()).filter(Boolean)
@@ -10469,7 +10469,7 @@ export function executeTriggerEffect(
     }
 
     // Pattern: "return target [type] card from a graveyard to the battlefield"
-    const graveyardToBattlefieldMatch = desc.match(/^(?:return|put)\s+(?:up\s+to\s+one\s+)?target\s+(?:(?:[^.]+?)\s+)?card(?:\s+with\s+mana\s+value\s+.+?)?\s+from\s+(?:your|a|any)\s+graveyard\s+(?:to|onto)\s+the\s+battlefield(?:\s+tapped)?(?:\s+under\s+(your|its owner['’]s)\s+control)?(?:\s+with\s+[^.]+?\s+counters?\s+on\s+it)?\.?$/i);
+    const graveyardToBattlefieldMatch = desc.match(/^(?:return|put)\s+(?:up\s+to\s+one\s+)?target\s+(?:(?:[^.]+?)\s+)?card(?:\s+with\s+mana\s+value\s+.+?)?\s+from\s+(?:your|a|any|an\s+opponent['’]?s?)\s+graveyard\s+(?:to|onto)\s+the\s+battlefield(?:\s+tapped)?(?:\s+under\s+(your|its owner['’]s)\s+control)?(?:\s+with\s+[^.]+?\s+counters?\s+on\s+it)?\.?$/i);
     if (graveyardToBattlefieldMatch) {
       const targets = Array.isArray(triggerItem.targets) ? triggerItem.targets : [];
       const targetId = String(targets[0] || '').trim();
@@ -10538,7 +10538,7 @@ export function executeTriggerEffect(
     }
 
     // Pattern: "return target [type] card from a graveyard to its owner's hand"
-    const graveyardToHandMatch = desc.match(/return\s+(?:up\s+to\s+one\s+)?target\s+(?:(?:[^.]+?)\s+)?card(?:\s+with\s+mana\s+value\s+.+?)?\s+from\s+(?:your|a|any)\s+graveyard\s+to\s+(?:your|its owner['’]s)\s+hand/i);
+    const graveyardToHandMatch = desc.match(/return\s+(?:up\s+to\s+one\s+)?target\s+(?:(?:[^.]+?)\s+)?card(?:\s+with\s+mana\s+value\s+.+?)?\s+from\s+(?:your|a|any|an\s+opponent['’]?s?)\s+graveyard\s+to\s+(?:your|its owner['’]s)\s+hand/i);
     if (graveyardToHandMatch) {
       const targets = Array.isArray(triggerItem.targets) ? triggerItem.targets : [];
       const targetId = String(targets[0] || '').trim();
@@ -10890,7 +10890,7 @@ export function executeTriggerEffect(
     return;
   }
 
-      const graveyardToLibraryMatch = desc.match(/put target (?:[^.]+? )?card(?:\s+with\s+mana\s+value\s+.+?)? from (?:your|a|any) graveyard on (?:the )?(top|bottom) of (?:its owner['’]s|your) library/i);
+      const graveyardToLibraryMatch = desc.match(/put target (?:[^.]+? )?card(?:\s+with\s+mana\s+value\s+.+?)? from (?:your|a|any|an\s+opponent['’]?s?) graveyard on (?:the )?(top|bottom) of (?:its owner['’]s|your) library/i);
       if (graveyardToLibraryMatch) {
         const targets = Array.isArray((triggerItem as any).targets) ? (triggerItem as any).targets : [];
         const targetCardId = String(targets[0] || '').trim();
@@ -14861,6 +14861,119 @@ export function resolveTopOfStack(ctx: GameContext) {
         ,
         String((item as any).id || (card as any)?.id || '')
       );
+    }
+
+    // Spell-side graveyard zone-change automation (Reanimate, Necromancy, Beacon of Unrest, Cremate, etc.)
+    // For cast spells whose oracle text moves a target card from a graveyard, reuse the trigger-side
+    // matchers in executeTriggerEffect by synthesizing a trigger-like item carrying the spell's targets.
+    // For modal spells (e.g. Naya Charm), key on the selected mode descriptions instead of the full
+    // oracle text so unchosen modes don't fire.
+    const graveyardSelectedModeDescriptions: string[] = Array.isArray((item as any)?.selectedModeDescriptions)
+      ? ((item as any).selectedModeDescriptions as any[])
+        .map((entry) => String(entry || '').trim())
+        .filter(Boolean)
+      : [];
+    const graveyardEffectiveOracleText = graveyardSelectedModeDescriptions.length > 0
+      ? graveyardSelectedModeDescriptions.join(' ')
+      : oracleText;
+    if (
+      targets.length > 0 &&
+      /from\s+(?:your|a|any|an\s+opponent['']?s?)\s+graveyard/i.test(graveyardEffectiveOracleText)
+    ) {
+      try {
+        // Snapshot mana values of the targeted graveyard card(s) BEFORE the helper moves them,
+        // so trailing clauses like "You lose life equal to its mana value" still have data.
+        const targetIdSet = new Set(
+          targets
+            .map((t: any) => (typeof t === 'string' ? t : String(t?.id || '')).trim())
+            .filter(Boolean)
+        );
+        const targetManaValues: number[] = [];
+        const stateAny: any = (ctx as any).state || {};
+        const zones = stateAny.zones || {};
+        for (const tid of targetIdSet) {
+          let found: any = null;
+          for (const playerZones of Object.values(zones as Record<string, any>)) {
+            const gy = Array.isArray(playerZones?.graveyard) ? playerZones.graveyard : [];
+            const hit = gy.find((entry: any) => String(entry?.id || '') === tid);
+            if (hit) { found = hit; break; }
+          }
+          if (!found && Array.isArray(stateAny.battlefield)) {
+            const hit = stateAny.battlefield.find((p: any) => String(p?.card?.id || p?.id || '') === tid);
+            if (hit) found = hit.card || hit;
+          }
+          if (found) {
+            const mv = Number((found as any).cmc ?? (found as any).mana_value ?? (found as any).manaValue ?? 0);
+            if (Number.isFinite(mv)) targetManaValues.push(mv);
+          }
+        }
+
+        const sentences = String(graveyardEffectiveOracleText)
+          .replace(/[\u2019]/g, "'")
+          .split(/(?<=\.)\s+/)
+          .map((s) => s.trim())
+          .filter(Boolean);
+        const fakeTriggerItem: any = {
+          targets,
+          card: effectiveCard,
+          sourceName: effectiveCard.name || 'spell',
+          source: String((item as any).source || (item as any).permanentId || ''),
+          id: String((item as any).id || (card as any)?.id || ''),
+        };
+        for (const sentence of sentences) {
+          if (!/from\s+(?:your|a|any|an\s+opponent['']?s?)\s+graveyard/i.test(sentence)) continue;
+          if (!/^(?:return|put|exile)\b/i.test(sentence)) continue;
+          executeTriggerEffect(
+            ctx,
+            controller as PlayerID,
+            effectiveCard.name || 'spell',
+            sentence,
+            fakeTriggerItem
+          );
+        }
+
+        // Trailing "You lose life equal to its mana value." (Reanimate)
+        if (
+          targetManaValues.length > 0 &&
+          /you\s+lose\s+life\s+equal\s+to\s+its\s+mana\s+value/i.test(graveyardEffectiveOracleText)
+        ) {
+          const lifeLoss = targetManaValues.reduce((sum, n) => sum + Math.max(0, n), 0);
+          if (lifeLoss > 0) {
+            executeSpellEffect(
+              ctx,
+              { kind: 'LoseLife', playerId: controller as PlayerID, amount: lifeLoss } as any,
+              controller as PlayerID,
+              effectiveCard.name || 'spell',
+              String((item as any).source || (item as any).permanentId || ''),
+              String((item as any).id || (card as any)?.id || '')
+            );
+            debug(2, `[resolveTopOfStack] ${effectiveCard.name} lost ${lifeLoss} life equal to reanimated card's mana value`);
+          }
+        }
+
+        // Spell mastery — "that creature enters with N additional +1/+1 counters" (Necromantic Summons family).
+        // The base reanimation already happened above; here we top up with bonus counters when applicable.
+        const spellMasteryMatch = /spell\s+mastery\s*[—\-:]\s*if\s+there\s+are\s+two\s+or\s+more\s+instant\s+and\/or\s+sorcery\s+cards\s+in\s+your\s+graveyard,\s+that\s+creature\s+enters\s+with\s+(one|two|three|four|\d+)\s+additional\s+\+1\/\+1\s+counters?/i.exec(
+          graveyardEffectiveOracleText.replace(/[\u2019]/g, "'")
+        );
+        if (spellMasteryMatch && targetIdSet.size > 0 && hasSpellMastery(ctx, controller as string)) {
+          const numWord = String(spellMasteryMatch[1] || '').toLowerCase();
+          const wordToNumber: Record<string, number> = { one: 1, two: 2, three: 3, four: 4 };
+            const bonus = (wordToNumber[numWord] ?? Number(numWord)) || 0;
+          if (bonus > 0) {
+            const battlefield: any[] = Array.isArray((ctx as any).state?.battlefield) ? (ctx as any).state.battlefield : [];
+            for (const tid of targetIdSet) {
+              const perm = battlefield.find((p: any) => String(p?.card?.id || p?.id || '') === tid);
+              if (!perm) continue;
+              perm.counters = perm.counters || {};
+              perm.counters['+1/+1'] = Number(perm.counters['+1/+1'] || 0) + bonus;
+              debug(2, `[resolveTopOfStack] ${effectiveCard.name} spell mastery added ${bonus} +1/+1 counters to ${perm?.card?.name || tid}`);
+            }
+          }
+        }
+      } catch (err) {
+        debugWarn(1, '[resolveTopOfStack] Graveyard zone-change fallback failed:', err);
+      }
     }
 
     applySimpleTargetedTemporarySpellEffects(

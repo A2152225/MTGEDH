@@ -576,7 +576,7 @@ export function parseTargetRequirements(oracleText?: string, options?: DynamicMa
     return { needsTargets: true, targetTypes, minTargets, maxTargets, targetDescription, graveyardScope: 'your', ...manaValueConstraint };
   }
 
-  const anyGraveyardUpToMatch = t.match(/up\s+to\s+(\w+)\s+target\s+(?:(.+?)\s+)?card((?:\s+with\s+mana\s+value\s+.+?)?)\s+from\s+(your|a|any)\s+graveyard/i);
+  const anyGraveyardUpToMatch = t.match(/up\s+to\s+(\w+)\s+target\s+(?:(.+?)\s+)?card((?:\s+with\s+mana\s+value\s+.+?)?)\s+from\s+(your|a|any|an\s+opponent['’]?s?)\s+graveyard/i);
   if (anyGraveyardUpToMatch) {
     const numWord = String(anyGraveyardUpToMatch[1] || '').toLowerCase();
     const rawTargetType = String(anyGraveyardUpToMatch[2] || '').trim().toLowerCase();
@@ -590,7 +590,7 @@ export function parseTargetRequirements(oracleText?: string, options?: DynamicMa
     return { needsTargets: true, targetTypes, minTargets, maxTargets, targetDescription, graveyardScope: scope, ...manaValueConstraint };
   }
 
-  const anyGraveyardMatch = t.match(/target\s+(?:(.+?)\s+)?card((?:\s+with\s+mana\s+value\s+.+?)?)\s+from\s+(your|a|any)\s+graveyard/i);
+  const anyGraveyardMatch = t.match(/target\s+(?:(.+?)\s+)?card((?:\s+with\s+mana\s+value\s+.+?)?)\s+from\s+(your|a|any|an\s+opponent['’]?s?)\s+graveyard/i);
   if (anyGraveyardMatch) {
     const rawTargetType = String(anyGraveyardMatch[1] || '').trim().toLowerCase();
     const manaValueConstraint = buildManaValueConstraintFromClause(anyGraveyardMatch[2], manaValueContext);

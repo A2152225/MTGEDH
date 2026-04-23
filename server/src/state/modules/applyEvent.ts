@@ -4889,7 +4889,13 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           try {
             const battlefield = ctx.state.battlefield || [];
             const perm = battlefield.find((p: any) => p?.id === permId);
-            if (perm) trackPermanentSacrificedThisTurn(ctx.state, perm);
+            if (perm) {
+              // Tracking happens inside applyReplaySacrificedPermanent; only call here
+              // when the permanent will be missing from the battlefield by the time
+              // applyReplaySacrificedPermanent looks it up (e.g., already removed).
+              const stillThere = battlefield.includes(perm);
+              if (!stillThere) trackPermanentSacrificedThisTurn(ctx.state, perm);
+            }
           } catch {
             // best-effort only
           }
