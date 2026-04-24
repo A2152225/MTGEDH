@@ -4823,6 +4823,11 @@ export async function requestCastSpellForSocket(
 
       if (validTargetList.length > 0) {
         (game.state as any).pendingSpellCasts = (game.state as any).pendingSpellCasts || {};
+        const requestCastAdditionalCostPaid = (cardInHand as any).additionalCostPaid === true;
+        const requestCastAdditionalCostMethod = typeof (cardInHand as any).additionalCostMethod === 'string'
+          ? String((cardInHand as any).additionalCostMethod)
+          : undefined;
+
         (game.state as any).pendingSpellCasts[effectId] = {
           cardId,
           cardName,
@@ -4847,6 +4852,8 @@ export async function requestCastSpellForSocket(
           castWithoutPayingManaCost: isFreeCast,
           bypassExilePermissionCheck,
           ignoreTimingRestrictions,
+          additionalCostPaid: requestCastAdditionalCostPaid,
+          ...(requestCastAdditionalCostMethod ? { additionalCostMethod: requestCastAdditionalCostMethod } : {}),
           ...(giftInfo.hasGift
             ? {
                 giftPromised,
@@ -4859,7 +4866,139 @@ export async function requestCastSpellForSocket(
 
         const preTargetQueuedSteps: any[] = [];
         const additionalCost = detectAdditionalCost(oracleText);
-        if (additionalCost?.type === 'blight') {
+        if (!requestCastAdditionalCostPaid && additionalCost?.type === 'pay_life') {
+          const startingLife = game.state.startingLife || 40;
+          const currentLife = game.state.life?.[playerId] ?? startingLife;
+          if (currentLife < additionalCost.amount) {
+            delete (game.state as any).pendingSpellCasts[effectId];
+            socket.emit('error', {
+              code: 'CANNOT_PAY_COST',
+              message: `Cannot cast ${cardName}: You need to pay ${additionalCost.amount} life but only have ${currentLife} life.`,
+            });
+            return;
+          }
+
+          game.state.life = game.state.life || {};
+          game.state.life[playerId] = currentLife - additionalCost.amount;
+
+          try {
+            (game.state as any).lifeLostThisTurn = (game.state as any).lifeLostThisTurn || {};
+            (game.state as any).lifeLostThisTurn[String(playerId)] =
+              ((game.state as any).lifeLostThisTurn[String(playerId)] || 0) + Number(additionalCost.amount || 0);
+          } catch {}
+
+          (cardInHand as any).additionalCostPaid = true;
+          (cardInHand as any).additionalCostMethod = 'pay_life';
+
+          const pendingCast = (game.state as any).pendingSpellCasts?.[effectId];
+          if (pendingCast) {
+            pendingCast.additionalCostPaid = true;
+            pendingCast.additionalCostMethod = 'pay_life';
+          }
+
+          io.to(gameId).emit('chat', {
+            id: `m_${Date.now()}`,
+            gameId,
+            from: 'system',
+            message: `${getPlayerName(game, playerId)} pays ${additionalCost.amount} life to cast ${cardName}. (${currentLife} -> ${game.state.life[playerId]})`,
+            ts: Date.now(),
+          });
+        } else if (!requestCastAdditionalCostPaid && additionalCost?.type === 'discard') {
+          const discardableHandCards = hand.filter((c: any) => (castSourceZone === 'hand' ? c.id !== cardId : true));
+          if (discardableHandCards.length < additionalCost.amount) {
+            delete (game.state as any).pendingSpellCasts[effectId];
+            socket.emit('error', {
+              code: 'CANNOT_PAY_COST',
+              message: `Cannot cast ${cardName}: You need to discard ${additionalCost.amount} card(s) but only have ${discardableHandCards.length} other card(s) in hand.`,
+            });
+            return;
+          }
+
+          const discardCostStep = ResolutionQueueManager.addStep(gameId, {
+            type: ResolutionStepType.ADDITIONAL_COST_PAYMENT,
+            playerId: playerId as any,
+            sourceId: effectId,
+            sourceName: cardName,
+            sourceImage: cardForCast.image_uris?.small || cardForCast.image_uris?.normal || cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
+            description: `As an additional cost to cast ${cardName}, discard ${additionalCost.amount} card${additionalCost.amount > 1 ? 's' : ''}.`,
+            mandatory: true,
+            cardId,
+            cardName,
+            costType: 'discard',
+            amount: additionalCost.amount,
+            title: `Discard ${additionalCost.amount} card${additionalCost.amount > 1 ? 's' : ''} to cast ${cardName}`,
+            imageUrl: cardForCast.image_uris?.small || cardForCast.image_uris?.normal || cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
+            availableCards: discardableHandCards.map((c: any) => ({
+              id: c.id,
+              name: c.name,
+              imageUrl: c.image_uris?.small || c.image_uris?.normal,
+              typeLine: c.type_line,
+            })),
+            castSpellFromHandArgs: {
+              cardId,
+              faceIndex: selectedFaceIndex,
+              fromZone: castSourceZone,
+              xValue: chosenXValue,
+              alternateCostId: options?.forcedAlternateCostId,
+              castWithoutPayingManaCost: isFreeCast,
+              bypassExilePermissionCheck,
+              ignoreTimingRestrictions,
+              skipPriorityCheck: true,
+            },
+          } as any);
+          preTargetQueuedSteps.push({ ...(discardCostStep as any) });
+        } else if (!requestCastAdditionalCostPaid && additionalCost?.type === 'sacrifice') {
+          const validSacrificeTargets = (game.state?.battlefield || []).filter((p: any) => {
+            if (String(p?.controller || '') !== String(playerId)) return false;
+            const typeLine = String(p?.card?.type_line || '').toLowerCase();
+            if (!additionalCost.filter) return true;
+            return typeLine.includes(String(additionalCost.filter).toLowerCase());
+          });
+
+          if (validSacrificeTargets.length < additionalCost.amount) {
+            delete (game.state as any).pendingSpellCasts[effectId];
+            socket.emit('error', {
+              code: 'CANNOT_PAY_COST',
+              message: `Cannot cast ${cardName}: You need to sacrifice ${additionalCost.amount} ${additionalCost.filter || 'permanent'}(s) but don't control enough.`,
+            });
+            return;
+          }
+
+          const sacrificeCostStep = ResolutionQueueManager.addStep(gameId, {
+            type: ResolutionStepType.ADDITIONAL_COST_PAYMENT,
+            playerId: playerId as any,
+            sourceId: effectId,
+            sourceName: cardName,
+            sourceImage: cardForCast.image_uris?.small || cardForCast.image_uris?.normal || cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
+            description: `As an additional cost to cast ${cardName}, sacrifice ${additionalCost.amount} ${additionalCost.filter || 'permanent'}${additionalCost.amount > 1 ? 's' : ''}.`,
+            mandatory: true,
+            cardId,
+            cardName,
+            costType: 'sacrifice',
+            amount: additionalCost.amount,
+            filter: additionalCost.filter,
+            title: `Sacrifice ${additionalCost.amount} ${additionalCost.filter || 'permanent'}${additionalCost.amount > 1 ? 's' : ''} to cast ${cardName}`,
+            imageUrl: cardForCast.image_uris?.small || cardForCast.image_uris?.normal || cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
+            availableTargets: validSacrificeTargets.map((p: any) => ({
+              id: p.id,
+              name: p.card?.name || 'Unknown',
+              imageUrl: p.card?.image_uris?.small || p.card?.image_uris?.normal,
+              typeLine: p.card?.type_line,
+            })),
+            castSpellFromHandArgs: {
+              cardId,
+              faceIndex: selectedFaceIndex,
+              fromZone: castSourceZone,
+              xValue: chosenXValue,
+              alternateCostId: options?.forcedAlternateCostId,
+              castWithoutPayingManaCost: isFreeCast,
+              bypassExilePermissionCheck,
+              ignoreTimingRestrictions,
+              skipPriorityCheck: true,
+            },
+          } as any);
+          preTargetQueuedSteps.push({ ...(sacrificeCostStep as any) });
+        } else if (additionalCost?.type === 'blight') {
           const pendingCast = (game.state as any).pendingSpellCasts?.[effectId];
           if (!pendingCast) {
             debugWarn(1, `[requestCastSpell] Missing pendingSpellCasts for effectId ${effectId} (blight additional cost)`);
@@ -5146,6 +5285,11 @@ export async function requestCastSpellForSocket(
     );
 
     (game.state as any).pendingSpellCasts = (game.state as any).pendingSpellCasts || {};
+    const requestCastAdditionalCostPaid = (cardInHand as any).additionalCostPaid === true;
+    const requestCastAdditionalCostMethod = typeof (cardInHand as any).additionalCostMethod === 'string'
+      ? String((cardInHand as any).additionalCostMethod)
+      : undefined;
+
     (game.state as any).pendingSpellCasts[effectId] = {
       cardId,
       cardName,
@@ -5175,6 +5319,8 @@ export async function requestCastSpellForSocket(
       castWithoutPayingManaCost: isFreeCast,
       bypassExilePermissionCheck,
       ignoreTimingRestrictions,
+      additionalCostPaid: requestCastAdditionalCostPaid,
+      ...(requestCastAdditionalCostMethod ? { additionalCostMethod: requestCastAdditionalCostMethod } : {}),
       ...(giftInfo.hasGift
         ? {
             giftPromised,
@@ -5186,6 +5332,170 @@ export async function requestCastSpellForSocket(
     };
 
     const additionalCost = detectAdditionalCost(oracleText);
+    if (!requestCastAdditionalCostPaid && additionalCost?.type === 'pay_life') {
+      const startingLife = game.state.startingLife || 40;
+      const currentLife = game.state.life?.[playerId] ?? startingLife;
+      if (currentLife < additionalCost.amount) {
+        delete (game.state as any).pendingSpellCasts[effectId];
+        socket.emit('error', {
+          code: 'CANNOT_PAY_COST',
+          message: `Cannot cast ${cardName}: You need to pay ${additionalCost.amount} life but only have ${currentLife} life.`,
+        });
+        return;
+      }
+
+      game.state.life = game.state.life || {};
+      game.state.life[playerId] = currentLife - additionalCost.amount;
+
+      try {
+        (game.state as any).lifeLostThisTurn = (game.state as any).lifeLostThisTurn || {};
+        (game.state as any).lifeLostThisTurn[String(playerId)] =
+          ((game.state as any).lifeLostThisTurn[String(playerId)] || 0) + Number(additionalCost.amount || 0);
+      } catch {}
+
+      (cardInHand as any).additionalCostPaid = true;
+      (cardInHand as any).additionalCostMethod = 'pay_life';
+
+      const pendingCast = (game.state as any).pendingSpellCasts?.[effectId];
+      if (pendingCast) {
+        pendingCast.additionalCostPaid = true;
+        pendingCast.additionalCostMethod = 'pay_life';
+      }
+
+      io.to(gameId).emit('chat', {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: 'system',
+        message: `${getPlayerName(game, playerId)} pays ${additionalCost.amount} life to cast ${cardName}. (${currentLife} -> ${game.state.life[playerId]})`,
+        ts: Date.now(),
+      });
+    } else if (!requestCastAdditionalCostPaid && additionalCost?.type === 'discard') {
+      const discardableHandCards = hand.filter((c: any) => (castSourceZone === 'hand' ? c.id !== cardId : true));
+      if (discardableHandCards.length < additionalCost.amount) {
+        delete (game.state as any).pendingSpellCasts[effectId];
+        socket.emit('error', {
+          code: 'CANNOT_PAY_COST',
+          message: `Cannot cast ${cardName}: You need to discard ${additionalCost.amount} card(s) but only have ${discardableHandCards.length} other card(s) in hand.`,
+        });
+        return;
+      }
+
+      const discardCostStep = ResolutionQueueManager.addStep(gameId, {
+        type: ResolutionStepType.ADDITIONAL_COST_PAYMENT,
+        playerId: playerId as any,
+        sourceId: effectId,
+        sourceName: cardName,
+        sourceImage: cardForCast.image_uris?.small || cardForCast.image_uris?.normal || cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
+        description: `As an additional cost to cast ${cardName}, discard ${additionalCost.amount} card${additionalCost.amount > 1 ? 's' : ''}.`,
+        mandatory: true,
+        cardId,
+        cardName,
+        costType: 'discard',
+        amount: additionalCost.amount,
+        title: `Discard ${additionalCost.amount} card${additionalCost.amount > 1 ? 's' : ''} to cast ${cardName}`,
+        imageUrl: cardForCast.image_uris?.small || cardForCast.image_uris?.normal || cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
+        availableCards: discardableHandCards.map((c: any) => ({
+          id: c.id,
+          name: c.name,
+          imageUrl: c.image_uris?.small || c.image_uris?.normal,
+          typeLine: c.type_line,
+        })),
+        castSpellFromHandArgs: {
+          cardId,
+          faceIndex: selectedFaceIndex,
+          fromZone: castSourceZone,
+          xValue: chosenXValue,
+          alternateCostId: options?.forcedAlternateCostId,
+          castWithoutPayingManaCost: isFreeCast,
+          bypassExilePermissionCheck,
+          ignoreTimingRestrictions,
+          skipPriorityCheck: true,
+        },
+      } as any);
+
+      persistQueuedSpellCastStepContinuation(gameId, game, {
+        playerId,
+        cardId,
+        effectId,
+        pendingSpellCast: {
+          ...((game.state as any).pendingSpellCasts?.[effectId] || {}),
+        },
+        queuedResolutionStep: {
+          ...(discardCostStep as any),
+        },
+      });
+
+      debug(2, `[requestCastSpell] Queued discard additional-cost step for no-target spell ${cardName}`);
+      return;
+    }
+
+    if (!requestCastAdditionalCostPaid && additionalCost?.type === 'sacrifice') {
+      const validSacrificeTargets = (game.state?.battlefield || []).filter((p: any) => {
+        if (String(p?.controller || '') !== String(playerId)) return false;
+        const typeLine = String(p?.card?.type_line || '').toLowerCase();
+        if (!additionalCost.filter) return true;
+        return typeLine.includes(String(additionalCost.filter).toLowerCase());
+      });
+
+      if (validSacrificeTargets.length < additionalCost.amount) {
+        delete (game.state as any).pendingSpellCasts[effectId];
+        socket.emit('error', {
+          code: 'CANNOT_PAY_COST',
+          message: `Cannot cast ${cardName}: You need to sacrifice ${additionalCost.amount} ${additionalCost.filter || 'permanent'}(s) but don't control enough.`,
+        });
+        return;
+      }
+
+      const sacrificeCostStep = ResolutionQueueManager.addStep(gameId, {
+        type: ResolutionStepType.ADDITIONAL_COST_PAYMENT,
+        playerId: playerId as any,
+        sourceId: effectId,
+        sourceName: cardName,
+        sourceImage: cardForCast.image_uris?.small || cardForCast.image_uris?.normal || cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
+        description: `As an additional cost to cast ${cardName}, sacrifice ${additionalCost.amount} ${additionalCost.filter || 'permanent'}${additionalCost.amount > 1 ? 's' : ''}.`,
+        mandatory: true,
+        cardId,
+        cardName,
+        costType: 'sacrifice',
+        amount: additionalCost.amount,
+        filter: additionalCost.filter,
+        title: `Sacrifice ${additionalCost.amount} ${additionalCost.filter || 'permanent'}${additionalCost.amount > 1 ? 's' : ''} to cast ${cardName}`,
+        imageUrl: cardForCast.image_uris?.small || cardForCast.image_uris?.normal || cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
+        availableTargets: validSacrificeTargets.map((p: any) => ({
+          id: p.id,
+          name: p.card?.name || 'Unknown',
+          imageUrl: p.card?.image_uris?.small || p.card?.image_uris?.normal,
+          typeLine: p.card?.type_line,
+        })),
+        castSpellFromHandArgs: {
+          cardId,
+          faceIndex: selectedFaceIndex,
+          fromZone: castSourceZone,
+          xValue: chosenXValue,
+          alternateCostId: options?.forcedAlternateCostId,
+          castWithoutPayingManaCost: isFreeCast,
+          bypassExilePermissionCheck,
+          ignoreTimingRestrictions,
+          skipPriorityCheck: true,
+        },
+      } as any);
+
+      persistQueuedSpellCastStepContinuation(gameId, game, {
+        playerId,
+        cardId,
+        effectId,
+        pendingSpellCast: {
+          ...((game.state as any).pendingSpellCasts?.[effectId] || {}),
+        },
+        queuedResolutionStep: {
+          ...(sacrificeCostStep as any),
+        },
+      });
+
+      debug(2, `[requestCastSpell] Queued sacrifice additional-cost step for no-target spell ${cardName}`);
+      return;
+    }
+
     if (additionalCost?.type === 'blight') {
       const pendingCast = (game.state as any).pendingSpellCasts?.[effectId];
       pendingCast.pendingPaymentAfterAdditionalCost = true;
@@ -9904,6 +10214,7 @@ export function registerGameActions(io: Server, socket: Socket) {
       let pendingXValue: number | undefined;
       let pendingFaceIndex: number | undefined;
       let suspendedLibrarySearchStep: any;
+      let deferredMadnessPromptStepsAfterCast: any[] = [];
 
       // DEBUG: Log incoming parameters
       debug(2, `[completeCastSpell] DEBUG START ========================================`);
@@ -9937,6 +10248,11 @@ export function registerGameActions(io: Server, socket: Socket) {
             : (typeof pendingCast?.alternateCostId === 'string' ? pendingCast.alternateCostId : undefined);
           pendingXValue = Number.isFinite(pendingCast?.xValue) ? Math.max(0, Math.floor(Number(pendingCast.xValue))) : undefined;
           pendingFaceIndex = Number.isFinite(pendingCast?.faceIndex) ? Number(pendingCast.faceIndex) : undefined;
+          deferredMadnessPromptStepsAfterCast = Array.isArray(pendingCast?.queuedMadnessStepsAfterCast)
+            ? pendingCast.queuedMadnessStepsAfterCast
+                .filter((step: any) => step && typeof step === 'object' && !Array.isArray(step))
+                .map((step: any) => ({ ...(step as any) }))
+            : [];
           suspendedLibrarySearchStep = String(pendingCast?.fromZone || '').toLowerCase().trim() === 'library'
             ? pendingCast?.librarySearchStepToResume
             : undefined;
@@ -10125,6 +10441,49 @@ export function registerGameActions(io: Server, socket: Socket) {
 
       if (suspendedLibrarySearchStep) {
         await restoreSuspendedLibrarySearchStep(io, socket, gameId, suspendedLibrarySearchStep);
+      }
+
+      if (deferredMadnessPromptStepsAfterCast.length > 0) {
+        const playerZones = (game.state as any)?.zones?.[playerId];
+        const handCards: any[] = Array.isArray(playerZones?.hand) ? playerZones.hand : [];
+        const spellStillInHand = handCards.some((card: any) => String(card?.id || '') === String(cardId));
+
+        if (!spellStillInHand) {
+          const queue = ResolutionQueueManager.getQueue(gameId) as any;
+          const queuedMadnessSteps: any[] = [];
+
+          for (const deferredStep of deferredMadnessPromptStepsAfterCast) {
+            const deferredStepId = String((deferredStep as any)?.id || '').trim();
+            const alreadyPresent = Boolean(
+              (queue?.activeStep && String((queue.activeStep as any)?.id || '') === deferredStepId) ||
+              (Array.isArray(queue?.steps) && queue.steps.some((step: any) => String((step as any)?.id || '') === deferredStepId))
+            );
+            if (alreadyPresent) {
+              continue;
+            }
+
+            queuedMadnessSteps.push(ResolutionQueueManager.addStep(gameId, {
+              ...(deferredStep as any),
+            } as any));
+          }
+
+          if (queuedMadnessSteps.length > 0) {
+            try {
+              appendEvent(gameId, (game as any).seq ?? 0, 'resolveTopOfStackPrompt', {
+                playerId,
+                sourceId: String(cardId),
+                queuedResolutionSteps: queuedMadnessSteps.map((queuedStep: any) => ({ ...(queuedStep as any) })),
+              });
+            } catch (err) {
+              debugWarn(1, '[completeCastSpell] appendEvent(resolveTopOfStackPrompt) failed:', err);
+            }
+
+            if (typeof (game as any).bumpSeq === 'function') {
+              (game as any).bumpSeq();
+            }
+            broadcastGame(io, game, gameId);
+          }
+        }
       }
       
     } catch (err: any) {

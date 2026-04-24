@@ -12299,9 +12299,46 @@ async function handleStepResponse(
         break;
       }
 
-      const cardInHand = (zones.hand as any[]).find((c: any) => c && c.id === cardId);
-      if (!cardInHand) {
-        emitToPlayer(io, pid as any, 'error', { code: 'CARD_NOT_IN_HAND', message: 'Card not found in hand' });
+      const requestCastEffectId = String(stepData.effectId || stepData.sourceId || '').trim();
+      const requestCastPending = requestCastEffectId
+        ? (game.state as any)?.pendingSpellCasts?.[requestCastEffectId]
+        : undefined;
+
+      const sourceZoneRaw = String(castArgs?.fromZone || requestCastPending?.fromZone || 'hand').toLowerCase().trim();
+      const spellSourceZone = sourceZoneRaw === 'exile'
+        || sourceZoneRaw === 'graveyard'
+        || sourceZoneRaw === 'library'
+        || sourceZoneRaw === 'command'
+        ? sourceZoneRaw
+        : 'hand';
+
+      const hand = Array.isArray((zones as any).hand) ? ((zones as any).hand as any[]) : [];
+      const exile = Array.isArray((zones as any).exile) ? ((zones as any).exile as any[]) : [];
+      const graveyard = Array.isArray((zones as any).graveyard) ? ((zones as any).graveyard as any[]) : [];
+      const library = Array.isArray((game as any).libraries?.get?.(String(pid)))
+        ? ((game as any).libraries.get(String(pid)) as any[])
+        : (Array.isArray((zones as any).library) ? ((zones as any).library as any[]) : []);
+      const command = Array.isArray((game.state as any)?.commandZone?.[String(pid)]?.commanderCards)
+        ? ((game.state as any).commandZone[String(pid)].commanderCards as any[])
+        : [];
+
+      const sourceCards = spellSourceZone === 'exile'
+        ? exile
+        : spellSourceZone === 'graveyard'
+          ? graveyard
+          : spellSourceZone === 'library'
+            ? library
+            : spellSourceZone === 'command'
+              ? command
+              : hand;
+
+      const cardInHand = hand.find((c: any) => c && c.id === cardId);
+      const spellCard = cardInHand || sourceCards.find((c: any) => c && c.id === cardId);
+      if (!spellCard) {
+        emitToPlayer(io, pid as any, 'error', {
+          code: spellSourceZone === 'hand' ? 'CARD_NOT_IN_HAND' : 'CARD_NOT_FOUND',
+          message: spellSourceZone === 'hand' ? 'Card not found in hand' : `Card not found in ${spellSourceZone}`,
+        });
         break;
       }
 
@@ -12314,30 +12351,63 @@ async function handleStepResponse(
       if ((response.cancelled || selectedIds.length === 0) && !mandatory) {
         if (!isBargain) break;
         // Mark Bargain as resolved (declined).
-        (cardInHand as any).bargainResolved = true;
-        (cardInHand as any).wasBargained = false;
+        (spellCard as any).bargainResolved = true;
+        (spellCard as any).wasBargained = false;
 
-        appendCastSpellContinuationEvent(gameId, game, {
+        if (requestCastPending) {
+          requestCastPending.bargainResolved = true;
+          requestCastPending.wasBargained = false;
+        }
+
+        const continuationPayload: Record<string, unknown> = {
           playerId: pid,
           cardId,
-          cardUpdates: {
-            bargainResolved: true,
-            wasBargained: false,
+          ...(spellSourceZone === 'hand'
+            ? {
+                cardUpdates: {
+                  bargainResolved: true,
+                  wasBargained: false,
+                },
+              }
+            : {}),
+          ...(requestCastPending
+            ? {
+                effectId: requestCastEffectId,
+                pendingSpellCast: {
+                  ...(requestCastPending || {}),
+                },
+              }
+            : {}),
+        };
+
+        appendCastSpellContinuationEvent(gameId, game, continuationPayload);
+
+        if (requestCastPending && requestCastEffectId) {
+          delete (game.state as any).pendingSpellCasts[requestCastEffectId];
+        }
+
+        const { socket: restartCastSocket } = createForwardingGameActionSocket(io, gameId, String(pid));
+        await requestCastSpellForSocket(
+          io,
+          restartCastSocket as any,
+          {
+            gameId,
+            cardId,
+            faceIndex: Number.isFinite(castArgs?.faceIndex)
+              ? Number(castArgs.faceIndex)
+              : (Number.isFinite(requestCastPending?.faceIndex) ? Number(requestCastPending.faceIndex) : undefined),
+            fromZone: spellSourceZone as any,
           },
-        });
-
-        const basePayment = Array.isArray(castArgs?.payment) ? castArgs.payment : [];
-        const alreadyMarked = basePayment.some((p: any) => p && p.bargainResolved === true);
-        const paymentWithMarker = alreadyMarked ? basePayment : [...basePayment, { bargainResolved: true, wasBargained: false }];
-
-        await resumePlayerCastSpellFromHand(io, gameId, String(pid), {
-          cardId,
-          payment: paymentWithMarker,
-          targets: castArgs?.targets,
-          xValue: castArgs?.xValue,
-          alternateCostId: castArgs?.alternateCostId,
-          convokeTappedCreatures: castArgs?.convokeTappedCreatures,
-        });
+          {
+            xValue: Number.isFinite(castArgs?.xValue)
+              ? Number(castArgs.xValue)
+              : (Number.isFinite(requestCastPending?.xValue) ? Number(requestCastPending.xValue) : undefined),
+            forcedAlternateCostId: String(castArgs?.alternateCostId || requestCastPending?.forcedAlternateCostId || '').trim() || undefined,
+            castWithoutPayingManaCost: castArgs?.castWithoutPayingManaCost === true || requestCastPending?.castWithoutPayingManaCost === true,
+            bypassExilePermissionCheck: castArgs?.bypassExilePermissionCheck === true || requestCastPending?.bypassExilePermissionCheck === true,
+            ignoreTimingRestrictions: castArgs?.ignoreTimingRestrictions === true || requestCastPending?.ignoreTimingRestrictions === true,
+          },
+        );
         break;
       }
 
@@ -12350,19 +12420,89 @@ async function handleStepResponse(
 
       let discardedNames: string[] = [];
       let sacrificedNames: string[] = [];
+      const movedDiscardedCardsToGraveyard: any[] = [];
+      const movedDiscardedCardsToExile: any[] = [];
+      const deferredMadnessPrompts: any[] = [];
 
       if (costType === 'discard') {
+        zones.graveyard = zones.graveyard || [];
+        zones.exile = zones.exile || [];
+
         for (const discardId of selectedIds) {
           const idx = (zones.hand as any[]).findIndex((c: any) => c && c.id === discardId);
           if (idx === -1) continue;
           const discarded = (zones.hand as any[]).splice(idx, 1)[0];
-          zones.graveyard = zones.graveyard || [];
-          discarded.zone = 'graveyard';
-          (zones.graveyard as any[]).push(discarded);
           discardedNames.push(String(discarded?.name || 'Unknown'));
+
+          const madnessCost = parseMadnessCost(String(discarded?.oracle_text || ''));
+          if (madnessCost) {
+            const exiledCard = {
+              ...discarded,
+              zone: 'exile',
+            };
+            (zones.exile as any[]).push(exiledCard);
+            movedDiscardedCardsToExile.push(exiledCard);
+            deferredMadnessPrompts.push({
+              type: ResolutionStepType.OPTION_CHOICE,
+              playerId: pid as any,
+              sourceId: String(exiledCard.id || discarded?.id || ''),
+              sourceName: 'Madness',
+              sourceImage: exiledCard.image_uris?.small || exiledCard.image_uris?.normal || discarded?.image_uris?.small || discarded?.image_uris?.normal,
+              description: `Madness: You may cast ${discarded?.name || 'that card'} for ${madnessCost}.`,
+              mandatory: false,
+              options: [
+                { id: 'cast', label: `Cast for Madness (${madnessCost})` },
+                { id: 'decline', label: 'Decline' },
+              ],
+              minSelections: 1,
+              maxSelections: 1,
+              madnessPrompt: true,
+              madnessCardId: String(exiledCard.id || discarded?.id || ''),
+              madnessCost,
+              castFromExileCardId: String(exiledCard.id || discarded?.id || ''),
+              castFromExileCard: { ...exiledCard },
+              castFromExileDeclineDestination: 'graveyard',
+              castFromExileForcedAlternateCostId: 'madness',
+              castFromExileCastWithoutPayingManaCost: false,
+              castFromExileBypassExilePermissionCheck: true,
+              castFromExileIgnoreTimingRestrictions: true,
+            });
+            continue;
+          }
+
+          const graveyardCard = {
+            ...discarded,
+            zone: 'graveyard',
+          };
+          (zones.graveyard as any[]).push(graveyardCard);
+          movedDiscardedCardsToGraveyard.push(graveyardCard);
         }
+
         zones.handCount = (zones.hand as any[]).length;
         zones.graveyardCount = (zones.graveyard as any[]).length;
+        zones.exileCount = Array.isArray(zones.exile) ? zones.exile.length : 0;
+
+        if (movedDiscardedCardsToGraveyard.length > 0) {
+          const discardTrackingCtx = {
+            state: game.state,
+            libraries: (game as any).libraries,
+            bumpSeq: typeof (game as any).bumpSeq === 'function' ? (game as any).bumpSeq.bind(game) : (() => {}),
+            rng: (game as any).rng,
+            gameId,
+          } as any;
+
+          for (const movedCard of movedDiscardedCardsToGraveyard) {
+            recordCardPutIntoGraveyardThisTurn(discardTrackingCtx, String(pid), movedCard, { fromBattlefield: false });
+            checkGraveyardTrigger(discardTrackingCtx, movedCard, String(pid));
+          }
+        }
+
+        if (selectedIds.length > 0) {
+          const stateAny = game.state as any;
+          stateAny.discardedCardThisTurn = stateAny.discardedCardThisTurn || {};
+          stateAny.discardedCardThisTurn[String(pid)] = true;
+          stateAny.anyPlayerDiscardedCardThisTurn = true;
+        }
 
         io.to(gameId).emit('chat', {
           id: `m_${Date.now()}`,
@@ -12397,45 +12537,160 @@ async function handleStepResponse(
         });
       }
 
-      const basePayment = Array.isArray(castArgs?.payment) ? castArgs.payment : [];
-      let paymentWithMarker = basePayment;
       if (isBargain) {
-        (cardInHand as any).bargainResolved = true;
-        (cardInHand as any).wasBargained = true;
-        const alreadyMarked = basePayment.some((p: any) => p && p.bargainResolved === true);
-        paymentWithMarker = alreadyMarked ? basePayment : [...basePayment, { bargainResolved: true, wasBargained: true }];
+        (spellCard as any).bargainResolved = true;
+        (spellCard as any).wasBargained = true;
+        if (requestCastPending) {
+          requestCastPending.bargainResolved = true;
+          requestCastPending.wasBargained = true;
+        }
       } else {
         // Mark as paid on the card, and resume the cast with an explicit payment marker to avoid re-prompt loops.
-        (cardInHand as any).additionalCostPaid = true;
-        const alreadyMarked = basePayment.some((p: any) => p && p.additionalCostPaid === true);
-        paymentWithMarker = alreadyMarked ? basePayment : [...basePayment, { additionalCostPaid: true }];
+        (spellCard as any).additionalCostPaid = true;
+        (spellCard as any).additionalCostMethod = costType;
+        if (requestCastPending) {
+          requestCastPending.additionalCostPaid = true;
+          requestCastPending.additionalCostMethod = costType;
+        }
       }
 
-      appendCastSpellContinuationEvent(gameId, game, {
+      if (costType === 'discard') {
+        try {
+          if (movedDiscardedCardsToGraveyard.length > 0) {
+            appendEvent(gameId, (game as any).seq ?? 0, 'discardEffect', {
+              playerId: pid,
+              cardIds: movedDiscardedCardsToGraveyard.map((card: any) => String(card?.id || '')).filter(Boolean),
+              destination: 'graveyard',
+            });
+          }
+
+          if (movedDiscardedCardsToExile.length > 0) {
+            appendEvent(gameId, (game as any).seq ?? 0, 'discardEffect', {
+              playerId: pid,
+              cardIds: movedDiscardedCardsToExile.map((card: any) => String(card?.id || '')).filter(Boolean),
+              destination: 'exile',
+            });
+          }
+        } catch {
+          // ignore persistence failures
+        }
+      }
+
+      const continuationPayload: Record<string, unknown> = {
         playerId: pid,
         cardId,
-        moveHandCards: costType === 'discard'
-          ? selectedIds.map((selectedCardId) => ({ cardId: selectedCardId, destination: 'graveyard' }))
-          : [],
         sacrificedPermanentIds: costType === 'sacrifice' ? selectedIds : [],
-        cardUpdates: isBargain
+        ...(spellSourceZone === 'hand'
           ? {
-              bargainResolved: true,
-              wasBargained: true,
+              cardUpdates: isBargain
+                ? {
+                    bargainResolved: true,
+                    wasBargained: true,
+                  }
+                : {
+                    additionalCostPaid: true,
+                  },
             }
-          : {
-              additionalCostPaid: true,
-            },
-      });
+          : {}),
+        ...(requestCastPending
+          ? {
+              effectId: requestCastEffectId,
+              pendingSpellCast: {
+                ...(requestCastPending || {}),
+              },
+            }
+          : {}),
+      };
 
-      await resumePlayerCastSpellFromHand(io, gameId, String(pid), {
-        cardId,
-        payment: paymentWithMarker,
-        targets: castArgs?.targets,
-        xValue: castArgs?.xValue,
-        alternateCostId: castArgs?.alternateCostId,
-        convokeTappedCreatures: castArgs?.convokeTappedCreatures,
-      });
+      appendCastSpellContinuationEvent(gameId, game, continuationPayload);
+
+      if (requestCastPending && requestCastEffectId) {
+        delete (game.state as any).pendingSpellCasts[requestCastEffectId];
+      }
+
+      const { socket: restartCastSocket } = createForwardingGameActionSocket(io, gameId, String(pid));
+      await requestCastSpellForSocket(
+        io,
+        restartCastSocket as any,
+        {
+          gameId,
+          cardId,
+          faceIndex: Number.isFinite(castArgs?.faceIndex)
+            ? Number(castArgs.faceIndex)
+            : (Number.isFinite(requestCastPending?.faceIndex) ? Number(requestCastPending.faceIndex) : undefined),
+          fromZone: spellSourceZone as any,
+        },
+        {
+          xValue: Number.isFinite(castArgs?.xValue)
+            ? Number(castArgs.xValue)
+            : (Number.isFinite(requestCastPending?.xValue) ? Number(requestCastPending.xValue) : undefined),
+          forcedAlternateCostId: String(castArgs?.alternateCostId || requestCastPending?.forcedAlternateCostId || '').trim() || undefined,
+          castWithoutPayingManaCost: castArgs?.castWithoutPayingManaCost === true || requestCastPending?.castWithoutPayingManaCost === true,
+          bypassExilePermissionCheck: castArgs?.bypassExilePermissionCheck === true || requestCastPending?.bypassExilePermissionCheck === true,
+          ignoreTimingRestrictions: castArgs?.ignoreTimingRestrictions === true || requestCastPending?.ignoreTimingRestrictions === true,
+        },
+      );
+
+      if (costType === 'discard' && deferredMadnessPrompts.length > 0) {
+        const stateAny = game.state as any;
+        const pendingSpellCasts = stateAny.pendingSpellCasts || {};
+        const pendingSpellCastEntry = Object.entries(pendingSpellCasts).find(([, pendingCast]) => {
+          const pendingCastAny = pendingCast as any;
+          return String(pendingCastAny?.cardId || '') === cardId && String(pendingCastAny?.playerId || pid) === String(pid);
+        }) as [string, any] | undefined;
+        const queueAfterResume = ResolutionQueueManager.getQueue(gameId) as any;
+        const pendingSpellQueueSteps = Array.isArray(queueAfterResume?.steps)
+          ? queueAfterResume.steps.filter((queueStep: any) => {
+              if (!queueStep) return false;
+              const queueCardId = String(
+                (queueStep as any)?.cardId ||
+                (queueStep as any)?.spellCastContext?.cardId ||
+                ''
+              ).trim();
+              return queueCardId === cardId;
+            })
+          : [];
+
+        if (pendingSpellCastEntry && pendingSpellQueueSteps.length > 0) {
+          const [pendingEffectId, pendingCast] = pendingSpellCastEntry;
+          const updatedPendingCast = {
+            ...(pendingCast || {}),
+            queuedMadnessStepsAfterCast: deferredMadnessPrompts.map((prompt) => ({ ...(prompt as any) })),
+          };
+
+          pendingSpellCasts[pendingEffectId] = updatedPendingCast;
+          appendCastSpellContinuationEvent(gameId, game, {
+            playerId: pid,
+            cardId,
+            effectId: String(pendingEffectId),
+            pendingSpellCast: updatedPendingCast,
+            queuedResolutionSteps: pendingSpellQueueSteps.map((queueStep: any) => ({ ...(queueStep as any) })),
+          });
+        } else {
+          const playerHand = Array.isArray((game.state as any)?.zones?.[String(pid)]?.hand)
+            ? (game.state as any).zones[String(pid)].hand
+            : [];
+          const spellStillInHand = playerHand.some((entry: any) => String(entry?.id || '') === cardId);
+          if (!spellStillInHand) {
+            const queuedMadnessSteps = deferredMadnessPrompts.map((prompt) =>
+              ResolutionQueueManager.addStep(gameId, {
+                ...(prompt as any),
+              } as any)
+            );
+
+            appendQueuedResolutionPromptEvent(game, gameId, {
+              playerId: String(pid),
+              sourceId: cardId,
+              queuedResolutionSteps: queuedMadnessSteps.map((queuedStep: any) => ({ ...(queuedStep as any) })),
+            });
+
+            if (typeof (game as any).bumpSeq === 'function') {
+              (game as any).bumpSeq();
+            }
+            broadcastGame(io, game, gameId);
+          }
+        }
+      }
       break;
     }
 
