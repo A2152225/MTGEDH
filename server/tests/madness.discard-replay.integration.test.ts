@@ -3,6 +3,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { appendEvent, createGameIfNotExists, deleteGame, getEvents, initDb, truncateEventsForUndo } from '../src/db/index.js';
 import '../src/state/modules/priority.js';
 import { registerGameActions } from '../src/socket/game-actions.js';
+import { registerInteractionHandlers } from '../src/socket/interaction.js';
 import { initializePriorityResolutionHandler, registerResolutionHandlers } from '../src/socket/resolution.js';
 import { games } from '../src/socket/socket.js';
 import { ensureGame, transformDbEventsForReplay } from '../src/socket/util.js';
@@ -116,12 +117,14 @@ describe('madness discard replay (integration)', () => {
     await resetGame(`${baseGameId}_prompt`);
     await resetGame(`${baseGameId}_cast`);
     await resetGame(`${baseGameId}_decline`);
+    await resetGame(`${baseGameId}_activation_cost`);
   });
 
   afterEach(async () => {
     await resetGame(`${baseGameId}_prompt`);
     await resetGame(`${baseGameId}_cast`);
     await resetGame(`${baseGameId}_decline`);
+    await resetGame(`${baseGameId}_activation_cost`);
   });
 
   it('queues and replays a madness cast prompt after discarding', async () => {
@@ -315,6 +318,154 @@ describe('madness discard replay (integration)', () => {
     expect((replayedZones?.exile || []).map((card: any) => card.id)).not.toContain('madness_card_3');
     expect((replayedZones?.graveyard || []).map((card: any) => card.id)).toContain('madness_card_3');
     expect((ResolutionQueueManager.getQueue(gameId).steps || []).some((step: any) => String((step as any)?.castFromExileCardId || '') === 'madness_card_3')).toBe(false);
+  });
+
+  it('replays activation-cost madness exile state and queued cast prompt', async () => {
+    const gameId = `${baseGameId}_activation_cost`;
+    const playerId = 'p1';
+    createGameIfNotExists(gameId, 'commander', 40, undefined, playerId);
+
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [{ id: playerId, name: 'P1', spectator: false, life: 40 }];
+    (game.state as any).active = true;
+    (game.state as any).phase = 'precombatMain';
+    (game.state as any).step = 'MAIN';
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).startingLife = 40;
+    (game.state as any).life = { [playerId]: 40 };
+    (game.state as any).battlefield = [
+      {
+        id: 'activation_source_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        card: {
+          name: 'Test Engine',
+          type_line: 'Artifact',
+          oracle_text: 'Discard a card: Draw a card.',
+          image_uris: { small: 'https://example.com/engine.jpg' },
+        },
+      },
+    ];
+    (game.state as any).zones = {
+      [playerId]: {
+        hand: [
+          {
+            id: 'madness_cost_card_1',
+            name: 'Fiery Temper',
+            type_line: 'Instant',
+            mana_cost: '{1}{R}{R}',
+            oracle_text: 'Madness {R}',
+            image_uris: { small: 'https://example.com/fiery-temper.jpg' },
+            zone: 'hand',
+          },
+        ],
+        graveyard: [],
+        exile: [],
+        handCount: 1,
+        graveyardCount: 0,
+        exileCount: 0,
+      },
+    };
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(playerId, gameId, emitted);
+    const io = createMockIo(emitted, [socket]);
+    registerResolutionHandlers(io as any, socket as any);
+    registerGameActions(io as any, socket as any);
+    registerInteractionHandlers(io as any, socket as any);
+
+    await handlers['activateBattlefieldAbility']({
+      gameId,
+      permanentId: 'activation_source_1',
+      abilityId: 'activation_source_1-ability-0',
+    });
+
+    const discardStep = ResolutionQueueManager.getStepsForPlayer(gameId, playerId).find((step: any) => step.type === ResolutionStepType.DISCARD_SELECTION) as any;
+    expect(discardStep).toBeDefined();
+
+    await handlers['submitResolutionResponse']({
+      gameId,
+      stepId: String(discardStep.id),
+      selections: ['madness_cost_card_1'],
+    });
+
+    const liveZones = (game.state as any).zones?.[playerId];
+    expect((liveZones?.exile || []).map((card: any) => card.id)).toContain('madness_cost_card_1');
+    expect((liveZones?.graveyard || []).map((card: any) => card.id)).not.toContain('madness_cost_card_1');
+    expect(((game.state as any).stack || []).some((item: any) => String(item?.source || '') === 'activation_source_1')).toBe(true);
+    expect((game.state as any).discardedCardThisTurn?.[playerId]).toBe(true);
+    expect((game.state as any).anyPlayerDiscardedCardThisTurn).toBe(true);
+
+    const liveQueue = ResolutionQueueManager.getQueue(gameId);
+    expect((liveQueue.steps || []).some((step: any) => String((step as any)?.castFromExileCardId || '') === 'madness_cost_card_1')).toBe(true);
+
+    const persistedEvents = getEvents(gameId);
+    const activationEvent = [...persistedEvents].reverse().find((event: any) => event.type === 'activateBattlefieldAbility') as any;
+    const promptEvent = [...persistedEvents].reverse().find((event: any) => event.type === 'resolveTopOfStackPrompt' && Array.isArray((event as any)?.payload?.queuedResolutionSteps)) as any;
+
+    expect(activationEvent?.payload?.discardedCardIds || []).not.toContain('madness_cost_card_1');
+    expect(activationEvent?.payload?.exiledCardIdsFromHandForCost || []).toContain('madness_cost_card_1');
+    expect((promptEvent?.payload?.queuedResolutionSteps || []).some((step: any) => String(step?.castFromExileCardId || '') === 'madness_cost_card_1')).toBe(true);
+
+    game.reset!(true);
+    (game.state as any).players = [{ id: playerId, name: 'P1', spectator: false, life: 40 }];
+    (game.state as any).active = true;
+    (game.state as any).phase = 'precombatMain';
+    (game.state as any).step = 'MAIN';
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).startingLife = 40;
+    (game.state as any).life = { [playerId]: 40 };
+    (game.state as any).battlefield = [
+      {
+        id: 'activation_source_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        card: {
+          name: 'Test Engine',
+          type_line: 'Artifact',
+          oracle_text: 'Discard a card: Draw a card.',
+          image_uris: { small: 'https://example.com/engine.jpg' },
+        },
+      },
+    ];
+    (game.state as any).zones = {
+      [playerId]: {
+        hand: [
+          {
+            id: 'madness_cost_card_1',
+            name: 'Fiery Temper',
+            type_line: 'Instant',
+            mana_cost: '{1}{R}{R}',
+            oracle_text: 'Madness {R}',
+            image_uris: { small: 'https://example.com/fiery-temper.jpg' },
+            zone: 'hand',
+          },
+        ],
+        graveyard: [],
+        exile: [],
+        handCount: 1,
+        graveyardCount: 0,
+        exileCount: 0,
+      },
+    };
+    for (const replayEvent of transformDbEventsForReplay(getEvents(gameId) as any)) {
+      game.applyEvent(replayEvent as any);
+    }
+
+    const replayedZones = (game.state as any).zones?.[playerId];
+    expect((replayedZones?.exile || []).map((card: any) => card.id)).toContain('madness_cost_card_1');
+    expect((replayedZones?.graveyard || []).map((card: any) => card.id)).not.toContain('madness_cost_card_1');
+    expect(((game.state as any).stack || []).some((item: any) => String(item?.source || '') === 'activation_source_1')).toBe(true);
+    expect((game.state as any).discardedCardThisTurn?.[playerId]).toBe(true);
+    expect((game.state as any).anyPlayerDiscardedCardThisTurn).toBe(true);
+    const replayQueue = ResolutionQueueManager.getQueue(gameId);
+    expect((replayQueue.steps || []).some((step: any) => String((step as any)?.castFromExileCardId || '') === 'madness_cost_card_1')).toBe(true);
   });
 
 });

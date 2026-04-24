@@ -397,6 +397,251 @@ describe('ward mana payment flow', () => {
     expect((wardResolveEvent?.payload?.sacrificedPermanents || []).map(String)).toContain('treasure_1');
   });
 
+  it('persists discard ward payment resolution after paying ward by discarding a card', async () => {
+    createGameIfNotExists(gameId, 'commander', 40, undefined, casterId);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [
+      { id: casterId, name: 'Caster', spectator: false, life: 40 },
+      { id: defenderId, name: 'Defender', spectator: false, life: 40 },
+    ];
+    (game.state as any).phase = 'precombatMain';
+    (game.state as any).turnPlayer = casterId;
+    (game.state as any).priority = casterId;
+    (game.state as any).startingLife = 40;
+    (game.state as any).life = { [casterId]: 40, [defenderId]: 40 };
+    (game.state as any).stack = [
+      {
+        id: 'spell_ward_discard_1',
+        type: 'spell',
+        controller: casterId,
+        sourceName: 'Test Spell',
+        targets: ['ward_creature'],
+        card: {
+          id: 'spell_card_ward_discard_1',
+          name: 'Test Spell',
+          type_line: 'Instant',
+          oracle_text: 'Test Spell deals 3 damage to any target.',
+          zone: 'stack',
+        },
+      },
+    ];
+    (game.state as any).zones = {
+      [casterId]: {
+        hand: [
+          {
+            id: 'ward_discard_card_1',
+            name: 'Ward Payment Card',
+            mana_cost: '{1}{B}',
+            manaCost: '{1}{B}',
+            type_line: 'Creature - Shade',
+            oracle_text: '',
+            image_uris: { small: 'https://example.com/ward-discard-card.jpg' },
+          },
+        ],
+        handCount: 1,
+        graveyard: [],
+        graveyardCount: 0,
+        exile: [],
+        exileCount: 0,
+      },
+      [defenderId]: {
+        hand: [],
+        handCount: 0,
+        graveyard: [],
+        graveyardCount: 0,
+        exile: [],
+        exileCount: 0,
+      },
+    };
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(casterId, emitted, gameId);
+    const io = createMockIo(emitted, [socket]);
+
+    registerResolutionHandlers(io as any, socket as any);
+
+    const wardStep = ResolutionQueueManager.addStep(gameId, {
+      type: 'discard_selection' as any,
+      playerId: casterId as any,
+      sourceId: 'spell_ward_discard_1',
+      sourceName: 'Shielded Bear',
+      description: 'Shielded Bear has ward-Discard a card. Discard a card or the spell/ability will be countered.',
+      mandatory: true,
+      discardCount: 1,
+      hand: [
+        {
+          id: 'ward_discard_card_1',
+          name: 'Ward Payment Card',
+          type_line: 'Creature - Shade',
+          oracle_text: '',
+          image_uris: { small: 'https://example.com/ward-discard-card.jpg' },
+          mana_cost: '{1}{B}',
+          cmc: 2,
+          colors: ['B'],
+        },
+      ],
+      wardPayment: true,
+      wardPaymentType: 'discard',
+      wardCost: 'Discard a card',
+      wardPermanentId: 'ward_creature',
+      wardPermanentName: 'Shielded Bear',
+      wardPermanentController: defenderId,
+      wardTriggeredBy: 'spell_ward_discard_1',
+    } as any);
+
+    await handlers['submitResolutionResponse']({
+      gameId,
+      stepId: String(wardStep.id),
+      selections: ['ward_discard_card_1'],
+    });
+
+    const liveZones = (game.state as any).zones?.[casterId];
+    expect((liveZones?.hand || []).map((card: any) => card.id)).not.toContain('ward_discard_card_1');
+    expect((liveZones?.graveyard || []).map((card: any) => card.id)).toContain('ward_discard_card_1');
+    expect(((game.state as any).stack || []).some((item: any) => String(item?.id || '') === 'spell_ward_discard_1')).toBe(true);
+
+    const wardResolveEvent = [...getEvents(gameId)].reverse().find((event: any) => event.type === 'wardPaymentResolve') as any;
+    expect(wardResolveEvent?.payload).toMatchObject({
+      playerId: casterId,
+      stepId: String(wardStep.id),
+      sourceId: 'spell_ward_discard_1',
+      wardCost: 'Discard a card',
+      wardPermanentId: 'ward_creature',
+      wardPermanentName: 'Shielded Bear',
+      wardPaymentType: 'discard',
+    });
+  });
+
+  it('treats a madness discard as a paid discard ward cost and queues the madness prompt', async () => {
+    createGameIfNotExists(gameId, 'commander', 40, undefined, casterId);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [
+      { id: casterId, name: 'Caster', spectator: false, life: 40 },
+      { id: defenderId, name: 'Defender', spectator: false, life: 40 },
+    ];
+    (game.state as any).phase = 'precombatMain';
+    (game.state as any).turnPlayer = casterId;
+    (game.state as any).priority = casterId;
+    (game.state as any).startingLife = 40;
+    (game.state as any).life = { [casterId]: 40, [defenderId]: 40 };
+    (game.state as any).stack = [
+      {
+        id: 'spell_ward_madness_1',
+        type: 'spell',
+        controller: casterId,
+        sourceName: 'Test Spell',
+        targets: ['ward_creature'],
+        card: {
+          id: 'spell_card_ward_madness_1',
+          name: 'Test Spell',
+          type_line: 'Instant',
+          oracle_text: 'Test Spell deals 3 damage to any target.',
+          zone: 'stack',
+        },
+      },
+    ];
+    (game.state as any).zones = {
+      [casterId]: {
+        hand: [
+          {
+            id: 'ward_madness_card_1',
+            name: 'Fiery Temper',
+            mana_cost: '{1}{R}{R}',
+            manaCost: '{1}{R}{R}',
+            type_line: 'Instant',
+            oracle_text: 'Madness {R}',
+            image_uris: { small: 'https://example.com/fiery-temper.jpg' },
+          },
+        ],
+        handCount: 1,
+        graveyard: [],
+        graveyardCount: 0,
+        exile: [],
+        exileCount: 0,
+      },
+      [defenderId]: {
+        hand: [],
+        handCount: 0,
+        graveyard: [],
+        graveyardCount: 0,
+        exile: [],
+        exileCount: 0,
+      },
+    };
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(casterId, emitted, gameId);
+    const io = createMockIo(emitted, [socket]);
+
+    registerResolutionHandlers(io as any, socket as any);
+
+    const wardStep = ResolutionQueueManager.addStep(gameId, {
+      type: 'discard_selection' as any,
+      playerId: casterId as any,
+      sourceId: 'spell_ward_madness_1',
+      sourceName: 'Shielded Bear',
+      description: 'Shielded Bear has ward-Discard a card. Discard a card or the spell/ability will be countered.',
+      mandatory: true,
+      discardCount: 1,
+      hand: [
+        {
+          id: 'ward_madness_card_1',
+          name: 'Fiery Temper',
+          type_line: 'Instant',
+          oracle_text: 'Madness {R}',
+          image_uris: { small: 'https://example.com/fiery-temper.jpg' },
+          mana_cost: '{1}{R}{R}',
+          cmc: 3,
+          colors: ['R'],
+        },
+      ],
+      wardPayment: true,
+      wardPaymentType: 'discard',
+      wardCost: 'Discard a card',
+      wardPermanentId: 'ward_creature',
+      wardPermanentName: 'Shielded Bear',
+      wardPermanentController: defenderId,
+      wardTriggeredBy: 'spell_ward_madness_1',
+    } as any);
+
+    await handlers['submitResolutionResponse']({
+      gameId,
+      stepId: String(wardStep.id),
+      selections: ['ward_madness_card_1'],
+    });
+
+    const liveZones = (game.state as any).zones?.[casterId];
+    expect((liveZones?.hand || []).map((card: any) => card.id)).not.toContain('ward_madness_card_1');
+    expect((liveZones?.graveyard || []).map((card: any) => card.id)).not.toContain('ward_madness_card_1');
+    expect((liveZones?.exile || []).map((card: any) => card.id)).toContain('ward_madness_card_1');
+    expect(((game.state as any).stack || []).some((item: any) => String(item?.id || '') === 'spell_ward_madness_1')).toBe(true);
+
+    const liveQueue = ResolutionQueueManager.getQueue(gameId);
+    expect((liveQueue.steps || []).some((step: any) => String(step?.castFromExileCardId || '') === 'ward_madness_card_1')).toBe(true);
+
+    const persistedEvents = getEvents(gameId);
+    const wardResolveEvent = [...persistedEvents].reverse().find((event: any) => event.type === 'wardPaymentResolve') as any;
+    const discardEffectEvent = [...persistedEvents].reverse().find((event: any) => event.type === 'discardEffect' && String((event as any)?.payload?.destination || '') === 'exile') as any;
+    const promptEvent = [...persistedEvents].reverse().find((event: any) => event.type === 'resolveTopOfStackPrompt' && Array.isArray((event as any)?.payload?.queuedResolutionSteps)) as any;
+
+    expect(wardResolveEvent?.payload).toMatchObject({
+      playerId: casterId,
+      stepId: String(wardStep.id),
+      sourceId: 'spell_ward_madness_1',
+      wardPaymentType: 'discard',
+    });
+    expect(discardEffectEvent?.payload).toEqual({
+      playerId: casterId,
+      cardIds: ['ward_madness_card_1'],
+      destination: 'exile',
+    });
+    expect((promptEvent?.payload?.queuedResolutionSteps || []).some((step: any) => String(step?.castFromExileCardId || '') === 'ward_madness_card_1')).toBe(true);
+  });
+
   it('leaves an uncounterable pending spell intact when ward is declined', async () => {
     createGameIfNotExists(gameId, 'commander', 40, undefined, casterId);
     const game = ensureGame(gameId);

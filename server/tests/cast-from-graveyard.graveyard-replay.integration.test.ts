@@ -81,6 +81,10 @@ describe('cast-from-graveyard replay semantics (integration)', () => {
     gameId,
     `${gameId}_retrace_live`,
     `${gameId}_escape_live`,
+    `${gameId}_jump_start_madness`,
+    `${gameId}_jump_start_madness_replay`,
+    `${gameId}_jump_start_targeted_madness`,
+    `${gameId}_jump_start_targeted_madness_replay`,
     `${gameId}_flashback`,
     `${gameId}_retrace`,
     `${gameId}_escape`,
@@ -157,6 +161,189 @@ describe('cast-from-graveyard replay semantics (integration)', () => {
 
     const activateEvent = [...getEvents(gameId)].reverse().find((event) => event.type === 'activateGraveyardAbility') as any;
     expect(activateEvent?.payload?.discardedCardIds).toEqual(['jump_start_discard_1']);
+  });
+
+  it('jump-start with a madness discard exiles the discarded card, persists split cost evidence, and replays the queued cast prompt', async () => {
+    const madnessGameId = `${gameId}_jump_start_madness`;
+    const replayGameId = `${gameId}_jump_start_madness_replay`;
+    const madnessCard = {
+      id: 'jump_start_madness_discard_1',
+      name: 'Fiery Temper',
+      type_line: 'Instant',
+      mana_cost: '{1}{R}{R}',
+      oracle_text: 'Madness {R}',
+      zone: 'hand',
+    };
+
+    const { game, playerId } = await seedGame(madnessGameId, 'jump_start_madness_spell', 'Draw a card.\nJump-start {1}{U}', {
+      manaPool: { white: 0, blue: 1, black: 0, red: 0, green: 0, colorless: 1 },
+      hand: [madnessCard],
+    });
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const io = createMockIo(emitted);
+    const { socket, handlers } = createMockSocket(playerId, madnessGameId, emitted);
+
+    registerInteractionHandlers(io as any, socket as any);
+    registerResolutionHandlers(io as any, socket as any);
+
+    await handlers['activateGraveyardAbility']({
+      gameId: madnessGameId,
+      cardId: 'jump_start_madness_spell',
+      abilityId: 'jump-start',
+    });
+
+    const discardStep = ResolutionQueueManager.getStepsForPlayer(madnessGameId, playerId).find((step) => step.type === ResolutionStepType.DISCARD_SELECTION) as any;
+    expect(discardStep).toBeDefined();
+
+    await handlers['submitResolutionResponse']({
+      gameId: madnessGameId,
+      stepId: String(discardStep.id),
+      selections: ['jump_start_madness_discard_1'],
+    });
+
+    const liveZones = (game.state as any).zones?.[playerId];
+    expect((liveZones?.exile || []).map((card: any) => card.id)).toContain('jump_start_madness_discard_1');
+    expect((liveZones?.graveyard || []).map((card: any) => card.id)).not.toContain('jump_start_madness_discard_1');
+    expect(((game.state as any).stack || []).some((item: any) => String(item?.card?.id || '') === 'jump_start_madness_spell')).toBe(true);
+
+    const liveQueue = ResolutionQueueManager.getQueue(madnessGameId);
+    expect((liveQueue.steps || []).some((step: any) => String((step as any)?.castFromExileCardId || '') === 'jump_start_madness_discard_1')).toBe(true);
+
+    const activateEvent = [...getEvents(madnessGameId)].reverse().find((event) => event.type === 'activateGraveyardAbility' && String((event as any)?.payload?.cardId || '') === 'jump_start_madness_spell') as any;
+    const promptEvent = [...getEvents(madnessGameId)].reverse().find((event) => event.type === 'resolveTopOfStackPrompt' && Array.isArray((event as any)?.payload?.queuedResolutionSteps)) as any;
+
+    expect(activateEvent?.payload?.discardedCardIds || []).not.toContain('jump_start_madness_discard_1');
+    expect(activateEvent?.payload?.exiledCardIdsFromHandForCost || []).toContain('jump_start_madness_discard_1');
+    expect((promptEvent?.payload?.queuedResolutionSteps || []).some((step: any) => String((step as any)?.castFromExileCardId || '') === 'jump_start_madness_discard_1')).toBe(true);
+
+    const replay = await seedGame(replayGameId, 'jump_start_madness_spell', 'Draw a card.\nJump-start {1}{U}', {
+      manaPool: { white: 0, blue: 1, black: 0, red: 0, green: 0, colorless: 1 },
+      hand: [madnessCard],
+    });
+
+    replay.game.applyEvent({ type: 'activateGraveyardAbility', ...(activateEvent?.payload || {}) } as any);
+    replay.game.applyEvent({ type: 'resolveTopOfStackPrompt', ...(promptEvent?.payload || {}) } as any);
+
+    const replayedZones = (replay.game.state as any).zones?.[playerId];
+    expect((replayedZones?.exile || []).map((card: any) => card.id)).toContain('jump_start_madness_discard_1');
+    expect((replayedZones?.graveyard || []).map((card: any) => card.id)).not.toContain('jump_start_madness_discard_1');
+    expect(((replay.game.state as any).stack || []).some((item: any) => String(item?.card?.id || '') === 'jump_start_madness_spell')).toBe(true);
+    const replayQueue = ResolutionQueueManager.getQueue(replayGameId);
+    expect((replayQueue.steps || []).some((step: any) => String((step as any)?.castFromExileCardId || '') === 'jump_start_madness_discard_1')).toBe(true);
+  });
+
+  it('jump-start with targets replays the queued target selection alongside the madness cast prompt', async () => {
+    const targetedGameId = `${gameId}_jump_start_targeted_madness`;
+    const replayGameId = `${gameId}_jump_start_targeted_madness_replay`;
+    const madnessCard = {
+      id: 'jump_start_targeted_madness_discard_1',
+      name: 'Fiery Temper',
+      type_line: 'Instant',
+      mana_cost: '{1}{R}{R}',
+      oracle_text: 'Madness {R}',
+      zone: 'hand',
+    };
+
+    const { game, playerId } = await seedGame(targetedGameId, 'jump_start_targeted_spell', 'Destroy target creature.\nJump-start {1}{U}', {
+      manaPool: { white: 0, blue: 1, black: 0, red: 0, green: 0, colorless: 1 },
+      hand: [madnessCard],
+    });
+    (game.state as any).players = [
+      { id: playerId, name: 'P1', spectator: false, life: 40 },
+      { id: 'p2', name: 'P2', spectator: false, life: 40 },
+    ];
+    (game.state as any).life = { [playerId]: 40, p2: 40 };
+    (game.state as any).battlefield = [
+      {
+        id: 'jump_start_target_creature_1',
+        controller: 'p2',
+        owner: 'p2',
+        tapped: false,
+        card: {
+          name: 'Target Dummy',
+          type_line: 'Creature - Construct',
+          oracle_text: '',
+        },
+      },
+    ];
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const io = createMockIo(emitted);
+    const { socket, handlers } = createMockSocket(playerId, targetedGameId, emitted);
+
+    registerInteractionHandlers(io as any, socket as any);
+    registerResolutionHandlers(io as any, socket as any);
+
+    await handlers['activateGraveyardAbility']({
+      gameId: targetedGameId,
+      cardId: 'jump_start_targeted_spell',
+      abilityId: 'jump-start',
+    });
+
+    const discardStep = ResolutionQueueManager.getStepsForPlayer(targetedGameId, playerId).find((step) => step.type === ResolutionStepType.DISCARD_SELECTION) as any;
+    expect(discardStep).toBeDefined();
+
+    await handlers['submitResolutionResponse']({
+      gameId: targetedGameId,
+      stepId: String(discardStep.id),
+      selections: ['jump_start_targeted_madness_discard_1'],
+    });
+
+    const liveZones = (game.state as any).zones?.[playerId];
+    expect((liveZones?.exile || []).map((card: any) => card.id)).toContain('jump_start_targeted_madness_discard_1');
+    expect((liveZones?.graveyard || []).map((card: any) => card.id)).not.toContain('jump_start_targeted_madness_discard_1');
+
+    const liveSteps = ResolutionQueueManager.getStepsForPlayer(targetedGameId, playerId);
+    const targetStep = liveSteps.find((step: any) => (step as any)?.graveyardSpellCastTargetSelection === true) as any;
+    const madnessPrompt = liveSteps.find((step: any) => String((step as any)?.castFromExileCardId || '') === 'jump_start_targeted_madness_discard_1') as any;
+    expect(targetStep).toBeDefined();
+    expect((targetStep.validTargets || []).some((target: any) => String(target.id || '') === 'jump_start_target_creature_1')).toBe(true);
+    expect(madnessPrompt).toBeDefined();
+
+    const activateEvent = [...getEvents(targetedGameId)].reverse().find((event) =>
+      event.type === 'activateGraveyardAbility' &&
+      String((event as any)?.payload?.cardId || '') === 'jump_start_targeted_spell' &&
+      (event as any)?.payload?.queuedResolutionStep
+    ) as any;
+    const promptEvent = [...getEvents(targetedGameId)].reverse().find((event) => event.type === 'resolveTopOfStackPrompt' && Array.isArray((event as any)?.payload?.queuedResolutionSteps)) as any;
+
+    expect(activateEvent?.payload?.queuedResolutionStep?.graveyardSpellCastTargetSelection).toBe(true);
+    expect(activateEvent?.payload?.queuedResolutionStep?.discardedCardIdsForCost || []).not.toContain('jump_start_targeted_madness_discard_1');
+    expect(activateEvent?.payload?.queuedResolutionStep?.exiledCardIdsFromHandForCost || []).toContain('jump_start_targeted_madness_discard_1');
+    expect((promptEvent?.payload?.queuedResolutionSteps || []).some((step: any) => String((step as any)?.castFromExileCardId || '') === 'jump_start_targeted_madness_discard_1')).toBe(true);
+
+    const replay = await seedGame(replayGameId, 'jump_start_targeted_spell', 'Destroy target creature.\nJump-start {1}{U}', {
+      manaPool: { white: 0, blue: 1, black: 0, red: 0, green: 0, colorless: 1 },
+      hand: [madnessCard],
+    });
+    (replay.game.state as any).players = [
+      { id: playerId, name: 'P1', spectator: false, life: 40 },
+      { id: 'p2', name: 'P2', spectator: false, life: 40 },
+    ];
+    (replay.game.state as any).life = { [playerId]: 40, p2: 40 };
+    (replay.game.state as any).battlefield = [
+      {
+        id: 'jump_start_target_creature_1',
+        controller: 'p2',
+        owner: 'p2',
+        tapped: false,
+        card: {
+          name: 'Target Dummy',
+          type_line: 'Creature - Construct',
+          oracle_text: '',
+        },
+      },
+    ];
+
+    replay.game.applyEvent({ type: 'activateGraveyardAbility', ...(activateEvent?.payload || {}) } as any);
+    replay.game.applyEvent({ type: 'resolveTopOfStackPrompt', ...(promptEvent?.payload || {}) } as any);
+
+    const replayedZones = (replay.game.state as any).zones?.[playerId];
+    expect((replayedZones?.exile || []).map((card: any) => card.id)).toContain('jump_start_targeted_madness_discard_1');
+    expect((replayedZones?.graveyard || []).map((card: any) => card.id)).not.toContain('jump_start_targeted_madness_discard_1');
+    const replaySteps = ResolutionQueueManager.getStepsForPlayer(replayGameId, playerId);
+    expect(replaySteps.some((step: any) => (step as any)?.graveyardSpellCastTargetSelection === true)).toBe(true);
+    expect(replaySteps.some((step: any) => String((step as any)?.castFromExileCardId || '') === 'jump_start_targeted_madness_discard_1')).toBe(true);
   });
 
   it('live retrace activation requires discarding a land card from hand', async () => {

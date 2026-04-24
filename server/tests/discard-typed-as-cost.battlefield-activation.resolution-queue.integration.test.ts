@@ -408,4 +408,93 @@ describe('Discard typed card as activation cost via Resolution Queue (integratio
     expect((zones.graveyard as any[]).some((card: any) => card && card.id === 'g_creature_target')).toBe(false);
     expect((zones.graveyard as any[]).some((card: any) => card && card.id === 'h_creature_cost')).toBe(true);
   });
+
+  it('exiles a madness card discarded as an activation cost and queues a cast prompt after the activation is placed on the stack', async () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).stack = [];
+
+    const p1 = 'p1';
+
+    (game.state as any).players = [{ id: p1, name: 'P1', spectator: false, life: 40 }];
+    (game.state as any).startingLife = 40;
+    (game.state as any).life = { [p1]: 40 };
+    (game.state as any).turnPlayer = p1;
+    (game.state as any).priority = p1;
+
+    (game.state as any).battlefield = [
+      {
+        id: 'src_madness_cost',
+        controller: p1,
+        owner: p1,
+        tapped: false,
+        card: {
+          name: 'Test Engine',
+          type_line: 'Artifact',
+          oracle_text: 'Discard a card: Draw a card.',
+          image_uris: { small: 'https://example.com/engine.jpg' },
+        },
+      },
+    ];
+
+    (game.state as any).zones = {
+      [p1]: {
+        hand: [
+          {
+            id: 'h_madness_cost',
+            name: 'Fiery Temper',
+            type_line: 'Instant',
+            mana_cost: '{1}{R}{R}',
+            oracle_text: 'Madness {R}',
+            image_uris: { small: 'https://example.com/fiery-temper.jpg' },
+            zone: 'hand',
+          },
+        ],
+        graveyard: [],
+        exile: [],
+        handCount: 1,
+        graveyardCount: 0,
+        exileCount: 0,
+      },
+    };
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(p1, emitted);
+    socket.rooms.add(gameId);
+    const io = createMockIo(emitted, [socket]);
+
+    registerResolutionHandlers(io as any, socket as any);
+    registerInteractionHandlers(io as any, socket as any);
+
+    await handlers['activateBattlefieldAbility']({ gameId, permanentId: 'src_madness_cost', abilityId: 'src_madness_cost-ability-0' });
+
+    const discardStep = ResolutionQueueManager.getQueue(gameId).steps[0] as any;
+    expect(discardStep.type).toBe('discard_selection');
+    expect(discardStep.discardAbilityAsCost).toBe(true);
+
+    await handlers['submitResolutionResponse']({
+      gameId,
+      stepId: discardStep.id,
+      selections: ['h_madness_cost'],
+    });
+
+    const zones = (game.state as any).zones?.[p1];
+    expect((zones.hand as any[]).some((card: any) => card && card.id === 'h_madness_cost')).toBe(false);
+    expect((zones.graveyard as any[]).some((card: any) => card && card.id === 'h_madness_cost')).toBe(false);
+    expect((zones.exile as any[]).some((card: any) => card && card.id === 'h_madness_cost')).toBe(true);
+
+    const stack = (game.state as any).stack || [];
+    expect(stack).toHaveLength(1);
+    expect(String(stack[0].type)).toBe('ability');
+    expect(String(stack[0].source)).toBe('src_madness_cost');
+
+    const queue = ResolutionQueueManager.getQueue(gameId);
+    const madnessStep = queue.steps.find((queuedStep: any) => (queuedStep as any)?.madnessPrompt === true) as any;
+    expect(madnessStep).toBeDefined();
+    expect(madnessStep.type).toBe('option_choice');
+    expect(String(madnessStep.castFromExileCardId || '')).toBe('h_madness_cost');
+    expect(String(madnessStep.castFromExileForcedAlternateCostId || '')).toBe('madness');
+  });
 });

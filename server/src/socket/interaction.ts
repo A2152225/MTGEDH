@@ -1485,6 +1485,7 @@ function queueGraveyardSpellCastTargetSelection(params: {
   manaCost?: string;
   lifeToPayForCost?: number;
   discardedCardIdsForCost?: string[];
+  exiledCardIdsFromHandForCost?: string[];
   exiledCardIdsFromGraveyardForCost?: string[];
   emitError: (payload: { code: string; message: string }) => void;
 }): 'queued' | 'error' | null {
@@ -1573,6 +1574,9 @@ function queueGraveyardSpellCastTargetSelection(params: {
       discardedCardIdsForCost: Array.isArray(params.discardedCardIdsForCost) && params.discardedCardIdsForCost.length > 0
         ? params.discardedCardIdsForCost.slice()
         : undefined,
+      exiledCardIdsFromHandForCost: Array.isArray(params.exiledCardIdsFromHandForCost) && params.exiledCardIdsFromHandForCost.length > 0
+        ? params.exiledCardIdsFromHandForCost.slice()
+        : undefined,
       exiledCardIdsFromGraveyardForCost: Array.isArray(params.exiledCardIdsFromGraveyardForCost) && params.exiledCardIdsFromGraveyardForCost.length > 0
         ? params.exiledCardIdsFromGraveyardForCost.slice()
         : undefined,
@@ -1604,6 +1608,7 @@ export function finalizeGraveyardSpellCast(params: {
   manaCost?: string;
   lifePaidForCost?: number;
   discardedCardIds?: string[];
+  exiledCardIdsFromHandForCost?: string[];
   exiledCardIdsFromGraveyardForCost?: string[];
   stackId?: string;
   emitError: (payload: { code: string; message: string }) => void;
@@ -1647,6 +1652,9 @@ export function finalizeGraveyardSpellCast(params: {
       manaCost: params.manaCost || undefined,
       lifePaidForCost: Number(params.lifePaidForCost || 0) > 0 ? Number(params.lifePaidForCost || 0) : undefined,
       discardedCardIds: Array.isArray(params.discardedCardIds) && params.discardedCardIds.length > 0 ? params.discardedCardIds.slice() : undefined,
+      exiledCardIdsFromHandForCost: Array.isArray(params.exiledCardIdsFromHandForCost) && params.exiledCardIdsFromHandForCost.length > 0
+        ? params.exiledCardIdsFromHandForCost.slice()
+        : undefined,
       exiledCardIdsFromGraveyardForCost: Array.isArray(params.exiledCardIdsFromGraveyardForCost) && params.exiledCardIdsFromGraveyardForCost.length > 0
         ? params.exiledCardIdsFromGraveyardForCost.slice()
         : undefined,
@@ -1683,6 +1691,7 @@ export function continueCastFromGraveyardAbility(params: {
   abilityId: string;
   targets?: unknown;
   discardedCardIds?: string[];
+  exiledCardIdsFromHandForCost?: string[];
   exiledCardIdsFromGraveyardForCost?: string[];
   emitError: (payload: { code: string; message: string }) => void;
 }): 'queued' | 'cast' | 'error' {
@@ -1706,8 +1715,10 @@ export function continueCastFromGraveyardAbility(params: {
   const recordedLifeCost = Number(activationCost.lifeCost || 0);
   const discardCost = getCastFromGraveyardDiscardCost(params.abilityId);
   const exileCost = getCastFromGraveyardExileCost(card, params.abilityId);
+  const paidDiscardCount = (Array.isArray(params.discardedCardIds) ? params.discardedCardIds.length : 0)
+    + (Array.isArray(params.exiledCardIdsFromHandForCost) ? params.exiledCardIdsFromHandForCost.length : 0);
 
-  if (discardCost && !(Array.isArray(params.discardedCardIds) && params.discardedCardIds.length >= discardCost.discardCount)) {
+  if (discardCost && paidDiscardCount < discardCost.discardCount) {
     const hand = Array.isArray(zones.hand) ? zones.hand : [];
     const eligibleHand = discardCost.discardTypeRestriction
       ? hand.filter((entry: any) => String(entry?.type_line || '').toLowerCase().includes(discardCost.discardTypeRestriction as string))
@@ -1824,6 +1835,7 @@ export function continueCastFromGraveyardAbility(params: {
       manaCost: recordedManaCost,
       lifeToPayForCost: recordedLifeCost,
       discardedCardIdsForCost: params.discardedCardIds,
+      exiledCardIdsFromHandForCost: params.exiledCardIdsFromHandForCost,
       exiledCardIdsFromGraveyardForCost: params.exiledCardIdsFromGraveyardForCost,
       emitError: params.emitError,
     });
@@ -1872,6 +1884,7 @@ export function continueCastFromGraveyardAbility(params: {
     manaCost: recordedManaCost || undefined,
     lifePaidForCost: recordedLifeCost > 0 ? recordedLifeCost : undefined,
     discardedCardIds: params.discardedCardIds,
+    exiledCardIdsFromHandForCost: params.exiledCardIdsFromHandForCost,
     exiledCardIdsFromGraveyardForCost: params.exiledCardIdsFromGraveyardForCost,
     emitError: params.emitError,
   });

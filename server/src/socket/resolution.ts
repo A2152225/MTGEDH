@@ -13959,10 +13959,7 @@ async function handleDiscardResponse(
   const movedCardsToExile: any[] = [];
   const queuedMadnessPrompts: any[] = [];
   const shouldOfferMadnessPrompt =
-    !isDiscardCostActivation &&
     !isExileFromHandCostActivation &&
-    !isGraveyardCastDiscardActivation &&
-    !isCleanupDiscard &&
     destination === 'graveyard';
   
   for (const cardId of selections) {
@@ -13994,6 +13991,7 @@ async function handleDiscardResponse(
           minSelections: 1,
           maxSelections: 1,
           madnessPrompt: true,
+          resumeCleanupAfterPrompt: isCleanupDiscard || undefined,
           madnessCardId: String(exiledCard.id || card.id || ''),
           madnessCost,
           castFromExileCardId: String(exiledCard.id || card.id || ''),
@@ -14042,7 +14040,7 @@ async function handleDiscardResponse(
     }
   }
 
-  if (!isDiscardCostActivation && !isExileFromHandCostActivation && !isGraveyardCastDiscardActivation && movedCards.length > 0) {
+  if (!isExileFromHandCostActivation && movedCards.length > 0) {
     const stateAny = game.state as any;
     stateAny.discardedCardThisTurn = stateAny.discardedCardThisTurn || {};
     stateAny.discardedCardThisTurn[String(pid)] = true;
@@ -14054,6 +14052,24 @@ async function handleDiscardResponse(
       ...(prompt as any),
     } as any)
   );
+  const discardedCardIdsForCost = movedCardsToGraveyard
+    .map((card: any) => String(card?.id || ''))
+    .filter(Boolean);
+  const exiledCardIdsFromHandForCost = movedCardsToExile
+    .map((card: any) => String(card?.id || ''))
+    .filter(Boolean);
+  const persistQueuedMadnessPromptsForCost = () => {
+    if (queuedMadnessSteps.length === 0) return;
+    try {
+      appendQueuedResolutionPromptEvent(game, gameId, {
+        playerId: String(pid),
+        sourceId: String(step.sourceId || '').trim(),
+        queuedResolutionSteps: queuedMadnessSteps.map((queuedStep: any) => ({ ...(queuedStep as any) })),
+      });
+    } catch {
+      // ignore persistence failures
+    }
+  };
   
   // Clear legacy pending state if present
   if (game.state.pendingDiscardSelection?.[pid]) {
@@ -14136,12 +14152,14 @@ async function handleDiscardResponse(
         playerId: controllerId,
         cardId,
         abilityId,
-        discardedCardIds: selections.map((selection: any) => String(selection)).filter(Boolean),
+        discardedCardIds: discardedCardIdsForCost,
+        exiledCardIdsFromHandForCost: exiledCardIdsFromHandForCost,
         targets: Array.isArray(stepAny?.targetsForCast) ? stepAny.targetsForCast : undefined,
         emitError: (payload) => emitToPlayer(io, controllerId as any, 'error', payload),
       });
 
       if (result !== 'error') {
+        persistQueuedMadnessPromptsForCost();
         broadcastGame(io, game, gameId);
       }
       return;
@@ -14279,7 +14297,11 @@ async function handleDiscardResponse(
           lifeToPayForCost: Number.isFinite(lifeToPayForCost) && lifeToPayForCost > 0 ? lifeToPayForCost : undefined,
 
           // Carry deterministic evidence from the discard step.
-          discardedCardIdsForCost: selections,
+          discardedCardIdsForCost: discardedCardIdsForCost.length > 0 ? discardedCardIdsForCost : undefined,
+          exiledCardIdsFromHandForCost: exiledCardIdsFromHandForCost.length > 0 ? exiledCardIdsFromHandForCost : undefined,
+          queuedMadnessStepsForCost: queuedMadnessSteps.length > 0
+            ? queuedMadnessSteps.map((queuedStep: any) => ({ ...(queuedStep as any) }))
+            : undefined,
         } as any);
       }
 
@@ -14426,7 +14448,8 @@ async function handleDiscardResponse(
               abilityText,
               activatedAbilityText: String(stepAny?.activatedAbilityText || '').trim() || `${manaCost}: ${abilityText}`,
               tappedPermanentsForCost,
-              discardedCardIdsForCost: selections.map((id: any) => String(id)).filter(Boolean),
+              discardedCardIdsForCost: discardedCardIdsForCost.length > 0 ? discardedCardIdsForCost : undefined,
+              exiledCardIdsFromHandForCost: exiledCardIdsFromHandForCost.length > 0 ? exiledCardIdsFromHandForCost : undefined,
               lifePaidForCost: lifeToPayForCost > 0 ? lifeToPayForCost : undefined,
             }
           : {
@@ -14449,7 +14472,8 @@ async function handleDiscardResponse(
               abilityText,
               activatedAbilityText: String(stepAny?.activatedAbilityText || '').trim() || `${manaCost}: ${abilityText}`,
               tappedPermanentsForCost,
-              discardedCardIdsForCost: selections.map((id: any) => String(id)).filter(Boolean),
+              discardedCardIdsForCost: discardedCardIdsForCost.length > 0 ? discardedCardIdsForCost : undefined,
+              exiledCardIdsFromHandForCost: exiledCardIdsFromHandForCost.length > 0 ? exiledCardIdsFromHandForCost : undefined,
               lifePaidForCost: lifeToPayForCost > 0 ? lifeToPayForCost : undefined,
             }) as any);
 
@@ -14462,13 +14486,16 @@ async function handleDiscardResponse(
             abilityText,
             activatedAbilityText: String(stepAny?.activatedAbilityText || '').trim() || `${manaCost}: ${abilityText}`,
             tappedPermanents: tappedPermanentsForCost.length > 0 ? tappedPermanentsForCost : undefined,
-            discardedCardIds: selections.map((id: any) => String(id)).filter(Boolean),
+            discardedCardIds: discardedCardIdsForCost.length > 0 ? discardedCardIdsForCost : undefined,
+            exiledCardIdsFromHandForCost: exiledCardIdsFromHandForCost.length > 0 ? exiledCardIdsFromHandForCost : undefined,
             lifePaidForCost: lifeToPayForCost > 0 ? lifeToPayForCost : undefined,
             queuedResolutionStep,
           });
         } catch {
           // ignore persistence failures
         }
+
+        persistQueuedMadnessPromptsForCost();
 
         if (typeof game.bumpSeq === 'function') game.bumpSeq();
         broadcastGame(io, game, gameId);
@@ -14508,12 +14535,15 @@ async function handleDiscardResponse(
           abilityText,
           activatedAbilityText: String(stepAny?.activatedAbilityText || '').trim() || undefined,
           tappedPermanents: tappedPermanentsForCost,
-          discardedCardIds: selections,
+          discardedCardIds: discardedCardIdsForCost.length > 0 ? discardedCardIdsForCost : undefined,
+          exiledCardIdsFromHandForCost: exiledCardIdsFromHandForCost.length > 0 ? exiledCardIdsFromHandForCost : undefined,
           lifePaidForCost: lifeToPayForCost > 0 ? lifeToPayForCost : undefined,
         });
       } catch {
         // ignore persistence failures
       }
+
+      persistQueuedMadnessPromptsForCost();
     } catch (err) {
       debugError(1, '[Resolution] Failed to resume discard-cost activation', err);
     }
@@ -14722,15 +14752,38 @@ async function handleDiscardResponse(
     }
   }
 
+  if ((step as any)?.wardPayment === true) {
+    const stepAny = step as any;
+    try {
+      appendEvent(gameId, (game as any).seq ?? 0, 'wardPaymentResolve', {
+        playerId: pid,
+        stepId: String(stepAny?.id || step.id || ''),
+        sourceId: String(stepAny?.wardTriggeredBy || stepAny?.sourceId || step.sourceId || '').trim(),
+        wardCost: String(stepAny?.wardCost || '').trim(),
+        wardPermanentId: String(stepAny?.wardPermanentId || '').trim(),
+        wardPermanentName: String(stepAny?.wardPermanentName || step.sourceName || 'Ward'),
+        wardPaymentType: 'discard',
+      });
+    } catch {
+      // ignore persistence failures for ward payment resolution
+    }
+  }
+
   // Cleanup-step integration: after the discard is applied, advance through the
   // normal cleanup/turn transition logic (clears damage, ends EOT effects, Sundial pause).
   if (isCleanupDiscard) {
     try {
       appendEvent(gameId, (game as any).seq ?? 0, 'cleanupDiscard', {
         playerId: pid,
-        cardIds: selections.map((cardId: any) => String(cardId)).filter(Boolean),
+        cardIds: movedCardsToGraveyard.map((card: any) => String(card?.id || '')).filter(Boolean),
+        ...(exiledCardIdsFromHandForCost.length > 0 ? { exiledCardIds: exiledCardIdsFromHandForCost } : {}),
       });
-      if (typeof (game as any).nextStep === 'function') {
+      if (queuedMadnessSteps.length > 0) {
+        appendQueuedResolutionPromptEvent(game, gameId, {
+          playerId: String(pid),
+          queuedResolutionSteps: queuedMadnessSteps.map((queuedStep: any) => ({ ...(queuedStep as any) })),
+        });
+      } else if (typeof (game as any).nextStep === 'function') {
         (game as any).nextStep();
         flushPendingDamageTriggersAfterStepAdvance(io, game as any, gameId);
         appendEvent(gameId, (game as any).seq ?? 0, 'nextStep', {
@@ -15952,6 +16005,9 @@ async function handleTargetSelectionResponse(
         discardedCardIds: Array.isArray((stepAny as any)?.discardedCardIdsForCost)
           ? ((stepAny as any).discardedCardIdsForCost as any[]).map((x: any) => String(x)).filter(Boolean)
           : undefined,
+        exiledCardIdsFromHandForCost: Array.isArray((stepAny as any)?.exiledCardIdsFromHandForCost)
+          ? ((stepAny as any).exiledCardIdsFromHandForCost as any[]).map((x: any) => String(x)).filter(Boolean)
+          : undefined,
         lifePaidForCost: Number.isFinite(lifeToPayForCost + prePaidLifeForCost) && (lifeToPayForCost + prePaidLifeForCost) > 0
           ? (lifeToPayForCost + prePaidLifeForCost)
           : undefined,
@@ -15964,6 +16020,18 @@ async function handleTargetSelectionResponse(
       });
     } catch {
       // ignore persistence failures
+    }
+
+    if (Array.isArray((stepAny as any)?.queuedMadnessStepsForCost) && (stepAny as any).queuedMadnessStepsForCost.length > 0) {
+      try {
+        appendQueuedResolutionPromptEvent(game, gameId, {
+          playerId: controllerId,
+          sourceId: permanentId,
+          queuedResolutionSteps: (stepAny as any).queuedMadnessStepsForCost.map((queuedStep: any) => ({ ...(queuedStep as any) })),
+        });
+      } catch {
+        // ignore persistence failures
+      }
     }
 
     broadcastGame(io, game, gameId);
@@ -16551,6 +16619,9 @@ async function handleTargetSelectionResponse(
         tapCostPreferNonTokens: stepAny?.tapCostPreferNonTokens === true ? true : undefined,
         discardedCardIds: Array.isArray(stepAny?.discardedCardIdsForCost) && stepAny.discardedCardIdsForCost.length > 0
           ? stepAny.discardedCardIdsForCost.map((id: any) => String(id))
+          : undefined,
+        exiledCardIdsFromHandForCost: Array.isArray(stepAny?.exiledCardIdsFromHandForCost) && stepAny.exiledCardIdsFromHandForCost.length > 0
+          ? stepAny.exiledCardIdsFromHandForCost.map((id: any) => String(id))
           : undefined,
         lifePaidForCost: Number(stepAny?.lifePaidForCost || 0) > 0 ? Number(stepAny.lifePaidForCost) : undefined,
         exertedPermanentIdForCost,
@@ -18612,6 +18683,9 @@ async function handleTargetSelectionResponse(
       targets: selections,
       discardedCardIds: Array.isArray((step as any)?.discardedCardIdsForCost)
         ? (step as any).discardedCardIdsForCost.map((id: any) => String(id)).filter(Boolean)
+        : undefined,
+      exiledCardIdsFromHandForCost: Array.isArray((step as any)?.exiledCardIdsFromHandForCost)
+        ? (step as any).exiledCardIdsFromHandForCost.map((id: any) => String(id)).filter(Boolean)
         : undefined,
       exiledCardIdsFromGraveyardForCost: Array.isArray((step as any)?.exiledCardIdsFromGraveyardForCost)
         ? (step as any).exiledCardIdsFromGraveyardForCost.map((id: any) => String(id)).filter(Boolean)
@@ -26675,6 +26749,36 @@ async function handleOptionChoiceResponse(
       }
     } catch (err) {
       debugWarn(2, `[Resolution] Cast-from-exile: Failed to enqueue next queued prompt:`, err);
+    }
+
+    if (choiceId !== 'cast' && stepData.resumeCleanupAfterPrompt === true && typeof (game as any).nextStep === 'function') {
+      const queueAfterPrompt = ResolutionQueueManager.getQueue(gameId);
+      const resolvedStepId = String((step as any).id || '').trim();
+      const hasRemainingCleanupPrompt = Boolean(
+        (queueAfterPrompt?.activeStep
+          && String((queueAfterPrompt.activeStep as any)?.id || '').trim() !== resolvedStepId
+          && (queueAfterPrompt.activeStep as any)?.resumeCleanupAfterPrompt === true)
+        || (Array.isArray(queueAfterPrompt?.steps)
+          && queueAfterPrompt.steps.some((queuedStep: any) =>
+            String(queuedStep?.id || '').trim() !== resolvedStepId
+            && queuedStep?.resumeCleanupAfterPrompt === true
+          ))
+      );
+      const pendingSpellCasts = Object.values(((game.state as any)?.pendingSpellCasts || {})) as any[];
+      const hasPendingCast = pendingSpellCasts.length > 0;
+      const stackLengthAfterPrompt = Array.isArray(game.state?.stack) ? game.state.stack.length : 0;
+      if (!hasRemainingCleanupPrompt && !hasPendingCast && stackLengthAfterPrompt === 0) {
+        try {
+          (game as any).nextStep();
+          flushPendingDamageTriggersAfterStepAdvance(io, game as any, gameId);
+          appendEvent(gameId, (game as any).seq ?? 0, 'nextStep', {
+            playerId,
+            reason: 'cleanupMadnessPromptResolved',
+          });
+        } catch (err) {
+          debugWarn(1, `[Resolution] Failed to resume cleanup after madness prompt:`, err);
+        }
+      }
     }
 
     if (typeof (game as any).bumpSeq === 'function') {

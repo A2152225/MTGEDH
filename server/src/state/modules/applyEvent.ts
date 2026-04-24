@@ -4717,7 +4717,8 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
         // Discard cards during cleanup step
         const pid = (e as any).playerId;
         const cardIds = (e as any).cardIds as string[] || [];
-        if (!pid || cardIds.length === 0) break;
+        const exiledCardIds = (e as any).exiledCardIds as string[] || [];
+        if (!pid || (cardIds.length === 0 && exiledCardIds.length === 0)) break;
         try {
           const zones = ctx.state.zones || {};
           const z = zones[pid];
@@ -4726,6 +4727,8 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           const hand = z.hand as any[];
           z.graveyard = z.graveyard || [];
           const graveyard = z.graveyard as any[];
+          z.exile = Array.isArray(z.exile) ? z.exile : [];
+          const exile = z.exile as any[];
           
           // Move each selected card from hand to graveyard
           let discardedCount = 0;
@@ -4743,10 +4746,20 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
               }
             }
           }
+
+          for (const cardId of exiledCardIds) {
+            const idx = hand.findIndex((c: any) => c.id === cardId);
+            if (idx !== -1) {
+              const [card] = hand.splice(idx, 1);
+              exile.push({ ...card, zone: 'exile' });
+              discardedCount++;
+            }
+          }
           
           // Update counts
           z.handCount = hand.length;
           z.graveyardCount = graveyard.length;
+          z.exileCount = exile.length;
 
           // Turn-tracking for intervening-if: "if a player discarded a card this turn" / "if an opponent discarded a card this turn".
           if (discardedCount > 0) {
@@ -5979,6 +5992,43 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           const replayGameId = String((ctx as any).gameId || '').trim();
           const queuedStepType = String((rawQueuedStep as any)?.type || '').trim();
           if (replayGameId && rawQueuedStep && typeof rawQueuedStep === 'object' && !Array.isArray(rawQueuedStep) && queuedStepType) {
+            try {
+              const discardedForCost = Array.isArray((rawQueuedStep as any)?.discardedCardIdsForCost)
+                ? ((rawQueuedStep as any).discardedCardIdsForCost as any[]).map((value: any) => String(value || '').trim()).filter(Boolean)
+                : [];
+              const exiledFromHandForCost = Array.isArray((rawQueuedStep as any)?.exiledCardIdsFromHandForCost)
+                ? ((rawQueuedStep as any).exiledCardIdsFromHandForCost as any[]).map((value: any) => String(value || '').trim()).filter(Boolean)
+                : [];
+              const zones = ctx.state.zones || {};
+              const z = zones[playerId];
+              if (z && Array.isArray(z.hand)) {
+                if (discardedForCost.length > 0) {
+                  z.graveyard = Array.isArray(z.graveyard) ? z.graveyard : [];
+                  for (const discardId of discardedForCost) {
+                    const handIndex = (z.hand as any[]).findIndex((entry: any) => entry && String(entry.id) === discardId);
+                    if (handIndex === -1) continue;
+                    const [discardedCard] = (z.hand as any[]).splice(handIndex, 1);
+                    (z.graveyard as any[]).push({ ...discardedCard, zone: 'graveyard' });
+                  }
+                  z.handCount = Array.isArray(z.hand) ? z.hand.length : z.handCount;
+                  z.graveyardCount = Array.isArray(z.graveyard) ? z.graveyard.length : z.graveyardCount;
+                }
+                if (exiledFromHandForCost.length > 0) {
+                  z.exile = Array.isArray(z.exile) ? z.exile : [];
+                  for (const exileId of exiledFromHandForCost) {
+                    const handIndex = (z.hand as any[]).findIndex((entry: any) => entry && String(entry.id) === exileId);
+                    if (handIndex === -1) continue;
+                    const [exiledCard] = (z.hand as any[]).splice(handIndex, 1);
+                    (z.exile as any[]).push({ ...exiledCard, zone: 'exile' });
+                  }
+                  z.handCount = Array.isArray(z.hand) ? z.hand.length : z.handCount;
+                  z.exileCount = Array.isArray(z.exile) ? z.exile.length : z.exileCount;
+                }
+              }
+            } catch {
+              // best-effort only
+            }
+
             const queue = ResolutionQueueManager.getQueue(replayGameId) as any;
             const queuedStepId = String((rawQueuedStep as any)?.id || '').trim();
             const alreadyPresent = Boolean(
@@ -6173,6 +6223,11 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
 
                 z.handCount = Array.isArray(z.hand) ? z.hand.length : z.handCount;
                 if (z.exileCount !== undefined) z.exileCount = Array.isArray(z.exile) ? z.exile.length : z.exileCount;
+
+                const stateAny = ctx.state as any;
+                stateAny.discardedCardThisTurn = stateAny.discardedCardThisTurn || {};
+                stateAny.discardedCardThisTurn[pid] = true;
+                stateAny.anyPlayerDiscardedCardThisTurn = true;
               }
             }
           } catch {
@@ -7365,6 +7420,48 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           const replayGameId = String((ctx as any).gameId || '').trim();
           const queuedStepType = String((rawQueuedStep as any)?.type || '').trim();
           if (replayGameId && rawQueuedStep && typeof rawQueuedStep === 'object' && !Array.isArray(rawQueuedStep) && queuedStepType) {
+            try {
+              const discardedForCost = Array.isArray((rawQueuedStep as any)?.discardedCardIdsForCost)
+                ? ((rawQueuedStep as any).discardedCardIdsForCost as any[]).map((value: any) => String(value || '').trim()).filter(Boolean)
+                : [];
+              const exiledFromHandForCost = Array.isArray((rawQueuedStep as any)?.exiledCardIdsFromHandForCost)
+                ? ((rawQueuedStep as any).exiledCardIdsFromHandForCost as any[]).map((value: any) => String(value || '').trim()).filter(Boolean)
+                : [];
+              const zones = ctx.state.zones || {};
+              const z = zones[pid];
+              if (z && Array.isArray(z.hand)) {
+                if (discardedForCost.length > 0) {
+                  z.graveyard = Array.isArray(z.graveyard) ? z.graveyard : [];
+                  for (const discardId of discardedForCost) {
+                    const handIndex = (z.hand as any[]).findIndex((entry: any) => entry && String(entry.id) === discardId);
+                    if (handIndex === -1) continue;
+                    const [discardedCard] = (z.hand as any[]).splice(handIndex, 1);
+                    (z.graveyard as any[]).push({ ...discardedCard, zone: 'graveyard' });
+                  }
+                  z.handCount = Array.isArray(z.hand) ? z.hand.length : z.handCount;
+                  z.graveyardCount = Array.isArray(z.graveyard) ? z.graveyard.length : z.graveyardCount;
+                }
+                if (exiledFromHandForCost.length > 0) {
+                  z.exile = Array.isArray(z.exile) ? z.exile : [];
+                  for (const exileId of exiledFromHandForCost) {
+                    const handIndex = (z.hand as any[]).findIndex((entry: any) => entry && String(entry.id) === exileId);
+                    if (handIndex === -1) continue;
+                    const [exiledCard] = (z.hand as any[]).splice(handIndex, 1);
+                    (z.exile as any[]).push({ ...exiledCard, zone: 'exile' });
+                  }
+                  z.handCount = Array.isArray(z.hand) ? z.hand.length : z.handCount;
+                  z.exileCount = Array.isArray(z.exile) ? z.exile.length : z.exileCount;
+
+                  const stateAny = ctx.state as any;
+                  stateAny.discardedCardThisTurn = stateAny.discardedCardThisTurn || {};
+                  stateAny.discardedCardThisTurn[String(pid)] = true;
+                  stateAny.anyPlayerDiscardedCardThisTurn = true;
+                }
+              }
+            } catch {
+              // best-effort only
+            }
+
             const queue = ResolutionQueueManager.getQueue(replayGameId) as any;
             const queuedStepId = String((rawQueuedStep as any)?.id || '').trim();
             const alreadyPresent = Boolean(
@@ -7407,6 +7504,32 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
 
                   z.handCount = Array.isArray(z.hand) ? z.hand.length : z.handCount;
                   z.graveyardCount = Array.isArray(z.graveyard) ? z.graveyard.length : z.graveyardCount;
+
+                  const stateAny = ctx.state as any;
+                  stateAny.discardedCardThisTurn = stateAny.discardedCardThisTurn || {};
+                  stateAny.discardedCardThisTurn[String(pid)] = true;
+                  stateAny.anyPlayerDiscardedCardThisTurn = true;
+                }
+              } catch {
+                // best-effort only
+              }
+
+              try {
+                const exiledFromHand = (e as any).exiledCardIdsFromHandForCost;
+                if (Array.isArray(exiledFromHand) && exiledFromHand.length > 0 && Array.isArray(z.hand)) {
+                  z.exile = Array.isArray(z.exile) ? z.exile : [];
+
+                  for (const cid of exiledFromHand) {
+                    const exileId = String(cid || '').trim();
+                    if (!exileId) continue;
+                    const handIndex = (z.hand as any[]).findIndex((entry: any) => entry && String(entry.id) === exileId);
+                    if (handIndex === -1) continue;
+                    const [exiledCard] = (z.hand as any[]).splice(handIndex, 1);
+                    (z.exile as any[]).push({ ...exiledCard, zone: 'exile' });
+                  }
+
+                  z.handCount = Array.isArray(z.hand) ? z.hand.length : z.handCount;
+                  z.exileCount = Array.isArray(z.exile) ? z.exile.length : z.exileCount;
 
                   const stateAny = ctx.state as any;
                   stateAny.discardedCardThisTurn = stateAny.discardedCardThisTurn || {};
