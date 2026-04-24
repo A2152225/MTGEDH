@@ -20,6 +20,7 @@ import { debug, debugWarn, debugError } from "../utils/debug.js";
 import { ResolutionQueueManager, ResolutionStepType } from "../state/resolution/index.js";
 import { queueOptionalPaymentStep } from "./optional-payment-prompts.js";
 import { flushPendingDamageTriggersAfterStepAdvance } from "./step-advance.js";
+import { inferTriggeredAbilityTargetMetadata } from "../state/modules/stack.js";
 
 function persistTriggeredAbilityPush(
   gameId: string,
@@ -2105,6 +2106,13 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
                 // Regular trigger - push onto stack immediately
                 game.state.stack = game.state.stack || [];
                 const triggerId = `trigger_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+                const sourcePerm = battlefield.find((p: any) => p?.id === trigger.permanentId);
+                const targetMetadata = inferTriggeredAbilityTargetMetadata(String(trigger.description || trigger.effect || ''), {
+                  gameState: game.state,
+                  controllerId: String(triggerControllerId),
+                  sourceName: String(trigger.cardName || sourcePerm?.card?.name || ''),
+                  sourcePermanent: sourcePerm,
+                } as any);
                 const stackItem: any = {
                   id: triggerId,
                   type: 'triggered_ability',
@@ -2115,6 +2123,28 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
                   triggerType: trigger.triggerType,
                   mandatory: trigger.mandatory,
                   triggeringPlayer: playerId,
+                  ...(targetMetadata.requiresTarget ? { requiresTarget: true, needsTargetSelection: true } : null),
+                  ...(targetMetadata.targetType ? { targetType: targetMetadata.targetType } : null),
+                  ...(targetMetadata.targetConstraint ? { targetConstraint: targetMetadata.targetConstraint } : null),
+                  ...(targetMetadata.targetZone ? { targetZone: targetMetadata.targetZone } : null),
+                  ...(targetMetadata.targetDestination ? { targetDestination: targetMetadata.targetDestination } : null),
+                  ...(targetMetadata.targetGraveyardScope ? { targetGraveyardScope: targetMetadata.targetGraveyardScope } : null),
+                  ...(targetMetadata.destinationUsesSelectedCardOwner === true ? { destinationUsesSelectedCardOwner: true } : null),
+                  ...(targetMetadata.battlefieldControllerMode ? { battlefieldControllerMode: targetMetadata.battlefieldControllerMode } : null),
+                  ...(targetMetadata.battlefieldCounters ? { battlefieldCounters: targetMetadata.battlefieldCounters } : null),
+                  ...(targetMetadata.targetAction ? { targetAction: targetMetadata.targetAction } : null),
+                  ...(Array.isArray(targetMetadata.targetFilterTypes) ? { targetFilterTypes: targetMetadata.targetFilterTypes } : null),
+                  ...(Array.isArray(targetMetadata.targetFilterRequiredTypeWords) ? { targetFilterRequiredTypeWords: targetMetadata.targetFilterRequiredTypeWords } : null),
+                  ...(Array.isArray(targetMetadata.targetFilterExcludeTypes) ? { targetFilterExcludeTypes: targetMetadata.targetFilterExcludeTypes } : null),
+                  ...(targetMetadata.targetFilterPermanentOnly === true ? { targetFilterPermanentOnly: true } : null),
+                  ...(typeof targetMetadata.targetFilterExactManaValue === 'number' ? { targetFilterExactManaValue: targetMetadata.targetFilterExactManaValue } : null),
+                  ...(typeof targetMetadata.targetFilterMinManaValue === 'number' ? { targetFilterMinManaValue: targetMetadata.targetFilterMinManaValue } : null),
+                  ...(typeof targetMetadata.targetFilterMaxManaValue === 'number' ? { targetFilterMaxManaValue: targetMetadata.targetFilterMaxManaValue } : null),
+                  ...(typeof targetMetadata.targetTotalPowerLimit === 'number' ? { targetTotalPowerLimit: targetMetadata.targetTotalPowerLimit } : null),
+                  ...(targetMetadata.targetCastWithoutPayingManaCost === true ? { targetCastWithoutPayingManaCost: true } : null),
+                  ...(targetMetadata.targetCastIsOptional === true ? { targetCastIsOptional: true } : null),
+                  ...(typeof targetMetadata.minTargets === 'number' ? { minTargets: targetMetadata.minTargets } : null),
+                  ...(typeof targetMetadata.maxTargets === 'number' ? { maxTargets: targetMetadata.maxTargets } : null),
                 };
                 
                 // Add value or effectData based on type
@@ -2126,7 +2156,6 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
 
                 // Preserve "that player" context (common on "attacks a player" templates).
                 // Prefer explicit metadata, then the attacking permanent's target, then the first defender.
-                const sourcePerm = battlefield.find((p: any) => p?.id === trigger.permanentId);
                 const effectData = stackItem.effectData && typeof stackItem.effectData === 'object' ? stackItem.effectData : undefined;
                 const defendingPlayerId = String(
                   (effectData as any)?.defendingPlayerId ||
@@ -2155,6 +2184,28 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
                   effect: trigger.description,
                   mandatory: trigger.mandatory,
                   triggeringPlayer: playerId,
+                  ...(targetMetadata.requiresTarget ? { requiresTarget: true, needsTargetSelection: true } : null),
+                  ...(targetMetadata.targetType ? { targetType: targetMetadata.targetType } : null),
+                  ...(targetMetadata.targetConstraint ? { targetConstraint: targetMetadata.targetConstraint } : null),
+                  ...(targetMetadata.targetZone ? { targetZone: targetMetadata.targetZone } : null),
+                  ...(targetMetadata.targetDestination ? { targetDestination: targetMetadata.targetDestination } : null),
+                  ...(targetMetadata.targetGraveyardScope ? { targetGraveyardScope: targetMetadata.targetGraveyardScope } : null),
+                  ...(targetMetadata.destinationUsesSelectedCardOwner === true ? { destinationUsesSelectedCardOwner: true } : null),
+                  ...(targetMetadata.battlefieldControllerMode ? { battlefieldControllerMode: targetMetadata.battlefieldControllerMode } : null),
+                  ...(targetMetadata.battlefieldCounters ? { battlefieldCounters: targetMetadata.battlefieldCounters } : null),
+                  ...(targetMetadata.targetAction ? { targetAction: targetMetadata.targetAction } : null),
+                  ...(Array.isArray(targetMetadata.targetFilterTypes) ? { targetFilterTypes: targetMetadata.targetFilterTypes } : null),
+                  ...(Array.isArray(targetMetadata.targetFilterRequiredTypeWords) ? { targetFilterRequiredTypeWords: targetMetadata.targetFilterRequiredTypeWords } : null),
+                  ...(Array.isArray(targetMetadata.targetFilterExcludeTypes) ? { targetFilterExcludeTypes: targetMetadata.targetFilterExcludeTypes } : null),
+                  ...(targetMetadata.targetFilterPermanentOnly === true ? { targetFilterPermanentOnly: true } : null),
+                  ...(typeof targetMetadata.targetFilterExactManaValue === 'number' ? { targetFilterExactManaValue: targetMetadata.targetFilterExactManaValue } : null),
+                  ...(typeof targetMetadata.targetFilterMinManaValue === 'number' ? { targetFilterMinManaValue: targetMetadata.targetFilterMinManaValue } : null),
+                  ...(typeof targetMetadata.targetFilterMaxManaValue === 'number' ? { targetFilterMaxManaValue: targetMetadata.targetFilterMaxManaValue } : null),
+                  ...(typeof targetMetadata.targetTotalPowerLimit === 'number' ? { targetTotalPowerLimit: targetMetadata.targetTotalPowerLimit } : null),
+                  ...(targetMetadata.targetCastWithoutPayingManaCost === true ? { targetCastWithoutPayingManaCost: true } : null),
+                  ...(targetMetadata.targetCastIsOptional === true ? { targetCastIsOptional: true } : null),
+                  ...(typeof targetMetadata.minTargets === 'number' ? { minTargets: targetMetadata.minTargets } : null),
+                  ...(typeof targetMetadata.maxTargets === 'number' ? { maxTargets: targetMetadata.maxTargets } : null),
                   ...(typeof stackItem.value !== 'undefined' ? { value: stackItem.value } : {}),
                   ...(stackItem.effectData && typeof stackItem.effectData === 'object' ? { effectData: stackItem.effectData } : {}),
                   ...(stackItem.targetPlayer ? { targetPlayer: stackItem.targetPlayer } : {}),

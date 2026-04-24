@@ -204,4 +204,74 @@ describe('ETB triggered ability: graveyard target selection wiring (later11)', (
     expect(targetIds).toContain('cheap_card');
     expect(targetIds).not.toContain('expensive_card');
   });
+
+  it('queues Necromancy-style ETB graveyard selection and attaches the source enchantment to the reanimated creature', () => {
+    const game = seedGame(gameId, playerId, opponentId);
+
+    const sourceCard = {
+      id: 'necromancy_card',
+      name: 'Necromancy',
+      type_line: 'Enchantment',
+      oracle_text: 'When Necromancy enters, if it\'s on the battlefield, it becomes an Aura with enchant creature put onto the battlefield with Necromancy. Put target creature card from a graveyard onto the battlefield under your control and attach Necromancy to it.',
+    };
+    const sourcePermanent = {
+      id: 'necromancy_perm',
+      controller: playerId,
+      owner: playerId,
+      counters: {},
+      tapped: false,
+      summoningSickness: false,
+      card: sourceCard,
+    };
+    (game.state as any).battlefield.push(sourcePermanent);
+
+    const targetCard = {
+      id: 'gy_creature_necro',
+      name: 'Sengir Vampire',
+      type_line: 'Creature \u2014 Vampire',
+      oracle_text: 'Flying',
+      power: '4',
+      toughness: '4',
+      mana_cost: '{3}{B}{B}',
+    };
+    (game.state as any).zones[playerId].graveyard.push(targetCard);
+    (game.state as any).zones[playerId].graveyardCount = 1;
+
+    queueSelfETBTriggersForPermanent(game as any, sourcePermanent, playerId as any);
+
+    const stack: any[] = (game.state as any).stack;
+    expect(stack.length).toBeGreaterThanOrEqual(1);
+    const triggerItem = stack[stack.length - 1];
+    expect(triggerItem?.type).toBe('triggered_ability');
+
+    const steps = ResolutionQueueManager.getStepsForPlayer(gameId, playerId as any);
+    const grSteps = steps.filter((s: any) => s?.type === ResolutionStepType.GRAVEYARD_SELECTION && s?.triggeredAbilityGraveyardChoice === true);
+    expect(grSteps.length).toBe(1);
+    const step = grSteps[0] as any;
+    expect(step.validTargets.map((t: any) => String(t.id))).toEqual(['gy_creature_necro']);
+
+    executeTriggerEffect(
+      game as any,
+      playerId,
+      'Necromancy',
+      'Put target creature card from a graveyard onto the battlefield under your control and attach Necromancy to it.',
+      {
+        source: 'necromancy_perm',
+        permanentId: 'necromancy_perm',
+        triggerType: 'etb',
+        card: sourceCard,
+        targets: ['gy_creature_necro'],
+      } as any
+    );
+
+    const battlefield: any[] = (game.state as any).battlefield;
+    const necromancy = battlefield.find((p) => p?.id === 'necromancy_perm');
+    const reanimated = battlefield.find((p) => p?.card?.id === 'gy_creature_necro');
+    expect(necromancy).toBeDefined();
+    expect(reanimated).toBeDefined();
+    expect(String(necromancy.attachedTo || '')).toBe(String(reanimated.id || ''));
+    expect(String(necromancy.card?.type_line || '').toLowerCase()).toContain('aura');
+    expect(Array.isArray((reanimated as any).attachments)).toBe(true);
+    expect((reanimated as any).attachments).toContain('necromancy_perm');
+  });
 });

@@ -3973,6 +3973,7 @@ export async function requestCastSpellForSocket(
     skipMutateModePrompt?: boolean;
     castWithoutPayingManaCost?: boolean;
     bypassExilePermissionCheck?: boolean;
+    ignoreTimingRestrictions?: boolean;
     xValue?: number;
     librarySearchStepToResume?: any;
   }
@@ -4047,6 +4048,7 @@ export async function requestCastSpellForSocket(
 
     const isFreeCast = options?.castWithoutPayingManaCost === true || options?.forcedAlternateCostId === 'free';
     const bypassExilePermissionCheck = options?.bypassExilePermissionCheck === true;
+    const ignoreTimingRestrictions = options?.ignoreTimingRestrictions === true;
 
     let castSourceZone: SpellCastSourceZone = fromZone || 'hand';
     let commanderCandidate = castSourceZone === 'command'
@@ -4501,6 +4503,7 @@ export async function requestCastSpellForSocket(
           spellForcedAlternateCostId: options?.forcedAlternateCostId,
           spellCastWithoutPayingManaCost: isFreeCast,
           spellBypassExilePermissionCheck: bypassExilePermissionCheck,
+          spellIgnoreTimingRestrictions: ignoreTimingRestrictions,
         } as any);
 
         persistQueuedSpellCastStepContinuation(gameId, game, {
@@ -4676,6 +4679,7 @@ export async function requestCastSpellForSocket(
         mutateCost: manaCost,
         costReduction: costReduction.messages.length > 0 ? costReduction : undefined,
         convokeOptions: convokeOptions.availableCreatures.length > 0 ? convokeOptions : undefined,
+        ignoreTimingRestrictions,
         ...(giftInfo.hasGift
           ? {
               giftPromised,
@@ -4829,6 +4833,7 @@ export async function requestCastSpellForSocket(
           forcedAlternateCostId: options?.forcedAlternateCostId,
           castWithoutPayingManaCost: isFreeCast,
           bypassExilePermissionCheck,
+          ignoreTimingRestrictions,
           ...(giftInfo.hasGift
             ? {
                 giftPromised,
@@ -5156,6 +5161,7 @@ export async function requestCastSpellForSocket(
       forcedAlternateCostId: options?.forcedAlternateCostId,
       castWithoutPayingManaCost: isFreeCast,
       bypassExilePermissionCheck,
+      ignoreTimingRestrictions,
       ...(giftInfo.hasGift
         ? {
             giftPromised,
@@ -5996,6 +6002,7 @@ export function registerGameActions(io: Server, socket: Socket) {
     convokeTappedCreatures?: unknown;
     fromZone?: unknown;
     bypassExilePermissionCheck?: unknown;
+    ignoreTimingRestrictions?: unknown;
     allowLibrarySearchCast?: unknown;
   }) => {
     const safeGameId = typeof payload?.gameId === 'string' ? payload.gameId : undefined;
@@ -6019,6 +6026,7 @@ export function registerGameActions(io: Server, socket: Socket) {
         : undefined;
       const fromZone = normalizeSpellCastSourceZone(payload?.fromZone);
       const bypassExilePermissionCheck = payload?.bypassExilePermissionCheck === true;
+      const ignoreTimingRestrictions = payload?.ignoreTimingRestrictions === true;
       const allowLibrarySearchCast = payload?.allowLibrarySearchCast === true;
 
       if (!gameId || typeof gameId !== 'string') return;
@@ -6439,7 +6447,7 @@ export function registerGameActions(io: Server, socket: Socket) {
       
       const isSorcerySpeed = !isInstant && !hasFlash;
       
-      if (isSorcerySpeed) {
+      if (isSorcerySpeed && !ignoreTimingRestrictions) {
         // Sorcery-speed spells can only be cast during your main phase
         // when you have priority and the stack is empty
         const stepStr = String(game.state?.step || "").toUpperCase().trim();
@@ -9850,6 +9858,7 @@ export function registerGameActions(io: Server, socket: Socket) {
 
       let pendingFromZone: SpellCastSourceZone | undefined;
       let pendingBypassExilePermissionCheck = false;
+      let pendingIgnoreTimingRestrictions = false;
       let pendingXValue: number | undefined;
       let pendingFaceIndex: number | undefined;
       let suspendedLibrarySearchStep: any;
@@ -9880,6 +9889,7 @@ export function registerGameActions(io: Server, socket: Socket) {
 
           pendingFromZone = normalizeSpellCastSourceZone(pendingCast?.fromZone) || undefined;
           pendingBypassExilePermissionCheck = pendingCast?.bypassExilePermissionCheck === true;
+          pendingIgnoreTimingRestrictions = pendingCast?.ignoreTimingRestrictions === true;
           pendingXValue = Number.isFinite(pendingCast?.xValue) ? Math.max(0, Math.floor(Number(pendingCast.xValue))) : undefined;
           pendingFaceIndex = Number.isFinite(pendingCast?.faceIndex) ? Number(pendingCast.faceIndex) : undefined;
           suspendedLibrarySearchStep = String(pendingCast?.fromZone || '').toLowerCase().trim() === 'library'
@@ -10064,6 +10074,7 @@ export function registerGameActions(io: Server, socket: Socket) {
         convokeTappedCreatures: convokeTapped,
         fromZone: pendingFromZone,
         bypassExilePermissionCheck: pendingBypassExilePermissionCheck,
+        ignoreTimingRestrictions: pendingIgnoreTimingRestrictions,
         allowLibrarySearchCast: Boolean(suspendedLibrarySearchStep),
       });
 

@@ -57,12 +57,22 @@ function resolveDynamicManaValueReference(referenceText: string, context?: Dynam
 
   const sourcePower = getSourcePower(context?.sourcePermanent);
   const normalizedSourceName = normalizeText(context?.sourceName);
+  const normalizedSourceAliases = new Set(
+    [
+      normalizedSourceName,
+      normalizedSourceName.split(',')[0],
+      normalizedSourceName.split('—')[0],
+      normalizedSourceName.split('-')[0],
+    ]
+      .map((value) => normalizeText(value))
+      .filter(Boolean)
+  );
   if (
     normalizedReference === "this creature's power"
     || normalizedReference === "this permanent's power"
     || normalizedReference === "this card's power"
     || normalizedReference === 'its power'
-    || (normalizedSourceName && normalizedReference === `${normalizedSourceName}'s power`)
+    || Array.from(normalizedSourceAliases).some((alias) => normalizedReference === `${alias}'s power`)
   ) {
     return sourcePower;
   }
@@ -93,6 +103,22 @@ export function inferManaValueConstraintFromText(effectText: string, context?: D
   const lower = normalizeText(effectText);
   if (!lower.includes('mana value')) {
     return {};
+  }
+
+  const strictMaxMatch = lower.match(/mana value less than (?!or equal to )(.+?)(?=\s+(?:from|in)\b|[.,;]|$)/);
+  if (strictMaxMatch) {
+    const resolvedValue = resolveNumericOrDynamicValue(String(strictMaxMatch[1] || ''), context);
+    return Number.isFinite(resolvedValue)
+      ? { targetFilterMaxManaValue: Number(resolvedValue) - 1 }
+      : {};
+  }
+
+  const strictMinMatch = lower.match(/mana value greater than (?!or equal to )(.+?)(?=\s+(?:from|in)\b|[.,;]|$)/);
+  if (strictMinMatch) {
+    const resolvedValue = resolveNumericOrDynamicValue(String(strictMinMatch[1] || ''), context);
+    return Number.isFinite(resolvedValue)
+      ? { targetFilterMinManaValue: Number(resolvedValue) + 1 }
+      : {};
   }
 
   const minManaValueMatch = lower.match(/mana value (\d+|x) or (?:greater|more)/);

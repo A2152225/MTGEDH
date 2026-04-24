@@ -13615,6 +13615,7 @@ async function handleXValueSelectionResponse(
         forcedAlternateCostId: typeof stepAny?.spellForcedAlternateCostId === 'string' ? stepAny.spellForcedAlternateCostId : undefined,
         castWithoutPayingManaCost: stepAny?.spellCastWithoutPayingManaCost === true,
         bypassExilePermissionCheck: stepAny?.spellBypassExilePermissionCheck === true,
+        ignoreTimingRestrictions: stepAny?.spellIgnoreTimingRestrictions === true,
         xValue: selectedXValue,
       },
     );
@@ -26191,6 +26192,7 @@ async function handleOptionChoiceResponse(
             skipPriorityCheck: true,
             forcedAlternateCostId: castWithoutPayingManaCost ? 'free' : undefined,
             castWithoutPayingManaCost,
+            ignoreTimingRestrictions: true,
           }
         );
       }
@@ -26236,6 +26238,7 @@ async function handleOptionChoiceResponse(
           forcedAlternateCostId: 'free',
           castWithoutPayingManaCost: true,
           bypassExilePermissionCheck: true,
+          ignoreTimingRestrictions: true,
         }
       );
 
@@ -26365,6 +26368,7 @@ async function handleOptionChoiceResponse(
           forcedAlternateCostId: 'free',
           castWithoutPayingManaCost: true,
           bypassExilePermissionCheck: true,
+          ignoreTimingRestrictions: true,
         }
       );
     } else {
@@ -28685,7 +28689,19 @@ async function handleGraveyardSelectionResponse(
       return;
     }
     const stack: any[] = Array.isArray((game.state as any)?.stack) ? (game.state as any).stack : [];
-    const stackItem = stack.find((item: any) => item && String(item?.id || '') === triggerStackItemId);
+    const stackItem = stack.find((item: any) => item && String(item?.id || '') === triggerStackItemId)
+      || stack.find((item: any) =>
+        item
+        && String(item?.type || '') === 'triggered_ability'
+        && String(item?.controller || '') === String(pid)
+        && String(item?.source || item?.permanentId || '') === String(step.sourceId || '')
+      )
+      || stack.find((item: any) =>
+        item
+        && String(item?.type || '') === 'triggered_ability'
+        && String(item?.controller || '') === String(pid)
+        && String(item?.sourceName || '') === String(step.sourceName || '')
+      );
     if (!stackItem) {
       // The trigger may have already been resolved or removed; treat as a benign no-op.
       debug(2, `[Resolution] triggeredAbilityGraveyardChoice: stack item ${triggerStackItemId} not found, dropping selection`);
@@ -28703,6 +28719,55 @@ async function handleGraveyardSelectionResponse(
       debugWarn(1, '[Resolution] appendEvent(assignTriggeredAbilityTargets) failed:', err);
     }
     debug(2, `[Resolution] Stamped graveyard target [${selectedCardIds.join(', ')}] onto trigger ${triggerStackItemId}`);
+    if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
+    broadcastGame(io, game, gameId);
+    return;
+  }
+
+  if (
+    stepData?.triggeredAbilityGraveyardSelection === true
+    && !stepData?.triggeredAbilityCastFromGraveyard
+    && !(typeof stepData?.destination === 'string' && String(stepData.destination).trim().length > 0)
+  ) {
+    const effectText = String(stepData?.triggeredAbilityEffectText || '').trim();
+    const sourcePermanentId = String(stepData?.triggeredAbilitySourcePermanentId || '').trim();
+    const sourceName = String(step.sourceName || stepData.cardName || 'Ability');
+    if (!effectText) {
+      emitToPlayer(io, pid, 'error', {
+        code: 'INVALID_TRIGGER_TARGET',
+        message: 'Triggered ability effect text missing for graveyard selection.',
+      });
+      return;
+    }
+
+    const syntheticTriggerItem = {
+      id: effectId || uid('triggered_graveyard_selection'),
+      type: 'triggered_ability',
+      controller: pid,
+      source: sourcePermanentId || undefined,
+      permanentId: sourcePermanentId || undefined,
+      sourceName,
+      description: effectText,
+      effect: effectText,
+      card: stepData?.triggeredAbilityCardSnapshot && typeof stepData.triggeredAbilityCardSnapshot === 'object'
+        ? { ...(stepData.triggeredAbilityCardSnapshot as any) }
+        : undefined,
+      targets: selectedCardIds.slice(),
+    } as any;
+
+    const ctx = {
+      state: game.state,
+      gameId,
+      libraries: (game as any).libraries,
+      commandZone: (game as any).commandZone,
+      bumpSeq: () => {
+        if (typeof (game as any).bumpSeq === 'function') {
+          (game as any).bumpSeq();
+        }
+      },
+    } as any;
+
+    executeTriggerEffect(ctx as any, String(pid) as PlayerID, sourceName, effectText, syntheticTriggerItem);
     if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
     broadcastGame(io, game, gameId);
     return;
@@ -29073,6 +29138,7 @@ async function handleGraveyardSelectionResponse(
           skipPriorityCheck: true,
           forcedAlternateCostId: castWithoutPayingManaCost ? 'free' : undefined,
           castWithoutPayingManaCost: castWithoutPayingManaCost,
+          ignoreTimingRestrictions: true,
         }
       );
     }

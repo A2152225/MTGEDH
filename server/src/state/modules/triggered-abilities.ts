@@ -1290,7 +1290,21 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
   const etbPattern = new RegExp(`when\\s+(?:${etbAlternatives.join('|')})\\s+enters(?: the battlefield)?,?\\s*([^.]+)`, 'i');
   const etbMatch = oracleText.match(etbPattern);
   if (etbMatch && !triggers.some(t => t.triggerType === 'etb' || t.triggerType === 'etb_sacrifice_unless_pay')) {
-    const effectText = etbMatch[1].trim();
+    let effectText = etbMatch[1].trim();
+
+    // Necromancy-style ETB abilities can span multiple sentences:
+    // the first sentence turns the source into an Aura, and the next sentence
+    // contains the actual graveyard target clause. Preserve that continuation so
+    // target metadata inference can see the graveyard target.
+    if (!/\btarget\b/i.test(effectText) && /\bbecomes an aura\b/i.test(effectText)) {
+      const fullMatchText = String(etbMatch[0] || '');
+      const matchIndex = typeof etbMatch.index === 'number' ? etbMatch.index : oracleText.indexOf(fullMatchText);
+      const remainder = matchIndex >= 0 ? oracleText.slice(matchIndex + fullMatchText.length).trim() : '';
+      const continuationMatch = remainder.match(/^[.?!]\s*((?:put|return)\s+target\s+[^.?!]+(?:[.?!]|$))/i);
+      if (continuationMatch) {
+        effectText = `${effectText}. ${String(continuationMatch[1] || '').trim().replace(/[.?!]\s*$/, '')}`;
+      }
+    }
     
     // Check for "sacrifice ~ unless you pay" pattern (Transguild Promenade, Gateway Plaza, Rupture Spire)
     const sacrificeUnlessPayMatch = effectText.match(/sacrifice\s+(?:~|it|this\s+\w+)\s+unless\s+you\s+pay\s+(\{[^}]+\})/i);

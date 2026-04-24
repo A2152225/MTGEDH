@@ -3,16 +3,17 @@ import { createRoot } from 'react-dom/client';
 import { App } from './App';
 import { ToastHost } from './components/ToastHost';
 import { KeyboardShortcutsOverlay } from './components/KeyboardShortcutsOverlay';
-import { useTouchBodyClass } from './hooks/useIsTouch';
+import { useIsTouch, useTouchBodyClass } from './hooks/useIsTouch';
 
 const Root: React.FC = () => {
   // Adds `body.touch` when on a coarse-pointer device. CSS in index.html and
   // future component-level CSS can use this to gate touch-only styling.
   useTouchBodyClass();
+  const isTouch = useIsTouch();
   return (
     <>
       <App />
-      <ToastHost position="bottom-right" />
+      <ToastHost position={isTouch ? 'top-right' : 'bottom-right'} />
       <KeyboardShortcutsOverlay />
     </>
   );

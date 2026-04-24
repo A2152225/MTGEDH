@@ -190,6 +190,113 @@ describe('Triggered modal choice graveyard targeting (integration)', () => {
     expect(String(reanimatedPermanent?.card?.id || '')).toBe('gy_creature_mv1');
   });
 
+  it('queues a graveyard selection step for strict dynamic mana-value caps like less than source power', async () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const playerId = 'p1';
+    (game.state as any).players = [{ id: playerId, name: 'P1', spectator: false, life: 40 }];
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).battlefield = [
+      {
+        id: 'strict_power_reclaimer_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        basePower: 4,
+        baseToughness: 4,
+        counters: {},
+        card: {
+          id: 'strict_power_reclaimer_card_1',
+          name: 'Strict Power Reclaimer',
+          type_line: 'Creature - Spirit',
+          oracle_text: 'Choose one: You gain 1 life; or return target creature card with mana value less than Strict Power Reclaimer\'s power from your graveyard to the battlefield.',
+          power: '4',
+          toughness: '4',
+          zone: 'battlefield',
+        },
+      },
+    ];
+    (game.state as any).zones = {
+      [playerId]: {
+        hand: [],
+        handCount: 0,
+        graveyard: [
+          {
+            id: 'gy_creature_mv3_strict',
+            name: 'Three-Drop Witness',
+            type_line: 'Creature - Human',
+            mana_cost: '{2}{G}',
+            power: '3',
+            toughness: '2',
+            zone: 'graveyard',
+          },
+          {
+            id: 'gy_creature_mv4_strict',
+            name: 'Four-Drop Giant',
+            type_line: 'Creature - Giant',
+            mana_cost: '{3}{G}',
+            power: '4',
+            toughness: '4',
+            zone: 'graveyard',
+          },
+        ],
+        graveyardCount: 2,
+        exile: [],
+        exileCount: 0,
+        library: [],
+        libraryCount: 0,
+      },
+    };
+    (game.state as any).stack = [
+      {
+        id: 'modal_trigger_dynamic_strict_1',
+        type: 'triggered_ability',
+        controller: playerId,
+        source: 'strict_power_reclaimer_1',
+        sourceId: 'strict_power_reclaimer_1',
+        sourceName: 'Strict Power Reclaimer',
+        description: 'Choose one: You gain 1 life; or return target creature card with mana value less than Strict Power Reclaimer\'s power from your graveyard to the battlefield.',
+        effect: 'Choose one: You gain 1 life; or return target creature card with mana value less than Strict Power Reclaimer\'s power from your graveyard to the battlefield.',
+        triggerType: 'end_step',
+        mandatory: true,
+        requiresChoice: true,
+        modalOptions: [
+          'You gain 1 life',
+          'Return target creature card with mana value less than Strict Power Reclaimer\'s power from your graveyard to the battlefield.',
+        ],
+      },
+    ];
+
+    game.resolveTopOfStack();
+
+    const queue = ResolutionQueueManager.getQueue(gameId);
+    expect(queue.steps).toHaveLength(1);
+    const modalStep = queue.steps[0] as any;
+    expect(modalStep.type).toBe('modal_choice');
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(playerId, emitted);
+    socket.rooms.add(gameId);
+    const io = createMockIo(emitted, [socket]);
+
+    registerResolutionHandlers(io as any, socket as any);
+    registerInteractionHandlers(io as any, socket as any);
+
+    await handlers.submitResolutionResponse({
+      gameId,
+      stepId: modalStep.id,
+      selections: ['option_2'],
+    });
+
+    const graveyardStep = ResolutionQueueManager.getQueue(gameId).steps[0] as any;
+    expect(graveyardStep.type).toBe('graveyard_selection');
+    expect(graveyardStep.destination).toBe('battlefield');
+    expect(graveyardStep.validTargets.map((target: any) => String(target.id))).toEqual(['gy_creature_mv3_strict']);
+  });
+
   it('queues Abiding Grace modal choices from the end-step trigger table when oracle text is unavailable', async () => {
     createGameIfNotExists(gameId, 'commander', 40);
     const game = ensureGame(gameId);

@@ -1084,8 +1084,10 @@ export function inferTriggeredAbilityTargetMetadata(effectText: string, context?
         }
 
         if (!Array.isArray(targetFilterRequiredTypeWords) || targetFilterRequiredTypeWords.length === 0) {
-          if (lower.includes('target instant or sorcery card')) {
-          targetFilterTypes = ['instant', 'sorcery'];
+          if (/target\s+noncreature\s*,\s*nonland\s+card/.test(lower) || /target\s+nonland\s*,\s*noncreature\s+card/.test(lower)) {
+            targetFilterExcludeTypes = ['creature', 'land'];
+          } else if (lower.includes('target instant or sorcery card')) {
+            targetFilterTypes = ['instant', 'sorcery'];
           } else if (lower.includes('target creature card')) {
             targetFilterTypes = ['creature'];
           } else if (lower.includes('target artifact card')) {
@@ -10380,6 +10382,45 @@ export function executeTriggerEffect(
       (sourcePermanent as any).exiledCards.push({ ...taggedCard, exiledWith: String(triggerItem.source || '') || undefined });
     }
 
+    const shouldCreateCastableCopy = /\bcopy it\b/i.test(desc)
+      && /\byou may cast the copy without paying its mana cost\b/i.test(desc);
+    if (shouldCreateCastableCopy) {
+      const controllerZones = (state as any).zones?.[controller];
+      if (controllerZones) {
+        controllerZones.exile = Array.isArray(controllerZones.exile) ? controllerZones.exile : [];
+        const copiedCard = {
+          ...(removedCard as any),
+          id: uid('graveyard_copy'),
+          zone: 'exile',
+          isCopy: true,
+          copiedFromCardId: String((removedCard as any)?.id || ''),
+          canBePlayedBy: controller,
+          playableUntilTurn: Number((state as any)?.turnNumber ?? 0),
+          withoutPayingManaCost: true,
+          ceaseOnResolution: true,
+          ceaseOnCounter: true,
+          graveyardGeneratedCopy: true,
+          castFromExileDeclineDestination: 'cease_to_exist',
+        };
+        controllerZones.exile.push(copiedCard);
+        controllerZones.exileCount = controllerZones.exile.length;
+
+        const gameId = String((ctx as any).gameId || '').trim();
+        if (gameId && gameId !== 'unknown' && !(ctx as any).isReplaying) {
+          queueCastFromExileResolutionPrompt(
+            gameId,
+            String(controller) as PlayerID,
+            String(sourceName || 'Ability'),
+            String((triggerItem as any).source || '').trim() || undefined,
+            (triggerItem as any)?.sourceImage || (triggerItem as any)?.card?.image_uris?.small || (triggerItem as any)?.card?.image_uris?.normal,
+            copiedCard,
+          );
+        }
+
+        debug(2, `[executeTriggerEffect] ${sourceName} created castable exile copy of ${removedCard?.name || targetCardId}`);
+      }
+    }
+
     debug(2, `[executeTriggerEffect] ${sourceName} exiled ${removedCard?.name || targetCardId} from ${targetOwnerId}'s graveyard`);
     return;
   }
@@ -10653,7 +10694,7 @@ export function executeTriggerEffect(
     }
 
     // Pattern: "return target [type] card from a graveyard to the battlefield"
-    const graveyardToBattlefieldMatch = desc.match(/^(?:return|put)\s+(?:up\s+to\s+one\s+)?target\s+(?:(?:[^.]+?)\s+)?card(?:\s+with\s+mana\s+value\s+.+?)?\s+from\s+(?:your|a|any|an\s+opponent['’]?s?)\s+graveyard\s+(?:to|onto)\s+the\s+battlefield(?:\s+tapped)?(?:\s+under\s+(your|its owner['’]s)\s+control)?(?:\s+with\s+[^.]+?\s+counters?\s+on\s+it)?(?:\s+attached\s+to\s+[^.]+?)?\.?$/i);
+    const graveyardToBattlefieldMatch = desc.match(/^(?:return|put)\s+(?:up\s+to\s+one\s+)?target\s+(?:(?:[^.]+?)\s+)?card(?:\s+with\s+mana\s+value\s+.+?)?\s+from\s+(?:your|a|any|an\s+opponent['’]?s?)\s+graveyard\s+(?:to|onto)\s+the\s+battlefield(?:\s+tapped)?(?:\s+under\s+(your|its owner['’]s)\s+control)?(?:\s+with\s+[^.]+?\s+counters?\s+on\s+it)?(?:\s+attached\s+to\s+[^.]+?)?(?:\s+and\s+attach\s+[^.]+?\s+to\s+it)?\.?$/i);
     if (graveyardToBattlefieldMatch) {
       const targets = Array.isArray(triggerItem.targets) ? triggerItem.targets : [];
       const targetId = String(targets[0] || '').trim();
@@ -10854,6 +10895,67 @@ export function executeTriggerEffect(
         }
       } catch (err) {
         debugWarn(1, '[executeTriggerEffect] trigger-side aura-attach rider failed:', err);
+      }
+
+      // Trigger-side source-enchantment attach rider — Necromancy / Animate Dead family.
+      // The trigger source permanent resolves first, then the ETB trigger reanimates a creature
+      // and explicitly attaches the source enchantment to that creature.
+      try {
+        const triggerSourceId = String((triggerItem as any).source || '').trim();
+        const sourceNameLower = String(sourceName || '').toLowerCase();
+        const escapedSourceName = sourceNameLower.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&');
+        const sourceAttachPattern = new RegExp(
+          `attach\\s+(?:this\\s+enchantment|${escapedSourceName || '~'}|~)\\s+to\\s+it\\b`,
+          'i'
+        );
+        const attachSource = triggerSourceId
+          ? (state.battlefield || []).find((p: any) => String(p?.id || '') === triggerSourceId)
+          : null;
+        if (attachSource && sourceAttachPattern.test(desc)) {
+          const currentTypeLine = String(attachSource?.card?.type_line || '').trim();
+          if (/\benchantment\b/i.test(currentTypeLine) && !/\baura\b/i.test(currentTypeLine)) {
+            attachSource.card = attachSource.card || {};
+            attachSource.card.type_line = currentTypeLine.includes('—')
+              ? `${currentTypeLine} Aura`
+              : `${currentTypeLine} — Aura`;
+          }
+
+          if (attachSource.attachedTo) {
+            const previousTarget = (state.battlefield || []).find((p: any) => String(p?.id || '') === String(attachSource.attachedTo));
+            if (previousTarget) {
+              (previousTarget as any).attachments = Array.isArray((previousTarget as any).attachments)
+                ? (previousTarget as any).attachments.filter((id: string) => id !== String(attachSource.id || ''))
+                : [];
+            }
+          }
+
+          attachSource.attachedTo = String(permanent.id || targetId || '');
+          (permanent as any).attachments = Array.isArray((permanent as any).attachments)
+            ? (permanent as any).attachments
+            : [];
+          if (!(permanent as any).attachments.includes(String(attachSource.id || ''))) {
+            (permanent as any).attachments.push(String(attachSource.id || ''));
+          }
+
+          try {
+            const replayGameId = String((ctx as any).gameId || '').trim();
+            if (replayGameId) {
+              appendEvent(replayGameId, (state as any).seq ?? 0, 'attachEnchantmentPermanent', {
+                playerId: controller,
+                enchantmentId: String(attachSource.id || ''),
+                enchantmentName: String(attachSource.card?.name || sourceName || 'Enchantment'),
+                targetPermanentId: String(permanent.id || targetId || ''),
+                targetPermanentName: String(permanent.card?.name || targetId || 'Permanent'),
+              });
+            }
+          } catch (err) {
+            debugWarn(1, '[executeTriggerEffect] appendEvent(attachEnchantmentPermanent) failed:', err);
+          }
+
+          debug(2, `[executeTriggerEffect] ${sourceName} attached source enchantment ${attachSource.card?.name || attachSource.id} to ${permanent.card?.name || targetId}`);
+        }
+      } catch (err) {
+        debugWarn(1, '[executeTriggerEffect] trigger-side source enchantment attach rider failed:', err);
       }
 
       return;
@@ -13583,7 +13685,7 @@ export function resolveTopOfStack(ctx: GameContext) {
         lowerDescription.includes('target creature you control') ||
         lowerDescription.includes('target permanent you control');
 
-      if (!isReplaying && !hasPersistedLockedTargets && targetZone === 'graveyard' && (targetDestination === 'hand' || targetDestination === 'battlefield' || targetDestination === 'library_top' || targetDestination === 'library_bottom' || targetAction === 'cast')) {
+      if (!isReplaying && !hasPersistedLockedTargets && targetZone === 'graveyard') {
         const zones = (state.zones || {}) as Record<string, any>;
         const graveyardScope = String((item as any).targetGraveyardScope || 'your').toLowerCase();
         const graveyardOwners = graveyardScope === 'any'
@@ -13685,6 +13787,11 @@ export function resolveTopOfStack(ctx: GameContext) {
             triggeredAbilityCastFromGraveyard: targetAction === 'cast',
             triggeredAbilityCastWithoutPayingManaCost: (item as any).targetCastWithoutPayingManaCost === true,
             triggeredAbilityMayCastFromGraveyard: (item as any).targetCastIsOptional === true,
+            triggeredAbilityEffectText: String((item as any).effect || description || ''),
+            triggeredAbilitySourcePermanentId: String((item as any).source || (item as any).permanentId || ''),
+            triggeredAbilityCardSnapshot: (item as any).card && typeof (item as any).card === 'object'
+              ? { ...((item as any).card as any) }
+              : undefined,
           } as any);
 
           debug(2, `[resolveTopOfStack] ${triggerType} requires graveyard target selection for ${sourceName}`);
@@ -15426,6 +15533,72 @@ export function resolveTopOfStack(ctx: GameContext) {
             }
           } catch (err) {
             debugWarn(1, '[resolveTopOfStack] Trailing scry rider failed:', err);
+          }
+        }
+
+        // Cast-side source-enchantment attach rider — Necromancy / Animate Dead family.
+        // These spells resolve as permanents, then reanimate a creature and explicitly say
+        // to attach the source enchantment to that creature. The source permanent is found by
+        // card id on the battlefield because this post-process runs after the spell permanent
+        // has already entered.
+        if (targetIdSet.size > 0) {
+          try {
+            const battlefield: any[] = Array.isArray((ctx as any).state?.battlefield) ? (ctx as any).state.battlefield : [];
+            const sourceCardId = String((effectiveCard as any)?.id || '').trim();
+            const sourceName = String(effectiveCard?.name || '').trim();
+            const escapedSourceName = sourceName.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&');
+            const attachPattern = new RegExp(
+              `attach\\s+(?:this\\s+enchantment|${escapedSourceName || '~'}|~)\\s+to\\s+it\\b`,
+              'i'
+            );
+            const resolvedSourcePermanent = sourceCardId
+              ? battlefield.find((perm: any) => String(perm?.card?.id || '') === sourceCardId && String(perm?.controller || '') === String(controller))
+              : undefined;
+            const attachedTarget = Array.from(targetIdSet)
+              .map((tid) => battlefield.find((perm: any) => String(perm?.card?.id || perm?.id || '') === String(tid)))
+              .find(Boolean);
+
+            if (resolvedSourcePermanent && attachedTarget && attachPattern.test(graveyardEffectiveOracleText)) {
+              const currentTypeLine = String(resolvedSourcePermanent?.card?.type_line || effectiveCard?.type_line || '').trim();
+              if (/\benchantment\b/i.test(currentTypeLine) && !/\baura\b/i.test(currentTypeLine)) {
+                resolvedSourcePermanent.card = resolvedSourcePermanent.card || {};
+                resolvedSourcePermanent.card.type_line = currentTypeLine.includes('—')
+                  ? `${currentTypeLine} Aura`
+                  : `${currentTypeLine} — Aura`;
+              }
+
+              if (resolvedSourcePermanent.attachedTo) {
+                const previousTarget = battlefield.find((perm: any) => String(perm?.id || '') === String(resolvedSourcePermanent.attachedTo));
+                if (previousTarget) {
+                  (previousTarget as any).attachments = Array.isArray((previousTarget as any).attachments)
+                    ? (previousTarget as any).attachments.filter((id: string) => id !== String(resolvedSourcePermanent.id || ''))
+                    : [];
+                }
+              }
+
+              resolvedSourcePermanent.attachedTo = String((attachedTarget as any).id || '');
+              (attachedTarget as any).attachments = Array.isArray((attachedTarget as any).attachments)
+                ? (attachedTarget as any).attachments
+                : [];
+              if (!(attachedTarget as any).attachments.includes(String(resolvedSourcePermanent.id || ''))) {
+                (attachedTarget as any).attachments.push(String(resolvedSourcePermanent.id || ''));
+              }
+
+              const replayGameId = String((ctx as any).gameId || '').trim();
+              if (replayGameId) {
+                appendEvent(replayGameId, (stateAny as any).seq ?? 0, 'attachEnchantmentPermanent', {
+                  playerId: controller,
+                  enchantmentId: String(resolvedSourcePermanent.id || ''),
+                  enchantmentName: String(resolvedSourcePermanent.card?.name || sourceName || 'Enchantment'),
+                  targetPermanentId: String((attachedTarget as any).id || ''),
+                  targetPermanentName: String((attachedTarget as any).card?.name || 'Permanent'),
+                });
+              }
+
+              debug(2, `[resolveTopOfStack] ${sourceName || 'Enchantment'} attached to ${String((attachedTarget as any).card?.name || (attachedTarget as any).id || 'target')}`);
+            }
+          } catch (err) {
+            debugWarn(1, '[resolveTopOfStack] Cast-side aura-attach rider failed:', err);
           }
         }
       } catch (err) {

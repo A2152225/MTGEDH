@@ -58,9 +58,9 @@ export const colors = {
   textInverse: '#0b0b10',
 
   // Accents
-  accent: '#a78bfa',
-  accentStrong: '#8b5cf6',
-  accentSoft: 'rgba(167, 139, 250, 0.18)',
+  accent: '#d4a95e',
+  accentStrong: '#f0c674',
+  accentSoft: 'rgba(212, 169, 94, 0.18)',
 
   // Semantic
   success: '#10b981',
