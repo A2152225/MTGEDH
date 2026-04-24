@@ -4,9 +4,53 @@
     <meta charset="UTF-8" />
     <meta
       name="viewport"
-      content="width=device-width, initial-scale=1.0"
+      content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content"
     />
+    <meta name="theme-color" content="#1e1e28" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="MTGEDH" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="format-detection" content="telephone=no" />
+    <link rel="manifest" href="/manifest.webmanifest" />
     <title>MTGEDH</title>
+    <style>
+      /* Mobile-friendly base — desktop is unaffected because these rules are
+         either pointer/media gated or set baseline values that match prior
+         browser defaults. */
+      html, body {
+        margin: 0;
+        padding: 0;
+        background: #0b0b10;
+        color: #e5e5e5;
+        font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+        -webkit-text-size-adjust: 100%;
+        text-size-adjust: 100%;
+        overscroll-behavior-y: contain;
+      }
+      /* On touch devices, suppress the slow tap highlight + the 300ms tap
+         delay. Desktop is unaffected by `pointer: coarse`. */
+      @media (pointer: coarse) {
+        * {
+          -webkit-tap-highlight-color: transparent;
+        }
+        body {
+          touch-action: manipulation;
+        }
+        body.touch button,
+        body.touch [role="button"] {
+          min-height: 44px;
+        }
+      }
+      /* Respect reduced-motion preference for any future CSS animations. */
+      @media (prefers-reduced-motion: reduce) {
+        *, *::before, *::after {
+          animation-duration: 0.01ms !important;
+          animation-iteration-count: 1 !important;
+          transition-duration: 0.01ms !important;
+        }
+      }
+    </style>
   </head>
   <body>
     <div id="root"></div>

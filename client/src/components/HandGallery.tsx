@@ -1,4 +1,5 @@
 import React, { useState, useRef } from 'react';
+import { useIsTouch } from '../hooks/useIsTouch';
 import type { CardRef, KnownCardRef } from '../../../shared/src';
 import { showCardPreview, hideCardPreview } from './CardPreviewLayer';
 import type { AppearanceSettings } from '../utils/appearanceSettings';
@@ -121,6 +122,7 @@ export function HandGallery(props: HandGalleryProps) {
   const [dragIdx, setDragIdx] = useState<number | null>(null);
   const [dragOver, setDragOver] = useState<number | null>(null);
   const galleryRef = useRef<HTMLDivElement>(null);
+  const isTouch = useIsTouch();
 
   const visibleCards = hidden ? [] : cards;
 
@@ -136,6 +138,9 @@ export function HandGallery(props: HandGalleryProps) {
       gap: overlapPx > 0 ? 0 : 8,
       paddingBottom: 4,
       overflowX: 'auto',
+      // On touch devices, snap each card into view for easier scrubbing.
+      // Desktop unaffected.
+      ...(isTouch ? { scrollSnapType: 'x mandatory', WebkitOverflowScrolling: 'touch' as any } : null),
     };
   } else if (layout === 'wrap7') {
     // Each card gets ~1/7 of the width, with a gap; fits 7 cards per row

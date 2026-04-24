@@ -468,6 +468,19 @@ export function TableLayout(props: {
   const viewRotationRef = useRef(viewRotationDeg);
   useEffect(() => { viewRotationRef.current = viewRotationDeg; }, [viewRotationDeg]);
   const dragRef = useRef<{ id: number; sx: number; sy: number; cx: number; cy: number; active: boolean } | null>(null);
+  // Two-finger pinch-zoom + pan gesture state. Populated only when 2+ touch
+  // pointers are active on the board container; cleared on pointer up/cancel.
+  // Desktop mouse pointers are ignored entirely so existing right-click /
+  // middle-click / Space+drag pan behavior is unaffected.
+  const touchPointersRef = useRef<Map<number, { x: number; y: number }>>(new Map());
+  const gestureRef = useRef<{
+    startDist: number;
+    startMidX: number;
+    startMidY: number;
+    startCamX: number;
+    startCamY: number;
+    startCamZ: number;
+  } | null>(null);
   const [panKey, setPanKey] = useState(false);
   const [pendingTextSwapSource, setPendingTextSwapSource] = useState<string | null>(null);
   const [pendingXActivation, setPendingXActivation] = useState<{
@@ -522,10 +535,81 @@ export function TableLayout(props: {
   };
   const onPointerDown = (e: React.PointerEvent) => {
     if (!enablePanZoom) return;
+    if (e.pointerType === 'touch') {
+      // Track every touch contact so we can detect 2-finger gestures. Single
+      // touch is intentionally NOT used to start a pan — that interaction is
+      // reserved for card drag. Two fingers on the board start pinch+pan.
+      touchPointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (touchPointersRef.current.size === 2) {
+        const pts = Array.from(touchPointersRef.current.values());
+        const [a, b] = pts;
+        const dx = b.x - a.x;
+        const dy = b.y - a.y;
+        const dist = Math.hypot(dx, dy) || 1;
+        gestureRef.current = {
+          startDist: dist,
+          startMidX: (a.x + b.x) / 2,
+          startMidY: (a.y + b.y) / 2,
+          startCamX: camRef.current.x,
+          startCamY: camRef.current.y,
+          startCamZ: camRef.current.z,
+        };
+        // Cancel any in-progress single-pointer pan when entering gesture mode.
+        if (dragRef.current) {
+          try {
+            (e.currentTarget as HTMLElement).releasePointerCapture(dragRef.current.id);
+          } catch { /* noop */ }
+          dragRef.current = null;
+        }
+        e.preventDefault();
+      }
+      return;
+    }
     const isPan = e.button === 1 || e.button === 2 || panKey;
     if (isPan) { e.preventDefault(); beginPan(e); }
   };
   const onPointerMove = (e: React.PointerEvent) => {
+    if (e.pointerType === 'touch' && touchPointersRef.current.has(e.pointerId)) {
+      touchPointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      const g = gestureRef.current;
+      if (g && touchPointersRef.current.size >= 2) {
+        const pts = Array.from(touchPointersRef.current.values()).slice(0, 2);
+        const [a, b] = pts;
+        const dx = b.x - a.x;
+        const dy = b.y - a.y;
+        const dist = Math.hypot(dx, dy) || 1;
+        const midX = (a.x + b.x) / 2;
+        const midY = (a.y + b.y) / 2;
+        const el = containerRef.current;
+        if (!el) return;
+        const rect = el.getBoundingClientRect();
+        const cxScreen = midX - rect.left;
+        const cyScreen = midY - rect.top;
+        const newZ = clamp(g.startCamZ * (dist / g.startDist), 0.15, 2.5);
+        // Convert the gesture's start midpoint (screen) into world coords using
+        // the start cam, then re-anchor that world point at the current
+        // midpoint with the new zoom — same math as wheel zoom.
+        const cx = container.w / 2;
+        const cy = container.h / 2;
+        const startMidScreenX = g.startMidX - rect.left;
+        const startMidScreenY = g.startMidY - rect.top;
+        const worldOffset = rotatePoint(
+          (startMidScreenX - cx) / g.startCamZ,
+          (startMidScreenY - cy) / g.startCamZ,
+          -viewRotationRef.current,
+        );
+        const worldX = g.startCamX + worldOffset.x;
+        const worldY = g.startCamY + worldOffset.y;
+        const newOffset = rotatePoint(
+          (cxScreen - cx) / newZ,
+          (cyScreen - cy) / newZ,
+          -viewRotationRef.current,
+        );
+        setCam({ x: worldX - newOffset.x, y: worldY - newOffset.y, z: newZ });
+        e.preventDefault();
+        return;
+      }
+    }
     const d = dragRef.current;
     if (!d || !d.active || d.id !== e.pointerId) return;
     const screenDx = (e.clientX - d.sx) / camRef.current.z;
@@ -534,6 +618,12 @@ export function TableLayout(props: {
     setCam(prev => ({ ...prev, x: d.cx - worldDelta.x, y: d.cy - worldDelta.y }));
   };
   const onPointerUp = (e: React.PointerEvent) => {
+    if (e.pointerType === 'touch' && touchPointersRef.current.has(e.pointerId)) {
+      touchPointersRef.current.delete(e.pointerId);
+      if (touchPointersRef.current.size < 2) {
+        gestureRef.current = null;
+      }
+    }
     if (dragRef.current && dragRef.current.id === e.pointerId) {
       if ((e.currentTarget as HTMLElement).hasPointerCapture(e.pointerId))
         (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
@@ -1008,6 +1098,8 @@ export function TableLayout(props: {
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
+        onPointerCancel={onPointerUp}
+        onPointerLeave={onPointerUp}
         onContextMenu={(e) => {
           e.preventDefault();
           // TODO: custom game-actions context menu can be triggered here
@@ -1023,6 +1115,10 @@ export function TableLayout(props: {
           userSelect: 'none',
           cursor: enablePanZoom ? (dragRef.current ? 'grabbing' : (panKey ? 'grab' : 'default')) : 'default',
           overscrollBehavior: 'none',
+          // On touch devices, suppress browser pan/zoom on the board so our
+          // pinch-zoom + two-finger pan handlers receive raw pointer events.
+          // Desktop is unaffected because `pan-y` would never engage there.
+          touchAction: 'none',
           position: 'relative'
         }}
       >

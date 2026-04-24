@@ -74,6 +74,10 @@ import { IgnoredCardsPanel, type IgnoredCard, type IgnoredCardZone } from "./com
 import { type ImagePref } from "./components/BattlefieldGrid";
 import GameList from "./components/GameList";
 import { useGameSocket } from "./hooks/useGameSocket";
+import { useViewport } from "./hooks/useViewport";
+import { useIsTouch } from "./hooks/useIsTouch";
+import { MobileActionDock } from "./components/MobileActionDock";
+import { toast } from "./components/ToastHost";
 import type { PaymentItem, ManaColor, TriggerShortcut } from "../../shared/src";
 import { GameStatusIndicator } from "./components/GameStatusIndicator";
 import { CreateGameModal, type GameCreationConfig } from "./components/CreateGameModal";
@@ -556,15 +560,8 @@ export function App() {
   const [topDeckMgrAnchorEl, setTopDeckMgrAnchorEl] = useState<HTMLButtonElement | null>(null);
   const [focusedPlayerId, setFocusedPlayerId] = useState<string | null>(null);
   const [utilityRailCollapsed, setUtilityRailCollapsed] = useState(false);
-  const [viewportWidth, setViewportWidth] = useState<number>(() =>
-    typeof window !== 'undefined' ? window.innerWidth : 1280
-  );
-
-  useEffect(() => {
-    const handleResize = () => setViewportWidth(window.innerWidth);
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, []);
+  const { width: viewportWidth } = useViewport();
+  const isTouch = useIsTouch();
   
   // Graveyard View Modal state
   const [graveyardModalOpen, setGraveyardModalOpen] = useState(false);
@@ -5674,6 +5671,20 @@ export function App() {
       </div>
 
       <CardPreviewLayer controlMode={showExpandedUtilityRail ? 'hidden' : 'floating'} />
+
+      {/* Mobile bottom action dock — only on touch devices with narrow
+          viewports during an active table. Surfaces the most-used Pass action
+          where the desktop utility rail is hidden. Desktop is unaffected
+          because the gate requires both touch input AND viewport < 900. */}
+      {isTable && isTouch && viewportWidth < 900 && safeView && you && (
+        <MobileActionDock
+          onPassPriority={() => socket.emit("passPriority", { gameId: safeView.id, by: you })}
+          highlightPass={safeView.priority === you}
+          handCount={safeView.zones?.[you]?.handCount ?? 0}
+          stackCount={safeView.stack?.length ?? 0}
+          onOpenMore={() => toast.info('Open the desktop utility rail for more actions')}
+        />
+      )}
 
       {/* Phase Navigator - Floating component for quick phase navigation */}
       {!showUtilityRail && safeView && you && (
