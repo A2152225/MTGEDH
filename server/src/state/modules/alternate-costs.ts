@@ -425,6 +425,12 @@ export function parseMutateCost(oracleText: string): string | undefined {
   return match ? match[1].trim() : undefined;
 }
 
+export function parseMadnessCost(oracleText: string): string | undefined {
+  if (!oracleText) return undefined;
+  const match = oracleText.match(/madness(?:\s*[—–-]\s*|\s+)(\{[^}]+\}(?:\s*\{[^}]+\})*)/i);
+  return match ? match[1].replace(/\s+/g, '').trim() : undefined;
+}
+
 /**
  * Check for self-WUBRG alternate cost (Bringers)
  * "You may pay {W}{U}{B}{R}{G} rather than pay this spell's mana cost."

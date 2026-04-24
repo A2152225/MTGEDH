@@ -2948,6 +2948,119 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
         break;
       }
 
+      case "castFromExilePromptResolve": {
+        try {
+          const replayGameId = String((ctx as any).gameId || '').trim();
+          const playerId = String((e as any).playerId || '').trim();
+          const sourceId = String((e as any).sourceId || '').trim();
+          const resolvedStepId = String((e as any).resolvedStepId || '').trim();
+          const cardId = String((e as any).cardId || '').trim();
+          const choice = String((e as any).choice || 'decline').trim().toLowerCase();
+          const declineDestination = String((e as any).declineDestination || 'exile').trim().toLowerCase();
+          const declineDamageEachOpponent = Number((e as any).declineDamageEachOpponent || 0);
+          const declineDamageSourcePermanentId = String((e as any).declineDamageSourcePermanentId || '').trim();
+
+          if (replayGameId) {
+            clearReplayQueuedSteps(replayGameId, (step: any) => {
+              if (!step) return false;
+              const stepId = String((step as any)?.id || '').trim();
+              if (resolvedStepId && stepId === resolvedStepId) {
+                return true;
+              }
+
+              return (
+                String((step as any)?.type || '') === String(ResolutionStepType.OPTION_CHOICE) &&
+                cardId.length > 0 &&
+                String((step as any)?.castFromExileCardId || '').trim() === cardId &&
+                (!sourceId || String((step as any)?.sourceId || '').trim() === sourceId)
+              );
+            });
+          }
+
+          if (choice === 'cast') {
+            ctx.bumpSeq();
+            break;
+          }
+
+          const zones = ((ctx.state as any)?.zones || {})[playerId];
+          const exile = Array.isArray(zones?.exile) ? zones.exile : undefined;
+          if (!zones || !exile || !cardId) {
+            ctx.bumpSeq();
+            break;
+          }
+
+          const exileIndex = exile.findIndex((card: any) => card && String(card.id || '').trim() === cardId);
+          if (exileIndex === -1) {
+            ctx.bumpSeq();
+            break;
+          }
+
+          const [exiledCard] = exile.splice(exileIndex, 1);
+          zones.exileCount = exile.length;
+          cleanupCardLeavingExile((ctx.state as any) as any, exiledCard);
+
+          if (declineDestination === 'graveyard') {
+            zones.graveyard = Array.isArray(zones.graveyard) ? zones.graveyard : [];
+            zones.graveyard.push({ ...exiledCard, zone: 'graveyard' });
+            zones.graveyardCount = zones.graveyard.length;
+            recordCardPutIntoGraveyardThisTurn(ctx as any, playerId, exiledCard, { fromBattlefield: false });
+            if (checkGraveyardTrigger(ctx, exiledCard, playerId)) {
+              debug(2, `[applyEvent:castFromExilePromptResolve] ${exiledCard.name} triggered graveyard shuffle for ${playerId}`);
+            }
+          } else if (declineDestination === 'library_bottom_random') {
+            zones.library = Array.isArray(zones.library) ? zones.library : [];
+            zones.library.push({ ...exiledCard, zone: 'library' });
+            zones.libraryCount = zones.library.length;
+          }
+
+          if (Number.isFinite(declineDamageEachOpponent) && declineDamageEachOpponent > 0) {
+            const startingLife = Number((ctx.state as any).startingLife || 40);
+            (ctx.state as any).life = (ctx.state as any).life || {};
+
+            const battlefield = Array.isArray((ctx.state as any).battlefield) ? (ctx.state as any).battlefield : [];
+            const sourceCreature = declineDamageSourcePermanentId
+              ? battlefield.find((perm: any) => perm && String(perm.id || '').trim() === declineDamageSourcePermanentId)
+              : undefined;
+            const sourceIsCreature = Boolean(String(sourceCreature?.card?.type_line || '').toLowerCase().includes('creature'));
+
+            for (const player of (ctx.state as any).players || []) {
+              const opponentId = String(player?.id || '').trim();
+              if (!opponentId || opponentId === playerId) continue;
+
+              const currentLife = Number((ctx.state as any).life[opponentId] ?? startingLife);
+              (ctx.state as any).life[opponentId] = currentLife - declineDamageEachOpponent;
+
+              (ctx.state as any).damageTakenThisTurnByPlayer = (ctx.state as any).damageTakenThisTurnByPlayer || {};
+              (ctx.state as any).damageTakenThisTurnByPlayer[opponentId] =
+                ((ctx.state as any).damageTakenThisTurnByPlayer[opponentId] || 0) + declineDamageEachOpponent;
+
+              (ctx.state as any).lifeLostThisTurn = (ctx.state as any).lifeLostThisTurn || {};
+              (ctx.state as any).lifeLostThisTurn[opponentId] =
+                ((ctx.state as any).lifeLostThisTurn[opponentId] || 0) + declineDamageEachOpponent;
+
+              if (sourceIsCreature && sourceCreature) {
+                const sourcePermanentId = String(sourceCreature.id || '').trim();
+                if (sourcePermanentId) {
+                  (ctx.state as any).creaturesThatDealtDamageToPlayer = (ctx.state as any).creaturesThatDealtDamageToPlayer || {};
+                  const perPlayer = (((ctx.state as any).creaturesThatDealtDamageToPlayer[opponentId] =
+                    (ctx.state as any).creaturesThatDealtDamageToPlayer[opponentId] || {}) as any);
+                  perPlayer[sourcePermanentId] = {
+                    creatureName: String(sourceCreature.card?.name || 'Unknown Creature'),
+                    totalDamage: (perPlayer[sourcePermanentId]?.totalDamage || 0) + declineDamageEachOpponent,
+                    lastDamageTime: Date.now(),
+                  };
+                }
+              }
+            }
+          }
+
+          ctx.bumpSeq();
+        } catch (err) {
+          debugWarn(1, 'applyEvent(castFromExilePromptResolve): failed', err);
+        }
+        break;
+      }
+
       case "copyTriggeredAbilityResolve": {
         try {
           const paid = (e as any).paid !== false;
@@ -4685,7 +4798,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           z.exile = Array.isArray(z.exile) ? z.exile : [];
           const graveyard = z.graveyard as any[];
           const exile = z.exile as any[];
-          let discardedCount = 0;
+          let movedCount = 0;
 
           for (const cardId of cardIds) {
             const idx = hand.findIndex((c: any) => c && String(c.id || '') === cardId);
@@ -4698,12 +4811,13 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
                 ...(exileTag ? { ...exileTag } : null),
                 zone: 'exile',
               });
+              movedCount++;
               continue;
             }
 
             graveyard.push({ ...card, zone: 'graveyard' });
             recordCardPutIntoGraveyardThisTurn(ctx as any, pid, card, { fromBattlefield: false });
-            discardedCount++;
+            movedCount++;
             if (checkGraveyardTrigger(ctx, card, pid)) {
               debug(2, `[applyEvent:discardEffect] ${card.name} triggered graveyard shuffle for ${pid}`);
             }
@@ -4713,7 +4827,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           z.graveyardCount = graveyard.length;
           z.exileCount = exile.length;
 
-          if (destination === 'graveyard' && discardedCount > 0) {
+          if (movedCount > 0) {
             const stateAny = ctx.state as any;
             stateAny.discardedCardThisTurn = stateAny.discardedCardThisTurn || {};
             stateAny.discardedCardThisTurn[pid] = true;
@@ -7400,10 +7514,17 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
                 const createdPermanentIds = Array.isArray((e as any).createdPermanentIds)
                   ? ((e as any).createdPermanentIds as any[]).map((value: any) => String(value || '').trim()).filter(Boolean)
                   : [];
+                const stateAny = ctx.state as any;
+                const currentTurn = Number(stateAny?.turnNumber ?? stateAny?.turn ?? 0) || 0;
+                const currentPhase = String(stateAny?.phase ?? '').toLowerCase();
+                const currentStepUpper = String(stateAny?.step ?? '').toUpperCase();
+                const inEnding = currentPhase === 'ending' && (currentStepUpper === 'END' || currentStepUpper === 'CLEANUP');
+                const fireAtTurnNumber = inEnding ? currentTurn + 1 : currentTurn;
 
                 ctx.state.battlefield = ctx.state.battlefield || [];
+                const createdPermanentId = createdPermanentIds.shift() || generateDeterministicId(ctx, 'perm', String(cardId));
                 (ctx.state.battlefield as any[]).push({
-                  id: createdPermanentIds.shift() || generateDeterministicId(ctx, 'perm', String(cardId)),
+                  id: createdPermanentId,
                   controller: pid,
                   owner: pid,
                   tapped: false,
@@ -7412,6 +7533,18 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
                   counters: {},
                   card: { ...card, zone: 'battlefield', unearth: true, wasUnearthed: true },
                 });
+                stateAny.pendingExileAtNextEndStep = Array.isArray(stateAny.pendingExileAtNextEndStep)
+                  ? stateAny.pendingExileAtNextEndStep
+                  : [];
+                const pendingExileAtNextEndStep = stateAny.pendingExileAtNextEndStep as any[];
+                if (!pendingExileAtNextEndStep.some((entry: any) => String(entry?.permanentId || '') === String(createdPermanentId))) {
+                  pendingExileAtNextEndStep.push({
+                    permanentId: createdPermanentId,
+                    fireAtTurnNumber,
+                    sourceName: String(card?.name || 'Unearth'),
+                    createdBy: pid,
+                  });
+                }
               }
             }
           } else if (cardId && pid && (abilityType === 'embalm' || abilityType === 'eternalize')) {
@@ -7747,8 +7880,9 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
                     : [];
                   if (destination === 'battlefield') {
                     ctx.state.battlefield = ctx.state.battlefield || [];
+                    const createdPermanentId = createdPermanentIds.shift() || generateDeterministicId(ctx, 'perm', String(cardId));
                     (ctx.state.battlefield as any[]).push({
-                      id: createdPermanentIds.shift() || generateDeterministicId(ctx, 'perm', String(cardId)),
+                      id: createdPermanentId,
                       controller: pid,
                       owner: pid,
                       tapped: false,

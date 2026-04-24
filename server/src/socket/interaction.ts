@@ -3147,6 +3147,19 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       } as any;
         game.state.battlefield.push(createdPermanent);
         queueSelfEtbForLiveGraveyardEntry(game, gameId, String(pid), createdPermanent);
+      const fireAtTurnNumber = getNextEndStepFireTurnNumber(game.state);
+      (game.state as any).pendingExileAtNextEndStep = Array.isArray((game.state as any).pendingExileAtNextEndStep)
+        ? (game.state as any).pendingExileAtNextEndStep
+        : [];
+      const pendingExileAtNextEndStep = (game.state as any).pendingExileAtNextEndStep as any[];
+      if (!pendingExileAtNextEndStep.some((entry: any) => String(entry?.permanentId || '') === String(createdPermanentId))) {
+        pendingExileAtNextEndStep.push({
+          permanentId: createdPermanentId,
+          fireAtTurnNumber,
+          sourceName: cardName,
+          createdBy: pid,
+        });
+      }
       
       if (typeof game.bumpSeq === "function") {
         game.bumpSeq();

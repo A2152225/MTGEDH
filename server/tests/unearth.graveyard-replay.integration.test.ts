@@ -82,6 +82,7 @@ describe('unearth graveyard replay semantics (integration)', () => {
     };
     (game.state as any).battlefield = [];
     (game.state as any).turnPlayer = playerId;
+    (game.state as any).turnNumber = 3;
     (game.state as any).phase = 'main';
     (game.state as any).stack = [];
 
@@ -106,6 +107,15 @@ describe('unearth graveyard replay semantics (integration)', () => {
     expect(Boolean(battlefield[0]?.wasUnearthed)).toBe(true);
     expect(Boolean(battlefield[0]?.unearthed)).toBe(true);
     expect(Boolean(battlefield[0]?.card?.wasUnearthed)).toBe(true);
+    const pendingLiveUnearthExile = ((game.state as any).pendingExileAtNextEndStep || []) as any[];
+    expect(pendingLiveUnearthExile).toEqual(expect.arrayContaining([
+      {
+        permanentId: String(battlefield[0]?.id || ''),
+        fireAtTurnNumber: 3,
+        sourceName: 'Hellspark Elemental',
+        createdBy: playerId,
+      },
+    ]));
     expect((game.state as any).manaPool?.[playerId]).toEqual({ white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 });
   });
 
@@ -258,6 +268,91 @@ describe('unearth graveyard replay semantics (integration)', () => {
     });
   });
 
+  it('queues and resolves the delayed unearth exile at the next end step', async () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const playerId = 'p1';
+    (game.state as any).players = [{ id: playerId, name: 'P1', spectator: false, life: 40 }];
+    (game.state as any).zones = {
+      [playerId]: {
+        hand: [],
+        handCount: 0,
+        library: [],
+        libraryCount: 0,
+        graveyard: [
+          {
+            id: 'unearth_card_delayed_1',
+            name: 'Hellspark Elemental',
+            type_line: 'Creature - Elemental',
+            oracle_text: 'Trample, haste\nUnearth {1}{R}',
+            power: '3',
+            toughness: '1',
+            zone: 'graveyard',
+          },
+        ],
+        graveyardCount: 1,
+        exile: [],
+        exileCount: 0,
+      },
+    };
+    (game.state as any).manaPool = {
+      [playerId]: { white: 0, blue: 0, black: 0, red: 1, green: 0, colorless: 1 },
+    };
+    (game.state as any).battlefield = [];
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).activePlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).turnNumber = 5;
+    (game.state as any).turn = 5;
+    (game.state as any).phase = 'main';
+    (game.state as any).step = 'MAIN1';
+    (game.state as any).stack = [];
+    (game.state as any).pendingExileAtNextEndStep = [];
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const io = createMockIo(emitted);
+    const { socket, handlers } = createMockSocket(playerId, gameId, emitted);
+
+    registerInteractionHandlers(io as any, socket as any);
+
+    await handlers['activateGraveyardAbility']({
+      gameId,
+      cardId: 'unearth_card_delayed_1',
+      abilityId: 'unearth',
+    });
+
+    const unearthedPermanentId = String(((game.state as any).battlefield || [])[0]?.id || '');
+    expect(unearthedPermanentId).toBeTruthy();
+
+    (game.state as any).phase = 'postcombatMain';
+    (game.state as any).step = 'MAIN2';
+    (game.state as any).priority = playerId;
+    (game.state as any).stack = [];
+
+    game.nextStep();
+
+    expect((game.state as any).step).toBe('END');
+    expect((game.state as any).stack).toHaveLength(1);
+    expect((game.state as any).stack[0]).toMatchObject({
+      sourceName: 'Hellspark Elemental',
+      description: 'Exile them.',
+      effect: 'Exile them.',
+      delayedAction: 'exile',
+      delayedPermanentIds: [unearthedPermanentId],
+    });
+
+    game.resolveTopOfStack();
+
+    expect((((game.state as any).battlefield || []) as any[]).some((perm: any) => String(perm?.id || '') === unearthedPermanentId)).toBe(false);
+    const zones = (game.state as any).zones?.[playerId];
+    expect((zones?.exile || []).map((card: any) => String(card?.id || ''))).toContain('unearth_card_delayed_1');
+    expect((((game.state as any).pendingExileAtNextEndStep || []) as any[]).some(
+      (entry: any) => String(entry?.permanentId || '') === unearthedPermanentId,
+    )).toBe(false);
+  });
+
   it('requires sorcery-speed timing for live unearth activation', async () => {
     createGameIfNotExists(gameId, 'commander', 40);
     const game = ensureGame(gameId);
@@ -360,6 +455,8 @@ describe('unearth graveyard replay semantics (integration)', () => {
       [playerId]: { white: 0, blue: 0, black: 0, red: 1, green: 0, colorless: 1 },
     };
     (game.state as any).battlefield = [];
+    (game.state as any).turnNumber = 4;
+    (game.state as any).phase = 'main';
 
     game.applyEvent({
       type: 'activateGraveyardAbility',
@@ -380,7 +477,101 @@ describe('unearth graveyard replay semantics (integration)', () => {
     expect(Boolean(battlefield[0]?.wasUnearthed)).toBe(true);
     expect(Boolean(battlefield[0]?.unearthed)).toBe(true);
     expect(Boolean(battlefield[0]?.card?.wasUnearthed)).toBe(true);
+    const pendingReplayUnearthExile = ((game.state as any).pendingExileAtNextEndStep || []) as any[];
+    expect(pendingReplayUnearthExile).toEqual(expect.arrayContaining([
+      {
+        permanentId: 'perm_unearth_live_1',
+        fireAtTurnNumber: 4,
+        sourceName: 'Hellspark Elemental',
+        createdBy: playerId,
+      },
+    ]));
     expect((game.state as any).manaPool?.[playerId]).toEqual({ white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 });
+  });
+
+  it('replays the delayed unearth exile through the next end step', () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const playerId = 'p1';
+    (game.state as any).players = [{ id: playerId, name: 'P1', spectator: false, life: 40 }];
+    (game.state as any).zones = {
+      [playerId]: {
+        hand: [],
+        handCount: 0,
+        library: [],
+        libraryCount: 0,
+        graveyard: [
+          {
+            id: 'unearth_card_replay_delayed_1',
+            name: 'Hellspark Elemental',
+            type_line: 'Creature - Elemental',
+            oracle_text: 'Trample, haste\nUnearth {1}{R}',
+            power: '3',
+            toughness: '1',
+            zone: 'graveyard',
+          },
+        ],
+        graveyardCount: 1,
+        exile: [],
+        exileCount: 0,
+      },
+    };
+    (game.state as any).manaPool = {
+      [playerId]: { white: 0, blue: 0, black: 0, red: 1, green: 0, colorless: 1 },
+    };
+    (game.state as any).battlefield = [];
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).activePlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).turnNumber = 6;
+    (game.state as any).turn = 6;
+    (game.state as any).phase = 'main';
+    (game.state as any).step = 'MAIN1';
+    (game.state as any).stack = [];
+    (game.state as any).pendingExileAtNextEndStep = [];
+
+    game.applyEvent({
+      type: 'activateGraveyardAbility',
+      playerId,
+      cardId: 'unearth_card_replay_delayed_1',
+      abilityId: 'unearth',
+      manaCost: '{1}{R}',
+      createdPermanentIds: ['perm_unearth_replay_delayed_1'],
+    });
+
+    expect((((game.state as any).pendingExileAtNextEndStep || []) as any[]).some(
+      (entry: any) => String(entry?.permanentId || '') === 'perm_unearth_replay_delayed_1',
+    )).toBe(true);
+
+    (game.state as any).phase = 'postcombatMain';
+    (game.state as any).step = 'MAIN2';
+    (game.state as any).priority = playerId;
+    (game.state as any).stack = [];
+
+    game.nextStep();
+
+    expect((game.state as any).step).toBe('END');
+    expect((game.state as any).stack).toHaveLength(1);
+    expect((game.state as any).stack[0]).toMatchObject({
+      sourceName: 'Hellspark Elemental',
+      description: 'Exile them.',
+      effect: 'Exile them.',
+      delayedAction: 'exile',
+      delayedPermanentIds: ['perm_unearth_replay_delayed_1'],
+    });
+
+    game.resolveTopOfStack();
+
+    expect((((game.state as any).battlefield || []) as any[]).some(
+      (perm: any) => String(perm?.id || '') === 'perm_unearth_replay_delayed_1',
+    )).toBe(false);
+    const zones = (game.state as any).zones?.[playerId];
+    expect((zones?.exile || []).map((card: any) => String(card?.id || ''))).toContain('unearth_card_replay_delayed_1');
+    expect((((game.state as any).pendingExileAtNextEndStep || []) as any[]).some(
+      (entry: any) => String(entry?.permanentId || '') === 'perm_unearth_replay_delayed_1',
+    )).toBe(false);
   });
 
   it('replays persisted unearth life payments on non-cast graveyard branches', () => {

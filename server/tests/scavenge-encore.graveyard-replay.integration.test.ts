@@ -536,6 +536,92 @@ describe('scavenge and encore graveyard replay semantics (integration)', () => {
     expect(delayed.map((entry: any) => entry.permanentId)).toEqual(['encore_live_token_1', 'encore_live_token_2']);
   });
 
+  it('replays persisted encore token self ETB triggers after the tokens are rebuilt', () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const playerId = 'p1';
+    const opponentA = 'p2';
+    const opponentB = 'p3';
+    (game.state as any).players = [
+      { id: playerId, name: 'P1', spectator: false, life: 40 },
+      { id: opponentA, name: 'P2', spectator: false, life: 40 },
+      { id: opponentB, name: 'P3', spectator: false, life: 40 },
+    ];
+    (game.state as any).zones = {
+      [playerId]: {
+        hand: [],
+        handCount: 0,
+        library: [],
+        libraryCount: 0,
+        graveyard: [
+          {
+            id: 'encore_card_etb_1',
+            name: 'Encore Visionary',
+            type_line: 'Creature - Elf Shaman',
+            oracle_text: 'When Encore Visionary enters, draw a card.\nEncore {3}{R}{R}',
+            power: '2',
+            toughness: '2',
+            zone: 'graveyard',
+          },
+        ],
+        graveyardCount: 1,
+        exile: [],
+        exileCount: 0,
+      },
+    };
+    (game.state as any).battlefield = [];
+    (game.state as any).stack = [];
+    (game.state as any).pendingSacrificeAtNextEndStep = [];
+    (game.state as any).manaPool = {
+      [playerId]: { white: 0, blue: 0, black: 0, red: 2, green: 0, colorless: 3 },
+    };
+
+    game.applyEvent({
+      type: 'activateGraveyardAbility',
+      playerId,
+      cardId: 'encore_card_etb_1',
+      abilityId: 'encore',
+      manaCost: '{3}{R}{R}',
+      createdPermanentIds: ['encore_etb_token_1', 'encore_etb_token_2'],
+      encoreTargetPlayerIds: [opponentA, opponentB],
+    } as any);
+
+    game.applyEvent({
+      type: 'pushTriggeredAbility',
+      triggerId: 'encore_etb_trigger_1',
+      sourceId: 'encore_etb_token_1',
+      permanentId: 'encore_etb_token_1',
+      sourceName: 'Encore Visionary',
+      controllerId: playerId,
+      description: 'draw a card.',
+      triggerType: 'triggered_ability',
+      effect: 'When Encore Visionary enters, draw a card.',
+      mandatory: true,
+    } as any);
+    game.applyEvent({
+      type: 'pushTriggeredAbility',
+      triggerId: 'encore_etb_trigger_2',
+      sourceId: 'encore_etb_token_2',
+      permanentId: 'encore_etb_token_2',
+      sourceName: 'Encore Visionary',
+      controllerId: playerId,
+      description: 'draw a card.',
+      triggerType: 'triggered_ability',
+      effect: 'When Encore Visionary enters, draw a card.',
+      mandatory: true,
+    } as any);
+
+    const battlefield = (game.state as any).battlefield || [];
+    expect(battlefield.map((perm: any) => perm.id)).toEqual(['encore_etb_token_1', 'encore_etb_token_2']);
+
+    const stack = (game.state as any).stack || [];
+    expect(stack).toHaveLength(2);
+    expect(stack.map((item: any) => String(item?.source || '')).sort()).toEqual(['encore_etb_token_1', 'encore_etb_token_2']);
+    expect(stack.every((item: any) => String(item?.description || '') === 'draw a card.')).toBe(true);
+  });
+
   it('replays a queued scavenge target prompt after activation before the choice is made', () => {
     createGameIfNotExists(gameId, 'commander', 40);
     const game = ensureGame(gameId);

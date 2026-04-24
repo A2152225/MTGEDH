@@ -34,7 +34,7 @@ import { flushPendingDamageTriggersAfterStepAdvance } from "./step-advance.js";
 import { filterLibraryCardsForSearch } from "./library-search.js";
 import { queueShockLandPaymentStep } from "./optional-payment-prompts.js";
 import { shouldSuppressMandatoryTriggeredAbilityPrompt } from "./trigger-shortcuts.js";
-import { hasMutateAlternateCost, parseMutateCost, getValidMutateTargets } from "../state/modules/alternate-costs.js";
+import { hasMutateAlternateCost, parseMadnessCost, parseMutateCost, getValidMutateTargets } from "../state/modules/alternate-costs.js";
 import { getCommandZoneCommanderCandidates, type SharedCommanderAvailabilityCandidate } from "../state/modules/can-respond.js";
 import { cleanupCardLeavingExile } from "../state/modules/playable-from-exile.js";
 import { isPreparedCopyActive, syncPreparedPermanentAfterControlChange } from "../state/modules/prepared.js";
@@ -4385,7 +4385,7 @@ export async function requestCastSpellForSocket(
       manaCost = overloadCost;
     }
 
-    // Forced alternate cost (Miracle / Mutate)
+    // Forced alternate cost (Miracle / Madness / Mutate)
     if (options?.forcedAlternateCostId === 'miracle') {
       if (!cardInHand.isFirstDrawnThisTurn) {
         socket.emit('error', {
@@ -4405,6 +4405,19 @@ export async function requestCastSpellForSocket(
       }
 
       manaCost = miracleInfo.miracleCost;
+    }
+
+    if (options?.forcedAlternateCostId === 'madness') {
+      const madnessCost = parseMadnessCost(oracleText) || parseMadnessCost(cardInHand.oracle_text || '');
+      if (!madnessCost) {
+        socket.emit('error', {
+          code: 'NO_MADNESS',
+          message: 'This card does not have madness.',
+        });
+        return;
+      }
+
+      manaCost = madnessCost;
     }
 
     // Mutate alternate cost: override mana cost now; target selection is handled via a dedicated step.
@@ -7747,6 +7760,15 @@ export function registerGameActions(io: Server, socket: Socket) {
       const isForceAltCostPaid = isForceAltCostRequested && (cardInHand as any).forceAltCostPaid === true;
       const isFreeCast = alternateCostId === 'free' || (cardInHand as any).castWithoutPayingManaCost === true;
       const usesWubrgAlternateCost = alternateCostId === 'wubrg_self' || alternateCostId === 'wubrg_external';
+      const resolvedMiracleCost = alternateCostId === 'miracle'
+        ? (checkMiracle(cardInHand).miracleCost || '')
+        : '';
+      const resolvedMadnessCost = alternateCostId === 'madness'
+        ? (parseMadnessCost(String(cardInHand.oracle_text || '')) || '')
+        : '';
+      const resolvedMutateCost = alternateCostId === 'mutate'
+        ? (String((cardInHand as any).mutateCost || '') || parseMutateCost(String(cardInHand.oracle_text || '')) || '')
+        : '';
       const resolvedOverloadCost = overloadRequested
         ? String((cardInHand as any).overloadCost || '') || (() => {
             const match = String((cardInHand as any).oracle_text || '').match(/overload\s*\{([^}]+)\}/i);
@@ -7754,15 +7776,34 @@ export function registerGameActions(io: Server, socket: Socket) {
           })()
         : '';
 
+      if (alternateCostId === 'miracle' && !resolvedMiracleCost) {
+        socket.emit('error', { code: 'NO_MIRACLE', message: 'This card does not have miracle.' });
+        return;
+      }
+      if (alternateCostId === 'madness' && !resolvedMadnessCost) {
+        socket.emit('error', { code: 'NO_MADNESS', message: 'This card does not have madness.' });
+        return;
+      }
+      if (alternateCostId === 'mutate' && !resolvedMutateCost) {
+        socket.emit('error', { code: 'NO_MUTATE', message: 'This card does not have mutate.' });
+        return;
+      }
+
       // Parse the mana cost to validate payment
       const rawManaCost = appendManaCost(
         (isForceAltCostPaid || isFreeCast)
           ? ''
           : usesWubrgAlternateCost
             ? '{W}{U}{B}{R}{G}'
-            : resolvedOverloadCost
-              ? resolvedOverloadCost
-              : (castSourceZone === 'command' ? (commandZoneManaCost || '') : (cardInHand.mana_cost || "")),
+            : resolvedMiracleCost
+              ? resolvedMiracleCost
+              : resolvedMadnessCost
+                ? resolvedMadnessCost
+                : resolvedMutateCost
+                  ? resolvedMutateCost
+                  : resolvedOverloadCost
+                    ? resolvedOverloadCost
+                    : (castSourceZone === 'command' ? (commandZoneManaCost || '') : (cardInHand.mana_cost || "")),
         spellModeAdditionalCost,
       );
       const manaCost = expandManaCostWithChosenX(rawManaCost, xValue);
@@ -9859,6 +9900,7 @@ export function registerGameActions(io: Server, socket: Socket) {
       let pendingFromZone: SpellCastSourceZone | undefined;
       let pendingBypassExilePermissionCheck = false;
       let pendingIgnoreTimingRestrictions = false;
+      let pendingAlternateCostId: string | undefined;
       let pendingXValue: number | undefined;
       let pendingFaceIndex: number | undefined;
       let suspendedLibrarySearchStep: any;
@@ -9890,6 +9932,9 @@ export function registerGameActions(io: Server, socket: Socket) {
           pendingFromZone = normalizeSpellCastSourceZone(pendingCast?.fromZone) || undefined;
           pendingBypassExilePermissionCheck = pendingCast?.bypassExilePermissionCheck === true;
           pendingIgnoreTimingRestrictions = pendingCast?.ignoreTimingRestrictions === true;
+          pendingAlternateCostId = typeof pendingCast?.forcedAlternateCostId === 'string'
+            ? pendingCast.forcedAlternateCostId
+            : (typeof pendingCast?.alternateCostId === 'string' ? pendingCast.alternateCostId : undefined);
           pendingXValue = Number.isFinite(pendingCast?.xValue) ? Math.max(0, Math.floor(Number(pendingCast.xValue))) : undefined;
           pendingFaceIndex = Number.isFinite(pendingCast?.faceIndex) ? Number(pendingCast.faceIndex) : undefined;
           suspendedLibrarySearchStep = String(pendingCast?.fromZone || '').toLowerCase().trim() === 'library'
@@ -10070,7 +10115,7 @@ export function registerGameActions(io: Server, socket: Socket) {
         skipInteractivePrompts: true,
         skipPriorityCheck: true,
         xValue: (xValue as number | undefined) ?? pendingXValue,
-        alternateCostId: alternateCostId as string | undefined,
+        alternateCostId: (alternateCostId as string | undefined) ?? pendingAlternateCostId,
         convokeTappedCreatures: convokeTapped,
         fromZone: pendingFromZone,
         bypassExilePermissionCheck: pendingBypassExilePermissionCheck,

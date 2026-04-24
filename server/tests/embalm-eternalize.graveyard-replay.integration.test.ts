@@ -330,6 +330,94 @@ describe('embalm and eternalize graveyard replay semantics (integration)', () =>
     });
   });
 
+  it('replays external ETB watcher triggers after embalm rebuilds the token entry', () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const playerId = 'p1';
+    (game.state as any).players = [{ id: playerId, name: 'P1', spectator: false, life: 40 }];
+    (game.state as any).zones = {
+      [playerId]: {
+        hand: [],
+        handCount: 0,
+        library: [],
+        libraryCount: 0,
+        graveyard: [
+          {
+            id: 'embalm_card_replay_1',
+            name: 'Sacred Cat',
+            type_line: 'Creature - Cat',
+            oracle_text: 'Lifelink\nEmbalm {W}',
+            power: '1',
+            toughness: '1',
+            zone: 'graveyard',
+          },
+        ],
+        graveyardCount: 1,
+        exile: [],
+        exileCount: 0,
+      },
+    };
+    (game.state as any).manaPool = {
+      [playerId]: { white: 1, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+    };
+    (game.state as any).battlefield = [
+      {
+        id: 'soul_warden_perm_replay_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        counters: {},
+        card: {
+          id: 'soul_warden_card_replay_1',
+          name: 'Soul Warden',
+          type_line: 'Creature - Human Cleric',
+          oracle_text: 'Whenever another creature enters the battlefield, you gain 1 life.',
+          power: '1',
+          toughness: '1',
+          zone: 'battlefield',
+        },
+      },
+    ];
+    (game.state as any).stack = [];
+
+    game.applyEvent({
+      type: 'activateGraveyardAbility',
+      playerId,
+      cardId: 'embalm_card_replay_1',
+      abilityId: 'embalm',
+      manaCost: '{W}',
+      createdPermanentIds: ['token_embalm_replay_1'],
+    } as any);
+
+    game.applyEvent({
+      type: 'pushTriggeredAbility',
+      triggerId: 'soul_warden_embalm_trigger_replay_1',
+      sourceId: 'soul_warden_perm_replay_1',
+      permanentId: 'soul_warden_perm_replay_1',
+      sourceName: 'Soul Warden',
+      controllerId: playerId,
+      description: 'you gain 1 life.',
+      triggerType: 'creature_etb',
+      effect: 'Whenever another creature enters the battlefield, you gain 1 life.',
+      mandatory: true,
+    } as any);
+
+    const battlefield = (game.state as any).battlefield || [];
+    expect(battlefield.find((permanent: any) => permanent?.id === 'token_embalm_replay_1')).toBeTruthy();
+
+    const stack = (game.state as any).stack || [];
+    expect(stack).toHaveLength(1);
+    expect(stack[0]).toMatchObject({
+      id: 'soul_warden_embalm_trigger_replay_1',
+      source: 'soul_warden_perm_replay_1',
+      sourceName: 'Soul Warden',
+      triggerType: 'creature_etb',
+      description: 'you gain 1 life.',
+    });
+  });
+
   it('falls back to deterministic embalm token ids for legacy events without created ids', () => {
     createGameIfNotExists(gameId, 'commander', 40);
     const game = ensureGame(gameId);

@@ -1230,4 +1230,163 @@ describe('Mutate trigger targeting (integration)', () => {
     expect(stackItem?.castFromGraveyard).toBe(true);
     expect(stackItem?.castWithoutPayingManaCost).toBe(true);
   });
+
+  it('allows mutate graveyard-cast triggers to cast sorceries during combat when the effect grants an immediate free cast', async () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const playerId = 'p1';
+    (game.state as any).players = [{ id: playerId, name: 'P1', spectator: false, life: 40 }];
+    (game.state as any).phase = 'combat';
+    (game.state as any).step = 'declareAttackers';
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).battlefield = [
+      {
+        id: 'host_4',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        counters: {},
+        basePower: 2,
+        baseToughness: 2,
+        card: {
+          id: 'host_card_4',
+          name: 'Mutation Host',
+          type_line: 'Creature - Elemental Dinosaur Cat',
+          oracle_text: 'Flying',
+          zone: 'battlefield',
+          power: '2',
+          toughness: '2',
+        },
+      },
+    ];
+    (game.state as any).zones = {
+      [playerId]: {
+        hand: [],
+        handCount: 0,
+        graveyard: [
+          {
+            id: 'gy_spell_3',
+            name: 'Divination',
+            mana_cost: '{2}{U}',
+            manaCost: '{2}{U}',
+            type_line: 'Sorcery',
+            oracle_text: 'Draw two cards.',
+            zone: 'graveyard',
+          },
+          {
+            id: 'gy_creature_3',
+            name: 'Dead Creature',
+            mana_cost: '{2}{G}',
+            manaCost: '{2}{G}',
+            type_line: 'Creature - Bear',
+            oracle_text: '',
+            zone: 'graveyard',
+            power: '2',
+            toughness: '2',
+          },
+        ],
+        graveyardCount: 2,
+        exile: [],
+        exileCount: 0,
+        library: [
+          { id: 'combat_draw_1', name: 'Draw One', type_line: 'Instant', oracle_text: '', zone: 'library' },
+          { id: 'combat_draw_2', name: 'Draw Two', type_line: 'Instant', oracle_text: '', zone: 'library' },
+        ],
+        libraryCount: 2,
+      },
+    };
+    (game.state as any).stack = [
+      {
+        id: 'stack_mutate_cast_2',
+        type: 'spell',
+        controller: playerId,
+        alternateCostId: 'mutate',
+        targets: ['host_4'],
+        card: {
+          id: 'mutate_cast_2',
+          name: 'Vadrok, Apex of Thunder',
+          type_line: 'Creature - Elemental Dinosaur Cat',
+          oracle_text: 'Mutate {1}{W/U}{R}{R}\nFlying, first strike\nWhenever this creature mutates, you may cast target noncreature card with mana value 3 or less from your graveyard without paying its mana cost.',
+          zone: 'stack',
+          power: '3',
+          toughness: '3',
+          isMutating: true,
+          mutateTarget: 'host_4',
+          mutateOnTop: true,
+          alternateCostId: 'mutate',
+        },
+      },
+    ];
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(playerId, emitted);
+    socket.rooms.add(gameId);
+    const io = createMockIo(emitted, [socket]);
+
+    registerResolutionHandlers(io as any, socket as any);
+    registerInteractionHandlers(io as any, socket as any);
+    registerGameActions(io as any, socket as any);
+
+    game.resolveTopOfStack();
+    game.resolveTopOfStack();
+
+    let targetStep = ResolutionQueueManager.getQueue(gameId).steps[0] as any;
+    if (targetStep?.type === 'option_choice') {
+      await handlers.submitResolutionResponse({
+        gameId,
+        stepId: targetStep.id,
+        selections: 'yes',
+      });
+      targetStep = ResolutionQueueManager.getQueue(gameId).steps[0] as any;
+    }
+
+    expect(targetStep.type).toBe('graveyard_selection');
+    expect(targetStep.destination).toBe('cast');
+    expect(targetStep.validTargets.map((target: any) => String(target.id))).toEqual(['gy_spell_3']);
+
+    await handlers.submitResolutionResponse({
+      gameId,
+      stepId: targetStep.id,
+      selections: ['gy_spell_3'],
+    });
+
+    const castChoiceStep = ResolutionQueueManager.getQueue(gameId).steps[0] as any;
+    expect(castChoiceStep.type).toBe('option_choice');
+    expect(String(castChoiceStep.castFromGraveyardCardId || '')).toBe('gy_spell_3');
+    expect(castChoiceStep.castFromGraveyardWithoutPayingManaCost).toBe(true);
+
+    await handlers.submitResolutionResponse({
+      gameId,
+      stepId: castChoiceStep.id,
+      selections: 'cast',
+    });
+
+    const paymentStep = ResolutionQueueManager
+      .getQueue(gameId)
+      .steps
+      .find((entry: any) => entry.type === 'mana_payment_choice' && (entry as any).spellPaymentRequired === true) as any;
+    expect(paymentStep).toBeDefined();
+    expect(String(paymentStep.manaCost || '{0}')).toContain('0');
+
+    await handlers.submitResolutionResponse({
+      gameId,
+      stepId: paymentStep.id,
+      selections: { payment: [] },
+    });
+
+    expect(emitted.some((event) => event.event === 'error' && event.payload?.code === 'SORCERY_TIMING')).toBe(false);
+    expect(emitted.some((event) => event.event === 'castSpellFromHandContinue')).toBe(false);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const graveyardIds = ((((game.state as any).zones?.[playerId]?.graveyard) || []) as any[]).map((card: any) => String(card?.id || ''));
+    expect(graveyardIds).not.toContain('gy_spell_3');
+
+    const stackItem = (((game.state as any).stack || []) as any[]).find((entry: any) => String(entry?.card?.id || '') === 'gy_spell_3');
+    expect(stackItem).toBeDefined();
+    expect(stackItem?.castFromGraveyard).toBe(true);
+    expect(stackItem?.castWithoutPayingManaCost).toBe(true);
+  });
 });

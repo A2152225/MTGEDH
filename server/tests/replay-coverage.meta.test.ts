@@ -31,6 +31,7 @@ const REPLAY_GUARDED_EVENT_TYPES = new Set([
   'bounceLandChoice',
   'bottomOrderResolve',
   'cardNameChoice',
+  'castFromExilePromptResolve',
   'castRevealedFromLibraryResolve',
   'cascadeResolve',
   'castSpellContinuation',
