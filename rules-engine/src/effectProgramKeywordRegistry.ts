@@ -31,15 +31,15 @@ export const DEFAULT_EFFECT_PROGRAM_KEYWORD_ENTRIES: readonly EffectProgramKeywo
   createKeywordEntry('scry', 'scry', true, 'supported', buildPlayerAmountStep),
   createKeywordEntry('surveil', 'surveil', true, 'supported', buildPlayerAmountStep),
   createKeywordEntry('fateseal', 'fateseal', true, 'supported', buildFatesealStep),
-  createKeywordEntry('clash', 'clash', true, 'partial', buildPlayerStep),
-  createKeywordEntry('explore', 'explore', true, 'partial', buildTargetStep),
+  createKeywordEntry('clash', 'clash', true, 'supported', buildClashStep),
+  createKeywordEntry('explore', 'explore', true, 'supported', buildExploreStep),
   createKeywordEntry('connive', 'connive', true, 'partial', buildTargetAmountStep),
   createKeywordEntry('manifest dread', 'manifest_dread', true, 'partial', buildPlayerStep, ['manifest_dread']),
   createKeywordEntry('learn', 'learn', true, 'partial', buildPlayerStep),
   createKeywordEntry('collect evidence', 'collect_evidence', true, 'partial', buildPlayerAmountStep, ['collect_evidence']),
   createKeywordEntry('exert', 'exert', true, 'partial', buildTargetStep),
-  createKeywordEntry('populate', 'populate', true, 'partial', buildPlayerAmountStep),
-  createKeywordEntry('proliferate', 'proliferate', true, 'partial', buildPlayerStep),
+  createKeywordEntry('populate', 'populate', true, 'supported', buildPlayerAmountStep),
+  createKeywordEntry('proliferate', 'proliferate', true, 'supported', buildPlayerStep),
   createKeywordEntry('the ring tempts you', 'ring_tempts_you', true, 'partial', buildPlayerStep, ['ring tempts you', 'ring_tempts_you']),
   createKeywordEntry('investigate', 'investigate', false, 'supported', buildPlayerAmountStep),
   createKeywordEntry('time travel', 'time_travel', false, 'supported', buildPlayerAmountStep, ['time_travel']),
@@ -202,6 +202,14 @@ function buildTargetStep(step: EffectProgramKeywordStep, kind: string): OracleEf
   } as OracleEffectStep;
 }
 
+function buildExploreStep(step: EffectProgramKeywordStep, kind: string): OracleEffectStep {
+  return {
+    kind,
+    target: readExploreTargetSelector(step.parameters?.target),
+    raw: step.raw || step.keyword,
+  } as OracleEffectStep;
+}
+
 function buildTargetAmountStep(step: EffectProgramKeywordStep, kind: string): OracleEffectStep {
   return {
     kind,
@@ -217,6 +225,15 @@ function buildFatesealStep(step: EffectProgramKeywordStep, kind: string): Oracle
     who: readPlayerSelector(step.parameters?.who),
     target: readFatesealTargetSelector(step.parameters?.target),
     amount: readQuantity(step.parameters?.amount),
+    raw: step.raw || step.keyword,
+  } as OracleEffectStep;
+}
+
+function buildClashStep(step: EffectProgramKeywordStep, kind: string): OracleEffectStep {
+  return {
+    kind,
+    who: readPlayerSelector(step.parameters?.who),
+    opponent: readClashOpponentSelector(step.parameters?.opponent),
     raw: step.raw || step.keyword,
   } as OracleEffectStep;
 }
@@ -245,11 +262,25 @@ function readFatesealTargetSelector(value: unknown): OraclePlayerSelector {
   return { kind: 'target_opponent' };
 }
 
+function readClashOpponentSelector(value: unknown): OraclePlayerSelector {
+  if (value && typeof value === 'object' && typeof (value as any).kind === 'string') {
+    return value as OraclePlayerSelector;
+  }
+  return { kind: 'target_opponent' };
+}
+
 function readObjectSelector(value: unknown): OracleObjectSelector {
   if (value && typeof value === 'object' && typeof (value as any).kind === 'string') {
     return value as OracleObjectSelector;
   }
   return { kind: 'raw', text: String(value || 'source') };
+}
+
+function readExploreTargetSelector(value: unknown): OracleObjectSelector {
+  if (value && typeof value === 'object' && typeof (value as any).kind === 'string') {
+    return value as OracleObjectSelector;
+  }
+  return { kind: 'raw', text: String(value || 'this creature') };
 }
 
 function normalizeKeyword(keyword: string): string {

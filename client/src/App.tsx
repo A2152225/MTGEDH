@@ -7378,6 +7378,7 @@ export function App() {
         }}
         onActivateAbility={handleGraveyardAbility}
         playableCards={you === graveyardModalPlayerId ? (safeView as any)?.playableCards : undefined}
+        graveyardAbilityHints={you === graveyardModalPlayerId ? (safeView as any)?.graveyardAbilityHints?.[graveyardModalPlayerId || ''] : undefined}
         appearanceSettings={appearanceSettings}
         onIgnoreForPlayability={(cardId, cardName, imageUrl) => {
           if (safeView?.id) {

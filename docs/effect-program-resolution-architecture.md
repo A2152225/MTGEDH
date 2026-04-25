@@ -34,7 +34,7 @@ Examples:
 - `vigilance` becomes a static combat restriction modifier.
 - `annihilator N` becomes an attack trigger that asks the defending player to sacrifice N permanents.
 - `collect evidence N` becomes an additional-cost choice over graveyard cards whose total mana value is at least N.
-- `scry N`, `surveil N`, and `fateseal N` lower through the Oracle IR EffectProgram compiler when their player/opponent shape is deterministic enough for the current prompt contracts.
+- `explore`, `scry N`, `surveil N`, and `fateseal N` lower through the Oracle IR EffectProgram compiler when their target/player/opponent shape is deterministic enough for the current prompt contracts.
 - New or changed keyword definitions from set updates should become registry updates plus tests before cards using the keyword are considered automated.
 
 ### EffectProgram
@@ -48,9 +48,9 @@ The EffectProgram is the executable representation of a card effect. It contains
 
 The EffectProgram should preserve bindings for choices and targets. Later clauses should refer to bindings instead of reparsing text or searching completed queue history.
 
-Current foundation support includes semantic prompts for mode selection, target creature selection, player/opponent choice, color choice, creature-type choice, card-name choice, scry, surveil, and fateseal. These prompts bind their responses by `bindingKey`, and the Oracle IR runner derives target, player, mode, color, creature-type, card-name, and top-library ordering execution context from those bindings when later command steps run. Fateseal uses two bound choices: the opponent selection first, then the top-library ordering prompt for that opponent.
+Current foundation support includes semantic prompts for mode selection, target creature selection, player/opponent choice, color choice, creature-type choice, card-name choice, clash, explore, populate, proliferate, scry, surveil, and fateseal. These prompts bind their responses by `bindingKey`, and the Oracle IR runner derives target, player, mode, color, creature-type, card-name, clash outcome, explore destination, populate token target, proliferate targets, and top-library ordering execution context from those bindings when later command steps run. Fateseal uses two bound choices: the opponent selection first, then the top-library ordering prompt for that opponent. Clash uses an opponent selection followed by per-participant top/bottom prompts, then stores `lastClashWon` for follow-up conditions such as “If you win”.
 
-Choice-heavy Oracle IR steps that do not yet have a semantic prompt shape should remain command-side automation gaps rather than becoming generic yes/no prompts. Examples include search-library ordering and more complex top-library card selection. Those need dedicated prompt contracts before they should become live Resolution Queue choices. Scry, surveil, and fateseal now use dedicated queue prompt contracts and only lower automatically for deterministic `you scry/surveil/fateseal N` Oracle IR shapes. The keyword registry marks those keyword actions supported because it delegates their expansion back through the Oracle IR EffectProgram compiler instead of creating generic keyword prompts.
+Choice-heavy Oracle IR steps that do not yet have a semantic prompt shape should remain command-side automation gaps rather than becoming generic yes/no prompts. Examples include search-library ordering and more complex top-library card selection. Those need dedicated prompt contracts before they should become live Resolution Queue choices. Clash, explore, populate, proliferate, scry, surveil, and fateseal now use dedicated queue prompt contracts and only lower automatically for deterministic source/target, countered-target, opponent-choice, amount-1 populate, or `you scry/surveil/fateseal N` Oracle IR shapes. The keyword registry marks those keyword actions supported because it delegates their expansion back through the Oracle IR EffectProgram compiler instead of creating generic keyword prompts.
 
 ### Resolution Queue
 

@@ -20,6 +20,7 @@ import { parseManaCost, canPayManaCostWithAvailableSources, getManaPoolFromState
 import { hasPayableAlternateCost } from "./alternate-costs";
 import { hasValidTargetsForSpell } from "../../rules-engine/target-availability.js";
 import { calculateMaxLandsPerTurn, canCastFromTop, canPlayLandsFromTop, getActiveAbilityConditions } from "./game-state-effects";
+import { getGrantedCastFromGraveyardKeywordInfo, getGrantedFlashbackInfo, getGrantedUnearthInfo, getPrintedUnearthInfo } from "./graveyard-permissions";
 import { detectActivatedAbilityConditionRequirement } from "./activated-ability-conditions";
 import { creatureHasHaste } from "../../socket/game-actions.js";
 import { debug, debugWarn, debugError } from "../../utils/debug.js";
@@ -112,7 +113,7 @@ export function getHandCastEvaluationCards(card: any): any[] {
 export type SharedSpellSourceZone = 'hand' | 'graveyard' | 'exile' | 'library';
 export type SharedSpellCandidateMode = 'main' | 'response' | 'sorcery';
 export type SharedSpellCandidatePayability = 'normal' | 'alternate' | 'assumed';
-export type SharedSpellCastMethod = 'normal' | 'flashback' | 'foretell' | 'playable_from_exile' | 'graveyard_permanent';
+export type SharedSpellCastMethod = 'normal' | 'flashback' | 'jump-start' | 'retrace' | 'escape' | 'foretell' | 'playable_from_exile' | 'graveyard_permanent';
 export type SharedLandSourceZone = SharedSpellSourceZone;
 
 export interface SharedSpellCastCandidate {
@@ -343,6 +344,84 @@ function canUseAlternateCostForSpellCandidate(sourceZone: SharedSpellSourceZone,
   return false;
 }
 
+type GraveyardCastKeyword = 'jump-start' | 'retrace' | 'escape';
+
+function getPrintedGraveyardCastKeywordInfo(card: any, keyword: GraveyardCastKeyword): { hasIt: boolean; cost?: string; additionalExileCount?: number } {
+  const oracleText = String(card?.oracle_text || card?.oracleText || '');
+  const manaCost = String(card?.mana_cost || card?.manaCost || '').trim();
+
+  if (keyword === 'jump-start') {
+    if (!/\bjump-start\b/i.test(oracleText)) return { hasIt: false };
+    const explicitJumpStartCost = oracleText.match(/jump-start\s*[—-]?\s*(\{[^}]+\}(?:\s*\{[^}]+\})*)/i)?.[1]?.trim();
+    return { hasIt: true, cost: explicitJumpStartCost || manaCost || undefined };
+  }
+
+  if (keyword === 'retrace') {
+    return /\bretrace\b/i.test(oracleText) ? { hasIt: true, cost: manaCost || undefined } : { hasIt: false };
+  }
+
+  const escapeMatch = oracleText.match(/escape\s*[—-]?\s*(\{[^}]+\}(?:\s*\{[^}]+\})*)/i);
+  if (!escapeMatch && !/\bescape\b/i.test(oracleText)) return { hasIt: false };
+
+  const exileMatch = oracleText.match(/exile\s+(one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+other\s+cards?\s+from\s+your\s+graveyard/i);
+  const additionalExileCount = exileMatch?.[1] ? parseWordNumberForGraveyardCost(exileMatch[1]) : undefined;
+  return {
+    hasIt: true,
+    ...(escapeMatch?.[1] ? { cost: escapeMatch[1].trim() } : {}),
+    ...(additionalExileCount && additionalExileCount > 0 ? { additionalExileCount } : {}),
+  };
+}
+
+function parseWordNumberForGraveyardCost(value: string): number {
+  const normalized = String(value || '').trim().toLowerCase();
+  const words: Record<string, number> = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10 };
+  if (words[normalized]) return words[normalized];
+  const parsed = Number.parseInt(normalized, 10);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function getAvailableGraveyardCastKeywordInfo(
+  ctx: GameContext,
+  playerId: PlayerID,
+  card: any,
+): { keyword: GraveyardCastKeyword; cost?: string; additionalExileCount?: number } | undefined {
+  for (const keyword of ['jump-start', 'retrace', 'escape'] as GraveyardCastKeyword[]) {
+    const printedInfo = getPrintedGraveyardCastKeywordInfo(card, keyword);
+    if (printedInfo.hasIt) {
+      return { keyword, cost: printedInfo.cost, additionalExileCount: printedInfo.additionalExileCount };
+    }
+
+    const grantedInfo = getGrantedCastFromGraveyardKeywordInfo(ctx, playerId, card, keyword);
+    if (grantedInfo.hasIt) {
+      return { keyword, cost: grantedInfo.cost, additionalExileCount: grantedInfo.additionalExileCount };
+    }
+  }
+
+  return undefined;
+}
+
+function canPayGraveyardCastKeywordAdditionalCost(state: any, playerId: PlayerID, card: any, keywordInfo: { keyword: GraveyardCastKeyword; additionalExileCount?: number }): boolean {
+  const zones = state?.zones?.[playerId];
+  if (!zones) return false;
+
+  if (keywordInfo.keyword === 'jump-start') {
+    return Array.isArray(zones.hand) && zones.hand.length > 0;
+  }
+
+  if (keywordInfo.keyword === 'retrace') {
+    return Array.isArray(zones.hand) && zones.hand.some((entry: any) => /\bland\b/i.test(String(entry?.type_line || entry?.typeLine || '')));
+  }
+
+  if (keywordInfo.keyword === 'escape') {
+    const requiredExileCount = Number(keywordInfo.additionalExileCount || 0);
+    if (requiredExileCount <= 0) return true;
+    return Array.isArray(zones.graveyard)
+      && zones.graveyard.filter((entry: any) => entry && String(entry.id || '') !== String(card?.id || '')).length >= requiredExileCount;
+  }
+
+  return true;
+}
+
 export function getCastableSpellCandidates(
   ctx: GameContext,
   playerId: PlayerID,
@@ -410,6 +489,7 @@ export function getCastableSpellCandidates(
           grantsFlash = topSpellPermission.grantsFlash === true;
         } else if (sourceZone === 'graveyard') {
           const flashbackInfo = hasFlashback(card);
+          const grantedFlashbackInfo = flashbackInfo.hasIt ? { hasIt: false } : getGrantedFlashbackInfo(ctx, playerId, castCard);
           if (flashbackInfo.hasIt) {
             castMethod = 'flashback';
             if (flashbackInfo.cost) {
@@ -417,10 +497,30 @@ export function getCastableSpellCandidates(
             } else {
               unknownCostFallback = true;
             }
-          } else if (canCastPermanentFromGraveyard && isPermanentSpellType(typeLine)) {
-            castMethod = 'graveyard_permanent';
+          } else if (grantedFlashbackInfo.hasIt) {
+            castMethod = 'flashback';
+            if (grantedFlashbackInfo.cost) {
+              manaCost = grantedFlashbackInfo.cost;
+            } else {
+              unknownCostFallback = true;
+            }
           } else {
-            continue;
+            const graveyardKeywordInfo = getAvailableGraveyardCastKeywordInfo(ctx, playerId, castCard);
+            if (graveyardKeywordInfo) {
+              if (!canPayGraveyardCastKeywordAdditionalCost(state, playerId, card, graveyardKeywordInfo)) {
+                continue;
+              }
+              castMethod = graveyardKeywordInfo.keyword;
+              if (graveyardKeywordInfo.cost) {
+                manaCost = graveyardKeywordInfo.cost;
+              } else {
+                unknownCostFallback = true;
+              }
+            } else if (canCastPermanentFromGraveyard && isPermanentSpellType(typeLine)) {
+              castMethod = 'graveyard_permanent';
+            } else {
+              continue;
+            }
           }
         } else if (sourceZone === 'exile') {
           const exileInfo = hasForetellOrCanCastFromExile(card);
@@ -1343,6 +1443,25 @@ function hasGraveyardActivatedAbility(
   if (!card || typeof card === "string") return false;
 
   const { state } = ctx;
+  const printedUnearthInfo = getPrintedUnearthInfo(card);
+  const grantedUnearthInfo = printedUnearthInfo.hasIt ? { hasIt: false } : getGrantedUnearthInfo(ctx, playerId, card);
+  if (printedUnearthInfo.hasIt || grantedUnearthInfo.hasIt) {
+    const currentStep = String((state as any)?.step || '').toUpperCase();
+    const isMainPhase = currentStep === 'MAIN1' || currentStep === 'MAIN2' || currentStep === 'MAIN';
+    const stackIsEmpty = !state.stack || state.stack.length === 0;
+    const isTurnPlayer = String((state as any)?.turnPlayer || '') === String(playerId || '');
+    if (!isMainPhase || !stackIsEmpty || !isTurnPlayer) {
+      return false;
+    }
+
+    const unearthCost = String(printedUnearthInfo.cost || grantedUnearthInfo.cost || '').trim();
+    if (!unearthCost) {
+      return true;
+    }
+
+    const parsedCost = parseManaCost(unearthCost);
+    return canPayManaCostWithAvailableSources(state, playerId, parsedCost);
+  }
   
   const oracleText = card.oracle_text || "";
   const cardName = card.name || "this card";

@@ -19,6 +19,7 @@ import type { GameID, PlayerID, ManaPool, RestrictedManaEntry, ManaRestrictionTy
 import { getActualPowerToughness, uid, cardManaValue } from "../state/utils.js";
 import { getDevotionManaAmount, getCreatureCountManaAmount, getManaAbilitiesForPermanent, getMoxAmberAvailableColors, isMoxAmberConditionalManaSource } from "../state/modules/mana-abilities.js";
 import { canRespond, canAct, getCastableCommanderCandidates, getCostAdjustmentInfo, getHandCastEvaluationCards, getPlayableLandCandidates, isTransformBackFace } from "../state/modules/can-respond.js";
+import { getGrantedCastFromGraveyardKeywordInfo, getGrantedFlashbackInfo, getGrantedUnearthInfo, getPrintedUnearthInfo } from "../state/modules/graveyard-permissions.js";
 import { parseManaCost as parseManaFromString, canPayManaCostWithAvailableSources, getManaPoolFromState, getAvailableMana, getTotalManaFromPool } from "../state/modules/mana-check.js";
 import { hasPayableAlternateCost } from "../state/modules/alternate-costs.js";
 import { calculateCostReduction, applyCostReduction, runPostResolutionPermanentPromptChecks } from "./game-actions.js";
@@ -705,8 +706,67 @@ function getPlayableCardIds(game: InMemoryGame, playerId: PlayerID): string[] {
           
           // Check if player can pay the cost (normal or alternate)
           if (canCastNow && (canPayManaCostWithAvailableSources(state, playerId, parsedCost) || hasPayableAlternateCost(game as any, playerId, card))) {
-            playableIds.push(card.id);
+            if (!playableIds.includes(card.id)) playableIds.push(card.id);
           }
+        }
+      }
+
+      for (const card of zones.graveyard) {
+        if (!card || typeof card === "string") continue;
+
+        const grantedFlashbackInfo = getGrantedFlashbackInfo({ state } as any, playerId, card);
+        if (!grantedFlashbackInfo.hasIt || !grantedFlashbackInfo.cost) continue;
+
+        const typeLine = (card.type_line || "").toLowerCase();
+        const oracleText = (card.oracle_text || "").toLowerCase();
+        const isInstantSpeed = typeLine.includes("instant") || oracleText.includes("flash");
+        const canCastNow = isInstantSpeed || (isMainPhase && stackIsEmpty && isMyTurn);
+        if (!canCastNow) continue;
+        if (!hasValidTargetsForSpell(state as any, playerId, card, { conservative: false })) continue;
+
+        const parsedCost = parseManaFromString(grantedFlashbackInfo.cost);
+        if (canPayManaCostWithAvailableSources(state, playerId, parsedCost)) {
+          if (!playableIds.includes(card.id)) playableIds.push(card.id);
+        }
+      }
+
+      for (const card of zones.graveyard) {
+        if (!card || typeof card === "string") continue;
+
+        const grantedCastKeywordInfo = getGrantedPlayableGraveyardCastKeywordInfo(state, playerId, card);
+        if (!grantedCastKeywordInfo) continue;
+
+        const typeLine = String(card.type_line || '').toLowerCase();
+        const oracleText = String(card.oracle_text || '').toLowerCase();
+        const isInstantSpeed = typeLine.includes('instant') || oracleText.includes('flash');
+        const canCastNow = isInstantSpeed || (isMainPhase && stackIsEmpty && isMyTurn);
+        if (!canCastNow) continue;
+        if (!hasValidTargetsForSpell(state as any, playerId, card, { conservative: false })) continue;
+        if (!canPayGrantedGraveyardCastKeywordAdditionalCost(state, playerId, card, grantedCastKeywordInfo)) continue;
+
+        const parsedCost = parseManaFromString(grantedCastKeywordInfo.cost || '');
+        if (canPayManaCostWithAvailableSources(state, playerId, parsedCost)) {
+          if (!playableIds.includes(card.id)) playableIds.push(card.id);
+        }
+      }
+
+      for (const card of zones.graveyard) {
+        if (!card || typeof card === "string") continue;
+        if (!isMyTurn || !isMainPhase || !stackIsEmpty) continue;
+
+        const printedUnearthInfo = getPrintedUnearthInfo(card);
+        const grantedUnearthInfo = printedUnearthInfo.hasIt ? { hasIt: false } : getGrantedUnearthInfo({ state } as any, playerId, card);
+        if (!printedUnearthInfo.hasIt && !grantedUnearthInfo.hasIt) continue;
+
+        const unearthCost = String(printedUnearthInfo.cost || grantedUnearthInfo.cost || '').trim();
+        if (!unearthCost) {
+          if (!playableIds.includes(card.id)) playableIds.push(card.id);
+          continue;
+        }
+
+        const parsedCost = parseManaFromString(unearthCost);
+        if (canPayManaCostWithAvailableSources(state, playerId, parsedCost)) {
+          if (!playableIds.includes(card.id)) playableIds.push(card.id);
         }
       }
       
@@ -884,6 +944,131 @@ function getPlayableCardIds(game: InMemoryGame, playerId: PlayerID): string[] {
   
   debug(2, `[getPlayableCardIds] Player ${playerId}: ${playableIds.length} playable option(s); step=${game.state?.step}, priority=${game.state?.priority}, hand=${Array.isArray(game.state?.zones?.[playerId]?.hand) ? game.state.zones[playerId].hand.length : 0}, availableMana=${getTotalManaFromPool(getAvailableMana(game.state, playerId))}`);
   return playableIds;
+}
+
+type GrantedPlayableGraveyardCastKeyword = 'jump-start' | 'retrace' | 'escape';
+
+function getGrantedPlayableGraveyardCastKeywordInfo(state: any, playerId: PlayerID, card: any): { keyword: GrantedPlayableGraveyardCastKeyword; cost?: string; additionalExileCount?: number } | undefined {
+  for (const keyword of ['jump-start', 'retrace', 'escape'] as GrantedPlayableGraveyardCastKeyword[]) {
+    const grantedInfo = getGrantedCastFromGraveyardKeywordInfo({ state } as any, playerId, card, keyword);
+    if (grantedInfo.hasIt && grantedInfo.cost) {
+      return { keyword, cost: grantedInfo.cost, additionalExileCount: grantedInfo.additionalExileCount };
+    }
+  }
+  return undefined;
+}
+
+function canPayGrantedGraveyardCastKeywordAdditionalCost(state: any, playerId: PlayerID, card: any, keywordInfo: { keyword: GrantedPlayableGraveyardCastKeyword; additionalExileCount?: number }): boolean {
+  const zones = state?.zones?.[playerId];
+  if (!zones) return false;
+
+  if (keywordInfo.keyword === 'jump-start') {
+    return Array.isArray(zones.hand) && zones.hand.length > 0;
+  }
+
+  if (keywordInfo.keyword === 'retrace') {
+    return Array.isArray(zones.hand) && zones.hand.some((entry: any) => /\bland\b/i.test(String(entry?.type_line || entry?.typeLine || '')));
+  }
+
+  if (keywordInfo.keyword === 'escape') {
+    const requiredExileCount = Number(keywordInfo.additionalExileCount || 0);
+    if (requiredExileCount <= 0) return true;
+    return Array.isArray(zones.graveyard)
+      && zones.graveyard.filter((entry: any) => entry && String(entry.id || '') !== String(card?.id || '')).length >= requiredExileCount;
+  }
+
+  return true;
+}
+
+function getGraveyardAbilityHints(game: InMemoryGame, playerId: PlayerID): Record<string, any[]> {
+  const hints: Record<string, any[]> = {};
+
+  try {
+    const state = game.state;
+    const zones = state?.zones?.[playerId];
+    if (!state || !zones || !Array.isArray(zones.graveyard)) return hints;
+
+    const isMainPhase = isInMainPhase(state);
+    const stackIsEmpty = !state.stack || state.stack.length === 0;
+    const isMyTurn = state.turnPlayer === playerId;
+
+    const addHint = (cardId: string, hint: any) => {
+      if (!cardId) return;
+      hints[cardId] = Array.isArray(hints[cardId]) ? hints[cardId] : [];
+      if (!hints[cardId].some((entry: any) => String(entry?.id || '') === String(hint.id || ''))) {
+        hints[cardId].push(hint);
+      }
+    };
+
+    for (const card of zones.graveyard) {
+      if (!card || typeof card === "string") continue;
+      const cardId = String(card.id || '').trim();
+      if (!cardId) continue;
+
+      const grantedFlashbackInfo = getGrantedFlashbackInfo({ state } as any, playerId, card);
+      if (grantedFlashbackInfo.hasIt && grantedFlashbackInfo.cost) {
+        const typeLine = String(card.type_line || '').toLowerCase();
+        const oracleText = String(card.oracle_text || '').toLowerCase();
+        const isInstantSpeed = typeLine.includes('instant') || oracleText.includes('flash');
+        const canCastNow = isInstantSpeed || (isMainPhase && stackIsEmpty && isMyTurn);
+        const parsedCost = parseManaFromString(grantedFlashbackInfo.cost);
+        if (canCastNow && hasValidTargetsForSpell(state as any, playerId, card, { conservative: false }) && canPayManaCostWithAvailableSources(state, playerId, parsedCost)) {
+          addHint(cardId, {
+            id: 'flashback',
+            label: 'Cast',
+            description: `Cast from graveyard for ${grantedFlashbackInfo.cost}`,
+            cost: grantedFlashbackInfo.cost,
+          });
+        }
+      }
+
+      if (isMainPhase && stackIsEmpty && isMyTurn && !getPrintedUnearthInfo(card).hasIt) {
+        const grantedUnearthInfo = getGrantedUnearthInfo({ state } as any, playerId, card);
+        if (grantedUnearthInfo.hasIt && grantedUnearthInfo.cost) {
+          const parsedCost = parseManaFromString(grantedUnearthInfo.cost);
+          if (canPayManaCostWithAvailableSources(state, playerId, parsedCost)) {
+            addHint(cardId, {
+              id: 'unearth',
+              label: 'Unearth',
+              description: `Return to battlefield for ${grantedUnearthInfo.cost}`,
+              cost: grantedUnearthInfo.cost,
+            });
+          }
+        }
+      }
+
+      const grantedCastKeywordInfo = getGrantedPlayableGraveyardCastKeywordInfo(state, playerId, card);
+      if (grantedCastKeywordInfo) {
+        const typeLine = String(card.type_line || '').toLowerCase();
+        const oracleText = String(card.oracle_text || '').toLowerCase();
+        const isInstantSpeed = typeLine.includes('instant') || oracleText.includes('flash');
+        const canCastNow = isInstantSpeed || (isMainPhase && stackIsEmpty && isMyTurn);
+        const parsedCost = parseManaFromString(grantedCastKeywordInfo.cost || '');
+        if (
+          canCastNow
+          && hasValidTargetsForSpell(state as any, playerId, card, { conservative: false })
+          && canPayGrantedGraveyardCastKeywordAdditionalCost(state, playerId, card, grantedCastKeywordInfo)
+          && canPayManaCostWithAvailableSources(state, playerId, parsedCost)
+        ) {
+          const labels: Record<GrantedPlayableGraveyardCastKeyword, string> = {
+            'jump-start': 'Jump-start',
+            retrace: 'Retrace',
+            escape: 'Escape',
+          };
+          addHint(cardId, {
+            id: grantedCastKeywordInfo.keyword,
+            label: labels[grantedCastKeywordInfo.keyword],
+            description: `Cast from graveyard for ${grantedCastKeywordInfo.cost}`,
+            cost: grantedCastKeywordInfo.cost,
+          });
+        }
+      }
+    }
+  } catch (err) {
+    debugWarn(1, "[getGraveyardAbilityHints] Error:", err);
+  }
+
+  return hints;
 }
 
 /**
@@ -1201,6 +1386,7 @@ function normalizeViewForEmit(rawView: any, game: any) {
     // This helps players see which cards/permanents they can play/activate
     try {
       view.playableCards = [];
+      view.graveyardAbilityHints = {};
       view.canAct = false;
       view.canRespond = false;
 
@@ -1212,6 +1398,9 @@ function normalizeViewForEmit(rawView: any, game: any) {
         if (priority === viewerId) {
           const playableCardIds = getPlayableCardIds(game, viewerId);
           view.playableCards = playableCardIds || [];
+          view.graveyardAbilityHints = {
+            [viewerId]: getGraveyardAbilityHints(game, viewerId),
+          };
 
           // Add canAct and canRespond flags to the view
           // These are calculated server-side to ensure consistency with game rules

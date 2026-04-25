@@ -318,6 +318,20 @@ type PlayerCounterSnapshot = {
   readonly counters: Readonly<Record<string, number>>;
 };
 
+export interface ProliferateChoiceTarget {
+  readonly id: string;
+  readonly name: string;
+  readonly counters: Readonly<Record<string, number>>;
+  readonly isPlayer: boolean;
+  readonly type: 'permanent' | 'player';
+  readonly controller?: PlayerID;
+}
+
+export interface ProliferateSelectionResult {
+  readonly state: GameState;
+  readonly appliedTargetIds: readonly string[];
+}
+
 function getPlayerCounterSnapshot(state: GameState, player: any): PlayerCounterSnapshot {
   const playerId = String(player?.id || '').trim();
   const counters: Record<string, number> = {};
@@ -345,6 +359,105 @@ function getPlayerCounterSnapshot(state: GameState, player: any): PlayerCounterS
   }
 
   return { counters };
+}
+
+function getPermanentCounterSnapshot(permanent: BattlefieldPermanent): Readonly<Record<string, number>> {
+  const counters: Record<string, number> = {};
+  for (const [counter, value] of getPositiveCounterEntries((permanent as any)?.counters)) {
+    counters[counter] = value;
+  }
+
+  const loyalty = Number((permanent as any)?.loyalty);
+  if (Number.isFinite(loyalty) && loyalty > 0) {
+    counters.loyalty = loyalty;
+  }
+
+  return counters;
+}
+
+function readPermanentDisplayName(permanent: BattlefieldPermanent): string {
+  return String((permanent as any)?.card?.name || (permanent as any)?.name || (permanent as any)?.id || 'Permanent');
+}
+
+function readPlayerDisplayName(player: any): string {
+  return String(player?.name || player?.username || player?.id || 'Player');
+}
+
+export function getProliferateChoiceTargets(state: GameState): readonly ProliferateChoiceTarget[] {
+  const targets: ProliferateChoiceTarget[] = [];
+
+  for (const permanent of state.battlefield || []) {
+    const permanentId = String((permanent as any)?.id || '').trim();
+    if (!permanentId) continue;
+
+    const counters = getPermanentCounterSnapshot(permanent);
+    if (Object.keys(counters).length === 0) continue;
+
+    const controller = String((permanent as any)?.controller || '').trim() as PlayerID;
+    targets.push({
+      id: permanentId,
+      name: readPermanentDisplayName(permanent),
+      counters,
+      isPlayer: false,
+      type: 'permanent',
+      ...(controller ? { controller } : {}),
+    });
+  }
+
+  for (const player of state.players || []) {
+    const playerId = String((player as any)?.id || '').trim() as PlayerID;
+    if (!playerId) continue;
+
+    const snapshot = getPlayerCounterSnapshot(state, player);
+    if (Object.keys(snapshot.counters).length === 0) continue;
+
+    targets.push({
+      id: playerId,
+      name: readPlayerDisplayName(player),
+      counters: snapshot.counters,
+      isPlayer: true,
+      type: 'player',
+    });
+  }
+
+  return targets;
+}
+
+export function applyProliferateSelectedTargetIds(
+  state: GameState,
+  selectedTargetIds: readonly string[]
+): ProliferateSelectionResult {
+  const selected = new Set(selectedTargetIds.map(id => String(id || '').trim()).filter(Boolean));
+  if (selected.size === 0) {
+    return { state, appliedTargetIds: [] };
+  }
+
+  const appliedTargetIds: string[] = [];
+  let nextState = state;
+
+  const nextBattlefield = (nextState.battlefield || []).map((permanent) => {
+    const permanentId = String((permanent as any)?.id || '').trim();
+    if (!selected.has(permanentId) || getPermanentCounterKinds(permanent).length === 0) {
+      return permanent;
+    }
+
+    appliedTargetIds.push(permanentId);
+    return proliferatePermanent(permanent);
+  });
+  nextState = { ...nextState, battlefield: nextBattlefield };
+
+  for (const player of nextState.players || []) {
+    const playerId = String((player as any)?.id || '').trim() as PlayerID;
+    if (!selected.has(playerId)) continue;
+
+    const snapshot = getPlayerCounterSnapshot(nextState, player);
+    if (Object.keys(snapshot.counters).length === 0) continue;
+
+    nextState = proliferatePlayerState(nextState, playerId);
+    appliedTargetIds.push(playerId);
+  }
+
+  return { state: nextState, appliedTargetIds };
 }
 
 function proliferatePlayerState(state: GameState, playerId: PlayerID): GameState {

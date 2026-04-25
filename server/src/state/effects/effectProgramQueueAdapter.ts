@@ -221,6 +221,19 @@ function normalizeTopLibraryEffectProgramSelections(
     };
   }
 
+  if (stepType === ResolutionStepType.EXPLORE_DECISION) {
+    return {
+      permanentId: normalizeEffectProgramSelectionValue(selections.permanentId || selections.selectedPermanentId || (step as any).permanentId),
+      toGraveyard: selections.toGraveyard === true || selections.destination === 'graveyard',
+    };
+  }
+
+  if (stepType === ResolutionStepType.CLASH) {
+    return {
+      putOnBottom: selections.putOnBottom === true || selections.destination === 'bottom',
+    };
+  }
+
   return undefined;
 }
 

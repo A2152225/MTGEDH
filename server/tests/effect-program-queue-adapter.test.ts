@@ -345,6 +345,187 @@ describe('effect-program queue adapter', () => {
     });
   });
 
+  it('preserves EffectProgram explore prompt fields and selections through queueing', () => {
+    const program: EffectProgram = {
+      ...makeProgram(),
+      steps: [
+        {
+          id: 'effect-program-1:clause-0:explore-choice',
+          kind: 'choice',
+          bindingKey: 'explore-binding-1',
+          choiceRequest: {
+            type: ChoiceEventType.EXPLORE_DECISION,
+            playerId: 'p1',
+            description: 'Explorer explores.',
+            mandatory: true,
+            sourceId: 'explorer-1',
+            sourceName: 'Explorer',
+            payload: {
+              permanentId: 'explorer-1',
+              permanentName: 'Explorer',
+              revealedCard: { id: 'top-spell', name: 'Top Spell', type_line: 'Creature - Scout' },
+              isLand: false,
+            },
+          },
+        },
+      ],
+    };
+    const paused = runEffectProgram(createEffectProgramRuntime({ program, state: {} }));
+    const step = queueEffectProgramChoice(gameId, paused.pendingChoice!);
+
+    expect(step).toMatchObject({
+      type: 'explore_decision',
+      permanentId: 'explorer-1',
+      permanentName: 'Explorer',
+      revealedCard: { id: 'top-spell', name: 'Top Spell' },
+      isLand: false,
+      effectProgramPrompt: true,
+      effectProgramBindingKey: 'explore-binding-1',
+    });
+
+    const choiceResponse = createEffectProgramChoiceResponse(step, {
+      stepId: step.id,
+      playerId: 'p1',
+      selections: {
+        permanentId: 'explorer-1',
+        toGraveyard: true,
+      },
+      cancelled: false,
+      timestamp: 123,
+    });
+
+    expect(choiceResponse.selections).toEqual({
+      permanentId: 'explorer-1',
+      toGraveyard: true,
+    });
+  });
+
+  it('preserves EffectProgram proliferate prompt fields and selections through queueing', () => {
+    const program: EffectProgram = {
+      ...makeProgram(),
+      steps: [
+        {
+          id: 'effect-program-1:clause-0:proliferate-choice',
+          kind: 'choice',
+          bindingKey: 'proliferate-binding-1',
+          choiceRequest: {
+            type: ChoiceEventType.PROLIFERATE,
+            playerId: 'p1',
+            description: 'Choose permanents and/or players to proliferate.',
+            mandatory: true,
+            sourceId: 'source-1',
+            sourceName: 'Source Card',
+            payload: {
+              proliferateId: 'proliferate-1',
+              availableTargets: [
+                {
+                  id: 'countered-creature',
+                  name: 'Countered Creature',
+                  counters: { '+1/+1': 1 },
+                  isPlayer: false,
+                  type: 'permanent',
+                  controller: 'p1',
+                },
+                {
+                  id: 'p2',
+                  name: 'P2',
+                  counters: { poison: 2 },
+                  isPlayer: true,
+                  type: 'player',
+                },
+              ],
+            },
+          },
+        },
+      ],
+    };
+    const paused = runEffectProgram(createEffectProgramRuntime({ program, state: {} }));
+    const step = queueEffectProgramChoice(gameId, paused.pendingChoice!);
+
+    expect(step).toMatchObject({
+      type: 'proliferate',
+      proliferateId: 'proliferate-1',
+      availableTargets: [
+        {
+          id: 'countered-creature',
+          name: 'Countered Creature',
+          counters: { '+1/+1': 1 },
+          isPlayer: false,
+          type: 'permanent',
+          controller: 'p1',
+        },
+        {
+          id: 'p2',
+          name: 'P2',
+          counters: { poison: 2 },
+          isPlayer: true,
+          type: 'player',
+        },
+      ],
+      effectProgramPrompt: true,
+      effectProgramBindingKey: 'proliferate-binding-1',
+    });
+
+    const choiceResponse = createEffectProgramChoiceResponse(step, {
+      stepId: step.id,
+      playerId: 'p1',
+      selections: {
+        selectedTargetIds: ['countered-creature', 'p2'],
+      },
+      cancelled: false,
+      timestamp: 123,
+    });
+
+    expect(choiceResponse.selections).toEqual(['countered-creature', 'p2']);
+  });
+
+  it('preserves EffectProgram clash prompt fields and selections through queueing', () => {
+    const program: EffectProgram = {
+      ...makeProgram(),
+      steps: [
+        {
+          id: 'effect-program-1:clause-0:clash-choice',
+          kind: 'choice',
+          bindingKey: 'clash-binding-1',
+          choiceRequest: {
+            type: ChoiceEventType.CLASH,
+            playerId: 'p1',
+            description: 'Source Card: Clash with an opponent.',
+            mandatory: true,
+            sourceId: 'source-1',
+            sourceName: 'Source Card',
+            payload: {
+              revealedCard: { id: 'top-card', name: 'Top Card', cmc: 4 },
+              opponentId: 'p2',
+            },
+          },
+        },
+      ],
+    };
+    const paused = runEffectProgram(createEffectProgramRuntime({ program, state: {} }));
+    const step = queueEffectProgramChoice(gameId, paused.pendingChoice!);
+
+    expect(step).toMatchObject({
+      type: 'clash',
+      revealedCard: { id: 'top-card', name: 'Top Card', cmc: 4 },
+      opponentId: 'p2',
+      effectProgramPrompt: true,
+      effectProgramBindingKey: 'clash-binding-1',
+    });
+
+    const choiceResponse = createEffectProgramChoiceResponse(step, {
+      stepId: step.id,
+      playerId: 'p1',
+      selections: {
+        putOnBottom: true,
+      },
+      cancelled: false,
+      timestamp: 123,
+    });
+
+    expect(choiceResponse.selections).toEqual({ putOnBottom: true });
+  });
+
   it('preserves EffectProgram fateseal prompt fields through queueing', () => {
     const program: EffectProgram = {
       ...makeProgram(),

@@ -47,6 +47,9 @@ export enum ChoiceEventType {
   NUMBER_CHOICE = 'number_choice',
   PLAYER_CHOICE = 'player_choice',
   OPTION_CHOICE = 'option_choice',
+  EXPLORE_DECISION = 'explore_decision',
+  PROLIFERATE = 'proliferate',
+  CLASH = 'clash',
   SCRY = 'scry',
   SURVEIL = 'surveil',
   FATESEAL = 'fateseal',
@@ -252,6 +255,33 @@ export interface OptionChoiceEvent extends BaseChoiceEvent {
   readonly maxSelections: number;
 }
 
+export interface ExploreDecisionEvent extends BaseChoiceEvent {
+  readonly type: ChoiceEventType.EXPLORE_DECISION;
+  readonly permanentId: string;
+  readonly permanentName: string;
+  readonly revealedCard: KnownCardRef;
+  readonly isLand: boolean;
+}
+
+export interface ProliferateEvent extends BaseChoiceEvent {
+  readonly type: ChoiceEventType.PROLIFERATE;
+  readonly proliferateId: string;
+  readonly availableTargets: readonly {
+    readonly id: string;
+    readonly name: string;
+    readonly counters: Readonly<Record<string, number>>;
+    readonly isPlayer: boolean;
+    readonly type?: 'permanent' | 'player';
+    readonly controller?: PlayerID;
+  }[];
+}
+
+export interface ClashEvent extends BaseChoiceEvent {
+  readonly type: ChoiceEventType.CLASH;
+  readonly revealedCard: KnownCardRef;
+  readonly opponentId?: PlayerID;
+}
+
 export interface ScryEvent extends BaseChoiceEvent {
   readonly type: ChoiceEventType.SCRY;
   readonly cards: readonly KnownCardRef[];
@@ -293,6 +323,9 @@ export type ChoiceEvent =
   | NumberChoiceEvent
   | PlayerChoiceEvent
   | OptionChoiceEvent
+  | ExploreDecisionEvent
+  | ProliferateEvent
+  | ClashEvent
   | ScryEvent
   | SurveilEvent
   | FatesealEvent;

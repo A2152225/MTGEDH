@@ -1240,6 +1240,417 @@ describe('EffectProgram', () => {
     ]);
   });
 
+  it('feeds explore choices into Oracle IR execution', () => {
+    const program = buildEffectProgramFromOracleIR({
+      id: 'explore-program',
+      controllerId: 'p1',
+      sourceId: 'explorer-1',
+      sourceName: 'Explorer',
+      steps: [
+        {
+          kind: 'explore',
+          target: { kind: 'raw', text: 'this creature' },
+          raw: 'Explore.',
+        } as any,
+      ],
+    });
+
+    expect(program.steps.map(step => step.kind)).toEqual(['choice', 'command']);
+
+    const state = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          library: [
+            { id: 'top-spell', name: 'Top Spell', type_line: 'Creature - Scout' },
+            { id: 'next-card', name: 'Next Card', type_line: 'Instant' },
+          ],
+          hand: [],
+          graveyard: [],
+        } as any,
+      ],
+      battlefield: [
+        {
+          id: 'explorer-1',
+          controller: 'p1',
+          card: { name: 'Explorer', type_line: 'Creature - Scout' },
+          counters: {},
+        } as any,
+      ],
+    });
+
+    const paused = runOracleEffectProgram(
+      createEffectProgramRuntime({ program, state }),
+      { controllerId: 'p1', sourceId: 'explorer-1', sourceName: 'Explorer' }
+    );
+
+    expect(paused.status).toBe('waiting_for_choice');
+    expect(paused.pendingChoice?.choiceEvent).toMatchObject({
+      type: ChoiceEventType.EXPLORE_DECISION,
+      permanentId: 'explorer-1',
+      permanentName: 'Explorer',
+      revealedCard: { id: 'top-spell', name: 'Top Spell' },
+      isLand: false,
+    });
+
+    const resumedRuntime = bindEffectProgramChoiceResponse(
+      paused.runtime,
+      {
+        eventId: paused.pendingChoice!.choiceEvent.id,
+        playerId: 'p1',
+        selections: { permanentId: 'explorer-1', toGraveyard: true },
+        cancelled: false,
+        timestamp: 2,
+      } as ChoiceResponse,
+      paused.pendingChoice!.step.bindingKey
+    );
+    const completed = runOracleEffectProgram(
+      resumedRuntime,
+      { controllerId: 'p1', sourceId: 'explorer-1', sourceName: 'Explorer' }
+    );
+
+    const player = completed.state.players.find(playerState => playerState.id === 'p1') as any;
+    const permanent = ((completed.state as any).battlefield || []).find((entry: any) => entry.id === 'explorer-1') as any;
+    expect(completed.status).toBe('completed');
+    expect(player.library.map((card: any) => card.id)).toEqual(['next-card']);
+    expect(player.graveyard.map((card: any) => card.id)).toEqual(['top-spell']);
+    expect(permanent.counters['+1/+1']).toBe(1);
+    expect(completed.events).toEqual([
+      {
+        type: 'oracle_ir_execution',
+        stepId: 'explore-program:clause-0:command',
+        appliedStepKinds: ['explore'],
+        skippedStepKinds: [],
+        automationGapCount: 0,
+        pendingOptionalStepCount: 0,
+      },
+    ]);
+  });
+
+  it('feeds proliferate choices into Oracle IR execution', () => {
+    const program = buildEffectProgramFromOracleIR({
+      id: 'proliferate-program',
+      controllerId: 'p1',
+      sourceId: 'source-1',
+      sourceName: 'Proliferate Source',
+      steps: [
+        {
+          kind: 'proliferate',
+          who: { kind: 'you' },
+          raw: 'Proliferate.',
+        } as any,
+      ],
+    });
+
+    expect(program.steps.map(step => step.kind)).toEqual(['choice', 'command']);
+
+    const state = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          library: [],
+          hand: [],
+          graveyard: [],
+          poisonCounters: 1,
+          counters: { poison: 1 },
+        } as any,
+      ],
+      battlefield: [
+        {
+          id: 'countered-creature',
+          controller: 'p1',
+          card: { name: 'Countered Creature', type_line: 'Creature' },
+          counters: { '+1/+1': 1 },
+        } as any,
+        {
+          id: 'plain-creature',
+          controller: 'p1',
+          card: { name: 'Plain Creature', type_line: 'Creature' },
+          counters: {},
+        } as any,
+      ],
+    });
+
+    const paused = runOracleEffectProgram(
+      createEffectProgramRuntime({ program, state }),
+      { controllerId: 'p1', sourceId: 'source-1', sourceName: 'Proliferate Source' }
+    );
+
+    expect(paused.status).toBe('waiting_for_choice');
+    expect(paused.pendingChoice?.choiceEvent).toMatchObject({
+      type: ChoiceEventType.PROLIFERATE,
+      availableTargets: [
+        {
+          id: 'countered-creature',
+          name: 'Countered Creature',
+          counters: { '+1/+1': 1 },
+          isPlayer: false,
+          type: 'permanent',
+          controller: 'p1',
+        },
+        {
+          id: 'p1',
+          name: 'P1',
+          counters: { poison: 1 },
+          isPlayer: true,
+          type: 'player',
+        },
+      ],
+    });
+
+    const resumedRuntime = bindEffectProgramChoiceResponse(
+      paused.runtime,
+      {
+        eventId: paused.pendingChoice!.choiceEvent.id,
+        playerId: 'p1',
+        selections: ['countered-creature', 'p1'],
+        cancelled: false,
+        timestamp: 2,
+      } as ChoiceResponse,
+      paused.pendingChoice!.step.bindingKey
+    );
+    const completed = runOracleEffectProgram(
+      resumedRuntime,
+      { controllerId: 'p1', sourceId: 'source-1', sourceName: 'Proliferate Source' }
+    );
+
+    const permanent = ((completed.state as any).battlefield || []).find((entry: any) => entry.id === 'countered-creature') as any;
+    const player = completed.state.players.find(playerState => playerState.id === 'p1') as any;
+    expect(completed.status).toBe('completed');
+    expect(permanent.counters['+1/+1']).toBe(2);
+    expect(player.poisonCounters).toBe(2);
+    expect(player.counters.poison).toBe(2);
+    expect(completed.events).toEqual([
+      {
+        type: 'oracle_ir_execution',
+        stepId: 'proliferate-program:clause-0:command',
+        appliedStepKinds: ['proliferate'],
+        skippedStepKinds: [],
+        automationGapCount: 0,
+        pendingOptionalStepCount: 0,
+      },
+    ]);
+  });
+
+  it('feeds clash choices into Oracle IR execution and win follow-up conditions', () => {
+    const { programs } = buildEffectProgramsFromOracleText({
+      idPrefix: 'clash-program',
+      oracleText: 'Clash with an opponent. If you win, put a +1/+1 counter on this creature.',
+      controllerId: 'p1',
+      sourceId: 'clash-source',
+      sourceName: 'Clash Source',
+    });
+    const program = programs[0];
+
+    expect(program.steps.slice(0, 4).map(step => step.kind)).toEqual(['choice', 'choice', 'choice', 'command']);
+
+    const state = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          library: [
+            { id: 'you-high', name: 'Dragon', type_line: 'Creature - Dragon', mana_cost: '{5}{R}', cmc: 6 },
+            { id: 'you-next', name: 'You Next', type_line: 'Instant', cmc: 2 },
+          ],
+          hand: [],
+          graveyard: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          library: [
+            { id: 'opp-low', name: 'Shock', type_line: 'Instant', mana_cost: '{R}', cmc: 1 },
+            { id: 'opp-next', name: 'Opponent Next', type_line: 'Land', cmc: 0 },
+          ],
+          hand: [],
+          graveyard: [],
+        } as any,
+      ],
+      battlefield: [
+        {
+          id: 'clash-source',
+          controller: 'p1',
+          card: { name: 'Clash Source', type_line: 'Creature' },
+          counters: {},
+        } as any,
+      ],
+    });
+
+    const ctx = { controllerId: 'p1', sourceId: 'clash-source', sourceName: 'Clash Source' };
+    const opponentPaused = runOracleEffectProgram(createEffectProgramRuntime({ program, state }), ctx);
+
+    expect(opponentPaused.status).toBe('waiting_for_choice');
+    expect(opponentPaused.pendingChoice?.choiceEvent).toMatchObject({
+      type: ChoiceEventType.PLAYER_CHOICE,
+      validPlayers: [{ id: 'p2', name: 'P2' }],
+    });
+
+    const afterOpponent = bindEffectProgramChoiceResponse(
+      opponentPaused.runtime,
+      {
+        eventId: opponentPaused.pendingChoice!.choiceEvent.id,
+        playerId: 'p1',
+        selections: ['p2'],
+        cancelled: false,
+        timestamp: 2,
+      },
+      opponentPaused.pendingChoice!.step.bindingKey
+    );
+    const controllerPaused = runOracleEffectProgram(afterOpponent, ctx);
+
+    expect(controllerPaused.status).toBe('waiting_for_choice');
+    expect(controllerPaused.pendingChoice?.choiceEvent).toMatchObject({
+      type: ChoiceEventType.CLASH,
+      playerId: 'p1',
+      opponentId: 'p2',
+      revealedCard: { id: 'you-high', name: 'Dragon', cmc: 6 },
+    });
+
+    const afterController = bindEffectProgramChoiceResponse(
+      controllerPaused.runtime,
+      {
+        eventId: controllerPaused.pendingChoice!.choiceEvent.id,
+        playerId: 'p1',
+        selections: { putOnBottom: false },
+        cancelled: false,
+        timestamp: 3,
+      } as ChoiceResponse,
+      controllerPaused.pendingChoice!.step.bindingKey
+    );
+    const opponentCardPaused = runOracleEffectProgram(afterController, ctx);
+
+    expect(opponentCardPaused.status).toBe('waiting_for_choice');
+    expect(opponentCardPaused.pendingChoice?.choiceEvent).toMatchObject({
+      type: ChoiceEventType.CLASH,
+      playerId: 'p2',
+      opponentId: 'p1',
+      revealedCard: { id: 'opp-low', name: 'Shock', cmc: 1 },
+    });
+
+    const afterOpponentCard = bindEffectProgramChoiceResponse(
+      opponentCardPaused.runtime,
+      {
+        eventId: opponentCardPaused.pendingChoice!.choiceEvent.id,
+        playerId: 'p2',
+        selections: { putOnBottom: true },
+        cancelled: false,
+        timestamp: 4,
+      } as ChoiceResponse,
+      opponentCardPaused.pendingChoice!.step.bindingKey
+    );
+    const completed = runOracleEffectProgram(afterOpponentCard, ctx);
+
+    const controller = completed.state.players.find(playerState => playerState.id === 'p1') as any;
+    const opponent = completed.state.players.find(playerState => playerState.id === 'p2') as any;
+    const source = ((completed.state as any).battlefield || []).find((entry: any) => entry.id === 'clash-source') as any;
+    expect(completed.status).toBe('completed');
+    expect(controller.library.map((card: any) => card.id)).toEqual(['you-high', 'you-next']);
+    expect(opponent.library.map((card: any) => card.id)).toEqual(['opp-next', 'opp-low']);
+    expect(source.counters['+1/+1']).toBe(1);
+    expect(completed.events.map((event: any) => event.appliedStepKinds).flat()).toContain('clash');
+    expect(completed.events.map((event: any) => event.appliedStepKinds).flat()).toContain('add_counter');
+  });
+
+  it('feeds populate choices into Oracle IR execution', () => {
+    const program = buildEffectProgramFromOracleIR({
+      id: 'populate-program',
+      controllerId: 'p1',
+      sourceId: 'source-1',
+      sourceName: 'Populate Source',
+      steps: [
+        {
+          kind: 'populate',
+          who: { kind: 'you' },
+          amount: { kind: 'number', value: 1 },
+          raw: 'Populate.',
+        } as any,
+      ],
+    });
+
+    expect(program.steps.map(step => step.kind)).toEqual(['choice', 'command']);
+
+    const state = makeState({
+      battlefield: [
+        {
+          id: 'rhino-token',
+          controller: 'p1',
+          owner: 'p1',
+          isToken: true,
+          tapped: false,
+          card: {
+            id: 'rhino-card',
+            name: 'Rhino',
+            type_line: 'Token Creature - Rhino',
+            power: '4',
+            toughness: '4',
+          },
+          basePower: 4,
+          baseToughness: 4,
+          counters: { '+1/+1': 2 },
+        } as any,
+      ],
+    });
+
+    const paused = runOracleEffectProgram(
+      createEffectProgramRuntime({ program, state }),
+      { controllerId: 'p1', sourceId: 'source-1', sourceName: 'Populate Source' }
+    );
+
+    expect(paused.status).toBe('waiting_for_choice');
+    expect(paused.pendingChoice?.choiceEvent).toMatchObject({
+      type: ChoiceEventType.TARGET_SELECTION,
+      validTargets: [{ id: 'rhino-token', label: 'Rhino' }],
+      targetTypes: ['creature token'],
+      minTargets: 1,
+      maxTargets: 1,
+    });
+
+    const resumedRuntime = bindEffectProgramChoiceResponse(
+      paused.runtime,
+      {
+        eventId: paused.pendingChoice!.choiceEvent.id,
+        playerId: 'p1',
+        selections: ['rhino-token'],
+        cancelled: false,
+        timestamp: 2,
+      } as ChoiceResponse,
+      paused.pendingChoice!.step.bindingKey
+    );
+    const completed = runOracleEffectProgram(
+      resumedRuntime,
+      { controllerId: 'p1', sourceId: 'source-1', sourceName: 'Populate Source' }
+    );
+
+    const battlefield = (completed.state.battlefield || []) as any[];
+    expect(completed.status).toBe('completed');
+    expect(battlefield).toHaveLength(2);
+    expect(battlefield[1]).toMatchObject({
+      controller: 'p1',
+      isToken: true,
+      card: { name: 'Rhino', type_line: 'Token Creature - Rhino' },
+      counters: {},
+      createdBySourceId: 'source-1',
+      createdBySourceName: 'Populate Source',
+    });
+    expect(completed.events).toEqual([
+      {
+        type: 'oracle_ir_execution',
+        stepId: 'populate-program:clause-0:command',
+        appliedStepKinds: ['populate'],
+        skippedStepKinds: [],
+        automationGapCount: 0,
+        pendingOptionalStepCount: 0,
+      },
+    ]);
+  });
+
   it('feeds scry choices into Oracle IR top-library execution', () => {
     const program = buildEffectProgramFromOracleIR({
       id: 'scry-program',
@@ -1673,10 +2084,10 @@ describe('EffectProgram', () => {
       sourceName: 'Keyword Source',
       steps: [
         {
-          id: 'clash-keyword',
+          id: 'connive-keyword',
           kind: 'keyword',
-          keyword: 'clash',
-          raw: 'Clash with an opponent.',
+          keyword: 'connive',
+          raw: 'Connive.',
         },
       ],
     };
@@ -1689,17 +2100,20 @@ describe('EffectProgram', () => {
     });
 
     expect(result.status).toBe('completed');
-    expect(result.state.applied).toEqual(['clash']);
+    expect(result.state.applied).toEqual(['connive']);
     expect(result.trace.map(entry => entry.outcome)).toEqual(['expanded', 'applied']);
   });
 
   it('audits missing and partial keyword registry coverage', () => {
     expect(getEffectProgramKeywordEntry('manifest_dread')?.oracleStepKind).toBe('manifest_dread');
-    expect(auditEffectProgramKeywords(['investigate', 'scry', 'clash', 'brand new keyword'])).toEqual([
+    expect(getEffectProgramKeywordEntry('proliferate')?.support).toBe('supported');
+    expect(getEffectProgramKeywordEntry('clash')?.support).toBe('supported');
+    expect(getEffectProgramKeywordEntry('populate')?.support).toBe('supported');
+    expect(auditEffectProgramKeywords(['investigate', 'scry', 'connive', 'brand new keyword'])).toEqual([
       {
-        keyword: 'clash',
+        keyword: 'connive',
         status: 'partial',
-        message: 'Keyword "clash" is marked partial in the EffectProgram registry.',
+        message: 'Keyword "connive" is marked partial in the EffectProgram registry.',
       },
       {
         keyword: 'brand new keyword',

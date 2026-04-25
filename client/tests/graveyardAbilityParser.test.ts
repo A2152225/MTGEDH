@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { parseGraveyardAbilities } from '../src/components/GraveyardViewModal';
+import { getGraveyardAbilitiesForCard, parseGraveyardAbilities } from '../src/components/GraveyardViewModal';
 import type { KnownCardRef } from '../../shared/src';
 
 describe('parseGraveyardAbilities', () => {
@@ -72,5 +72,56 @@ describe('parseGraveyardAbilities', () => {
 
     expect(persistAbility?.activatable).toBe(false);
     expect(undyingAbility?.activatable).toBe(false);
+  });
+
+  it('adds a cast action for playable instant and sorcery cards without printed graveyard text', () => {
+    const card: KnownCardRef = {
+      id: 'consider-1',
+      name: 'Consider',
+      type_line: 'Instant',
+      mana_cost: '{U}',
+      oracle_text: 'Surveil 1, then draw a card.',
+    };
+
+    const inactiveAbilities = getGraveyardAbilitiesForCard(card, { isPlayable: false });
+    const activeAbilities = getGraveyardAbilitiesForCard(card, { isPlayable: true });
+
+    expect(inactiveAbilities.some((entry) => entry.id === 'flashback')).toBe(false);
+    expect(activeAbilities).toContainEqual(expect.objectContaining({
+      id: 'flashback',
+      label: 'Cast',
+      cost: '{U}',
+    }));
+  });
+
+  it('adds server-provided dynamic unearth actions without guessing from playable state', () => {
+    const card: KnownCardRef = {
+      id: 'scrapwork-automaton-1',
+      name: 'Scrapwork Automaton',
+      type_line: 'Artifact Creature - Construct',
+      mana_cost: '{2}',
+      oracle_text: 'When this creature enters, draw a card.',
+    };
+
+    const playableWithoutHint = getGraveyardAbilitiesForCard(card, { isPlayable: true });
+    const withHint = getGraveyardAbilitiesForCard(card, {
+      isPlayable: true,
+      abilityHints: [
+        {
+          id: 'unearth',
+          label: 'Unearth',
+          description: 'Return to battlefield for {1}{B}{R}',
+          cost: '{1}{B}{R}',
+        },
+      ],
+    });
+
+    expect(playableWithoutHint.some((entry) => entry.id === 'unearth')).toBe(false);
+    expect(playableWithoutHint.some((entry) => entry.id === 'flashback')).toBe(false);
+    expect(withHint).toContainEqual(expect.objectContaining({
+      id: 'unearth',
+      label: 'Unearth',
+      cost: '{1}{B}{R}',
+    }));
   });
 });

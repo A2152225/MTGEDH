@@ -1131,4 +1131,110 @@ describe('broadcastGame playable card refresh', () => {
     expect(game.state.priority).toBe('p1');
     expect(stateEvent?.payload?.view?.priority).toBe('p1');
   });
+
+  it('emits dynamic unearth graveyard ability hints for the priority player', () => {
+    const gameId = 'playable_cards_granted_unearth_hints';
+    const ctx = createContext(gameId);
+
+    Object.assign(ctx.state as any, {
+      active: true,
+      phase: 'precombatMain',
+      step: 'MAIN1',
+      turnDirection: 1,
+      turnPlayer: 'p1',
+      priority: 'p1',
+      players: [
+        { id: 'p1', seat: 1, name: 'Player 1' },
+        { id: 'p2', seat: 2, name: 'Player 2' },
+      ],
+      stack: [],
+      battlefield: [
+        {
+          id: 'mishra_grant_1',
+          controller: 'p1',
+          tapped: false,
+          card: {
+            name: 'Mishra, Tamer of Mak Fawa',
+            type_line: 'Legendary Creature - Human Artificer',
+            oracle_text: 'Each artifact card in your graveyard has unearth {1}{B}{R}.',
+          },
+        },
+      ],
+      zones: {
+        p1: {
+          hand: [],
+          graveyard: [
+            {
+              id: 'scrapwork_1',
+              name: 'Scrapwork Automaton',
+              type_line: 'Artifact Creature - Construct',
+              mana_cost: '{2}',
+              oracle_text: 'When this creature enters, draw a card.',
+            },
+          ],
+          library: [],
+          exile: [],
+          handCount: 0,
+          graveyardCount: 1,
+          exileCount: 0,
+        },
+        p2: {
+          hand: [],
+          graveyard: [],
+          library: [],
+          exile: [],
+          handCount: 0,
+          graveyardCount: 0,
+          exileCount: 0,
+        },
+      },
+      life: { p1: 40, p2: 40 },
+      manaPool: {
+        p1: { white: 0, blue: 0, black: 1, red: 1, green: 0, colorless: 1 },
+        p2: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+      },
+      playableCards: [],
+      canAct: true,
+      canRespond: true,
+    });
+
+    const game: any = {
+      gameId,
+      state: ctx.state,
+      inactive: ctx.inactive,
+      passesInRow: ctx.passesInRow,
+      libraries: ctx.libraries,
+      life: ctx.life,
+      commandZone: ctx.commandZone,
+      manaPool: ctx.manaPool,
+      get seq() {
+        return ctx.seq.value;
+      },
+      set seq(value: number) {
+        ctx.seq.value = value;
+      },
+      bumpSeq: ctx.bumpSeq,
+      participants: () => [{ socketId: 'sock_1', playerId: 'p1', spectator: false }],
+      viewFor: () => ({
+        ...ctx.state,
+        viewer: 'p1',
+        playableCards: [],
+        canAct: true,
+        canRespond: true,
+      }),
+    };
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const io = createMockIo(emitted);
+
+    broadcastGame(io, game, gameId);
+
+    const stateEvent = emitted.find((entry) => entry.room === 'sock_1' && entry.event === 'state');
+    expect(stateEvent).toBeDefined();
+    expect(stateEvent?.payload?.view?.playableCards).toContain('scrapwork_1');
+    expect(stateEvent?.payload?.view?.graveyardAbilityHints?.p1?.scrapwork_1).toContainEqual(expect.objectContaining({
+      id: 'unearth',
+      cost: '{1}{B}{R}',
+    }));
+  });
 });

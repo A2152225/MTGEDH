@@ -119,6 +119,83 @@ describe('unearth graveyard replay semantics (integration)', () => {
     expect((game.state as any).manaPool?.[playerId]).toEqual({ white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 });
   });
 
+  it('uses a battlefield-granted unearth cost for live activation', async () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const playerId = 'p1';
+    (game.state as any).players = [{ id: playerId, name: 'P1', spectator: false, life: 40 }];
+    (game.state as any).zones = {
+      [playerId]: {
+        hand: [],
+        handCount: 0,
+        library: [],
+        libraryCount: 0,
+        graveyard: [
+          {
+            id: 'granted_unearth_artifact_1',
+            name: 'Scrapwork Automaton',
+            type_line: 'Artifact Creature - Construct',
+            oracle_text: 'When this creature enters, draw a card.',
+            power: '2',
+            toughness: '2',
+            zone: 'graveyard',
+          },
+        ],
+        graveyardCount: 1,
+        exile: [],
+        exileCount: 0,
+      },
+    };
+    (game.state as any).manaPool = {
+      [playerId]: { white: 0, blue: 0, black: 1, red: 1, green: 0, colorless: 1 },
+    };
+    (game.state as any).battlefield = [
+      {
+        id: 'mishra_grant_1',
+        controller: playerId,
+        tapped: false,
+        card: {
+          name: 'Mishra, Tamer of Mak Fawa',
+          type_line: 'Legendary Creature - Human Artificer',
+          oracle_text: 'Each artifact card in your graveyard has unearth {1}{B}{R}.',
+        },
+      },
+    ];
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).activePlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).turnNumber = 4;
+    (game.state as any).phase = 'main';
+    (game.state as any).step = 'MAIN1';
+    (game.state as any).stack = [];
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const io = createMockIo(emitted);
+    const { socket, handlers } = createMockSocket(playerId, gameId, emitted);
+
+    registerInteractionHandlers(io as any, socket as any);
+
+    await handlers['activateGraveyardAbility']({
+      gameId,
+      cardId: 'granted_unearth_artifact_1',
+      abilityId: 'unearth',
+    });
+
+    const zones = (game.state as any).zones?.[playerId];
+    expect(zones?.graveyardCount).toBe(0);
+    const battlefield = (game.state as any).battlefield || [];
+    const unearthed = battlefield.find((perm: any) => perm?.card?.id === 'granted_unearth_artifact_1');
+    expect(unearthed).toBeTruthy();
+    expect(Boolean(unearthed?.wasUnearthed)).toBe(true);
+    expect((game.state as any).manaPool?.[playerId]).toEqual({ white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 });
+
+    const activateEvent = [...getEvents(gameId)].reverse().find((event: any) => event.type === 'activateGraveyardAbility') as any;
+    expect(activateEvent?.payload?.manaCost).toBe('{1}{B}{R}');
+    expect(activateEvent?.payload?.createdPermanentIds).toEqual([unearthed?.id]);
+  });
+
   it('queues and persists self ETB triggers for live unearth battlefield returns', async () => {
     createGameIfNotExists(gameId, 'commander', 40);
     const game = ensureGame(gameId);

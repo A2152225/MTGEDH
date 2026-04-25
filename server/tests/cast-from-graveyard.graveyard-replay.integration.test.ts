@@ -94,6 +94,8 @@ describe('cast-from-graveyard replay semantics (integration)', () => {
     `${gameId}_retrace_prompt_replay`,
     `${gameId}_escape_prompt_replay`,
     `${gameId}_escape_replay`,
+    `${gameId}_granted_flashback_live`,
+    `${gameId}_granted_retrace_live`,
   ];
 
   beforeAll(async () => {
@@ -161,6 +163,123 @@ describe('cast-from-graveyard replay semantics (integration)', () => {
 
     const activateEvent = [...getEvents(gameId)].reverse().find((event) => event.type === 'activateGraveyardAbility') as any;
     expect(activateEvent?.payload?.discardedCardIds).toEqual(['jump_start_discard_1']);
+  });
+
+  it('live granted flashback activation uses the granted mana-cost flashback cost', async () => {
+    const grantedGameId = `${gameId}_granted_flashback_live`;
+    const { game, playerId } = await seedGame(grantedGameId, 'granted_flashback_spell_1', 'Surveil 1, then draw a card.', {
+      manaCost: '{U}',
+      manaPool: { white: 0, blue: 1, black: 0, red: 0, green: 0, colorless: 0 },
+    });
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).activePlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).step = 'MAIN1';
+    (game.state as any).battlefield = [
+      {
+        id: 'return_the_past_1',
+        controller: playerId,
+        card: {
+          name: 'Return the Past',
+          type_line: 'Enchantment',
+          oracle_text: 'During your turn, each instant and sorcery card in your graveyard has flashback. Its flashback cost is equal to its mana cost.',
+        },
+      },
+    ];
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const io = createMockIo(emitted);
+    const { socket, handlers } = createMockSocket(playerId, grantedGameId, emitted);
+
+    registerInteractionHandlers(io as any, socket as any);
+    registerResolutionHandlers(io as any, socket as any);
+
+    await handlers['activateGraveyardAbility']({
+      gameId: grantedGameId,
+      cardId: 'granted_flashback_spell_1',
+      abilityId: 'flashback',
+    });
+
+    const zones = (game.state as any).zones?.[playerId];
+    expect((zones?.graveyard || []).map((card: any) => card.id)).toEqual([]);
+    const stack = (game.state as any).stack || [];
+    expect(stack).toHaveLength(1);
+    expect(stack[0]?.card?.id).toBe('granted_flashback_spell_1');
+    expect(stack[0]?.card?.castWithAbility).toBe('flashback');
+    expect((game.state as any).manaPool?.[playerId]).toEqual({ white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 });
+
+    const activateEvent = [...getEvents(grantedGameId)].reverse().find((event) => event.type === 'activateGraveyardAbility') as any;
+    expect(activateEvent?.payload?.manaCost).toBe('{U}');
+  });
+
+  it('live granted retrace activation queues the land discard cost and casts after payment', async () => {
+    const retraceGameId = `${gameId}_granted_retrace_live`;
+    const { game, playerId } = await seedGame(retraceGameId, 'granted_retrace_spell_1', 'Create a 1/1 blue Merfolk creature token.', {
+      manaCost: '{1}{G}',
+      manaPool: { white: 0, blue: 0, black: 0, red: 0, green: 1, colorless: 1 },
+      hand: [
+        {
+          id: 'retrace_land_1',
+          name: 'Forest',
+          type_line: 'Basic Land - Forest',
+          oracle_text: '{T}: Add {G}.',
+          zone: 'hand',
+        },
+      ],
+    });
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).activePlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).step = 'MAIN1';
+    (game.state as any).battlefield = [
+      {
+        id: 'deeproot_historian_1',
+        controller: playerId,
+        card: {
+          name: 'Deeproot Historian',
+          type_line: 'Creature - Merfolk Druid',
+          oracle_text: 'Merfolk and Druid cards in your graveyard have retrace.',
+        },
+      },
+    ];
+    const graveyardSpell = (game.state as any).zones[playerId].graveyard[0];
+    graveyardSpell.type_line = 'Kindred Sorcery - Merfolk';
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const io = createMockIo(emitted);
+    const { socket, handlers } = createMockSocket(playerId, retraceGameId, emitted);
+
+    registerInteractionHandlers(io as any, socket as any);
+    registerResolutionHandlers(io as any, socket as any);
+
+    await handlers['activateGraveyardAbility']({
+      gameId: retraceGameId,
+      cardId: 'granted_retrace_spell_1',
+      abilityId: 'retrace',
+    });
+
+    const discardStep = ResolutionQueueManager.getStepsForPlayer(retraceGameId, playerId)
+      .find(step => step.type === ResolutionStepType.DISCARD_SELECTION) as any;
+    expect(discardStep).toBeDefined();
+    expect((discardStep.hand || []).map((card: any) => card.id)).toEqual(['retrace_land_1']);
+
+    await handlers['submitResolutionResponse']({
+      gameId: retraceGameId,
+      stepId: String(discardStep.id),
+      selections: ['retrace_land_1'],
+    });
+
+    const zones = (game.state as any).zones?.[playerId];
+    expect((zones?.graveyard || []).map((card: any) => card.id)).toEqual(['retrace_land_1']);
+    const stack = (game.state as any).stack || [];
+    expect(stack).toHaveLength(1);
+    expect(stack[0]?.card?.id).toBe('granted_retrace_spell_1');
+    expect(stack[0]?.card?.castWithAbility).toBe('retrace');
+    expect((game.state as any).manaPool?.[playerId]).toEqual({ white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 });
+
+    const activateEvent = [...getEvents(retraceGameId)].reverse().find((event) => event.type === 'activateGraveyardAbility') as any;
+    expect(activateEvent?.payload?.manaCost).toBe('{1}{G}');
+    expect(activateEvent?.payload?.discardedCardIds).toEqual(['retrace_land_1']);
   });
 
   it('jump-start with a madness discard exiles the discarded card, persists split cost evidence, and replays the queued cast prompt', async () => {

@@ -182,6 +182,8 @@ const ORACLE_CHOICE_STEP_KINDS = new Set<string>([
   'choose_card_name',
   'choose_mode',
   'choose_target_creature',
+  'explore',
+  'proliferate',
   'scry',
   'surveil',
 ]);
@@ -267,6 +269,32 @@ export function createChoiceEventFromEffectProgramChoiceRequest(
         minValue: asNumber(payload.minValue, 0),
         maxValue: asNumber(payload.maxValue, 99),
         defaultValue: typeof payload.defaultValue === 'number' ? payload.defaultValue : undefined,
+      };
+
+    case ChoiceEventType.EXPLORE_DECISION:
+      return {
+        ...base,
+        type: ChoiceEventType.EXPLORE_DECISION,
+        permanentId: String(payload.permanentId || ''),
+        permanentName: String(payload.permanentName || payload.permanentId || 'Creature'),
+        revealedCard: asCardRef(payload.revealedCard),
+        isLand: asBoolean(payload.isLand, false),
+      };
+
+    case ChoiceEventType.PROLIFERATE:
+      return {
+        ...base,
+        type: ChoiceEventType.PROLIFERATE,
+        proliferateId: String(payload.proliferateId || base.id),
+        availableTargets: asProliferateTargets(payload.availableTargets),
+      };
+
+    case ChoiceEventType.CLASH:
+      return {
+        ...base,
+        type: ChoiceEventType.CLASH,
+        revealedCard: asCardRef(payload.revealedCard),
+        opponentId: typeof payload.opponentId === 'string' ? payload.opponentId as PlayerID : undefined,
       };
 
     case ChoiceEventType.PLAYER_CHOICE:
@@ -557,6 +585,49 @@ function asPlayerChoices(value: unknown): readonly { id: PlayerID; name: string 
     }));
 }
 
+function asProliferateTargets(value: unknown): readonly {
+  readonly id: string;
+  readonly name: string;
+  readonly counters: Readonly<Record<string, number>>;
+  readonly isPlayer: boolean;
+  readonly type?: 'permanent' | 'player';
+  readonly controller?: PlayerID;
+}[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .filter(target => target && typeof target === 'object' && typeof (target as any).id === 'string')
+    .map(target => {
+      const isPlayer = (target as any).isPlayer === true || (target as any).type === 'player';
+      const controller = typeof (target as any).controller === 'string' ? String((target as any).controller) as PlayerID : undefined;
+      return {
+        id: String((target as any).id),
+        name: String((target as any).name || (target as any).id),
+        counters: asCounterRecord((target as any).counters),
+        isPlayer,
+        type: isPlayer ? 'player' as const : 'permanent' as const,
+        ...(controller ? { controller } : {}),
+      };
+    });
+}
+
+function asCounterRecord(value: unknown): Readonly<Record<string, number>> {
+  if (!value || typeof value !== 'object') {
+    return {};
+  }
+
+  const counters: Record<string, number> = {};
+  for (const [counter, count] of Object.entries(value as Record<string, unknown>)) {
+    const numericCount = Number(count);
+    if (counter && Number.isFinite(numericCount) && numericCount > 0) {
+      counters[counter] = numericCount;
+    }
+  }
+  return counters;
+}
+
 function asCardRefs(value: unknown): readonly import('../../shared/src').KnownCardRef[] {
   if (!Array.isArray(value)) {
     return [];
@@ -565,6 +636,14 @@ function asCardRefs(value: unknown): readonly import('../../shared/src').KnownCa
   return value
     .filter(card => card && typeof card === 'object' && typeof (card as any).id === 'string')
     .map(card => ({ ...(card as any), id: String((card as any).id) }));
+}
+
+function asCardRef(value: unknown): import('../../shared/src').KnownCardRef {
+  if (value && typeof value === 'object' && typeof (value as any).id === 'string') {
+    return { ...(value as any), id: String((value as any).id) };
+  }
+
+  return { id: '', name: 'Unknown Card' } as import('../../shared/src').KnownCardRef;
 }
 
 function defaultColorOptions(): readonly ChoiceOption[] {
@@ -783,6 +862,18 @@ function appendOracleStepToEffectProgram(args: {
       return;
     }
 
+    if (isSupportedClashChoiceStep(oracleStep)) {
+      appendSupportedClashChoiceSteps({
+        input,
+        steps,
+        oracleStep,
+        clause,
+        baseId,
+        guard,
+      });
+      return;
+    }
+
     if (oracleStepNeedsChoice(oracleStep, steps)) {
       const bindingKey = `${baseId}:choice`;
       steps.push({
@@ -835,12 +926,19 @@ function appendOracleStepToEffectProgram(args: {
       return `${baseId}:opponent-choice`;
     }
 
+    if (isSupportedClashChoiceStep(oracleStep)) {
+      return (oracleStep as any).opponent ? `${baseId}:opponent-choice` : `${baseId}:choice`;
+    }
+
     return oracleStepNeedsChoice(oracleStep, priorSteps) ? `${baseId}:choice` : `${baseId}:command`;
   }
 
   function oracleChoiceStepNeedsCommandContinuation(step: OracleEffectStep): boolean {
     const kind = String((step as any).kind || '');
     return kind === 'choose_mode'
+      || kind === 'explore'
+      || kind === 'proliferate'
+      || kind === 'populate'
       || kind === 'scry'
       || kind === 'surveil'
       || (kind === 'add_mana' && (step as any).requiresChosenMana === true);
@@ -892,11 +990,19 @@ function oracleStepNeedsChoice(
   priorSteps: readonly EffectProgramStep[] = []
 ): boolean {
   const kind = String((step as any).kind || '');
+  if (kind === 'explore' && isSupportedExploreChoiceStep(step)) {
+    return true;
+  }
+
   if ((kind === 'scry' || kind === 'surveil') && isSupportedTopLibraryChoiceStep(step)) {
     return true;
   }
 
-  if (ORACLE_CHOICE_STEP_KINDS.has(kind) && kind !== 'scry' && kind !== 'surveil') {
+  if (kind === 'populate' && isSupportedPopulateChoiceStep(step)) {
+    return true;
+  }
+
+  if (ORACLE_CHOICE_STEP_KINDS.has(kind) && kind !== 'explore' && kind !== 'scry' && kind !== 'surveil') {
     return true;
   }
 
@@ -980,12 +1086,43 @@ function buildChoiceRequestPayloadForOracleStep(
     };
   }
 
+  if (kind === 'proliferate') {
+    return {
+      ...basePayload,
+      proliferateId: `${kind}:${String((step as any).raw || '').trim()}`,
+    };
+  }
+
+  if (kind === 'populate') {
+    return {
+      ...basePayload,
+      targetTypes: ['creature token'],
+      minTargets: 0,
+      maxTargets: 1,
+      targetDescription: String((step as any).raw || 'Choose a creature token to populate'),
+    };
+  }
+
   return basePayload;
 }
 
 function isSupportedTopLibraryChoiceStep(step: OracleEffectStep): boolean {
   const whoKind = String((step as any)?.who?.kind || '');
   return whoKind === 'you' && quantityToStaticNumber((step as any).amount) !== undefined;
+}
+
+function isSupportedExploreChoiceStep(step: OracleEffectStep): boolean {
+  if (String((step as any)?.kind || '') !== 'explore') {
+    return false;
+  }
+
+  const target = (step as any)?.target;
+  if (!target || target.kind !== 'raw') {
+    return false;
+  }
+
+  const text = String(target.text || '').trim().toLowerCase();
+  return text === 'this creature' || text === 'this permanent' || text === 'it' || text === 'that creature';
 }
 
 function isSupportedFatesealChoiceStep(step: OracleEffectStep): boolean {
@@ -996,6 +1133,137 @@ function isSupportedFatesealChoiceStep(step: OracleEffectStep): boolean {
   const whoKind = String((step as any)?.who?.kind || '');
   const targetKind = String((step as any)?.target?.kind || '');
   return whoKind === 'you' && targetKind === 'target_opponent' && quantityToStaticNumber((step as any).amount) !== undefined;
+}
+
+function isSupportedClashChoiceStep(step: OracleEffectStep): boolean {
+  if (String((step as any)?.kind || '') !== 'clash') {
+    return false;
+  }
+
+  const whoKind = String((step as any)?.who?.kind || '');
+  const opponentKind = String((step as any)?.opponent?.kind || '');
+  return whoKind === 'you' && (!opponentKind || opponentKind === 'target_opponent');
+}
+
+function isSupportedPopulateChoiceStep(step: OracleEffectStep): boolean {
+  if (String((step as any)?.kind || '') !== 'populate') {
+    return false;
+  }
+
+  const whoKind = String((step as any)?.who?.kind || '');
+  return whoKind === 'you' && quantityToStaticNumber((step as any).amount) === 1;
+}
+
+function appendSupportedClashChoiceSteps(args: {
+  readonly input: BuildEffectProgramFromOracleIRInput;
+  readonly steps: EffectProgramStep[];
+  readonly oracleStep: OracleEffectStep;
+  readonly clause: EffectProgramClauseRef;
+  readonly baseId: string;
+  readonly guard?: EffectProgramStepGuard;
+}): void {
+  const { input, steps, oracleStep, clause, baseId, guard } = args;
+  const hasOpponentChoice = Boolean((oracleStep as any).opponent);
+
+  if (hasOpponentChoice) {
+    const opponentBindingKey = `${baseId}:opponent-choice`;
+    const controllerClashBindingKey = `${baseId}:choice`;
+    const opponentClashBindingKey = `${baseId}:opponent-card-choice`;
+
+    steps.push({
+      id: `${baseId}:opponent-choice`,
+      kind: 'choice',
+      bindingKey: opponentBindingKey,
+      clause,
+      raw: oracleStep.raw,
+      guard,
+      choiceRequest: {
+        type: ChoiceEventType.PLAYER_CHOICE,
+        playerId: input.controllerId,
+        description: `${input.sourceName || 'Ability'}: Choose an opponent to clash with`,
+        mandatory: true,
+        sourceId: input.sourceId,
+        sourceName: input.sourceName,
+        sourceImage: input.sourceImage,
+        payload: {
+          oracleStepKind: 'clash_target',
+          oracleStep,
+        },
+      },
+    });
+
+    steps.push({
+      id: `${baseId}:choice`,
+      kind: 'choice',
+      bindingKey: controllerClashBindingKey,
+      clause,
+      raw: oracleStep.raw,
+      guard: { bindingKey: opponentBindingKey, cancelledEquals: false, onFalse: 'skip' },
+      choiceRequest: buildClashChoiceRequest(input, oracleStep, 'controller', opponentBindingKey),
+    });
+
+    steps.push({
+      id: `${baseId}:opponent-card-choice`,
+      kind: 'choice',
+      bindingKey: opponentClashBindingKey,
+      clause,
+      raw: oracleStep.raw,
+      guard: { bindingKey: opponentBindingKey, cancelledEquals: false, onFalse: 'skip' },
+      choiceRequest: buildClashChoiceRequest(input, oracleStep, 'opponent', opponentBindingKey),
+    });
+
+    steps.push({
+      id: `${baseId}:command`,
+      kind: 'command',
+      clause,
+      raw: oracleStep.raw,
+      guard: { bindingKey: opponentClashBindingKey, cancelledEquals: false, onFalse: 'skip' },
+      command: { kind: 'oracle_ir_step', step: oracleStep },
+    });
+    return;
+  }
+
+  const bindingKey = `${baseId}:choice`;
+  steps.push({
+    id: `${baseId}:choice`,
+    kind: 'choice',
+    bindingKey,
+    clause,
+    raw: oracleStep.raw,
+    guard,
+    choiceRequest: buildClashChoiceRequest(input, oracleStep, 'controller'),
+  });
+  steps.push({
+    id: `${baseId}:command`,
+    kind: 'command',
+    clause,
+    raw: oracleStep.raw,
+    guard: { bindingKey, cancelledEquals: false, onFalse: 'skip' },
+    command: { kind: 'oracle_ir_step', step: oracleStep },
+  });
+}
+
+function buildClashChoiceRequest(
+  input: BuildEffectProgramFromOracleIRInput,
+  oracleStep: OracleEffectStep,
+  clashRole: 'controller' | 'opponent',
+  targetBindingKey?: string
+): EffectProgramChoiceRequest {
+  return {
+    type: ChoiceEventType.CLASH,
+    playerId: input.controllerId,
+    description: `${input.sourceName || 'Ability'}: ${oracleStep.raw || 'Clash'}`,
+    mandatory: true,
+    sourceId: input.sourceId,
+    sourceName: input.sourceName,
+    sourceImage: input.sourceImage,
+    payload: {
+      oracleStepKind: 'clash',
+      oracleStep,
+      clashRole,
+      ...(targetBindingKey ? { targetBindingKey } : {}),
+    },
+  };
 }
 
 function quantityToStaticNumber(quantity: unknown): number | undefined {
@@ -1079,6 +1347,14 @@ function mapOracleStepKindToChoiceType(kind: string): ChoiceEventType {
       return ChoiceEventType.CARD_NAME_CHOICE;
     case 'choose_mode':
       return ChoiceEventType.MODE_SELECTION;
+    case 'explore':
+      return ChoiceEventType.EXPLORE_DECISION;
+    case 'proliferate':
+      return ChoiceEventType.PROLIFERATE;
+    case 'populate':
+      return ChoiceEventType.TARGET_SELECTION;
+    case 'clash':
+      return ChoiceEventType.CLASH;
     case 'choose_opponent':
       return ChoiceEventType.PLAYER_CHOICE;
     case 'choose_target_creature':

@@ -1880,6 +1880,110 @@ describe('canRespond', () => {
     expect(canRespond(ctx, 'p1' as PlayerID)).toBe(true);
   });
 
+  it('surfaces instant and Lesson cards granted flashback during your turn', () => {
+    const ctx = createTestContext({
+      zones: {
+        p1: {
+          hand: [],
+          graveyard: [
+            {
+              id: 'consider_1',
+              name: 'Consider',
+              type_line: 'Instant',
+              mana_cost: '{U}',
+              oracle_text: 'Surveil 1, then draw a card.',
+            },
+            {
+              id: 'environmental_sciences_1',
+              name: 'Environmental Sciences',
+              type_line: 'Sorcery - Lesson',
+              mana_cost: '{2}',
+              oracle_text: 'Search your library for a basic land card, reveal it, put it into your hand, then shuffle. You gain 2 life.',
+            },
+          ],
+        },
+      },
+      battlefield: [
+        {
+          id: 'iroh_1',
+          controller: 'p1',
+          card: {
+            name: 'Iroh, Grand Lotus',
+            type_line: 'Legendary Creature - Human Noble Ally',
+            oracle_text: "During your turn, each non-Lesson instant and sorcery card in your graveyard has flashback. The flashback cost is equal to that card's mana cost.\nDuring your turn, each Lesson card in your graveyard has flashback {1}.",
+          },
+        },
+      ],
+      manaPool: {
+        p1: { white: 0, blue: 1, black: 0, red: 0, green: 0, colorless: 1 },
+      },
+      players: [{ id: 'p1' }, { id: 'p2' }],
+      step: 'MAIN1',
+      turnPlayer: 'p1',
+      priority: 'p1',
+      stack: [],
+    });
+
+    const candidates = getCastableSpellCandidates(ctx, 'p1' as PlayerID, { mode: 'main' });
+    const considerCandidate = candidates.find((candidate) => candidate.card?.id === 'consider_1');
+    const lessonCandidate = candidates.find((candidate) => candidate.card?.id === 'environmental_sciences_1');
+
+    expect(considerCandidate).toEqual(expect.objectContaining({
+      sourceZone: 'graveyard',
+      castMethod: 'flashback',
+      manaCost: '{U}',
+    }));
+    expect(lessonCandidate).toEqual(expect.objectContaining({
+      sourceZone: 'graveyard',
+      castMethod: 'flashback',
+      manaCost: '{1}',
+    }));
+    expect(canAct(ctx, 'p1' as PlayerID)).toBe(true);
+  });
+
+  it('does not surface during-your-turn flashback grants on an opponent turn', () => {
+    const ctx = createTestContext({
+      zones: {
+        p1: {
+          hand: [],
+          graveyard: [
+            {
+              id: 'consider_1',
+              name: 'Consider',
+              type_line: 'Instant',
+              mana_cost: '{U}',
+              oracle_text: 'Surveil 1, then draw a card.',
+            },
+          ],
+        },
+      },
+      battlefield: [
+        {
+          id: 'return_the_past_1',
+          controller: 'p1',
+          card: {
+            name: 'Return the Past',
+            type_line: 'Enchantment',
+            oracle_text: 'During your turn, each instant and sorcery card in your graveyard has flashback. Its flashback cost is equal to its mana cost.',
+          },
+        },
+      ],
+      manaPool: {
+        p1: { white: 0, blue: 1, black: 0, red: 0, green: 0, colorless: 0 },
+      },
+      players: [{ id: 'p1' }, { id: 'p2' }],
+      step: 'MAIN1',
+      turnPlayer: 'p2',
+      priority: 'p1',
+      stack: [],
+    });
+
+    const candidates = getCastableSpellCandidates(ctx, 'p1' as PlayerID, { mode: 'response' });
+
+    expect(candidates.some((candidate) => candidate.card?.id === 'consider_1')).toBe(false);
+    expect(canRespond(ctx, 'p1' as PlayerID)).toBe(false);
+  });
+
   it('should return false when player has flashback instant in graveyard without mana', () => {
     const ctx = createTestContext({
       zones: {
@@ -2408,6 +2512,195 @@ describe('canAct', () => {
       stack: [],
     });
     
+    expect(canAct(ctx, 'p1' as PlayerID)).toBe(true);
+  });
+
+  it('should return true when a battlefield permanent grants unearth to a graveyard creature', () => {
+    const ctx = createTestContext({
+      zones: {
+        p1: {
+          hand: [],
+          graveyard: [
+            {
+              id: 'cleric_grave_1',
+              name: 'A-Blood Artist',
+              type_line: 'Creature — Vampire Cleric',
+              mana_cost: '{1}{B}',
+              oracle_text: 'Whenever another creature dies, target player loses 1 life.',
+            },
+          ],
+        },
+      },
+      battlefield: [
+        {
+          id: 'solemn_doomguide_1',
+          controller: 'p1',
+          tapped: false,
+          card: {
+            name: 'Solemn Doomguide',
+            type_line: 'Creature — Human Cleric',
+            oracle_text: "Each creature card in your graveyard that's a Cleric, Rogue, Warrior, and/or Wizard has unearth {1}{B}.",
+          },
+        },
+      ],
+      manaPool: {
+        p1: { white: 0, blue: 0, black: 1, red: 0, green: 0, colorless: 1 },
+      },
+      step: 'MAIN1',
+      stack: [],
+      turnPlayer: 'p1',
+      priority: 'p1',
+    });
+
+    expect(canActivateAnyAbility(ctx, 'p1' as PlayerID)).toBe(true);
+    expect(canAct(ctx, 'p1' as PlayerID)).toBe(true);
+  });
+
+  it('should not surface granted unearth outside its sorcery-speed window', () => {
+    const ctx = createTestContext({
+      zones: {
+        p1: {
+          hand: [],
+          graveyard: [
+            {
+              id: 'artifact_grave_1',
+              name: 'Servo Schematic',
+              type_line: 'Artifact',
+              mana_cost: '{2}',
+              oracle_text: 'When this artifact enters, create a 1/1 colorless Servo artifact creature token.',
+            },
+          ],
+        },
+      },
+      battlefield: [
+        {
+          id: 'mishra_grant_1',
+          controller: 'p1',
+          tapped: false,
+          card: {
+            name: 'Mishra, Tamer of Mak Fawa',
+            type_line: 'Legendary Creature — Human Artificer',
+            oracle_text: 'Each artifact card in your graveyard has unearth {1}{B}{R}.',
+          },
+        },
+      ],
+      manaPool: {
+        p1: { white: 0, blue: 0, black: 1, red: 1, green: 0, colorless: 1 },
+      },
+      step: 'MAIN1',
+      stack: [
+        {
+          id: 'spell_on_stack',
+          type: 'spell',
+          controller: 'p2',
+          card: { id: 'shock_1', name: 'Shock', type_line: 'Instant' },
+        },
+      ],
+      turnPlayer: 'p1',
+      priority: 'p1',
+    });
+
+    expect(canActivateAnyAbility(ctx, 'p1' as PlayerID)).toBe(false);
+    expect(canAct(ctx, 'p1' as PlayerID)).toBe(false);
+  });
+
+  it('should surface exact-two-color cards granted jump-start when discard fodder is available', () => {
+    const ctx = createTestContext({
+      zones: {
+        p1: {
+          hand: [
+            { id: 'discard_1', name: 'Spare Card', type_line: 'Creature', oracle_text: '' },
+          ],
+          graveyard: [
+            {
+              id: 'helix_grave_1',
+              name: 'Prismari Insight',
+              type_line: 'Instant',
+              mana_cost: '{R}{W}',
+              oracle_text: 'Draw a card.',
+              colors: ['R', 'W'],
+            },
+          ],
+        },
+      },
+      battlefield: [
+        {
+          id: 'niv_mizzet_supreme_1',
+          controller: 'p1',
+          tapped: false,
+          card: {
+            name: 'Niv-Mizzet, Supreme',
+            type_line: 'Legendary Creature — Dragon Avatar',
+            oracle_text: "Flying, hexproof from monocolored\nEach instant and sorcery card in your graveyard that's exactly two colors has jump-start.",
+          },
+        },
+      ],
+      manaPool: {
+        p1: { white: 1, blue: 0, black: 0, red: 1, green: 0, colorless: 0 },
+      },
+      step: 'MAIN1',
+      stack: [],
+      turnPlayer: 'p1',
+      priority: 'p1',
+    });
+
+    const candidates = getCastableSpellCandidates(ctx, 'p1' as PlayerID);
+    expect(candidates).toEqual(expect.arrayContaining([
+      expect.objectContaining({ castMethod: 'jump-start' }),
+    ]));
+    expect(canAct(ctx, 'p1' as PlayerID)).toBe(true);
+  });
+
+  it('should surface enchantments granted escape when the graveyard exile cost is payable', () => {
+    const ctx = createTestContext({
+      zones: {
+        p1: {
+          hand: [],
+          graveyard: [
+            {
+              id: 'sentinel_eyes_1',
+              name: "Sentinel's Eyes",
+              type_line: 'Enchantment — Aura',
+              mana_cost: '{W}',
+              oracle_text: 'Enchant creature',
+            },
+            { id: 'other_1', name: 'Other Card 1', type_line: 'Creature', oracle_text: '' },
+            { id: 'other_2', name: 'Other Card 2', type_line: 'Instant', oracle_text: '' },
+            { id: 'other_3', name: 'Other Card 3', type_line: 'Sorcery', oracle_text: '' },
+          ],
+        },
+      },
+      battlefield: [
+        {
+          id: 'master_of_keys_1',
+          controller: 'p1',
+          tapped: false,
+          card: {
+            name: 'The Master of Keys',
+            type_line: 'Legendary Enchantment Creature — Horror',
+            oracle_text: "Each enchantment card in your graveyard has escape. The escape cost is equal to the card's mana cost plus exile three other cards from your graveyard.",
+          },
+        },
+        {
+          id: 'bear_1',
+          controller: 'p1',
+          tapped: false,
+          card: { name: 'Grizzly Bears', type_line: 'Creature — Bear', oracle_text: '' },
+        },
+      ],
+      manaPool: {
+        p1: { white: 1, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+      },
+      step: 'MAIN1',
+      stack: [],
+      turnPlayer: 'p1',
+      priority: 'p1',
+    });
+
+    const candidates = getCastableSpellCandidates(ctx, 'p1' as PlayerID);
+    expect(candidates).toEqual(expect.arrayContaining([
+      expect.objectContaining({ castMethod: 'escape' }),
+    ]));
     expect(canAct(ctx, 'p1' as PlayerID)).toBe(true);
   });
 

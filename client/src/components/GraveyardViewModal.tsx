@@ -27,6 +27,7 @@ export interface GraveyardViewModalProps {
   onClose: () => void;
   onActivateAbility?: (cardId: string, abilityId: string, card: KnownCardRef) => void;
   playableCards?: string[];
+  graveyardAbilityHints?: Record<string, GraveyardAbility[]>;
   appearanceSettings?: AppearanceSettings;
   // Ignore functionality
   onIgnoreForPlayability?: (cardId: string, cardName: string, imageUrl?: string) => void;
@@ -243,6 +244,34 @@ export function parseGraveyardAbilities(card: KnownCardRef): GraveyardAbility[] 
   return abilities;
 }
 
+function isInstantOrSorcery(card: KnownCardRef): boolean {
+  return /\b(?:instant|sorcery)\b/i.test(String(card.type_line || ''));
+}
+
+export function getGraveyardAbilitiesForCard(card: KnownCardRef, options?: { isPlayable?: boolean; abilityHints?: GraveyardAbility[] }): GraveyardAbility[] {
+  const abilities = parseGraveyardAbilities(card);
+  for (const hint of options?.abilityHints || []) {
+    if (!hint?.id || abilities.some((ability) => ability.id === hint.id)) continue;
+    abilities.push(hint);
+  }
+  const hasCastFromGraveyardAbility = abilities.some((ability) => ['flashback', 'jump-start', 'retrace', 'escape', 'disturb'].includes(ability.id));
+
+  if (options?.isPlayable && !hasCastFromGraveyardAbility && isInstantOrSorcery(card)) {
+    const cost = String(card.mana_cost || '').trim() || 'available cost';
+    return [
+      ...abilities,
+      {
+        id: 'flashback',
+        label: 'Cast',
+        description: `Cast from graveyard for ${cost}`,
+        cost,
+      },
+    ];
+  }
+
+  return abilities;
+}
+
 export function GraveyardViewModal({
   open,
   cards,
@@ -251,6 +280,7 @@ export function GraveyardViewModal({
   onClose,
   onActivateAbility,
   playableCards = [],
+  graveyardAbilityHints = {},
   appearanceSettings,
   onIgnoreForPlayability,
   onUnignoreForPlayability,
@@ -259,13 +289,17 @@ export function GraveyardViewModal({
   const [selectedCard, setSelectedCard] = useState<KnownCardRef | null>(null);
   const [filter, setFilter] = useState('');
   const [contextMenu, setContextMenu] = useState<{ card: KnownCardRef; x: number; y: number } | null>(null);  
+  const playableCardIdSet = useMemo(() => new Set(playableCards || []), [playableCards]);
   // Parse abilities for each card
   const cardsWithAbilities = useMemo(() => {
     return cards.map(card => ({
       card,
-      abilities: parseGraveyardAbilities(card),
+      abilities: getGraveyardAbilitiesForCard(card, {
+        isPlayable: playableCardIdSet.has(card.id),
+        abilityHints: graveyardAbilityHints[card.id],
+      }),
     }));
-  }, [cards]);
+  }, [cards, playableCardIdSet, graveyardAbilityHints]);
   
   // Filter cards
   const filteredCards = useMemo(() => {
@@ -449,7 +483,7 @@ export function GraveyardViewModal({
             }}
           >
             {[...filteredCards].reverse().map(({ card, abilities }) => {
-              const isPlayable = playableCards.includes(card.id);
+              const isPlayable = playableCardIdSet.has(card.id);
               const isIgnored = ignoredCardIds.has(card.id);
               
               return (
@@ -570,9 +604,9 @@ export function GraveyardViewModal({
             <div style={{ fontSize: 12, color: '#aaa', marginBottom: 8 }}>
               {selectedCard.type_line}
             </div>
-            {parseGraveyardAbilities(selectedCard).length > 0 ? (
+            {getGraveyardAbilitiesForCard(selectedCard, { isPlayable: playableCardIdSet.has(selectedCard.id), abilityHints: graveyardAbilityHints[selectedCard.id] }).length > 0 ? (
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                {parseGraveyardAbilities(selectedCard).map((ability) => (
+                {getGraveyardAbilitiesForCard(selectedCard, { isPlayable: playableCardIdSet.has(selectedCard.id), abilityHints: graveyardAbilityHints[selectedCard.id] }).map((ability) => (
                   <button
                     key={ability.id}
                     onClick={() => canActivate && ability.activatable !== false && handleActivate(selectedCard, ability.id)}

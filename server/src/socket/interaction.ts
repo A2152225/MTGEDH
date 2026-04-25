@@ -39,6 +39,7 @@ import { serializeAbilityActivatedTriggeredStackItem, triggerAbilityActivatedTri
 import { isCreatureNow } from "../state/creatureTypeNow.js";
 import { countArtifacts, getActiveAbilityConditions, getTotalCreaturePower } from "../state/modules/game-state-effects.js";
 import { detectActivatedAbilityConditionRequirement, type ActivatedAbilityConditionRequirement } from "../state/modules/activated-ability-conditions.js";
+import { getGrantedCastFromGraveyardKeywordInfo, getGrantedFlashbackInfo, getGrantedUnearthInfo, getPrintedUnearthInfo } from "../state/modules/graveyard-permissions.js";
 
 function cardHasSplitSecond(card: any): boolean {
   if (!card) return false;
@@ -1019,13 +1020,37 @@ export interface TutorInfo {
   entersTapped?: boolean;
 }
 
-function getCastFromGraveyardActivationCost(card: any, abilityId: string): { manaCost?: string; lifeCost?: number } {
+function getCastFromGraveyardActivationCost(card: any, abilityId: string, context?: { game?: any; playerId?: string }): { manaCost?: string; lifeCost?: number; hasAbility?: boolean } {
   const oracleText = String(card?.oracle_text || '');
   const normalizedAbilityId = String(abilityId || '').trim().toLowerCase();
+  const printedManaCost = String(card?.mana_cost || card?.manaCost || '').trim();
 
   if (normalizedAbilityId === 'retrace') {
-    const manaCost = String(card?.mana_cost || '').trim();
-    return manaCost ? { manaCost } : {};
+    if (/\bretrace\b/i.test(oracleText)) {
+      return printedManaCost ? { manaCost: printedManaCost, hasAbility: true } : { hasAbility: true };
+    }
+
+    const grantedRetraceInfo = context?.game && context.playerId
+      ? getGrantedCastFromGraveyardKeywordInfo(context.game as any, context.playerId as any, card, 'retrace')
+      : { hasIt: false };
+    return grantedRetraceInfo.hasIt
+      ? { manaCost: grantedRetraceInfo.cost || printedManaCost || undefined, hasAbility: true }
+      : { hasAbility: false };
+  }
+
+  if (normalizedAbilityId === 'jump-start') {
+    if (/\bjump-start\b/i.test(oracleText)) {
+      const explicitJumpStartCost = oracleText.match(/jump-start\s*[—-]?\s*(\{[^}]+\}(?:\s*\{[^}]+\})*)/i)?.[1]?.trim();
+      const jumpStartCost = explicitJumpStartCost || printedManaCost;
+      return jumpStartCost ? { manaCost: jumpStartCost, hasAbility: true } : { hasAbility: true };
+    }
+
+    const grantedJumpStartInfo = context?.game && context.playerId
+      ? getGrantedCastFromGraveyardKeywordInfo(context.game as any, context.playerId as any, card, 'jump-start')
+      : { hasIt: false };
+    return grantedJumpStartInfo.hasIt
+      ? { manaCost: grantedJumpStartInfo.cost || printedManaCost || undefined, hasAbility: true }
+      : { hasAbility: false };
   }
 
   const keywordPatterns: Record<string, RegExp> = {
@@ -1038,6 +1063,38 @@ function getCastFromGraveyardActivationCost(card: any, abilityId: string): { man
   const manaMatch = keywordPatterns[normalizedAbilityId]?.exec(oracleText);
   const manaCost = manaMatch?.[1]?.trim();
 
+  if (normalizedAbilityId === 'flashback' && !manaCost) {
+    if (/\bflashback\b/i.test(oracleText)) {
+      return { hasAbility: true };
+    }
+
+    const grantedFlashbackInfo = context?.game && context.playerId
+      ? getGrantedFlashbackInfo(context.game as any, context.playerId as any, card)
+      : { hasIt: false };
+    if (grantedFlashbackInfo.hasIt) {
+      return {
+        manaCost: grantedFlashbackInfo.cost,
+        hasAbility: true,
+      };
+    }
+
+    return { hasAbility: false };
+  }
+
+  if (normalizedAbilityId === 'escape' && !manaCost && !/\bescape\b/i.test(oracleText)) {
+    const grantedEscapeInfo = context?.game && context.playerId
+      ? getGrantedCastFromGraveyardKeywordInfo(context.game as any, context.playerId as any, card, 'escape')
+      : { hasIt: false };
+    if (grantedEscapeInfo.hasIt) {
+      return {
+        manaCost: grantedEscapeInfo.cost || printedManaCost || undefined,
+        hasAbility: true,
+      };
+    }
+
+    return { hasAbility: false };
+  }
+
   const keywordLine = oracleText
     .split(/\r?\n/)
     .find((line) => line.toLowerCase().includes(normalizedAbilityId.replace('-', '')) || line.toLowerCase().includes(normalizedAbilityId));
@@ -1047,6 +1104,7 @@ function getCastFromGraveyardActivationCost(card: any, abilityId: string): { man
   return {
     ...(manaCost ? { manaCost } : {}),
     ...(Number.isFinite(lifeCost) ? { lifeCost } : {}),
+    hasAbility: Boolean(manaCost) || Boolean(keywordPatterns[normalizedAbilityId] && normalizedAbilityId && oracleText.toLowerCase().includes(normalizedAbilityId)),
   };
 }
 
@@ -1061,13 +1119,19 @@ function getCastFromGraveyardDiscardCost(abilityId: string): { discardCount: num
   return undefined;
 }
 
-function getCastFromGraveyardExileCost(card: any, abilityId: string): { exileCount: number } | undefined {
+function getCastFromGraveyardExileCost(card: any, abilityId: string, context?: { game?: any; playerId?: string }): { exileCount: number } | undefined {
   const normalizedAbilityId = String(abilityId || '').trim().toLowerCase();
   if (normalizedAbilityId !== 'escape') return undefined;
 
   const oracleText = String(card?.oracle_text || '');
   const exileMatch = oracleText.match(/exile\s+(a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+other\s+cards?\s+from\s+your\s+graveyard/i);
-  if (!exileMatch) return undefined;
+  if (!exileMatch) {
+    const grantedEscapeInfo = context?.game && context.playerId
+      ? getGrantedCastFromGraveyardKeywordInfo(context.game as any, context.playerId as any, card, 'escape')
+      : { hasIt: false };
+    const grantedExileCount = Number((grantedEscapeInfo as any).additionalExileCount || 0);
+    return grantedEscapeInfo.hasIt && grantedExileCount > 0 ? { exileCount: grantedExileCount } : undefined;
+  }
 
   const exileCount = parseWordNumber(String(exileMatch[1] || ''), 0);
   return exileCount > 0 ? { exileCount } : undefined;
@@ -1710,11 +1774,16 @@ export function continueCastFromGraveyardAbility(params: {
   const card = zones.graveyard[cardIndex];
   const cardName = card?.name || 'Unknown';
   const normalizedTargets = normalizeSelectedTargetIds(params.targets);
-  const activationCost = getCastFromGraveyardActivationCost(card, params.abilityId);
+  const activationCost = getCastFromGraveyardActivationCost(card, params.abilityId, { game: params.game, playerId: params.playerId });
+  const normalizedAbilityId = String(params.abilityId || '').trim().toLowerCase();
+  if (['flashback', 'jump-start', 'retrace', 'escape', 'disturb'].includes(normalizedAbilityId) && activationCost.hasAbility === false) {
+    params.emitError({ code: 'ABILITY_NOT_AVAILABLE', message: `${cardName} does not currently have ${normalizedAbilityId}.` });
+    return 'error';
+  }
   const recordedManaCost = String(activationCost.manaCost || '').trim();
   const recordedLifeCost = Number(activationCost.lifeCost || 0);
   const discardCost = getCastFromGraveyardDiscardCost(params.abilityId);
-  const exileCost = getCastFromGraveyardExileCost(card, params.abilityId);
+  const exileCost = getCastFromGraveyardExileCost(card, params.abilityId, { game: params.game, playerId: params.playerId });
   const paidDiscardCount = (Array.isArray(params.discardedCardIds) ? params.discardedCardIds.length : 0)
     + (Array.isArray(params.exiledCardIdsFromHandForCost) ? params.exiledCardIdsFromHandForCost.length : 0);
 
@@ -3124,7 +3193,17 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         return;
       }
 
-      const recordedManaCost = String(getKeywordGraveyardActivationManaCost(card, abilityId) || '').trim();
+      const printedUnearthInfo = getPrintedUnearthInfo(card);
+      const grantedUnearthInfo = printedUnearthInfo.hasIt ? { hasIt: false } : getGrantedUnearthInfo(game as any, pid as any, card);
+      if (!printedUnearthInfo.hasIt && !grantedUnearthInfo.hasIt) {
+        socket.emit("error", {
+          code: "ABILITY_NOT_AVAILABLE",
+          message: `${cardName} does not currently have unearth.`,
+        });
+        return;
+      }
+
+      const recordedManaCost = String(printedUnearthInfo.cost || grantedUnearthInfo.cost || '').trim();
       if (recordedManaCost) {
         const parsedCost = parseManaCost(recordedManaCost);
         const pool = getOrInitManaPool(game.state, pid);

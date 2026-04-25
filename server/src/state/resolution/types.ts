@@ -172,6 +172,9 @@ export const STEP_TO_CHOICE_EVENT_TYPE: Partial<Record<ResolutionStepType, Choic
   [ResolutionStepType.PLAYER_CHOICE]: ChoiceEventType.PLAYER_CHOICE,
   [ResolutionStepType.OPTION_CHOICE]: ChoiceEventType.OPTION_CHOICE,
   [ResolutionStepType.MANA_PAYMENT_CHOICE]: ChoiceEventType.MANA_PAYMENT_CHOICE,
+  [ResolutionStepType.EXPLORE_DECISION]: ChoiceEventType.EXPLORE_DECISION,
+  [ResolutionStepType.PROLIFERATE]: ChoiceEventType.PROLIFERATE,
+  [ResolutionStepType.CLASH]: ChoiceEventType.CLASH,
   [ResolutionStepType.SCRY]: ChoiceEventType.SCRY,
   [ResolutionStepType.SURVEIL]: ChoiceEventType.SURVEIL,
   [ResolutionStepType.FATESEAL]: ChoiceEventType.FATESEAL,
@@ -700,6 +703,8 @@ export interface ProliferateStep extends BaseResolutionStep {
     name: string;
     counters: Record<string, number>;
     isPlayer: boolean;
+    type?: 'permanent' | 'player';
+    controller?: string;
   }[];
 }
 

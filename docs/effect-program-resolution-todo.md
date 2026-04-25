@@ -65,3 +65,7 @@ Compatibility note: migrated optional triggered ability prompts now use `effectP
 - [x] Fold temporary EffectProgram graveyard snapshots into `state.zones` instead of leaving card lists on player records.
 - [x] Export reusable Oracle IR EffectProgram handlers for server resolution-service migrations.
 - [x] Add server-boundary coverage for Oracle IR top-library prompts using live `game.libraries` and the reusable handler factory.
+- [x] Promote deterministic Explore through EffectProgram using the existing `explore_decision` queue prompt, including keyword-registry support, Oracle IR command execution, server adapter preservation, and focused rules-engine/server tests.
+- [x] Promote Proliferate through EffectProgram using the existing `proliferate` queue prompt, including target discovery from live counters, selected-target command execution, keyword-registry support, server adapter preservation, and focused rules-engine/server tests.
+- [x] Promote Clash through EffectProgram using the existing `clash` queue prompt, including opponent selection, per-player top/bottom decisions, `lastClashWon` binding for follow-up conditions, keyword-registry support, server adapter preservation, and focused rules-engine/server tests.
+- [x] Promote amount-1 Populate through EffectProgram using the existing target-selection prompt, including live creature-token discovery, selected-token copy execution, keyword-registry support, and focused rules-engine tests.
