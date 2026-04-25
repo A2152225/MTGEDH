@@ -58,3 +58,10 @@ Compatibility note: migrated optional triggered ability prompts now use `effectP
 - [x] Keep unsupported choice-heavy Oracle IR and partial keyword steps as command-side automation gaps instead of generic prompts.
 - [x] Preserve non-option EffectProgram prompt fields through the Resolution Queue boundary.
 - [x] Normalize object-shaped Resolution Queue selections into stable EffectProgram choice ids.
+- [x] Add dedicated EffectProgram prompt and binding support for deterministic `you scry/surveil N` top-library choices.
+- [x] Add two-stage EffectProgram opponent choice plus ordering support for deterministic `you fateseal N` top-library choices.
+- [x] Promote supported top-library keyword actions through Oracle IR EffectProgram lowering instead of generic keyword prompts.
+- [x] Hydrate live EffectProgram runtimes from `game.libraries` and sync library mutations back without persisting hidden library snapshots on players.
+- [x] Fold temporary EffectProgram graveyard snapshots into `state.zones` instead of leaving card lists on player records.
+- [x] Export reusable Oracle IR EffectProgram handlers for server resolution-service migrations.
+- [x] Add server-boundary coverage for Oracle IR top-library prompts using live `game.libraries` and the reusable handler factory.

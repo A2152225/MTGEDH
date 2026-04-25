@@ -4,7 +4,7 @@ import { applyOracleIRStepsToGameState } from './oracleIRExecutor';
 import { evaluateConditionalWrapperCondition } from './oracleIRExecutorConditionalStepSupport';
 import type { OracleIRExecutionContext, OracleIRExecutionOptions, OracleIRExecutionResult } from './oracleIRExecutionTypes';
 import { parseOracleTextToIR } from './oracleIRParser';
-import type { OracleIRResult } from './oracleIR';
+import type { OracleEffectStep, OracleIRResult } from './oracleIR';
 import {
   buildEffectProgramFromOracleIR,
   createChoiceEventFromEffectProgramChoiceRequest,
@@ -51,6 +51,10 @@ interface DerivedOracleIRContextBindings {
   selectorContext?: Record<string, unknown>;
 }
 
+export type OracleIREffectProgramHandlerOverrides = Omit<EffectProgramHandlers<GameState>, 'applyCommand'> & {
+  readonly applyCommand?: EffectProgramHandlers<GameState>['applyCommand'];
+};
+
 export function createOracleIRCommandHandler(
   ctx: OracleIRExecutionContext,
   options: OracleIRExecutionOptions = {}
@@ -61,6 +65,11 @@ export function createOracleIRCommandHandler(
     }
 
     const oracleCommand = step.command as { readonly kind: 'oracle_ir_step'; readonly step: import('./oracleIR').OracleEffectStep };
+    const topLibraryResult = applyTopLibraryChoiceCommand(state, oracleCommand.step, step, runtime);
+    if (topLibraryResult) {
+      return topLibraryResult;
+    }
+
     const execution = applyOracleIRStepsToGameState(
       state,
       [oracleCommand.step],
@@ -78,13 +87,19 @@ export function runOracleEffectProgram(
   runtime: EffectProgramRuntime<GameState>,
   ctx: OracleIRExecutionContext,
   options: OracleIRExecutionOptions = {},
-  handlers: Omit<EffectProgramHandlers<GameState>, 'applyCommand'> & {
-    readonly applyCommand?: EffectProgramHandlers<GameState>['applyCommand'];
-  } = {}
+  handlers: OracleIREffectProgramHandlerOverrides = {}
 ): EffectProgramRunResult<GameState> {
+  return runEffectProgram(runtime, createOracleIREffectProgramHandlers(ctx, options, handlers));
+}
+
+export function createOracleIREffectProgramHandlers(
+  ctx: OracleIRExecutionContext,
+  options: OracleIRExecutionOptions = {},
+  handlers: OracleIREffectProgramHandlerOverrides = {}
+): EffectProgramHandlers<GameState> {
   const oracleCommandHandler = createOracleIRCommandHandler(ctx, options);
 
-  return runEffectProgram(runtime, {
+  return {
     ...handlers,
     createChoiceEvent: handlers.createChoiceEvent ?? createOracleIRChoiceEvent,
     evaluateCondition: handlers.evaluateCondition ?? ((args) => {
@@ -105,7 +120,7 @@ export function runOracleEffectProgram(
 
       return handlers.applyCommand?.(args) ?? args.state;
     },
-  });
+  };
 }
 
 function createOracleIRChoiceEvent(
@@ -156,6 +171,54 @@ function createOracleIRChoiceEvent(
     });
   }
 
+  if (request.type === ChoiceEventType.SCRY || request.type === ChoiceEventType.SURVEIL) {
+    const oracleStep = (payload as any).oracleStep as OracleEffectStep | undefined;
+    const amount = quantityToStaticNumber((oracleStep as any)?.amount) ?? Number((payload as any).scryCount ?? (payload as any).surveilCount ?? 0);
+    const actualCount = Math.max(0, Math.min(amount, getPlayerLibrary(args.state, args.runtime.program.controllerId).length));
+    const cards = getPlayerLibrary(args.state, args.runtime.program.controllerId)
+      .slice(0, actualCount)
+      .map(card => normalizeTopLibraryPromptCard(card));
+
+    return createChoiceEventFromEffectProgramChoiceRequest({
+      request: {
+        ...request,
+        payload: {
+          ...payload,
+          cards,
+          ...(request.type === ChoiceEventType.SCRY ? { scryCount: actualCount } : { surveilCount: actualCount }),
+        },
+      },
+    });
+  }
+
+  if (request.type === ChoiceEventType.FATESEAL) {
+    const oracleStep = (payload as any).oracleStep as OracleEffectStep | undefined;
+    const targetBindingKey = String((payload as any).targetBindingKey || '');
+    const opponentId = readFirstSelectionForBinding(args.runtime, targetBindingKey);
+    if (!opponentId) {
+      return undefined;
+    }
+
+    const amount = quantityToStaticNumber((oracleStep as any)?.amount) ?? Number((payload as any).fatesealCount ?? 0);
+    const opponentLibrary = getPlayerLibrary(args.state, opponentId);
+    const actualCount = Math.max(0, Math.min(amount, opponentLibrary.length));
+    const opponent = (args.state.players || []).find(player => String(player?.id || '') === opponentId) as any;
+    const cards = opponentLibrary.slice(0, actualCount).map(card => normalizeTopLibraryPromptCard(card));
+
+    return createChoiceEventFromEffectProgramChoiceRequest({
+      request: {
+        ...request,
+        payload: {
+          ...payload,
+          opponentId,
+          opponentName: String(opponent?.name || opponentId),
+          cards,
+          fatesealCount: actualCount,
+        },
+      },
+    });
+  }
+
   return createChoiceEventFromEffectProgramChoiceRequest({ request });
 }
 
@@ -197,6 +260,194 @@ function createOracleIRCommandExecutionEvent(
     automationGapCount: execution.automationGaps.length,
     pendingOptionalStepCount: execution.pendingOptionalSteps.length,
   };
+}
+
+function createSingleOracleIRCommandExecutionEvent(
+  stepId: string,
+  stepKind: string,
+  applied: boolean
+): OracleIRCommandExecutionEvent {
+  return {
+    type: 'oracle_ir_execution',
+    stepId,
+    appliedStepKinds: applied ? [stepKind] : [],
+    skippedStepKinds: applied ? [] : [stepKind],
+    automationGapCount: applied ? 0 : 1,
+    pendingOptionalStepCount: 0,
+  };
+}
+
+function applyTopLibraryChoiceCommand(
+  state: GameState,
+  oracleStep: OracleEffectStep,
+  commandStep: EffectProgramCommandStep,
+  runtime: EffectProgramRuntime<GameState>
+): EffectProgramCommandResult<GameState> | undefined {
+  const kind = String((oracleStep as any)?.kind || '');
+  if (kind !== 'scry' && kind !== 'surveil' && kind !== 'fateseal') {
+    return undefined;
+  }
+
+  const bindingKey = commandStep.guard?.bindingKey;
+  const response = bindingKey ? runtime.bindings[bindingKey] as ChoiceResponse | undefined : undefined;
+  if (!response || response.cancelled) {
+    return {
+      state,
+      events: [createSingleOracleIRCommandExecutionEvent(commandStep.id, kind, false)],
+    };
+  }
+
+  const playerId = kind === 'fateseal'
+    ? findFatesealTargetPlayerId(runtime, commandStep)
+    : runtime.program.controllerId;
+  if (!playerId) {
+    return {
+      state,
+      events: [createSingleOracleIRCommandExecutionEvent(commandStep.id, kind, false)],
+    };
+  }
+
+  const library = getPlayerLibrary(state, playerId);
+  const amount = quantityToStaticNumber((oracleStep as any).amount);
+  if (amount === undefined || amount <= 0) {
+    return {
+      state,
+      events: [createSingleOracleIRCommandExecutionEvent(commandStep.id, kind, amount !== undefined)],
+    };
+  }
+
+  const actualCount = Math.min(amount, library.length);
+  if (actualCount <= 0) {
+    return {
+      state,
+      events: [createSingleOracleIRCommandExecutionEvent(commandStep.id, kind, true)],
+    };
+  }
+
+  const topCards = library.slice(0, actualCount);
+  const topCardById = new Map(topCards.map(card => [String((card as any)?.id || ''), card]));
+  const selection = normalizeTopLibraryChoiceSelection(response.selections, kind);
+  const selectedIds = [...selection.keepTopOrder, ...selection.bottomOrGraveyardOrder];
+  const valid = selectedIds.length === topCards.length
+    && new Set(selectedIds).size === selectedIds.length
+    && selectedIds.every(id => topCardById.has(id));
+
+  if (!valid) {
+    return {
+      state,
+      events: [createSingleOracleIRCommandExecutionEvent(commandStep.id, kind, false)],
+    };
+  }
+
+  const keepTopCards = selection.keepTopOrder.map(id => ({ ...topCardById.get(id), zone: 'library' }));
+  const remainingLibrary = library.slice(actualCount);
+  const nextPlayers = state.players.map(player => {
+    if (String(player.id) !== playerId) {
+      return player;
+    }
+
+    if (kind === 'scry' || kind === 'fateseal') {
+      const bottomCards = selection.bottomOrGraveyardOrder.map(id => ({ ...topCardById.get(id), zone: 'library' }));
+      return {
+        ...player,
+        library: [...keepTopCards, ...remainingLibrary, ...bottomCards],
+      } as any;
+    }
+
+    const graveyardCards = selection.bottomOrGraveyardOrder.map(id => ({ ...topCardById.get(id), zone: 'graveyard', faceDown: false }));
+    return {
+      ...player,
+      library: [...keepTopCards, ...remainingLibrary],
+      graveyard: [...(((player as any).graveyard || []) as any[]), ...graveyardCards],
+    } as any;
+  });
+
+  return {
+    state: {
+      ...state,
+      players: nextPlayers,
+    },
+    events: [createSingleOracleIRCommandExecutionEvent(commandStep.id, kind, true)],
+  };
+}
+
+function normalizeTopLibraryChoiceSelection(
+  selections: ChoiceResponse['selections'],
+  kind: 'scry' | 'surveil' | 'fateseal'
+): { readonly keepTopOrder: readonly string[]; readonly bottomOrGraveyardOrder: readonly string[] } {
+  const record = selections && typeof selections === 'object' && !Array.isArray(selections)
+    ? selections as Readonly<Record<string, unknown>>
+    : {};
+
+  return {
+    keepTopOrder: normalizeSelectionIdList(record.keepTopOrder),
+    bottomOrGraveyardOrder: normalizeSelectionIdList(kind === 'surveil' ? record.toGraveyard : record.bottomOrder),
+  };
+}
+
+function findFatesealTargetPlayerId(
+  runtime: EffectProgramRuntime<GameState>,
+  commandStep: EffectProgramCommandStep
+): string | undefined {
+  const fatesealBindingKey = commandStep.guard?.bindingKey;
+  const fatesealChoiceStep = runtime.program.steps.find(step => (
+    step.kind === 'choice' &&
+    step.bindingKey === fatesealBindingKey &&
+    String(step.choiceEvent?.type || step.choiceRequest?.type || '') === ChoiceEventType.FATESEAL
+  ));
+  const targetBindingKey = fatesealChoiceStep?.kind === 'choice'
+    ? String((fatesealChoiceStep.choiceRequest?.payload as any)?.targetBindingKey || '')
+    : '';
+  return readFirstSelectionForBinding(runtime, targetBindingKey);
+}
+
+function readFirstSelectionForBinding(
+  runtime: EffectProgramRuntime<GameState>,
+  bindingKey: string
+): string | undefined {
+  if (!bindingKey) {
+    return undefined;
+  }
+
+  const response = runtime.bindings[bindingKey] as ChoiceResponse | undefined;
+  if (!response || response.cancelled) {
+    return undefined;
+  }
+
+  return normalizeChoiceResponseSelections(response)[0];
+}
+
+function normalizeSelectionIdList(value: unknown): readonly string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.map(selection => normalizeChoiceResponseSelection(selection)).filter(Boolean);
+}
+
+function getPlayerLibrary(state: GameState, playerId: string): readonly any[] {
+  const player = (state.players || []).find(candidate => String(candidate?.id || '') === playerId) as any;
+  return Array.isArray(player?.library) ? player.library : [];
+}
+
+function normalizeTopLibraryPromptCard(card: any): Record<string, unknown> {
+  return {
+    id: String(card?.id || ''),
+    name: String(card?.name || card?.card?.name || card?.id || 'Unknown Card'),
+    type_line: card?.type_line || card?.card?.type_line,
+    oracle_text: card?.oracle_text || card?.card?.oracle_text,
+    imageUrl: card?.imageUrl || card?.image_uris?.normal || card?.card?.imageUrl || card?.card?.image_uris?.normal,
+    mana_cost: card?.mana_cost || card?.card?.mana_cost,
+    cmc: card?.cmc ?? card?.card?.cmc,
+  };
+}
+
+function quantityToStaticNumber(quantity: unknown): number | undefined {
+  if ((quantity as any)?.kind === 'number' && Number.isFinite(Number((quantity as any).value))) {
+    return Number((quantity as any).value);
+  }
+
+  return undefined;
 }
 
 function createOracleIRContextWithEffectProgramBindings(
@@ -575,6 +826,11 @@ function buildOracleIRPlayerChoiceOptions(
 function shouldOracleIRPlayerChoiceAllowSelf(oracleStep: unknown): boolean {
   const kind = String((oracleStep as any)?.kind || '');
   if (kind === 'choose_opponent') {
+    return false;
+  }
+
+  const targetKind = String((oracleStep as any)?.target?.kind || '');
+  if (targetKind === 'target_opponent' || targetKind === 'each_opponent') {
     return false;
   }
 

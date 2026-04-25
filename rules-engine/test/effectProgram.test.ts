@@ -11,6 +11,7 @@ import {
 } from '../src/effectProgram';
 import {
   buildEffectProgramsFromOracleText,
+  createOracleIREffectProgramHandlers,
   runOracleEffectProgram,
 } from '../src/effectProgramOracleRunner';
 import {
@@ -1204,7 +1205,42 @@ describe('EffectProgram', () => {
     ]);
   });
 
-  it('keeps unsupported player-choice Oracle IR steps as command automation gaps', () => {
+  it('exposes reusable Oracle IR EffectProgram handlers for external resolution services', () => {
+    const program = buildEffectProgramFromOracleIR({
+      id: 'handler-factory-program',
+      controllerId: 'p1',
+      sourceId: 'source-1',
+      sourceName: 'Draw Source',
+      steps: [
+        {
+          kind: 'draw',
+          who: { kind: 'you' },
+          amount: { kind: 'number', value: 1 },
+          raw: 'Draw a card.',
+        } as any,
+      ],
+    });
+
+    const result = runEffectProgram(
+      createEffectProgramRuntime({ program, state: makeState() }),
+      createOracleIREffectProgramHandlers({ controllerId: 'p1', sourceId: 'source-1', sourceName: 'Draw Source' })
+    );
+
+    expect(result.status).toBe('completed');
+    expect((result.state.players.find(playerState => playerState.id === 'p1') as any).hand.map((card: any) => card.id)).toEqual(['drawn-card']);
+    expect(result.events).toEqual([
+      {
+        type: 'oracle_ir_execution',
+        stepId: 'handler-factory-program:clause-0:command',
+        appliedStepKinds: ['draw'],
+        skippedStepKinds: [],
+        automationGapCount: 0,
+        pendingOptionalStepCount: 0,
+      },
+    ]);
+  });
+
+  it('feeds scry choices into Oracle IR top-library execution', () => {
     const program = buildEffectProgramFromOracleIR({
       id: 'scry-program',
       controllerId: 'p1',
@@ -1216,6 +1252,296 @@ describe('EffectProgram', () => {
           who: { kind: 'you' },
           amount: { kind: 'number', value: 1 },
           raw: 'Scry 1.',
+        } as any,
+      ],
+    });
+
+    expect(program.steps.map(step => step.kind)).toEqual(['choice', 'command']);
+    expect(program.steps[0]).toMatchObject({
+      kind: 'choice',
+      choiceRequest: { type: ChoiceEventType.SCRY },
+    });
+
+    const state = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          library: [
+            { id: 'top-a', name: 'Top A' },
+            { id: 'top-b', name: 'Top B' },
+            { id: 'remaining-c', name: 'Remaining C' },
+          ],
+          hand: [],
+          graveyard: [],
+        } as any,
+      ],
+    });
+
+    const paused = runOracleEffectProgram(
+      createEffectProgramRuntime({ program, state }),
+      { controllerId: 'p1', sourceId: 'source-1', sourceName: 'Scry Source' }
+    );
+
+    expect(paused.status).toBe('waiting_for_choice');
+    expect(paused.pendingChoice?.choiceEvent).toMatchObject({
+      type: ChoiceEventType.SCRY,
+      scryCount: 1,
+      cards: [{ id: 'top-a', name: 'Top A' }],
+    });
+
+    const resumedRuntime = bindEffectProgramChoiceResponse(
+      paused.runtime,
+      {
+        eventId: paused.pendingChoice!.choiceEvent.id,
+        playerId: 'p1',
+        selections: { keepTopOrder: [], bottomOrder: ['top-a'] },
+        cancelled: false,
+        timestamp: 2,
+      } as ChoiceResponse,
+      paused.pendingChoice!.step.bindingKey
+    );
+    const completed = runOracleEffectProgram(
+      resumedRuntime,
+      { controllerId: 'p1', sourceId: 'source-1', sourceName: 'Scry Source' }
+    );
+
+    expect(completed.status).toBe('completed');
+    expect((completed.state.players.find(player => player.id === 'p1') as any).library.map((card: any) => card.id)).toEqual([
+      'top-b',
+      'remaining-c',
+      'top-a',
+    ]);
+    expect(completed.events).toEqual([
+      {
+        type: 'oracle_ir_execution',
+        stepId: 'scry-program:clause-0:command',
+        appliedStepKinds: ['scry'],
+        skippedStepKinds: [],
+        automationGapCount: 0,
+        pendingOptionalStepCount: 0,
+      },
+    ]);
+  });
+
+  it('feeds surveil choices into Oracle IR top-library execution', () => {
+    const program = buildEffectProgramFromOracleIR({
+      id: 'surveil-program',
+      controllerId: 'p1',
+      sourceId: 'source-1',
+      sourceName: 'Surveil Source',
+      steps: [
+        {
+          kind: 'surveil',
+          who: { kind: 'you' },
+          amount: { kind: 'number', value: 2 },
+          raw: 'Surveil 2.',
+        } as any,
+      ],
+    });
+
+    expect(program.steps.map(step => step.kind)).toEqual(['choice', 'command']);
+
+    const state = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          library: [
+            { id: 'top-a', name: 'Top A' },
+            { id: 'top-b', name: 'Top B' },
+            { id: 'remaining-c', name: 'Remaining C' },
+          ],
+          hand: [],
+          graveyard: [{ id: 'old-graveyard', name: 'Old Graveyard' }],
+        } as any,
+      ],
+    });
+
+    const paused = runOracleEffectProgram(
+      createEffectProgramRuntime({ program, state }),
+      { controllerId: 'p1', sourceId: 'source-1', sourceName: 'Surveil Source' }
+    );
+
+    expect(paused.status).toBe('waiting_for_choice');
+    expect(paused.pendingChoice?.choiceEvent).toMatchObject({
+      type: ChoiceEventType.SURVEIL,
+      surveilCount: 2,
+      cards: [
+        { id: 'top-a', name: 'Top A' },
+        { id: 'top-b', name: 'Top B' },
+      ],
+    });
+
+    const resumedRuntime = bindEffectProgramChoiceResponse(
+      paused.runtime,
+      {
+        eventId: paused.pendingChoice!.choiceEvent.id,
+        playerId: 'p1',
+        selections: { keepTopOrder: ['top-b'], toGraveyard: ['top-a'] },
+        cancelled: false,
+        timestamp: 2,
+      } as ChoiceResponse,
+      paused.pendingChoice!.step.bindingKey
+    );
+    const completed = runOracleEffectProgram(
+      resumedRuntime,
+      { controllerId: 'p1', sourceId: 'source-1', sourceName: 'Surveil Source' }
+    );
+
+    const player = completed.state.players.find(playerState => playerState.id === 'p1') as any;
+    expect(completed.status).toBe('completed');
+    expect(player.library.map((card: any) => card.id)).toEqual(['top-b', 'remaining-c']);
+    expect(player.graveyard.map((card: any) => card.id)).toEqual(['old-graveyard', 'top-a']);
+    expect(completed.events).toEqual([
+      {
+        type: 'oracle_ir_execution',
+        stepId: 'surveil-program:clause-0:command',
+        appliedStepKinds: ['surveil'],
+        skippedStepKinds: [],
+        automationGapCount: 0,
+        pendingOptionalStepCount: 0,
+      },
+    ]);
+  });
+
+  it('feeds opponent and fateseal choices into Oracle IR opponent-library execution', () => {
+    const program = buildEffectProgramFromOracleIR({
+      id: 'fateseal-program',
+      controllerId: 'p1',
+      sourceId: 'source-1',
+      sourceName: 'Fateseal Source',
+      steps: [
+        {
+          kind: 'fateseal',
+          who: { kind: 'you' },
+          target: { kind: 'target_opponent' },
+          amount: { kind: 'number', value: 2 },
+          raw: 'Fateseal 2.',
+        } as any,
+      ],
+    });
+
+    expect(program.steps.map(step => step.kind)).toEqual(['choice', 'choice', 'command']);
+    expect(program.steps[0]).toMatchObject({
+      kind: 'choice',
+      choiceRequest: { type: ChoiceEventType.PLAYER_CHOICE },
+    });
+    expect(program.steps[1]).toMatchObject({
+      kind: 'choice',
+      choiceRequest: { type: ChoiceEventType.FATESEAL },
+    });
+
+    const state = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          library: [],
+          hand: [],
+          graveyard: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          library: [
+            { id: 'opp-top-a', name: 'Opponent Top A' },
+            { id: 'opp-top-b', name: 'Opponent Top B' },
+            { id: 'opp-remaining-c', name: 'Opponent Remaining C' },
+          ],
+          hand: [],
+          graveyard: [],
+        } as any,
+      ],
+    });
+
+    const opponentPaused = runOracleEffectProgram(
+      createEffectProgramRuntime({ program, state }),
+      { controllerId: 'p1', sourceId: 'source-1', sourceName: 'Fateseal Source' }
+    );
+
+    expect(opponentPaused.status).toBe('waiting_for_choice');
+    expect(opponentPaused.pendingChoice?.choiceEvent).toMatchObject({
+      type: ChoiceEventType.PLAYER_CHOICE,
+      validPlayers: [{ id: 'p2', name: 'P2' }],
+      allowSelf: false,
+    });
+
+    const afterOpponentRuntime = bindEffectProgramChoiceResponse(
+      opponentPaused.runtime,
+      {
+        eventId: opponentPaused.pendingChoice!.choiceEvent.id,
+        playerId: 'p1',
+        selections: ['p2'],
+        cancelled: false,
+        timestamp: 2,
+      },
+      opponentPaused.pendingChoice!.step.bindingKey
+    );
+    const fatesealPaused = runOracleEffectProgram(
+      afterOpponentRuntime,
+      { controllerId: 'p1', sourceId: 'source-1', sourceName: 'Fateseal Source' }
+    );
+
+    expect(fatesealPaused.status).toBe('waiting_for_choice');
+    expect(fatesealPaused.pendingChoice?.choiceEvent).toMatchObject({
+      type: ChoiceEventType.FATESEAL,
+      opponentId: 'p2',
+      opponentName: 'P2',
+      fatesealCount: 2,
+      cards: [
+        { id: 'opp-top-a', name: 'Opponent Top A' },
+        { id: 'opp-top-b', name: 'Opponent Top B' },
+      ],
+    });
+
+    const afterFatesealRuntime = bindEffectProgramChoiceResponse(
+      fatesealPaused.runtime,
+      {
+        eventId: fatesealPaused.pendingChoice!.choiceEvent.id,
+        playerId: 'p1',
+        selections: { keepTopOrder: ['opp-top-b'], bottomOrder: ['opp-top-a'] },
+        cancelled: false,
+        timestamp: 3,
+      } as ChoiceResponse,
+      fatesealPaused.pendingChoice!.step.bindingKey
+    );
+    const completed = runOracleEffectProgram(
+      afterFatesealRuntime,
+      { controllerId: 'p1', sourceId: 'source-1', sourceName: 'Fateseal Source' }
+    );
+
+    const opponent = completed.state.players.find(playerState => playerState.id === 'p2') as any;
+    expect(completed.status).toBe('completed');
+    expect(opponent.library.map((card: any) => card.id)).toEqual(['opp-top-b', 'opp-remaining-c', 'opp-top-a']);
+    expect(completed.events).toEqual([
+      {
+        type: 'oracle_ir_execution',
+        stepId: 'fateseal-program:clause-0:command',
+        appliedStepKinds: ['fateseal'],
+        skippedStepKinds: [],
+        automationGapCount: 0,
+        pendingOptionalStepCount: 0,
+      },
+    ]);
+  });
+
+  it('keeps unsupported multi-player top-library Oracle IR steps as command automation gaps', () => {
+    const program = buildEffectProgramFromOracleIR({
+      id: 'scry-program',
+      controllerId: 'p1',
+      sourceId: 'source-1',
+      sourceName: 'Scry Source',
+      steps: [
+        {
+          kind: 'scry',
+          who: { kind: 'each_player' },
+          amount: { kind: 'number', value: 1 },
+          raw: 'Each player scries 1.',
         } as any,
       ],
     });
@@ -1268,7 +1594,7 @@ describe('EffectProgram', () => {
     expect(result.trace.map(entry => entry.outcome)).toEqual(['expanded', 'applied']);
   });
 
-  it('keeps partial choice-requiring keyword steps as command automation gaps', () => {
+  it('expands supported choice-requiring keyword steps through semantic Oracle IR lowering', () => {
     const program: EffectProgram = {
       id: 'keyword-choice-program',
       controllerId: 'p1',
@@ -1284,6 +1610,77 @@ describe('EffectProgram', () => {
       ],
     };
 
+    const paused = runOracleEffectProgram(
+      createEffectProgramRuntime({
+        program,
+        state: makeState({
+          players: [
+            {
+              id: 'p1',
+              name: 'P1',
+              seat: 0,
+              library: [
+                { id: 'top-a', name: 'Top A' },
+                { id: 'top-b', name: 'Top B' },
+              ],
+              hand: [],
+              graveyard: [],
+            } as any,
+          ],
+        }),
+      }),
+      { controllerId: 'p1', sourceName: 'Keyword Source' },
+      {},
+      { expandKeyword: createEffectProgramKeywordExpansionHandler() }
+    );
+
+    expect(paused.status).toBe('waiting_for_choice');
+    expect(paused.trace.map(entry => entry.outcome)).toEqual(['expanded', 'waiting']);
+    expect(paused.pendingChoice?.choiceEvent).toMatchObject({
+      type: ChoiceEventType.SCRY,
+      scryCount: 2,
+    });
+
+    const resumedRuntime = bindEffectProgramChoiceResponse(
+      paused.runtime,
+      {
+        eventId: paused.pendingChoice!.choiceEvent.id,
+        playerId: 'p1',
+        selections: { keepTopOrder: ['top-b'], bottomOrder: ['top-a'] },
+        cancelled: false,
+        timestamp: 2,
+      } as ChoiceResponse,
+      paused.pendingChoice!.step.bindingKey
+    );
+    const completed = runOracleEffectProgram(
+      resumedRuntime,
+      { controllerId: 'p1', sourceName: 'Keyword Source' },
+      {},
+      { expandKeyword: createEffectProgramKeywordExpansionHandler() }
+    );
+
+    expect(completed.status).toBe('completed');
+    expect((completed.state.players.find(player => player.id === 'p1') as any).library.map((card: any) => card.id)).toEqual([
+      'top-b',
+      'top-a',
+    ]);
+  });
+
+  it('keeps partial choice-requiring keyword steps as command automation gaps', () => {
+    const program: EffectProgram = {
+      id: 'keyword-choice-gap-program',
+      controllerId: 'p1',
+      sourceName: 'Keyword Source',
+      steps: [
+        {
+          id: 'clash-keyword',
+          kind: 'keyword',
+          keyword: 'clash',
+          raw: 'Clash with an opponent.',
+        },
+      ],
+    };
+
     const result = runEffectProgram(createEffectProgramRuntime({ program, state: { applied: [] as string[] } }), {
       expandKeyword: createEffectProgramKeywordExpansionHandler(),
       applyCommand: ({ state, step }) => ({
@@ -1292,22 +1689,17 @@ describe('EffectProgram', () => {
     });
 
     expect(result.status).toBe('completed');
-    expect(result.state.applied).toEqual(['scry']);
+    expect(result.state.applied).toEqual(['clash']);
     expect(result.trace.map(entry => entry.outcome)).toEqual(['expanded', 'applied']);
   });
 
   it('audits missing and partial keyword registry coverage', () => {
     expect(getEffectProgramKeywordEntry('manifest_dread')?.oracleStepKind).toBe('manifest_dread');
-    expect(auditEffectProgramKeywords(['investigate', 'scry', 'fateseal', 'brand new keyword'])).toEqual([
+    expect(auditEffectProgramKeywords(['investigate', 'scry', 'clash', 'brand new keyword'])).toEqual([
       {
-        keyword: 'scry',
+        keyword: 'clash',
         status: 'partial',
-        message: 'Keyword "scry" is marked partial in the EffectProgram registry.',
-      },
-      {
-        keyword: 'fateseal',
-        status: 'partial',
-        message: 'Keyword "fateseal" is marked partial in the EffectProgram registry.',
+        message: 'Keyword "clash" is marked partial in the EffectProgram registry.',
       },
       {
         keyword: 'brand new keyword',

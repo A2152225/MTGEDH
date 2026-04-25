@@ -386,6 +386,9 @@ function mapChoiceEventType(choiceType: string): ResolutionStepType {
     player_choice: ResolutionStepType.PLAYER_CHOICE,
     option_choice: ResolutionStepType.OPTION_CHOICE,
     mana_payment_choice: ResolutionStepType.MANA_PAYMENT_CHOICE,
+    scry: ResolutionStepType.SCRY,
+    surveil: ResolutionStepType.SURVEIL,
+    fateseal: ResolutionStepType.FATESEAL,
   };
   
   return typeMap[choiceType] || ResolutionStepType.OPTION_CHOICE;

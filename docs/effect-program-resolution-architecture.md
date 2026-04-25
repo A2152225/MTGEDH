@@ -34,6 +34,7 @@ Examples:
 - `vigilance` becomes a static combat restriction modifier.
 - `annihilator N` becomes an attack trigger that asks the defending player to sacrifice N permanents.
 - `collect evidence N` becomes an additional-cost choice over graveyard cards whose total mana value is at least N.
+- `scry N`, `surveil N`, and `fateseal N` lower through the Oracle IR EffectProgram compiler when their player/opponent shape is deterministic enough for the current prompt contracts.
 - New or changed keyword definitions from set updates should become registry updates plus tests before cards using the keyword are considered automated.
 
 ### EffectProgram
@@ -47,9 +48,9 @@ The EffectProgram is the executable representation of a card effect. It contains
 
 The EffectProgram should preserve bindings for choices and targets. Later clauses should refer to bindings instead of reparsing text or searching completed queue history.
 
-Current foundation support includes semantic prompts for mode selection, target creature selection, player/opponent choice, color choice, creature-type choice, and card-name choice. These prompts bind their responses by `bindingKey`, and the Oracle IR runner derives target, player, mode, color, creature-type, and card-name execution context from those bindings when later command steps run.
+Current foundation support includes semantic prompts for mode selection, target creature selection, player/opponent choice, color choice, creature-type choice, card-name choice, scry, surveil, and fateseal. These prompts bind their responses by `bindingKey`, and the Oracle IR runner derives target, player, mode, color, creature-type, card-name, and top-library ordering execution context from those bindings when later command steps run. Fateseal uses two bound choices: the opponent selection first, then the top-library ordering prompt for that opponent.
 
-Choice-heavy Oracle IR steps that do not yet have a semantic prompt shape should remain command-side automation gaps rather than becoming generic yes/no prompts. Examples include scry, surveil, search-library ordering, and top-library card selection. Those need dedicated prompt contracts before they should become live Resolution Queue choices.
+Choice-heavy Oracle IR steps that do not yet have a semantic prompt shape should remain command-side automation gaps rather than becoming generic yes/no prompts. Examples include search-library ordering and more complex top-library card selection. Those need dedicated prompt contracts before they should become live Resolution Queue choices. Scry, surveil, and fateseal now use dedicated queue prompt contracts and only lower automatically for deterministic `you scry/surveil/fateseal N` Oracle IR shapes. The keyword registry marks those keyword actions supported because it delegates their expansion back through the Oracle IR EffectProgram compiler instead of creating generic keyword prompts.
 
 ### Resolution Queue
 
@@ -70,6 +71,10 @@ It should not become the only representation of internal effect execution. Deter
 Replay should eventually persist the effect program identity, cursor, choice step id, and bound response. Current prompt snapshots can continue to work during migration, but new effect-program prompts should carry metadata that lets replay resume from an explicit program point instead of reconstructing context from ad hoc flags.
 
 Prompt snapshots should keep resume metadata in the `effectProgram` block. The serialized `queuedResolutionStep` should carry the user-facing prompt fields, while `effectProgramId`, `effectProgramCursor`, `effectProgramStepId`, `effectProgramBindingKey`, and `effectProgramPrompt` stay out of the socket-facing step snapshot.
+
+When live server EffectPrograms need top-library information, the resolution service temporarily hydrates the runtime state from `game.libraries`. After execution, library changes are written back to `game.libraries`, temporary `player.library` snapshots are stripped from `game.state.players` unless that field already existed, and temporary `player.graveyard` snapshots are folded into `game.state.zones[playerId].graveyard`. This keeps EffectPrograms able to reason about real libraries without making full hidden libraries part of the normal socket-facing state shape.
+
+Live migrations that execute Oracle IR through the server resolution service should use the exported Oracle EffectProgram handler factory. It supplies the default choice-event builder, conditional evaluator, and Oracle IR command handler so callers can pass one handler object into `startEffectProgramResolution(...)` instead of duplicating private runner glue.
 
 ## Migration Strategy
 

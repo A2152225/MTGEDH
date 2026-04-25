@@ -2,11 +2,13 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { ChoiceEventType } from '../../rules-engine/src/choiceEvents.js';
 import {
+  buildEffectProgramFromOracleIR,
   createEffectProgramRuntime,
   runEffectProgram,
   type EffectProgram,
   type EffectProgramHandlers,
 } from '../../rules-engine/src/effectProgram.js';
+import { createOracleIREffectProgramHandlers } from '../../rules-engine/src/effectProgramOracleRunner.js';
 import {
   appendEffectProgramPromptEvent,
   buildEffectProgramPromptSnapshot,
@@ -286,6 +288,124 @@ describe('effect-program queue adapter', () => {
     });
   });
 
+  it('preserves structured top-library selections for EffectProgram scry prompts', () => {
+    const program: EffectProgram = {
+      ...makeProgram(),
+      steps: [
+        {
+          id: 'effect-program-1:clause-0:scry-choice',
+          kind: 'choice',
+          bindingKey: 'scry-binding-1',
+          choiceRequest: {
+            type: ChoiceEventType.SCRY,
+            playerId: 'p1',
+            description: 'Source Card: Scry 2.',
+            mandatory: true,
+            sourceId: 'source-1',
+            sourceName: 'Source Card',
+            payload: {
+              cards: [
+                { id: 'top-a', name: 'Top A' },
+                { id: 'top-b', name: 'Top B' },
+              ],
+              scryCount: 2,
+            },
+          },
+        },
+      ],
+    };
+    const paused = runEffectProgram(createEffectProgramRuntime({ program, state: {} }));
+    const step = queueEffectProgramChoice(gameId, paused.pendingChoice!);
+
+    expect(step).toMatchObject({
+      type: 'scry',
+      cards: [
+        { id: 'top-a', name: 'Top A' },
+        { id: 'top-b', name: 'Top B' },
+      ],
+      scryCount: 2,
+      effectProgramPrompt: true,
+      effectProgramBindingKey: 'scry-binding-1',
+    });
+
+    const choiceResponse = createEffectProgramChoiceResponse(step, {
+      stepId: step.id,
+      playerId: 'p1',
+      selections: {
+        keepTopOrder: [{ id: 'top-b', label: 'Top B' }],
+        bottomOrder: ['top-a'],
+      },
+      cancelled: false,
+      timestamp: 123,
+    });
+
+    expect(choiceResponse.selections).toEqual({
+      keepTopOrder: ['top-b'],
+      bottomOrder: ['top-a'],
+    });
+  });
+
+  it('preserves EffectProgram fateseal prompt fields through queueing', () => {
+    const program: EffectProgram = {
+      ...makeProgram(),
+      steps: [
+        {
+          id: 'effect-program-1:clause-0:fateseal-choice',
+          kind: 'choice',
+          bindingKey: 'fateseal-binding-1',
+          choiceRequest: {
+            type: ChoiceEventType.FATESEAL,
+            playerId: 'p1',
+            description: 'Source Card: Fateseal 2.',
+            mandatory: true,
+            sourceId: 'source-1',
+            sourceName: 'Source Card',
+            payload: {
+              opponentId: 'p2',
+              opponentName: 'P2',
+              cards: [
+                { id: 'opp-top-a', name: 'Opponent Top A' },
+                { id: 'opp-top-b', name: 'Opponent Top B' },
+              ],
+              fatesealCount: 2,
+            },
+          },
+        },
+      ],
+    };
+    const paused = runEffectProgram(createEffectProgramRuntime({ program, state: {} }));
+    const step = queueEffectProgramChoice(gameId, paused.pendingChoice!);
+
+    expect(step).toMatchObject({
+      type: 'fateseal',
+      opponentId: 'p2',
+      opponentName: 'P2',
+      cards: [
+        { id: 'opp-top-a', name: 'Opponent Top A' },
+        { id: 'opp-top-b', name: 'Opponent Top B' },
+      ],
+      fatesealCount: 2,
+      effectProgramPrompt: true,
+      effectProgramBindingKey: 'fateseal-binding-1',
+    });
+
+    const choiceResponse = createEffectProgramChoiceResponse(step, {
+      stepId: step.id,
+      playerId: 'p1',
+      selections: {
+        keepTopOrder: [{ id: 'opp-top-b', label: 'Opponent Top B' }],
+        bottomOrder: ['opp-top-a'],
+      },
+      cancelled: false,
+      timestamp: 123,
+    });
+
+    expect(choiceResponse.selections).toEqual({
+      keepTopOrder: ['opp-top-b'],
+      bottomOrder: ['opp-top-a'],
+    });
+  });
+
   it('builds and appends canonical prompt snapshots for persistence', () => {
     const paused = runEffectProgram(createEffectProgramRuntime({ program: makeProgram(), state: {} }));
     const step = queueEffectProgramChoice(gameId, paused.pendingChoice!);
@@ -391,5 +511,264 @@ describe('effect-program queue adapter', () => {
     expect(resumed.status).toBe('completed');
     expect(game.state.count).toBe(1);
     expect(getEffectProgramRuntimeForStep(gameId, started.queuedStep!.id)).toBeUndefined();
+  });
+
+  it('hydrates effect-program state from game libraries and syncs library changes back', () => {
+    const game = {
+      state: {
+        id: gameId,
+        format: 'commander',
+        players: [{ id: 'p1', name: 'P1', seat: 0 }],
+        startingLife: 40,
+        life: {},
+        turnPlayer: 'p1',
+        priority: 'p1',
+        stack: [],
+        battlefield: [],
+        commandZone: {},
+        phase: 'pre_game',
+        active: true,
+        zones: { p1: { libraryCount: 2 } },
+      } as any,
+      libraries: new Map<string, any[]>([
+        ['p1', [
+          { id: 'top-a', name: 'Top A' },
+          { id: 'top-b', name: 'Top B' },
+        ]],
+      ]),
+      seq: 3,
+      bumpSeq() {
+        this.seq += 1;
+      },
+    };
+    const program: EffectProgram = {
+      id: 'library-program',
+      controllerId: 'p1',
+      sourceId: 'source-1',
+      sourceName: 'Library Source',
+      steps: [
+        {
+          id: 'library-program:choice',
+          kind: 'choice',
+          bindingKey: 'top-library-choice',
+          choiceRequest: {
+            type: ChoiceEventType.SCRY,
+            playerId: 'p1',
+            description: 'Library Source: Scry 1.',
+            mandatory: true,
+            payload: { scryCount: 1 },
+          },
+        },
+        {
+          id: 'library-program:command',
+          kind: 'command',
+          guard: { bindingKey: 'top-library-choice', cancelledEquals: false, onFalse: 'skip' },
+          command: { kind: 'rotate_library' },
+        },
+      ],
+    };
+    const handlers: EffectProgramHandlers<any> = {
+      createChoiceEvent: ({ state, step }) => ({
+        id: 'library-choice-event',
+        type: ChoiceEventType.SCRY,
+        playerId: 'p1',
+        description: step.choiceRequest?.description || 'Scry 1.',
+        mandatory: true,
+        timestamp: 1,
+        cards: [(((state.players[0] as any).library || []) as any[])[0]],
+        scryCount: 1,
+      }),
+      applyCommand: ({ state }) => {
+        const player = state.players[0] as any;
+        const library = Array.isArray(player.library) ? player.library : [];
+        return {
+          ...state,
+          players: [
+            {
+              ...player,
+              library: [library[1], library[0]].filter(Boolean),
+            },
+          ],
+        };
+      },
+    };
+
+    const started = startEffectProgramResolution({
+      game,
+      gameId,
+      program,
+      handlers: handlers as any,
+      persistPrompt: false,
+    });
+
+    expect(started.status).toBe('waiting_for_choice');
+    expect(started.queuedStep).toMatchObject({
+      type: 'scry',
+      cards: [{ id: 'top-a', name: 'Top A' }],
+      scryCount: 1,
+    });
+    expect((game.state.players[0] as any).library).toBeUndefined();
+
+    const completedStep = ResolutionQueueManager.completeStep(gameId, started.queuedStep!.id, {
+      stepId: started.queuedStep!.id,
+      playerId: 'p1',
+      selections: { keepTopOrder: [], bottomOrder: ['top-a'] },
+      cancelled: false,
+      timestamp: 100,
+    });
+
+    const resumed = resumeEffectProgramResolution({
+      game,
+      gameId,
+      step: completedStep!,
+      response: completedStep!.response!,
+      persistPrompt: false,
+    });
+
+    expect(resumed.status).toBe('completed');
+    expect((game.libraries.get('p1') || []).map((card: any) => card.id)).toEqual(['top-b', 'top-a']);
+    expect((game.state.players[0] as any).library).toBeUndefined();
+    expect(game.state.zones.p1.libraryCount).toBe(2);
+  });
+
+  it('runs Oracle IR top-library prompts through the resolution service with live libraries', () => {
+    const game = {
+      state: {
+        id: gameId,
+        format: 'commander',
+        players: [{ id: 'p1', name: 'P1', seat: 0 }],
+        startingLife: 40,
+        life: {},
+        turnPlayer: 'p1',
+        priority: 'p1',
+        stack: [],
+        battlefield: [],
+        commandZone: {},
+        phase: 'pre_game',
+        active: true,
+        zones: { p1: { libraryCount: 2 } },
+      } as any,
+      libraries: new Map<string, any[]>([
+        ['p1', [
+          { id: 'top-a', name: 'Top A' },
+          { id: 'top-b', name: 'Top B' },
+        ]],
+      ]),
+      seq: 11,
+      bumpSeq() {
+        this.seq += 1;
+      },
+    };
+    const program = buildEffectProgramFromOracleIR({
+      id: 'live-scry-program',
+      controllerId: 'p1',
+      sourceId: 'source-1',
+      sourceName: 'Scry Source',
+      steps: [
+        {
+          kind: 'scry',
+          who: { kind: 'you' },
+          amount: { kind: 'number', value: 1 },
+          raw: 'Scry 1.',
+        } as any,
+      ],
+    });
+
+    const started = startEffectProgramResolution({
+      game,
+      gameId,
+      program,
+      handlers: createOracleIREffectProgramHandlers({ controllerId: 'p1', sourceId: 'source-1', sourceName: 'Scry Source' }) as any,
+      persistPrompt: false,
+    });
+
+    expect(started.status).toBe('waiting_for_choice');
+    expect(started.queuedStep).toMatchObject({
+      type: 'scry',
+      cards: [{ id: 'top-a', name: 'Top A' }],
+      scryCount: 1,
+      effectProgramPrompt: true,
+    });
+    expect((game.state.players[0] as any).library).toBeUndefined();
+
+    const completedStep = ResolutionQueueManager.completeStep(gameId, started.queuedStep!.id, {
+      stepId: started.queuedStep!.id,
+      playerId: 'p1',
+      selections: { keepTopOrder: [], bottomOrder: ['top-a'] },
+      cancelled: false,
+      timestamp: 100,
+    });
+
+    const resumed = resumeEffectProgramResolution({
+      game,
+      gameId,
+      step: completedStep!,
+      response: completedStep!.response!,
+      persistPrompt: false,
+    });
+
+    expect(resumed.status).toBe('completed');
+    expect((game.libraries.get('p1') || []).map((card: any) => card.id)).toEqual(['top-b', 'top-a']);
+    expect((game.state.players[0] as any).library).toBeUndefined();
+    expect(game.state.zones.p1.libraryCount).toBe(2);
+  });
+
+  it('syncs temporary effect-program graveyard snapshots into zones', () => {
+    const game = {
+      state: {
+        id: gameId,
+        format: 'commander',
+        players: [{ id: 'p1', name: 'P1', seat: 0 }],
+        startingLife: 40,
+        life: {},
+        turnPlayer: 'p1',
+        priority: 'p1',
+        stack: [],
+        battlefield: [],
+        commandZone: {},
+        phase: 'pre_game',
+        active: true,
+        zones: { p1: { graveyard: [], graveyardCount: 0 } },
+      } as any,
+      libraries: new Map<string, any[]>(),
+      seq: 5,
+      bumpSeq() {
+        this.seq += 1;
+      },
+    };
+    const program: EffectProgram = {
+      id: 'graveyard-sync-program',
+      controllerId: 'p1',
+      steps: [
+        {
+          id: 'graveyard-sync-command',
+          kind: 'command',
+          command: { kind: 'put_graveyard_snapshot' },
+        },
+      ],
+    };
+
+    const result = startEffectProgramResolution({
+      game,
+      gameId,
+      program,
+      handlers: {
+        applyCommand: ({ state }) => ({
+          ...state,
+          players: [
+            {
+              ...state.players[0],
+              graveyard: [{ id: 'grave-a', name: 'Grave A' }],
+            } as any,
+          ],
+        }),
+      } as any,
+      persistPrompt: false,
+    });
+
+    expect(result.status).toBe('completed');
+    expect((game.state.players[0] as any).graveyard).toBeUndefined();
+    expect(game.state.zones.p1.graveyard).toEqual([{ id: 'grave-a', name: 'Grave A', zone: 'graveyard', faceDown: false }]);
+    expect(game.state.zones.p1.graveyardCount).toBe(1);
   });
 });

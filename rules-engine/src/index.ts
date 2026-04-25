@@ -956,11 +956,13 @@ export {
 
 export {
   buildEffectProgramsFromOracleText,
+  createOracleIREffectProgramHandlers,
   createOracleIRCommandHandler,
   runOracleEffectProgram,
   type BuildEffectProgramsFromOracleTextInput,
   type BuildEffectProgramsFromOracleTextResult,
   type OracleIRCommandExecutionEvent,
+  type OracleIREffectProgramHandlerOverrides,
 } from './effectProgramOracleRunner';
 
 export {

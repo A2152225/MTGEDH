@@ -7,6 +7,7 @@ import { appendEvent } from '../../db/index.js';
 import {
   ResolutionQueueManager,
   type CreateResolutionStepConfig,
+  ResolutionStepType,
   type ResolutionStep,
   type ResolutionStepResponse,
 } from '../resolution/index.js';
@@ -149,13 +150,16 @@ export function createEffectProgramChoiceResponse(
   return {
     eventId: step.choiceEvent?.id ?? metadata?.effectProgramStepId ?? step.id,
     playerId: response.playerId,
-    selections: normalizeEffectProgramSelections(response.selections),
+    selections: normalizeEffectProgramSelections(step, response.selections),
     cancelled: response.cancelled,
     timestamp: response.timestamp,
   };
 }
 
-function normalizeEffectProgramSelections(selections: ResolutionStepResponse['selections']): ChoiceResponse['selections'] {
+function normalizeEffectProgramSelections(
+  step: ResolutionStep,
+  selections: ResolutionStepResponse['selections']
+): ChoiceResponse['selections'] {
   if (typeof selections === 'number' || typeof selections === 'boolean') {
     return selections;
   }
@@ -170,6 +174,11 @@ function normalizeEffectProgramSelections(selections: ResolutionStepResponse['se
 
   if (selections && typeof selections === 'object') {
     const record = selections as Record<string, any>;
+    const topLibrarySelections = normalizeTopLibraryEffectProgramSelections(step, record);
+    if (topLibrarySelections) {
+      return topLibrarySelections;
+    }
+
     for (const key of ['selections', 'selectedIds', 'selectedCardIds', 'selectedTargetIds', 'targets']) {
       if (Array.isArray(record[key])) {
         return record[key].map((selection: any) => String(selection));
@@ -184,6 +193,43 @@ function normalizeEffectProgramSelections(selections: ResolutionStepResponse['se
   }
 
   return [];
+}
+
+function normalizeTopLibraryEffectProgramSelections(
+  step: ResolutionStep,
+  selections: Record<string, any>
+): Readonly<Record<string, unknown>> | undefined {
+  const stepType = String((step as any).type || '');
+  if (stepType === ResolutionStepType.SCRY) {
+    return {
+      keepTopOrder: normalizeEffectProgramSelectionArray(selections.keepTopOrder),
+      bottomOrder: normalizeEffectProgramSelectionArray(selections.bottomOrder),
+    };
+  }
+
+  if (stepType === ResolutionStepType.SURVEIL) {
+    return {
+      keepTopOrder: normalizeEffectProgramSelectionArray(selections.keepTopOrder),
+      toGraveyard: normalizeEffectProgramSelectionArray(selections.toGraveyard),
+    };
+  }
+
+  if (stepType === ResolutionStepType.FATESEAL) {
+    return {
+      keepTopOrder: normalizeEffectProgramSelectionArray(selections.keepTopOrder),
+      bottomOrder: normalizeEffectProgramSelectionArray(selections.bottomOrder),
+    };
+  }
+
+  return undefined;
+}
+
+function normalizeEffectProgramSelectionArray(value: unknown): readonly string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.map(selection => normalizeEffectProgramSelectionValue(selection)).filter(Boolean);
 }
 
 function normalizeEffectProgramSelectionValue(selection: unknown): string {

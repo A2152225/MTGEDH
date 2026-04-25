@@ -172,6 +172,9 @@ export const STEP_TO_CHOICE_EVENT_TYPE: Partial<Record<ResolutionStepType, Choic
   [ResolutionStepType.PLAYER_CHOICE]: ChoiceEventType.PLAYER_CHOICE,
   [ResolutionStepType.OPTION_CHOICE]: ChoiceEventType.OPTION_CHOICE,
   [ResolutionStepType.MANA_PAYMENT_CHOICE]: ChoiceEventType.MANA_PAYMENT_CHOICE,
+  [ResolutionStepType.SCRY]: ChoiceEventType.SCRY,
+  [ResolutionStepType.SURVEIL]: ChoiceEventType.SURVEIL,
+  [ResolutionStepType.FATESEAL]: ChoiceEventType.FATESEAL,
 };
 
 /**

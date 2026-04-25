@@ -1,11 +1,10 @@
-import { ChoiceEventType } from './choiceEventsTypes';
 import type {
-  EffectProgramChoiceStep,
   EffectProgramCommandStep,
   EffectProgramHandlerArgs,
   EffectProgramKeywordStep,
   EffectProgramStep,
 } from './effectProgram';
+import { buildEffectProgramFromOracleIR } from './effectProgram';
 import type { OracleEffectStep, OracleObjectSelector, OraclePlayerSelector, OracleQuantity } from './oracleIR';
 
 export type EffectProgramKeywordSupportStatus = 'supported' | 'partial' | 'manual';
@@ -29,9 +28,9 @@ export interface EffectProgramKeywordAuditFinding {
 }
 
 export const DEFAULT_EFFECT_PROGRAM_KEYWORD_ENTRIES: readonly EffectProgramKeywordRegistryEntry[] = [
-  createKeywordEntry('scry', 'scry', true, 'partial', buildPlayerAmountStep),
-  createKeywordEntry('surveil', 'surveil', true, 'partial', buildPlayerAmountStep),
-  createKeywordEntry('fateseal', 'fateseal', true, 'partial', buildFatesealStep),
+  createKeywordEntry('scry', 'scry', true, 'supported', buildPlayerAmountStep),
+  createKeywordEntry('surveil', 'surveil', true, 'supported', buildPlayerAmountStep),
+  createKeywordEntry('fateseal', 'fateseal', true, 'supported', buildFatesealStep),
   createKeywordEntry('clash', 'clash', true, 'partial', buildPlayerStep),
   createKeywordEntry('explore', 'explore', true, 'partial', buildTargetStep),
   createKeywordEntry('connive', 'connive', true, 'partial', buildTargetAmountStep),
@@ -103,34 +102,14 @@ export function expandEffectProgramKeywordStep(
     return [commandStep];
   }
 
-  const bindingKey = `${args.step.id}:choice`;
-  const choiceStep: EffectProgramChoiceStep = {
-    id: `${args.step.id}:choice`,
-    kind: 'choice',
-    bindingKey,
-    clause: args.step.clause,
-    raw: args.step.raw,
-    choiceRequest: {
-      type: ChoiceEventType.OPTION_CHOICE,
-      playerId: args.runtime.program.controllerId,
-      description: `${args.runtime.program.sourceName || 'Ability'}: ${args.step.raw || entry.keyword}`,
-      mandatory: true,
-      sourceId: args.runtime.program.sourceId,
-      sourceName: args.runtime.program.sourceName,
-      sourceImage: args.runtime.program.sourceImage,
-      payload: {
-        oracleStepKind: entry.oracleStepKind,
-        oracleStep,
-        options: [
-          { id: 'resolve', label: 'Resolve' },
-        ],
-        minSelections: 1,
-        maxSelections: 1,
-      },
-    },
-  };
-
-  return [choiceStep, commandStep];
+  return buildEffectProgramFromOracleIR({
+    id: args.step.id,
+    controllerId: args.runtime.program.controllerId,
+    sourceId: args.runtime.program.sourceId,
+    sourceName: args.runtime.program.sourceName,
+    sourceImage: args.runtime.program.sourceImage,
+    steps: [oracleStep],
+  }).steps;
 }
 
 export function createEffectProgramKeywordExpansionHandler(
@@ -236,7 +215,7 @@ function buildFatesealStep(step: EffectProgramKeywordStep, kind: string): Oracle
   return {
     kind,
     who: readPlayerSelector(step.parameters?.who),
-    target: readPlayerSelector(step.parameters?.target),
+    target: readFatesealTargetSelector(step.parameters?.target),
     amount: readQuantity(step.parameters?.amount),
     raw: step.raw || step.keyword,
   } as OracleEffectStep;
@@ -257,6 +236,13 @@ function readPlayerSelector(value: unknown): OraclePlayerSelector {
     return value as OraclePlayerSelector;
   }
   return { kind: 'you' };
+}
+
+function readFatesealTargetSelector(value: unknown): OraclePlayerSelector {
+  if (value && typeof value === 'object' && typeof (value as any).kind === 'string') {
+    return value as OraclePlayerSelector;
+  }
+  return { kind: 'target_opponent' };
 }
 
 function readObjectSelector(value: unknown): OracleObjectSelector {

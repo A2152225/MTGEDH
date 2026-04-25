@@ -182,6 +182,8 @@ const ORACLE_CHOICE_STEP_KINDS = new Set<string>([
   'choose_card_name',
   'choose_mode',
   'choose_target_creature',
+  'scry',
+  'surveil',
 ]);
 
 export function createEffectProgramRuntime<S>(args: {
@@ -304,6 +306,32 @@ export function createChoiceEventFromEffectProgramChoiceRequest(
         minX: asNumber(payload.minX, 0),
         maxX: asNumber(payload.maxX, 99),
         costPerX: typeof payload.costPerX === 'string' ? payload.costPerX : undefined,
+      };
+
+    case ChoiceEventType.SCRY:
+      return {
+        ...base,
+        type: ChoiceEventType.SCRY,
+        cards: asCardRefs(payload.cards),
+        scryCount: asNumber(payload.scryCount, 0),
+      };
+
+    case ChoiceEventType.SURVEIL:
+      return {
+        ...base,
+        type: ChoiceEventType.SURVEIL,
+        cards: asCardRefs(payload.cards),
+        surveilCount: asNumber(payload.surveilCount, 0),
+      };
+
+    case ChoiceEventType.FATESEAL:
+      return {
+        ...base,
+        type: ChoiceEventType.FATESEAL,
+        opponentId: String(payload.opponentId || ''),
+        opponentName: String(payload.opponentName || payload.opponentId || 'opponent'),
+        cards: asCardRefs(payload.cards),
+        fatesealCount: asNumber(payload.fatesealCount, 0),
       };
 
     default:
@@ -529,6 +557,16 @@ function asPlayerChoices(value: unknown): readonly { id: PlayerID; name: string 
     }));
 }
 
+function asCardRefs(value: unknown): readonly import('../../shared/src').KnownCardRef[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .filter(card => card && typeof card === 'object' && typeof (card as any).id === 'string')
+    .map(card => ({ ...(card as any), id: String((card as any).id) }));
+}
+
 function defaultColorOptions(): readonly ChoiceOption[] {
   return [
     { id: 'W', label: 'White' },
@@ -687,6 +725,64 @@ function appendOracleStepToEffectProgram(args: {
       guard = { bindingKey, selectionIncludes: 'yes', onFalse: 'skip' };
     }
 
+    if (isSupportedFatesealChoiceStep(oracleStep)) {
+      const opponentBindingKey = `${baseId}:opponent-choice`;
+      const fatesealBindingKey = `${baseId}:choice`;
+      steps.push({
+        id: `${baseId}:opponent-choice`,
+        kind: 'choice',
+        bindingKey: opponentBindingKey,
+        clause,
+        raw: oracleStep.raw,
+        guard,
+        choiceRequest: {
+          type: ChoiceEventType.PLAYER_CHOICE,
+          playerId: input.controllerId,
+          description: `${input.sourceName || 'Ability'}: Choose an opponent for ${oracleStep.raw || 'fateseal'}`,
+          mandatory: true,
+          sourceId: input.sourceId,
+          sourceName: input.sourceName,
+          sourceImage: input.sourceImage,
+          payload: {
+            oracleStepKind: 'fateseal_target',
+            oracleStep,
+          },
+        },
+      });
+      steps.push({
+        id: `${baseId}:choice`,
+        kind: 'choice',
+        bindingKey: fatesealBindingKey,
+        clause,
+        raw: oracleStep.raw,
+        guard: { bindingKey: opponentBindingKey, cancelledEquals: false, onFalse: 'skip' },
+        choiceRequest: {
+          type: ChoiceEventType.FATESEAL,
+          playerId: input.controllerId,
+          description: `${input.sourceName || 'Ability'}: ${oracleStep.raw || 'Fateseal'}`,
+          mandatory: true,
+          sourceId: input.sourceId,
+          sourceName: input.sourceName,
+          sourceImage: input.sourceImage,
+          payload: {
+            oracleStepKind: 'fateseal',
+            oracleStep,
+            targetBindingKey: opponentBindingKey,
+            fatesealCount: quantityToStaticNumber((oracleStep as any).amount) ?? 0,
+          },
+        },
+      });
+      steps.push({
+        id: `${baseId}:command`,
+        kind: 'command',
+        clause,
+        raw: oracleStep.raw,
+        guard: { bindingKey: fatesealBindingKey, cancelledEquals: false, onFalse: 'skip' },
+        command: { kind: 'oracle_ir_step', step: oracleStep },
+      });
+      return;
+    }
+
     if (oracleStepNeedsChoice(oracleStep, steps)) {
       const bindingKey = `${baseId}:choice`;
       steps.push({
@@ -735,12 +831,19 @@ function appendOracleStepToEffectProgram(args: {
       return `${baseId}:may-choice`;
     }
 
+    if (isSupportedFatesealChoiceStep(oracleStep)) {
+      return `${baseId}:opponent-choice`;
+    }
+
     return oracleStepNeedsChoice(oracleStep, priorSteps) ? `${baseId}:choice` : `${baseId}:command`;
   }
 
   function oracleChoiceStepNeedsCommandContinuation(step: OracleEffectStep): boolean {
     const kind = String((step as any).kind || '');
-    return kind === 'choose_mode' || (kind === 'add_mana' && (step as any).requiresChosenMana === true);
+    return kind === 'choose_mode'
+      || kind === 'scry'
+      || kind === 'surveil'
+      || (kind === 'add_mana' && (step as any).requiresChosenMana === true);
   }
 
 function normalizeInterveningIfCondition(
@@ -789,7 +892,11 @@ function oracleStepNeedsChoice(
   priorSteps: readonly EffectProgramStep[] = []
 ): boolean {
   const kind = String((step as any).kind || '');
-  if (ORACLE_CHOICE_STEP_KINDS.has(kind)) {
+  if ((kind === 'scry' || kind === 'surveil') && isSupportedTopLibraryChoiceStep(step)) {
+    return true;
+  }
+
+  if (ORACLE_CHOICE_STEP_KINDS.has(kind) && kind !== 'scry' && kind !== 'surveil') {
     return true;
   }
 
@@ -859,7 +966,44 @@ function buildChoiceRequestPayloadForOracleStep(
     };
   }
 
+  if (kind === 'scry') {
+    return {
+      ...basePayload,
+      scryCount: quantityToStaticNumber((step as any).amount) ?? 0,
+    };
+  }
+
+  if (kind === 'surveil') {
+    return {
+      ...basePayload,
+      surveilCount: quantityToStaticNumber((step as any).amount) ?? 0,
+    };
+  }
+
   return basePayload;
+}
+
+function isSupportedTopLibraryChoiceStep(step: OracleEffectStep): boolean {
+  const whoKind = String((step as any)?.who?.kind || '');
+  return whoKind === 'you' && quantityToStaticNumber((step as any).amount) !== undefined;
+}
+
+function isSupportedFatesealChoiceStep(step: OracleEffectStep): boolean {
+  if (String((step as any)?.kind || '') !== 'fateseal') {
+    return false;
+  }
+
+  const whoKind = String((step as any)?.who?.kind || '');
+  const targetKind = String((step as any)?.target?.kind || '');
+  return whoKind === 'you' && targetKind === 'target_opponent' && quantityToStaticNumber((step as any).amount) !== undefined;
+}
+
+function quantityToStaticNumber(quantity: unknown): number | undefined {
+  if ((quantity as any)?.kind === 'number' && Number.isFinite(Number((quantity as any).value))) {
+    return Number((quantity as any).value);
+  }
+
+  return undefined;
 }
 
 function buildColorChoiceOptionsFromOracleStep(step: OracleEffectStep): readonly ChoiceOption[] {
@@ -939,6 +1083,12 @@ function mapOracleStepKindToChoiceType(kind: string): ChoiceEventType {
       return ChoiceEventType.PLAYER_CHOICE;
     case 'choose_target_creature':
       return ChoiceEventType.TARGET_SELECTION;
+    case 'scry':
+      return ChoiceEventType.SCRY;
+    case 'surveil':
+      return ChoiceEventType.SURVEIL;
+    case 'fateseal':
+      return ChoiceEventType.FATESEAL;
     case 'vote':
       return ChoiceEventType.OPTION_CHOICE;
     case 'pay_mana':

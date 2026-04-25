@@ -47,6 +47,9 @@ export enum ChoiceEventType {
   NUMBER_CHOICE = 'number_choice',
   PLAYER_CHOICE = 'player_choice',
   OPTION_CHOICE = 'option_choice',
+  SCRY = 'scry',
+  SURVEIL = 'surveil',
+  FATESEAL = 'fateseal',
 }
 
 /**
@@ -249,6 +252,26 @@ export interface OptionChoiceEvent extends BaseChoiceEvent {
   readonly maxSelections: number;
 }
 
+export interface ScryEvent extends BaseChoiceEvent {
+  readonly type: ChoiceEventType.SCRY;
+  readonly cards: readonly KnownCardRef[];
+  readonly scryCount: number;
+}
+
+export interface SurveilEvent extends BaseChoiceEvent {
+  readonly type: ChoiceEventType.SURVEIL;
+  readonly cards: readonly KnownCardRef[];
+  readonly surveilCount: number;
+}
+
+export interface FatesealEvent extends BaseChoiceEvent {
+  readonly type: ChoiceEventType.FATESEAL;
+  readonly opponentId: PlayerID;
+  readonly opponentName: string;
+  readonly cards: readonly KnownCardRef[];
+  readonly fatesealCount: number;
+}
+
 export type ChoiceEvent =
   | TargetSelectionEvent
   | ModeSelectionEvent
@@ -269,12 +292,15 @@ export type ChoiceEvent =
   | CreatureTypeChoiceEvent
   | NumberChoiceEvent
   | PlayerChoiceEvent
-  | OptionChoiceEvent;
+  | OptionChoiceEvent
+  | ScryEvent
+  | SurveilEvent
+  | FatesealEvent;
 
 export interface ChoiceResponse {
   readonly eventId: string;
   readonly playerId: PlayerID;
-  readonly selections: readonly string[] | number | boolean;
+  readonly selections: readonly string[] | number | boolean | Readonly<Record<string, unknown>>;
   readonly cancelled: boolean;
   readonly timestamp: number;
 }
