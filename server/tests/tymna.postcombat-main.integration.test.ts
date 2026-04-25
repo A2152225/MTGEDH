@@ -140,8 +140,9 @@ describe('Tymna postcombat main integration', () => {
     game.resolveTopOfStack();
 
     let queue = ResolutionQueueManager.getQueue(gameId);
-    const optionalTriggerStep = queue.steps.find((queuedStep: any) => (queuedStep as any)?.optionalTriggeredAbilityPrompt === true);
+    const optionalTriggerStep = queue.steps.find((queuedStep: any) => (queuedStep as any)?.effectProgramFamily === 'optional_triggered_ability');
     expect(optionalTriggerStep).toBeDefined();
+    expect((optionalTriggerStep as any)?.optionalTriggeredAbilityPrompt).toBeUndefined();
 
     const emitted: Array<{ room?: string; event: string; payload: any }> = [];
     const { socket, handlers } = createMockSocket(p1, emitted);

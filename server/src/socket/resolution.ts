@@ -128,6 +128,7 @@ import {
   buildDungeonRoomPromptSteps,
 } from "../state/modules/dungeon-effects.js";
 import { parseMadnessCost } from "../state/modules/alternate-costs.js";
+import { createEffectProgramChoiceResponse, readEffectProgramQueueMetadata, resumeEffectProgramResolution } from "../state/effects/index.js";
 
 type ResolutionPaymentItem = {
   permanentId: string;
@@ -8091,6 +8092,8 @@ function getTypeSpecificFields(step: ResolutionStep): Record<string, any> {
       if ('effectKey' in step) fields.effectKey = (step as any).effectKey;
       if ('pendingCallbackId' in step) fields.pendingCallbackId = (step as any).pendingCallbackId;
       if ('mayAbilityPrompt' in step) fields.mayAbilityPrompt = (step as any).mayAbilityPrompt;
+      if ('effectProgramPrompt' in step) fields.effectProgramPrompt = (step as any).effectProgramPrompt;
+      if ('effectProgramFamily' in step) fields.effectProgramFamily = (step as any).effectProgramFamily;
 
       // Custom: Opponent-may-pay prompts (Smothering Tithe, Rhystic Study, etc.)
       if ((step as any)?.opponentMayPayChoice === true) {
@@ -8366,6 +8369,34 @@ async function handleStepResponse(
   step: ResolutionStep,
   response: ResolutionStepResponse
 ): Promise<void> {
+  if ((step as any)?.effectProgramPrompt === true) {
+    const resumed = resumeEffectProgramResolution({ game, gameId, step, response });
+    if (!resumed.resumed) {
+      if (isOptionalTriggeredEffectProgramStep(step)) {
+        await handleOptionalTriggeredAbilityChoiceResponse(io, game, gameId, step, response);
+        return;
+      }
+      debugWarn(1, '[Resolution] EffectProgram prompt could not resume:', resumed.reason || resumed.status);
+      return;
+    }
+
+    for (const event of resumed.runResult?.events || []) {
+      const eventKind = String((event as any)?.kind || '');
+      if (eventKind !== 'resolve_top_of_stack') {
+        continue;
+      }
+
+      const sourceName = String((event as any)?.sourceName || step.sourceName || 'Ability');
+      if (typeof (game as any).resolveTopOfStack === 'function') {
+        (game as any).resolveTopOfStack();
+        debug(2, `[Resolution] Resolved deferred EffectProgram stack item for ${sourceName}`);
+      } else {
+        debugWarn(1, `[Resolution] Game missing resolveTopOfStack while handling ${sourceName}`);
+      }
+    }
+    return;
+  }
+
   if (String((step as any)?.rulesChoiceGroupId || '').trim()) {
     await handleRulesChoiceGroupResponse(game, gameId, step, response);
     return;
@@ -24986,51 +25017,7 @@ async function handleOptionChoiceResponse(
   }
 
   if (stepData?.optionalTriggeredAbilityPrompt === true) {
-    const choiceId = extractId(selectedOption) || (response.cancelled ? 'no' : null) || 'no';
-    const shouldResolve = !response.cancelled && choiceId === 'yes';
-    const deferredTriggeredAbilityItem = stepData?.deferredTriggeredAbilityItem;
-    const sourceName = String(stepData?.sourceName || step.sourceName || 'Ability');
-
-    try {
-      await appendEvent(gameId, (game as any).seq ?? 0, 'optionalTriggeredAbilityChoice', {
-        playerId,
-        sourceId: String(stepData?.sourceId || step.sourceId || '').trim(),
-        sourceName,
-        resolvedStepId: String(step.id || '').trim(),
-        choice: shouldResolve ? 'yes' : 'no',
-        deferredTriggeredAbilityItem: deferredTriggeredAbilityItem && typeof deferredTriggeredAbilityItem === 'object'
-          ? {
-              ...(deferredTriggeredAbilityItem as any),
-              optionalTriggeredAbilityDecisionApplied: true,
-            }
-          : undefined,
-      });
-    } catch (err) {
-      debugWarn(1, '[Resolution] appendEvent(optionalTriggeredAbilityChoice) failed:', err);
-    }
-
-    if (!shouldResolve) {
-      debug(2, `[Resolution] Declined deferred optional triggered ability for ${sourceName}`);
-      return;
-    }
-
-    if (!deferredTriggeredAbilityItem || typeof deferredTriggeredAbilityItem !== 'object') {
-      debugWarn(1, `[Resolution] Missing deferred trigger payload for ${sourceName}`);
-      return;
-    }
-
-    game.state.stack = Array.isArray(game.state.stack) ? game.state.stack : [];
-    game.state.stack.push({
-      ...(deferredTriggeredAbilityItem as any),
-      optionalTriggeredAbilityDecisionApplied: true,
-    });
-
-    if (typeof (game as any).resolveTopOfStack === 'function') {
-      (game as any).resolveTopOfStack();
-      debug(2, `[Resolution] Resolved deferred optional triggered ability for ${sourceName}`);
-    } else {
-      debugWarn(1, `[Resolution] Game missing resolveTopOfStack while handling ${sourceName}`);
-    }
+    await handleOptionalTriggeredAbilityChoiceResponse(io, game, gameId, step, response);
     return;
   }
 
@@ -30883,6 +30870,92 @@ async function handleMayAbilityResponse(
     (game as any).bumpSeq();
   }
   broadcastGame(io, game, gameId);
+}
+
+function isOptionalTriggeredEffectProgramStep(step: ResolutionStep): boolean {
+  const metadata = readEffectProgramQueueMetadata(step);
+  return (
+    metadata?.effectProgramFamily === 'optional_triggered_ability' ||
+    String((step as any)?.effectProgramFamily || '').trim() === 'optional_triggered_ability'
+  );
+}
+
+async function handleOptionalTriggeredAbilityChoiceResponse(
+  io: Server,
+  game: any,
+  gameId: string,
+  step: ResolutionStep,
+  response: ResolutionStepResponse
+): Promise<void> {
+  void io;
+
+  const selectedOption = response.selections;
+  const stepData = step as any;
+  const playerId = response.playerId;
+  const choiceId = extractFirstResolutionSelectionId(selectedOption) || (response.cancelled ? 'no' : null) || 'no';
+  const shouldResolve = !response.cancelled && choiceId === 'yes';
+  const deferredTriggeredAbilityItem = stepData?.deferredTriggeredAbilityItem;
+  const sourceName = String(stepData?.sourceName || step.sourceName || 'Ability');
+  const effectProgramMetadata = readEffectProgramQueueMetadata(step);
+
+  try {
+    await appendEvent(gameId, (game as any).seq ?? 0, 'optionalTriggeredAbilityChoice', {
+      playerId,
+      sourceId: String(stepData?.sourceId || step.sourceId || '').trim(),
+      sourceName,
+      resolvedStepId: String(step.id || '').trim(),
+      ...(effectProgramMetadata ? { effectProgram: effectProgramMetadata } : {}),
+      ...(effectProgramMetadata
+        ? {
+            choiceBinding: {
+              bindingKey: effectProgramMetadata.effectProgramBindingKey,
+              response: createEffectProgramChoiceResponse(step, response),
+            },
+          }
+        : {}),
+      choice: shouldResolve ? 'yes' : 'no',
+      deferredTriggeredAbilityItem: deferredTriggeredAbilityItem && typeof deferredTriggeredAbilityItem === 'object'
+        ? {
+            ...(deferredTriggeredAbilityItem as any),
+            optionalTriggeredAbilityDecisionApplied: true,
+          }
+        : undefined,
+    });
+  } catch (err) {
+    debugWarn(1, '[Resolution] appendEvent(optionalTriggeredAbilityChoice) failed:', err);
+  }
+
+  if (!shouldResolve) {
+    debug(2, `[Resolution] Declined deferred optional triggered ability for ${sourceName}`);
+    return;
+  }
+
+  if (!deferredTriggeredAbilityItem || typeof deferredTriggeredAbilityItem !== 'object') {
+    debugWarn(1, `[Resolution] Missing deferred trigger payload for ${sourceName}`);
+    return;
+  }
+
+  game.state.stack = Array.isArray(game.state.stack) ? game.state.stack : [];
+  game.state.stack.push({
+    ...(deferredTriggeredAbilityItem as any),
+    optionalTriggeredAbilityDecisionApplied: true,
+  });
+
+  if (typeof (game as any).resolveTopOfStack === 'function') {
+    (game as any).resolveTopOfStack();
+    debug(2, `[Resolution] Resolved deferred optional triggered ability for ${sourceName}`);
+  } else {
+    debugWarn(1, `[Resolution] Game missing resolveTopOfStack while handling ${sourceName}`);
+  }
+}
+
+function extractFirstResolutionSelectionId(selection: any): string | null {
+  if (typeof selection === 'string') return selection;
+  if (Array.isArray(selection) && selection.length > 0) {
+    return typeof selection[0] === 'string' ? selection[0] : (selection[0] as any)?.id || null;
+  }
+  if (selection && typeof selection === 'object') return (selection as any).id || (selection as any).value || null;
+  return null;
 }
 
 export default { registerResolutionHandlers };

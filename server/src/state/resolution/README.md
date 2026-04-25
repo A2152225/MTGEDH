@@ -15,6 +15,10 @@ The unified Resolution Queue system provides a single, consistent way to handle 
 
 ## 📚 Key Concepts
 
+### Relationship to Effect Programs
+
+The long-term card automation design is documented in [docs/effect-program-resolution-architecture.md](../../../../docs/effect-program-resolution-architecture.md). Oracle text should compile into an internal effect program made of clause-level condition, command, keyword, and choice steps. The Resolution Queue remains the interaction boundary for effect-program choice pauses; deterministic internal clauses should not become queue prompts unless a player or AI decision is required.
+
 ### ResolutionStep
 A single player choice/action that needs resolution. Each step represents one decision a player must make.
 

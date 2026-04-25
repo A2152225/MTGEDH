@@ -922,6 +922,61 @@ export {
   type OracleIRExecutionResult,
 } from './oracleIRExecutor';
 
+export {
+  bindEffectProgramChoiceResponse,
+  buildEffectProgramFromOracleIR,
+  createChoiceEventFromEffectProgramChoiceRequest,
+  createEffectProgramRuntime,
+  runEffectProgram,
+  type BaseEffectProgramStep,
+  type BuildEffectProgramFromOracleIRInput,
+  type EffectProgram,
+  type EffectProgramChoiceEventInput,
+  type EffectProgramChoicePause,
+  type EffectProgramChoiceRequest,
+  type EffectProgramChoiceStep,
+  type EffectProgramClauseRef,
+  type EffectProgramCommand,
+  type EffectProgramCommandResult,
+  type EffectProgramCommandStep,
+  type EffectProgramConditionEvaluation,
+  type EffectProgramConditionStep,
+  type EffectProgramHandlerArgs,
+  type EffectProgramHandlers,
+  type EffectProgramKeywordStep,
+  type EffectProgramNoteStep,
+  type EffectProgramRunResult,
+  type EffectProgramRunStatus,
+  type EffectProgramRuntime,
+  type EffectProgramStep,
+  type EffectProgramStepGuard,
+  type EffectProgramStepKind,
+  type EffectProgramTraceEntry,
+} from './effectProgram';
+
+export {
+  buildEffectProgramsFromOracleText,
+  createOracleIRCommandHandler,
+  runOracleEffectProgram,
+  type BuildEffectProgramsFromOracleTextInput,
+  type BuildEffectProgramsFromOracleTextResult,
+  type OracleIRCommandExecutionEvent,
+} from './effectProgramOracleRunner';
+
+export {
+  DEFAULT_EFFECT_PROGRAM_KEYWORD_ENTRIES,
+  DEFAULT_EFFECT_PROGRAM_KEYWORD_REGISTRY,
+  auditEffectProgramKeywords,
+  createEffectProgramKeywordExpansionHandler,
+  createEffectProgramKeywordRegistry,
+  expandEffectProgramKeywordStep,
+  getEffectProgramKeywordEntry,
+  type EffectProgramKeywordAuditFinding,
+  type EffectProgramKeywordRegistry,
+  type EffectProgramKeywordRegistryEntry,
+  type EffectProgramKeywordSupportStatus,
+} from './effectProgramKeywordRegistry';
+
 // Permanent Ability Discovery (integrates oracleTextParser for battlefield permanents)
 export {
   discoverPermanentAbilities,

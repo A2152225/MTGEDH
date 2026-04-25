@@ -101,19 +101,23 @@ describe('optional triggered ability persistence (integration)', () => {
     game.resolveTopOfStack();
 
     const queue = ResolutionQueueManager.getQueue(acceptGameId);
-    const step = queue.steps.find((queuedStep: any) => (queuedStep as any).optionalTriggeredAbilityPrompt === true);
+    const step = queue.steps.find((queuedStep: any) => (queuedStep as any).effectProgramFamily === 'optional_triggered_ability');
     expect(step).toBeDefined();
+    expect((step as any).optionalTriggeredAbilityPrompt).toBeUndefined();
 
     const promptEvent = getEvents(acceptGameId).find((event: any) => String(event?.type || '') === 'resolveTopOfStackPrompt') as any;
     expect(promptEvent).toBeDefined();
     expect(promptEvent.payload).toMatchObject({
       playerId,
       queuedResolutionStep: {
-        optionalTriggeredAbilityPrompt: true,
         playerId,
         sourceName: "Soul's Attendant",
       },
+      effectProgram: {
+        effectProgramFamily: 'optional_triggered_ability',
+      },
     });
+    expect(promptEvent.payload.queuedResolutionStep.optionalTriggeredAbilityPrompt).toBeUndefined();
 
     const emitted: Array<{ room?: string; event: string; payload: any }> = [];
     const { socket, handlers } = createMockSocket(playerId, emitted);
@@ -134,7 +138,13 @@ describe('optional triggered ability persistence (integration)', () => {
       playerId,
       choice: 'yes',
       sourceName: "Soul's Attendant",
-      resolvedStepId: String((step as any).id),
+      effectProgram: {
+        effectProgramFamily: 'optional_triggered_ability',
+        effectProgramBindingKey: (step as any).effectProgramBindingKey,
+      },
+      choiceBinding: {
+        bindingKey: (step as any).effectProgramBindingKey,
+      },
     });
     expect((choiceEvent.payload as any).deferredTriggeredAbilityItem).toMatchObject({
       sourceName: "Soul's Attendant",
@@ -157,8 +167,9 @@ describe('optional triggered ability persistence (integration)', () => {
     game.resolveTopOfStack();
 
     const queue = ResolutionQueueManager.getQueue(declineGameId);
-    const step = queue.steps.find((queuedStep: any) => (queuedStep as any).optionalTriggeredAbilityPrompt === true);
+    const step = queue.steps.find((queuedStep: any) => (queuedStep as any).effectProgramFamily === 'optional_triggered_ability');
     expect(step).toBeDefined();
+    expect((step as any).optionalTriggeredAbilityPrompt).toBeUndefined();
 
     const emitted: Array<{ room?: string; event: string; payload: any }> = [];
     const { socket, handlers } = createMockSocket(playerId, emitted);
@@ -179,7 +190,13 @@ describe('optional triggered ability persistence (integration)', () => {
       playerId,
       choice: 'no',
       sourceName: "Soul's Attendant",
-      resolvedStepId: String((step as any).id),
+      effectProgram: {
+        effectProgramFamily: 'optional_triggered_ability',
+        effectProgramBindingKey: (step as any).effectProgramBindingKey,
+      },
+      choiceBinding: {
+        bindingKey: (step as any).effectProgramBindingKey,
+      },
     });
     expect((game.state as any).life[playerId]).toBe(40);
   });

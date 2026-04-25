@@ -108,8 +108,9 @@ describe('optional triggered ability integration', () => {
     expect((game.state as any).stack).toHaveLength(0);
 
     const queue = ResolutionQueueManager.getQueue(gameId);
-    const step = queue.steps.find((queuedStep: any) => (queuedStep as any).optionalTriggeredAbilityPrompt === true);
+    const step = queue.steps.find((queuedStep: any) => (queuedStep as any).effectProgramFamily === 'optional_triggered_ability');
     expect(step).toBeDefined();
+    expect((step as any).optionalTriggeredAbilityPrompt).toBeUndefined();
 
     const emitted: Array<{ room?: string; event: string; payload: any }> = [];
     const { socket, handlers } = createMockSocket(playerId, emitted);
@@ -142,8 +143,9 @@ describe('optional triggered ability integration', () => {
     game.resolveTopOfStack();
 
     const queue = ResolutionQueueManager.getQueue(gameId);
-    const step = queue.steps.find((queuedStep: any) => (queuedStep as any).optionalTriggeredAbilityPrompt === true);
+    const step = queue.steps.find((queuedStep: any) => (queuedStep as any).effectProgramFamily === 'optional_triggered_ability');
     expect(step).toBeDefined();
+    expect((step as any).optionalTriggeredAbilityPrompt).toBeUndefined();
 
     const emitted: Array<{ room?: string; event: string; payload: any }> = [];
     const { socket, handlers } = createMockSocket(playerId, emitted);

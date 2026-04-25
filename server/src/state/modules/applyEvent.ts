@@ -108,6 +108,29 @@ function resolveReplayCommanderId(ctx: any, event: any): string {
   return '';
 }
 
+function normalizeReplayEffectProgramMetadata(metadata: any): Record<string, any> | undefined {
+  if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) {
+    return undefined;
+  }
+
+  const effectProgramId = String(metadata.effectProgramId || '').trim();
+  const effectProgramStepId = String(metadata.effectProgramStepId || '').trim();
+  if (!effectProgramId || !effectProgramStepId) {
+    return undefined;
+  }
+
+  return {
+    effectProgramId,
+    effectProgramFamily: metadata.effectProgramFamily ? String(metadata.effectProgramFamily) : undefined,
+    effectProgramSourceId: metadata.effectProgramSourceId ? String(metadata.effectProgramSourceId) : undefined,
+    effectProgramSourceName: metadata.effectProgramSourceName ? String(metadata.effectProgramSourceName) : undefined,
+    effectProgramCursor: Number(metadata.effectProgramCursor || 0),
+    effectProgramStepId,
+    effectProgramBindingKey: String(metadata.effectProgramBindingKey || ''),
+    effectProgramClause: metadata.effectProgramClause,
+  };
+}
+
 function normalizeChosenTargetRefs(state: any, spec: any, chosen: any[]): any[] {
   return (Array.isArray(chosen) ? chosen : []).map((target: any) => {
     if (!target || typeof target !== 'string') return target;
@@ -2688,9 +2711,19 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           const replayGameId = String((ctx as any).gameId || '').trim();
           const pendingSpellCast = (e as any).pendingSpellCast;
           const pendingEffectId = String((e as any).effectId || (pendingSpellCast as any)?.effectId || '').trim();
-          const queuedStepsToReplay = rawQueuedSteps.length > 0
+          const queuedStepsToReplayRaw = rawQueuedSteps.length > 0
             ? rawQueuedSteps
             : (rawQueuedStep && typeof rawQueuedStep === 'object' && !Array.isArray(rawQueuedStep) ? [rawQueuedStep] : []);
+          const effectProgramMetadata = normalizeReplayEffectProgramMetadata((e as any).effectProgram);
+          const queuedStepsToReplay = queuedStepsToReplayRaw.map((queuedStep) => (
+            effectProgramMetadata
+              ? {
+                  ...(queuedStep as any),
+                  effectProgramPrompt: true,
+                  ...effectProgramMetadata,
+                }
+              : queuedStep
+          ));
           const hasQueuedStepsToReplay = replayGameId
             && queuedStepsToReplay.length > 0
             && queuedStepsToReplay.every((step: any) => String(step?.type || '').trim().length > 0);
@@ -2762,9 +2795,19 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           const rawQueuedSteps = Array.isArray((e as any).queuedResolutionSteps)
             ? ((e as any).queuedResolutionSteps as any[]).filter((step) => step && typeof step === 'object' && !Array.isArray(step))
             : [];
-          const queuedStepsToReplay = rawQueuedSteps.length > 0
+          const queuedStepsToReplayRaw = rawQueuedSteps.length > 0
             ? rawQueuedSteps
             : (rawQueuedStep && typeof rawQueuedStep === 'object' && !Array.isArray(rawQueuedStep) ? [rawQueuedStep] : []);
+          const effectProgramMetadata = normalizeReplayEffectProgramMetadata((e as any).effectProgram);
+          const queuedStepsToReplay = queuedStepsToReplayRaw.map((queuedStep) => (
+            effectProgramMetadata
+              ? {
+                  ...(queuedStep as any),
+                  effectProgramPrompt: true,
+                  ...effectProgramMetadata,
+                }
+              : queuedStep
+          ));
 
           const pendingCascadeEntry = (e as any).pendingCascadeEntry && typeof (e as any).pendingCascadeEntry === 'object' && !Array.isArray((e as any).pendingCascadeEntry)
             ? { ...((e as any).pendingCascadeEntry as Record<string, any>) }
@@ -2879,11 +2922,19 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           const sourceName = String((e as any).sourceName || 'Ability').trim() || 'Ability';
 
           if (replayGameId) {
+            const effectProgramMetadata = normalizeReplayEffectProgramMetadata((e as any).effectProgram);
             clearReplayQueuedSteps(replayGameId, (step: any) => {
               if (!step) return false;
               const stepId = String((step as any)?.id || '').trim();
               if (resolvedStepId && stepId === resolvedStepId) {
                 return true;
+              }
+
+              if (effectProgramMetadata?.effectProgramId) {
+                return (
+                  (step as any)?.effectProgramPrompt === true &&
+                  String((step as any)?.effectProgramId || '').trim() === effectProgramMetadata.effectProgramId
+                );
               }
 
               return (

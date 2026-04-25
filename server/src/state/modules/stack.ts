@@ -60,6 +60,9 @@ import { broadcastGame, consumeManaFromPool, getEffectivePower, getOrInitManaPoo
 import { getSavedMayAbilityTriggerDecision, getSavedTriggerShortcutPreference } from "../../socket/trigger-shortcuts.js";
 import { ResolutionQueueManager, ResolutionStepType, type CreateResolutionStepConfig } from "../resolution/index.js";
 import type { ChoiceOption } from "../../../../rules-engine/src/choiceEvents.js";
+import { ChoiceEventType, type ChoiceResponse } from "../../../../rules-engine/src/choiceEvents.js";
+import { startEffectProgramResolution } from "../effects/index.js";
+import type { EffectProgram, EffectProgramHandlers } from "../../../../rules-engine/src/effectProgram.js";
 import { parseOracleTextToIR } from "../../../../rules-engine/src/oracleIRParser.js";
 import type { OracleEffectStep, OraclePlayerSelector, OracleQuantity } from "../../../../rules-engine/src/oracleIR.js";
 import { parseTriggeredAbilitiesFromText, TriggerEvent as ParsedTriggerEvent } from "../../../../rules-engine/src/triggeredAbilities.js";
@@ -357,6 +360,179 @@ function appendQueuedResolutionPromptEvent(
   } catch (err) {
     debugWarn(1, '[resolveTopOfStack] appendEvent(resolveTopOfStackPrompt) failed:', err);
   }
+}
+
+function queueOptionalTriggeredAbilityEffectProgram(
+  ctx: GameContext,
+  item: any,
+  triggerController: PlayerID,
+  sourceName: string,
+  sourceId: string,
+  effectText: string,
+  description: string,
+): void {
+  const gameId = String((ctx as any).gameId || 'unknown');
+  const resolvedSourceId = String((item as any)?.source || sourceId || '').trim() || undefined;
+  const deferredTriggeredAbilityItem = {
+    ...(item as any),
+    optionalTriggeredAbilityDecisionApplied: true,
+  };
+  const programId = `optional-trigger:${resolvedSourceId || sourceName}:${String((item as any)?.id || Date.now())}`;
+  const choiceBindingKey = `${programId}:decision`;
+  const descriptionText = `You may: ${effectText || sourceName}`;
+
+  const program: EffectProgram = {
+    id: programId,
+    controllerId: triggerController,
+    sourceId: resolvedSourceId,
+    sourceName,
+    metadata: {
+      family: 'optional_triggered_ability',
+    },
+    steps: [
+      {
+        id: `${programId}:choice`,
+        kind: 'choice',
+        bindingKey: choiceBindingKey,
+        raw: effectText,
+        choiceRequest: {
+          type: ChoiceEventType.OPTION_CHOICE,
+          playerId: triggerController,
+          description: descriptionText,
+          mandatory: false,
+          sourceId: resolvedSourceId,
+          sourceName,
+          payload: {
+            options: [
+              { id: 'yes', label: 'Yes' },
+              { id: 'no', label: 'No' },
+            ],
+            minSelections: 1,
+            maxSelections: 1,
+          },
+        },
+      },
+      {
+        id: `${programId}:resolve`,
+        kind: 'command',
+        raw: effectText,
+        command: {
+          kind: 'resolve_optional_triggered_ability',
+          choiceBindingKey,
+        },
+      },
+    ],
+  };
+
+  const handlers: EffectProgramHandlers<any> = {
+    applyCommand: ({ state, runtime, step }) => {
+      if ((step.command as any)?.kind !== 'resolve_optional_triggered_ability') {
+        return state;
+      }
+
+      const bindingKey = String((step.command as any)?.choiceBindingKey || choiceBindingKey);
+      const choiceResponse = runtime.bindings[bindingKey] as ChoiceResponse | undefined;
+      const choice = normalizeOptionalTriggeredAbilityChoice(choiceResponse);
+      appendOptionalTriggeredAbilityDecisionEvent(ctx, gameId, {
+        playerId: triggerController,
+        sourceId: resolvedSourceId,
+        sourceName,
+        effectProgramId: programId,
+        effectProgramStepId: `${programId}:choice`,
+        effectProgramBindingKey: choiceBindingKey,
+        choiceResponse,
+        choice,
+        deferredTriggeredAbilityItem,
+      });
+
+      if (choice !== 'yes') {
+        debug(2, `[resolveTopOfStack] Declined deferred optional triggered ability for ${sourceName}`);
+        return state;
+      }
+
+      const ctxState = (ctx as any).state || state;
+      ctxState.stack = Array.isArray(ctxState.stack) ? ctxState.stack : [];
+      ctxState.stack.push(deferredTriggeredAbilityItem);
+
+      return {
+        state: (ctx as any).state || ctxState,
+        events: [
+          {
+            kind: 'resolve_top_of_stack',
+            sourceName,
+          },
+        ],
+      };
+    },
+  };
+
+  startEffectProgramResolution({
+    game: ctx,
+    gameId,
+    program,
+    handlers: handlers as any,
+    state: (ctx as any).state,
+    queueExtraConfig: {
+      effectText,
+      fullAbilityText: description,
+      deferredTriggeredAbilityItem,
+    },
+  });
+}
+
+function normalizeOptionalTriggeredAbilityChoice(response: ChoiceResponse | undefined): 'yes' | 'no' {
+  if (!response || response.cancelled) {
+    return 'no';
+  }
+
+  const selections = response.selections;
+  if (Array.isArray(selections)) {
+    return selections.map((selection) => String(selection).trim().toLowerCase()).includes('yes') ? 'yes' : 'no';
+  }
+
+  return String(selections).trim().toLowerCase() === 'yes' ? 'yes' : 'no';
+}
+
+function appendOptionalTriggeredAbilityDecisionEvent(
+  ctx: GameContext,
+  gameId: string,
+  payload: {
+    readonly playerId: PlayerID;
+    readonly sourceId?: string;
+    readonly sourceName: string;
+    readonly effectProgramId: string;
+    readonly effectProgramStepId: string;
+    readonly effectProgramBindingKey: string;
+    readonly choiceResponse?: ChoiceResponse;
+    readonly choice: 'yes' | 'no';
+    readonly deferredTriggeredAbilityItem: any;
+  },
+): void {
+  if (!gameId || gameId === 'unknown' || (ctx as any).isReplaying) {
+    return;
+  }
+
+  Promise.resolve(appendEvent(gameId, Number((ctx as any).seq?.value ?? (ctx as any).seq ?? (ctx.state as any)?.seq ?? 0), 'optionalTriggeredAbilityChoice', {
+    playerId: payload.playerId,
+    sourceId: String(payload.sourceId || '').trim(),
+    sourceName: payload.sourceName,
+    effectProgram: {
+      effectProgramId: payload.effectProgramId,
+      effectProgramFamily: 'optional_triggered_ability',
+      effectProgramSourceId: String(payload.sourceId || '').trim() || undefined,
+      effectProgramSourceName: payload.sourceName,
+      effectProgramStepId: payload.effectProgramStepId,
+      effectProgramBindingKey: payload.effectProgramBindingKey,
+    },
+    choiceBinding: {
+      bindingKey: payload.effectProgramBindingKey,
+      response: payload.choiceResponse,
+    },
+    choice: payload.choice,
+    deferredTriggeredAbilityItem: payload.deferredTriggeredAbilityItem,
+  })).catch((err) => {
+    debugWarn(1, '[resolveTopOfStack] appendEvent(optionalTriggeredAbilityChoice) failed:', err);
+  });
 }
 
 function appendDungeonRoomExecuteEffectEvents(
@@ -13219,28 +13395,7 @@ export function resolveTopOfStack(ctx: GameContext) {
         bumpSeq();
         return;
       } else if (!(ctx as any).isReplaying) {
-        const gameId = (ctx as any).gameId || 'unknown';
-        queueResolveTopOfStackPrompt(ctx, {
-          type: ResolutionStepType.OPTION_CHOICE,
-          playerId: triggerController as PlayerID,
-          description: `You may: ${effectText || sourceName}`,
-          mandatory: false,
-          sourceId: String((item as any).source || sourceId || '').trim() || undefined,
-          sourceName,
-          options: [
-            { id: 'yes', label: 'Yes' },
-            { id: 'no', label: 'No' },
-          ],
-          minSelections: 1,
-          maxSelections: 1,
-          optionalTriggeredAbilityPrompt: true,
-          effectText,
-          fullAbilityText: description,
-          deferredTriggeredAbilityItem: {
-            ...(item as any),
-            optionalTriggeredAbilityDecisionApplied: true,
-          },
-        } as any);
+        queueOptionalTriggeredAbilityEffectProgram(ctx, item, triggerController as PlayerID, sourceName, sourceId, effectText, description);
         debug(2, `[resolveTopOfStack] Deferred optional triggered ability prompt for ${sourceName} (${triggerController})`);
         return;
       }

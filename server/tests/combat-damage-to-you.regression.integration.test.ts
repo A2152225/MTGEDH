@@ -205,7 +205,8 @@ describe('Combat-damage-to-you regressions', () => {
     const queue = ResolutionQueueManager.getQueue(gameId);
     expect(queue.steps).toHaveLength(1);
     const step = queue.steps[0] as any;
-    expect(step.optionalTriggeredAbilityPrompt).toBe(true);
+    expect(step.effectProgramFamily).toBe('optional_triggered_ability');
+    expect(step.optionalTriggeredAbilityPrompt).toBeUndefined();
     expect(step.sourceName).toBe('Darien, King of Kjeldor');
     expect(step.deferredTriggeredAbilityItem?.damageAmount).toBe(6);
 

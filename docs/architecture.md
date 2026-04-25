@@ -26,5 +26,11 @@ Oracle IR Executor
 - Current extracted modules include battlefield step handlers, move-zone handlers, damage handlers, token handlers, goad handlers, choose-mode handlers, P/T-modifier handlers, shared creature-step utilities, `modify_pt where-X` lookup helpers, class/count parsing plus greatest/least aggregation helpers, mana/color evaluation utilities, commander/command-zone helpers, shared player/state lookup helpers, and shared execution-context/source-target reference helpers.
 - When extending Oracle IR execution, prefer adding logic to the focused handler/helper module that matches the step family before growing the main executor again.
 
+Effect Program Resolution
+- [Effect Program Resolution Architecture](./effect-program-resolution-architecture.md) is the target design for clause-level card automation.
+- Oracle text should compile into internal effect-program steps for conditions, commands, keywords, and choices.
+- The Resolution Queue remains the player/AI interaction boundary: only effect-program choice pauses should become queue prompts.
+- Deterministic clauses should execute inside the effect-program runner or Oracle IR executor rather than becoming socket-visible queue steps.
+
 Testing
 - Start with vitest for rules engine

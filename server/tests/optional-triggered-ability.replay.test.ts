@@ -34,6 +34,15 @@ describe('optional triggered ability replay semantics', () => {
       type: 'resolveTopOfStackPrompt',
       playerId,
       sourceId: 'soul_attendant_1',
+      effectProgram: {
+        effectProgramId: 'optional-trigger:soul_attendant_1:trigger_1',
+        effectProgramFamily: 'optional_triggered_ability',
+        effectProgramSourceId: 'soul_attendant_1',
+        effectProgramSourceName: "Soul's Attendant",
+        effectProgramCursor: 0,
+        effectProgramStepId: 'optional-trigger:soul_attendant_1:trigger_1:choice',
+        effectProgramBindingKey: 'optional-trigger:soul_attendant_1:trigger_1:decision',
+      },
       queuedResolutionStep: {
         id: 'queued_optional_trigger_prompt_1',
         type: ResolutionStepType.OPTION_CHOICE,
@@ -48,7 +57,6 @@ describe('optional triggered ability replay semantics', () => {
         ],
         minSelections: 1,
         maxSelections: 1,
-        optionalTriggeredAbilityPrompt: true,
         deferredTriggeredAbilityItem: {
           id: 'trigger_1',
           type: 'triggered_ability',
@@ -68,7 +76,11 @@ describe('optional triggered ability replay semantics', () => {
     const queue = ResolutionQueueManager.getQueue(gameId);
     expect(queue.steps).toHaveLength(1);
     expect(String((queue.steps[0] as any)?.id || '')).toBe('queued_optional_trigger_prompt_1');
-    expect((queue.steps[0] as any)?.optionalTriggeredAbilityPrompt).toBe(true);
+    expect((queue.steps[0] as any)?.optionalTriggeredAbilityPrompt).toBeUndefined();
+    expect((queue.steps[0] as any)?.effectProgramPrompt).toBe(true);
+    expect((queue.steps[0] as any)?.effectProgramFamily).toBe('optional_triggered_ability');
+    expect((queue.steps[0] as any)?.effectProgramId).toBe('optional-trigger:soul_attendant_1:trigger_1');
+    expect((queue.steps[0] as any)?.effectProgramBindingKey).toBe('optional-trigger:soul_attendant_1:trigger_1:decision');
   });
 
   it('replays an accepted optional-trigger choice by resolving the deferred trigger', () => {

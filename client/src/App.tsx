@@ -2525,7 +2525,12 @@ export function App() {
           return;
         }
 
-        if ((step as any).mayAbilityPrompt === true || (step as any).optionalTriggeredAbilityPrompt === true) {
+        const isMayAbilityPrompt = (step as any).mayAbilityPrompt === true;
+        const isOptionalTriggeredAbilityPrompt =
+          (step as any).optionalTriggeredAbilityPrompt === true ||
+          ((step as any).effectProgramPrompt === true && (step as any).effectProgramFamily === 'optional_triggered_ability');
+
+        if (isMayAbilityPrompt || isOptionalTriggeredAbilityPrompt) {
           setMayAbilityModalData({
             stepId: step.id,
             sourceName: step.sourceName || 'Ability',
@@ -2535,8 +2540,8 @@ export function App() {
             effectKey: (step as any).effectKey || '',
             gameId: (safeViewRef.current as any)?.id || payload.gameId || '',
             shortcutCardName: step.sourceName || undefined,
-            persistMayAutoPreference: (step as any).mayAbilityPrompt === true,
-            persistTriggerShortcut: (step as any).optionalTriggeredAbilityPrompt === true,
+            persistMayAutoPreference: isMayAbilityPrompt,
+            persistTriggerShortcut: isOptionalTriggeredAbilityPrompt,
           });
           setMayAbilityModalOpen(true);
           return;
