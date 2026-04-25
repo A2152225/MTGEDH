@@ -19,7 +19,7 @@ import type { GameID, PlayerID, ManaPool, RestrictedManaEntry, ManaRestrictionTy
 import { getActualPowerToughness, uid, cardManaValue } from "../state/utils.js";
 import { getDevotionManaAmount, getCreatureCountManaAmount, getManaAbilitiesForPermanent, getMoxAmberAvailableColors, isMoxAmberConditionalManaSource } from "../state/modules/mana-abilities.js";
 import { canRespond, canAct, getCastableCommanderCandidates, getCostAdjustmentInfo, getHandCastEvaluationCards, getPlayableLandCandidates, isTransformBackFace } from "../state/modules/can-respond.js";
-import { getGrantedCastFromGraveyardKeywordInfo, getGrantedFlashbackInfo, getGrantedUnearthInfo, getPrintedUnearthInfo } from "../state/modules/graveyard-permissions.js";
+import { getGrantedCastFromGraveyardKeywordInfo, getGrantedEmbalmInfo, getGrantedFlashbackInfo, getGrantedUnearthInfo, getPrintedUnearthInfo } from "../state/modules/graveyard-permissions.js";
 import { parseManaCost as parseManaFromString, canPayManaCostWithAvailableSources, getManaPoolFromState, getAvailableMana, getTotalManaFromPool } from "../state/modules/mana-check.js";
 import { hasPayableAlternateCost } from "../state/modules/alternate-costs.js";
 import { calculateCostReduction, applyCostReduction, runPostResolutionPermanentPromptChecks } from "./game-actions.js";
@@ -769,6 +769,25 @@ function getPlayableCardIds(game: InMemoryGame, playerId: PlayerID): string[] {
           if (!playableIds.includes(card.id)) playableIds.push(card.id);
         }
       }
+
+      for (const card of zones.graveyard) {
+        if (!card || typeof card === "string") continue;
+        if (!isMyTurn || !isMainPhase || !stackIsEmpty) continue;
+
+        const grantedEmbalmInfo = getGrantedEmbalmInfo({ state } as any, playerId, card);
+        if (!grantedEmbalmInfo.hasIt) continue;
+
+        const embalmCost = String(grantedEmbalmInfo.cost || '').trim();
+        if (!embalmCost) {
+          if (!playableIds.includes(card.id)) playableIds.push(card.id);
+          continue;
+        }
+
+        const parsedCost = parseManaFromString(embalmCost);
+        if (canPayManaCostWithAvailableSources(state, playerId, parsedCost)) {
+          if (!playableIds.includes(card.id)) playableIds.push(card.id);
+        }
+      }
       
       // Check graveyard for cards with activated abilities that can be used from there
       // Examples: Magma Phoenix "{3}{R}{R}: Return this card from your graveyard to your hand."
@@ -1032,6 +1051,21 @@ function getGraveyardAbilityHints(game: InMemoryGame, playerId: PlayerID): Recor
               label: 'Unearth',
               description: `Return to battlefield for ${grantedUnearthInfo.cost}`,
               cost: grantedUnearthInfo.cost,
+            });
+          }
+        }
+      }
+
+      if (isMainPhase && stackIsEmpty && isMyTurn) {
+        const grantedEmbalmInfo = getGrantedEmbalmInfo({ state } as any, playerId, card);
+        if (grantedEmbalmInfo.hasIt && grantedEmbalmInfo.cost) {
+          const parsedCost = parseManaFromString(grantedEmbalmInfo.cost);
+          if (canPayManaCostWithAvailableSources(state, playerId, parsedCost)) {
+            addHint(cardId, {
+              id: 'embalm',
+              label: 'Embalm',
+              description: `Create token copy for ${grantedEmbalmInfo.cost}`,
+              cost: grantedEmbalmInfo.cost,
             });
           }
         }

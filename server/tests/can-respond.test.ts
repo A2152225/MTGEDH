@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { canCastAnySpell, canActivateAnyAbility, canRespond, canAct, canPlayLand, getCastableCommanderCandidates, getCastableSpellCandidates } from '../src/state/modules/can-respond';
+import { applyTemporaryGraveyardKeywordGrantFromText, clearTemporaryGraveyardKeywordGrants } from '../src/state/modules/graveyard-permissions';
 import type { GameContext } from '../src/state/context';
 import type { PlayerID } from '../../shared/src';
 
@@ -1982,6 +1983,190 @@ describe('canRespond', () => {
 
     expect(candidates.some((candidate) => candidate.card?.id === 'consider_1')).toBe(false);
     expect(canRespond(ctx, 'p1' as PlayerID)).toBe(false);
+  });
+
+  it('snapshots each instant and sorcery card that gains flashback until end of turn', () => {
+    const ctx = createTestContext({
+      zones: {
+        p1: {
+          hand: [],
+          graveyard: [
+            { id: 'opt_grave_1', name: 'Opt', type_line: 'Instant', mana_cost: '{U}', oracle_text: 'Scry 1, then draw a card.' },
+            { id: 'divination_grave_1', name: 'Divination', type_line: 'Sorcery', mana_cost: '{2}{U}', oracle_text: 'Draw two cards.' },
+            { id: 'bear_grave_1', name: 'Runeclaw Bear', type_line: 'Creature', mana_cost: '{1}{G}', oracle_text: '' },
+          ],
+        },
+      },
+      battlefield: [],
+      manaPool: {
+        p1: { white: 0, blue: 1, black: 0, red: 0, green: 0, colorless: 2 },
+      },
+      players: [{ id: 'p1' }, { id: 'p2' }],
+      step: 'MAIN1',
+      turnPlayer: 'p1',
+      priority: 'p1',
+      stack: [],
+    });
+
+    const applied = applyTemporaryGraveyardKeywordGrantFromText(
+      ctx,
+      'p1' as PlayerID,
+      'Backdraft Hellkite',
+      'Whenever Backdraft Hellkite attacks, each instant and sorcery card in your graveyard gains flashback until end of turn. The flashback cost is equal to its mana cost.',
+      { sourceId: 'backdraft_1' },
+    );
+
+    expect(applied).toBe(2);
+    const candidates = getCastableSpellCandidates(ctx, 'p1' as PlayerID, { mode: 'main' });
+    expect(candidates).toEqual(expect.arrayContaining([
+      expect.objectContaining({ card: expect.objectContaining({ id: 'opt_grave_1' }), castMethod: 'flashback', manaCost: '{U}' }),
+      expect.objectContaining({ card: expect.objectContaining({ id: 'divination_grave_1' }), castMethod: 'flashback', manaCost: '{2}{U}' }),
+    ]));
+    expect(candidates.some((candidate) => candidate.card?.id === 'bear_grave_1')).toBe(false);
+  });
+
+  it('only grants temporary flashback to the chosen target card in the graveyard', () => {
+    const ctx = createTestContext({
+      zones: {
+        p1: {
+          hand: [],
+          graveyard: [
+            { id: 'chosen_instant_1', name: 'Consider', type_line: 'Instant', mana_cost: '{U}', oracle_text: 'Surveil 1, then draw a card.' },
+            { id: 'unchosen_sorcery_1', name: 'Divination', type_line: 'Sorcery', mana_cost: '{2}{U}', oracle_text: 'Draw two cards.' },
+          ],
+        },
+      },
+      battlefield: [],
+      manaPool: {
+        p1: { white: 0, blue: 1, black: 0, red: 0, green: 0, colorless: 2 },
+      },
+      players: [{ id: 'p1' }, { id: 'p2' }],
+      step: 'MAIN1',
+      turnPlayer: 'p1',
+      priority: 'p1',
+      stack: [],
+    });
+
+    const applied = applyTemporaryGraveyardKeywordGrantFromText(
+      ctx,
+      'p1' as PlayerID,
+      'Sphinx of Forgotten Lore',
+      "Target instant or sorcery card in your graveyard gains flashback until end of turn. The flashback cost is equal to that card's mana cost.",
+      { sourceId: 'sphinx_1', targets: ['chosen_instant_1'] },
+    );
+
+    expect(applied).toBe(1);
+    const candidates = getCastableSpellCandidates(ctx, 'p1' as PlayerID, { mode: 'main' });
+    expect(candidates).toEqual(expect.arrayContaining([
+      expect.objectContaining({ card: expect.objectContaining({ id: 'chosen_instant_1' }), castMethod: 'flashback' }),
+    ]));
+    expect(candidates.some((candidate) => candidate.card?.id === 'unchosen_sorcery_1')).toBe(false);
+  });
+
+  it('surfaces artifact creatures that temporarily gain unearth from a crewed Vehicle trigger', () => {
+    const ctx = createTestContext({
+      zones: {
+        p1: {
+          hand: [],
+          graveyard: [
+            { id: 'artifact_creature_grave_1', name: 'Circuit Mender', type_line: 'Artifact Creature — Insect', mana_cost: '{3}', oracle_text: '' },
+            { id: 'plain_artifact_grave_1', name: 'Mind Stone', type_line: 'Artifact', mana_cost: '{2}', oracle_text: '' },
+          ],
+        },
+      },
+      battlefield: [],
+      manaPool: {
+        p1: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 3 },
+      },
+      step: 'MAIN1',
+      turnPlayer: 'p1',
+      priority: 'p1',
+      stack: [],
+    });
+
+    const applied = applyTemporaryGraveyardKeywordGrantFromText(
+      ctx,
+      'p1' as PlayerID,
+      'Ghost Ark',
+      'Whenever this Vehicle becomes crewed, each artifact creature card in your graveyard gains unearth {3} until end of turn.',
+      { sourceId: 'ghost_ark_1' },
+    );
+
+    expect(applied).toBe(1);
+    expect(canActivateAnyAbility(ctx, 'p1' as PlayerID)).toBe(true);
+  });
+
+  it('enforces temporary escape additional exile costs and clears the grant at cleanup', () => {
+    const ctx = createTestContext({
+      zones: {
+        p1: {
+          hand: [],
+          graveyard: [
+            { id: 'creature_escape_1', name: 'Persistent Specimen', type_line: 'Creature — Skeleton', mana_cost: '{1}{B}', oracle_text: '' },
+            { id: 'other_escape_1', name: 'Other One', type_line: 'Instant', oracle_text: '' },
+            { id: 'other_escape_2', name: 'Other Two', type_line: 'Sorcery', oracle_text: '' },
+            { id: 'other_escape_3', name: 'Other Three', type_line: 'Creature', oracle_text: '' },
+            { id: 'other_escape_4', name: 'Other Four', type_line: 'Land', oracle_text: '' },
+          ],
+        },
+      },
+      battlefield: [],
+      manaPool: {
+        p1: { white: 0, blue: 0, black: 1, red: 0, green: 0, colorless: 3 },
+      },
+      step: 'MAIN1',
+      turnPlayer: 'p1',
+      priority: 'p1',
+      stack: [],
+    });
+
+    const applied = applyTemporaryGraveyardKeywordGrantFromText(
+      ctx,
+      'p1' as PlayerID,
+      "The Grim Captain's Locker",
+      'Until end of turn, each creature card in your graveyard gains "Escape—{3}{B}, Exile four other cards from your graveyard."',
+      { sourceId: 'locker_1' },
+    );
+
+    expect(applied).toBe(2);
+    expect(getCastableSpellCandidates(ctx, 'p1' as PlayerID, { mode: 'main' })).toEqual(expect.arrayContaining([
+      expect.objectContaining({ card: expect.objectContaining({ id: 'creature_escape_1' }), castMethod: 'escape', manaCost: '{3}{B}' }),
+    ]));
+
+    expect(clearTemporaryGraveyardKeywordGrants((ctx as any).state)).toBe(2);
+    expect(getCastableSpellCandidates(ctx, 'p1' as PlayerID, { mode: 'main' }).some((candidate) => candidate.card?.id === 'creature_escape_1')).toBe(false);
+  });
+
+  it('surfaces a targeted creature card that temporarily gains embalm', () => {
+    const ctx = createTestContext({
+      zones: {
+        p1: {
+          hand: [],
+          graveyard: [
+            { id: 'embalm_target_1', name: 'Supply Runner', type_line: 'Creature — Dog', mana_cost: '{2}{W}', oracle_text: '' },
+          ],
+        },
+      },
+      battlefield: [],
+      manaPool: {
+        p1: { white: 1, blue: 0, black: 0, red: 0, green: 0, colorless: 2 },
+      },
+      step: 'MAIN1',
+      turnPlayer: 'p1',
+      priority: 'p1',
+      stack: [],
+    });
+
+    const applied = applyTemporaryGraveyardKeywordGrantFromText(
+      ctx,
+      'p1' as PlayerID,
+      'Cursecloth Wrappings',
+      'Target creature card in your graveyard gains embalm until end of turn. The embalm cost is equal to its mana cost.',
+      { sourceId: 'cursecloth_1', targets: ['embalm_target_1'] },
+    );
+
+    expect(applied).toBe(1);
+    expect(canActivateAnyAbility(ctx, 'p1' as PlayerID)).toBe(true);
   });
 
   it('should return false when player has flashback instant in graveyard without mana', () => {

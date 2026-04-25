@@ -39,7 +39,7 @@ import { serializeAbilityActivatedTriggeredStackItem, triggerAbilityActivatedTri
 import { isCreatureNow } from "../state/creatureTypeNow.js";
 import { countArtifacts, getActiveAbilityConditions, getTotalCreaturePower } from "../state/modules/game-state-effects.js";
 import { detectActivatedAbilityConditionRequirement, type ActivatedAbilityConditionRequirement } from "../state/modules/activated-ability-conditions.js";
-import { getGrantedCastFromGraveyardKeywordInfo, getGrantedFlashbackInfo, getGrantedUnearthInfo, getPrintedUnearthInfo } from "../state/modules/graveyard-permissions.js";
+import { getGrantedCastFromGraveyardKeywordInfo, getGrantedEmbalmInfo, getGrantedFlashbackInfo, getGrantedUnearthInfo, getPrintedUnearthInfo } from "../state/modules/graveyard-permissions.js";
 
 function cardHasSplitSecond(card: any): boolean {
   if (!card) return false;
@@ -3277,7 +3277,22 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         return;
       }
 
-      const recordedManaCost = String(getKeywordGraveyardActivationManaCost(card, abilityId) || '').trim();
+      const printedManaCost = String(getKeywordGraveyardActivationManaCost(card, abilityId) || '').trim();
+      const hasPrintedAbility = abilityId === 'embalm'
+        ? /\bembalm\b/i.test(String(card?.oracle_text || card?.oracleText || ''))
+        : /\beternalize\b/i.test(String(card?.oracle_text || card?.oracleText || ''));
+      const grantedEmbalmInfo = abilityId === 'embalm' && !hasPrintedAbility
+        ? getGrantedEmbalmInfo(game as any, pid as any, card)
+        : { hasIt: false };
+      if (!hasPrintedAbility && !grantedEmbalmInfo.hasIt) {
+        socket.emit("error", {
+          code: "ABILITY_NOT_AVAILABLE",
+          message: `${cardName} does not currently have ${abilityId}.`,
+        });
+        return;
+      }
+
+      const recordedManaCost = String(printedManaCost || grantedEmbalmInfo.cost || '').trim();
       if (recordedManaCost) {
         const parsedCost = parseManaCost(recordedManaCost);
         const pool = getOrInitManaPool(game.state, pid);

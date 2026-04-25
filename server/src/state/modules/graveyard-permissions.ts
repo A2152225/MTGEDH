@@ -23,7 +23,19 @@ export interface GrantedGraveyardKeywordInfo {
   sourceName?: string;
 }
 
-type GraveyardGrantKeyword = 'flashback' | 'unearth' | 'jump-start' | 'retrace' | 'escape';
+export interface TemporaryGraveyardKeywordGrant {
+  playerId: string;
+  cardId: string;
+  keyword: GraveyardGrantKeyword;
+  cost?: string;
+  additionalExileCount?: number;
+  sourceId?: string;
+  sourceName?: string;
+  expiresAt: 'end_of_turn' | 'this_turn';
+  turnApplied?: number;
+}
+
+export type GraveyardGrantKeyword = 'flashback' | 'unearth' | 'jump-start' | 'retrace' | 'escape' | 'embalm';
 
 function normalizeText(value: unknown): string {
   return String(value || '').toLowerCase().replace(/[\u2018\u2019]/g, "'");
@@ -60,6 +72,10 @@ function isLesson(card: any): boolean {
 
 function getManaCost(card: any): string {
   return String(card?.mana_cost || card?.manaCost || '').trim();
+}
+
+function getCardId(card: any): string {
+  return String(card?.id || '').trim();
 }
 
 function getCardColors(card: any): string[] {
@@ -176,6 +192,199 @@ function extractAdditionalEscapeExileCount(fullOracleText: string): number | und
   return count > 0 ? count : undefined;
 }
 
+function getTemporaryGraveyardKeywordGrants(state: any): TemporaryGraveyardKeywordGrant[] {
+  return Array.isArray(state?.temporaryGraveyardKeywordGrants)
+    ? state.temporaryGraveyardKeywordGrants
+    : [];
+}
+
+function findTemporaryGrantedKeywordInfo(
+  state: any,
+  playerId: PlayerID,
+  card: any,
+  keyword: GraveyardGrantKeyword,
+): GrantedGraveyardKeywordInfo {
+  const cardId = getCardId(card);
+  if (!state || !cardId) return { hasIt: false };
+
+  const grant = getTemporaryGraveyardKeywordGrants(state).find((entry) =>
+    entry
+    && String(entry.playerId || '') === String(playerId || '')
+    && String(entry.cardId || '') === cardId
+    && String(entry.keyword || '') === keyword
+  );
+
+  if (!grant) return { hasIt: false };
+
+  return {
+    hasIt: true,
+    cost: grant.cost,
+    additionalExileCount: grant.additionalExileCount,
+    sourceId: grant.sourceId,
+    sourceName: grant.sourceName,
+  };
+}
+
+function normalizeGrantKeyword(value: string): GraveyardGrantKeyword | undefined {
+  const normalized = normalizeText(value).replace(/\s+/g, '-');
+  if (['flashback', 'unearth', 'jump-start', 'retrace', 'escape', 'embalm'].includes(normalized)) {
+    return normalized as GraveyardGrantKeyword;
+  }
+  return undefined;
+}
+
+function extractKeywordGrantFromAbilityText(rawAbilityText: string): { keyword?: GraveyardGrantKeyword; remainder: string } {
+  const text = String(rawAbilityText || '').trim();
+  if (!text) return { remainder: '' };
+
+  const match = text.match(/\b(flashback|unearth|jump-start|retrace|escape|embalm)\b\s*[—-]?\s*([^.]*)/i);
+  const keyword = match?.[1] ? normalizeGrantKeyword(match[1]) : undefined;
+  return {
+    keyword,
+    remainder: String(match?.[2] || text).trim(),
+  };
+}
+
+function getGraveyardCardsForTemporaryGrant(state: any, playerId: PlayerID, qualifier: string, targetIds?: string[]): any[] {
+  const graveyard = state?.zones?.[playerId]?.graveyard;
+  if (!Array.isArray(graveyard)) return [];
+
+  const targetIdSet = Array.isArray(targetIds) && targetIds.length > 0
+    ? new Set(targetIds.map((id) => String(id || '').trim()).filter(Boolean))
+    : null;
+
+  return graveyard.filter((card: any) => {
+    if (!card || typeof card === 'string') return false;
+    if (targetIdSet && !targetIdSet.has(getCardId(card))) return false;
+    return qualifierMatchesCard(qualifier, card);
+  });
+}
+
+function addTemporaryGraveyardKeywordGrant(
+  state: any,
+  playerId: PlayerID,
+  card: any,
+  options: {
+    keyword: GraveyardGrantKeyword;
+    cost?: string;
+    additionalExileCount?: number;
+    sourceId?: string;
+    sourceName?: string;
+  },
+): boolean {
+  const cardId = getCardId(card);
+  if (!state || !playerId || !cardId || !options.keyword) return false;
+
+  state.temporaryGraveyardKeywordGrants = getTemporaryGraveyardKeywordGrants(state).filter((entry) =>
+    !(entry
+      && String(entry.playerId || '') === String(playerId || '')
+      && String(entry.cardId || '') === cardId
+      && String(entry.keyword || '') === String(options.keyword || '')
+      && String(entry.sourceId || '') === String(options.sourceId || ''))
+  );
+
+  state.temporaryGraveyardKeywordGrants.push({
+    playerId: String(playerId),
+    cardId,
+    keyword: options.keyword,
+    ...(options.cost ? { cost: options.cost } : {}),
+    ...(Number(options.additionalExileCount || 0) > 0 ? { additionalExileCount: Number(options.additionalExileCount) } : {}),
+    ...(options.sourceId ? { sourceId: options.sourceId } : {}),
+    ...(options.sourceName ? { sourceName: options.sourceName } : {}),
+    expiresAt: 'end_of_turn',
+    turnApplied: Number(state.turnNumber ?? state.turn ?? 0) || 0,
+  });
+
+  return true;
+}
+
+export function clearTemporaryGraveyardKeywordGrants(state: any): number {
+  if (!state || !Array.isArray(state.temporaryGraveyardKeywordGrants)) return 0;
+
+  const before = state.temporaryGraveyardKeywordGrants.length;
+  state.temporaryGraveyardKeywordGrants = state.temporaryGraveyardKeywordGrants.filter((entry: any) => {
+    const expiresAt = String(entry?.expiresAt || '').trim().toLowerCase();
+    return expiresAt !== 'end_of_turn' && expiresAt !== 'this_turn';
+  });
+
+  if (state.temporaryGraveyardKeywordGrants.length === 0) {
+    delete state.temporaryGraveyardKeywordGrants;
+  }
+
+  return before - (Array.isArray(state.temporaryGraveyardKeywordGrants) ? state.temporaryGraveyardKeywordGrants.length : 0);
+}
+
+export function applyTemporaryGraveyardKeywordGrantFromText(
+  ctx: GameContext,
+  playerId: PlayerID,
+  sourceName: string,
+  description: string,
+  triggerItem?: any,
+): number {
+  try {
+    const state = (ctx as any)?.state;
+    if (!state || !playerId) return 0;
+
+    const text = String(description || '').replace(/[\u2018\u2019]/g, "'").replace(/\s+/g, ' ').trim();
+    if (!text || !/\bgraveyard\b/i.test(text) || !/\bgains?\b/i.test(text)) return 0;
+
+    // Reflexive delayed triggers such as Filigree Racer's "When you do" need their own payment bridge.
+    if (/\bwhen you do\b/i.test(text)) return 0;
+
+    const sourceId = String(
+      triggerItem?.sourceId || triggerItem?.source || triggerItem?.permanentId || triggerItem?.id || ''
+    ).trim();
+    const targetIds = Array.isArray(triggerItem?.targets)
+      ? triggerItem.targets.map((id: any) => String(id || '').trim()).filter(Boolean)
+      : [];
+
+    const grantPatterns = [
+      { targetMode: 'each', pattern: /(?:^|[.,]\s*)(?:until end of turn,\s*)?each\s+(.+?)\s+cards?\s+in\s+your\s+graveyard\s+gains?\s+(?:"([^"]+)"|([a-z][a-z-]*)(?:\s+((?:\{[^}]+\}\s*)+))?)(?:\s+until end of turn)?/gi },
+      { targetMode: 'target', pattern: /(?:^|[.,]\s*)target\s+(.+?)\s+cards?\s+in\s+your\s+graveyard\s+gains?\s+(?:"([^"]+)"|([a-z][a-z-]*)(?:\s+((?:\{[^}]+\}\s*)+))?)(?:\s+until end of turn)?/gi },
+    ];
+
+    let applied = 0;
+    for (const { targetMode, pattern } of grantPatterns) {
+      for (const match of text.matchAll(pattern)) {
+        const qualifier = String(match[1] || '').trim();
+        const quotedAbilityText = String(match[2] || '').trim();
+        const unquotedKeywordText = String(match[3] || '').trim();
+        const explicitCostText = String(match[4] || '').trim();
+        const extracted = quotedAbilityText
+          ? extractKeywordGrantFromAbilityText(quotedAbilityText)
+          : { keyword: normalizeGrantKeyword(unquotedKeywordText), remainder: explicitCostText };
+        const keyword = extracted.keyword;
+        if (!keyword || !qualifier) continue;
+
+        const cards = getGraveyardCardsForTemporaryGrant(
+          state,
+          playerId,
+          qualifier,
+          targetMode === 'target' ? targetIds : undefined,
+        );
+        if (targetMode === 'target' && targetIds.length === 0) continue;
+
+        for (const card of cards) {
+          const cost = extractGrantedKeywordCost(keyword, extracted.remainder || explicitCostText, text, card);
+          if (!cost) continue;
+          const added = addTemporaryGraveyardKeywordGrant(state, playerId, card, {
+            keyword,
+            cost,
+            ...(keyword === 'escape' ? { additionalExileCount: extractAdditionalEscapeExileCount(`${quotedAbilityText} ${text}`) } : {}),
+            sourceId,
+            sourceName,
+          });
+          if (added) applied += 1;
+        }
+      }
+    }
+
+    return applied;
+  } catch {
+    return 0;
+  }
+}
+
 function findGrantedKeywordInfo(
   ctx: GameContext,
   playerId: PlayerID,
@@ -185,6 +394,9 @@ function findGrantedKeywordInfo(
   try {
     const state = (ctx as any)?.state;
     if (!state || !card || typeof card === 'string') return { hasIt: false };
+
+    const temporaryGrant = findTemporaryGrantedKeywordInfo(state, playerId, card, keyword);
+    if (temporaryGrant.hasIt) return temporaryGrant;
 
     const battlefield = Array.isArray(state.battlefield) ? state.battlefield : [];
     const keywordPattern = escapeRegExp(keyword);
@@ -250,6 +462,10 @@ export function getGrantedFlashbackInfo(ctx: GameContext, playerId: PlayerID, ca
 
 export function getGrantedUnearthInfo(ctx: GameContext, playerId: PlayerID, card: any): GrantedUnearthInfo {
   return findGrantedKeywordInfo(ctx, playerId, card, 'unearth') as GrantedUnearthInfo;
+}
+
+export function getGrantedEmbalmInfo(ctx: GameContext, playerId: PlayerID, card: any): GrantedUnearthInfo {
+  return findGrantedKeywordInfo(ctx, playerId, card, 'embalm') as GrantedUnearthInfo;
 }
 
 export function getGrantedCastFromGraveyardKeywordInfo(

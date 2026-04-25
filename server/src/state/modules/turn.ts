@@ -47,6 +47,7 @@ import { tryAutoPass } from "./priority.js";
 import { ResolutionQueueManager, ResolutionStepType } from "../resolution/index.js";
 import { debug, debugWarn, debugError } from "../../utils/debug.js";
 import { ensureInitialDayNightDesignationFromBattlefield, setDayNightState } from "./day-night.js";
+import { clearTemporaryGraveyardKeywordGrants } from "./graveyard-permissions.js";
 
 /** Small helper to prepend ISO timestamp to debug logs */
 function ts() {
@@ -2695,6 +2696,8 @@ function endTemporaryEffects(ctx: GameContext) {
         endedCount++;
       }
     }
+
+    endedCount += clearTemporaryGraveyardKeywordGrants(state);
 
     // Revert temporary control changes recorded for cleanup.
     if (Array.isArray((state as any).controlChangeEffects) && (state as any).controlChangeEffects.length > 0) {

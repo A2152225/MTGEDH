@@ -179,6 +179,7 @@ describe('AIEngine', () => {
       aiEngine.registerAI({
         playerId: 'ai1',
         strategy: AIStrategy.BASIC,
+        difficulty: 1,
         thinkTime: 0,
       });
       

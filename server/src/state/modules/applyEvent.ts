@@ -52,6 +52,7 @@ import { buildEmbalmOrEternalizeTokenPermanent } from "./graveyard-tokens.js";
 import { clearPreparedPermanent, syncPreparedPermanentAfterControlChange } from "./prepared.js";
 import { applyMyriadTokenCopies, pushStack, resolveTopOfStack, playLand, castSpell, triggerETBEffectsForToken } from "./stack";
 import { exileEntireStack } from "./stack";
+import { applyTemporaryGraveyardKeywordGrantFromText } from "./graveyard-permissions.js";
 import { permanentHasKeyword } from "./keyword-handlers";
 import { nextTurn, nextStep, passPriority } from "./turn";
 import {
@@ -3535,6 +3536,20 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
             stateAny.tappedNonlandPermanentThisTurnByPlayer = stateAny.tappedNonlandPermanentThisTurnByPlayer || {};
             stateAny.tappedNonlandPermanentThisTurnByPlayer[pid] = true;
           }
+
+          applyTemporaryGraveyardKeywordGrantFromText(
+            ctx as any,
+            pid as any,
+            String(vehicle?.card?.name || 'Vehicle'),
+            String(vehicle?.card?.oracle_text || vehicle?.card?.oracleText || ''),
+            {
+              id: vehicleId,
+              sourceId: vehicleId,
+              source: vehicleId,
+              permanentId: vehicleId,
+              card: vehicle?.card,
+            },
+          );
 
           ctx.bumpSeq();
         } catch (err) {

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { broadcastGame } from '../src/socket/util.js';
 import { createContext } from '../src/state/context.js';
+import { applyTemporaryGraveyardKeywordGrantFromText } from '../src/state/modules/graveyard-permissions.js';
 
 function createMockIo(emitted: Array<{ room?: string; event: string; payload: any }>) {
   return {
@@ -1235,6 +1236,109 @@ describe('broadcastGame playable card refresh', () => {
     expect(stateEvent?.payload?.view?.graveyardAbilityHints?.p1?.scrapwork_1).toContainEqual(expect.objectContaining({
       id: 'unearth',
       cost: '{1}{B}{R}',
+    }));
+  });
+
+  it('emits temporary embalm graveyard ability hints for the priority player', () => {
+    const gameId = 'playable_cards_temporary_embalm_hints';
+    const ctx = createContext(gameId);
+
+    Object.assign(ctx.state as any, {
+      active: true,
+      phase: 'precombatMain',
+      step: 'MAIN1',
+      turnDirection: 1,
+      turnPlayer: 'p1',
+      priority: 'p1',
+      players: [
+        { id: 'p1', seat: 1, name: 'Player 1' },
+        { id: 'p2', seat: 2, name: 'Player 2' },
+      ],
+      stack: [],
+      battlefield: [],
+      zones: {
+        p1: {
+          hand: [],
+          graveyard: [
+            {
+              id: 'embalm_candidate_1',
+              name: 'Supply Runner',
+              type_line: 'Creature - Dog',
+              mana_cost: '{2}{W}',
+              oracle_text: '',
+            },
+          ],
+          library: [],
+          exile: [],
+          handCount: 0,
+          graveyardCount: 1,
+          exileCount: 0,
+        },
+        p2: {
+          hand: [],
+          graveyard: [],
+          library: [],
+          exile: [],
+          handCount: 0,
+          graveyardCount: 0,
+          exileCount: 0,
+        },
+      },
+      life: { p1: 40, p2: 40 },
+      manaPool: {
+        p1: { white: 1, blue: 0, black: 0, red: 0, green: 0, colorless: 2 },
+        p2: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+      },
+      playableCards: [],
+      canAct: true,
+      canRespond: true,
+    });
+
+    applyTemporaryGraveyardKeywordGrantFromText(
+      ctx,
+      'p1' as any,
+      'Cursecloth Wrappings',
+      'Target creature card in your graveyard gains embalm until end of turn. The embalm cost is equal to its mana cost.',
+      { sourceId: 'cursecloth_1', targets: ['embalm_candidate_1'] },
+    );
+
+    const game: any = {
+      gameId,
+      state: ctx.state,
+      inactive: ctx.inactive,
+      passesInRow: ctx.passesInRow,
+      libraries: ctx.libraries,
+      life: ctx.life,
+      commandZone: ctx.commandZone,
+      manaPool: ctx.manaPool,
+      get seq() {
+        return ctx.seq.value;
+      },
+      set seq(value: number) {
+        ctx.seq.value = value;
+      },
+      bumpSeq: ctx.bumpSeq,
+      participants: () => [{ socketId: 'sock_1', playerId: 'p1', spectator: false }],
+      viewFor: () => ({
+        ...ctx.state,
+        viewer: 'p1',
+        playableCards: [],
+        canAct: true,
+        canRespond: true,
+      }),
+    };
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const io = createMockIo(emitted);
+
+    broadcastGame(io, game, gameId);
+
+    const stateEvent = emitted.find((entry) => entry.room === 'sock_1' && entry.event === 'state');
+    expect(stateEvent).toBeDefined();
+    expect(stateEvent?.payload?.view?.playableCards).toContain('embalm_candidate_1');
+    expect(stateEvent?.payload?.view?.graveyardAbilityHints?.p1?.embalm_candidate_1).toContainEqual(expect.objectContaining({
+      id: 'embalm',
+      cost: '{2}{W}',
     }));
   });
 });

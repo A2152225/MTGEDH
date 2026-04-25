@@ -90,6 +90,7 @@ import {
   applyAutomaticDungeonRoomTokenEffects,
   buildDungeonRoomPromptSteps,
 } from "./dungeon-effects.js";
+import { applyTemporaryGraveyardKeywordGrantFromText } from "./graveyard-permissions.js";
 
 function removeReplayDuplicateCardEntries(cards: any, cardId: string): number {
   if (!Array.isArray(cards) || !cardId) return 0;
@@ -6673,6 +6674,10 @@ export function executeTriggerEffect(
   const state = (ctx as any).state;
   if (!state) return;
   const triggerCard = (triggerItem as any)?.card || {};
+
+  if (applyTemporaryGraveyardKeywordGrantFromText(ctx, controller, sourceName, description, triggerItem) > 0) {
+    return;
+  }
 
   let desc = String(description || "").replace(/[’]/g, "'").toLowerCase();
   const triggerSourceId = String(

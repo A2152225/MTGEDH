@@ -20,7 +20,7 @@ import { parseManaCost, canPayManaCostWithAvailableSources, getManaPoolFromState
 import { hasPayableAlternateCost } from "./alternate-costs";
 import { hasValidTargetsForSpell } from "../../rules-engine/target-availability.js";
 import { calculateMaxLandsPerTurn, canCastFromTop, canPlayLandsFromTop, getActiveAbilityConditions } from "./game-state-effects";
-import { getGrantedCastFromGraveyardKeywordInfo, getGrantedFlashbackInfo, getGrantedUnearthInfo, getPrintedUnearthInfo } from "./graveyard-permissions";
+import { getGrantedCastFromGraveyardKeywordInfo, getGrantedEmbalmInfo, getGrantedFlashbackInfo, getGrantedUnearthInfo, getPrintedUnearthInfo } from "./graveyard-permissions";
 import { detectActivatedAbilityConditionRequirement } from "./activated-ability-conditions";
 import { creatureHasHaste } from "../../socket/game-actions.js";
 import { debug, debugWarn, debugError } from "../../utils/debug.js";
@@ -1460,6 +1460,25 @@ function hasGraveyardActivatedAbility(
     }
 
     const parsedCost = parseManaCost(unearthCost);
+    return canPayManaCostWithAvailableSources(state, playerId, parsedCost);
+  }
+
+  const grantedEmbalmInfo = getGrantedEmbalmInfo(ctx, playerId, card);
+  if (grantedEmbalmInfo.hasIt) {
+    const currentStep = String((state as any)?.step || '').toUpperCase();
+    const isMainPhase = currentStep === 'MAIN1' || currentStep === 'MAIN2' || currentStep === 'MAIN';
+    const stackIsEmpty = !state.stack || state.stack.length === 0;
+    const isTurnPlayer = String((state as any)?.turnPlayer || '') === String(playerId || '');
+    if (!isMainPhase || !stackIsEmpty || !isTurnPlayer) {
+      return false;
+    }
+
+    const embalmCost = String(grantedEmbalmInfo.cost || '').trim();
+    if (!embalmCost) {
+      return true;
+    }
+
+    const parsedCost = parseManaCost(embalmCost);
     return canPayManaCostWithAvailableSources(state, playerId, parsedCost);
   }
   
