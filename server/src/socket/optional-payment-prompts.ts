@@ -1,6 +1,6 @@
 import { appendEvent } from '../db/index.js';
 import { ResolutionQueueManager, ResolutionStepType } from '../state/resolution/index.js';
-import { validateLifePayment } from '../state/utils.js';
+import { getEnergyCount, validateLifePayment } from '../state/utils.js';
 import {
   broadcastGame,
   calculateTotalAvailableMana,
@@ -20,7 +20,7 @@ type OptionalPaymentValidationFailure = {
   message: string;
 };
 
-type OptionalPaymentValidationKind = 'mana' | 'life' | 'none';
+type OptionalPaymentValidationKind = 'mana' | 'life' | 'energy' | 'none';
 
 type QueueOptionalPaymentStepOptions = {
   playerId: string;
@@ -43,6 +43,7 @@ type QueueOptionalPaymentStepOptions = {
   validationKind?: OptionalPaymentValidationKind;
   manaCost?: string;
   lifeAmount?: number;
+  energyAmount?: number;
   stepData?: Record<string, unknown>;
 };
 
@@ -132,6 +133,17 @@ export function getOptionalPaymentValidationFailure(
     return message ? { code: 'INSUFFICIENT_LIFE', message } : null;
   }
 
+  if (validationKind === 'energy') {
+    const energyAmount = Number(stepData?.optionalPaymentEnergyAmount || stepData?.energyAmount || 0);
+    const availableEnergy = getEnergyCount(game?.state, playerId);
+    if (!(energyAmount > 0)) {
+      return { code: 'UNSUPPORTED_COST', message: 'Missing energy cost.' };
+    }
+    return availableEnergy >= energyAmount
+      ? null
+      : { code: 'INSUFFICIENT_ENERGY', message: `Need ${energyAmount} energy, but only ${availableEnergy} available.` };
+  }
+
   return null;
 }
 
@@ -164,6 +176,7 @@ export function queueOptionalPaymentStep(gameId: string, options: QueueOptionalP
     optionalPaymentValidationKind: options.validationKind ?? 'none',
     optionalPaymentManaCost: options.manaCost,
     optionalPaymentLifeAmount: options.lifeAmount,
+    optionalPaymentEnergyAmount: options.energyAmount,
     optionalPaymentPayChoiceId: options.payChoiceId,
     optionalPaymentDeclineChoiceId: options.declineChoiceId,
     pendingOptionalPaymentCallbackId: callbackId,

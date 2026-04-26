@@ -211,6 +211,7 @@ export interface CombatTriggeredAbility {
   mandatory?: boolean;
   requiresTarget?: boolean;
   manaCost?: string;
+  energyCost?: number;
   batched?: boolean;
 }
 
@@ -309,7 +310,7 @@ export function getSupportedExertAttackReward(card: any): string | null {
 function findGenericAttackTriggerLine(oracleText: string, cardName: string): RegExpMatchArray | null {
   const cardNamePatternEscaped = escapeCardNameForRegex(cardName);
   const attacksPattern = new RegExp(
-    `whenever\\s+(?:~|this creature(?:\\s+or\\s+equipped creature)?|${cardNamePatternEscaped})\\s+attacks,?\\s*(.+)$`,
+    `whenever\\s+(?:~|this (?:creature(?:\\s+or\\s+equipped creature)?|vehicle|artifact|permanent)|${cardNamePatternEscaped})\\s+attacks,?\\s*(.+)$`,
     'i'
   );
 
@@ -336,6 +337,10 @@ function findGenericBlockTriggerLine(oracleText: string, cardName: string): RegE
   }
 
   return null;
+}
+
+function countEnergySymbols(cost: string): number {
+  return (String(cost || '').match(/\{e\}/gi) || []).length;
 }
 
 // Re-export types from types.ts for consumers
@@ -510,7 +515,7 @@ export function detectAttackTriggers(card: any, permanent: any): CombatTriggered
   const permanentId = permanent?.id || "";
   const supportedExertReward = getSupportedExertAttackReward(card);
 
-  const optionalManaPaymentPattern = /you may pay (\{[^}]+\}(?:\{[^}]+\})*)\.\s*if you do,?\s*(.+)/i;
+  const optionalPaymentPattern = /you may pay ((?:\{[^}]+\})+)\.\s*(?:if|when) you do,?\s*(.+)/i;
   
   // Also check granted and temporary abilities on the permanent.
   // These are abilities granted by other cards (e.g., "gains firebending 4 until end of turn").
@@ -646,17 +651,19 @@ export function detectAttackTriggers(card: any, permanent: any): CombatTriggered
   if (attacksMatch && !triggers.some(t => t.triggerType === 'attacks')) {
     const effectText = attacksMatch[1].trim();
     
-    // Check for optional mana payment trigger
-    const mayPayMatch = effectText.match(optionalManaPaymentPattern);
+    // Check for optional mana or energy payment trigger
+    const mayPayMatch = effectText.match(optionalPaymentPattern);
     
     if (mayPayMatch) {
+      const paymentCost = String(mayPayMatch[1] || '').trim();
+      const energyCost = countEnergySymbols(paymentCost);
       triggers.push({
         permanentId,
         cardName,
         triggerType: 'attacks',
         description: effectText,
         effect: mayPayMatch[2].trim(),
-        manaCost: mayPayMatch[1],
+        ...(energyCost > 0 ? { energyCost } : { manaCost: paymentCost }),
         mandatory: false,
       });
     } else {

@@ -1195,9 +1195,10 @@ export function inferTriggeredAbilityTargetMetadata(effectText: string, context?
       || lower.includes('from a graveyard')
       || lower.includes('from any graveyard')
       || /from (?:an |target )?opponent['’]s graveyard/.test(lower)
+      || lower.includes('in your graveyard')
     ) {
       targetZone = 'graveyard';
-      targetGraveyardScope = lower.includes('from your graveyard')
+      targetGraveyardScope = lower.includes('from your graveyard') || lower.includes('in your graveyard')
         ? 'your'
         : /from (?:an |target )?opponent['’]s graveyard/.test(lower)
           ? 'opponent'
@@ -8247,11 +8248,11 @@ export function executeTriggerEffect(
   
   // Pattern: "you gain X life and get {E}" - Combined life gain + energy (Guide of Souls)
   // This must be checked BEFORE separate life/energy patterns
-  const lifeAndEnergyMatch = desc.match(/you gain (\d+) life and get (?:(\d+|one|two|three|four|five) )?(?:\{e\}|energy)/i);
+  const lifeAndEnergyMatch = desc.match(/you gain (\d+) life and get (?:(\d+|one|two|three|four|five) )?((?:\{e\}\s*)+|energy)/i);
   if (lifeAndEnergyMatch) {
     const lifeAmount = parseInt(lifeAndEnergyMatch[1], 10);
     const wordToNum: Record<string, number> = { 'one': 1, 'two': 2, 'three': 3, 'four': 4, 'five': 5 };
-    let energyAmount = 1;
+    let energyAmount = (String(lifeAndEnergyMatch[3] || '').match(/\{e\}/gi) || []).length || 1;
     if (lifeAndEnergyMatch[2]) {
       energyAmount = wordToNum[lifeAndEnergyMatch[2].toLowerCase()] || parseInt(lifeAndEnergyMatch[2], 10) || 1;
     }
@@ -8271,10 +8272,10 @@ export function executeTriggerEffect(
   // Matches: "you get {E}", "you get two {E}", "you get 2 {E}"
   // Skip if already handled by lifeAndEnergyMatch above
   if (!handled) {
-    const energyMatch = desc.match(/you get (?:(\d+|one|two|three|four|five) )?(?:\{e\}|energy)/i);
+    const energyMatch = desc.match(/you get (?:(\d+|one|two|three|four|five) )?((?:\{e\}\s*)+|energy)/i);
     if (energyMatch) {
       const wordToNum: Record<string, number> = { 'one': 1, 'two': 2, 'three': 3, 'four': 4, 'five': 5 };
-      let amount = 1;
+      let amount = (String(energyMatch[2] || '').match(/\{e\}/gi) || []).length || 1;
       if (energyMatch[1]) {
         amount = wordToNum[energyMatch[1].toLowerCase()] || parseInt(energyMatch[1], 10) || 1;
       }

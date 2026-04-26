@@ -21,6 +21,7 @@ import { ResolutionQueueManager, ResolutionStepType } from "../state/resolution/
 import { queueOptionalPaymentStep } from "./optional-payment-prompts.js";
 import { flushPendingDamageTriggersAfterStepAdvance } from "./step-advance.js";
 import { inferTriggeredAbilityTargetMetadata } from "../state/modules/stack.js";
+import { getEnergyCount, spendEnergyCounters } from "../state/utils.js";
 
 function persistTriggeredAbilityPush(
   gameId: string,
@@ -89,8 +90,98 @@ export type PendingAttackTriggerManaPayment = {
   cardName: string;
   effect?: string;
   manaCost: string;
+  energyCost?: number;
   description?: string;
 };
+
+function formatEnergyCost(amount: number): string {
+  return amount > 0 ? '{E}'.repeat(amount) : '';
+}
+
+function trimReminderText(text: string): string {
+  return String(text || '').replace(/\s*\([^)]*\)\s*$/i, '').trim();
+}
+
+function pushPaidAttackTriggerEffectOntoStack(
+  game: any,
+  gameId: string,
+  playerId: PlayerID,
+  pendingTrigger: PendingAttackTriggerManaPayment
+): boolean {
+  const effectText = trimReminderText(String(pendingTrigger.effect || ''));
+  if (!effectText || !/\btarget\b/i.test(effectText)) {
+    return false;
+  }
+
+  const battlefield = Array.isArray((game.state as any)?.battlefield) ? (game.state as any).battlefield : [];
+  const sourcePerm = battlefield.find((p: any) => String(p?.id || '') === String(pendingTrigger.permanentId || ''));
+  const targetMetadata = inferTriggeredAbilityTargetMetadata(effectText, {
+    gameState: game.state,
+    controllerId: String(playerId),
+    sourceName: String(pendingTrigger.cardName || sourcePerm?.card?.name || ''),
+    sourcePermanent: sourcePerm,
+  } as any);
+
+  const triggerId = `trigger_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  const stackItem: any = {
+    id: triggerId,
+    type: 'triggered_ability',
+    controller: playerId,
+    source: pendingTrigger.permanentId,
+    sourceName: pendingTrigger.cardName,
+    description: effectText,
+    effect: effectText,
+    triggerType: 'reflexive_attack_payment',
+    mandatory: true,
+    ...(targetMetadata.requiresTarget ? { requiresTarget: true, needsTargetSelection: true } : null),
+    ...(targetMetadata.targetType ? { targetType: targetMetadata.targetType } : null),
+    ...(targetMetadata.targetConstraint ? { targetConstraint: targetMetadata.targetConstraint } : null),
+    ...(targetMetadata.targetZone ? { targetZone: targetMetadata.targetZone } : null),
+    ...(targetMetadata.targetDestination ? { targetDestination: targetMetadata.targetDestination } : null),
+    ...(targetMetadata.targetGraveyardScope ? { targetGraveyardScope: targetMetadata.targetGraveyardScope } : null),
+    ...(targetMetadata.destinationUsesSelectedCardOwner === true ? { destinationUsesSelectedCardOwner: true } : null),
+    ...(targetMetadata.battlefieldControllerMode ? { battlefieldControllerMode: targetMetadata.battlefieldControllerMode } : null),
+    ...(targetMetadata.battlefieldCounters ? { battlefieldCounters: targetMetadata.battlefieldCounters } : null),
+    ...(targetMetadata.targetAction ? { targetAction: targetMetadata.targetAction } : null),
+    ...(Array.isArray(targetMetadata.targetFilterTypes) ? { targetFilterTypes: targetMetadata.targetFilterTypes } : null),
+    ...(Array.isArray(targetMetadata.targetFilterRequiredTypeWords) ? { targetFilterRequiredTypeWords: targetMetadata.targetFilterRequiredTypeWords } : null),
+    ...(Array.isArray(targetMetadata.targetFilterExcludeTypes) ? { targetFilterExcludeTypes: targetMetadata.targetFilterExcludeTypes } : null),
+    ...(targetMetadata.targetFilterPermanentOnly === true ? { targetFilterPermanentOnly: true } : null),
+    ...(typeof targetMetadata.targetFilterExactManaValue === 'number' ? { targetFilterExactManaValue: targetMetadata.targetFilterExactManaValue } : null),
+    ...(typeof targetMetadata.targetFilterMinManaValue === 'number' ? { targetFilterMinManaValue: targetMetadata.targetFilterMinManaValue } : null),
+    ...(typeof targetMetadata.targetFilterMaxManaValue === 'number' ? { targetFilterMaxManaValue: targetMetadata.targetFilterMaxManaValue } : null),
+    ...(typeof targetMetadata.targetTotalPowerLimit === 'number' ? { targetTotalPowerLimit: targetMetadata.targetTotalPowerLimit } : null),
+    ...(targetMetadata.targetCastWithoutPayingManaCost === true ? { targetCastWithoutPayingManaCost: true } : null),
+    ...(targetMetadata.targetCastIsOptional === true ? { targetCastIsOptional: true } : null),
+    ...(typeof targetMetadata.minTargets === 'number' ? { minTargets: targetMetadata.minTargets } : null),
+    ...(typeof targetMetadata.maxTargets === 'number' ? { maxTargets: targetMetadata.maxTargets } : null),
+  };
+
+  game.state.stack = Array.isArray(game.state.stack) ? game.state.stack : [];
+  game.state.stack.push(stackItem);
+  persistTriggeredAbilityPush(gameId, game, {
+    triggerId,
+    sourceId: pendingTrigger.permanentId,
+    sourceName: pendingTrigger.cardName,
+    controllerId: playerId,
+    description: effectText,
+    effect: effectText,
+    triggerType: 'reflexive_attack_payment',
+    mandatory: true,
+    ...(targetMetadata.requiresTarget ? { requiresTarget: true, needsTargetSelection: true } : null),
+    ...(targetMetadata.targetType ? { targetType: targetMetadata.targetType } : null),
+    ...(targetMetadata.targetConstraint ? { targetConstraint: targetMetadata.targetConstraint } : null),
+    ...(targetMetadata.targetZone ? { targetZone: targetMetadata.targetZone } : null),
+    ...(targetMetadata.targetDestination ? { targetDestination: targetMetadata.targetDestination } : null),
+    ...(targetMetadata.targetGraveyardScope ? { targetGraveyardScope: targetMetadata.targetGraveyardScope } : null),
+    ...(Array.isArray(targetMetadata.targetFilterTypes) ? { targetFilterTypes: targetMetadata.targetFilterTypes } : null),
+    ...(Array.isArray(targetMetadata.targetFilterExcludeTypes) ? { targetFilterExcludeTypes: targetMetadata.targetFilterExcludeTypes } : null),
+    ...(typeof targetMetadata.minTargets === 'number' ? { minTargets: targetMetadata.minTargets } : null),
+    ...(typeof targetMetadata.maxTargets === 'number' ? { maxTargets: targetMetadata.maxTargets } : null),
+  }, `paid attack trigger ${pendingTrigger.cardName}`);
+
+  return true;
+}
 
 export function resolveAttackTriggerManaPaymentChoice(
   io: Server,
@@ -101,38 +192,61 @@ export function resolveAttackTriggerManaPaymentChoice(
   payMana: boolean
 ): void {
   const { permanentId, cardName, effect, manaCost } = pendingTrigger;
+  const energyCost = Number(pendingTrigger.energyCost || 0);
+  const displayedCost = energyCost > 0 ? formatEnergyCost(energyCost) : manaCost;
 
   if (payMana) {
-    // Player chose to pay - validate and consume mana
-    const parsedCost = parseManaCost(manaCost);
-    const pool = getOrInitManaPool(game.state, playerId);
-    const totalAvailable = calculateTotalAvailableMana(pool, []);
+    if (energyCost > 0) {
+      const availableEnergy = getEnergyCount(game.state, String(playerId));
+      if (availableEnergy < energyCost || !spendEnergyCounters(game.state, String(playerId), energyCost)) {
+        emitToPlayer(io, playerId, "error", {
+          code: "INSUFFICIENT_ENERGY",
+          message: `Cannot pay ${displayedCost}: need ${energyCost} energy, but only ${availableEnergy} available.`,
+        });
 
-    const validationError = validateManaPayment(totalAvailable, parsedCost.colors, parsedCost.generic);
-    if (validationError) {
-      emitToPlayer(io, playerId, "error", {
-        code: "INSUFFICIENT_MANA",
-        message: `Cannot pay ${manaCost}: ${validationError}`,
-      });
+        io.to(gameId).emit("chat", {
+          id: `m_${Date.now()}`,
+          gameId,
+          from: "system",
+          message: `${getPlayerName(game, playerId)} couldn't pay ${displayedCost} for ${cardName}'s trigger.`,
+          ts: Date.now(),
+        });
 
-      // Treat as decline (do not apply effect) to avoid leaving the game in a stuck state.
-      io.to(gameId).emit("chat", {
-        id: `m_${Date.now()}`,
-        gameId,
-        from: "system",
-        message: `${getPlayerName(game, playerId)} couldn't pay ${manaCost} for ${cardName}'s trigger.`,
-        ts: Date.now(),
-      });
-
-      if (typeof (game as any).bumpSeq === "function") {
-        (game as any).bumpSeq();
+        if (typeof (game as any).bumpSeq === "function") {
+          (game as any).bumpSeq();
+        }
+        broadcastGame(io, game, gameId);
+        return;
       }
-      broadcastGame(io, game, gameId);
-      return;
-    }
+    } else {
+      const parsedCost = parseManaCost(manaCost);
+      const pool = getOrInitManaPool(game.state, playerId);
+      const totalAvailable = calculateTotalAvailableMana(pool, []);
 
-    // Consume mana
-    consumeManaFromPool(pool, parsedCost.colors, parsedCost.generic, `[attackTriggerPayment:${cardName}]`);
+      const validationError = validateManaPayment(totalAvailable, parsedCost.colors, parsedCost.generic);
+      if (validationError) {
+        emitToPlayer(io, playerId, "error", {
+          code: "INSUFFICIENT_MANA",
+          message: `Cannot pay ${manaCost}: ${validationError}`,
+        });
+
+        io.to(gameId).emit("chat", {
+          id: `m_${Date.now()}`,
+          gameId,
+          from: "system",
+          message: `${getPlayerName(game, playerId)} couldn't pay ${manaCost} for ${cardName}'s trigger.`,
+          ts: Date.now(),
+        });
+
+        if (typeof (game as any).bumpSeq === "function") {
+          (game as any).bumpSeq();
+        }
+        broadcastGame(io, game, gameId);
+        return;
+      }
+
+      consumeManaFromPool(pool, parsedCost.colors, parsedCost.generic, `[attackTriggerPayment:${cardName}]`);
+    }
     const battlefield = Array.isArray((game.state as any)?.battlefield) ? (game.state as any).battlefield : [];
     const permanent = battlefield.find((p: any) => String(p?.id || '') === String(permanentId || ''));
     const cardFaces = Array.isArray(permanent?.card?.card_faces) ? permanent.card.card_faces : [];
@@ -204,13 +318,24 @@ export function resolveAttackTriggerManaPaymentChoice(
       }
     }
 
+    const pushedPaidEffect = pushPaidAttackTriggerEffectOntoStack(game, gameId, playerId, pendingTrigger);
+    if (pushedPaidEffect) {
+      io.to(gameId).emit('chat', {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: 'system',
+        message: `${getPlayerName(game, playerId)} paid ${displayedCost} for ${cardName}.`,
+        ts: Date.now(),
+      });
+    }
+
     // Bump sequence and broadcast
     if (typeof (game as any).bumpSeq === "function") {
       (game as any).bumpSeq();
     }
     broadcastGame(io, game, gameId);
 
-    debug(2, `[combat] ${playerId} paid ${manaCost} for ${cardName}'s attack trigger`);
+    debug(2, `[combat] ${playerId} paid ${displayedCost} for ${cardName}'s attack trigger`);
     return;
   }
 
@@ -219,7 +344,7 @@ export function resolveAttackTriggerManaPaymentChoice(
     id: `m_${Date.now()}`,
     gameId,
     from: "system",
-    message: `${getPlayerName(game, playerId)} declined to pay ${manaCost} for ${cardName}'s trigger.`,
+    message: `${getPlayerName(game, playerId)} declined to pay ${displayedCost} for ${cardName}'s trigger.`,
     ts: Date.now(),
   });
 
@@ -2002,36 +2127,42 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
                 // Conservative fallback: keep the trigger if evaluation fails.
               }
 
-              // Check if this is an optional mana payment trigger
-              if (trigger.manaCost && !trigger.mandatory) {
+              // Check if this is an optional mana or energy payment trigger
+              if ((trigger.manaCost || (trigger as any).energyCost) && !trigger.mandatory) {
                 // Don't auto-push to stack - instead enqueue a Resolution Queue prompt
                 const permanent = battlefield.find((p: any) => p?.id === trigger.permanentId);
                 const cardImageUrl =
                   permanent?.card?.image_uris?.small || permanent?.card?.image_uris?.normal;
+                const energyCost = Number((trigger as any).energyCost || 0);
+                const paymentCost = energyCost > 0 ? formatEnergyCost(energyCost) : String(trigger.manaCost || '');
+                const validationKind = energyCost > 0 ? 'energy' : 'mana';
+                const payChoiceId = energyCost > 0 ? 'pay_energy' : 'pay_mana';
 
                 queueOptionalPaymentStep(gameId, {
                   playerId: triggerControllerId,
                   sourceId: String(trigger.permanentId || ''),
                   sourceName: trigger.cardName,
                   sourceImage: cardImageUrl,
-                  description: trigger.description || `${trigger.cardName}: You may pay ${trigger.manaCost}.`,
+                  description: trigger.description || `${trigger.cardName}: You may pay ${paymentCost}.`,
                   mandatory: false,
                   minSelections: 0,
                   maxSelections: 1,
                   priority: -1,
-                  payChoiceId: 'pay_mana',
-                  payLabel: `Pay ${trigger.manaCost}`,
+                  payChoiceId,
+                  payLabel: `Pay ${paymentCost}`,
                   payDescription: `If you do: ${trigger.effect || 'resolve effect'}`,
                   declineChoiceId: 'decline',
                   declineLabel: 'Decline',
                   declineDescription: 'Do not pay the optional cost.',
-                  validationKind: 'mana',
-                  manaCost: trigger.manaCost,
+                  validationKind,
+                  manaCost: energyCost > 0 ? undefined : trigger.manaCost,
+                  energyAmount: energyCost > 0 ? energyCost : undefined,
                   stepData: {
                     attackTriggerManaPaymentChoice: true,
                     permanentId: trigger.permanentId,
                     cardName: trigger.cardName,
-                    manaCost: trigger.manaCost,
+                    manaCost: energyCost > 0 ? undefined : trigger.manaCost,
+                    energyCost: energyCost > 0 ? energyCost : undefined,
                     effect: trigger.effect,
                     triggerDescription: trigger.description,
                   },
@@ -2045,7 +2176,8 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
                         permanentId: String(trigger.permanentId || ''),
                         cardName: String(trigger.cardName || ''),
                         effect: String(trigger.effect || ''),
-                        manaCost: String(trigger.manaCost || ''),
+                        manaCost: String(trigger.manaCost || paymentCost || ''),
+                        energyCost: energyCost > 0 ? energyCost : undefined,
                         description: String(trigger.description || ''),
                       },
                       true
@@ -2061,7 +2193,8 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
                         permanentId: String(trigger.permanentId || ''),
                         cardName: String(trigger.cardName || ''),
                         effect: String(trigger.effect || ''),
-                        manaCost: String(trigger.manaCost || ''),
+                        manaCost: String(trigger.manaCost || paymentCost || ''),
+                        energyCost: energyCost > 0 ? energyCost : undefined,
                         description: String(trigger.description || ''),
                       },
                       false

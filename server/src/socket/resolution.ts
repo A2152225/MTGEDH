@@ -25211,6 +25211,9 @@ async function handleOptionChoiceResponse(
         sourceId: String(stepData?.sourceId || step.sourceId || '').trim() || undefined,
         resolvedStepId: String(step.id || '').trim() || undefined,
         choiceId: String(choiceId || '').trim() || undefined,
+        optionalPaymentValidationKind: String(stepData?.optionalPaymentValidationKind || '').trim() || undefined,
+        manaCost: String(stepData?.optionalPaymentManaCost || stepData?.manaCost || '').trim() || undefined,
+        energyCost: Number(stepData?.optionalPaymentEnergyAmount || stepData?.energyCost || 0) || undefined,
       });
     } catch (err) {
       debugWarn(1, '[Resolution] appendEvent(optionalPaymentPromptResolve) failed:', err);

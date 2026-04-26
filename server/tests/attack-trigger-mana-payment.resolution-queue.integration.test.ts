@@ -283,6 +283,208 @@ describe('Attack trigger mana payment via Resolution Queue (integration)', () =>
     expect(Boolean((perm as any).transformed)).toBe(false);
   });
 
+  it('pays energy for Filigree Racer and grants jump-start to the selected graveyard instant or sorcery', async () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const p1 = 'p1';
+    const p2 = 'p2';
+
+    (game.state as any).players = [
+      { id: p1, name: 'P1', spectator: false, life: 40 },
+      { id: p2, name: 'P2', spectator: false, life: 40 },
+    ];
+    (game.state as any).startingLife = 40;
+    (game.state as any).life = { [p1]: 40, [p2]: 40 };
+    (game.state as any).phase = 'combat';
+    (game.state as any).turnPlayer = p1;
+    (game.state as any).step = 'declareAttackers';
+    (game.state as any).energy = { [p1]: 2 };
+    (game.state as any).energyCount = { [p1]: 2 };
+    (game.state as any).manaPool = {
+      [p1]: { white: 0, blue: 1, black: 0, red: 0, green: 0, colorless: 0 },
+      [p2]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+    };
+    (game.state as any).zones = {
+      [p1]: {
+        hand: [{ id: 'discard_1', name: 'Island', type_line: 'Basic Land — Island', oracle_text: '' }],
+        graveyard: [
+          { id: 'gy_opt', name: 'Opt', type_line: 'Instant', mana_cost: '{U}', cmc: 1, oracle_text: 'Scry 1. Draw a card.' },
+          { id: 'gy_divination', name: 'Divination', type_line: 'Sorcery', mana_cost: '{2}{U}', cmc: 3, oracle_text: 'Draw two cards.' },
+          { id: 'gy_bear', name: 'Grizzly Bears', type_line: 'Creature — Bear', mana_cost: '{1}{G}', cmc: 2, oracle_text: '', power: '2', toughness: '2' },
+        ],
+        exile: [],
+        handCount: 1,
+        graveyardCount: 3,
+        exileCount: 0,
+      },
+      [p2]: { hand: [], graveyard: [], exile: [], handCount: 0, graveyardCount: 0, exileCount: 0 },
+    };
+
+    (game.state as any).battlefield = [
+      {
+        id: 'filigree_1',
+        controller: p1,
+        owner: p1,
+        basePower: 5,
+        baseToughness: 5,
+        tapped: false,
+        summoningSickness: false,
+        isCreature: true,
+        card: {
+          id: 'filigree_card',
+          name: 'Filigree Racer',
+          type_line: 'Artifact — Vehicle',
+          oracle_text: 'When this Vehicle enters, you get {E}{E}{E}{E} (four energy counters).\nWhenever this Vehicle attacks, you may pay {E}{E}. When you do, target instant or sorcery card in your graveyard gains jump-start until end of turn.\nCrew 1',
+          power: '5',
+          toughness: '5',
+        },
+      },
+    ];
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(p1, emitted);
+    socket.rooms.add(gameId);
+    (socket.data as any).gameId = gameId;
+
+    const io = createMockIo(emitted, [socket]);
+    registerResolutionHandlers(io as any, socket as any);
+    registerCombatHandlers(io as any, socket as any);
+
+    await handlers['declareAttackers']({
+      gameId,
+      attackers: [{ creatureId: 'filigree_1', targetPlayerId: p2 }],
+    });
+
+    const queue = ResolutionQueueManager.getQueue(gameId);
+    const paymentStep = queue.steps.find((step: any) => step.type === 'option_choice' && (step as any).attackTriggerManaPaymentChoice === true) as any;
+    expect(paymentStep).toBeDefined();
+    expect(paymentStep.optionalPaymentValidationKind).toBe('energy');
+    expect(paymentStep.optionalPaymentEnergyAmount).toBe(2);
+
+    await handlers['submitResolutionResponse']({
+      gameId,
+      stepId: String(paymentStep.id),
+      selections: 'pay_energy',
+      cancelled: false,
+    });
+
+    expect((game.state as any).energy[p1]).toBe(0);
+    const paidTrigger = (((game.state as any).stack || []) as any[]).find((entry: any) => String(entry?.source || '') === 'filigree_1');
+    expect(paidTrigger).toMatchObject({
+      type: 'triggered_ability',
+      sourceName: 'Filigree Racer',
+      targetZone: 'graveyard',
+      targetGraveyardScope: 'your',
+      targetFilterTypes: ['instant', 'sorcery'],
+    });
+
+    game.resolveTopOfStack();
+
+    const selectionStep = ResolutionQueueManager.getQueue(gameId).steps.find((step: any) => step.type === 'graveyard_selection') as any;
+    expect(selectionStep).toBeDefined();
+    expect((selectionStep.validTargets || []).map((entry: any) => entry.id).sort()).toEqual(['gy_divination', 'gy_opt']);
+
+    await handlers['submitResolutionResponse']({
+      gameId,
+      stepId: String(selectionStep.id),
+      selections: ['gy_opt'],
+      cancelled: false,
+    });
+
+    const grants = (((game.state as any).temporaryGraveyardKeywordGrants || []) as any[]);
+    expect(grants).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        playerId: p1,
+        cardId: 'gy_opt',
+        keyword: 'jump-start',
+        cost: '{U}',
+      }),
+    ]));
+    expect(grants.some((grant: any) => grant.cardId === 'gy_divination')).toBe(false);
+    expect(grants.some((grant: any) => grant.cardId === 'gy_bear')).toBe(false);
+  });
+
+  it('does not consume the energy payment step when Filigree Racer has insufficient energy', async () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const p1 = 'p1';
+    const p2 = 'p2';
+
+    (game.state as any).players = [
+      { id: p1, name: 'P1', spectator: false, life: 40 },
+      { id: p2, name: 'P2', spectator: false, life: 40 },
+    ];
+    (game.state as any).startingLife = 40;
+    (game.state as any).life = { [p1]: 40, [p2]: 40 };
+    (game.state as any).phase = 'combat';
+    (game.state as any).turnPlayer = p1;
+    (game.state as any).step = 'declareAttackers';
+    (game.state as any).energy = { [p1]: 1 };
+    (game.state as any).energyCount = { [p1]: 1 };
+    (game.state as any).zones = {
+      [p1]: { hand: [], graveyard: [{ id: 'gy_opt', name: 'Opt', type_line: 'Instant', mana_cost: '{U}', oracle_text: 'Scry 1. Draw a card.' }], exile: [], handCount: 0, graveyardCount: 1, exileCount: 0 },
+      [p2]: { hand: [], graveyard: [], exile: [], handCount: 0, graveyardCount: 0, exileCount: 0 },
+    };
+    (game.state as any).battlefield = [
+      {
+        id: 'filigree_1',
+        controller: p1,
+        owner: p1,
+        basePower: 5,
+        baseToughness: 5,
+        tapped: false,
+        summoningSickness: false,
+        isCreature: true,
+        card: {
+          id: 'filigree_card',
+          name: 'Filigree Racer',
+          type_line: 'Artifact — Vehicle',
+          oracle_text: 'Whenever this Vehicle attacks, you may pay {E}{E}. When you do, target instant or sorcery card in your graveyard gains jump-start until end of turn.\nCrew 1',
+          power: '5',
+          toughness: '5',
+        },
+      },
+    ];
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(p1, emitted);
+    socket.rooms.add(gameId);
+    (socket.data as any).gameId = gameId;
+
+    const io = createMockIo(emitted, [socket]);
+    registerResolutionHandlers(io as any, socket as any);
+    registerCombatHandlers(io as any, socket as any);
+
+    await handlers['declareAttackers']({
+      gameId,
+      attackers: [{ creatureId: 'filigree_1', targetPlayerId: p2 }],
+    });
+
+    const queue = ResolutionQueueManager.getQueue(gameId);
+    const paymentStep = queue.steps.find((step: any) => step.type === 'option_choice' && (step as any).attackTriggerManaPaymentChoice === true) as any;
+    expect(paymentStep).toBeDefined();
+
+    await handlers['submitResolutionResponse']({
+      gameId,
+      stepId: String(paymentStep.id),
+      selections: 'pay_energy',
+      cancelled: false,
+    });
+
+    const err = emitted.find(e => e.event === 'error' && e.payload?.code === 'INSUFFICIENT_ENERGY');
+    expect(err).toBeDefined();
+    expect((game.state as any).energy[p1]).toBe(1);
+    expect((((game.state as any).stack || []) as any[]).length).toBe(0);
+
+    const queueAfter = ResolutionQueueManager.getQueue(gameId);
+    const stillThere = queueAfter.steps.find((step: any) => String(step.id) === String(paymentStep.id));
+    expect(stillThere).toBeDefined();
+  });
+
   it('queues graveyard selection for Narset-style attack triggers, exiles the chosen card, and offers a free cast of the copy', async () => {
     createGameIfNotExists(gameId, 'commander', 40);
     const game = ensureGame(gameId);

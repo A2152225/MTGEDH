@@ -2975,6 +2975,27 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           const replayGameId = String((ctx as any).gameId || '').trim();
           const sourceId = String((e as any).sourceId || '').trim();
           const resolvedStepId = String((e as any).resolvedStepId || '').trim();
+          const choiceId = String((e as any).choiceId || '').trim().toLowerCase();
+          const paid = choiceId.startsWith('pay');
+
+          if (paid) {
+            const playerId = String((e as any).playerId || '').trim();
+            const stateAny = ctx.state as any;
+            const validationKind = String((e as any).optionalPaymentValidationKind || '').trim().toLowerCase();
+            const energyCost = Number((e as any).energyCost || 0);
+            const manaCost = String((e as any).manaCost || '').trim();
+            if (playerId && energyCost > 0) {
+              stateAny.energy = stateAny.energy || {};
+              const currentEnergy = Number(stateAny.energy[playerId] || 0);
+              stateAny.energy[playerId] = Math.max(0, currentEnergy - energyCost);
+              stateAny.energyCount = stateAny.energyCount || {};
+              stateAny.energyCount[playerId] = stateAny.energy[playerId];
+            } else if (playerId && validationKind === 'mana' && manaCost) {
+              stateAny.manaPool = stateAny.manaPool || {};
+              stateAny.manaPool[playerId] = stateAny.manaPool[playerId] || { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 };
+              consumeRecordedManaCostFromPool(stateAny.manaPool[playerId], manaCost);
+            }
+          }
 
           if (replayGameId) {
             clearReplayQueuedSteps(replayGameId, (step: any) => {
