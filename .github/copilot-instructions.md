@@ -6,6 +6,9 @@
 
 ## Critical Build & Validation Commands
 
+### Command Working Directory (CRITICAL)
+**Always run npm validation commands from the repository root** (the folder containing the root `package.json`, currently `D:\Git\MTGEDH`). This includes `npm install`, `npm run build`, `npm test`, workspace typechecks, audit scripts, and focused `vitest` commands. When using `execution_subagent` or an existing terminal, explicitly set or state the root cwd first; do not run a command from `client/`, `server/`, `shared/`, or `rules-engine/` and then rerun it from root.
+
 ### Installation (ALWAYS RUN FIRST)
 ```bash
 npm install  # ~10s, may show 3 high severity vulnerabilities (non-blocking)
