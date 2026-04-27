@@ -209,6 +209,13 @@ export type OracleEffectStep =
       readonly raw: string;
     }
   | {
+      readonly kind: 'add_extra_combat';
+      readonly followedByAdditionalMain?: boolean;
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
       readonly kind: 'gain_class_level';
       readonly level: number;
       readonly optional?: boolean;
@@ -349,6 +356,14 @@ export type OracleEffectStep =
       readonly manaOptions?: readonly string[];
       /** Requires an explicit chosen color/mana binding instead of defaulting to the first option. */
       readonly requiresChosenMana?: boolean;
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
+      readonly kind: 'retain_mana';
+      readonly who: OraclePlayerSelector;
+      readonly duration: 'until_end_of_turn' | 'until_end_of_combat';
       readonly optional?: boolean;
       readonly sequence?: 'then';
       readonly raw: string;

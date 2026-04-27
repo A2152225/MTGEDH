@@ -1,19 +1,19 @@
 {
   "meta": {
-    "generatedAt": "2026-04-22T06:24:26.110Z",
+    "generatedAt": "2026-04-27T11:25:01.262Z",
     "oraclePath": "D:\\Git\\MTGEDH\\oracle-cards.json",
     "atomicPath": "D:\\Git\\MTGEDH\\AtomicCards.json",
     "includeOracle": true,
-    "includeAtomic": true,
+    "includeAtomic": false,
     "maxExamples": 5,
-    "top": 100
+    "top": 50
   },
   "stats": {
-    "seenUniqueCards": 29539,
-    "scannedOracleCards": 29539,
+    "seenUniqueCards": 29800,
+    "scannedOracleCards": 29800,
     "scannedAtomicCards": 0,
     "skippedDuplicateOracleId": 0,
-    "cardsWithAnyGap": 11251
+    "cardsWithAnyGap": 11316
   },
   "topGaps": [
     {
@@ -40,50 +40,6 @@
     },
     {
       "rank": 2,
-      "key": "unknown-step|unknown|after this phase, there is an additional combat phase",
-      "raw": "After this phase, there is an additional combat phase",
-      "gapType": "unknown-step",
-      "fieldPath": "unknown",
-      "count": 18,
-      "exampleCards": [
-        "Karlach, Fury of Avernus",
-        "Finest Hour",
-        "Scourge of the Throne",
-        "Najeela, the Blade-Blossom",
-        "Aurelia, the Warleader"
-      ],
-      "exampleClauses": [
-        "After this phase, there is an additional combat phase"
-      ],
-      "sources": {
-        "oracle-cards": 18,
-        "AtomicCards": 0
-      }
-    },
-    {
-      "rank": 3,
-      "key": "unknown-step|unknown|until end of turn, you don't lose this mana as steps and phases end",
-      "raw": "Until end of turn, you don't lose this mana as steps and phases end",
-      "gapType": "unknown-step",
-      "fieldPath": "unknown",
-      "count": 17,
-      "exampleCards": [
-        "Grand Warlord Radha",
-        "Su-Chi Cave Guard",
-        "Colossal Plow",
-        "Tanuki Transplanter",
-        "Rousing Refrain"
-      ],
-      "exampleClauses": [
-        "Until end of turn, you don't lose this mana as steps and phases end"
-      ],
-      "sources": {
-        "oracle-cards": 17,
-        "AtomicCards": 0
-      }
-    },
-    {
-      "rank": 4,
       "key": "unknown-step|unknown|you may choose not to untap this creature during your untap step",
       "raw": "You may choose not to untap this creature during your untap step",
       "gapType": "unknown-step",
@@ -105,7 +61,7 @@
       }
     },
     {
-      "rank": 5,
+      "rank": 3,
       "key": "unknown-step|unknown|this creature loses this ability and becomes an aura enchantment with enchant creature",
       "raw": "This creature loses this ability and becomes an Aura enchantment with enchant creature",
       "gapType": "unknown-step",
@@ -127,7 +83,7 @@
       }
     },
     {
-      "rank": 6,
+      "rank": 4,
       "key": "unknown-step|unknown|you may choose not to untap this artifact during your untap step",
       "raw": "You may choose not to untap this artifact during your untap step",
       "gapType": "unknown-step",
@@ -149,7 +105,7 @@
       }
     },
     {
-      "rank": 7,
+      "rank": 5,
       "key": "unknown-step|unknown|flip a coin",
       "raw": "Flip a coin",
       "gapType": "unknown-step",
@@ -172,7 +128,7 @@
       }
     },
     {
-      "rank": 8,
+      "rank": 6,
       "key": "unknown-step|unknown|instant and sorcery spells you cast cost {1} less to cast",
       "raw": "Instant and sorcery spells you cast cost {1} less to cast",
       "gapType": "unknown-step",
@@ -194,7 +150,30 @@
       }
     },
     {
-      "rank": 9,
+      "rank": 7,
+      "key": "unknown-step|unknown|then put the rest on the bottom of your library in a random order",
+      "raw": "then put the rest on the bottom of your library in a random order",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 11,
+      "exampleCards": [
+        "Glimpse of Tomorrow",
+        "Old Stickfingers",
+        "Kethek, Crucible Goliath",
+        "Sanwell, Avenger Ace",
+        "Zimone's Experiment"
+      ],
+      "exampleClauses": [
+        "then put the rest on the bottom of your library in a random order",
+        "Then put the rest on the bottom of your library in a random order"
+      ],
+      "sources": {
+        "oracle-cards": 11,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 8,
       "key": "unknown-step|unknown|this permanent's power and toughness are each equal to the number of cards in your hand",
       "raw": "this permanent's power and toughness are each equal to the number of cards in your hand",
       "gapType": "unknown-step",
@@ -216,7 +195,7 @@
       }
     },
     {
-      "rank": 10,
+      "rank": 9,
       "key": "unknown-step|unknown|all creatures able to block this creature do so",
       "raw": "All creatures able to block this creature do so",
       "gapType": "unknown-step",
@@ -238,7 +217,7 @@
       }
     },
     {
-      "rank": 11,
+      "rank": 10,
       "key": "unknown-step|unknown|cast this spell only during the declare attackers step and only if you've been attacked this step",
       "raw": "Cast this spell only during the declare attackers step and only if you've been attacked this step",
       "gapType": "unknown-step",
@@ -260,7 +239,7 @@
       }
     },
     {
-      "rank": 12,
+      "rank": 11,
       "key": "unknown-step|unknown|choose one that hasn't been chosen -",
       "raw": "choose one that hasn't been chosen -",
       "gapType": "unknown-step",
@@ -283,7 +262,7 @@
       }
     },
     {
-      "rank": 13,
+      "rank": 12,
       "key": "unknown-step|unknown|if you do, this creature assigns no combat damage this turn",
       "raw": "If you do, this creature assigns no combat damage this turn",
       "gapType": "unknown-step",
@@ -305,7 +284,7 @@
       }
     },
     {
-      "rank": 14,
+      "rank": 13,
       "key": "unknown-step|unknown|spend this mana only to cast a creature spell",
       "raw": "Spend this mana only to cast a creature spell",
       "gapType": "unknown-step",
@@ -327,7 +306,7 @@
       }
     },
     {
-      "rank": 15,
+      "rank": 14,
       "key": "unknown-step|unknown|tapped unless a player has 13 or less life",
       "raw": "tapped unless a player has 13 or less life",
       "gapType": "unknown-step",
@@ -342,6 +321,28 @@
       ],
       "exampleClauses": [
         "tapped unless a player has 13 or less life"
+      ],
+      "sources": {
+        "oracle-cards": 10,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 15,
+      "key": "unknown-step|unknown|tapped unless you control two or more basic lands",
+      "raw": "tapped unless you control two or more basic lands",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 10,
+      "exampleCards": [
+        "Sodden Verdure",
+        "Smoldering Marsh",
+        "Vernal Fen",
+        "Prairie Stream",
+        "Radiant Summit"
+      ],
+      "exampleClauses": [
+        "tapped unless you control two or more basic lands"
       ],
       "sources": {
         "oracle-cards": 10,
@@ -597,6 +598,51 @@
     },
     {
       "rank": 27,
+      "key": "unknown-step|unknown|damage can't be prevented this turn",
+      "raw": "Damage can't be prevented this turn",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 9,
+      "exampleCards": [
+        "Math is for Blockers",
+        "Isengard Unleashed",
+        "Fear, Fire, Foes!",
+        "Skullcrack",
+        "Pyrewood Gearhulk"
+      ],
+      "exampleClauses": [
+        "Damage can't be prevented this turn"
+      ],
+      "sources": {
+        "oracle-cards": 9,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 28,
+      "key": "unknown-step|unknown|discard any number of cards",
+      "raw": "discard any number of cards",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 9,
+      "exampleCards": [
+        "Colossus of the Blood Age",
+        "Last Rites",
+        "Into the Night",
+        "Sacred Rites",
+        "Cavalier of Flame"
+      ],
+      "exampleClauses": [
+        "discard any number of cards",
+        "Discard any number of cards"
+      ],
+      "sources": {
+        "oracle-cards": 9,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 29,
       "key": "unknown-step|unknown|each creature you control with a +1/+1 counter on it has trample",
       "raw": "Each creature you control with a +1/+1 counter on it has trample",
       "gapType": "unknown-step",
@@ -618,7 +664,7 @@
       }
     },
     {
-      "rank": 28,
+      "rank": 30,
       "key": "unknown-step|unknown|he enters tapped and attacking.)",
       "raw": "He enters tapped and attacking.)",
       "gapType": "unknown-step",
@@ -640,7 +686,7 @@
       }
     },
     {
-      "rank": 29,
+      "rank": 31,
       "key": "unknown-step|unknown|if you cast it any time a sorcery couldn't have been cast, the controller of the permanent it becomes sacrifices it at the beginning of the next cleanup step",
       "raw": "If you cast it any time a sorcery couldn't have been cast, the controller of the permanent it becomes sacrifices it at the beginning of the next cleanup step",
       "gapType": "unknown-step",
@@ -662,7 +708,7 @@
       }
     },
     {
-      "rank": 30,
+      "rank": 32,
       "key": "unknown-step|unknown|put its counters on target creature you control",
       "raw": "put its counters on target creature you control",
       "gapType": "unknown-step",
@@ -684,7 +730,7 @@
       }
     },
     {
-      "rank": 31,
+      "rank": 33,
       "key": "unknown-step|unknown|reveal those cards, put them into your hand",
       "raw": "Reveal those cards, put them into your hand",
       "gapType": "unknown-step",
@@ -706,7 +752,7 @@
       }
     },
     {
-      "rank": 32,
+      "rank": 34,
       "key": "unknown-step|unknown|target creature blocks this creature this turn if able",
       "raw": "Target creature blocks this creature this turn if able",
       "gapType": "unknown-step",
@@ -728,7 +774,7 @@
       }
     },
     {
-      "rank": 33,
+      "rank": 35,
       "key": "unknown-step|unknown|that many plus one +1/+1 counters are put on it",
       "raw": "that many plus one +1/+1 counters are put on it",
       "gapType": "unknown-step",
@@ -750,30 +796,7 @@
       }
     },
     {
-      "rank": 34,
-      "key": "unknown-step|unknown|then put the rest on the bottom of your library in a random order",
-      "raw": "then put the rest on the bottom of your library in a random order",
-      "gapType": "unknown-step",
-      "fieldPath": "unknown",
-      "count": 9,
-      "exampleCards": [
-        "Glimpse of Tomorrow",
-        "Old Stickfingers",
-        "Kethek, Crucible Goliath",
-        "Sanwell, Avenger Ace",
-        "Magic Designer"
-      ],
-      "exampleClauses": [
-        "then put the rest on the bottom of your library in a random order",
-        "Then put the rest on the bottom of your library in a random order"
-      ],
-      "sources": {
-        "oracle-cards": 9,
-        "AtomicCards": 0
-      }
-    },
-    {
-      "rank": 35,
+      "rank": 36,
       "key": "unknown-fragment|impulse_exile_top.amount|until you exile a nonland card with mana value 4 or less",
       "raw": "until you exile a nonland card with mana value 4 or less",
       "gapType": "unknown-fragment",
@@ -795,7 +818,29 @@
       }
     },
     {
-      "rank": 36,
+      "rank": 37,
+      "key": "unknown-step|unknown|ward-discard a card",
+      "raw": "Ward-Discard a card",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 9,
+      "exampleCards": [
+        "Mighty Servant of Leuk-o",
+        "Tragedy Feaster",
+        "Maha, Its Feathers Night",
+        "Westgate Regent",
+        "Spectral Snatcher"
+      ],
+      "exampleClauses": [
+        "Ward-Discard a card"
+      ],
+      "sources": {
+        "oracle-cards": 9,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 38,
       "key": "unknown-fragment|create_token.amount|with",
       "raw": "with",
       "gapType": "unknown-fragment",
@@ -821,7 +866,7 @@
       }
     },
     {
-      "rank": 37,
+      "rank": 39,
       "key": "unknown-step|unknown|you may cast this spell as though it had flash",
       "raw": "You may cast this spell as though it had flash",
       "gapType": "unknown-step",
@@ -843,7 +888,7 @@
       }
     },
     {
-      "rank": 38,
+      "rank": 40,
       "key": "unknown-step|unknown|4/4",
       "raw": "4/4",
       "gapType": "unknown-step",
@@ -865,7 +910,7 @@
       }
     },
     {
-      "rank": 39,
+      "rank": 41,
       "key": "unknown-step|unknown|add one mana of any color in your commander's color identity",
       "raw": "Add one mana of any color in your commander's color identity",
       "gapType": "unknown-step",
@@ -887,7 +932,29 @@
       }
     },
     {
-      "rank": 40,
+      "rank": 42,
+      "key": "unknown-step|unknown|an opponent chooses one of those piles",
+      "raw": "An opponent chooses one of those piles",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 8,
+      "exampleCards": [
+        "Steam Augury",
+        "Truth or Tale",
+        "Epiphany at the Drownyard",
+        "Abstract Performance",
+        "Split the Spoils"
+      ],
+      "exampleClauses": [
+        "An opponent chooses one of those piles"
+      ],
+      "sources": {
+        "oracle-cards": 8,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 43,
       "key": "unknown-step|unknown|choose a nonland card name",
       "raw": "Choose a nonland card name",
       "gapType": "unknown-step",
@@ -909,7 +976,7 @@
       }
     },
     {
-      "rank": 41,
+      "rank": 44,
       "key": "unknown-step|unknown|choose one",
       "raw": "Choose one",
       "gapType": "unknown-step",
@@ -931,7 +998,7 @@
       }
     },
     {
-      "rank": 42,
+      "rank": 45,
       "key": "unknown-step|unknown|creatures with power less than this creature's power can't block it",
       "raw": "Creatures with power less than this creature's power can't block it",
       "gapType": "unknown-step",
@@ -953,52 +1020,7 @@
       }
     },
     {
-      "rank": 43,
-      "key": "unknown-step|unknown|damage can't be prevented this turn",
-      "raw": "Damage can't be prevented this turn",
-      "gapType": "unknown-step",
-      "fieldPath": "unknown",
-      "count": 8,
-      "exampleCards": [
-        "Math is for Blockers",
-        "Isengard Unleashed",
-        "Fear, Fire, Foes!",
-        "Skullcrack",
-        "Pyrewood Gearhulk"
-      ],
-      "exampleClauses": [
-        "Damage can't be prevented this turn"
-      ],
-      "sources": {
-        "oracle-cards": 8,
-        "AtomicCards": 0
-      }
-    },
-    {
-      "rank": 44,
-      "key": "unknown-step|unknown|discard any number of cards",
-      "raw": "Discard any number of cards",
-      "gapType": "unknown-step",
-      "fieldPath": "unknown",
-      "count": 8,
-      "exampleCards": [
-        "Last Rites",
-        "Into the Night",
-        "Sacred Rites",
-        "Cavalier of Flame",
-        "Rites of Spring"
-      ],
-      "exampleClauses": [
-        "Discard any number of cards",
-        "discard any number of cards"
-      ],
-      "sources": {
-        "oracle-cards": 8,
-        "AtomicCards": 0
-      }
-    },
-    {
-      "rank": 45,
+      "rank": 46,
       "key": "unknown-step|unknown|each player shuffles their hand and graveyard into their library",
       "raw": "Each player shuffles their hand and graveyard into their library",
       "gapType": "unknown-step",
@@ -1020,7 +1042,7 @@
       }
     },
     {
-      "rank": 46,
+      "rank": 47,
       "key": "unknown-fragment|modify_pt.scaler|for each creature blocking it",
       "raw": "for each creature blocking it",
       "gapType": "unknown-fragment",
@@ -1044,7 +1066,7 @@
       }
     },
     {
-      "rank": 47,
+      "rank": 48,
       "key": "unknown-step|unknown|if damage would be dealt to this creature, prevent that damage",
       "raw": "If damage would be dealt to this creature, prevent that damage",
       "gapType": "unknown-step",
@@ -1066,7 +1088,7 @@
       }
     },
     {
-      "rank": 48,
+      "rank": 49,
       "key": "unknown-step|unknown|if its toughness is 0 or less, it still dies.)",
       "raw": "If its toughness is 0 or less, it still dies.)",
       "gapType": "unknown-step",
@@ -1088,7 +1110,7 @@
       }
     },
     {
-      "rank": 49,
+      "rank": 50,
       "key": "unknown-step|unknown|if you do, choose an opponent to also copy it",
       "raw": "If you do, choose an opponent to also copy it",
       "gapType": "unknown-step",
@@ -1106,1137 +1128,6 @@
       ],
       "sources": {
         "oracle-cards": 8,
-        "AtomicCards": 0
-      }
-    },
-    {
-      "rank": 50,
-      "key": "unknown-step|unknown|it's an artifact creature at 8+.)",
-      "raw": "It's an artifact creature at 8+.)",
-      "gapType": "unknown-step",
-      "fieldPath": "unknown",
-      "count": 8,
-      "exampleCards": [
-        "Fell Gravship",
-        "Atmospheric Greenhouse",
-        "Inspirit, Flagship Vessel",
-        "Uthros Scanship",
-        "Exploration Broodship"
-      ],
-      "exampleClauses": [
-        "It's an artifact creature at 8+.)"
-      ],
-      "sources": {
-        "oracle-cards": 8,
-        "AtomicCards": 0
-      }
-    },
-    {
-      "rank": 51,
-      "key": "unknown-step|unknown|level 4+",
-      "raw": "LEVEL 4+",
-      "gapType": "unknown-step",
-      "fieldPath": "unknown",
-      "count": 8,
-      "exampleCards": [
-        "Coralhelm Commander",
-        "Ikiral Outrider",
-        "Knight of Cliffhaven",
-        "Beastbreaker of Bala Ged",
-        "Guul Draz Assassin"
-      ],
-      "exampleClauses": [
-        "LEVEL 4+"
-      ],
-      "sources": {
-        "oracle-cards": 8,
-        "AtomicCards": 0
-      }
-    },
-    {
-      "rank": 52,
-      "key": "unknown-step|unknown|look at target opponent's hand",
-      "raw": "Look at target opponent's hand",
-      "gapType": "unknown-step",
-      "fieldPath": "unknown",
-      "count": 8,
-      "exampleCards": [
-        "Sorcerous Sight",
-        "Telepathic Spies",
-        "Elite Spellbinder",
-        "Dragon's Eye Savants",
-        "Wanderguard Sentry"
-      ],
-      "exampleClauses": [
-        "Look at target opponent's hand",
-        "look at target opponent's hand"
-      ],
-      "sources": {
-        "oracle-cards": 8,
-        "AtomicCards": 0
-      }
-    },
-    {
-      "rank": 53,
-      "key": "unknown-step|unknown|otherwise, put it into your hand",
-      "raw": "Otherwise, put it into your hand",
-      "gapType": "unknown-step",
-      "fieldPath": "unknown",
-      "count": 8,
-      "exampleCards": [
-        "Meren of Clan Nel Toth",
-        "Nadu, Winged Wisdom",
-        "Stoic Farmer",
-        "Skyward Eye Prophets",
-        "Protection Racket"
-      ],
-      "exampleClauses": [
-        "Otherwise, put it into your hand"
-      ],
-      "sources": {
-        "oracle-cards": 8,
-        "AtomicCards": 0
-      }
-    },
-    {
-      "rank": 54,
-      "key": "unknown-step|unknown|reveal cards from the top of your library until you reveal a creature card",
-      "raw": "Reveal cards from the top of your library until you reveal a creature card",
-      "gapType": "unknown-step",
-      "fieldPath": "unknown",
-      "count": 8,
-      "exampleCards": [
-        "Yuna's Whistle",
-        "Evolutionary Leap",
-        "Ajani, Valiant Protector",
-        "Vivien, Nature's Avenger",
-        "Shifting Shadow"
-      ],
-      "exampleClauses": [
-        "Reveal cards from the top of your library until you reveal a creature card",
-        "reveal cards from the top of your library until you reveal a creature card"
-      ],
-      "sources": {
-        "oracle-cards": 8,
-        "AtomicCards": 0
-      }
-    },
-    {
-      "rank": 55,
-      "key": "unknown-step|unknown|reveal the top card of your library and put that card into your hand",
-      "raw": "Reveal the top card of your library and put that card into your hand",
-      "gapType": "unknown-step",
-      "fieldPath": "unknown",
-      "count": 8,
-      "exampleCards": [
-        "Sorin, Grim Nemesis",
-        "Dark Tutelage",
-        "Dark Confidant",
-        "Darkstar Augur",
-        "Pain Seer"
-      ],
-      "exampleClauses": [
-        "Reveal the top card of your library and put that card into your hand",
-        "reveal the top card of your library and put that card into your hand"
-      ],
-      "sources": {
-        "oracle-cards": 8,
-        "AtomicCards": 0
-      }
-    },
-    {
-      "rank": 56,
-      "key": "unknown-step|unknown|roll a six-sided die",
-      "raw": "Roll a six-sided die",
-      "gapType": "unknown-step",
-      "fieldPath": "unknown",
-      "count": 8,
-      "exampleCards": [
-        "Atomwheel Acrobats",
-        "Dissatisfied Customer",
-        "Strength-Testing Hammer",
-        "Velukan Dragon",
-        "Vegetation Abomination"
-      ],
-      "exampleClauses": [
-        "Roll a six-sided die",
-        "roll a six-sided die"
-      ],
-      "sources": {
-        "oracle-cards": 8,
-        "AtomicCards": 0
-      }
-    },
-    {
-      "rank": 57,
-      "key": "unknown-step|unknown|switch target creature's power and toughness until end of turn",
-      "raw": "Switch target creature's power and toughness until end of turn",
-      "gapType": "unknown-step",
-      "fieldPath": "unknown",
-      "count": 8,
-      "exampleCards": [
-        "Dwarven Thaumaturgist",
-        "Merfolk Thaumaturgist",
-        "Twisted Image",
-        "Crookclaw Transmuter",
-        "Strange Inversion"
-      ],
-      "exampleClauses": [
-        "Switch target creature's power and toughness until end of turn",
-        "switch target creature's power and toughness until end of turn"
-      ],
-      "sources": {
-        "oracle-cards": 8,
-        "AtomicCards": 0
-      }
-    },
-    {
-      "rank": 58,
-      "key": "unknown-step|unknown|tapped unless you control two or more basic lands",
-      "raw": "tapped unless you control two or more basic lands",
-      "gapType": "unknown-step",
-      "fieldPath": "unknown",
-      "count": 8,
-      "exampleCards": [
-        "Sodden Verdure",
-        "Smoldering Marsh",
-        "Vernal Fen",
-        "Prairie Stream",
-        "Radiant Summit"
-      ],
-      "exampleClauses": [
-        "tapped unless you control two or more basic lands"
-      ],
-      "sources": {
-        "oracle-cards": 8,
-        "AtomicCards": 0
-      }
-    },
-    {
-      "rank": 59,
-      "key": "unknown-step|unknown|target creature blocks this turn if able",
-      "raw": "Target creature blocks this turn if able",
-      "gapType": "unknown-step",
-      "fieldPath": "unknown",
-      "count": 8,
-      "exampleCards": [
-        "Nacatl Hunt-Pride",
-        "Culling Mark",
-        "Courtly Provocateur",
-        "Peema Aether-Seer",
-        "Targeting Rocket"
-      ],
-      "exampleClauses": [
-        "Target creature blocks this turn if able",
-        "target creature blocks this turn if able"
-      ],
-      "sources": {
-        "oracle-cards": 8,
-        "AtomicCards": 0
-      }
-    },
-    {
-      "rank": 60,
-      "key": "unknown-step|unknown|target creature you control fights target creature you don't control",
-      "raw": "Target creature you control fights target creature you don't control",
-      "gapType": "unknown-step",
-      "fieldPath": "unknown",
-      "count": 8,
-      "exampleCards": [
-        "Go for Blood",
-        "Savage Punch",
-        "Domri, Anarch of Bolas",
-        "Prey Upon",
-        "Take the High Ground"
-      ],
-      "exampleClauses": [
-        "Target creature you control fights target creature you don't control"
-      ],
-      "sources": {
-        "oracle-cards": 8,
-        "AtomicCards": 0
-      }
-    },
-    {
-      "rank": 61,
-      "key": "unknown-step|unknown|target land becomes the basic land type of your choice until end of turn",
-      "raw": "Target land becomes the basic land type of your choice until end of turn",
-      "gapType": "unknown-step",
-      "fieldPath": "unknown",
-      "count": 8,
-      "exampleCards": [
-        "Dream Thrush",
-        "Tideshaper Mystic",
-        "Moonbow Illusionist",
-        "Reef Shaman",
-        "Mystic Compass"
-      ],
-      "exampleClauses": [
-        "Target land becomes the basic land type of your choice until end of turn"
-      ],
-      "sources": {
-        "oracle-cards": 8,
-        "AtomicCards": 0
-      }
-    },
-    {
-      "rank": 62,
-      "key": "unknown-step|unknown|target player shuffles their graveyard into their library",
-      "raw": "Target player shuffles their graveyard into their library",
-      "gapType": "unknown-step",
-      "fieldPath": "unknown",
-      "count": 8,
-      "exampleCards": [
-        "Clear the Mind",
-        "Cranial Archive",
-        "Reminisce",
-        "Clear, the Mind",
-        "Thran Foundry"
-      ],
-      "exampleClauses": [
-        "Target player shuffles their graveyard into their library"
-      ],
-      "sources": {
-        "oracle-cards": 8,
-        "AtomicCards": 0
-      }
-    },
-    {
-      "rank": 63,
-      "key": "unknown-step|unknown|that player draws an additional card",
-      "raw": "that player draws an additional card",
-      "gapType": "unknown-step",
-      "fieldPath": "unknown",
-      "count": 8,
-      "exampleCards": [
-        "Well of Ideas",
-        "Righteous Authority",
-        "Kami of the Crescent Moon",
-        "Rites of Flourishing",
-        "Nekusar, the Mindrazer"
-      ],
-      "exampleClauses": [
-        "that player draws an additional card"
-      ],
-      "sources": {
-        "oracle-cards": 8,
-        "AtomicCards": 0
-      }
-    },
-    {
-      "rank": 64,
-      "key": "unknown-fragment|gain_life.amount|the damage prevented this way",
-      "raw": "the damage prevented this way",
-      "gapType": "unknown-fragment",
-      "fieldPath": "gain_life.amount",
-      "count": 8,
-      "exampleCards": [
-        "Cho-Arrim Alchemist",
-        "Purity",
-        "Hallow",
-        "Candles' Glow",
-        "Awe Strike"
-      ],
-      "exampleClauses": [
-        "You gain life equal to the damage prevented this way"
-      ],
-      "sources": {
-        "oracle-cards": 8,
-        "AtomicCards": 0
-      }
-    },
-    {
-      "rank": 65,
-      "key": "unknown-fragment|gain_life.amount|the sacrificed creature's toughness",
-      "raw": "the sacrificed creature's toughness",
-      "gapType": "unknown-fragment",
-      "fieldPath": "gain_life.amount",
-      "count": 8,
-      "exampleCards": [
-        "Bushmeat Poacher",
-        "Miren, the Moaning Well",
-        "Severed Strands",
-        "Disciple of Griselbrand",
-        "Kheru Dreadmaw"
-      ],
-      "exampleClauses": [
-        "You gain life equal to the sacrificed creature's toughness"
-      ],
-      "sources": {
-        "oracle-cards": 8,
-        "AtomicCards": 0
-      }
-    },
-    {
-      "rank": 66,
-      "key": "unknown-step|unknown|then each player who searched their library this way shuffles",
-      "raw": "Then each player who searched their library this way shuffles",
-      "gapType": "unknown-step",
-      "fieldPath": "unknown",
-      "count": 8,
-      "exampleCards": [
-        "From the Ashes",
-        "Wave of Vitriol",
-        "Natural Balance",
-        "Rootweaver Druid",
-        "Boldwyr Heavyweights"
-      ],
-      "exampleClauses": [
-        "Then each player who searched their library this way shuffles"
-      ],
-      "sources": {
-        "oracle-cards": 8,
-        "AtomicCards": 0
-      }
-    },
-    {
-      "rank": 67,
-      "key": "unknown-step|unknown|they're still lands",
-      "raw": "They're still lands",
-      "gapType": "unknown-step",
-      "fieldPath": "unknown",
-      "count": 8,
-      "exampleCards": [
-        "Natural Affinity",
-        "Anthousa, Setessan Hero",
-        "Nissa, Worldwaker",
-        "Sylvan Awakening",
-        "Jolrael, Empress of Beasts"
-      ],
-      "exampleClauses": [
-        "They're still lands"
-      ],
-      "sources": {
-        "oracle-cards": 8,
-        "AtomicCards": 0
-      }
-    },
-    {
-      "rank": 68,
-      "key": "unknown-step|unknown|this creature becomes the creature type of your choice until end of turn",
-      "raw": "This creature becomes the creature type of your choice until end of turn",
-      "gapType": "unknown-step",
-      "fieldPath": "unknown",
-      "count": 8,
-      "exampleCards": [
-        "Mistform Wall",
-        "Mistform Stalker",
-        "Mistform Seaswift",
-        "Mistform Shrieker",
-        "Mistform Dreamer"
-      ],
-      "exampleClauses": [
-        "This creature becomes the creature type of your choice until end of turn"
-      ],
-      "sources": {
-        "oracle-cards": 8,
-        "AtomicCards": 0
-      }
-    },
-    {
-      "rank": 69,
-      "key": "unknown-step|unknown|this creature can't be blocked except by three or more creatures",
-      "raw": "This creature can't be blocked except by three or more creatures",
-      "gapType": "unknown-step",
-      "fieldPath": "unknown",
-      "count": 8,
-      "exampleCards": [
-        "Troll of Khazad-dûm",
-        "Pathrazer of Ulamog",
-        "Relentless X-ATM092",
-        "Guile",
-        "Gorilla Berserkers"
-      ],
-      "exampleClauses": [
-        "This creature can't be blocked except by three or more creatures"
-      ],
-      "sources": {
-        "oracle-cards": 8,
-        "AtomicCards": 0
-      }
-    },
-    {
-      "rank": 70,
-      "key": "unknown-step|unknown|this creature gets +1/+0 for each artifact you control",
-      "raw": "This creature gets +1/+0 for each artifact you control",
-      "gapType": "unknown-step",
-      "fieldPath": "unknown",
-      "count": 8,
-      "exampleCards": [
-        "Nim Lasher",
-        "Nim Shrieker",
-        "Mephitic Ooze",
-        "Nim Shambler",
-        "Nim Devourer"
-      ],
-      "exampleClauses": [
-        "This creature gets +1/+0 for each artifact you control"
-      ],
-      "sources": {
-        "oracle-cards": 8,
-        "AtomicCards": 0
-      }
-    },
-    {
-      "rank": 71,
-      "key": "unknown-step|unknown|this creature must be blocked if able",
-      "raw": "This creature must be blocked if able",
-      "gapType": "unknown-step",
-      "fieldPath": "unknown",
-      "count": 8,
-      "exampleCards": [
-        "The Foretold Soldier",
-        "Riveteers Decoy",
-        "Vinebred Brawler",
-        "Goblin Fire Fiend",
-        "Fear of Being Hunted"
-      ],
-      "exampleClauses": [
-        "This creature must be blocked if able"
-      ],
-      "sources": {
-        "oracle-cards": 8,
-        "AtomicCards": 0
-      }
-    },
-    {
-      "rank": 72,
-      "key": "unknown-fragment|discard.amount|those",
-      "raw": "those",
-      "gapType": "unknown-fragment",
-      "fieldPath": "discard.amount",
-      "count": 8,
-      "exampleCards": [
-        "Last Rites",
-        "Distended Mindbender",
-        "Mind Warp",
-        "Extortion",
-        "Abandon Hope"
-      ],
-      "exampleClauses": [
-        "That player discards those cards",
-        "then that player discards those cards"
-      ],
-      "sources": {
-        "oracle-cards": 8,
-        "AtomicCards": 0
-      }
-    },
-    {
-      "rank": 73,
-      "key": "unknown-step|unknown|turn it face up any time for its mana cost if it's a creature card.)",
-      "raw": "Turn it face up any time for its mana cost if it's a creature card.)",
-      "gapType": "unknown-step",
-      "fieldPath": "unknown",
-      "count": 8,
-      "exampleCards": [
-        "They Came from the Pipes",
-        "Valgavoth's Onslaught",
-        "Orochi Soul-Reaver",
-        "Zimone, Mystery Unraveler",
-        "Primordial Mist"
-      ],
-      "exampleClauses": [
-        "Turn it face up any time for its mana cost if it's a creature card.)"
-      ],
-      "sources": {
-        "oracle-cards": 8,
-        "AtomicCards": 0
-      }
-    },
-    {
-      "rank": 74,
-      "key": "unknown-step|unknown|you choose a card from it",
-      "raw": "You choose a card from it",
-      "gapType": "unknown-step",
-      "fieldPath": "unknown",
-      "count": 8,
-      "exampleCards": [
-        "Mind Slash",
-        "He Who Hungers",
-        "Tourach's Canticle",
-        "Perish the Thought",
-        "Nightmare Void"
-      ],
-      "exampleClauses": [
-        "You choose a card from it"
-      ],
-      "sources": {
-        "oracle-cards": 8,
-        "AtomicCards": 0
-      }
-    },
-    {
-      "rank": 75,
-      "key": "unknown-step|unknown|you may cast this spell as though it had flash if you pay {2} more to cast it",
-      "raw": "You may cast this spell as though it had flash if you pay {2} more to cast it",
-      "gapType": "unknown-step",
-      "fieldPath": "unknown",
-      "count": 8,
-      "exampleCards": [
-        "Asinine Antics",
-        "Saproling Symbiosis",
-        "Harbinger of the Tides",
-        "Twilight's Call",
-        "Ghitu Fire"
-      ],
-      "exampleClauses": [
-        "You may cast this spell as though it had flash if you pay {2} more to cast it"
-      ],
-      "sources": {
-        "oracle-cards": 8,
-        "AtomicCards": 0
-      }
-    },
-    {
-      "rank": 76,
-      "key": "unknown-step|unknown|you may choose the same mode more than once",
-      "raw": "You may choose the same mode more than once",
-      "gapType": "unknown-step",
-      "fieldPath": "unknown",
-      "count": 8,
-      "exampleCards": [
-        "Doomsday Confluence",
-        "Unite the Coalition",
-        "Pick Your Poison",
-        "Season of Loss",
-        "Season of Gathering"
-      ],
-      "exampleClauses": [
-        "You may choose the same mode more than once"
-      ],
-      "sources": {
-        "oracle-cards": 8,
-        "AtomicCards": 0
-      }
-    },
-    {
-      "rank": 77,
-      "key": "unknown-step|unknown|you may pay 2 life",
-      "raw": "you may pay 2 life",
-      "gapType": "unknown-step",
-      "fieldPath": "unknown",
-      "count": 8,
-      "exampleCards": [
-        "Arrogant Poet",
-        "Shedding Snake",
-        "Crossway Troublemakers",
-        "Savra, Queen of the Golgari",
-        "Call of the Ring"
-      ],
-      "exampleClauses": [
-        "you may pay 2 life"
-      ],
-      "sources": {
-        "oracle-cards": 8,
-        "AtomicCards": 0
-      }
-    },
-    {
-      "rank": 78,
-      "key": "unknown-step|unknown|you may search your library for a card named this permanent, reveal it, put it into your hand",
-      "raw": "you may search your library for a card named this permanent, reveal it, put it into your hand",
-      "gapType": "unknown-step",
-      "fieldPath": "unknown",
-      "count": 8,
-      "exampleCards": [
-        "Screaming Seahawk",
-        "Growth-Chamber Guardian",
-        "Avarax",
-        "Tempest Hawk",
-        "Wretched Throng"
-      ],
-      "exampleClauses": [
-        "you may search your library for a card named this permanent, reveal it, put it into your hand"
-      ],
-      "sources": {
-        "oracle-cards": 8,
-        "AtomicCards": 0
-      }
-    },
-    {
-      "rank": 79,
-      "key": "unknown-step|unknown|add {g}, {u}, or {r}",
-      "raw": "Add {G}, {U}, or {R}",
-      "gapType": "unknown-step",
-      "fieldPath": "unknown",
-      "count": 7,
-      "exampleCards": [
-        "Ketria Crystal",
-        "Haunted Screen",
-        "Rattleclaw Mystic",
-        "Temur Banner",
-        "Temur Elevator"
-      ],
-      "exampleClauses": [
-        "Add {G}, {U}, or {R}"
-      ],
-      "sources": {
-        "oracle-cards": 7,
-        "AtomicCards": 0
-      }
-    },
-    {
-      "rank": 80,
-      "key": "unknown-step|unknown|add {u}, {b}, or {r}",
-      "raw": "Add {U}, {B}, or {R}",
-      "gapType": "unknown-step",
-      "fieldPath": "unknown",
-      "count": 7,
-      "exampleCards": [
-        "Visage of Bolas",
-        "Crumbling Necropolis",
-        "Maestros' Totally Safe Hideout",
-        "Crypt of the Eternals",
-        "Obelisk of Grixis"
-      ],
-      "exampleClauses": [
-        "Add {U}, {B}, or {R}"
-      ],
-      "sources": {
-        "oracle-cards": 7,
-        "AtomicCards": 0
-      }
-    },
-    {
-      "rank": 81,
-      "key": "unknown-step|unknown|an opponent chooses one of those piles",
-      "raw": "An opponent chooses one of those piles",
-      "gapType": "unknown-step",
-      "fieldPath": "unknown",
-      "count": 7,
-      "exampleCards": [
-        "Steam Augury",
-        "Truth or Tale",
-        "Epiphany at the Drownyard",
-        "Split the Spoils",
-        "Curator of Destinies"
-      ],
-      "exampleClauses": [
-        "An opponent chooses one of those piles"
-      ],
-      "sources": {
-        "oracle-cards": 7,
-        "AtomicCards": 0
-      }
-    },
-    {
-      "rank": 82,
-      "key": "unknown-step|unknown|an opponent separates those cards into two piles",
-      "raw": "An opponent separates those cards into two piles",
-      "gapType": "unknown-step",
-      "fieldPath": "unknown",
-      "count": 7,
-      "exampleCards": [
-        "Jace, Architect of Thought",
-        "Fact or Fiction",
-        "Sphinx of Uthuun",
-        "Unesh, Criosphinx Sovereign",
-        "Sphinx of Clear Skies"
-      ],
-      "exampleClauses": [
-        "An opponent separates those cards into two piles"
-      ],
-      "sources": {
-        "oracle-cards": 7,
-        "AtomicCards": 0
-      }
-    },
-    {
-      "rank": 83,
-      "key": "unknown-step|unknown|choose one that hasn't been chosen this turn -",
-      "raw": "Choose one that hasn't been chosen this turn -",
-      "gapType": "unknown-step",
-      "fieldPath": "unknown",
-      "count": 7,
-      "exampleCards": [
-        "Kargan Intimidator",
-        "Breeches, Eager Pillager",
-        "Teval's Judgment",
-        "Parapet Thrasher",
-        "Gala Greeters"
-      ],
-      "exampleClauses": [
-        "Choose one that hasn't been chosen this turn -",
-        "choose one that hasn't been chosen this turn -"
-      ],
-      "sources": {
-        "oracle-cards": 7,
-        "AtomicCards": 0
-      }
-    },
-    {
-      "rank": 84,
-      "key": "unknown-step|unknown|creatures you control of the chosen type get +1/+1",
-      "raw": "Creatures you control of the chosen type get +1/+1",
-      "gapType": "unknown-step",
-      "fieldPath": "unknown",
-      "count": 7,
-      "exampleCards": [
-        "Etchings of the Chosen",
-        "Radiant Destiny",
-        "Icon of Ancestry",
-        "Patchwork Banner",
-        "Instruments of War"
-      ],
-      "exampleClauses": [
-        "Creatures you control of the chosen type get +1/+1"
-      ],
-      "sources": {
-        "oracle-cards": 7,
-        "AtomicCards": 0
-      }
-    },
-    {
-      "rank": 85,
-      "key": "unknown-step|unknown|damage wears off, and \"this turn\" and \"until end of turn\" effects end.)",
-      "raw": "Damage wears off, and \"this turn\" and \"until end of turn\" effects end.)",
-      "gapType": "unknown-step",
-      "fieldPath": "unknown",
-      "count": 7,
-      "exampleCards": [
-        "Obeka, Brute Chronologist",
-        "Discontinuity",
-        "Sundial of the Infinite",
-        "Day's Undoing",
-        "Hurkyl's Final Meditation"
-      ],
-      "exampleClauses": [
-        "Damage wears off, and \"this turn\" and \"until end of turn\" effects end.)"
-      ],
-      "sources": {
-        "oracle-cards": 7,
-        "AtomicCards": 0
-      }
-    },
-    {
-      "rank": 86,
-      "key": "unknown-step|unknown|demonstrate (when you cast this spell, you may copy it",
-      "raw": "Demonstrate (When you cast this spell, you may copy it",
-      "gapType": "unknown-step",
-      "fieldPath": "unknown",
-      "count": 7,
-      "exampleCards": [
-        "Incarnation Technique",
-        "Replication Technique",
-        "Healing Technique",
-        "May the Mana Be with You",
-        "Transforming Flourish"
-      ],
-      "exampleClauses": [
-        "Demonstrate (When you cast this spell, you may copy it"
-      ],
-      "sources": {
-        "oracle-cards": 7,
-        "AtomicCards": 0
-      }
-    },
-    {
-      "rank": 87,
-      "key": "unknown-step|unknown|each creature you control assigns combat damage equal to its toughness rather than its power",
-      "raw": "Each creature you control assigns combat damage equal to its toughness rather than its power",
-      "gapType": "unknown-step",
-      "fieldPath": "unknown",
-      "count": 7,
-      "exampleCards": [
-        "Felothar the Steadfast",
-        "Rasaad yn Bashir",
-        "Weight Advantage",
-        "Assault Formation",
-        "High Alert"
-      ],
-      "exampleClauses": [
-        "Each creature you control assigns combat damage equal to its toughness rather than its power"
-      ],
-      "sources": {
-        "oracle-cards": 7,
-        "AtomicCards": 0
-      }
-    },
-    {
-      "rank": 88,
-      "key": "unknown-step|unknown|each mode must target a different player",
-      "raw": "Each mode must target a different player",
-      "gapType": "unknown-step",
-      "fieldPath": "unknown",
-      "count": 7,
-      "exampleCards": [
-        "Mikey & Mona, Mutant Sitters",
-        "Shadrix Silverquill",
-        "Vindictive Lich",
-        "Balor",
-        "Donnie & April, Adorkable Duo"
-      ],
-      "exampleClauses": [
-        "Each mode must target a different player"
-      ],
-      "sources": {
-        "oracle-cards": 7,
-        "AtomicCards": 0
-      }
-    },
-    {
-      "rank": 89,
-      "key": "unknown-step|unknown|enchanted permanent doesn't untap during its controller's untap step",
-      "raw": "Enchanted permanent doesn't untap during its controller's untap step",
-      "gapType": "unknown-step",
-      "fieldPath": "unknown",
-      "count": 7,
-      "exampleCards": [
-        "Weakstone's Subjugation",
-        "Ice Over",
-        "Coma Veil",
-        "Psychic Overload",
-        "Malfunction"
-      ],
-      "exampleClauses": [
-        "Enchanted permanent doesn't untap during its controller's untap step"
-      ],
-      "sources": {
-        "oracle-cards": 7,
-        "AtomicCards": 0
-      }
-    },
-    {
-      "rank": 90,
-      "key": "unknown-step|unknown|haunt (when this creature dies, exile it haunting target creature.)",
-      "raw": "Haunt (When this creature dies, exile it haunting target creature.)",
-      "gapType": "unknown-step",
-      "fieldPath": "unknown",
-      "count": 7,
-      "exampleCards": [
-        "Orzhov Pontiff",
-        "Orzhov Euthanist",
-        "Graven Dominator",
-        "Blind Hunter",
-        "Absolver Thrull"
-      ],
-      "exampleClauses": [
-        "Haunt (When this creature dies, exile it haunting target creature.)"
-      ],
-      "sources": {
-        "oracle-cards": 7,
-        "AtomicCards": 0
-      }
-    },
-    {
-      "rank": 91,
-      "key": "unknown-step|unknown|if it doesn't have suspend, it gains suspend",
-      "raw": "If it doesn't have suspend, it gains suspend",
-      "gapType": "unknown-step",
-      "fieldPath": "unknown",
-      "count": 7,
-      "exampleCards": [
-        "The Tenth Doctor",
-        "Taigam, Master Opportunist",
-        "The Parting of the Ways",
-        "Sibylline Soothsayer",
-        "The Eleventh Doctor"
-      ],
-      "exampleClauses": [
-        "If it doesn't have suspend, it gains suspend"
-      ],
-      "sources": {
-        "oracle-cards": 7,
-        "AtomicCards": 0
-      }
-    },
-    {
-      "rank": 92,
-      "key": "unknown-step|unknown|it deals double that damage",
-      "raw": "it deals double that damage",
-      "gapType": "unknown-step",
-      "fieldPath": "unknown",
-      "count": 7,
-      "exampleCards": [
-        "The Sound of Drums",
-        "Sawhorn Nemesis",
-        "Twinflame Tyrant",
-        "Gratuitous Violence",
-        "Inquisitor's Flail"
-      ],
-      "exampleClauses": [
-        "it deals double that damage"
-      ],
-      "sources": {
-        "oracle-cards": 7,
-        "AtomicCards": 0
-      }
-    },
-    {
-      "rank": 93,
-      "key": "unknown-step|unknown|it gains haste",
-      "raw": "It gains haste",
-      "gapType": "unknown-step",
-      "fieldPath": "unknown",
-      "count": 7,
-      "exampleCards": [
-        "Push Your Luck",
-        "The Beamtown Bullies",
-        "Obzedat, Ghost Council",
-        "Felhide Spiritbinder",
-        "Momo's Heist"
-      ],
-      "exampleClauses": [
-        "It gains haste"
-      ],
-      "sources": {
-        "oracle-cards": 7,
-        "AtomicCards": 0
-      }
-    },
-    {
-      "rank": 94,
-      "key": "unknown-step|unknown|it phases in before you untap during your next untap step.)",
-      "raw": "It phases in before you untap during your next untap step.)",
-      "gapType": "unknown-step",
-      "fieldPath": "unknown",
-      "count": 7,
-      "exampleCards": [
-        "Mist Dragon",
-        "Vaporous Djinn",
-        "Rainbow Efreet",
-        "Crystal Golem",
-        "Teferi's Honor Guard"
-      ],
-      "exampleClauses": [
-        "It phases in before you untap during your next untap step.)"
-      ],
-      "sources": {
-        "oracle-cards": 7,
-        "AtomicCards": 0
-      }
-    },
-    {
-      "rank": 95,
-      "key": "unknown-step|unknown|look at target player's hand",
-      "raw": "Look at target player's hand",
-      "gapType": "unknown-step",
-      "fieldPath": "unknown",
-      "count": 7,
-      "exampleCards": [
-        "Gitaxian Probe",
-        "Vendilion Clique",
-        "Cracked Skull",
-        "Ingenious Thief",
-        "Clairvoyance"
-      ],
-      "exampleClauses": [
-        "Look at target player's hand",
-        "look at target player's hand"
-      ],
-      "sources": {
-        "oracle-cards": 7,
-        "AtomicCards": 0
-      }
-    },
-    {
-      "rank": 96,
-      "key": "unknown-step|unknown|other creatures you control have haste",
-      "raw": "Other creatures you control have haste",
-      "gapType": "unknown-step",
-      "fieldPath": "unknown",
-      "count": 7,
-      "exampleCards": [
-        "Smellerbee, Rebel Fighter",
-        "Yarus, Roar of the Old Gods",
-        "Dragonlord Kolaghan",
-        "Purphoros, Bronze-Blooded",
-        "Garna, the Bloodflame"
-      ],
-      "exampleClauses": [
-        "Other creatures you control have haste"
-      ],
-      "sources": {
-        "oracle-cards": 7,
-        "AtomicCards": 0
-      }
-    },
-    {
-      "rank": 97,
-      "key": "unknown-step|unknown|other creatures you control have trample",
-      "raw": "Other creatures you control have trample",
-      "gapType": "unknown-step",
-      "fieldPath": "unknown",
-      "count": 7,
-      "exampleCards": [
-        "Aggressive Mammoth",
-        "Nylea, God of the Hunt",
-        "Surrak Dragonclaw",
-        "Old One Eye",
-        "Surrak and Goreclaw"
-      ],
-      "exampleClauses": [
-        "Other creatures you control have trample"
-      ],
-      "sources": {
-        "oracle-cards": 7,
-        "AtomicCards": 0
-      }
-    },
-    {
-      "rank": 98,
-      "key": "unknown-step|unknown|otherwise, exile this card.)",
-      "raw": "Otherwise, exile this card.)",
-      "gapType": "unknown-step",
-      "fieldPath": "unknown",
-      "count": 7,
-      "exampleCards": [
-        "Grim Harvest",
-        "Resize",
-        "Icefall",
-        "Sun's Bounty",
-        "Garza's Assassin"
-      ],
-      "exampleClauses": [
-        "Otherwise, exile this card.)"
-      ],
-      "sources": {
-        "oracle-cards": 7,
-        "AtomicCards": 0
-      }
-    },
-    {
-      "rank": 99,
-      "key": "unknown-step|unknown|otherwise, put that card into your hand",
-      "raw": "Otherwise, put that card into your hand",
-      "gapType": "unknown-step",
-      "fieldPath": "unknown",
-      "count": 7,
-      "exampleCards": [
-        "Matter Reshaper",
-        "Treasure Chest",
-        "Ruin in Their Wake",
-        "Coiling Oracle",
-        "Sin Prodder"
-      ],
-      "exampleClauses": [
-        "Otherwise, put that card into your hand"
-      ],
-      "sources": {
-        "oracle-cards": 7,
-        "AtomicCards": 0
-      }
-    },
-    {
-      "rank": 100,
-      "key": "unknown-step|unknown|prevent all damage that would be dealt to him this turn",
-      "raw": "Prevent all damage that would be dealt to him this turn",
-      "gapType": "unknown-step",
-      "fieldPath": "unknown",
-      "count": 7,
-      "exampleCards": [
-        "Gideon, the Oathsworn",
-        "Gideon, Martial Paragon",
-        "Gideon, Ally of Zendikar",
-        "Gideon, Champion of Justice",
-        "Gideon Jura"
-      ],
-      "exampleClauses": [
-        "Prevent all damage that would be dealt to him this turn"
-      ],
-      "sources": {
-        "oracle-cards": 7,
         "AtomicCards": 0
       }
     }

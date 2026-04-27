@@ -11,7 +11,7 @@ import {
   type MoveZoneSingleTargetCriteria,
 } from './oracleIRExecutorZoneOps';
 import { payManaCost } from './spellCasting';
-import { createEmptyManaPool, type ManaCost } from './types/mana';
+import { createEmptyManaPool, setManaDoesNotEmpty, type ManaCost } from './types/mana';
 import { parseManaSymbols } from './types/numbers';
 import {
   addManaToPoolForPlayer,
@@ -3493,6 +3493,69 @@ export function applyAddManaStep(
   }
 
   return { applied: true, state: nextState, log };
+}
+
+export function applyRetainManaStep(
+  state: GameState,
+  step: Extract<OracleEffectStep, { kind: 'retain_mana' }>,
+  ctx: OracleIRExecutionContext
+): PlayerStepHandlerResult {
+  const players = resolvePlayers(state, step.who, ctx);
+  if (players.length === 0) {
+    return {
+      applied: false,
+      message: `Skipped retain mana (unsupported player selector): ${step.raw}`,
+      reason: 'unsupported_player_selector',
+    };
+  }
+
+  const sourceId = String(ctx.sourceId || ctx.sourceName || step.raw || 'oracle-ir-retain-mana');
+  const manaPoolRecord: Record<PlayerID, any> = { ...((((state as any).manaPool || {}) as any) || {}) };
+  const retainedPools = new Map<PlayerID, any>();
+
+  for (const playerId of players) {
+    const currentPool = manaPoolRecord[playerId] || createEmptyManaPool();
+    const retainedPool = setManaDoesNotEmpty(currentPool, sourceId);
+    manaPoolRecord[playerId] = retainedPool;
+    retainedPools.set(playerId, retainedPool);
+  }
+
+  const existingEffects = Array.isArray((state as any).manaRetentionEffects)
+    ? [...(state as any).manaRetentionEffects]
+    : [];
+  const createdAtTurn = (state as any).turnNumber ?? (state as any).turn;
+  for (const playerId of players) {
+    const alreadyRecorded = existingEffects.some((effect: any) => (
+      String(effect?.playerId || '') === String(playerId) &&
+      String(effect?.sourceId || '') === sourceId &&
+      String(effect?.duration || '') === step.duration
+    ));
+    if (!alreadyRecorded) {
+      existingEffects.push({
+        playerId,
+        sourceId,
+        duration: step.duration,
+        createdAtTurn,
+        raw: step.raw,
+      });
+    }
+  }
+
+  const updatedPlayers = state.players.map(player => {
+    const retainedPool = retainedPools.get(player.id as PlayerID);
+    return retainedPool ? ({ ...player, manaPool: retainedPool } as any) : player;
+  });
+
+  return {
+    applied: true,
+    state: {
+      ...(state as any),
+      manaPool: manaPoolRecord,
+      manaRetentionEffects: existingEffects,
+      players: updatedPlayers as any,
+    } as any,
+    log: players.map(playerId => `${playerId} doesn't lose this mana as steps and phases end`),
+  };
 }
 
 export function evaluateUnlessPaysLifeStep(

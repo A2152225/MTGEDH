@@ -3,6 +3,13 @@ import type { OracleEffectStep } from './oracleIR';
 import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
 import { resolvePlayers } from './oracleIRExecutorPlayerUtils';
 
+type ExtraCombatEffect = {
+  readonly source?: string;
+  readonly untapAttackers?: boolean;
+  readonly followedByAdditionalMain?: boolean;
+  readonly createdAt?: number;
+};
+
 type StepApplyResult = {
   readonly applied: true;
   readonly state: GameState;
@@ -94,5 +101,30 @@ export function applyTakeExtraTurn(
       extraTurns: nextExtraTurns,
     } as GameState,
     log: players.map((playerId: string) => `${playerId} takes an extra turn after this one`),
+  };
+}
+
+export function applyAddExtraCombat(
+  state: GameState,
+  step: Extract<OracleEffectStep, { kind: 'add_extra_combat' }>,
+  ctx: OracleIRExecutionContext
+): TurnStepHandlerResult {
+  const existingExtraCombats = Array.isArray((state as any).extraCombats)
+    ? ([...(state as any).extraCombats] as ExtraCombatEffect[])
+    : [];
+  const source = String(ctx.sourceName || ctx.sourceId || '').trim();
+  const extraCombat: ExtraCombatEffect = {
+    ...(source ? { source } : {}),
+    ...(step.followedByAdditionalMain === true ? { followedByAdditionalMain: true } : {}),
+    createdAt: Date.now(),
+  };
+
+  return {
+    applied: true,
+    state: {
+      ...(state as any),
+      extraCombats: [...existingExtraCombats, extraCombat],
+    } as GameState,
+    log: [`Added an additional combat phase${step.followedByAdditionalMain ? ' followed by an additional main phase' : ''}`],
   };
 }

@@ -3972,6 +3972,20 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
     expect(addMana.mana).toBe('{R}{R}{R}');
   });
 
+  it('parses temporary mana-retention rider clauses into IR steps', () => {
+    const text = "Whenever you cast a spell, add {R}. Until end of turn, you don't lose this mana as steps and phases end.";
+    const ir = parseOracleTextToIR(text, 'Birgi, God of Storytelling');
+    const steps = ir.abilities[0].steps as any[];
+
+    expect(steps.map(step => step.kind)).toEqual(['add_mana', 'retain_mana']);
+    expect(steps[1]).toMatchObject({
+      kind: 'retain_mana',
+      who: { kind: 'you' },
+      duration: 'until_end_of_turn',
+      raw: "Until end of turn, you don't lose this mana as steps and phases end",
+    });
+  });
+
   it('parses standalone exile-top (no permission clause) into exile_top step', () => {
     const text = 'Exile the top card of your library.';
     const ir = parseOracleTextToIR(text);
@@ -9673,6 +9687,33 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
       },
     ]);
     expect(String((steps[0] as any)?.effect || '')).toBe("return it to the battlefield under its owner's control");
+  });
+
+  it('parses additional combat phase clauses into typed IR steps', () => {
+    const aurelia = parseOracleTextToIR(
+      'Whenever Aurelia attacks for the first time each turn, untap all creatures you control. After this phase, there is an additional combat phase.',
+      'Aurelia, the Warleader'
+    );
+    const aureliaSteps = aurelia.abilities[0]?.steps ?? [];
+    expect(aureliaSteps).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        kind: 'add_extra_combat',
+        raw: 'After this phase, there is an additional combat phase',
+      }),
+    ]));
+
+    const worldAtWar = parseOracleTextToIR(
+      'Untap all creatures that attacked this turn. After this main phase, there is an additional combat phase followed by an additional main phase.',
+      'World at War'
+    );
+    const worldAtWarSteps = worldAtWar.abilities[0]?.steps ?? [];
+    expect(worldAtWarSteps).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        kind: 'add_extra_combat',
+        followedByAdditionalMain: true,
+      }),
+    ]));
+    expect(worldAtWarSteps.some((step: any) => step.kind === 'unknown' && /additional combat phase/i.test(String(step.raw || '')))).toBe(false);
   });
 
   it('parses Oathkeeper, Takeno\'s Daisho as a conditional Samurai return', () => {

@@ -341,6 +341,19 @@ export function tryParseSimpleActionClause(args: {
   }
 
   {
+    const addExtraCombat = clause.match(
+      /^(?:(?:after|and after)\s+this\s+(?:main\s+)?phase,?\s+there\s+is|there(?:'|’)s|there\s+is)\s+an\s+additional\s+combat\s+phase(?:\s+after\s+this\s+phase)?(?:,?\s+followed\s+by\s+an\s+additional\s+main\s+phase)?$/i
+    );
+    if (addExtraCombat) {
+      return withMeta({
+        kind: 'add_extra_combat',
+        followedByAdditionalMain: /followed by an additional main phase/i.test(clause) || undefined,
+        raw: rawClause,
+      });
+    }
+  }
+
+  {
     const gainClassLevel = clause.match(/^level\s+(\d+)\.?$/i);
     if (gainClassLevel) {
       return withMeta({
@@ -484,6 +497,36 @@ export function tryParseSimpleActionClause(args: {
       if (mana && !/\bor\b/i.test(clause)) {
         return withMeta({ kind: 'add_mana', who: parsePlayerSelector(addMana[1]), mana, raw: rawClause });
       }
+    }
+  }
+
+  {
+    const retainMana = clause.match(
+      /^(?:until\s+end\s+of\s+(turn|combat),\s*)?(?:(you|that player|they)\s+)?(?:don't|do not)\s+lose\s+this\s+mana\s+as\s+steps\s+and\s+phases\s+end$/i
+    );
+    if (retainMana) {
+      const duration = String(retainMana[1] || 'turn').toLowerCase() === 'combat'
+        ? 'until_end_of_combat'
+        : 'until_end_of_turn';
+      return withMeta({
+        kind: 'retain_mana',
+        who: parsePlayerSelector(retainMana[2]),
+        duration,
+        raw: rawClause,
+      });
+    }
+
+    const manaLasts = clause.match(/^this\s+mana\s+lasts\s+until\s+end\s+of\s+(turn|combat)$/i);
+    if (manaLasts) {
+      const duration = String(manaLasts[1] || 'turn').toLowerCase() === 'combat'
+        ? 'until_end_of_combat'
+        : 'until_end_of_turn';
+      return withMeta({
+        kind: 'retain_mana',
+        who: { kind: 'you' },
+        duration,
+        raw: rawClause,
+      });
     }
   }
 

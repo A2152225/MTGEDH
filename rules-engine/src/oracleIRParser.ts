@@ -1300,6 +1300,35 @@ function wrapTriggeredInterveningIfAbility(ability: OracleIRAbility): OracleIRAb
   };
 }
 
+function mergeAdditionalCombatContinuationAbilities(abilities: OracleIRAbility[]): OracleIRAbility[] {
+  if (abilities.length < 2) return abilities;
+  const merged: OracleIRAbility[] = [];
+
+  for (const ability of abilities) {
+    const steps = [...ability.steps];
+    const isAdditionalCombatContinuation =
+      ability.type === AbilityType.STATIC &&
+      steps.length > 0 &&
+      steps.every((step) => step.kind === 'add_extra_combat') &&
+      /^\s*(?:after|and after)\s+this\s+(?:main\s+)?phase\b/i.test(ability.effectText || ability.text || '');
+
+    if (isAdditionalCombatContinuation && merged.length > 0) {
+      const previous = merged[merged.length - 1];
+      merged[merged.length - 1] = {
+        ...previous,
+        text: [previous.text, ability.text].filter(Boolean).join(' '),
+        effectText: [previous.effectText, ability.effectText].filter(Boolean).join(' '),
+        steps: [...previous.steps, ...steps],
+      };
+      continue;
+    }
+
+    merged.push(ability);
+  }
+
+  return merged.length === abilities.length ? abilities : merged;
+}
+
 function mergeSplitChooseModeParsedAbilities(parsed: OracleTextParseResult): OracleTextParseResult {
   const merged: ParsedAbility[] = [];
 
@@ -1351,6 +1380,7 @@ export function parseOracleTextToIR(oracleText: string, cardName?: string): Orac
   );
 
   let abilities = parsed.abilities.map(ability => parseAbilityToIRAbility(ability, cardName));
+  abilities = mergeAdditionalCombatContinuationAbilities(abilities);
   abilities = applyGlobalImpulseUpgrades(abilities, normalizedOracleText);
   abilities = mergeDieRollResultTableAbilities(abilities);
   abilities = mergeRevealFollowupAbilities(abilities);

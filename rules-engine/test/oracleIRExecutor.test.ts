@@ -8950,6 +8950,33 @@ describe('Oracle IR Executor', () => {
     expect(result.appliedSteps.some(s => s.kind === 'add_mana')).toBe(true);
   });
 
+  it('applies temporary mana-retention riders to the controller mana pool', () => {
+    const ir = parseOracleTextToIR(
+      "Whenever you cast a spell, add {R}. Until end of turn, you don't lose this mana as steps and phases end.",
+      'Birgi, God of Storytelling'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const result = applyOracleIRStepsToGameState(makeState(), steps, {
+      controllerId: 'p1',
+      sourceId: 'birgi',
+      sourceName: 'Birgi, God of Storytelling',
+    });
+
+    const pool = (result.state as any).manaPool?.['p1'];
+    expect(pool.red).toBe(1);
+    expect(pool.doesNotEmpty).toBe(true);
+    expect(pool.noEmptySourceIds).toContain('birgi');
+    expect((result.state as any).manaRetentionEffects).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        playerId: 'p1',
+        sourceId: 'birgi',
+        duration: 'until_end_of_turn',
+      }),
+    ]));
+    expect(result.appliedSteps.map(step => step.kind)).toEqual(['add_mana', 'retain_mana']);
+  });
+
   it('applies add_mana for each player', () => {
     const ir = parseOracleTextToIR('Each player adds {G}.', 'Test');
     const steps = ir.abilities[0]?.steps ?? [];
@@ -44867,6 +44894,37 @@ This creature has protection from each of the exiled card's card types. (Artifac
       afterTurnNumber: 5,
       source: 'Time Warp',
     });
+  });
+
+  it('queues an additional combat phase when resolving World at War-style text', () => {
+    const ir = parseOracleTextToIR(
+      'Untap all creatures that attacked this turn. After this main phase, there is an additional combat phase followed by an additional main phase.',
+      'World at War'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const result = applyOracleIRStepsToGameState(
+      makeState({}),
+      steps,
+      {
+        controllerId: 'p1',
+        sourceId: 'world-at-war',
+        sourceName: 'World at War',
+      }
+    );
+
+    const extraCombats = (((result.state as any).extraCombats || []) as any[]).filter(
+      effect => String(effect?.source || '') === 'World at War'
+    );
+
+    expect(extraCombats).toHaveLength(1);
+    expect(extraCombats[0]).toMatchObject({
+      source: 'World at War',
+      followedByAdditionalMain: true,
+    });
+    expect(result.appliedSteps).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'add_extra_combat' }),
+    ]));
   });
 
   it('changes control and tracks cleanup reversion when resolving Act of Treason', () => {

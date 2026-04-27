@@ -113,6 +113,7 @@ import {
   applyOpenAttractionStep,
   applyPayManaStep,
   applyPlaneswalkStep,
+  applyRetainManaStep,
   applyRevealHandStep,
   applyRollVisitAttractionsStep,
   applyScryStep,
@@ -125,7 +126,7 @@ import {
   applyVoteStep,
 } from './oracleIRExecutorPlayerStepHandlers';
 import { applyCreateTokenStep } from './oracleIRExecutorTokenStepHandlers';
-import { applySkipNextDrawStep, applyTakeExtraTurn } from './oracleIRExecutorTurnStepHandlers';
+import { applyAddExtraCombat, applySkipNextDrawStep, applyTakeExtraTurn } from './oracleIRExecutorTurnStepHandlers';
 import { stampCardsPutIntoGraveyardThisTurn } from './oracleIRExecutorPlayerUtils';
 import { getColorsFromObject } from './oracleIRExecutorManaUtils';
 import type {
@@ -1160,6 +1161,11 @@ export function applyOracleIRStepsToGameStateImpl(
         applyHandledStepResult(step, result);
         break;
       }
+      case 'add_extra_combat': {
+        const result = applyAddExtraCombat(nextState, step, currentCtx);
+        applyHandledStepResult(step, result);
+        break;
+      }
       case 'grant_graveyard_permission': {
         const result = applyGrantGraveyardPermissionStep(nextState, step, currentCtx);
         applyHandledStepResult(step, result, (appliedResult) => {
@@ -1178,6 +1184,11 @@ export function applyOracleIRStepsToGameStateImpl(
       }
       case 'add_mana': {
         const result = applyAddManaStep(nextState, step, currentCtx);
+        applyHandledStepResult(step, result);
+        break;
+      }
+      case 'retain_mana': {
+        const result = applyRetainManaStep(nextState, step, currentCtx);
         applyHandledStepResult(step, result);
         break;
       }
