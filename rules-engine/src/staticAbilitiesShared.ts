@@ -42,6 +42,10 @@ export interface StaticEffectFilter {
   preventGaining?: boolean;
 }
 
+export type StaticCountZone = 'battlefield' | 'hand';
+
+export type StaticAffectedStat = 'power' | 'toughness' | 'both';
+
 /**
  * Static ability definition
  */
@@ -53,6 +57,7 @@ export interface StaticAbility {
   effectType: StaticEffectType;
   filter: StaticEffectFilter;
   value?: number | string | string[];
+  affectedStat?: StaticAffectedStat;
   powerMod?: number;
   toughnessMod?: number;
   layer: number;
@@ -61,5 +66,6 @@ export interface StaticAbility {
     cardTypes?: string[];
     other?: boolean;
     controller?: 'you' | 'opponents' | 'any';
+    zone?: StaticCountZone;
   };
 }

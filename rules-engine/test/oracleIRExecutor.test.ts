@@ -11,7 +11,8 @@ import {
   TriggerEvent,
 } from '../src/triggeredAbilities';
 import { canCreatureBlock, createCombatCreature } from '../src/combatAutomation';
-import { canPermanentAttack } from '../src/actions/combat';
+import { canPermanentAttack, getCombatDamageValue, validateDeclareBlockers } from '../src/actions/combat';
+import { calculateEffectivePT, parseStaticAbilities } from '../src/staticAbilities';
 import { executeCleanupStep as executeTurnCleanupStep, executeUntapStep } from '../src/actions/turnActions';
 import { previewPreventedDamage } from '../src/oracleIRDamagePrevention';
 import { makeMerfolkIterationState } from './helpers/merfolkIterationFixture';
@@ -48243,6 +48244,58 @@ This creature has protection from each of the exiled card's card types. (Artifac
     expect(untapped?.tapped).toBe(false);
   });
 
+  it('honors explicit optional not-untap choices during the controller untap step', () => {
+    const ir = parseOracleTextToIR('You may choose not to untap this creature during your untap step.', 'Giant Oyster');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      optionalUntapChoices: { p1: ['giant-oyster'] },
+      battlefield: [
+        {
+          id: 'giant-oyster',
+          controller: 'p1',
+          owner: 'p1',
+          tapped: true,
+          card: {
+            id: 'giant-oyster-card',
+            name: 'Giant Oyster',
+            type_line: 'Creature - Oyster',
+            oracle_text: 'You may choose not to untap this creature during your untap step.',
+            power: '0',
+            toughness: '3',
+          },
+        },
+      ] as any,
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, hand: [], graveyard: [], library: [], exile: [] },
+        { id: 'p2', name: 'P2', seat: 1, life: 40, hand: [], graveyard: [], library: [], exile: [] },
+      ] as any,
+    } as any);
+
+    const registered = applyOracleIRStepsToGameState(
+      start,
+      steps,
+      {
+        controllerId: 'p1',
+        sourceId: 'giant-oyster',
+        sourceName: 'Giant Oyster',
+      },
+      { allowOptional: true }
+    );
+
+    const marked = ((registered.state.battlefield || []) as any[]).find((perm: any) => perm.id === 'giant-oyster');
+    expect(registered.appliedSteps.map(step => step.kind)).toEqual(['optional_untap_choice']);
+    expect(marked?.optionalUntapChoice).toBe(true);
+
+    const afterChosenUntap = executeUntapStep(registered.state as any, 'p1');
+    const stillTapped = ((afterChosenUntap.state.battlefield || []) as any[]).find((perm: any) => perm.id === 'giant-oyster');
+    expect(stillTapped?.tapped).toBe(true);
+
+    const afterDefaultUntap = executeUntapStep({ ...(registered.state as any), optionalUntapChoices: {} } as any, 'p1');
+    const untappedByDefault = ((afterDefaultUntap.state.battlefield || []) as any[]).find((perm: any) => perm.id === 'giant-oyster');
+    expect(untappedByDefault?.tapped).toBe(false);
+  });
+
   it('applies open_attraction by moving the first Attraction from the attraction deck to the battlefield', () => {
     const ir = parseOracleTextToIR('Open an Attraction.', 'Scavenger Hunt');
     const steps = ir.abilities[0]?.steps ?? [];
@@ -53803,6 +53856,223 @@ This creature has protection from each of the exiled card's card types. (Artifac
     expect(artifact?.counters).toEqual({ charge: 2 });
     expect(player?.hand).toHaveLength(3);
     expect(player?.library).toHaveLength(1);
+  });
+
+  it('applies sticker placement markers to the chosen permanent', () => {
+    const steps = parseOracleTextToIR('Put a sticker on target creature.', 'Sticker Source').abilities[0]?.steps ?? [];
+    const result = applyOracleIRStepsToGameState(
+      makeState({
+        battlefield: [
+          {
+            id: 'sticker-target',
+            controller: 'p1',
+            owner: 'p1',
+            card: { id: 'sticker-target-card', name: 'Target Bear', type_line: 'Creature - Bear' },
+          } as any,
+        ],
+      }),
+      steps,
+      { controllerId: 'p1', sourceId: 'sticker-source', sourceName: 'Sticker Source', targetCreatureId: 'sticker-target' }
+    );
+
+    const target = (result.state.battlefield || []).find((perm: any) => perm.id === 'sticker-target') as any;
+    expect(result.appliedSteps.map(step => step.kind)).toEqual(['put_sticker']);
+    expect(target?.stickers?.[0]).toMatchObject({ sourceId: 'sticker-source', sourceName: 'Sticker Source' });
+  });
+
+  it('tracks restricted mana entries for creature-only mana', () => {
+    const steps = parseOracleTextToIR('Add {G}. Spend this mana only to cast a creature spell.', 'Mana Source').abilities[0]?.steps ?? [];
+    const result = applyOracleIRStepsToGameState(makeState(), steps, {
+      controllerId: 'p1',
+      sourceId: 'mana-source',
+      sourceName: 'Mana Source',
+    });
+    const pool = (result.state as any).manaPool?.p1;
+
+    expect(result.appliedSteps.map(step => step.kind)).toEqual(['add_mana']);
+    expect(pool?.green).toBe(1);
+    expect(pool?.restricted?.[0]).toMatchObject({ type: 'green', amount: 1, restriction: 'creatures', sourceId: 'mana-source' });
+  });
+
+  it('adds ticket counters to players', () => {
+    const steps = parseOracleTextToIR('You get {TK}{TK}.', 'Ticket Source').abilities[0]?.steps ?? [];
+    const result = applyOracleIRStepsToGameState(makeState(), steps, { controllerId: 'p1', sourceName: 'Ticket Source' });
+    const p1 = result.state.players.find((player: any) => player.id === 'p1') as any;
+
+    expect(result.appliedSteps.map(step => step.kind)).toEqual(['add_player_counter']);
+    expect(p1.ticketCounters).toBe(2);
+  });
+
+  it('uses the last sacrificed creature power for damage amounts', () => {
+    const steps = [
+      {
+        kind: 'sacrifice',
+        who: { kind: 'you' },
+        what: { kind: 'raw', text: 'a creature' },
+        raw: 'Sacrifice a creature',
+      },
+      {
+        kind: 'deal_damage',
+        source: { kind: 'raw', text: 'it' },
+        amount: { kind: 'object_stat', subject: 'the_sacrificed_creature', stat: 'power' },
+        target: { kind: 'raw', text: 'target opponent' },
+        raw: "It deals damage equal to the sacrificed creature's power to target opponent",
+      },
+    ] as any;
+    const result = applyOracleIRStepsToGameState(
+      makeState({
+        players: [
+          { id: 'p1', name: 'P1', seat: 0, life: 40, library: [], hand: [], graveyard: [], exile: [] } as any,
+          { id: 'p2', name: 'P2', seat: 1, life: 40, library: [], hand: [], graveyard: [], exile: [] } as any,
+        ],
+        battlefield: [
+          {
+            id: 'sac-creature',
+            controller: 'p1',
+            owner: 'p1',
+            power: 5,
+            toughness: 5,
+            card: { id: 'sac-creature-card', name: 'Big Bear', type_line: 'Creature - Bear', power: '5', toughness: '5' },
+          } as any,
+        ],
+      }),
+      steps,
+      { controllerId: 'p1', sourceId: 'damage-source', selectorContext: { targetOpponentId: 'p2' as any } }
+    );
+    const p2 = result.state.players.find((player: any) => player.id === 'p2') as any;
+
+    expect(result.appliedSteps.map(step => step.kind)).toEqual(['sacrifice', 'deal_damage']);
+    expect(p2.life).toBe(35);
+  });
+
+  it('registers source-choice next damage shields for a chosen recipient', () => {
+    const steps = parseOracleTextToIR(
+      'The next time a source of your choice would deal damage to you this turn, prevent that damage.',
+      'Shield Source'
+    ).abilities[0]?.steps ?? [];
+    const registered = applyOracleIRStepsToGameState(
+      makeState({
+        turnNumber: 3,
+        players: [
+          { id: 'p1', name: 'P1', seat: 0, life: 40, library: [], hand: [], graveyard: [], exile: [] } as any,
+          { id: 'p2', name: 'P2', seat: 1, life: 40, library: [], hand: [], graveyard: [], exile: [] } as any,
+        ],
+        battlefield: [
+          { id: 'spark-source', controller: 'p2', owner: 'p2', card: { id: 'spark-source-card', name: 'Spark', type_line: 'Creature - Elemental' } } as any,
+        ],
+      } as any),
+      steps,
+      { controllerId: 'p1', sourceId: 'shield-source', selectorContext: { targetSourceId: 'spark-source' } as any }
+    );
+
+    const prevention = previewPreventedDamage(registered.state, 7, 'spark-source', { targetPlayerId: 'p1' as any });
+    expect(registered.appliedSteps.map(step => step.kind)).toEqual(['prevent_damage']);
+    expect(prevention.prevented).toBe(7);
+    expect((prevention.state as any)?.damagePreventionEffects || []).toHaveLength(0);
+  });
+
+  it('marks a creature as assigning no combat damage this turn', () => {
+    const steps = parseOracleTextToIR('This creature assigns no combat damage this turn.', 'No Damage Source').abilities[0]?.steps ?? [];
+    const result = applyOracleIRStepsToGameState(
+      makeState({
+        turnNumber: 4,
+        battlefield: [
+          {
+            id: 'no-damage-creature',
+            controller: 'p1',
+            owner: 'p1',
+            power: 6,
+            toughness: 6,
+            card: { id: 'no-damage-card', name: 'Quiet Attacker', type_line: 'Creature - Beast', power: '6', toughness: '6' },
+          } as any,
+        ],
+      } as any),
+      steps,
+      { controllerId: 'p1', sourceId: 'no-damage-creature' }
+    );
+    const creature = (result.state.battlefield || []).find((perm: any) => perm.id === 'no-damage-creature') as any;
+
+    expect(result.appliedSteps.map(step => step.kind)).toEqual(['assign_no_combat_damage']);
+    expect(getCombatDamageValue(creature, result.state)).toBe(0);
+  });
+
+  it('records and rejects repeated remembered modal choices for a source', () => {
+    const steps = parseOracleTextToIR(
+      "Choose one that hasn't been chosen —\n• Alpha — Draw a card.\n• Beta — You gain 2 life.",
+      'Mode Memory Source'
+    ).abilities[0]?.steps ?? [];
+    const start = makeState({ players: [{ id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'drawn' }], hand: [], graveyard: [], exile: [] } as any] });
+    const first = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1', sourceId: 'mode-source' }, { selectedModeIds: ['Alpha'] });
+    const second = applyOracleIRStepsToGameState(first.state, steps, { controllerId: 'p1', sourceId: 'mode-source' }, { selectedModeIds: ['Alpha'] });
+
+    expect((first.state as any).chosenModeHistory?.['mode-source']).toEqual(['Alpha']);
+    expect(second.skippedSteps.map(step => step.kind)).toContain('choose_mode');
+  });
+
+  it('evaluates static CDA power and toughness from cards in hand', () => {
+    const source = {
+      id: 'hand-cda',
+      controller: 'p1',
+      owner: 'p1',
+      card: {
+        id: 'hand-cda-card',
+        name: 'Hand Avatar',
+        type_line: 'Creature - Avatar',
+        oracle_text: "Hand Avatar's power and toughness are each equal to the number of cards in your hand.",
+      },
+    } as any;
+    const abilities = parseStaticAbilities(source.card, source.id, 'p1');
+    const result = calculateEffectivePT(source, [source], abilities, makeState({
+      players: [{ id: 'p1', name: 'P1', seat: 0, life: 40, library: [], hand: [{ id: 'h1' }, { id: 'h2' }, { id: 'h3' }], graveyard: [], exile: [] } as any],
+    }));
+
+    expect(result.power).toBe(3);
+    expect(result.toughness).toBe(3);
+  });
+
+  it('evaluates creature-count static CDA variants', () => {
+    const source = {
+      id: 'creature-count-cda',
+      controller: 'p1',
+      owner: 'p1',
+      card: {
+        id: 'creature-count-cda-card',
+        name: 'Creature Count Avatar',
+        type_line: 'Creature - Avatar',
+        oracle_text: "Creature Count Avatar's power is equal to the number of creatures you control.",
+      },
+    } as any;
+    const ally = { id: 'ally-cda', controller: 'p1', owner: 'p1', card: { id: 'ally-cda-card', name: 'Ally', type_line: 'Creature - Soldier' } } as any;
+    const opponentCreature = { id: 'opp-cda', controller: 'p2', owner: 'p2', card: { id: 'opp-cda-card', name: 'Opp', type_line: 'Creature - Goblin' } } as any;
+    const abilities = parseStaticAbilities(source.card, source.id, 'p1');
+    const result = calculateEffectivePT(source, [source, ally, opponentCreature], abilities);
+
+    expect(result.power).toBe(2);
+  });
+
+  it('requires all able blockers to block attackers with the all-able requirement', () => {
+    const state = makeState({
+      step: 'DECLARE_BLOCKERS' as any,
+      combat: { attackers: [{ cardId: 'lure-attacker', defendingPlayerId: 'p2' }] } as any,
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [], hand: [], graveyard: [], exile: [] } as any,
+        { id: 'p2', name: 'P2', seat: 1, life: 40, library: [], hand: [], graveyard: [], exile: [] } as any,
+      ],
+      battlefield: [
+        {
+          id: 'lure-attacker',
+          controller: 'p1',
+          owner: 'p1',
+          tapped: true,
+          card: { id: 'lure-card', name: 'Lure Bear', type_line: 'Creature - Bear', oracle_text: 'All creatures able to block this creature do so.' },
+        } as any,
+        { id: 'blocker-a', controller: 'p2', owner: 'p2', tapped: false, card: { id: 'blocker-a-card', name: 'Blocker A', type_line: 'Creature - Soldier' } } as any,
+        { id: 'blocker-b', controller: 'p2', owner: 'p2', tapped: false, card: { id: 'blocker-b-card', name: 'Blocker B', type_line: 'Creature - Soldier' } } as any,
+      ],
+    });
+
+    expect(validateDeclareBlockers(state, { type: 'declareBlockers', playerId: 'p2', blockers: [{ blockerId: 'blocker-a', attackerId: 'lure-attacker' }] } as any).legal).toBe(false);
+    expect(validateDeclareBlockers(state, { type: 'declareBlockers', playerId: 'p2', blockers: [{ blockerId: 'blocker-a', attackerId: 'lure-attacker' }, { blockerId: 'blocker-b', attackerId: 'lure-attacker' }] } as any).legal).toBe(true);
   });
 
 });

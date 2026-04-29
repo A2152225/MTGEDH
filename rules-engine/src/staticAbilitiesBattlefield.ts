@@ -1,4 +1,4 @@
-import type { BattlefieldPermanent, KnownCardRef, PlayerID } from '../../shared/src';
+import type { BattlefieldPermanent, GameState, KnownCardRef, PlayerID } from '../../shared/src';
 import { calculateEffectivePT } from './staticAbilitiesEvaluation';
 import type { StaticAbility } from './staticAbilitiesShared';
 
@@ -57,7 +57,8 @@ function applyStaticAuraControlEffects(
 
 export function applyStaticAbilitiesToBattlefield(
   battlefield: BattlefieldPermanent[],
-  parseStaticAbilities: ParseStaticAbilitiesFn
+  parseStaticAbilities: ParseStaticAbilitiesFn,
+  gameState?: GameState
 ): BattlefieldPermanent[] {
   const battlefieldWithStaticControl = applyStaticAuraControlEffects(battlefield);
   const staticAbilities = collectStaticAbilities(battlefieldWithStaticControl, parseStaticAbilities);
@@ -74,7 +75,8 @@ export function applyStaticAbilitiesToBattlefield(
     const { power, toughness, grantedAbilities } = calculateEffectivePT(
       perm,
       battlefieldWithStaticControl,
-      staticAbilities
+      staticAbilities,
+      gameState
     );
 
     return {

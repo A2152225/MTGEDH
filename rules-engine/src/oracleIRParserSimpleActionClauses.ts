@@ -52,7 +52,8 @@ function parseSmallNumber(raw: string): number | null {
 }
 
 function buildRepeatedMana(symbol: string, count: number): string {
-  return Array.from({ length: count }, () => symbol).join('');
+  const n = Math.max(0, Number(count) || 0);
+  return Array.from({ length: n }, () => symbol).join('');
 }
 
 function countEnergySymbols(raw: string): number {
@@ -60,10 +61,14 @@ function countEnergySymbols(raw: string): number {
   return Array.isArray(matches) ? matches.length : 0;
 }
 
+function countTicketSymbols(raw: string): number {
+  const matches = String(raw || '').match(/\{TK\}/gi);
+  return Array.isArray(matches) ? matches.length : 0;
+}
+
 function normalizePossessiveObjectReference(raw: string): string {
   const trimmed = String(raw || '').trim();
   if (/^its$/i.test(trimmed)) return 'it';
-  if (/^their$/i.test(trimmed)) return 'them';
   return trimmed.replace(/(?:'s|’s)$/i, '').trim();
 }
 
@@ -73,6 +78,19 @@ export function tryParseSimpleActionClause(args: {
   withMeta: WithMeta;
 }): OracleEffectStep | null {
   const { clause, rawClause, withMeta } = args;
+
+  {
+    const putSticker = clause.match(/^(?:you\s+may\s+)?put\s+(?:a|an)\s+((?:(?:name|art|ability|power\s+and\s+toughness|power\/toughness)\s+)?sticker)\s+on\s+(.+)$/i);
+    if (putSticker) {
+      return withMeta({
+        kind: 'put_sticker',
+        sticker: parseObjectSelector(putSticker[1]),
+        target: parseObjectSelector(putSticker[2]),
+        optional: /\bmay\b/i.test(clause) || undefined,
+        raw: rawClause,
+      });
+    }
+  }
 
   {
     const searchBattlefieldMultiple = clause.match(
@@ -100,6 +118,38 @@ export function tryParseSimpleActionClause(args: {
   }
 
   {
+    const addTicketCounters = clause.match(new RegExp(`^${PLAYER_SUBJECT_PREFIX}get(?:s)?\\s+((?:\\{TK\\})+)\\s*$`, 'i'));
+    if (addTicketCounters) {
+      const ticketCount = countTicketSymbols(String(addTicketCounters[2] || ''));
+      if (ticketCount > 0) {
+        return withMeta({
+          kind: 'add_player_counter',
+          who: parsePlayerSelector(addTicketCounters[1]),
+          amount: { kind: 'number', value: ticketCount },
+          counter: 'ticket',
+          raw: rawClause,
+        });
+      }
+    }
+  }
+
+  {
+    const becomeAura = clause.match(
+      /^(.+?)\s+loses\s+this\s+ability\s+and\s+becomes\s+an?\s+aura\s+enchantment\s+with\s+enchant\s+(.+)$/i
+    );
+    if (becomeAura) {
+      return withMeta({
+        kind: 'become_aura',
+        target: parseObjectSelector(becomeAura[1]),
+        enchant: parseObjectSelector(becomeAura[2]),
+        losesThisAbility: true,
+        duration: 'until_effect_ends',
+        raw: rawClause,
+      });
+    }
+  }
+
+  {
     const searchBattlefield = clause.match(
       /^search your library for (?:up to one |a |an )(.+?) card,\s*(reveal it,\s*)?put (?:it|that card) onto the battlefield( tapped)?(?: under your control)?(?:,\s*(?:then\s+)?shuffle(?: your library)?)?$/i
     );
@@ -118,6 +168,17 @@ export function tryParseSimpleActionClause(args: {
     }
   }
 
+
+  {
+    const flipCoin = clause.match(new RegExp(`^${PLAYER_SUBJECT_PREFIX}flips?\\s+a\\s+coin$`, 'i'));
+    if (flipCoin) {
+      return withMeta({
+        kind: 'flip_coin',
+        who: parsePlayerSelector(flipCoin[1]),
+        raw: rawClause,
+        });
+    }
+  }
 
   {
     const rollDie = clause.match(/^roll\s+a\s+d(\d+)$/i);
@@ -395,7 +456,7 @@ export function tryParseSimpleActionClause(args: {
   {
     const addEnergyCounters = clause.match(new RegExp(`^${PLAYER_SUBJECT_PREFIX}get(?:s)?\\s+((?:\\{E\\})+)(?:\\s*\\(([^)]*energy counters?)\\))?\\s*$`, 'i'));
     if (addEnergyCounters) {
-      const energyCount = countEnergySymbols(String(addEnergyCounters[2] || ''));
+      const energyCount = countEnergySymbols(String(addEnergyCounters[2] || addEnergyCounters[1] || ''));
       if (energyCount > 0) {
         return withMeta({
           kind: 'add_player_counter',

@@ -55,6 +55,30 @@ export function checkSpellTimingRestriction(
     return { canCast: true };
   }
 
+  if (/cast this spell only during the declare attackers step and only if you(?:'|’)?ve been attacked this step/.test(text)) {
+    const step = (gameState?.step || '').toString().toLowerCase();
+    const isDeclareAttackersStep = step.includes('declare_attackers') || step.includes('declare attackers');
+    if (!isDeclareAttackersStep) {
+      return {
+        canCast: false,
+        reason: 'This spell can only be cast during the declare attackers step',
+      };
+    }
+
+    const wasAttackedThisStep = (gameState?.combat?.attackers || []).some((attacker: any) => {
+      const defending = String(attacker?.defendingPlayerId || attacker?.defending || attacker?.targetPlayerId || '').trim();
+      return defending === currentPlayerId;
+    });
+    if (!wasAttackedThisStep) {
+      return {
+        canCast: false,
+        reason: 'You must have been attacked this step to cast this spell',
+      };
+    }
+
+    return { canCast: true };
+  }
+
   return { canCast: true };
 }
 

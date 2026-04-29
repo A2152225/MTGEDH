@@ -1417,6 +1417,206 @@ export function applySkipNextUntapStep(
   };
 }
 
+export function applyOptionalUntapChoiceStep(
+  state: GameState,
+  step: Extract<OracleEffectStep, { kind: 'optional_untap_choice' }>,
+  ctx: OracleIRExecutionContext
+): BattlefieldStepHandlerResult {
+  const battlefield = (state.battlefield || []) as BattlefieldPermanent[];
+  const targetText = String((step.target as any)?.text || (step.target as any)?.raw || '').trim();
+  const sourceId = String(ctx.sourceId || '').trim();
+  const sourcePermanent = sourceId
+    ? battlefield.find((perm: any) => String((perm as any)?.id || '').trim() === sourceId)
+    : undefined;
+  const normalizedTarget = normalizeSelfReferenceText(targetText);
+  const sourceNames = new Set(
+    [String(ctx.sourceName || ''), String((ctx as any).cardName || '')]
+      .flatMap(value => buildNameReferenceAliases(value))
+      .filter(Boolean)
+  );
+  const selfReference =
+    /^(?:this\s+(?:creature|artifact|land|permanent|vehicle)|it)$/i.test(targetText) ||
+    (normalizedTarget.length > 0 && sourceNames.has(normalizedTarget));
+
+  const targets = selfReference && sourcePermanent
+    ? [sourcePermanent]
+    : resolveDirectBattlefieldPermanents(battlefield, step.target as any, ctx);
+  const targetIds = Array.from(new Set(
+    targets.map((perm: any) => String((perm as any)?.id || '').trim()).filter(Boolean)
+  ));
+
+  if (targetIds.length === 0) {
+    return {
+      applied: false,
+      message: `Skipped optional untap choice registration (no deterministic target): ${step.raw}`,
+      reason: 'no_deterministic_target',
+    };
+  }
+
+  if (targetIds.length > 1) {
+    return {
+      applied: false,
+      message: `Skipped optional untap choice registration (needs player choice): ${step.raw}`,
+      reason: 'player_choice_required',
+      options: { classification: 'player_choice' },
+    };
+  }
+
+  const targetIdSet = new Set(targetIds);
+  const nextBattlefield = battlefield.map((perm: any) => {
+    const permanentId = String((perm as any)?.id || '').trim();
+    if (!targetIdSet.has(permanentId)) return perm;
+    return {
+      ...perm,
+      optionalUntapChoice: true,
+      optionalUntapChoiceSourceId: String(ctx.sourceId || '').trim() || undefined,
+      optionalUntapChoiceSourceName: String(ctx.sourceName || '').trim() || undefined,
+    } as any;
+  });
+
+  return {
+    applied: true,
+    state: { ...(state as any), battlefield: nextBattlefield } as GameState,
+    log: [`Registered optional untap choice for ${targetIds.length} permanent(s)`],
+  };
+}
+
+export function applyPutStickerStep(
+  state: GameState,
+  step: Extract<OracleEffectStep, { kind: 'put_sticker' }>,
+  ctx: OracleIRExecutionContext
+): BattlefieldStepHandlerResult {
+  const targetIds = resolveTapOrUntapTargetIds(state, step.target, ctx);
+  if (targetIds.length === 0) {
+    return {
+      applied: false,
+      message: `Skipped put sticker (requires target): ${step.raw}`,
+      reason: 'player_choice_required',
+      options: { classification: 'player_choice' },
+    };
+  }
+
+  const wanted = new Set(targetIds);
+  const battlefield = ((state.battlefield || []) as BattlefieldPermanent[]).map((perm: any) => {
+    const permanentId = String(perm?.id || '').trim();
+    if (!wanted.has(permanentId)) return perm;
+    const stickers = Array.isArray(perm.stickers) ? [...perm.stickers] : [];
+    return {
+      ...perm,
+      stickers: [
+        ...stickers,
+        {
+          sourceId: ctx.sourceId,
+          sourceName: ctx.sourceName,
+          text: String(step.sticker?.kind === 'raw' ? step.sticker.text : step.raw || 'sticker'),
+        },
+      ],
+    } as BattlefieldPermanent;
+  });
+
+  return {
+    applied: true,
+    state: { ...(state as any), battlefield } as GameState,
+    log: [`Put a sticker on ${targetIds.join(', ')}`],
+  };
+}
+
+export function applyAssignNoCombatDamageStep(
+  state: GameState,
+  step: Extract<OracleEffectStep, { kind: 'assign_no_combat_damage' }>,
+  ctx: OracleIRExecutionContext
+): BattlefieldStepHandlerResult {
+  const targetIds = resolveTapOrUntapTargetIds(state, step.target, ctx);
+  if (targetIds.length === 0) {
+    return {
+      applied: false,
+      message: `Skipped assign no combat damage (requires target): ${step.raw}`,
+      reason: 'player_choice_required',
+      options: { classification: 'player_choice' },
+    };
+  }
+
+  const wanted = new Set(targetIds);
+  const turnNumber = Number((state as any).turnNumber ?? (state as any).turn ?? 0) || 0;
+  const battlefield = ((state.battlefield || []) as BattlefieldPermanent[]).map((perm: any) => {
+    const permanentId = String(perm?.id || '').trim();
+    if (!wanted.has(permanentId)) return perm;
+    return {
+      ...perm,
+      assignsNoCombatDamageUntilTurn: turnNumber,
+    } as BattlefieldPermanent;
+  });
+
+  return {
+    applied: true,
+    state: { ...(state as any), battlefield } as GameState,
+    log: [`${targetIds.join(', ')} assigns no combat damage this turn`],
+  };
+}
+
+export function applyBecomeAuraStep(
+  state: GameState,
+  step: Extract<OracleEffectStep, { kind: 'become_aura' }>,
+  ctx: OracleIRExecutionContext
+): BattlefieldStepHandlerResult {
+  const sourceTargetIds = resolveTapOrUntapTargetIds(state, step.target, ctx);
+  const auraId = sourceTargetIds[0] || String(ctx.sourceId || '').trim();
+  if (!auraId) {
+    return {
+      applied: false,
+      message: `Skipped become Aura (requires source permanent): ${step.raw}`,
+      reason: 'unsupported_target',
+    };
+  }
+
+  const enchantTargetIds = resolveTapOrUntapTargetIds(state, step.enchant, {
+    ...ctx,
+    targetPermanentId: String((ctx.selectorContext as any)?.attachmentTargetId || ctx.targetPermanentId || '').trim() || undefined,
+  });
+  const enchantTargetId = enchantTargetIds.find(id => id !== auraId) || '';
+  if (!enchantTargetId) {
+    return {
+      applied: false,
+      message: `Skipped become Aura (requires enchant target): ${step.raw}`,
+      reason: 'player_choice_required',
+      options: { classification: 'player_choice' },
+    };
+  }
+
+  const battlefield = ((state.battlefield || []) as BattlefieldPermanent[]).map((perm: any) => {
+    const permanentId = String(perm?.id || '').trim();
+    if (permanentId === auraId) {
+      const card = { ...(perm.card || {}) };
+      const typeLine = String(card.type_line || perm.type_line || '').includes('Aura')
+        ? String(card.type_line || perm.type_line || '')
+        : `${String(card.type_line || perm.type_line || 'Enchantment').trim()} Aura`.trim();
+      return {
+        ...perm,
+        card: { ...card, type_line: typeLine },
+        type_line: typeLine,
+        attachedTo: enchantTargetId,
+        isAura: true,
+        enchantTarget: step.enchant,
+        losesThisAbility: Boolean(step.losesThisAbility),
+      } as BattlefieldPermanent;
+    }
+    if (permanentId === enchantTargetId) {
+      const attachments = Array.isArray(perm.attachments) ? [...perm.attachments] : [];
+      return {
+        ...perm,
+        attachments: attachments.includes(auraId) ? attachments : [...attachments, auraId],
+      } as BattlefieldPermanent;
+    }
+    return perm;
+  });
+
+  return {
+    applied: true,
+    state: { ...(state as any), battlefield } as GameState,
+    log: [`${auraId} becomes an Aura attached to ${enchantTargetId}`],
+  };
+}
+
 function permanentMatchesTappedFilter(perm: any, filterText: string): boolean {
   const normalizedFilter = String(filterText || '')
     .replace(/\u2019/g, "'")

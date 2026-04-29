@@ -13,6 +13,7 @@ import {
   clearEndOfTurnRestrictions,
   canActivateAbilities,
   hasValidTargetsForSpell,
+  checkSpellTimingRestriction,
   CastingRestrictionType,
   RestrictionDuration,
 } from '../src/castingRestrictions';
@@ -439,6 +440,29 @@ describe('Casting Restrictions', () => {
       // Player2 has both Rule of Law and Teferi (as opponent)
       const player2Restrictions = restrictions.get('player2') || [];
       expect(player2Restrictions.length).toBeGreaterThanOrEqual(2);
+    });
+  });
+
+  describe('checkSpellTimingRestriction', () => {
+    it('requires the declare attackers step and that the caster was attacked this step', () => {
+      const oracleText = "Cast this spell only during the declare attackers step and only if you've been attacked this step.";
+
+      const wrongStep = checkSpellTimingRestriction(oracleText, 'player2', 'player1', {
+        step: 'declare_blockers',
+        combat: { attackers: [{ cardId: 'attacker', defendingPlayerId: 'player2' }] },
+      } as any);
+      const notAttacked = checkSpellTimingRestriction(oracleText, 'player2', 'player1', {
+        step: 'declare_attackers',
+        combat: { attackers: [{ cardId: 'attacker', defendingPlayerId: 'player3' }] },
+      } as any);
+      const legal = checkSpellTimingRestriction(oracleText, 'player2', 'player1', {
+        step: 'declare_attackers',
+        combat: { attackers: [{ cardId: 'attacker', defendingPlayerId: 'player2' }] },
+      } as any);
+
+      expect(wrongStep.canCast).toBe(false);
+      expect(notAttacked.canCast).toBe(false);
+      expect(legal.canCast).toBe(true);
     });
   });
 

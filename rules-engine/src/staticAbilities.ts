@@ -16,7 +16,7 @@
  * - Rule 613: Layer System
  */
 
-import type { BattlefieldPermanent } from '../../shared/src';
+import type { BattlefieldPermanent, GameState } from '../../shared/src';
 import {
   applyStaticAbilitiesToBattlefield as applyStaticAbilitiesToBattlefieldImpl,
   collectStaticAbilities as collectStaticAbilitiesImpl,
@@ -47,9 +47,10 @@ export function collectStaticAbilities(
  * Apply static abilities to all permanents and return updated state.
  */
 export function applyStaticAbilitiesToBattlefield(
-  battlefield: BattlefieldPermanent[]
+  battlefield: BattlefieldPermanent[],
+  gameState?: GameState
 ): BattlefieldPermanent[] {
-  return applyStaticAbilitiesToBattlefieldImpl(battlefield, parseStaticAbilities);
+  return applyStaticAbilitiesToBattlefieldImpl(battlefield, parseStaticAbilities, gameState);
 }
 
 export default {

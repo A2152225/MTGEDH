@@ -676,6 +676,7 @@ function getBottomLibraryRestOrder(step: OracleEffectStep | undefined): 'random'
   if (!step || (step.kind !== 'unknown' && step.kind !== 'move_zone')) return null;
 
   const normalized = normalizeOracleText(String(step.raw || ''))
+    .replace(/^then\b\s*/i, '')
     .replace(/[.]+$/g, '')
     .trim();
   if (/^put the rest on the bottom of your library in a random order$/i.test(normalized)) {
@@ -718,9 +719,34 @@ function isTopLibrarySelectionFollowupStep(step: OracleEffectStep | undefined): 
     .replace(/[.]+$/g, '')
     .trim();
   return /\bfrom among them\b/i.test(normalized)
+    || /\bamong them\b/i.test(normalized)
     || /\bfrom among cards revealed this way\b/i.test(normalized)
     || /\bfrom among those cards\b/i.test(normalized)
     || /\bone of those cards\b/i.test(normalized);
+}
+
+function hasRecentTopLibrarySelectionContext(steps: readonly OracleEffectStep[], bottomTailIndex: number): boolean {
+  const start = Math.max(0, bottomTailIndex - 5);
+  for (let index = bottomTailIndex - 1; index >= start; index -= 1) {
+    const step = steps[index];
+    if (!step) continue;
+    if (step.kind === 'look_top' || step.kind === 'reveal_top' || isTopLibrarySelectionFollowupStep(step)) {
+      return true;
+    }
+
+    const normalized = normalizeOracleText(String(step.raw || ''))
+      .replace(/^then\b\s*/i, '')
+      .replace(/^[^-—]+[-—]\s*/i, '')
+      .replace(/[.]+$/g, '')
+      .trim();
+    if (/^(?:if you do,\s+)?(?:look at|reveal) the top\b/i.test(normalized)
+      || /^(?:if you do,\s+)?look at that many cards from the top of your library$/i.test(normalized)
+      || /\bfrom among them\b/i.test(normalized)
+      || /\bamong them\b/i.test(normalized)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 function isTopLibrarySelectionFallbackStep(step: OracleEffectStep | undefined): boolean {
@@ -743,6 +769,17 @@ export function mergeTopLibraryBottomRandomTailAbilities(
       const current = ability.steps[i];
       const next = ability.steps[i + 1];
       const after = ability.steps[i + 2];
+
+      if (getBottomLibraryRestOrder(current) && hasRecentTopLibrarySelectionContext(ability.steps, i)) {
+        const previous = merged.pop();
+        if (previous) {
+          merged.push({
+            ...previous,
+            raw: appendFollowupSentence(previous.raw, String(current.raw || '').trim()),
+          });
+        }
+        continue;
+      }
 
       if (current.kind === 'impulse_exile_top' && getBottomLibraryRestOrder(next)) {
         merged.push({
@@ -806,6 +843,51 @@ export function mergeTopLibraryBottomRandomTailAbilities(
           raw: appendFollowupSentence(after.raw, String(ability.steps[i + 3]?.raw || '').trim()),
         });
         i += 3;
+        continue;
+      }
+
+      merged.push(current);
+    }
+
+    return merged.length === ability.steps.length ? ability : { ...ability, steps: merged };
+  });
+}
+
+function parseManaSpendRestriction(step: OracleEffectStep | undefined): Extract<OracleEffectStep, { kind: 'add_mana' }>['spendRestriction'] | null {
+  if (!step || step.kind !== 'unknown') return null;
+
+  const normalized = normalizeOracleText(String(step.raw || ''))
+    .replace(/^then\b\s*/i, '')
+    .replace(/[.]+$/g, '')
+    .trim();
+
+  if (/^spend this mana only to cast an? creature spell$/i.test(normalized)) return 'creature_spell';
+  if (/^spend this mana only to cast an? instant or sorcery spell$/i.test(normalized)) return 'instant_or_sorcery_spell';
+  return null;
+}
+
+export function mergeAddManaRestrictionFollowupAbilities(
+  abilities: readonly OracleIRAbility[]
+): OracleIRAbility[] {
+  return abilities.map((ability) => {
+    const merged: OracleEffectStep[] = [];
+
+    for (let i = 0; i < ability.steps.length; i += 1) {
+      const current = ability.steps[i];
+      const next = ability.steps[i + 1];
+      if (current.kind !== 'add_mana') {
+        merged.push(current);
+        continue;
+      }
+
+      const spendRestriction = parseManaSpendRestriction(next);
+      if (spendRestriction) {
+        merged.push({
+          ...current,
+          spendRestriction,
+          raw: appendFollowupSentence(current.raw, String(next?.raw || '').trim()),
+        });
+        i += 1;
         continue;
       }
 
@@ -4230,11 +4312,16 @@ export function pruneExternallyHandledStaticUnknownAbilities(
       /^(?:equipped|enchanted) creature gets [+-]\d+\/[+-]\d+[.)]*$/i.test(normalizedText) ||
       /^you control enchanted (?:creature|permanent)[.)]*$/i.test(normalizedText) ||
       /^creatures you control have haste[.)]*$/i.test(normalizedText) ||
+      /^(?:instant and sorcery|instant or sorcery) spells you cast cost \{\d+\} less to cast[.)]*$/i.test(normalizedText) ||
+      /^all creatures able to block (?:this creature|this permanent|~) do so[.)]*$/i.test(normalizedText) ||
       /^as this land enters, you may reveal (?:a|an) .+? card from your hand\. if you don't, (?:this land|it) enters tapped[.)]*$/i.test(normalizedText) ||
       /^as this land enters, you may pay \d+ life\. if you don't, (?:this land|it) enters tapped[.)]*$/i.test(normalizedText) ||
       /^you have hexproof(?:\.?\s*\(.*\))?[.)]*$/i.test(normalizedText) ||
       /^players can't gain life[.)]*$/i.test(normalizedText) ||
       /^(?:this (?:creature|permanent)'?s|~'?s) power and toughness are each equal to (?:the )?number of lands you control[.)]*$/i.test(normalizedText) ||
+      /^(?:this (?:creature|permanent)'?s|~'?s) power and toughness are each equal to (?:the )?number of cards in your hand[.)]*$/i.test(normalizedText) ||
+      /^(?:this (?:creature|permanent)'?s|~'?s) power and toughness are each equal to (?:the )?number of creatures you control[.)]*$/i.test(normalizedText) ||
+      /^(?:this (?:creature|permanent)'?s|~'?s) power is equal to (?:the )?number of creatures you control[.)]*$/i.test(normalizedText) ||
       /^(?:enchanted creature|this creature|this permanent) does(?:n't| not) untap during (?:its controller(?:'|â€™)s|your) untap step[.)]*$/i.test(normalizedText) ||
       /^(?:this creature|~|[a-z0-9', -]+) can block an additional(?: (?:\d+|[a-z]+(?:[ -][a-z]+)*))? creature(?:s)? each combat[.)]*$/i.test(normalizedText) ||
       /^this creature can block only creatures with flying[.)]*$/i.test(normalizedText) ||
@@ -4684,7 +4771,10 @@ function isRedundantEntersTappedReplacementUnknownStep(step: OracleEffectStep): 
   return (
     /^tapped$/i.test(normalized) ||
     /^tapped unless you control two or fewer other lands$/i.test(normalized) ||
-    /^tapped unless you control two or more other lands$/i.test(normalized)
+    /^tapped unless you control two or more other lands$/i.test(normalized) ||
+    /^tapped unless a player has 13 or less life$/i.test(normalized) ||
+    /^tapped unless you control two or more basic lands$/i.test(normalized) ||
+    /^tapped unless you have two or more opponents$/i.test(normalized)
   );
 }
 
@@ -4697,7 +4787,7 @@ export function pruneRedundantEntersTappedReplacementUnknownAbilities(
     const normalizedText = normalizeOracleText(String(ability.text || ability.effectText || ''))
       .replace(/[.)\s]+$/g, '')
       .trim();
-    if (!/\benters(?: the battlefield)? tapped(?: unless you control two or fewer other lands| unless you control two or more other lands)?$/i.test(normalizedText)) {
+    if (!/\benters(?: the battlefield)? tapped(?: unless you control two or fewer other lands| unless you control two or more other lands| unless a player has 13 or less life| unless you control two or more basic lands| unless you have two or more opponents)?$/i.test(normalizedText)) {
       return ability;
     }
 
@@ -6650,6 +6740,21 @@ function parsePreventDamageUnknownStep(
     }
   }
 
+  const sourceChoiceNextDamageMatch = normalized.match(
+    /^the next time (?:a|target) source(?: of your choice)? would deal damage to (.+?) this turn, prevent that damage$/i
+  );
+  if (sourceChoiceNextDamageMatch) {
+    return {
+      kind: 'prevent_damage',
+      amount: 'all',
+      target: parseObjectSelector('target source'),
+      recipientTarget: parseObjectSelector(String(sourceChoiceNextDamageMatch[1] || '').trim()),
+      duration: 'this_turn',
+      ...(step.sequence ? { sequence: step.sequence } : {}),
+      raw: normalized,
+    };
+  }
+
   const match = normalized.match(
     /^prevent all damage that would be dealt this turn by (target source(?: of your choice)?) that shares a color with the exiled card$/i
   );
@@ -8176,6 +8281,26 @@ function isRedundantActivationRestrictionUnknownStep(step: OracleEffectStep): bo
     /^activate only if there are seven or more cards in your graveyard[.)"â€]*$/i.test(normalized) ||
     /^activate(?: this ability)? only once(?: each turn)?[.)"â€]*$/i.test(normalized)
   );
+}
+
+function isRedundantSpellTimingRestrictionUnknownStep(step: OracleEffectStep): boolean {
+  if (!step || step.kind !== 'unknown') return false;
+
+  const normalized = normalizeOracleText(String(step.raw || ''))
+    .replace(/^then\b\s*/i, '')
+    .trim();
+  if (!normalized) return false;
+
+  return /^cast this spell only during the declare attackers step and only if you(?:'|’)?ve been attacked this step[.)]*$/i.test(normalized);
+}
+
+export function pruneRedundantSpellTimingRestrictionUnknownAbilities(
+  abilities: readonly OracleIRAbility[]
+): OracleIRAbility[] {
+  return abilities.map((ability) => {
+    const nextSteps = ability.steps.filter(step => !isRedundantSpellTimingRestrictionUnknownStep(step));
+    return nextSteps.length === ability.steps.length ? ability : { ...ability, steps: nextSteps };
+  });
 }
 
 export function pruneRedundantActivationRestrictionUnknownAbilities(

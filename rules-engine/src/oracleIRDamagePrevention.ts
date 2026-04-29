@@ -92,6 +92,32 @@ export function createTargetDamagePreventionEffect(params: {
   };
 }
 
+export function createSourceChoiceDamagePreventionEffect(params: {
+  state: GameState;
+  sourceId?: string;
+  sourceName?: string;
+  controllerId?: string;
+  targetSourceId: string;
+  targetPlayerId?: PlayerID;
+  targetPermanentId?: string;
+  description: string;
+}): DamagePreventionEffect {
+  const currentTurn = getCurrentTurnNumber(params.state);
+  const targetRef = String(params.targetPlayerId || params.targetPermanentId || 'target').trim() || 'target';
+  return {
+    id: `${String(params.sourceId || 'oracle-ir').trim() || 'oracle-ir'}:prevent:source-choice:${String(params.targetSourceId || '').trim()}:${targetRef}:${currentTurn}`,
+    description: params.description,
+    sourceId: params.sourceId,
+    sourceName: params.sourceName,
+    controllerId: params.controllerId as any,
+    targetSourceId: params.targetSourceId,
+    targetPlayerId: params.targetPlayerId,
+    targetPermanentId: params.targetPermanentId,
+    consumeOnUse: true,
+    expiresAtTurn: currentTurn,
+  };
+}
+
 export function registerDamagePreventionEffect(
   state: GameState,
   effect: DamagePreventionEffect
@@ -175,7 +201,13 @@ export function previewPreventedDamage(
     if (prevented <= 0) continue;
 
     let nextState: GameState | undefined;
-    if (remainingShieldAmount !== null) {
+    if ((effect as any)?.consumeOnUse === true) {
+      const nextEffects = activeEffects.filter((entry) => String(entry?.id || '').trim() !== String(effect?.id || '').trim());
+      nextState = {
+        ...(state as any),
+        damagePreventionEffects: nextEffects,
+      } as GameState;
+    } else if (remainingShieldAmount !== null) {
       const nextRemainingAmount = remainingShieldAmount - prevented;
       const nextEffects = activeEffects.flatMap((entry) => {
         if (String(entry?.id || '').trim() !== String(effect?.id || '').trim()) {

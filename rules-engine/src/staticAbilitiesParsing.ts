@@ -75,6 +75,89 @@ export function parseStaticAbilities(
     }
   }
 
+  const instantSorceryReductionMatch = oracleText.match(/(?:instant\s+(?:and|or)\s+sorcery)\s+spells\s+you\s+cast\s+cost\s+\{(\d+)\}\s+less\s+to\s+cast/i);
+  if (instantSorceryReductionMatch) {
+    abilities.push({
+      id: `${permanentId}-instant-sorcery-cost-reduction`,
+      sourceId: permanentId,
+      sourceName: name,
+      controllerId,
+      effectType: StaticEffectType.COST_REDUCTION,
+      filter: {
+        cardTypes: ['instant', 'sorcery'],
+        controller: 'you',
+      },
+      value: parseInt(instantSorceryReductionMatch[1], 10),
+      layer: 0,
+    });
+  }
+
+  const handSizePtMatch = oracleText.match(/(?:this (?:creature|permanent)'s|~'?s|[^.]+?'s) power and toughness are each equal to (?:the )?number of cards in your hand/i);
+  if (handSizePtMatch) {
+    abilities.push({
+      id: `${permanentId}-pt-cards-in-hand`,
+      sourceId: permanentId,
+      sourceName: name,
+      controllerId,
+      effectType: StaticEffectType.SET_PT,
+      filter: {
+        cardTypes: ['creature'],
+        selfOnly: true,
+      },
+      value: 'count',
+      affectedStat: 'both',
+      countFilter: {
+        zone: 'hand',
+        controller: 'you',
+      },
+      layer: 7,
+    });
+  }
+
+  const creatureCountPtMatch = oracleText.match(/(?:this (?:creature|permanent)'s|~'?s|[^.]+?'s) power and toughness are each equal to (?:the )?number of creatures you control/i);
+  if (creatureCountPtMatch) {
+    abilities.push({
+      id: `${permanentId}-pt-creatures-you-control`,
+      sourceId: permanentId,
+      sourceName: name,
+      controllerId,
+      effectType: StaticEffectType.SET_PT,
+      filter: {
+        cardTypes: ['creature'],
+        selfOnly: true,
+      },
+      value: 'count',
+      affectedStat: 'both',
+      countFilter: {
+        cardTypes: ['creature'],
+        controller: 'you',
+      },
+      layer: 7,
+    });
+  }
+
+  const creatureCountPowerMatch = oracleText.match(/(?:this (?:creature|permanent)'s|~'?s|[^.]+?'s) power is equal to (?:the )?number of creatures you control/i);
+  if (creatureCountPowerMatch) {
+    abilities.push({
+      id: `${permanentId}-power-creatures-you-control`,
+      sourceId: permanentId,
+      sourceName: name,
+      controllerId,
+      effectType: StaticEffectType.SET_PT,
+      filter: {
+        cardTypes: ['creature'],
+        selfOnly: true,
+      },
+      value: 'count',
+      affectedStat: 'power',
+      countFilter: {
+        cardTypes: ['creature'],
+        controller: 'you',
+      },
+      layer: 7,
+    });
+  }
+
   const colorPumpMatch = oracleText.match(/(white|blue|black|red|green)\s+creatures?\s+get\s+\+(\d+)\/\+(\d+)/i);
   if (colorPumpMatch) {
     abilities.push({

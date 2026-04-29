@@ -4,6 +4,7 @@ import { normalizeOracleText } from './oracleIRParserUtils';
 /**
  * Matches modal headers such as:
  * - "Choose one -"
+ * - "Choose one that hasn't been chosen -"
  * - "Choose one or more -"
  * - "Choose one or both -"
  * - "Choose up to three -"
@@ -11,7 +12,7 @@ import { normalizeOracleText } from './oracleIRParserUtils';
  * - "Choose any number of modes -"
  */
 const CHOOSE_MODE_HEADER_RE =
-  /^Choose\s+(?:one\s+or\s+both|one\s+or\s+more|one|two|three|four|up\s+to\s+(?:one|two|three|four|\w+)|any\s+number(?:\s+of\s+modes?)?)(?:\.\s*If\s+[^.]*?(?:you\s+may\s+)?choose\s+(?:both|any\s+number)\s+instead[.\u2014-]?)?(?:\.\s*You may choose the same mode more than once\.)?\s*(?:[-\u2014])?$/i;
+  /^Choose\s+(?:one\s+that\s+has(?:n't| not)\s+been\s+chosen|one\s+or\s+both|one\s+or\s+more|one|two|three|four|up\s+to\s+(?:one|two|three|four|\w+)|any\s+number(?:\s+of\s+modes?)?)(?:\.\s*If\s+[^.]*?(?:you\s+may\s+)?choose\s+(?:both|any\s+number)\s+instead[.\u2014-]?)?(?:\.\s*You may choose the same mode more than once\.)?\s*(?:[-\u2014])?$/i;
 
 function splitChooseModeHeaderText(headerText: string): {
   readonly prefixText: string;
@@ -127,6 +128,7 @@ export function tryParseChooseModeBlock(
   let maxModes = 1;
   const normalizedHeaderText = headerText.toLowerCase();
   const canRepeatModes = /you may choose the same mode more than once/i.test(headerText);
+  const rememberChosenModes = /choose\s+one\s+that\s+has(?:n't| not)\s+been\s+chosen/i.test(headerText);
   const chooseBothInstead = /(?:you may\s+)?choose both instead/i.test(headerText);
   const chooseAnyNumberInstead = /(?:you may\s+)?choose any number instead/i.test(headerText);
   const oneOrBothMatch = normalizedHeaderText.match(/^choose\s+one\s+or\s+both\b/i);
@@ -172,6 +174,7 @@ export function tryParseChooseModeBlock(
     minModes,
     maxModes,
     canRepeatModes,
+    ...(rememberChosenModes ? { rememberChosenModes: true } : {}),
     modes,
     raw: normalized.slice(0, 300),
   };

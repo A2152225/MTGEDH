@@ -742,6 +742,32 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
     ]);
   });
 
+  it('parses optional not-untap static clauses into optional_untap_choice', () => {
+    const ir = parseOracleTextToIR('You may choose not to untap this artifact during your untap step.', 'Amber Prison');
+
+    expect(ir.abilities[0]?.steps).toEqual([
+      {
+        kind: 'optional_untap_choice',
+        target: { kind: 'raw', text: 'this artifact' },
+        optional: true,
+        raw: 'You may choose not to untap this artifact during your untap step',
+      },
+    ]);
+  });
+
+  it('parses named optional not-untap static clauses into optional_untap_choice', () => {
+    const ir = parseOracleTextToIR('You may choose not to untap The Pandorica during your untap step.', 'The Pandorica');
+
+    expect(ir.abilities[0]?.steps).toEqual([
+      {
+        kind: 'optional_untap_choice',
+        target: { kind: 'raw', text: 'this permanent' },
+        optional: true,
+        raw: 'You may choose not to untap this permanent during your untap step',
+      },
+    ]);
+  });
+
   it('parses untap-all clauses as fixed untap actions', () => {
     const text = 'Untap all creatures you control.';
     const ir = parseOracleTextToIR(text);
@@ -11241,13 +11267,18 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
     expect(ir.abilities[0]?.steps.some(step => step.kind === 'unknown')).toBe(false);
   });
 
-  it('prunes leading flip-a-coin stubs when the win branch is already parsed', () => {
+  it('parses leading flip-a-coin steps before win branches', () => {
     const ir = parseOracleTextToIR(
       'Flip a coin. If you win the flip, sacrifice this artifact and draw three cards.',
       "Sorcerer's Strongbox"
     );
 
     expect(ir.abilities[0]?.steps).toEqual([
+      expect.objectContaining({
+        kind: 'flip_coin',
+        who: { kind: 'you' },
+        raw: 'Flip a coin',
+      }),
       expect.objectContaining({
         kind: 'conditional',
         condition: { kind: 'if', raw: 'you win the flip' },
@@ -11267,6 +11298,11 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
     );
 
     expect(ir.abilities[0]?.steps).toEqual([
+      expect.objectContaining({
+        kind: 'flip_coin',
+        who: { kind: 'you' },
+        raw: 'Flip a coin',
+      }),
       expect.objectContaining({
         kind: 'conditional',
         condition: { kind: 'if', raw: 'you lose the flip' },
@@ -12687,6 +12723,19 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
     expect(raws).not.toContain('Put the rest on the bottom of your library in a random order');
   });
 
+  it('merges bottom-random tails after longer reveal and conditional top-library sequences', () => {
+    const ir = parseOracleTextToIR(
+      "Look at the top six cards of your library. You may reveal a creature card from among them. If that card has mana value 2 or less, you may put it onto the battlefield and it gains haste until end of turn. If you didn't put the revealed card onto the battlefield this way, put it into your hand. Put the rest on the bottom of your library in a random order.",
+      'Break Out'
+    );
+    const raws = ir.abilities.flatMap((ability) => ability.steps.map((step) => step.raw));
+
+    expect(raws).toContain(
+      "If you didn't put the revealed card onto the battlefield this way, put it into your hand. Put the rest on the bottom of your library in a random order"
+    );
+    expect(raws).not.toContain('Put the rest on the bottom of your library in a random order');
+  });
+
   it('parses Corpse Appraiser into a conditional look-select-top follow-up after the graveyard exile', () => {
     const ir = parseOracleTextToIR(
       'When this creature enters, exile up to one target creature card from a graveyard. If a card is put into exile this way, look at the top three cards of your library, then put one of those cards into your hand and the rest into your graveyard.',
@@ -13980,6 +14029,135 @@ This creature has protection from each of the exiled card's card types. (Artifac
       who: { kind: 'you' },
       mana: '{R}{R}{R}',
     });
+  });
+
+  it('parses sticker placement into a put_sticker step', () => {
+    const ir = parseOracleTextToIR('You may put a sticker on target nonland permanent.', 'Sticker Probe');
+
+    expect(ir.abilities[0]?.steps).toEqual([
+      expect.objectContaining({
+        kind: 'put_sticker',
+        target: { kind: 'raw', text: 'target nonland permanent' },
+        optional: true,
+      }),
+    ]);
+  });
+
+  it('parses named sticker placement into a put_sticker step', () => {
+    const ir = parseOracleTextToIR('You may put a name sticker on it.', 'Named Sticker Probe');
+
+    expect(ir.abilities[0]?.steps).toEqual([
+      expect.objectContaining({
+        kind: 'put_sticker',
+        sticker: { kind: 'raw', text: 'name sticker' },
+        target: { kind: 'raw', text: 'it' },
+        optional: true,
+      }),
+    ]);
+  });
+
+  it('parses Licid-style Aura transformation text into become_aura', () => {
+    const ir = parseOracleTextToIR(
+      'This creature loses this ability and becomes an Aura enchantment with enchant creature. Attach it to target creature.',
+      'Licid Probe'
+    );
+    const steps = ir.abilities.flatMap(ability => ability.steps) as any[];
+
+    expect(steps).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'become_aura',
+          target: { kind: 'raw', text: 'This creature' },
+          enchant: { kind: 'raw', text: 'creature' },
+          losesThisAbility: true,
+        }),
+      ])
+    );
+  });
+
+  it('merges restricted mana followup clauses into add_mana', () => {
+    const ir = parseOracleTextToIR('Add {G}. Spend this mana only to cast a creature spell.', 'Restricted Mana Probe');
+    const addMana = ir.abilities[0]?.steps[0] as any;
+
+    expect(addMana).toMatchObject({
+      kind: 'add_mana',
+      mana: '{G}',
+      spendRestriction: 'creature_spell',
+    });
+    expect(ir.abilities[0]?.steps).toHaveLength(1);
+  });
+
+  it('parses source-choice next-damage prevention shields', () => {
+    const ir = parseOracleTextToIR(
+      'The next time a source of your choice would deal damage to you this turn, prevent that damage.',
+      'Shield Probe'
+    );
+
+    expect(ir.abilities[0]?.steps).toEqual([
+      expect.objectContaining({
+        kind: 'prevent_damage',
+        amount: 'all',
+        target: { kind: 'raw', text: 'target source' },
+        recipientTarget: { kind: 'raw', text: 'you' },
+        duration: 'this_turn',
+      }),
+    ]);
+  });
+
+  it("parses sacrificed creature power as an object-stat damage amount", () => {
+    const ir = parseOracleTextToIR("This artifact deals damage equal to the sacrificed creature's power to any target.", 'Damage Probe');
+    const damage = ir.abilities[0]?.steps.find(step => step.kind === 'deal_damage') as any;
+
+    expect(damage).toMatchObject({
+      kind: 'deal_damage',
+      amount: { kind: 'object_stat', subject: 'the_sacrificed_creature', stat: 'power' },
+      target: { kind: 'raw', text: 'any target' },
+    });
+  });
+
+  it('parses assigns-no-combat-damage clauses', () => {
+    const ir = parseOracleTextToIR('If you do, this creature assigns no combat damage this turn.', 'Combat Damage Probe');
+    const conditional = ir.abilities[0]?.steps[0] as any;
+
+    expect(conditional).toMatchObject({
+      kind: 'conditional',
+      condition: { kind: 'if', raw: 'you do' },
+    });
+    expect(conditional.steps).toEqual([
+      expect.objectContaining({
+        kind: 'assign_no_combat_damage',
+        target: { kind: 'raw', text: 'this creature' },
+        duration: 'this_turn',
+      }),
+    ]);
+  });
+
+  it("parses choose-one-that-hasn't-been-chosen modal blocks", () => {
+    const ir = parseOracleTextToIR(
+      "Choose one that hasn't been chosen —\n• Alpha — Draw a card.\n• Beta — You gain 2 life.",
+      'Mode Memory Probe'
+    );
+    const chooseMode = ir.abilities[0]?.steps[0] as any;
+
+    expect(chooseMode).toMatchObject({
+      kind: 'choose_mode',
+      minModes: 1,
+      maxModes: 1,
+      rememberChosenModes: true,
+    });
+  });
+
+  it('parses ticket counter symbols into player counters', () => {
+    const ir = parseOracleTextToIR('You get {TK}{TK}.', 'Ticket Probe');
+
+    expect(ir.abilities[0]?.steps).toEqual([
+      expect.objectContaining({
+        kind: 'add_player_counter',
+        who: { kind: 'you' },
+        amount: { kind: 'number', value: 2 },
+        counter: 'ticket',
+      }),
+    ]);
   });
 
 });

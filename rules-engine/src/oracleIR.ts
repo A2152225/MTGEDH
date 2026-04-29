@@ -9,7 +9,7 @@ export type OracleQuantity =
   | { readonly kind: 'replicate_count' }
   | { readonly kind: 'spells_cast_before_this_turn' }
   | { readonly kind: 'votes_for_choice'; readonly choice: string; readonly multiplier?: number }
-  | { readonly kind: 'object_stat'; readonly subject: 'it' | 'that_card' | 'that_creature'; readonly stat: 'power' | 'toughness' | 'mana_value' }
+  | { readonly kind: 'object_stat'; readonly subject: 'it' | 'that_card' | 'that_creature' | 'the_sacrificed_creature'; readonly stat: 'power' | 'toughness' | 'mana_value' }
   | { readonly kind: 'unknown'; readonly raw?: string };
 
 export type OraclePlayerSelector =
@@ -94,6 +94,14 @@ export type OracleZone =
   | 'unknown';
 
 export type OracleEffectStep =
+  | {
+      readonly kind: 'flip_coin';
+      readonly who: OraclePlayerSelector;
+      readonly call?: 'heads' | 'tails';
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
   | {
       readonly kind: 'roll_die';
       readonly who: OraclePlayerSelector;
@@ -356,6 +364,8 @@ export type OracleEffectStep =
       readonly manaOptions?: readonly string[];
       /** Requires an explicit chosen color/mana binding instead of defaulting to the first option. */
       readonly requiresChosenMana?: boolean;
+      /** Restricts how the produced mana can be spent. */
+      readonly spendRestriction?: 'creature_spell' | 'instant_or_sorcery_spell';
       readonly optional?: boolean;
       readonly sequence?: 'then';
       readonly raw: string;
@@ -594,6 +604,14 @@ export type OracleEffectStep =
       readonly raw: string;
     }
   | {
+      readonly kind: 'put_sticker';
+      readonly target: OracleObjectSelector;
+      readonly sticker?: OracleObjectSelector;
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
       readonly kind: 'add_types';
       readonly target: OracleObjectSelector;
       readonly addTypes: readonly string[];
@@ -669,6 +687,14 @@ export type OracleEffectStep =
       readonly kind: 'cant_activate_abilities';
       readonly target: OracleObjectSelector;
       readonly duration: 'end_of_turn' | 'static';
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
+      readonly kind: 'assign_no_combat_damage';
+      readonly target: OracleObjectSelector;
+      readonly duration: 'this_turn';
       readonly optional?: boolean;
       readonly sequence?: 'then';
       readonly raw: string;
@@ -798,6 +824,13 @@ export type OracleEffectStep =
     }
   | {
       readonly kind: 'skip_next_untap';
+      readonly target: OracleObjectSelector;
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
+      readonly kind: 'optional_untap_choice';
       readonly target: OracleObjectSelector;
       readonly optional?: boolean;
       readonly sequence?: 'then';
@@ -989,6 +1022,16 @@ export type OracleEffectStep =
       readonly raw: string;
     }
   | {
+      readonly kind: 'become_aura';
+      readonly target: OracleObjectSelector;
+      readonly enchant: OracleObjectSelector;
+      readonly losesThisAbility?: boolean;
+      readonly duration?: 'until_effect_ends';
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
       readonly kind: 'attach';
       readonly attachment: OracleObjectSelector;
       readonly to: OracleObjectSelector;
@@ -1118,6 +1161,8 @@ export type OracleEffectStep =
       readonly maxModes: number;
       /** Whether the same mode can be chosen more than once. */
       readonly canRepeatModes?: boolean;
+      /** Whether future choices for this source must exclude already-chosen modes. */
+      readonly rememberChosenModes?: boolean;
       readonly modes: readonly {
         readonly label: string;
         /** Raw bullet text for display. */

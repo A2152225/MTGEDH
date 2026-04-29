@@ -350,6 +350,7 @@ export interface DamagePreventionEffect {
   targetPlayerId?: PlayerID;
   targetPermanentId?: string;
   remainingAmount?: number;
+  consumeOnUse?: boolean;
   combatOnly?: boolean;
   colors?: readonly string[];
   expiresAtTurn?: number;

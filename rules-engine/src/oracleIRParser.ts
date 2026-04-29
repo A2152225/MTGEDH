@@ -74,6 +74,7 @@ import {
   expandVoteChoiceCountAbilities,
   pruneRedundantAnyPlayerMayActivateUnknownAbilities,
   pruneRedundantActivationRestrictionUnknownAbilities,
+  pruneRedundantSpellTimingRestrictionUnknownAbilities,
   pruneRedundantXCantBeZeroUnknownAbilities,
   pruneRedundantHandRevealDiscardChoiceUnknownAbilities,
   pruneRedundantStationChargeCounterReminderUnknownAbilities,
@@ -158,6 +159,7 @@ import {
   expandStandaloneTopLibraryInfoAbilities,
   bindImmediateTopLibraryReferenceFollowups,
   mergeLookChooseFromTopAbilities,
+  mergeAddManaRestrictionFollowupAbilities,
   mergeTopLibraryBottomRandomTailAbilities,
   mergeLookSelectTopFollowupAbilities,
   pruneRedundantImpulseCleanupUnknownAbilities,
@@ -1387,6 +1389,7 @@ export function parseOracleTextToIR(oracleText: string, cardName?: string): Orac
   abilities = mergeSearchLibraryToHandFollowupAbilities(abilities);
   abilities = mergeSearchLibraryPutOnTopFollowupAbilities(abilities);
   abilities = mergeLookChooseFromTopAbilities(abilities);
+  abilities = mergeAddManaRestrictionFollowupAbilities(abilities);
   abilities = mergeTopLibraryBottomRandomTailAbilities(abilities);
   abilities = mergeLookSelectTopFollowupAbilities(abilities);
   abilities = expandStandaloneTopLibraryInfoAbilities(abilities);
@@ -1460,6 +1463,7 @@ export function parseOracleTextToIR(oracleText: string, cardName?: string): Orac
   abilities = pruneRedundantPhasingReminderUnknownAbilities(abilities);
   abilities = pruneRedundantProliferateReminderUnknownAbilities(abilities);
   abilities = pruneRedundantLookTopReorderUnknownAbilities(abilities);
+  abilities = mergeAddManaRestrictionFollowupAbilities(abilities);
   abilities = pruneRedundantClashReminderUnknownAbilities(abilities);
   abilities = pruneRedundantScryReminderUnknownAbilities(abilities);
   abilities = pruneRedundantBestowReminderUnknownAbilities(abilities);
@@ -1499,6 +1503,7 @@ export function parseOracleTextToIR(oracleText: string, cardName?: string): Orac
   abilities = pruneRedundantWaterbendReminderUnknownAbilities(abilities);
   abilities = mergeDestroyCantRegenerateFollowupAbilities(abilities);
   abilities = expandVoteChoiceCountAbilities(abilities);
+  abilities = pruneRedundantSpellTimingRestrictionUnknownAbilities(abilities);
   abilities = pruneRedundantActivationRestrictionUnknownAbilities(abilities);
   abilities = pruneRedundantXCantBeZeroUnknownAbilities(abilities);
   abilities = pruneRedundantHandRevealDiscardChoiceUnknownAbilities(abilities);

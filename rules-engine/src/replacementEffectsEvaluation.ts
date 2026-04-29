@@ -17,13 +17,14 @@ export function evaluateETBCondition(
   card: KnownCardRef,
   controlledLandCount: number,
   controlledLandTypes: string[],
-  paidLife?: boolean
+  paidLife?: boolean,
+  context?: {
+    readonly playerLifeTotals?: readonly number[];
+    readonly opponentCount?: number;
+    readonly controlledBasicLandCount?: number;
+  }
 ): ETBConditionCheck {
   const text = (card.oracle_text || '').toLowerCase();
-
-  if (text.includes('enters the battlefield tapped') && !text.includes('unless')) {
-    return { entersTapped: true, reason: 'Always enters tapped' };
-  }
 
   if (text.includes('pay 2 life') && text.includes('enters') && text.includes('tapped')) {
     if (paidLife === true) {
@@ -32,7 +33,11 @@ export function evaluateETBCondition(
     return { entersTapped: true, reason: 'Did not pay life', playerChoice: true };
   }
 
-  const fastLandMatch = text.match(/enters the battlefield tapped unless you control two or fewer other lands/i);
+  if (/enters(?: the battlefield)? tapped/i.test(text) && !text.includes('unless')) {
+    return { entersTapped: true, reason: 'Always enters tapped' };
+  }
+
+  const fastLandMatch = text.match(/enters(?: the battlefield)? tapped unless you control two or fewer other lands/i);
   if (fastLandMatch) {
     const entersTapped = controlledLandCount > 2;
     return {
@@ -41,7 +46,7 @@ export function evaluateETBCondition(
     };
   }
 
-  const slowLandMatch = text.match(/enters the battlefield tapped unless you control two or more other lands/i);
+  const slowLandMatch = text.match(/enters(?: the battlefield)? tapped unless you control two or more other lands/i);
   if (slowLandMatch) {
     const entersTapped = controlledLandCount < 2;
     return {
@@ -50,7 +55,36 @@ export function evaluateETBCondition(
     };
   }
 
-  const checkLandMatch = text.match(/enters the battlefield tapped unless you control (?:a|an) ([\w\s]+)/i);
+  if (/enters(?: the battlefield)? tapped unless a player has 13 or less life/i.test(text)) {
+    const lifeTotals = Array.isArray(context?.playerLifeTotals) ? context.playerLifeTotals : [];
+    const hasLowLifePlayer = lifeTotals.some(life => Number(life) <= 13);
+    return {
+      entersTapped: !hasLowLifePlayer,
+      reason: hasLowLifePlayer ? 'A player has 13 or less life' : 'No player has 13 or less life',
+    };
+  }
+
+  if (/enters(?: the battlefield)? tapped unless you control two or more basic lands/i.test(text)) {
+    const basicLandCount = Number.isFinite(Number(context?.controlledBasicLandCount))
+      ? Number(context?.controlledBasicLandCount)
+      : controlledLandTypes.filter(type => /\bbasic\b/i.test(String(type))).length;
+    const hasTwoBasicLands = basicLandCount >= 2;
+    return {
+      entersTapped: !hasTwoBasicLands,
+      reason: hasTwoBasicLands ? 'Control 2 or more basic lands' : 'Control fewer than 2 basic lands',
+    };
+  }
+
+  if (/enters(?: the battlefield)? tapped unless you have two or more opponents/i.test(text)) {
+    const opponentCount = Math.max(0, Number(context?.opponentCount) || 0);
+    const hasTwoOpponents = opponentCount >= 2;
+    return {
+      entersTapped: !hasTwoOpponents,
+      reason: hasTwoOpponents ? 'Have 2 or more opponents' : 'Have fewer than 2 opponents',
+    };
+  }
+
+  const checkLandMatch = text.match(/enters(?: the battlefield)? tapped unless you control (?:a|an) ([\w\s]+)/i);
   if (checkLandMatch) {
     const requiredType = checkLandMatch[1].trim().toLowerCase();
     const requiredTypes = requiredType.split(/\s+or\s+/).map(t => t.trim());

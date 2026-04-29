@@ -3477,7 +3477,7 @@ export function applyAddManaStep(
   const manaToAdd = manaResolution.mana;
 
   for (const playerId of players) {
-    const result = addManaToPoolForPlayer(nextState, playerId, manaToAdd);
+    const result = addManaToPoolForPlayer(nextState, playerId, manaToAdd, step.spendRestriction, ctx.sourceId, ctx.sourceName);
     log.push(...result.log);
     if (!result.applied) {
       return {

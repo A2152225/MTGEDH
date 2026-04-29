@@ -10,6 +10,7 @@ import {
   evaluateConditionalWrapperCondition,
   resolveConditionalReferenceAmount,
 } from './oracleIRExecutorConditionalStepSupport';
+import { generateCoinFlipResult } from './coinFlip';
 import {
   bindCopiedStackSpellTargetsToContext,
   getCopiedChapterAbilityReplaySteps,
@@ -43,9 +44,13 @@ import {
   applyGrantLeaveBattlefieldReplacementStep,
   applyGrantTemporaryAbilityStep,
   applyGrantTemporaryDiesTriggerStep,
+  applyAssignNoCombatDamageStep,
+  applyBecomeAuraStep,
   applyMonstrosityStep,
   applyBecomeRenownedStep,
+  applyOptionalUntapChoiceStep,
   applyCopyPermanentStep,
+  applyPutStickerStep,
   applyRemoveCounterStep,
   applySacrificeStep,
   applyScheduleDelayedBattlefieldActionStep,
@@ -751,6 +756,58 @@ export function applyOracleIRStepsToGameStateImpl(
         applyHandledStepResult(step, result);
         break;
       }
+      case 'optional_untap_choice': {
+        const result = applyOptionalUntapChoiceStep(nextState, step, currentCtx);
+        applyHandledStepResult(step, result);
+        break;
+      }
+      case 'flip_coin': {
+        const players = step.who.kind === 'you' && controllerId ? [controllerId] : [];
+        if (players.length !== 1) {
+          recordSkippedStep(
+            step,
+            `Skipped flip coin step (unsupported player selector): ${step.raw}`,
+            'unsupported_player_selector',
+            {
+              classification: 'ambiguous',
+            }
+          );
+          break;
+        }
+
+        const call = step.call || 'heads';
+        const result =
+          typeof currentCtx.wonCoinFlip === 'boolean'
+            ? currentCtx.wonCoinFlip
+              ? call
+              : call === 'heads'
+                ? 'tails'
+                : 'heads'
+            : generateCoinFlipResult();
+        const won = result === call;
+        const timestamp = Date.now();
+        const flipRecord = {
+          playerId: players[0],
+          call,
+          result,
+          won,
+          timestamp,
+        };
+        const stateAny: any = nextState as any;
+        stateAny.lastCoinFlip = flipRecord;
+        stateAny.lastCoinFlipByPlayer = stateAny.lastCoinFlipByPlayer || {};
+        stateAny.lastCoinFlipByPlayer[players[0]] = flipRecord;
+        stateAny.coinFlipsThisTurn = stateAny.coinFlipsThisTurn || {};
+        stateAny.coinFlipsThisTurn[players[0]] = Array.isArray(stateAny.coinFlipsThisTurn[players[0]])
+          ? [...stateAny.coinFlipsThisTurn[players[0]], flipRecord]
+          : [flipRecord];
+        nextState = stateAny as GameState;
+        currentCtx = { ...currentCtx, wonCoinFlip: won };
+        setLastStepOutcome(step, 'applied');
+        log.push(`[oracle-ir] ${players[0]} flipped a coin: ${result}${won ? ' (won)' : ' (lost)'}`);
+        appliedSteps.push(step);
+        break;
+      }
       case 'roll_die': {
         const players = step.who.kind === 'you' && controllerId ? [controllerId] : [];
         if (players.length !== 1) {
@@ -1184,6 +1241,21 @@ export function applyOracleIRStepsToGameStateImpl(
       }
       case 'add_mana': {
         const result = applyAddManaStep(nextState, step, currentCtx);
+        applyHandledStepResult(step, result);
+        break;
+      }
+      case 'put_sticker': {
+        const result = applyPutStickerStep(nextState, step, currentCtx);
+        applyHandledStepResult(step, result);
+        break;
+      }
+      case 'become_aura': {
+        const result = applyBecomeAuraStep(nextState, step, currentCtx);
+        applyHandledStepResult(step, result);
+        break;
+      }
+      case 'assign_no_combat_damage': {
+        const result = applyAssignNoCombatDamageStep(nextState, step, currentCtx);
         applyHandledStepResult(step, result);
         break;
       }
@@ -1700,6 +1772,7 @@ export function applyOracleIRStepsToGameStateImpl(
       case 'deal_damage': {
         const result = applyDealDamageStep(nextState, step, currentCtx, {
           lastMovedCards,
+          lastSacrificedPermanents,
           lastTappedMatchingPermanentCount,
           lastReferenceAmount,
         });

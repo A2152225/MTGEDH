@@ -36,6 +36,15 @@ function parseDamageAmount(raw: string | undefined): Extract<OracleEffectStep, {
   if (normalized === "that creature's toughness") {
     return { kind: 'object_stat', subject: 'that_creature', stat: 'toughness' };
   }
+  if (normalized === "the sacrificed creature's power") {
+    return { kind: 'object_stat', subject: 'the_sacrificed_creature', stat: 'power' };
+  }
+  if (normalized === "the sacrificed creature's toughness") {
+    return { kind: 'object_stat', subject: 'the_sacrificed_creature', stat: 'toughness' };
+  }
+  if (normalized === "the sacrificed creature's mana value") {
+    return { kind: 'object_stat', subject: 'the_sacrificed_creature', stat: 'mana_value' };
+  }
 
   return { kind: 'unknown', raw: String(raw || '').trim() };
 }
@@ -292,6 +301,18 @@ export function tryParseLifeAndCombatClause(args: {
       });
     }
 
+    const optionalUntapChoice = clause.match(
+      /^(?:you\s+may\s+)?choose\s+not\s+to\s+untap\s+(.+?)\s+during\s+your\s+untap\s+step$/i
+    );
+    if (optionalUntapChoice) {
+      return withMeta({
+        kind: 'optional_untap_choice',
+        target: parseObjectSelector(optionalUntapChoice[1]),
+        optional: true,
+        raw: rawClause,
+      });
+    }
+
     const skipNextUntap = clause.match(
       /^((?:(?:all|(?:up to\s+(?:one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+)?target|that|those|this|enchanted|equipped)\s+.+|it|them))\s+do(?:es)?(?:n't|\s+not)\s+untap during (?:its|their) controller(?:'|â€™)?s next untap step$/i
     );
@@ -299,6 +320,16 @@ export function tryParseLifeAndCombatClause(args: {
       return withMeta({
         kind: 'skip_next_untap',
         target: parseObjectSelector(skipNextUntap[1]),
+        raw: rawClause,
+      });
+    }
+
+    const assignsNoCombatDamage = clause.match(/^(.+?)\s+assigns?\s+no\s+combat\s+damage\s+this\s+turn$/i);
+    if (assignsNoCombatDamage) {
+      return withMeta({
+        kind: 'assign_no_combat_damage',
+        target: parseObjectSelector(assignsNoCombatDamage[1]),
+        duration: 'this_turn',
         raw: rawClause,
       });
     }

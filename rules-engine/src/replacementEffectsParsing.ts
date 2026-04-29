@@ -16,7 +16,7 @@ export function parseReplacementEffectsFromText(
   const effects: ParsedReplacementEffect[] = [];
   const text = oracleText.toLowerCase();
 
-  if (text.includes('enters the battlefield tapped')) {
+  if (/enters(?: the battlefield)? tapped/.test(text)) {
     effects.push({
       type: ReplacementEffectType.ENTERS_TAPPED,
       sourceId: permanentId,

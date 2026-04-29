@@ -1013,6 +1013,12 @@ export function canGoadedCreatureAttack(
  */
 export function getCombatDamageValue(permanent: any, state?: GameState): number {
   if (!permanent) return 0;
+  const currentTurn = Number((state as any)?.turnNumber ?? (state as any)?.turn ?? 0) || 0;
+  const noCombatDamageUntilTurn = Number((permanent as any)?.assignsNoCombatDamageUntilTurn);
+  if (Number.isFinite(noCombatDamageUntilTurn) && noCombatDamageUntilTurn === currentTurn) {
+    return 0;
+  }
+
   const processedBattlefield = state?.battlefield ? buildProcessedBattlefieldForGoad(state.battlefield as any[]) : undefined;
   const analyzedPermanent = processedBattlefield
     ? getPermanentForGoadAnalysis(permanent, processedBattlefield)
@@ -1491,6 +1497,33 @@ export function validateDeclareBlockers(
         legal: false,
         reason: `${attackerName} can be blocked by at most ${blockerLimit} creatures`,
       };
+    }
+  }
+
+  const attackersRequiringAllAbleBlockers = battlefield.filter((attacker: any) => {
+    const attackerId = String(attacker?.id || '').trim();
+    if (!attackerId) return false;
+    const isAttacking = (state.combat?.attackers || []).some((entry: any) => String(entry?.cardId || '').trim() === attackerId);
+    if (!isAttacking) return false;
+    const oracleText = String(attacker?.card?.oracle_text || attacker?.oracle_text || '').replace(/\u2019/g, "'").toLowerCase();
+    return /all creatures able to block (?:this creature|this permanent|~) do so/.test(oracleText);
+  });
+
+  for (const attacker of attackersRequiringAllAbleBlockers) {
+    const attackerId = String(attacker?.id || '').trim();
+    const assignedBlockers = attackerAssignments.get(attackerId) || new Set<string>();
+    for (const candidate of battlefield) {
+      const candidateId = String((candidate as any)?.id || '').trim();
+      if (!candidateId || String((candidate as any)?.controller || '').trim() !== action.playerId) continue;
+
+      const validationResult = canPermanentBlock(candidate, attacker, battlefield);
+      if (!validationResult.canParticipate) continue;
+
+      if (!assignedBlockers.has(candidateId)) {
+        const attackerName = attacker?.card?.name || attackerId;
+        const blockerName = (candidate as any)?.card?.name || candidateId;
+        return { legal: false, reason: `${blockerName} must block ${attackerName} if able` };
+      }
     }
   }
   

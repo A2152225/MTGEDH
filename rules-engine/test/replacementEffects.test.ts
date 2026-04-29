@@ -156,6 +156,36 @@ describe('Replacement Effects', () => {
       const result2 = evaluateETBCondition(card as any, 0, [], false);
       expect(result2.entersTapped).toBe(true);
     });
+
+    it('should handle life-total reveal lands', () => {
+      const card = {
+        oracle_text: 'This land enters tapped unless a player has 13 or less life.',
+        name: 'Low Life Land',
+      };
+
+      expect(evaluateETBCondition(card as any, 0, [], undefined, { playerLifeTotals: [40, 14] }).entersTapped).toBe(true);
+      expect(evaluateETBCondition(card as any, 0, [], undefined, { playerLifeTotals: [40, 13] }).entersTapped).toBe(false);
+    });
+
+    it('should handle lands requiring two basic lands', () => {
+      const card = {
+        oracle_text: 'This land enters tapped unless you control two or more basic lands.',
+        name: 'Basic Check Land',
+      };
+
+      expect(evaluateETBCondition(card as any, 0, [], undefined, { controlledBasicLandCount: 1 }).entersTapped).toBe(true);
+      expect(evaluateETBCondition(card as any, 0, [], undefined, { controlledBasicLandCount: 2 }).entersTapped).toBe(false);
+    });
+
+    it('should handle lands requiring two or more opponents', () => {
+      const card = {
+        oracle_text: 'This land enters tapped unless you have two or more opponents.',
+        name: 'Multiplayer Land',
+      };
+
+      expect(evaluateETBCondition(card as any, 0, [], undefined, { opponentCount: 1 }).entersTapped).toBe(true);
+      expect(evaluateETBCondition(card as any, 0, [], undefined, { opponentCount: 2 }).entersTapped).toBe(false);
+    });
   });
   
   describe('applyReplacementEffect', () => {

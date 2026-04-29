@@ -4,7 +4,7 @@ import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
 import { clearPlayableFromExileForCards, stripPlayableFromExileTags } from './playableFromExile';
 import { stripPlayableFromGraveyardTags } from './playableFromGraveyard';
 import { parseManaSymbols } from './types/numbers';
-import { addMana, createEmptyManaPool, ManaType } from './types/mana';
+import { addMana, addRestrictedMana, createEmptyManaPool, ManaRestrictionType, ManaType } from './types/mana';
 
 export function getCurrentTurnNumber(state: GameState): number {
   return Number((state as any).turnNumber ?? (state as any).turn ?? 0) || 0;
@@ -1200,7 +1200,10 @@ export function millCardsForPlayer(
 export function addManaToPoolForPlayer(
   state: GameState,
   playerId: PlayerID,
-  mana: string
+  mana: string,
+  spendRestriction?: 'creature_spell' | 'instant_or_sorcery_spell',
+  sourceId?: string,
+  sourceName?: string
 ): { state: GameState; log: string[]; applied: boolean } {
   const log: string[] = [];
 
@@ -1209,6 +1212,24 @@ export function addManaToPoolForPlayer(
 
   const symbols = parseManaSymbols(mana);
   if (symbols.length === 0) return { state, log: [`Skipped add mana (no symbols): ${mana}`], applied: false };
+
+  const restriction: ManaRestrictionType | undefined = spendRestriction === 'creature_spell'
+    ? 'creatures'
+    : spendRestriction === 'instant_or_sorcery_spell'
+      ? 'instant_sorcery'
+      : undefined;
+
+  const symbolToManaType = (symbol: string): ManaType => {
+    switch (String(symbol).toUpperCase()) {
+      case '{W}': return ManaType.WHITE;
+      case '{U}': return ManaType.BLUE;
+      case '{B}': return ManaType.BLACK;
+      case '{R}': return ManaType.RED;
+      case '{G}': return ManaType.GREEN;
+      case '{C}': return ManaType.COLORLESS;
+      default: return ManaType.COLORLESS;
+    }
+  };
 
   for (const sym of symbols) {
     const upper = String(sym).toUpperCase();
@@ -1250,9 +1271,16 @@ export function addManaToPoolForPlayer(
         break;
       }
     }
+
+    if (restriction) {
+      const amount = /^\{\d+\}$/.test(upper) ? parseInt(upper.slice(1, -1), 10) : 1;
+      if (amount > 0) {
+        pool = addRestrictedMana(pool, symbolToManaType(upper), amount, restriction, sourceId, sourceName);
+      }
+    }
   }
 
   manaPoolRecord[playerId] = pool;
-  log.push(`${playerId} adds ${mana.replace(/\s+/g, '')} to their mana pool`);
+  log.push(`${playerId} adds ${mana.replace(/\s+/g, '')} to their mana pool${restriction ? ' with a spending restriction' : ''}`);
   return { state: { ...(state as any), manaPool: manaPoolRecord } as any, log, applied: true };
 }

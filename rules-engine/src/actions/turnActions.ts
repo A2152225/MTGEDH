@@ -19,6 +19,65 @@ import { consumeNextDrawStepSkipEffect, findStaticSkipDrawStepSource } from '../
 import { clearFutureSpellEffects } from '../futureSpellEffects';
 import { removeExpiredShields } from '../keywordAbilities/regeneration';
 
+function normalizeOptionalUntapText(value: unknown): string {
+  return String(value || '')
+    .replace(/\u2019/g, "'")
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function getPermanentOptionalUntapText(permanent: any): string {
+  return normalizeOptionalUntapText([
+    permanent?.oracle_text,
+    permanent?.oracleText,
+    permanent?.text,
+    permanent?.card?.oracle_text,
+    permanent?.card?.oracleText,
+    permanent?.card?.text,
+  ].filter(Boolean).join(' '));
+}
+
+function permanentHasOptionalUntapChoice(permanent: any): boolean {
+  if (permanent?.optionalUntapChoice === true) return true;
+
+  const text = getPermanentOptionalUntapText(permanent);
+  if (!text) return false;
+
+  return /you may choose not to untap .+? during your untap step/.test(text);
+}
+
+function getChosenOptionalUntapIds(state: GameState, activePlayerId: string): Set<string> {
+  const rawChoices = (state as any).optionalUntapChoices;
+  const chosen = new Set<string>();
+  const add = (value: unknown) => {
+    const id = String(value || '').trim();
+    if (id) chosen.add(id);
+  };
+
+  if (Array.isArray(rawChoices)) {
+    rawChoices.forEach(add);
+    return chosen;
+  }
+
+  if (!rawChoices || typeof rawChoices !== 'object') return chosen;
+
+  const playerChoices = rawChoices[activePlayerId];
+  if (Array.isArray(playerChoices)) {
+    playerChoices.forEach(add);
+  } else if (playerChoices && typeof playerChoices === 'object') {
+    for (const [permanentId, selected] of Object.entries(playerChoices)) {
+      if (selected === true) add(permanentId);
+    }
+  }
+
+  for (const [permanentId, selected] of Object.entries(rawChoices)) {
+    if (selected === true) add(permanentId);
+  }
+
+  return chosen;
+}
+
 /**
  * Execute turn-based action for untap step
  * Rule 703.4c: Active player untaps all their permanents
@@ -28,6 +87,7 @@ export function executeUntapStep(
   activePlayerId: string
 ): { state: GameState; logs: string[] } {
   const logs: string[] = [];
+  const chosenOptionalUntapIds = getChosenOptionalUntapIds(state, activePlayerId);
   
   // Count tapped permanents controlled by active player
   const tappedCount = (state.battlefield || []).filter(
@@ -58,11 +118,16 @@ export function executeUntapStep(
     const skipUntapForStep = expiringTurnEffects.some(
       (effect: any) => String(effect?.description || '').trim().toLowerCase() === "doesn't untap during your next untap step"
     );
+    const chooseNotToUntap =
+      perm.controller === activePlayerId &&
+      perm.tapped === true &&
+      chosenOptionalUntapIds.has(String(perm?.id || '').trim()) &&
+      permanentHasOptionalUntapChoice(perm);
 
     if (perm.controller === activePlayerId) {
       return {
         ...perm,
-        tapped: skipUntapForStep ? perm.tapped : false,
+        tapped: (skipUntapForStep || chooseNotToUntap) ? perm.tapped : false,
         ...(remainingTemporaryEffects.length > 0 ? { temporaryEffects: remainingTemporaryEffects } : { temporaryEffects: undefined }),
         ...(remainingGrantedAbilities.length > 0 ? { grantedAbilities: remainingGrantedAbilities } : { grantedAbilities: undefined }),
       };

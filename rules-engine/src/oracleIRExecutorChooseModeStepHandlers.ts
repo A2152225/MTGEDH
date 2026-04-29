@@ -68,6 +68,15 @@ export function applyChooseModeStep(
   const modeById = new Map(
     ((step as any).modes || []).map((mode: any) => [String(mode?.label || '').trim(), mode] as const)
   );
+  const rememberChosenModes = Boolean((step as any).rememberChosenModes);
+  const modeMemoryKey = String(ctx.sourceId || ctx.sourceName || (step as any).raw || 'choose-mode').trim();
+  const priorModeChoices = rememberChosenModes
+    ? new Set(
+      Array.isArray((state as any)?.chosenModeHistory?.[modeMemoryKey])
+        ? (state as any).chosenModeHistory[modeMemoryKey].map((id: any) => String(id || '').trim()).filter(Boolean)
+        : []
+    )
+    : new Set<string>();
   const hasDuplicateModeSelection =
     !canRepeatModes &&
     normalizedSelectedModeIds.some((id, index) => normalizedSelectedModeIds.indexOf(id) !== index);
@@ -82,7 +91,8 @@ export function applyChooseModeStep(
     hasDuplicateModeSelection ||
     selectedModes.length !== normalizedSelectedModeIds.length ||
     selectedModes.length < minModes ||
-    selectedModes.length > maxModes
+    selectedModes.length > maxModes ||
+    (rememberChosenModes && normalizedSelectedModeIds.some(id => priorModeChoices.has(id)))
   ) {
     return {
       kind: 'recorded_skip',
@@ -118,6 +128,14 @@ export function applyChooseModeStep(
     skippedSteps.push(...modeResult.skippedSteps);
     automationGaps.push(...modeResult.automationGaps);
     pendingOptionalSteps.push(...modeResult.pendingOptionalSteps);
+  }
+
+  if (rememberChosenModes) {
+    const chosenModeHistory = {
+      ...(((nextState as any).chosenModeHistory || {}) as Record<string, readonly string[]>),
+      [modeMemoryKey]: Array.from(new Set([...priorModeChoices, ...normalizedSelectedModeIds])),
+    };
+    nextState = { ...(nextState as any), chosenModeHistory } as GameState;
   }
 
   return {

@@ -4,6 +4,7 @@ import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
 import { createDamageSourceFromPermanent } from './damageProcessing';
 import {
   createGlobalCombatDamagePreventionEffect,
+  createSourceChoiceDamagePreventionEffect,
   createSourceColorDamagePreventionEffect,
   createTargetDamagePreventionEffect,
   previewPreventedDamage,
@@ -66,6 +67,7 @@ export type PreventDamageStepHandlerResult = PreventionStepApplyResult | Prevent
 
 type DamageRuntime = {
   readonly lastMovedCards?: readonly any[];
+  readonly lastSacrificedPermanents?: readonly any[];
   readonly lastTappedMatchingPermanentCount?: number;
   readonly lastReferenceAmount?: number;
 };
@@ -188,6 +190,9 @@ function resolveDamageAmount(
   }
   if (amount.kind === 'object_stat') {
     const sourceObjects =
+      amount.subject === 'the_sacrificed_creature'
+        ? (Array.isArray(runtime?.lastSacrificedPermanents) ? [...runtime.lastSacrificedPermanents] : [])
+        :
       amount.subject === 'that_card' || amount.subject === 'that_creature'
         ? (Array.isArray(runtime?.lastMovedCards) ? [...runtime.lastMovedCards] : [])
         : resolveDamageAmountSourceObjects(state, source, ctx, runtime);
@@ -367,6 +372,9 @@ function resolvePreventionRecipientPermanentId(
 }
 
 function resolvePreventionTargetSourceId(state: GameState, ctx: OracleIRExecutionContext): string | null {
+  const explicitSourceId = String((ctx.selectorContext as any)?.targetSourceId || (ctx.selectorContext as any)?.chosenSourceId || '').trim();
+  if (explicitSourceId) return explicitSourceId;
+
   const directTargetId = String(ctx.targetPermanentId || '').trim();
   if (directTargetId) return directTargetId;
 
@@ -728,6 +736,39 @@ export function applyPreventDamageStep(
       message: `Skipped prevent damage (target source unavailable): ${step.raw}`,
       reason: 'unsupported_target',
       options: { classification: 'ambiguous' },
+    };
+  }
+
+  if (step.recipientTarget) {
+    const targetPlayers = resolvePlayersFromDamageTarget(state, step.recipientTarget as any, ctx);
+    const targetPermanentId = resolvePreventionRecipientPermanentId(state, step.recipientTarget, ctx);
+    const targetPlayerId = targetPermanentId ? undefined : (targetPlayers.length === 1 ? targetPlayers[0] : undefined);
+
+    if ((!targetPlayerId && !targetPermanentId) || (targetPlayers.length > 0 && Boolean(targetPermanentId))) {
+      return {
+        applied: false,
+        message: `Skipped prevent damage (target recipient unavailable): ${step.raw}`,
+        reason: 'unsupported_target',
+        options: { classification: 'ambiguous' },
+      };
+    }
+
+    const targetLabel = targetPlayerId || targetPermanentId || 'target';
+    const effect = createSourceChoiceDamagePreventionEffect({
+      state,
+      sourceId: ctx.sourceId,
+      sourceName: ctx.sourceName,
+      controllerId: ctx.controllerId,
+      targetSourceId,
+      targetPlayerId,
+      targetPermanentId,
+      description: `Prevent the next damage from ${targetSourceId} to ${targetLabel} this turn`,
+    });
+
+    return {
+      applied: true,
+      state: registerDamagePreventionEffect(state, effect),
+      log: [`Prevent the next damage from ${targetSourceId} to ${targetLabel} this turn`],
     };
   }
 

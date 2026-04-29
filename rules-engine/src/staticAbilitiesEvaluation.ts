@@ -1,4 +1,4 @@
-import type { BattlefieldPermanent, PlayerID, KnownCardRef } from '../../shared/src';
+import type { BattlefieldPermanent, GameState, PlayerID, KnownCardRef } from '../../shared/src';
 import {
   StaticEffectType,
   type StaticAbility,
@@ -98,7 +98,8 @@ export function matchesFilter(
 export function calculateEffectivePT(
   permanent: BattlefieldPermanent,
   battlefield: BattlefieldPermanent[],
-  staticAbilities: StaticAbility[]
+  staticAbilities: StaticAbility[],
+  gameState?: GameState
 ): { power: number; toughness: number; grantedAbilities: string[]; removedAbilities: string[] } {
   const card = permanent.card as KnownCardRef;
   if (!card) {
@@ -291,39 +292,48 @@ export function calculateEffectivePT(
         } else if (ability.value === 'count' && ability.countFilter) {
           let count = 0;
 
-          for (const perm of battlefield) {
-            const permCard = perm.card as KnownCardRef;
-            if (!permCard) continue;
+          if (ability.countFilter.zone === 'hand') {
+            const controller = (gameState?.players || []).find(player => player.id === ability.controllerId) as any;
+            count = Array.isArray(controller?.hand) ? controller.hand.length : 0;
+          } else {
+            for (const perm of battlefield) {
+              const permCard = perm.card as KnownCardRef;
+              if (!permCard) continue;
 
-            const permTypeLine = (permCard.type_line || '').toLowerCase();
+              const permTypeLine = (permCard.type_line || '').toLowerCase();
 
-            if (ability.countFilter.controller === 'you' && perm.controller !== ability.controllerId) {
-              continue;
+              if (ability.countFilter.controller === 'you' && perm.controller !== ability.controllerId) {
+                continue;
+              }
+              if (ability.countFilter.controller === 'opponents' && perm.controller === ability.controllerId) {
+                continue;
+              }
+
+              if (ability.countFilter.types && ability.countFilter.types.length > 0) {
+                const hasType = ability.countFilter.types.some(t =>
+                  permTypeLine.includes(t.toLowerCase())
+                );
+                const isChangeling = (permCard.oracle_text || '').toLowerCase().includes('changeling');
+                if (!hasType && !isChangeling) continue;
+              }
+
+              if (ability.countFilter.cardTypes && ability.countFilter.cardTypes.length > 0) {
+                const hasCardType = ability.countFilter.cardTypes.some(cardType =>
+                  permTypeLine.includes(cardType.toLowerCase())
+                );
+                if (!hasCardType) continue;
+              }
+
+              count++;
             }
-            if (ability.countFilter.controller === 'opponents' && perm.controller === ability.controllerId) {
-              continue;
-            }
-
-            if (ability.countFilter.types && ability.countFilter.types.length > 0) {
-              const hasType = ability.countFilter.types.some(t =>
-                permTypeLine.includes(t.toLowerCase())
-              );
-              const isChangeling = (permCard.oracle_text || '').toLowerCase().includes('changeling');
-              if (!hasType && !isChangeling) continue;
-            }
-
-            if (ability.countFilter.cardTypes && ability.countFilter.cardTypes.length > 0) {
-              const hasCardType = ability.countFilter.cardTypes.some(cardType =>
-                permTypeLine.includes(cardType.toLowerCase())
-              );
-              if (!hasCardType) continue;
-            }
-
-            count++;
           }
 
-          power = count;
-          toughness = count;
+          if (!ability.affectedStat || ability.affectedStat === 'both' || ability.affectedStat === 'power') {
+            power = count;
+          }
+          if (!ability.affectedStat || ability.affectedStat === 'both' || ability.affectedStat === 'toughness') {
+            toughness = count;
+          }
         }
         break;
 
