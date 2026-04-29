@@ -7,7 +7,7 @@ import {
   parseQuantity,
 } from './oracleIRParserUtils';
 
-const TOKEN_AMOUNT_PATTERN = '(?:that many|that much|a|an|\\d+|x|[a-z]+)';
+const TOKEN_AMOUNT_PATTERN = '(?:that many|that much|a|an|\\d+|x|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)';
 
 export function tryParseMultiCreateTokensClause(rawClause: string): OracleEffectStep[] | null {
   const normalized = normalizeClauseForParse(rawClause);
@@ -32,7 +32,7 @@ export function tryParseMultiCreateTokensClause(rawClause: string): OracleEffect
   if (!rest) return null;
 
   const tokenRegex = new RegExp(
-    `\\b((?:(?!and\\b)(?!then\\b)${TOKEN_AMOUNT_PATTERN}))\\s+(tapped\\s+)?(.+?)\\s+(?:creature\\s+)?token(?:s)?\\b(\\s+tapped\\b)?`,
+    `\\b((?:(?!and\\b)(?!then\\b)${TOKEN_AMOUNT_PATTERN}))\\s+(tapped\\s+)?(.+?)\\s+(?:creature\\s+)?token(?:s)?\\b(?:\\s+with\\s+([^,]+))?(\\s+tapped\\b)?`,
     'gi'
   );
   const matches: { amount: OracleQuantity; token: string; entersTapped?: boolean }[] = [];
@@ -40,8 +40,9 @@ export function tryParseMultiCreateTokensClause(rawClause: string): OracleEffect
   let m: RegExpExecArray | null;
   while ((m = tokenRegex.exec(rest)) !== null) {
     const amount = parseQuantity(m[1]);
-    const entersTapped = Boolean(m[2]) || Boolean(m[4]);
-    const token = String(m[3] || '').trim();
+    const entersTapped = Boolean(m[2]) || Boolean(m[5]);
+    const abilityText = String(m[4] || '').trim();
+    const token = `${String(m[3] || '').trim()}${abilityText ? ` with ${abilityText}` : ''}`.trim();
     if (!token) continue;
     matches.push({ amount, token, entersTapped: entersTapped || undefined });
     if (tokenRegex.lastIndex === m.index) tokenRegex.lastIndex++;

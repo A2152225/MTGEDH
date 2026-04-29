@@ -2,8 +2,13 @@ import type { AbilityType } from './oracleTextParser';
 
 export type OracleQuantity =
   | { readonly kind: 'number'; readonly value: number }
+  | { readonly kind: 'all' }
+  | { readonly kind: 'any_number' }
   | { readonly kind: 'reference_amount'; readonly raw?: string }
   | { readonly kind: 'reveal_until_land' }
+  | { readonly kind: 'until_nonland_mana_value_lte'; readonly value: number }
+  | { readonly kind: 'source_power' }
+  | { readonly kind: 'greatest_power_among_other_creatures_you_control' }
   | { readonly kind: 'x' }
   | { readonly kind: 'all' }
   | { readonly kind: 'replicate_count' }
@@ -35,6 +40,7 @@ export type OracleObjectSelector =
 
 export type OracleScaler =
   | { readonly kind: 'per_revealed_this_way' }
+  | { readonly kind: 'per_creature_blocking_it' }
   | { readonly kind: 'unknown'; readonly raw: string };
 
 export type OracleClauseCondition =
@@ -191,6 +197,24 @@ export type OracleEffectStep =
       readonly entersTapped?: boolean;
       readonly shuffle?: boolean;
       readonly maxResults?: number;
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
+      readonly kind: 'choose_pile';
+      readonly chooser: OraclePlayerSelector;
+      readonly source: 'last_split_piles' | 'top_library';
+      readonly chosenDestination?: OracleZone;
+      readonly otherDestination?: OracleZone;
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
+      readonly kind: 'shuffle_zones_into_library';
+      readonly who: OraclePlayerSelector;
+      readonly zones: readonly ('hand' | 'graveyard')[];
       readonly optional?: boolean;
       readonly sequence?: 'then';
       readonly raw: string;
@@ -362,6 +386,8 @@ export type OracleEffectStep =
       readonly mana: string;
       /** Optional mana choices for clauses like "Add {R} or {G}." */
       readonly manaOptions?: readonly string[];
+      /** Restricts available choices to the controller's commander color identity. */
+      readonly manaOptionsScope?: 'commander_color_identity';
       /** Requires an explicit chosen color/mana binding instead of defaulting to the first option. */
       readonly requiresChosenMana?: boolean;
       /** Restricts how the produced mana can be spent. */
@@ -604,6 +630,16 @@ export type OracleEffectStep =
       readonly raw: string;
     }
   | {
+      readonly kind: 'move_counters';
+      readonly from: OracleObjectSelector;
+      readonly to: OracleObjectSelector;
+      readonly counter?: string;
+      readonly amount: OracleQuantity;
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
       readonly kind: 'put_sticker';
       readonly target: OracleObjectSelector;
       readonly sticker?: OracleObjectSelector;
@@ -624,6 +660,13 @@ export type OracleEffectStep =
       readonly who: OraclePlayerSelector;
       readonly counter: string;
       readonly amount: OracleQuantity;
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
+      readonly kind: 'double_player_counters';
+      readonly who: OraclePlayerSelector;
       readonly optional?: boolean;
       readonly sequence?: 'then';
       readonly raw: string;
@@ -679,6 +722,15 @@ export type OracleEffectStep =
       readonly kind: 'cant_block';
       readonly target: OracleObjectSelector;
       readonly duration: 'end_of_turn' | 'static';
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
+      readonly kind: 'force_block';
+      readonly blocker: OracleObjectSelector;
+      readonly attacker: OracleObjectSelector;
+      readonly duration: 'end_of_turn';
       readonly optional?: boolean;
       readonly sequence?: 'then';
       readonly raw: string;
@@ -798,6 +850,13 @@ export type OracleEffectStep =
       readonly combatOnly?: boolean;
       /** Restricts legal target sources to those sharing a color with the linked exiled card. */
       readonly sharesColorWithLinkedExiledCard?: boolean;
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
+      readonly kind: 'damage_cant_be_prevented';
+      readonly duration: 'this_turn';
       readonly optional?: boolean;
       readonly sequence?: 'then';
       readonly raw: string;

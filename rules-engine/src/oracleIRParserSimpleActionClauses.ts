@@ -223,6 +223,23 @@ export function tryParseSimpleActionClause(args: {
   }
 
   {
+    const addCommanderIdentityMana = clause.match(
+      new RegExp(`^${PLAYER_SUBJECT_PREFIX}adds?\\s+one\\s+mana\\s+of\\s+any\\s+color\\s+in\\s+your\\s+commander'?s\\s+color\\s+identity\\s*$`, 'i')
+    );
+    if (addCommanderIdentityMana) {
+      return withMeta({
+        kind: 'add_mana',
+        who: parsePlayerSelector(addCommanderIdentityMana[1]),
+        mana: '{W}',
+        manaOptions: ['{W}', '{U}', '{B}', '{R}', '{G}'],
+        manaOptionsScope: 'commander_color_identity',
+        requiresChosenMana: true,
+        raw: rawClause,
+        });
+    }
+  }
+
+  {
     const addAnyColorMana = clause.match(new RegExp(`^${PLAYER_SUBJECT_PREFIX}adds?\\s+one\\s+mana\\s+of\\s+any\\s+(?:one\\s+)?color\\s*$`, 'i'));
     if (addAnyColorMana) {
       return withMeta({
@@ -295,7 +312,7 @@ export function tryParseSimpleActionClause(args: {
   }
 
   {
-    const chooseCardName = clause.match(/^(?:secretly\s+)?choose\s+a\s+card\s+name\s*$/i);
+    const chooseCardName = clause.match(/^(?:secretly\s+)?choose\s+a\s+(?:nonland\s+)?card\s+name\s*$/i);
     if (chooseCardName) {
       return withMeta({
         kind: 'choose_card_name',
@@ -340,6 +357,16 @@ export function tryParseSimpleActionClause(args: {
   }
 
   {
+    const drawEqualPower = clause.match(new RegExp(`^${PLAYER_SUBJECT_PREFIX}draws?\\s+cards?\\s+equal\\s+to\\s+its\\s+power$`, 'i'));
+    if (drawEqualPower) {
+      return withMeta({
+        kind: 'draw',
+        who: parsePlayerSelector(drawEqualPower[1]),
+        amount: { kind: 'source_power' },
+        raw: rawClause,
+        });
+    }
+
     const moreCards = clause.match(
       new RegExp(`^${PLAYER_SUBJECT_PREFIX}draws?\\s+(that many|that much|[a-z0-9]+)\\s+more\\s+cards?\\b`, 'i')
     );
@@ -441,6 +468,19 @@ export function tryParseSimpleActionClause(args: {
   }
 
   {
+    const entersGreatestPowerCounters = clause.match(/^(?:.+?\s+enters\s+)?with\s+x\s+\+1\/\+1\s+counters\s+on\s+it,\s*where\s+x\s+is\s+the\s+greatest\s+power\s+among\s+other\s+creatures\s+you\s+control$/i);
+    if (entersGreatestPowerCounters) {
+      return withMeta({
+        kind: 'add_counter',
+        amount: { kind: 'greatest_power_among_other_creatures_you_control' },
+        counter: '+1/+1',
+        target: parseObjectSelector('this creature'),
+        raw: rawClause,
+        });
+    }
+  }
+
+  {
     const addCounters = clause.match(new RegExp(`^put\\s+(${REFERENCEABLE_COUNTER_AMOUNT_PATTERN})\\s+(.+?)\\s+counters?\\s+on\\s+(.+)$`, 'i'));
     if (addCounters && !/\bonto\s+the\s+battlefield\b/i.test(clause)) {
       return withMeta({
@@ -511,6 +551,171 @@ export function tryParseSimpleActionClause(args: {
   }
 
   {
+    const plainsSearch = clause.match(/^search\s+your\s+library\s+for\s+(?:an?\s+additional\s+)?a?\s*plains\s+card$/i);
+    if (plainsSearch) {
+      return withMeta({
+        kind: 'search_library',
+        who: { kind: 'you' },
+        criteria: { kind: 'raw', text: 'Plains card' },
+        destination: 'hand',
+        revealFound: true,
+        shuffle: false,
+        maxResults: 1,
+        raw: rawClause,
+        });
+    }
+  }
+
+  {
+    const conditionalPlainsSearch = clause.match(/^if\s+target\s+opponent\s+controls\s+more\s+lands\s+than\s+you,\s*you\s+may\s+search\s+your\s+library\s+for\s+an\s+additional\s+plains\s+card$/i);
+    if (conditionalPlainsSearch) {
+      return withMeta({
+        kind: 'search_library',
+        who: { kind: 'you' },
+        criteria: { kind: 'raw', text: 'Plains card' },
+        destination: 'hand',
+        revealFound: true,
+        shuffle: false,
+        maxResults: 1,
+        optional: true,
+        raw: rawClause,
+        });
+    }
+  }
+
+  {
+    const vortexTop = clause.match(/^put\s+this\s+creature\s+and\s+each\s+creature\s+blocking\s+or\s+blocked\s+by\s+it\s+on\s+top\s+of\s+their\s+owners'?\s+libraries$/i);
+    if (vortexTop) {
+      return withMeta({
+        kind: 'move_zone',
+        what: parseObjectSelector('this creature and each creature blocking or blocked by it'),
+        to: 'library',
+        toRaw: "top of their owners' libraries",
+        raw: rawClause,
+        });
+    }
+  }
+
+  {
+    const thosePlayersShuffle = clause.match(/^those\s+players\s+shuffle$/i);
+    if (thosePlayersShuffle) {
+      return withMeta({
+        kind: 'shuffle_library',
+        who: { kind: 'target_player' },
+        raw: rawClause,
+        });
+    }
+  }
+
+  {
+    const revealSeparatePiles = clause.match(
+      /^reveal\s+the\s+top\s+(a|an|\d+|x|[a-z]+)\s+cards?\s+of\s+your\s+library\s+and\s+separate\s+them\s+into\s+two\s+piles$/i
+    );
+    if (revealSeparatePiles) {
+      return withMeta({
+        kind: 'choose_pile',
+        chooser: { kind: 'target_opponent' },
+        source: 'top_library',
+        chosenDestination: 'hand',
+        otherDestination: 'graveyard',
+        raw: rawClause,
+        });
+    }
+  }
+
+  {
+    const opponentChoosesPile = clause.match(/^an\s+opponent\s+chooses\s+one\s+of\s+those\s+piles$/i);
+    if (opponentChoosesPile) {
+      return withMeta({
+        kind: 'choose_pile',
+        chooser: { kind: 'target_opponent' },
+        source: 'last_split_piles',
+        chosenDestination: 'hand',
+        otherDestination: 'graveyard',
+        raw: rawClause,
+        });
+    }
+  }
+
+  {
+    const revealThoseToHand = clause.match(/^reveal\s+those\s+cards,\s*put\s+them\s+into\s+your\s+hand$/i);
+    if (revealThoseToHand) {
+      return withMeta({
+        kind: 'move_zone',
+        what: parseObjectSelector('those cards'),
+        to: 'hand',
+        toRaw: 'your hand',
+        raw: rawClause,
+        });
+    }
+  }
+
+  {
+    const shuffleZones = clause.match(
+      new RegExp(`^${PLAYER_SUBJECT_PREFIX}shuffles?\\s+(?:your|their|his or her)\\s+hand\\s+and\\s+graveyard\\s+into\\s+(?:your|their|his or her)\\s+library$`, 'i')
+    );
+    if (shuffleZones) {
+      return withMeta({
+        kind: 'shuffle_zones_into_library',
+        who: parsePlayerSelector(shuffleZones[1]),
+        zones: ['hand', 'graveyard'],
+        raw: rawClause,
+        });
+    }
+  }
+
+  {
+    const discardAnyNumber = clause.match(new RegExp(`^${PLAYER_SUBJECT_PREFIX}discards?\\s+any\\s+number\\s+of\\s+cards$`, 'i'));
+    if (discardAnyNumber) {
+      return withMeta({
+        kind: 'discard',
+        who: parsePlayerSelector(discardAnyNumber[1]),
+        amount: { kind: 'any_number' },
+        raw: rawClause,
+        });
+    }
+  }
+
+  {
+    const moveCounters = clause.match(/^(?:you\s+may\s+)?put\s+its\s+(?:(\+1\/\+1)\s+)?counters\s+on\s+(.+)$/i);
+    if (moveCounters) {
+      return withMeta({
+        kind: 'move_counters',
+        from: parseObjectSelector('it'),
+        to: parseObjectSelector(String(moveCounters[2] || '').trim()),
+        ...(moveCounters[1] ? { counter: normalizeCounterName(String(moveCounters[1] || '').trim()) } : {}),
+        amount: { kind: 'all' },
+        optional: /\bmay\b/i.test(clause) || undefined,
+        raw: rawClause,
+        });
+    }
+  }
+
+  {
+    const forceBlock = clause.match(/^target\s+creature\s+blocks\s+this\s+creature\s+this\s+turn\s+if\s+able$/i);
+    if (forceBlock) {
+      return withMeta({
+        kind: 'force_block',
+        blocker: parseObjectSelector('target creature'),
+        attacker: parseObjectSelector('this creature'),
+        duration: 'end_of_turn',
+        raw: rawClause,
+        });
+    }
+  }
+
+  {
+    const noPreventDamage = clause.match(/^damage\s+can't\s+be\s+prevented\s+this\s+turn$/i);
+    if (noPreventDamage) {
+      return withMeta({
+        kind: 'damage_cant_be_prevented',
+        duration: 'this_turn',
+        raw: rawClause,
+        });
+    }
+  }
+
+  {
     const doubleCounters = clause.match(
       /^for each kind of counter on (.+),\s+put another of that kind of counter on (?:that|the) permanent$/i
     );
@@ -518,6 +723,28 @@ export function tryParseSimpleActionClause(args: {
       return withMeta({
         kind: 'double_counters',
         target: parseObjectSelector(String(doubleCounters[1] || '').trim()),
+        raw: rawClause,
+        });
+    }
+  }
+
+  {
+    const doublePlayerCounters = clause.match(new RegExp(`^(?:•\\s*)?double\\s+the\\s+number\\s+of\\s+each\\s+kind\\s+of\\s+counter\\s+${PLAYER_SUBJECT_PREFIX}have$`, 'i'));
+    if (doublePlayerCounters) {
+      return withMeta({
+        kind: 'double_player_counters',
+        who: parsePlayerSelector(doublePlayerCounters[1]),
+        raw: rawClause,
+        });
+    }
+  }
+
+  {
+    const doubleEachKindCounters = clause.match(/^double the number of each kind of counter on (.+)$/i);
+    if (doubleEachKindCounters) {
+      return withMeta({
+        kind: 'double_counters',
+        target: parseObjectSelector(String(doubleEachKindCounters[1] || '').trim()),
         raw: rawClause,
         });
     }
@@ -851,7 +1078,7 @@ export function tryParseSimpleActionClause(args: {
   }
 
   {
-    const scry = clause.match(new RegExp(`^${PLAYER_SUBJECT_PREFIX}(?:scry|scries)\\s+(a|an|\\d+|x|[a-z]+)\\b`, 'i'));
+    const scry = clause.match(new RegExp(`^${PLAYER_SUBJECT_PREFIX}(?:may\\s+)?(?:scry|scries)\\s+(a|an|\\d+|x|[a-z]+)\\b`, 'i'));
     if (scry) {
       return withMeta({
         kind: 'scry',
@@ -939,7 +1166,7 @@ export function tryParseSimpleActionClause(args: {
     }
 
     const discardTargeted = clause.match(
-      new RegExp(`^${PLAYER_SUBJECT_PREFIX}discards?\\s+(that\\s+card|it)\\b`, 'i')
+      new RegExp(`^${PLAYER_SUBJECT_PREFIX}discards?\\s+(that\\s+card|those\\s+cards|it)\\b`, 'i')
     );
     if (discardTargeted) {
       return withMeta({

@@ -39,6 +39,7 @@ export interface StaticEffectFilter {
   selfOnly?: boolean;
   name?: string;
   hasAbility?: string;
+  hasCounter?: string;
   preventGaining?: boolean;
 }
 

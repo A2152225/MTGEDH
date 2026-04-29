@@ -6,8 +6,10 @@ import {
   createGlobalCombatDamagePreventionEffect,
   createSourceChoiceDamagePreventionEffect,
   createSourceColorDamagePreventionEffect,
+  createTargetAllDamagePreventionEffect,
   createTargetDamagePreventionEffect,
   previewPreventedDamage,
+  registerDamageCantBePreventedThisTurn,
   registerDamagePreventionEffect,
 } from './oracleIRDamagePrevention';
 import {
@@ -719,6 +721,38 @@ export function applyPreventDamageStep(
     };
   }
 
+  if (step.recipientTarget && !step.target && !step.sharesColorWithLinkedExiledCard) {
+    const targetPlayers = resolvePlayersFromDamageTarget(state, step.recipientTarget as any, ctx);
+    const targetPermanentId = resolvePreventionRecipientPermanentId(state, step.recipientTarget, ctx);
+    const targetPlayerId = targetPermanentId ? undefined : (targetPlayers.length === 1 ? targetPlayers[0] : undefined);
+
+    if ((!targetPlayerId && !targetPermanentId) || (targetPlayers.length > 0 && Boolean(targetPermanentId))) {
+      return {
+        applied: false,
+        message: `Skipped prevent damage (target recipient unavailable): ${step.raw}`,
+        reason: 'unsupported_target',
+        options: { classification: 'ambiguous' },
+      };
+    }
+
+    const targetLabel = targetPlayerId || targetPermanentId || 'target';
+    const effect = createTargetAllDamagePreventionEffect({
+      state,
+      sourceId: ctx.sourceId,
+      sourceName: ctx.sourceName,
+      controllerId: ctx.controllerId,
+      targetPlayerId,
+      targetPermanentId,
+      description: `Prevent all damage to ${targetLabel} this turn`,
+    });
+
+    return {
+      applied: true,
+      state: registerDamagePreventionEffect(state, effect),
+      log: [`Prevent all damage to ${targetLabel} this turn`],
+    };
+  }
+
   const targetSourceId = resolvePreventionTargetSourceId(state, ctx);
   if (!targetSourceId) {
     return {
@@ -825,5 +859,17 @@ export function applyPreventDamageStep(
     applied: true,
     state: registerDamagePreventionEffect(state, effect),
     log: [`Prevent all damage this turn by ${targetSourceId}`],
+  };
+}
+
+export function applyDamageCantBePreventedStep(
+  state: GameState,
+  step: Extract<OracleEffectStep, { kind: 'damage_cant_be_prevented' }>,
+  _ctx: OracleIRExecutionContext
+): PreventDamageStepHandlerResult {
+  return {
+    applied: true,
+    state: registerDamageCantBePreventedThisTurn(state),
+    log: ['Damage cannot be prevented this turn'],
   };
 }

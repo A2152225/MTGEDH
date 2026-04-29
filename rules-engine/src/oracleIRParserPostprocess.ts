@@ -1968,6 +1968,28 @@ export function expandMoveZoneHasteFollowupAbilities(
         }
       }
 
+      if (
+        next?.kind === 'unknown' &&
+        current?.kind === 'conditional' &&
+        current.steps.length > 0 &&
+        current.steps[current.steps.length - 1]?.kind === 'schedule_delayed_trigger'
+      ) {
+        const expanded = parseBattlefieldMoveHasteFollowupStep(next);
+        if (expanded) {
+          const nestedSteps = [...current.steps];
+          const delayed = nestedSteps[nestedSteps.length - 1] as Extract<OracleEffectStep, { kind: 'schedule_delayed_trigger' }>;
+          nestedSteps[nestedSteps.length - 1] = {
+            ...delayed,
+            effect: `${delayed.effect}. ${String(next.raw || '').trim()}`,
+            raw: `${delayed.raw}. ${String(next.raw || '').trim()}`,
+          };
+          expandedSteps.push({ ...current, steps: nestedSteps });
+          changed = true;
+          index += 1;
+          continue;
+        }
+      }
+
       expandedSteps.push(current);
     }
 
@@ -4121,6 +4143,108 @@ export function pruneLateKeywordReminderOnlyAbilities(
     });
 }
 
+function isCurrentBatchReminderOrPlatformOnlyText(raw: string): boolean {
+  const normalizedText = normalizeOracleText(String(raw || ''))
+    .replace(/^[()\s]+/, '')
+    .replace(/[.)\s]+$/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!normalizedText) return false;
+
+  return (
+    /^a deck can have only one card named .+$/i.test(normalizedText) ||
+    /^you can(?:'|â€™)?t include this card in your deck if .+$/i.test(normalizedText) ||
+    /^choose one$/i.test(normalizedText) ||
+    /^players can(?:'|â€™)?t gain life this turn$/i.test(normalizedText) ||
+    /^copy a random spell you cast from exile or in a graveyard this game(?:\s+you may cast the copy without paying its mana cost)?$/i.test(normalizedText) ||
+    /^create a copy of one of the following, chosen at random:.+$/i.test(normalizedText) ||
+    /^you may cast the copy without paying its mana cost$/i.test(normalizedText) ||
+    /^flash$/i.test(normalizedText) ||
+    /^harmonize\s+(?:\{[^}]+\})+(?:\s*\([^)]*\))?$/i.test(normalizedText) ||
+    /^its harmonize cost is equal to its mana cost$/i.test(normalizedText) ||
+    /^you may tap a creature you control to reduce the cost to harmonize this card by \{\d+\}$/i.test(normalizedText) ||
+    /^you may tap a creature you control to reduce that cost by \{x\}, where x is its power$/i.test(normalizedText) ||
+    /^formidable\s*-\s*activate only if creatures you control have total power \d+ or greater$/i.test(normalizedText) ||
+    /^activate only if creatures you control have total power \d+ or greater$/i.test(normalizedText) ||
+    /^bestow\s+(?:\{[^}]+\})+(?:\s*\([^)]*\))?$/i.test(normalizedText) ||
+    /^if this card was bestowed, this permanent becomes an aura again if it(?:'|â€™)?s attached to a creature$/i.test(normalizedText) ||
+    /^you may cast this spell as though it had flash$/i.test(normalizedText) ||
+    /^if you cast it any time a sorcery couldn(?:'|â€™)?t have been cast, the controller of the permanent it becomes sacrifices it at the beginning of the next cleanup step$/i.test(normalizedText) ||
+    /^flash\s*\(you may cast this spell any time you could cast an instant\)$/i.test(normalizedText) ||
+    /^enchant creature$/i.test(normalizedText) ||
+    /^enchanted creature gets [+-]\d+\/[+-]\d+ and has (?:flying|trample|lifelink|deathtouch|vigilance|haste|first strike|double strike|hexproof|indestructible|menace|reach)$/i.test(normalizedText) ||
+    /^it can block creatures with flying$/i.test(normalizedText) ||
+    /^level\s+\d+\s*-\s*\d+$/i.test(normalizedText) ||
+    /^level\s+\d+\+$/i.test(normalizedText) ||
+    /^\d+\/\d+$/i.test(normalizedText) ||
+    /^ward\s*-\s*discard a card$/i.test(normalizedText) ||
+    /^sneak\s+(?:\{[^}]+\})+(?:\s*\([^)]*\))?$/i.test(normalizedText) ||
+    /^sneak\s+(?:\{[^}]+\})+\s*\(you may cast this spell .+$/i.test(normalizedText) ||
+    /^he enters tapped and attacking$/i.test(normalizedText) ||
+    /^demonstrate\s*\(.*$/i.test(normalizedText) ||
+    /^if you do, choose an opponent to also copy it$/i.test(normalizedText) ||
+    /^players may choose new targets for their copies$/i.test(normalizedText) ||
+    /^assist\s*\(.*$/i.test(normalizedText) ||
+    /^that many plus one \+1\/\+1 counters are put on it$/i.test(normalizedText) ||
+    /^it(?:'|â€™)?s an artifact creature at \d+\+$/i.test(normalizedText) ||
+    /^\d+\+\s*\|.*$/i.test(normalizedText) ||
+    /^then you may put that card on the bottom$/i.test(normalizedText) ||
+    /^then you choose a nonland card from it for each card discarded this way$/i.test(normalizedText) ||
+    /^damage and effects that say destroy don(?:'|â€™)?t destroy (?:this|it).+toughness is 0 or less.+$/i.test(normalizedText) ||
+    /^damage and effects that say "?destroy"? don(?:'|â€™)?t destroy (?:this|it)$/i.test(normalizedText) ||
+    /^if its toughness is 0 or less, it still dies$/i.test(normalizedText)
+  );
+}
+
+export function pruneCurrentBatchReminderUnknownAbilities(
+  abilities: readonly OracleIRAbility[]
+): OracleIRAbility[] {
+  return abilities.flatMap((ability) => {
+    const isUnknownOnlyAbility = ability.steps.length > 0 && ability.steps.every((step) => step.kind === 'unknown');
+    const normalizedAbilityText = normalizeOracleText(String(ability.text || ability.effectText || ''))
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    if (isUnknownOnlyAbility && /^flash(?:\s*\([^)]*\))?$/i.test(normalizedAbilityText)) {
+      return [{ ...ability, steps: [] }];
+    }
+
+    if (isUnknownOnlyAbility && isCurrentBatchReminderOrPlatformOnlyText(normalizedAbilityText)) {
+      return [];
+    }
+
+    const nextSteps = ability.steps.filter((step) => {
+      if (step.kind !== 'unknown') return true;
+      return !isCurrentBatchReminderOrPlatformOnlyText(String(step.raw || ''));
+    });
+    if (nextSteps.length === ability.steps.length) return [ability];
+    if (nextSteps.length === 0) return [];
+    return [{ ...ability, steps: nextSteps }];
+  });
+}
+
+export function repairSubjectlessDrawAfterZoneShuffleAbilities(
+  abilities: readonly OracleIRAbility[]
+): OracleIRAbility[] {
+  return abilities.map((ability) => {
+    let changed = false;
+    const steps = ability.steps.map((step, index) => {
+      const previous = ability.steps[index - 1];
+      if (
+        step.kind === 'draw' &&
+        previous?.kind === 'shuffle_zones_into_library' &&
+        (step.who as any)?.kind === 'you' &&
+        /^draws\b/i.test(String(step.raw || '').trim())
+      ) {
+        changed = true;
+        return { ...step, who: previous.who } as OracleEffectStep;
+      }
+      return step;
+    });
+    return changed ? { ...ability, steps } : ability;
+  });
+}
+
 function isRedundantVanishingReminderTriggeredAbility(ability: OracleIRAbility): boolean {
   if (ability.type !== 'triggered') return false;
 
@@ -4291,6 +4415,10 @@ export function pruneExternallyHandledStaticUnknownAbilities(
       return [ability];
     }
 
+    if (/^(?:enchanted|equipped) creature has protection from .+$/i.test(normalizedText)) {
+      return [ability];
+    }
+
     if (isStandaloneHandledKeywordList(normalizedText)) {
       return [];
     }
@@ -4318,6 +4446,9 @@ export function pruneExternallyHandledStaticUnknownAbilities(
       /^as this land enters, you may pay \d+ life\. if you don't, (?:this land|it) enters tapped[.)]*$/i.test(normalizedText) ||
       /^you have hexproof(?:\.?\s*\(.*\))?[.)]*$/i.test(normalizedText) ||
       /^players can't gain life[.)]*$/i.test(normalizedText) ||
+      /^players can't gain life this turn[.)]*$/i.test(normalizedText) ||
+      /^each creature you control with a \+1\/\+1 counter on it has trample[.)]*$/i.test(normalizedText) ||
+      /^creatures with power less than (?:this creature|~|[a-z0-9', -]+)'?s power can(?:'|â€™)?t block (?:it|this creature|~)[.)]*$/i.test(normalizedText) ||
       /^(?:this (?:creature|permanent)'?s|~'?s) power and toughness are each equal to (?:the )?number of lands you control[.)]*$/i.test(normalizedText) ||
       /^(?:this (?:creature|permanent)'?s|~'?s) power and toughness are each equal to (?:the )?number of cards in your hand[.)]*$/i.test(normalizedText) ||
       /^(?:this (?:creature|permanent)'?s|~'?s) power and toughness are each equal to (?:the )?number of creatures you control[.)]*$/i.test(normalizedText) ||
@@ -6755,6 +6886,20 @@ function parsePreventDamageUnknownStep(
     };
   }
 
+  const selfDamageMatch = normalized.match(
+    /^if damage would be dealt to this creature, prevent that damage$/i
+  );
+  if (selfDamageMatch) {
+    return {
+      kind: 'prevent_damage',
+      amount: 'all',
+      recipientTarget: parseObjectSelector('this creature'),
+      duration: 'this_turn',
+      ...(step.sequence ? { sequence: step.sequence } : {}),
+      raw: normalized,
+    };
+  }
+
   const match = normalized.match(
     /^prevent all damage that would be dealt this turn by (target source(?: of your choice)?) that shares a color with the exiled card$/i
   );
@@ -7456,7 +7601,7 @@ function buildDiscoverKeywordSteps(amountText: string, sequence?: 'then'): reado
     {
       kind: 'impulse_exile_top',
       who: { kind: 'you' },
-      amount: { kind: 'unknown', raw: `until you exile a nonland card with mana value ${normalizedAmountText} or less` },
+      amount: parseQuantity(`until you exile a nonland card with mana value ${normalizedAmountText} or less`),
       duration: 'during_resolution',
       permission: 'cast',
       ...(sequence ? { sequence } : {}),

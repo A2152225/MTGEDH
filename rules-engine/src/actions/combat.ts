@@ -722,6 +722,14 @@ export function checkEvasionAbilities(blocker: any, attacker: any, battlefield?:
     }
   }
 
+  if (/creatures with power less than (?:this creature|~|[a-z0-9', -]+)'?s power can(?:'|')?t block (?:it|this creature|~)/i.test(attackerText)) {
+    const blockerPower = getPermanentPower(blocker);
+    const attackerPower = getPermanentPower(attacker);
+    if (blockerPower < attackerPower) {
+      return { canParticipate: false, reason: 'Creatures with lesser power cannot block this attacker' };
+    }
+  }
+
   if (
     attackerText.includes("can't be blocked this turn") ||
     /\bcan't be blocked\b(?!\s+by)(?:$|[\n,.;])/.test(attackerText)
@@ -1524,6 +1532,30 @@ export function validateDeclareBlockers(
         const blockerName = (candidate as any)?.card?.name || candidateId;
         return { legal: false, reason: `${blockerName} must block ${attackerName} if able` };
       }
+    }
+  }
+
+  const mustBlockEffects = battlefield.flatMap((candidate: any) => {
+    const candidateId = String(candidate?.id || '').trim();
+    if (!candidateId || String(candidate?.controller || '').trim() !== action.playerId) return [];
+    const effects = Array.isArray(candidate?.temporaryEffects) ? candidate.temporaryEffects : [];
+    return effects
+      .map((effect: any) => String(effect?.mustBlockAttackerId || '').trim())
+      .filter(Boolean)
+      .map((attackerId: string) => ({ blocker: candidate, blockerId: candidateId, attackerId }));
+  });
+
+  for (const requirement of mustBlockEffects) {
+    const attacker = battlefield.find((candidate: any) => String(candidate?.id || '').trim() === requirement.attackerId);
+    if (!attacker) continue;
+    const validationResult = canPermanentBlock(requirement.blocker, attacker, battlefield);
+    if (!validationResult.canParticipate) continue;
+
+    const assignedBlockers = attackerAssignments.get(requirement.attackerId) || new Set<string>();
+    if (!assignedBlockers.has(requirement.blockerId)) {
+      const attackerName = attacker?.card?.name || requirement.attackerId;
+      const blockerName = requirement.blocker?.card?.name || requirement.blockerId;
+      return { legal: false, reason: `${blockerName} must block ${attackerName} if able` };
     }
   }
   

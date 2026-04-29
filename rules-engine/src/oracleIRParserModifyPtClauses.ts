@@ -51,7 +51,9 @@ export function tryParseTemporaryModifyPtClause(params: {
       const eachRaw = `for each ${String(forEachMatch[1] || '').trim()}`.trim();
       scaler = /^for\s+each\s+card\s+revealed\s+this\s+way$/i.test(eachRaw)
         ? { kind: 'per_revealed_this_way' }
-        : { kind: 'unknown', raw: eachRaw };
+        : /^for\s+each\s+creature\s+blocking\s+it$/i.test(eachRaw)
+          ? { kind: 'per_creature_blocking_it' }
+          : { kind: 'unknown', raw: eachRaw };
     } else {
       const ifMatch = tail.match(/^if\s+(.+)$/i);
       if (ifMatch) {

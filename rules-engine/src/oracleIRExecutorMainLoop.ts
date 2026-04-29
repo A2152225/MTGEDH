@@ -32,6 +32,7 @@ import {
   applyAddCounterStep,
   applyAddTypesStep,
   applyCantBlockStep,
+  applyForceBlockStep,
   applyDoubleCountersStep,
   applyDestroyStep,
   applyDetainStep,
@@ -52,6 +53,7 @@ import {
   applyCopyPermanentStep,
   applyPutStickerStep,
   applyRemoveCounterStep,
+  applyMoveCountersStep,
   applySacrificeStep,
   applyScheduleDelayedBattlefieldActionStep,
   applyScheduleDelayedTriggerStep,
@@ -61,7 +63,7 @@ import {
   applyTapOrUntapStep,
   applyTurnFaceUpStep,
 } from './oracleIRExecutorBattlefieldStepHandlers';
-import { applyDealDamageStep, applyPreventDamageStep } from './oracleIRExecutorDamageStepHandlers';
+import { applyDamageCantBePreventedStep, applyDealDamageStep, applyPreventDamageStep } from './oracleIRExecutorDamageStepHandlers';
 import {
   applyExileTopStep,
   applyGrantExilePermissionStep,
@@ -91,10 +93,12 @@ import { applyMoveZoneStep } from './oracleIRExecutorMoveZoneStepHandlers';
 import {
   applyAddManaStep,
   applyAddPlayerCounterStep,
+  applyDoublePlayerCountersStep,
   applyAssembleStep,
   applyBecomeMonarchStep,
   applyAbandonSchemeStep,
   applyClashStep,
+  applyChoosePileStep,
   applyCollectEvidenceStep,
   applyConniveStep,
   applyCreateEmblemStep,
@@ -123,6 +127,7 @@ import {
   applyRollVisitAttractionsStep,
   applyScryStep,
   applySearchLibraryStep,
+  applyShuffleZonesIntoLibraryStep,
   applyShuffleLibraryStep,
   applySetInMotionStep,
   applySurveilStep,
@@ -730,6 +735,11 @@ export function applyOracleIRStepsToGameStateImpl(
         applyHandledStepResult(step, result);
         break;
       }
+      case 'force_block': {
+        const result = applyForceBlockStep(nextState, step, currentCtx);
+        applyHandledStepResult(step, result);
+        break;
+      }
       case 'cant_activate_abilities': {
         const result = applyCantActivateAbilitiesStep(nextState, step, currentCtx);
         applyHandledStepResult(step, result);
@@ -1241,6 +1251,16 @@ export function applyOracleIRStepsToGameStateImpl(
       }
       case 'add_mana': {
         const result = applyAddManaStep(nextState, step, currentCtx);
+        applyHandledStepResult(step, result);
+        break;
+      }
+      case 'shuffle_zones_into_library': {
+        const result = applyShuffleZonesIntoLibraryStep(nextState, step, currentCtx);
+        applyHandledStepResult(step, result);
+        break;
+      }
+      case 'choose_pile': {
+        const result = applyChoosePileStep(nextState, step, currentCtx);
         applyHandledStepResult(step, result);
         break;
       }
@@ -1769,6 +1789,11 @@ export function applyOracleIRStepsToGameStateImpl(
         applyHandledStepResult(step, result);
         break;
       }
+      case 'double_player_counters': {
+        const result = applyDoublePlayerCountersStep(nextState, step, currentCtx);
+        applyHandledStepResult(step, result);
+        break;
+      }
       case 'deal_damage': {
         const result = applyDealDamageStep(nextState, step, currentCtx, {
           lastMovedCards,
@@ -1783,6 +1808,11 @@ export function applyOracleIRStepsToGameStateImpl(
       }
       case 'prevent_damage': {
         const result = applyPreventDamageStep(nextState, step, currentCtx);
+        applyHandledStepResult(step, result);
+        break;
+      }
+      case 'damage_cant_be_prevented': {
+        const result = applyDamageCantBePreventedStep(nextState, step, currentCtx);
         applyHandledStepResult(step, result);
         break;
       }
@@ -1819,6 +1849,11 @@ export function applyOracleIRStepsToGameStateImpl(
       }
       case 'remove_counter': {
         const result = applyRemoveCounterStep(nextState, step, currentCtx);
+        applyHandledStepResult(step, result);
+        break;
+      }
+      case 'move_counters': {
+        const result = applyMoveCountersStep(nextState, step, currentCtx);
         applyHandledStepResult(step, result);
         break;
       }

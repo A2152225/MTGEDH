@@ -898,7 +898,10 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
     );
 
     expect(ir.keywords).toContain('protection');
-    expect(ir.abilities[1]?.steps).toEqual([
+    const protectionAbility = ir.abilities.find((ability: any) =>
+      (ability.steps ?? []).some((step: any) => step.raw === 'Enchanted creature has protection from red')
+    );
+    expect(protectionAbility?.steps).toEqual([
       expect.objectContaining({
         kind: 'unknown',
         raw: 'Enchanted creature has protection from red',
@@ -2535,7 +2538,7 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
       {
         kind: 'impulse_exile_top',
         who: { kind: 'you' },
-        amount: { kind: 'unknown', raw: 'until you exile a nonland card with mana value 4 or less' },
+        amount: { kind: 'until_nonland_mana_value_lte', value: 4 },
         duration: 'during_resolution',
         permission: 'cast',
         raw:
@@ -2557,7 +2560,7 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
       {
         kind: 'impulse_exile_top',
         who: { kind: 'you' },
-        amount: { kind: 'unknown', raw: 'until you exile a nonland card with mana value 3 or less' },
+        amount: { kind: 'until_nonland_mana_value_lte', value: 3 },
         duration: 'during_resolution',
         permission: 'cast',
         raw:
@@ -2582,7 +2585,7 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
       {
         kind: 'impulse_exile_top',
         who: { kind: 'you' },
-        amount: { kind: 'unknown', raw: 'until you exile a nonland card with mana value 5 or less' },
+        amount: { kind: 'until_nonland_mana_value_lte', value: 5 },
         duration: 'during_resolution',
         permission: 'cast',
         raw:
@@ -2607,7 +2610,7 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
       {
         kind: 'impulse_exile_top',
         who: { kind: 'you' },
-        amount: { kind: 'unknown', raw: 'until you exile a nonland card with mana value 4 or less' },
+        amount: { kind: 'until_nonland_mana_value_lte', value: 4 },
         duration: 'during_resolution',
         permission: 'cast',
         raw:
@@ -11962,9 +11965,9 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
       'Snapcaster Mage'
     );
 
-    expect(ir.abilities[0]?.type).toBe('static');
-    expect(ir.abilities[1]?.type).toBe('triggered');
-    expect(ir.abilities[1]?.steps).toMatchObject([
+    const triggeredAbility = ir.abilities.find((ability: any) => ability.type === 'triggered');
+    expect(triggeredAbility).toBeTruthy();
+    expect(triggeredAbility?.steps).toMatchObject([
       {
         kind: 'grant_graveyard_permission',
         who: { kind: 'you' },

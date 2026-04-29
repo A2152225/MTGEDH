@@ -1,5 +1,5 @@
 ﻿import { describe, it, expect, vi } from 'vitest';
-import type { GameState } from '../../shared/src';
+import type { GameState, PlayerID } from '../../shared/src';
 import { parseOracleTextToIR } from '../src/oracleIRParser';
 import { applyOracleIRStepsToGameState, buildOracleIRExecutionContext } from '../src/oracleIRExecutor';
 import { DelayedTriggerTiming, checkDelayedTriggers, processDelayedTriggers } from '../src/delayedTriggeredAbilities';
@@ -21121,7 +21121,7 @@ describe('Oracle IR Executor', () => {
     const remainingIds = (result.state.battlefield as any[]).map(perm => perm.id);
 
     expect(result.appliedSteps.some(s => s.kind === 'sacrifice')).toBe(true);
-    expect(result.skippedSteps.some(s => s.kind === 'unknown' || s.kind === 'damage' || s.kind === 'deal_damage')).toBe(true);
+    expect(result.skippedSteps.some((s: any) => s.kind === 'unknown' || s.kind === 'damage' || s.kind === 'deal_damage')).toBe(true);
     expect(result.automationGaps.some(gap => String(gap.raw || '').toLowerCase().includes('it deals 3 damage'))).toBe(true);
     expect(remainingIds).toEqual(['safe-artifact-after-it-deals-split']);
   });
@@ -26280,7 +26280,9 @@ This creature has protection from each of the exiled card's card types. (Artifac
       'I â€” Exile up to one target Saga card from a graveyard. Copy its chapter I ability.\nII â€” Exile up to one target Saga card from a graveyard. Copy its chapter II ability.\nIII â€” Exile up to one target Saga card from a graveyard. Copy its chapter III ability.',
       'The Many Deeds of Belzenlok'
     );
-    const steps = ir.abilities[1]?.steps ?? [];
+    const steps = ir.abilities.find((ability: any) =>
+      (ability.steps ?? []).some((step: any) => step.kind === 'copy_chapter_ability' && step.chapter === 2)
+    )?.steps ?? [];
 
     const result = applyOracleIRStepsToGameState(
       makeState({
@@ -45737,7 +45739,9 @@ This creature has protection from each of the exiled card's card types. (Artifac
 
   it('applies flashback keyword permissions like Faithless Looting', () => {
     const ir = parseOracleTextToIR('Draw two cards, then discard two cards. Flashback {2}{R}', 'Faithless Looting');
-    const steps = ir.abilities[1]?.steps ?? [];
+    const steps = ir.abilities.find((ability: any) =>
+      (ability.steps ?? []).some((step: any) => step.kind === 'grant_graveyard_permission')
+    )?.steps ?? [];
 
     const result = applyOracleIRStepsToGameState(
       makeState({
@@ -45815,7 +45819,9 @@ This creature has protection from each of the exiled card's card types. (Artifac
       'Flash. When Snapcaster Mage enters, target instant or sorcery card in your graveyard gains flashback until end of turn.\nThe flashback cost is equal to its mana cost.',
       'Snapcaster Mage'
     );
-    const steps = ir.abilities[1]?.steps ?? [];
+    const steps = ir.abilities.find((ability: any) =>
+      (ability.steps ?? []).some((step: any) => step.kind === 'grant_graveyard_permission')
+    )?.steps ?? [];
 
     const result = applyOracleIRStepsToGameState(
       makeState({

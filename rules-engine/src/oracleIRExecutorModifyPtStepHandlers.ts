@@ -50,6 +50,26 @@ type StepUnrecordedSkipResult = {
 
 export type ModifyPtStepHandlerResult = StepApplyResult | StepRecordedSkipResult | StepUnrecordedSkipResult;
 
+function countCreaturesBlockingTarget(state: GameState, targetCreatureId: string): number {
+  const targetId = String(targetCreatureId || '').trim();
+  if (!targetId) return 0;
+  const combat: any = (state as any).combat || {};
+  const attackerEntry = Array.isArray(combat.attackers)
+    ? combat.attackers.find((entry: any) => String(entry?.permanentId || '').trim() === targetId)
+    : null;
+  if (attackerEntry && Array.isArray(attackerEntry.blockedBy)) {
+    return new Set(attackerEntry.blockedBy.map((id: any) => String(id || '').trim()).filter(Boolean)).size;
+  }
+
+  if (Array.isArray(combat.blockers)) {
+    return combat.blockers.filter((entry: any) =>
+      Array.isArray(entry?.blocking) && entry.blocking.some((id: any) => String(id || '').trim() === targetId)
+    ).length;
+  }
+
+  return 0;
+}
+
 export function applyModifyPtStep(
   state: GameState,
   step: Extract<OracleEffectStep, { kind: 'modify_pt' }>,
@@ -127,7 +147,9 @@ export function applyModifyPtStep(
 
   const scale = step.scaler?.kind === 'per_revealed_this_way'
     ? Math.max(0, runtime.lastRevealedCardCount | 0)
-    : 1;
+    : step.scaler?.kind === 'per_creature_blocking_it'
+      ? Math.max(0, countCreaturesBlockingTarget(state, targetCreatureIds[0]))
+      : 1;
 
   if ((step.powerUsesX || step.toughnessUsesX) && whereXValue === null) {
     return {

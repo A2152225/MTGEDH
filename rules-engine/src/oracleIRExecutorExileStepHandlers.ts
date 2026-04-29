@@ -4,6 +4,8 @@ import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
 import {
   applyImpulsePermissionMarkers,
   exileTopCardsForPlayer,
+  getCardManaValue,
+  getCardTypeLineLower,
   getPlayableUntilTurnForImpulseDuration,
   quantityToNumber,
   resolvePlayers,
@@ -65,6 +67,27 @@ function resolveExileCounts(
 ): Map<PlayerID, number> | null {
   const exileCountByPlayer = new Map<PlayerID, number>();
   for (const playerId of players) {
+    if (amount?.kind === 'until_nonland_mana_value_lte') {
+      const player = state.players.find(p => p.id === playerId) as any;
+      if (!player) return null;
+      const library: any[] = Array.isArray(player.library) ? player.library : [];
+      const threshold = Math.max(0, Number(amount.value) || 0);
+      let resolvedCount = library.length;
+      for (let index = 0; index < library.length; index += 1) {
+        const typeLine = getCardTypeLineLower(library[index]);
+        if (!typeLine) return null;
+        if (typeLine.includes('land')) continue;
+        const manaValue = getCardManaValue(library[index]);
+        if (manaValue === null) return null;
+        if (manaValue <= threshold) {
+          resolvedCount = index + 1;
+          break;
+        }
+      }
+      exileCountByPlayer.set(playerId, resolvedCount);
+      continue;
+    }
+
     const resolvedCount =
       quantityToNumber(amount, ctx) ??
       resolveUnknownExileUntilAmountForPlayer(state, playerId, amount, ctx);

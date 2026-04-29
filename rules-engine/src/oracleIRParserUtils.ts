@@ -51,6 +51,14 @@ export function parseQuantity(raw: string | undefined): OracleQuantity {
   const trimmed = raw.trim();
   if (!trimmed) return { kind: 'unknown' };
   if (/^that (much|many)$/i.test(trimmed)) return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
+  if (/^any number$/i.test(trimmed)) return { kind: 'any_number' };
+  {
+    const nonlandMvMatch = trimmed.match(/^until (?:they|you) exile a nonland card with mana value (\d+) or less$/i);
+    if (nonlandMvMatch) {
+      const value = Number.parseInt(String(nonlandMvMatch[1] || '0'), 10);
+      if (Number.isFinite(value)) return { kind: 'until_nonland_mana_value_lte', value };
+    }
+  }
   if (/^x$/i.test(trimmed)) return { kind: 'x' };
   if (/^all$/i.test(trimmed)) return { kind: 'all' };
   if (/^(a|an)$/i.test(trimmed)) return { kind: 'number', value: 1 };

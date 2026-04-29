@@ -889,6 +889,15 @@ export function shouldShuffleRestIntoLibrary(step: any): boolean {
 
   const amountRaw = normalizeOracleText(String(step?.amount?.raw || ''));
   const who = String(step?.who?.kind || '');
+  if (
+    step?.kind === 'impulse_exile_top' &&
+    step?.duration === 'during_resolution' &&
+    step?.permission === 'cast' &&
+    step?.amount?.kind === 'until_nonland_mana_value_lte'
+  ) {
+    return true;
+  }
+
   return (
     step?.kind === 'impulse_exile_top' &&
     step?.duration === 'during_resolution' &&
@@ -908,6 +917,20 @@ export function splitExiledForShuffleRest(step: any, exiled: readonly any[]): { 
   if (all.length === 0) return { keepExiled: [], returnToLibrary: [] };
 
   const amountRaw = normalizeOracleText(String(step?.amount?.raw || ''));
+
+  if (step?.amount?.kind === 'until_nonland_mana_value_lte') {
+    const threshold = Math.max(0, Number(step.amount.value) || 0);
+    const hitIndex = all.findIndex((card: any) => {
+      const typeLine = getCardTypeLineLower(card);
+      const manaValue = getCardManaValue(card);
+      return Boolean(typeLine) && !typeLine.includes('land') && manaValue !== null && manaValue <= threshold;
+    });
+    if (hitIndex < 0) return { keepExiled: [], returnToLibrary: all };
+    return {
+      keepExiled: [all[hitIndex]],
+      returnToLibrary: all.filter((_, index) => index !== hitIndex),
+    };
+  }
 
   if (
     amountRaw === 'until they exile an instant or sorcery card' ||

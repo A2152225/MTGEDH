@@ -1022,6 +1022,7 @@ function applyTemporaryEffectToPermanents(
     readonly grantedAbilities?: readonly string[];
     readonly expiresAt: 'end_of_turn' | 'next_upkeep' | 'leaves_battlefield';
     readonly expiresOnControllerTurn?: PlayerID;
+    readonly mustBlockAttackerId?: string;
   }
 ): GameState {
   const targetIdSet = new Set(targets.map(target => String((target as any)?.id || '').trim()).filter(Boolean));
@@ -1050,6 +1051,7 @@ function applyTemporaryEffectToPermanents(
         ...(effect.expiresOnControllerTurn ? { expiresOnControllerTurn: effect.expiresOnControllerTurn } : {}),
         sourceId: String(ctx.sourceId || '').trim() || undefined,
         sourceName: String(ctx.sourceName || '').trim() || undefined,
+        ...(effect.mustBlockAttackerId ? { mustBlockAttackerId: effect.mustBlockAttackerId } : {}),
         ...(normalizedGrantedAbilities.length > 0 ? { grantedAbilities: normalizedGrantedAbilities } : {}),
       } as any);
     }
@@ -1139,10 +1141,22 @@ function resolveRecentlyCreatedTokenPermanents(
 }
 
 function resolveAddCounterAmount(
+  state: GameState,
   step: Extract<OracleEffectStep, { kind: 'add_counter' }>,
   ctx?: OracleIRExecutionContext,
   runtime?: RecentBattlefieldRuntime
 ): number | null {
+  if (step.amount.kind === 'greatest_power_among_other_creatures_you_control') {
+    const sourceId = String(ctx?.sourceId || '').trim();
+    const controllerId = String(ctx?.controllerId || '').trim();
+    const powers = ((state.battlefield || []) as BattlefieldPermanent[])
+      .filter((perm: any) => String(perm?.controller || '').trim() === controllerId)
+      .filter((perm: any) => String(perm?.id || '').trim() !== sourceId)
+      .filter((perm: any) => permanentMatchesType(perm, 'creature'))
+      .map((perm: any) => readCharacteristicNumber(perm?.effectivePower, perm?.basePower, perm?.card?.power, perm?.power) ?? 0);
+    return powers.length > 0 ? Math.max(0, ...powers) : 0;
+  }
+
   const numericAmount = quantityToNumber(step.amount, ctx);
   if (numericAmount !== null) return numericAmount;
   if (step.amount.kind !== 'x') return null;
@@ -3140,13 +3154,138 @@ export function applyDoubleCountersStep(
   };
 }
 
+export function applyMoveCountersStep(
+  state: GameState,
+  step: Extract<OracleEffectStep, { kind: 'move_counters' }>,
+  ctx: OracleIRExecutionContext
+): BattlefieldStepHandlerResult {
+  const battlefield = [...((state.battlefield || []) as BattlefieldPermanent[])];
+  const fromTargets = resolveDirectBattlefieldPermanents(battlefield, step.from as any, ctx);
+  const toTargets = resolveDirectBattlefieldPermanents(battlefield, step.to as any, ctx);
+
+  if (fromTargets.length !== 1 || toTargets.length !== 1) {
+    return {
+      applied: false,
+      message: `Skipped move counters (needs deterministic source and destination): ${step.raw}`,
+      reason: fromTargets.length > 1 || toTargets.length > 1 ? 'player_choice_required' : 'no_deterministic_target',
+      options: fromTargets.length > 1 || toTargets.length > 1 ? { classification: 'player_choice' } : undefined,
+    };
+  }
+
+  const fromId = String((fromTargets[0] as any)?.id || '').trim();
+  const toId = String((toTargets[0] as any)?.id || '').trim();
+  if (!fromId || !toId || fromId === toId) {
+    return {
+      applied: false,
+      message: `Skipped move counters (invalid source or destination): ${step.raw}`,
+      reason: 'unsupported_target',
+    };
+  }
+
+  const fromIndex = battlefield.findIndex((perm: any) => String(perm?.id || '').trim() === fromId);
+  const toIndex = battlefield.findIndex((perm: any) => String(perm?.id || '').trim() === toId);
+  if (fromIndex < 0 || toIndex < 0) {
+    return {
+      applied: false,
+      message: `Skipped move counters (source or destination left battlefield): ${step.raw}`,
+      reason: 'no_deterministic_target',
+    };
+  }
+
+  const fromPermanent: any = battlefield[fromIndex] || {};
+  const toPermanent: any = battlefield[toIndex] || {};
+  const fromCounters: Record<string, number> = { ...((fromPermanent.counters || {}) as Record<string, number>) };
+  const toCounters: Record<string, number> = { ...((toPermanent.counters || {}) as Record<string, number>) };
+  const requestedCounter = String(step.counter || '').trim();
+  const amountIsAll = (step.amount as any)?.kind === 'all';
+  const fixedAmount = amountIsAll ? null : quantityToNumber(step.amount as any, ctx);
+
+  if (!amountIsAll && (!Number.isFinite(Number(fixedAmount)) || Number(fixedAmount) <= 0)) {
+    return {
+      applied: false,
+      message: `Skipped move counters (unsupported amount): ${step.raw}`,
+      reason: 'unsupported_target',
+    };
+  }
+
+  let moved = 0;
+  for (const [counterName, rawCount] of Object.entries(fromCounters)) {
+    if (requestedCounter && counterName !== requestedCounter) continue;
+    const available = Math.max(0, Number(rawCount) || 0);
+    if (available <= 0) continue;
+    const moveCount = amountIsAll ? available : Math.min(available, Math.max(0, Number(fixedAmount) || 0));
+    if (moveCount <= 0) continue;
+    fromCounters[counterName] = available - moveCount;
+    if (fromCounters[counterName] <= 0) delete fromCounters[counterName];
+    toCounters[counterName] = Math.max(0, Number(toCounters[counterName]) || 0) + moveCount;
+    moved += moveCount;
+  }
+
+  if (moved <= 0) {
+    return {
+      applied: true,
+      state,
+      log: [`No counters moved`],
+    };
+  }
+
+  battlefield[fromIndex] = { ...fromPermanent, counters: fromCounters } as any;
+  battlefield[toIndex] = { ...toPermanent, counters: toCounters } as any;
+
+  return {
+    applied: true,
+    state: { ...(state as any), battlefield } as GameState,
+    log: [`Moved ${moved} counter(s)`],
+  };
+}
+
+export function applyForceBlockStep(
+  state: GameState,
+  step: Extract<OracleEffectStep, { kind: 'force_block' }>,
+  ctx: OracleIRExecutionContext
+): BattlefieldStepHandlerResult {
+  const battlefield = (state.battlefield || []) as BattlefieldPermanent[];
+  const blockers = resolveDirectBattlefieldPermanents(battlefield, step.blocker as any, ctx);
+  const attackers = resolveDirectBattlefieldPermanents(battlefield, step.attacker as any, ctx);
+  if (blockers.length !== 1 || attackers.length !== 1) {
+    return {
+      applied: false,
+      message: `Skipped force block (needs deterministic blocker and attacker): ${step.raw}`,
+      reason: blockers.length > 1 || attackers.length > 1 ? 'player_choice_required' : 'no_deterministic_target',
+      options: blockers.length > 1 || attackers.length > 1 ? { classification: 'player_choice' } : undefined,
+    };
+  }
+
+  const blockerId = String((blockers[0] as any)?.id || '').trim();
+  const attackerId = String((attackers[0] as any)?.id || '').trim();
+  if (!blockerId || !attackerId) {
+    return {
+      applied: false,
+      message: `Skipped force block (invalid blocker or attacker): ${step.raw}`,
+      reason: 'unsupported_target',
+    };
+  }
+
+  const nextState = applyTemporaryEffectToPermanents(state, blockers, ctx, {
+    descriptions: [`must block ${attackerId} if able`],
+    expiresAt: 'end_of_turn',
+    mustBlockAttackerId: attackerId,
+  } as any);
+
+  return {
+    applied: true,
+    state: nextState,
+    log: [`Marked ${blockerId} to block ${attackerId} if able`],
+  };
+}
+
 export function applyAddCounterStep(
   state: GameState,
   step: Extract<OracleEffectStep, { kind: 'add_counter' }>,
   ctx: OracleIRExecutionContext,
   runtime?: RecentBattlefieldRuntime
 ): BattlefieldStepHandlerResult {
-  const amountValue = resolveAddCounterAmount(step, ctx, runtime);
+  const amountValue = resolveAddCounterAmount(state, step, ctx, runtime);
   if (amountValue === null || amountValue <= 0) {
     return {
       applied: false,

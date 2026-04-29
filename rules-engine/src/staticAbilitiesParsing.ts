@@ -213,6 +213,24 @@ export function parseStaticAbilities(
     });
   }
 
+  const counterAbilityGrantMatch = oracleText.match(/each\s+creature\s+you\s+control\s+with\s+a\s+(\+1\/\+1)\s+counter\s+on\s+it\s+has\s+(flying|trample|lifelink|deathtouch|vigilance|haste|first strike|double strike|hexproof|indestructible|menace|reach)/i);
+  if (counterAbilityGrantMatch) {
+    abilities.push({
+      id: `${permanentId}-counter-grant-${counterAbilityGrantMatch[2]}`,
+      sourceId: permanentId,
+      sourceName: name,
+      controllerId,
+      effectType: StaticEffectType.GRANT_ABILITY,
+      filter: {
+        cardTypes: ['creature'],
+        controller: 'you',
+        hasCounter: counterAbilityGrantMatch[1].toLowerCase(),
+      },
+      value: counterAbilityGrantMatch[2].toLowerCase(),
+      layer: 6,
+    });
+  }
+
   const typeAbilityMatch = oracleText.match(/(\w+)\s+creatures?\s+(?:you\s+control\s+)?have\s+(flying|trample|lifelink|deathtouch|vigilance|haste|first strike|double strike|hexproof|indestructible|menace|reach|islandwalk|forestwalk|mountainwalk|swampwalk|plainswalk)/i);
   if (typeAbilityMatch && !typeAbilityMatch[1].match(/^(all|each|every|other)$/i)) {
     abilities.push({

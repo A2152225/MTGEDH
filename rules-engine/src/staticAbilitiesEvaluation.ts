@@ -92,6 +92,13 @@ export function matchesFilter(
     }
   }
 
+  if (filter.hasCounter) {
+    const counterName = String(filter.hasCounter || '').trim().toLowerCase();
+    const counters = ((permanent as any).counters || {}) as Record<string, number>;
+    const matchingCount = Number(counters[counterName] ?? counters[counterName.replace(/ counter$/i, '')]);
+    if (!Number.isFinite(matchingCount) || matchingCount <= 0) return false;
+  }
+
   return true;
 }
 

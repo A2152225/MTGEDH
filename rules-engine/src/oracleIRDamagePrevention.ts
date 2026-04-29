@@ -92,6 +92,30 @@ export function createTargetDamagePreventionEffect(params: {
   };
 }
 
+export function createTargetAllDamagePreventionEffect(params: {
+  state: GameState;
+  sourceId?: string;
+  sourceName?: string;
+  controllerId?: string;
+  targetPlayerId?: PlayerID;
+  targetPermanentId?: string;
+  description: string;
+}): DamagePreventionEffect {
+  const currentTurn = getCurrentTurnNumber(params.state);
+  const targetRef = String(params.targetPlayerId || params.targetPermanentId || 'target').trim() || 'target';
+  return {
+    id: `${String(params.sourceId || 'oracle-ir').trim() || 'oracle-ir'}:prevent:all-shield:${targetRef}:${currentTurn}`,
+    description: params.description,
+    sourceId: params.sourceId,
+    sourceName: params.sourceName,
+    controllerId: params.controllerId as any,
+    targetSourceId: '*',
+    targetPlayerId: params.targetPlayerId,
+    targetPermanentId: params.targetPermanentId,
+    expiresAtTurn: currentTurn,
+  };
+}
+
 export function createSourceChoiceDamagePreventionEffect(params: {
   state: GameState;
   sourceId?: string;
@@ -135,6 +159,14 @@ export function registerDamagePreventionEffect(
   } as GameState;
 }
 
+export function registerDamageCantBePreventedThisTurn(state: GameState): GameState {
+  const currentTurn = getCurrentTurnNumber(state);
+  return {
+    ...(state as any),
+    damageCantBePreventedUntilTurn: currentTurn,
+  } as GameState;
+}
+
 export function previewPreventedDamage(
   state: GameState,
   amount: number,
@@ -154,6 +186,14 @@ export function previewPreventedDamage(
   const initialAmount = Math.max(0, Number(amount) || 0);
   const normalizedTargetPlayerId = String(options?.targetPlayerId || '').trim() as PlayerID;
   const normalizedTargetPermanentId = String(options?.targetPermanentId || '').trim();
+  const preventionLockedTurn = Number((state as any)?.damageCantBePreventedUntilTurn);
+  if (Number.isFinite(preventionLockedTurn) && preventionLockedTurn === getCurrentTurnNumber(state)) {
+    return {
+      prevented: 0,
+      remainingDamage: initialAmount,
+      log: [],
+    };
+  }
   if (initialAmount <= 0) {
     return {
       prevented: 0,

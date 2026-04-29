@@ -125,6 +125,8 @@ import {
   pruneRedundantChampionReminderAbilities,
   pruneExternallyHandledStaticUnknownAbilities,
   pruneExternallyHandledTemporaryLandBonusUnknownSteps,
+  pruneCurrentBatchReminderUnknownAbilities,
+  repairSubjectlessDrawAfterZoneShuffleAbilities,
   pruneLateKeywordReminderOnlyAbilities,
   pruneRedundantCoinFlipLeadUnknownAbilities,
   pruneRedundantEntersTappedReplacementUnknownAbilities,
@@ -651,7 +653,7 @@ function parseAbilityToIRAbility(ability: ParsedAbility, cardName?: string): Ora
             .replace(/\s+then\b.*$/i, '')
             .trim();
 
-          amount = { kind: 'unknown', raw: `until ${untilRaw}` };
+          amount = parseQuantity(`until ${untilRaw}`);
         }
       }
 
@@ -675,7 +677,7 @@ function parseAbilityToIRAbility(ability: ParsedAbility, cardName?: string): Ora
             .replace(/\s+then\b.*$/i, '')
             .trim();
 
-          amount = { kind: 'unknown', raw: `until ${untilRaw}` };
+          amount = parseQuantity(`until ${untilRaw}`);
         }
       }
 
@@ -999,7 +1001,7 @@ function parseAbilityToIRAbility(ability: ParsedAbility, cardName?: string): Ora
             .replace(/\s+then\b.*$/i, '')
             .trim();
 
-          amount = { kind: 'unknown', raw: `until ${untilRaw}` };
+          amount = parseQuantity(`until ${untilRaw}`);
         }
       }
 
@@ -1022,7 +1024,7 @@ function parseAbilityToIRAbility(ability: ParsedAbility, cardName?: string): Ora
             .replace(/\s+then\b.*$/i, '')
             .trim();
 
-          amount = { kind: 'unknown', raw: `until ${untilRaw}` };
+          amount = parseQuantity(`until ${untilRaw}`);
         }
       }
 
@@ -1523,6 +1525,8 @@ export function parseOracleTextToIR(oracleText: string, cardName?: string): Orac
   abilities = pruneRedundantFaceDownReminderUnknownAbilities(abilities);
   abilities = pruneRedundantProliferateReminderUnknownAbilities(abilities);
   abilities = pruneExternallyHandledStaticUnknownAbilities(abilities);
+  abilities = repairSubjectlessDrawAfterZoneShuffleAbilities(abilities);
+  abilities = pruneCurrentBatchReminderUnknownAbilities(abilities);
   abilities = pruneLateKeywordReminderOnlyAbilities(abilities);
   abilities = abilities.map(wrapTriggeredInterveningIfAbility);
 

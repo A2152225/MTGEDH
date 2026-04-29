@@ -18,6 +18,10 @@ export interface OracleIRSelectorContext {
   readonly targetPlayerId?: PlayerID;
   /** Bound target for selectors parsed as target opponent. */
   readonly targetOpponentId?: PlayerID;
+  /** Bound target for selectors parsed as target creature. */
+  readonly targetCreatureId?: string;
+  /** Bound target for selectors parsed as target permanent. */
+  readonly targetPermanentId?: string;
   /** Bound target for selectors parsed as target spell. */
   readonly targetSpellId?: string;
   /** Bound antecedent set for selectors parsed as "each of those opponents". */

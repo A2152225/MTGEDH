@@ -88,6 +88,56 @@ function shuffleArray<T>(items: readonly T[]): T[] {
   return shuffled;
 }
 
+function normalizeColorSymbols(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((value) => String(value || '').trim().toUpperCase())
+    .map((value) => value.length === 1 ? value : value.slice(0, 1))
+    .filter((value) => /^[WUBRG]$/.test(value));
+}
+
+function getCommanderColorIdentityForPlayer(state: GameState, playerId: PlayerID): string[] {
+  const player: any = (state.players || []).find((entry: any) => entry?.id === playerId);
+  const direct = normalizeColorSymbols(player?.commanderColorIdentity || player?.colorIdentity || player?.deckColorIdentity);
+  if (direct.length > 0) return [...new Set(direct)];
+
+  const commanderCards: any[] = [];
+  for (const source of [player?.commander, player?.commanders]) {
+    if (Array.isArray(source)) commanderCards.push(...source);
+    else if (source) commanderCards.push(source);
+  }
+
+  const commanderZone = Array.isArray((state as any)?.commanderZone) ? (state as any).commanderZone : [];
+  commanderCards.push(...commanderZone.filter((entry: any) => String(entry?.ownerId || entry?.owner || entry?.controller || '').trim() === String(playerId)));
+
+  const colors = commanderCards.flatMap((card: any) =>
+    normalizeColorSymbols(card?.colorIdentity || card?.color_identity || card?.card?.colorIdentity || card?.card?.color_identity)
+  );
+  return [...new Set(colors)];
+}
+
+function readPower(value: any): number {
+  if (!value) return 0;
+  if (typeof value.effectivePower === 'number') return value.effectivePower;
+  let power = typeof value.basePower === 'number' ? value.basePower : undefined;
+  if (typeof power !== 'number') {
+    const rawPower = value.card?.power ?? value.power;
+    power = typeof rawPower === 'string' ? Number.parseInt(rawPower, 10) : Number(rawPower);
+  }
+  if (!Number.isFinite(power)) power = 0;
+  const counters = (value.counters || {}) as Record<string, number>;
+  power += Math.max(0, Number(counters['+1/+1']) || 0);
+  power -= Math.max(0, Number(counters['-1/-1']) || 0);
+  return power;
+}
+
+function resolveSourcePower(state: GameState, ctx: OracleIRExecutionContext): number | null {
+  const sourceId = String(ctx.sourceId || '').trim();
+  if (!sourceId) return null;
+  const source = ((state.battlefield || []) as any[]).find((perm) => String(perm?.id || '').trim() === sourceId);
+  return source ? Math.max(0, readPower(source)) : null;
+}
+
 function normalizeLookChooseSelectorText(value: string): string {
   return String(value || '')
     .replace(/^an?\s+/i, '')
@@ -2346,6 +2396,102 @@ export function applyShuffleLibraryStep(
   return { applied: true, state: nextState, log };
 }
 
+export function applyShuffleZonesIntoLibraryStep(
+  state: GameState,
+  step: Extract<OracleEffectStep, { kind: 'shuffle_zones_into_library' }>,
+  ctx: OracleIRExecutionContext
+): PlayerStepHandlerResult {
+  const players = resolvePlayers(state, step.who, ctx);
+  if (players.length === 0) {
+    return {
+      applied: false,
+      message: `Skipped shuffle zones into library (unsupported player selector): ${step.raw}`,
+      reason: 'unsupported_player_selector',
+    };
+  }
+
+  const zones = new Set((step.zones || []).map((zone) => String(zone || '').trim().toLowerCase()));
+  let nextState = state;
+  const log: string[] = [];
+
+  for (const playerId of players) {
+    const player = nextState.players.find(p => p.id === playerId) as any;
+    if (!player) {
+      return {
+        applied: false,
+        message: `Skipped shuffle zones into library (player not found): ${step.raw}`,
+        reason: 'failed_to_apply',
+      };
+    }
+
+    const hand = Array.isArray(player.hand) ? [...player.hand] : [];
+    const graveyard = Array.isArray(player.graveyard) ? [...player.graveyard] : [];
+    const library = Array.isArray(player.library) ? [...player.library] : [];
+    const movingCards = [
+      ...(zones.has('hand') ? hand : []),
+      ...(zones.has('graveyard') ? graveyard : []),
+    ];
+    const nextLibrary = shuffleArray([...library, ...movingCards]);
+
+    nextState = {
+      ...(nextState as any),
+      players: nextState.players.map((entry: any) => {
+        if (entry.id !== playerId) return entry;
+        return {
+          ...entry,
+          library: nextLibrary,
+          ...(zones.has('hand') ? { hand: [] } : {}),
+          ...(zones.has('graveyard') ? { graveyard: [] } : {}),
+        };
+      }),
+    } as GameState;
+    log.push(`${playerId} shuffled ${movingCards.length} card(s) from hand/graveyard into their library`);
+  }
+
+  return { applied: true, state: nextState, log };
+}
+
+export function applyChoosePileStep(
+  state: GameState,
+  step: Extract<OracleEffectStep, { kind: 'choose_pile' }>,
+  ctx: OracleIRExecutionContext
+): PlayerStepHandlerResult {
+  const choosers = resolvePlayers(state, step.chooser, ctx);
+  if (choosers.length !== 1) {
+    return {
+      applied: false,
+      message: `Skipped choose pile (requires deterministic chooser): ${step.raw}`,
+      reason: choosers.length === 0 ? 'unsupported_player_selector' : 'player_choice_required',
+      options: choosers.length > 1 ? { classification: 'player_choice' } : undefined,
+    };
+  }
+
+  const selectorContext: any = ctx.selectorContext || {};
+  const chosenPile = String(selectorContext.chosenPile || selectorContext.pileChoice || '').trim();
+  if (!chosenPile) {
+    return {
+      applied: false,
+      message: `Skipped choose pile (requires pile choice): ${step.raw}`,
+      reason: 'player_choice_required',
+      options: {
+        classification: 'player_choice',
+        metadata: {
+          chooser: choosers[0],
+          source: step.source,
+          chosenDestination: step.chosenDestination || '',
+          otherDestination: step.otherDestination || '',
+        },
+      },
+    };
+  }
+
+  return {
+    applied: true,
+    state,
+    log: [`${choosers[0]} chose pile ${chosenPile}`],
+  };
+}
+
 export function applySurveilStep(
   state: GameState,
   step: Extract<OracleEffectStep, { kind: 'surveil' }>,
@@ -2681,6 +2827,61 @@ export function applyDiscardStep(
   step: Extract<OracleEffectStep, { kind: 'discard' }>,
   ctx: OracleIRExecutionContext
 ): PlayerStepHandlerResult {
+  if ((step.amount as any)?.kind === 'any_number') {
+    const players = resolvePlayers(state, step.who, ctx);
+    if (players.length === 0) {
+      return {
+        applied: false,
+        message: `Skipped discard (unsupported player selector): ${step.raw}`,
+        reason: 'unsupported_player_selector',
+      };
+    }
+
+    const chosenIds = getNormalizedChosenIds(ctx);
+    if (chosenIds.length === 0) {
+      return {
+        applied: false,
+        message: `Skipped discard (requires any-number card choice): ${step.raw}`,
+        reason: 'player_choice_required',
+        options: {
+          classification: 'player_choice',
+          metadata: { minCards: 0, maxCards: Math.max(...players.map((playerId) => {
+            const player = state.players.find(p => p.id === playerId) as any;
+            return Array.isArray(player?.hand) ? player.hand.length : 0;
+          }), 0) },
+        },
+      };
+    }
+
+    if (players.length !== 1) {
+      return {
+        applied: false,
+        message: `Skipped discard (requires deterministic player binding): ${step.raw}`,
+        reason: 'player_choice_required',
+        options: { classification: 'player_choice' },
+      };
+    }
+
+    const result = discardSpecificCardsForPlayer(state, players[0], chosenIds);
+    if (!result.applied) {
+      return {
+        applied: false,
+        message: `Skipped discard (chosen card unavailable): ${step.raw}`,
+        reason: 'failed_to_apply',
+        options: { persist: false },
+      };
+    }
+
+    return {
+      applied: true,
+      state: result.state,
+      log: result.log,
+      lastDiscardedCardCount: result.discardedCount,
+      lastDiscardedCards: result.discardedCards,
+      lastMovedCards: result.discardedCards,
+    };
+  }
+
   const amount = quantityToNumber(step.amount);
   if (amount === null) {
     return {
@@ -3249,12 +3450,68 @@ export function applyAddPlayerCounterStep(
   return { applied: true, state: nextState, log };
 }
 
+function collectPlayerCounters(player: any, state: GameState, playerId: PlayerID): Record<string, number> {
+  const counters: Record<string, number> = { ...((player?.counters || {}) as Record<string, number>) };
+  const assign = (counter: string, value: unknown) => {
+    const amount = Math.max(0, Number(value) || 0);
+    if (amount > 0) counters[counter] = Math.max(amount, Number(counters[counter]) || 0);
+  };
+  assign('poison', player?.poisonCounters ?? (state as any)?.poisonCounters?.[playerId]);
+  assign('energy', player?.energyCounters ?? player?.energy);
+  assign('experience', player?.experienceCounters ?? player?.experience ?? (state as any)?.experienceCounters?.[playerId]);
+  assign('rad', player?.radCounters);
+  assign('ticket', player?.ticketCounters);
+  return Object.fromEntries(
+    Object.entries(counters)
+      .map(([counter, amount]) => [counter, Math.max(0, Number(amount) || 0)] as const)
+      .filter(([, amount]) => amount > 0)
+  );
+}
+
+export function applyDoublePlayerCountersStep(
+  state: GameState,
+  step: Extract<OracleEffectStep, { kind: 'double_player_counters' }>,
+  ctx: OracleIRExecutionContext
+): PlayerStepHandlerResult {
+  const players = resolvePlayers(state, step.who, ctx);
+  if (players.length === 0) {
+    return {
+      applied: false,
+      message: `Skipped player counter doubling (unsupported player selector): ${step.raw}`,
+      reason: 'unsupported_player_selector',
+    };
+  }
+
+  let nextState = state;
+  const log: string[] = [];
+  for (const playerId of players) {
+    const player = nextState.players.find((candidate) => candidate.id === playerId) as any;
+    const counters = collectPlayerCounters(player, nextState, playerId);
+    for (const [counter, amount] of Object.entries(counters)) {
+      const result = adjustPlayerCounter(nextState, playerId, counter, amount);
+      log.push(...result.log);
+      if (!result.applied) {
+        return {
+          applied: false,
+          message: log.join('\n') || `Skipped player counter doubling (failed to apply): ${step.raw}`,
+          reason: 'failed_to_apply',
+        };
+      }
+      nextState = result.state;
+    }
+  }
+
+  return { applied: true, state: nextState, log };
+}
+
 export function applyDrawStep(
   state: GameState,
   step: Extract<OracleEffectStep, { kind: 'draw' }>,
   ctx: OracleIRExecutionContext
 ): PlayerStepHandlerResult {
-  const amount = quantityToNumber(step.amount, ctx);
+  const amount = step.amount.kind === 'source_power'
+    ? resolveSourcePower(state, ctx)
+    : quantityToNumber(step.amount, ctx);
   if (amount === null) {
     return {
       applied: false,
@@ -3328,9 +3585,31 @@ export function applyAddManaStep(
     return single ? [single] : null;
   };
   const manaResolution = (() => {
-    const options = Array.isArray(step.manaOptions)
+    let options = Array.isArray(step.manaOptions)
       ? step.manaOptions.map(option => String(option || '').trim()).filter(Boolean)
       : [];
+    if (step.manaOptionsScope === 'commander_color_identity') {
+      if (players.length !== 1) {
+        return {
+          kind: 'skip' as const,
+          message: `Skipped add mana (commander color identity needs one player): ${step.raw}`,
+          reason: 'player_choice_required' as const,
+          options: { classification: 'player_choice' as const },
+        };
+      }
+
+      const colorIdentity = getCommanderColorIdentityForPlayer(state, players[0]);
+      const allowed = new Set(colorIdentity.map((color) => `{${color}}`.toUpperCase()));
+      options = options.filter((option) => allowed.has(option.toUpperCase()));
+      if (options.length === 0) {
+        return {
+          kind: 'skip' as const,
+          message: `Skipped add mana (commander color identity unavailable): ${step.raw}`,
+          reason: 'invalid_input' as const,
+          options: { classification: 'invalid_input' as const },
+        };
+      }
+    }
     if (options.length <= 1) {
       return {
         kind: 'resolved' as const,

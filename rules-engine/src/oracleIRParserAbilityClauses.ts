@@ -103,6 +103,34 @@ function splitConservativeModifyPtGrantedDiesTriggerClause(args: {
   return [first, second];
 }
 
+function splitConservativeModifyPtTemporaryAbilityClause(args: {
+  rawClause: string;
+  parseEffectClauseToStep: (rawClause: string) => OracleEffectStep;
+}): string[] | null {
+  const { rawClause, parseEffectClauseToStep } = args;
+  const normalized = normalizeOracleText(rawClause).trim();
+  if (!normalized || !/\bgets\b/i.test(normalized) || !/\band gains?\b/i.test(normalized)) return null;
+
+  const match = normalized.match(
+    /^(until end of turn,\s+)?(.+?)\s+gets\s+([+-]?(?:\d+|x)\s*\/\s*[+-]?(?:\d+|x))\s+and\s+gains?\s+(.+?)\s+until end of turn$/i
+  );
+  if (!match) return null;
+
+  const durationPrefix = String(match[1] || '');
+  const targetText = String(match[2] || '').trim();
+  const modifyText = String(match[3] || '').trim();
+  const gainsText = String(match[4] || '').trim();
+  if (!targetText || !modifyText || !gainsText) return null;
+
+  const first = `${targetText} gets ${modifyText} until end of turn`;
+  const second = `${durationPrefix}${targetText} gains ${gainsText} until end of turn`.trim();
+  const firstStep = parseEffectClauseToStep(first);
+  const secondStep = parseEffectClauseToStep(second);
+  if (firstStep.kind === 'unknown' || secondStep.kind === 'unknown') return null;
+
+  return [first, second];
+}
+
 function splitConservativeTemporaryAbilityEvasionClause(args: {
   rawClause: string;
   parseEffectClauseToStep: (rawClause: string) => OracleEffectStep;
@@ -190,6 +218,7 @@ export function buildAbilityClauses(args: {
     splitConservativeTemporaryAbilityEvasionClause({ rawClause: clause, parseEffectClauseToStep }) ??
     splitConservativeGrantedDiesTriggerSetBasePtClause({ rawClause: clause, parseEffectClauseToStep }) ??
     splitConservativeModifyPtGrantedDiesTriggerClause({ rawClause: clause, parseEffectClauseToStep }) ??
+    splitConservativeModifyPtTemporaryAbilityClause({ rawClause: clause, parseEffectClauseToStep }) ??
     splitConservativeCantAttackOrBlockClause({ rawClause: clause, parseEffectClauseToStep }) ??
     splitConservativeActionConjunctionClause({ rawClause: clause, parseEffectClauseToStep }) ??
     splitConservativeCreateTokenLeadClause({ rawClause: clause, parseEffectClauseToStep }) ??
