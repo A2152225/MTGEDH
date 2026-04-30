@@ -22,7 +22,7 @@ import {
   resolveCopiedTargetSpellStackItem,
   resolveCopiedSpellSourceCards,
 } from './oracleIRExecutorCopySpellSupport';
-import { performDieRoll } from './dieRoll';
+import { performDieRoll, performMultipleDieRolls } from './dieRoll';
 import { applyAttachStep } from './oracleIRExecutorAttachStepHandlers';
 import { applyChooseModeStep } from './oracleIRExecutorChooseModeStepHandlers';
 import { resolveSingleCreatureTargetId } from './oracleIRExecutorCreatureStepUtils';
@@ -61,6 +61,8 @@ import {
   applySkipNextUntapStep,
   applyTapMatchingPermanentsStep,
   applyTapOrUntapStep,
+  applySetBasicLandTypeStep,
+  applyTurnFaceDownStep,
   applyTurnFaceUpStep,
 } from './oracleIRExecutorBattlefieldStepHandlers';
 import { applyDamageCantBePreventedStep, applyDealDamageStep, applyPreventDamageStep } from './oracleIRExecutorDamageStepHandlers';
@@ -88,6 +90,7 @@ import {
   applyModifyPtPerRevealedStep,
   applySetBasePtStep,
   applyModifyPtStep,
+  applySwitchPowerToughnessStep,
 } from './oracleIRExecutorModifyPtStepHandlers';
 import { applyMoveZoneStep } from './oracleIRExecutorMoveZoneStepHandlers';
 import {
@@ -114,6 +117,7 @@ import {
   evaluateUnlessPaysManaStep,
   applyGainLifeStep,
   applyLoseLifeStep,
+  applyLookHandStep,
   applyLookChooseFromTopStep,
   applyLookTopStep,
   applyRevealTopStep,
@@ -832,32 +836,47 @@ export function applyOracleIRStepsToGameStateImpl(
           break;
         }
 
+        const count = Math.max(1, Math.trunc(Number(step.count ?? 1)) || 1);
         const forcedResult = Number(currentCtx.dieRollResult);
-        const rolled =
-          Number.isFinite(forcedResult) && forcedResult >= 1 && forcedResult <= step.sides
-            ? { result: forcedResult }
-            : performDieRoll(players[0], step.sides);
+        const rolls =
+          count === 1 && Number.isFinite(forcedResult) && forcedResult >= 1 && forcedResult <= step.sides
+            ? [{ result: forcedResult }]
+            : count === 1
+              ? [performDieRoll(players[0], step.sides)]
+              : [...performMultipleDieRolls(players[0], step.sides, count)];
+        const results = rolls.map(roll => Number((roll as any).result)).filter(result => Number.isFinite(result));
+        const total = results.reduce((sum, result) => sum + result, 0);
+        const displayedResult = count === 1 ? (results[0] ?? 0) : total;
         const timestamp = Date.now();
         const stateAny: any = nextState as any;
         stateAny.lastDieRoll = {
           playerId: players[0],
           sides: step.sides,
-          result: rolled.result,
+          count,
+          result: displayedResult,
+          results,
           timestamp,
         };
         stateAny.lastDieRollByPlayer = stateAny.lastDieRollByPlayer || {};
         stateAny.lastDieRollByPlayer[players[0]] = {
           sides: step.sides,
-          result: rolled.result,
+          count,
+          result: displayedResult,
+          results,
           timestamp,
         };
         stateAny.dieRollsThisTurn = stateAny.dieRollsThisTurn || {};
+        const rollRecord = { sides: step.sides, count, result: displayedResult, results, timestamp };
         stateAny.dieRollsThisTurn[players[0]] = Array.isArray(stateAny.dieRollsThisTurn[players[0]])
-          ? [...stateAny.dieRollsThisTurn[players[0]], { sides: step.sides, result: rolled.result, timestamp }]
-          : [{ sides: step.sides, result: rolled.result, timestamp }];
+          ? [...stateAny.dieRollsThisTurn[players[0]], rollRecord]
+          : [rollRecord];
         nextState = stateAny as GameState;
         setLastStepOutcome(step, 'applied');
-        log.push(`[oracle-ir] ${players[0]} rolled d${step.sides}: ${rolled.result}`);
+        log.push(
+          count === 1
+            ? `[oracle-ir] ${players[0]} rolled d${step.sides}: ${displayedResult}`
+            : `[oracle-ir] ${players[0]} rolled ${count}d${step.sides}: ${results.join(', ')} (total ${total})`
+        );
         appliedSteps.push(step);
         break;
       }
@@ -1420,6 +1439,36 @@ export function applyOracleIRStepsToGameStateImpl(
         appliedSteps.push(step);
         break;
       }
+      case 'choose_basic_land_type': {
+        const chosenBasicLandType = String(currentCtx.selectorContext?.chosenBasicLandType || '').trim();
+        const allowedBasicLandTypes = ['Plains', 'Island', 'Swamp', 'Mountain', 'Forest'];
+        const normalizedBasicLandType = allowedBasicLandTypes.find(
+          landType => landType.toLowerCase() === chosenBasicLandType.toLowerCase()
+        );
+        if (!normalizedBasicLandType) {
+          recordSkippedStep(
+            step,
+            `Skipped choose basic land type (requires player choice): ${step.raw}`,
+            'player_choice_required',
+            {
+              classification: 'player_choice',
+            }
+          );
+          break;
+        }
+
+        currentCtx = {
+          ...currentCtx,
+          selectorContext: {
+            ...(currentCtx.selectorContext || {}),
+            chosenBasicLandType: normalizedBasicLandType,
+          },
+        };
+        setLastStepOutcome(step, 'applied');
+        log.push(`Chose basic land type ${normalizedBasicLandType}`);
+        appliedSteps.push(step);
+        break;
+      }
       case 'choose_card_name': {
         const chosenCardName = String(currentCtx.selectorContext?.chosenCardName || '').trim();
         if (!chosenCardName) {
@@ -1533,6 +1582,15 @@ export function applyOracleIRStepsToGameStateImpl(
         const result = applyTurnFaceUpStep(nextState, step, currentCtx, {
           lastMovedBattlefieldPermanentIds,
           lastMovedCards,
+        });
+        applyHandledStepResult(step, result);
+        break;
+      }
+      case 'turn_face_down': {
+        const result = applyTurnFaceDownStep(nextState, step, currentCtx, {
+          lastMovedBattlefieldPermanentIds,
+          lastMovedCards,
+          lastDiscardedCards,
         });
         applyHandledStepResult(step, result);
         break;
@@ -1680,6 +1738,11 @@ export function applyOracleIRStepsToGameStateImpl(
         applyModifyPtStepResult(step, result);
         break;
       }
+      case 'switch_power_toughness': {
+        const result = applySwitchPowerToughnessStep(nextState, step, currentCtx);
+        applyModifyPtStepResult(step, result);
+        break;
+      }
       case 'modify_pt_per_revealed': {
         const result = applyModifyPtPerRevealedStep(nextState, step, currentCtx, lastRevealedCardCount);
         applyModifyPtStepResult(step, result);
@@ -1710,6 +1773,11 @@ export function applyOracleIRStepsToGameStateImpl(
             lastRevealedCardCount = Math.max(0, Number(appliedResult.lastRevealedCardCount) || 0);
           }
         });
+        break;
+      }
+      case 'look_hand': {
+        const result = applyLookHandStep(nextState, step, currentCtx);
+        applyHandledStepResult(step, result);
         break;
       }
       case 'gain_life': {
@@ -1871,6 +1939,11 @@ export function applyOracleIRStepsToGameStateImpl(
       }
       case 'add_types': {
         const result = applyAddTypesStep(nextState, step, currentCtx);
+        applyHandledStepResult(step, result);
+        break;
+      }
+      case 'set_basic_land_type': {
+        const result = applySetBasicLandTypeStep(nextState, step, currentCtx);
         applyHandledStepResult(step, result);
         break;
       }

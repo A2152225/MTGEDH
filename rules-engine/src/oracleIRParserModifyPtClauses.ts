@@ -22,6 +22,30 @@ export function tryParseTemporaryModifyPtClause(params: {
 
   const workingClause = clause;
 
+  const possessiveSwitchMatch = workingClause.match(
+    /^switch\s+(.+?)(?:'s|’s)\s+power\s+and\s+toughness\s+until\s+end\s+of\s+turn$/i
+  );
+  if (possessiveSwitchMatch) {
+    return withMeta({
+      kind: 'switch_power_toughness',
+      target: parseSwitchTarget(String(possessiveSwitchMatch[1] || '').trim()),
+      duration: 'end_of_turn',
+      raw: rawClause,
+    } as OracleEffectStep);
+  }
+
+  const ofSwitchMatch = workingClause.match(
+    /^switch\s+the\s+power\s+and\s+toughness\s+of\s+(.+?)\s+until\s+end\s+of\s+turn$/i
+  );
+  if (ofSwitchMatch) {
+    return withMeta({
+      kind: 'switch_power_toughness',
+      target: parseSwitchTarget(String(ofSwitchMatch[1] || '').trim()),
+      duration: 'end_of_turn',
+      raw: rawClause,
+    } as OracleEffectStep);
+  }
+
   const match = workingClause.match(
     /^(?:then\s+)?(target\s+creature(?:\s+you\s+control|\s+your\s+opponents\s+control|\s+an\s+opponent\s+controls)?|each\s+other\s+attacking\s+creature|other\s+attacking\s+creatures|creatures\s+you\s+control|all\s+creatures\s+you\s+control|creatures\s+your\s+opponents\s+control|all\s+creatures\s+your\s+opponents\s+control|all\s+creatures|enchanted\s+creature|that\s+creature|the\s+creature|this\s+creature|this\s+permanent|it)\s+get(?:s)?\s+([+-]?(?:\d+|x))\s*\/\s*([+-]?(?:\d+|x))\s+(.+)$/i
   );
@@ -90,6 +114,13 @@ export function tryParseTemporaryModifyPtClause(params: {
   if (scaler) step.scaler = scaler;
   if (condition) step.condition = condition;
   return withMeta(step as OracleEffectStep);
+}
+
+function parseSwitchTarget(raw: string): any {
+  const targetRaw = String(raw || '').trim().toLowerCase();
+  return targetRaw === 'the creature'
+    ? { kind: 'equipped_creature' }
+    : { kind: 'raw', text: targetRaw };
 }
 
 export function tryParseTemporarySetBasePtClause(params: {

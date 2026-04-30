@@ -176,6 +176,59 @@ function appendPermanentTypes(permanent: BattlefieldPermanent, addTypes: readonl
   } as any;
 }
 
+const BASIC_LAND_TYPE_NAMES = ['Plains', 'Island', 'Swamp', 'Mountain', 'Forest'] as const;
+type BasicLandTypeName = typeof BASIC_LAND_TYPE_NAMES[number];
+
+function normalizeBasicLandTypeName(value: unknown): BasicLandTypeName | null {
+  const normalized = String(value || '').trim().toLowerCase();
+  return BASIC_LAND_TYPE_NAMES.find(typeName => typeName.toLowerCase() === normalized) ?? null;
+}
+
+function setPermanentBasicLandType(
+  permanent: BattlefieldPermanent,
+  basicLandType: BasicLandTypeName,
+  duration: 'end_of_turn' | 'static',
+  ctx: OracleIRExecutionContext
+): BattlefieldPermanent {
+  const permanentAny: any = permanent as any;
+  const card = { ...(permanentAny.card || {}) };
+  const currentTypeLine = String(permanentAny.type_line || card.type_line || 'Land').trim() || 'Land';
+  const typeParts = currentTypeLine.split(/\s+[—-]\s+/);
+  const frontMatter = typeParts[0] && /\bland\b/i.test(typeParts[0]) ? typeParts[0].trim() : 'Land';
+  const nextTypeLine = `${frontMatter} - ${basicLandType}`;
+  const currentModifiers = Array.isArray(permanentAny.modifiers) ? [...permanentAny.modifiers] : [];
+  const nextModifiers = duration === 'end_of_turn'
+    ? [
+        ...currentModifiers,
+        {
+          type: 'setBasicLandType',
+          basicLandType,
+          duration: 'end_of_turn',
+          sourceId: ctx.sourceId,
+          originalTypeLine: permanentAny.type_line,
+          originalSubtypes: Array.isArray(permanentAny.subtypes) ? [...permanentAny.subtypes] : undefined,
+          originalGrantedTypes: Array.isArray(permanentAny.grantedTypes) ? [...permanentAny.grantedTypes] : undefined,
+          originalCardTypeLine: card.type_line,
+          originalCardSubtypes: Array.isArray(card.subtypes) ? [...card.subtypes] : undefined,
+        },
+      ]
+    : currentModifiers;
+
+  return {
+    ...permanentAny,
+    type_line: nextTypeLine,
+    subtypes: [basicLandType],
+    grantedTypes: [basicLandType],
+    modifiers: nextModifiers,
+    card: {
+      ...card,
+      type_line: nextTypeLine,
+      subtypes: [basicLandType],
+      basicLandType,
+    },
+  } as any;
+}
+
 function normalizeWhereQualifiedTarget(
   target: { readonly kind: string; readonly text?: string; readonly raw?: string } | undefined
 ): { readonly kind: string; readonly text?: string; readonly raw?: string } | undefined {
@@ -2572,6 +2625,132 @@ export function applyTurnFaceUpStep(
       battlefield: nextBattlefield as any,
     } as GameState,
     log: [`Turned ${turnedCount} permanent(s) face up`],
+  };
+}
+
+export function applyTurnFaceDownStep(
+  state: GameState,
+  step: Extract<OracleEffectStep, { kind: 'turn_face_down' }>,
+  ctx: OracleIRExecutionContext,
+  runtime?: RecentBattlefieldRuntime
+): BattlefieldStepHandlerResult {
+  const battlefield = (state.battlefield || []) as BattlefieldPermanent[];
+  const recentTargets = resolveRecentlyMovedBattlefieldPermanents(battlefield, step.target as any, runtime);
+  const directTargets = recentTargets.length > 0 ? [] : resolveDirectBattlefieldPermanents(battlefield, step.target as any, ctx);
+  const targetIds = Array.from(
+    new Set(
+      [...recentTargets, ...directTargets]
+        .map((perm: any) => String((perm as any)?.id || '').trim())
+        .filter(Boolean)
+    )
+  );
+
+  if (targetIds.length === 0) {
+    return {
+      applied: false,
+      message: `Skipped turn face down (no deterministic target): ${step.raw}`,
+      reason: 'no_deterministic_target',
+    };
+  }
+
+  let turnedCount = 0;
+  const nextBattlefield = battlefield.map((perm: any) => {
+    const permanentId = String((perm as any)?.id || '').trim();
+    if (!targetIds.includes(permanentId)) return perm;
+    if ((perm as any)?.card?.faceDown === true) return perm;
+
+    const faceUpCard = { ...(((perm as any)?.card || {}) as any) };
+    if (!faceUpCard || !String(faceUpCard.id || '').trim()) return perm;
+    faceUpCard.zone = 'battlefield';
+
+    const hiddenCard = {
+      id: String(faceUpCard.id || permanentId),
+      faceDown: true,
+      zone: 'battlefield',
+      visibility: 'public',
+      power: '2',
+      toughness: '2',
+    } as any;
+
+    turnedCount += 1;
+    return {
+      ...perm,
+      card: hiddenCard,
+      basePower: 2,
+      baseToughness: 2,
+      power: 2,
+      toughness: 2,
+      effectivePower: 2,
+      effectiveToughness: 2,
+      effectiveTypes: ['Creature'],
+      type_line: undefined,
+      oracle_text: undefined,
+      faceUpCard,
+    } as any;
+  });
+
+  if (turnedCount === 0) {
+    return {
+      applied: false,
+      message: `Skipped turn face down (target is already face down or lacks a card): ${step.raw}`,
+      reason: 'impossible_action',
+      options: { persist: false },
+    };
+  }
+
+  return {
+    applied: true,
+    state: {
+      ...(state as any),
+      battlefield: nextBattlefield as any,
+    } as GameState,
+    log: [`Turned ${turnedCount} permanent(s) face down`],
+  };
+}
+
+export function applySetBasicLandTypeStep(
+  state: GameState,
+  step: Extract<OracleEffectStep, { kind: 'set_basic_land_type' }>,
+  ctx: OracleIRExecutionContext
+): BattlefieldStepHandlerResult {
+  const battlefield = (state.battlefield || []) as BattlefieldPermanent[];
+  const targets = resolveDirectBattlefieldPermanents(battlefield, step.target as any, ctx);
+  if (targets.length === 0) {
+    return {
+      applied: false,
+      message: `Skipped basic land type change (no deterministic target): ${step.raw}`,
+      reason: 'no_deterministic_target',
+    };
+  }
+
+  const chosenLandType = step.landType === 'choice'
+    ? normalizeBasicLandTypeName(ctx.selectorContext?.chosenBasicLandType)
+    : normalizeBasicLandTypeName(step.landType);
+  if (!chosenLandType) {
+    return {
+      applied: false,
+      message: `Skipped basic land type change (requires basic land type choice): ${step.raw}`,
+      reason: 'player_choice_required',
+      options: { classification: 'player_choice' },
+    };
+  }
+
+  const targetIds = new Set(targets.map((perm: any) => String((perm as any)?.id || '').trim()).filter(Boolean));
+  let changedCount = 0;
+  const nextBattlefield = battlefield.map((perm: any) => {
+    const permanentId = String((perm as any)?.id || '').trim();
+    if (!targetIds.has(permanentId)) return perm;
+    changedCount += 1;
+    return setPermanentBasicLandType(perm, chosenLandType, step.duration, ctx);
+  });
+
+  return {
+    applied: true,
+    state: {
+      ...(state as any),
+      battlefield: nextBattlefield as any,
+    } as GameState,
+    log: [`${changedCount} permanent(s) became ${chosenLandType}`],
   };
 }
 

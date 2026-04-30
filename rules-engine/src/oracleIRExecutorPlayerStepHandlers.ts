@@ -3033,6 +3033,48 @@ export function applyRevealHandStep(
   };
 }
 
+export function applyLookHandStep(
+  state: GameState,
+  step: Extract<OracleEffectStep, { kind: 'look_hand' }>,
+  ctx: OracleIRExecutionContext
+): PlayerStepHandlerResult {
+  const players = resolvePlayers(state, step.who, ctx);
+  if (players.length === 0) {
+    const opponentCount = (state.players || []).filter(
+      (player: any) => String(player?.id || '').trim() !== String(ctx.controllerId || '').trim()
+    ).length;
+    const requiresChoice = step.who.kind === 'target_opponent' && opponentCount > 1;
+    return {
+      applied: false,
+      message: `Skipped look at hand (${requiresChoice ? 'requires player choice' : 'unsupported player selector'}): ${step.raw}`,
+      reason: requiresChoice ? 'player_choice_required' : 'unsupported_player_selector',
+      options: requiresChoice ? { classification: 'player_choice' } : undefined,
+    };
+  }
+
+  const log: string[] = [];
+  for (const playerId of players) {
+    const player = state.players.find(entry => entry.id === playerId) as any;
+    if (!player) {
+      return {
+        applied: false,
+        message: `Skipped look at hand (player not found): ${step.raw}`,
+        reason: 'failed_to_apply',
+        options: { classification: 'invalid_input', persist: false },
+      };
+    }
+
+    const hand = Array.isArray(player.hand) ? player.hand : [];
+    log.push(`${ctx.controllerId} looks at ${playerId}'s hand (${hand.length} card(s))`);
+  }
+
+  return {
+    applied: true,
+    state,
+    log,
+  };
+}
+
 export function applyExploreStep(
   state: GameState,
   step: Extract<OracleEffectStep, { kind: 'explore' }>,

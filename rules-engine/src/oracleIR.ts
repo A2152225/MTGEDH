@@ -112,6 +112,7 @@ export type OracleEffectStep =
       readonly kind: 'roll_die';
       readonly who: OraclePlayerSelector;
       readonly sides: number;
+      readonly count?: number;
       readonly optional?: boolean;
       readonly sequence?: 'then';
       readonly raw: string;
@@ -429,6 +430,12 @@ export type OracleEffectStep =
     }
   | {
       readonly kind: 'choose_creature_type';
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
+      readonly kind: 'choose_basic_land_type';
       readonly optional?: boolean;
       readonly sequence?: 'then';
       readonly raw: string;
@@ -762,6 +769,14 @@ export type OracleEffectStep =
       readonly raw: string;
     }
   | {
+      readonly kind: 'switch_power_toughness';
+      readonly target: OracleObjectSelector;
+      readonly duration: 'end_of_turn';
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
       readonly kind: 'modify_pt';
       readonly target: OracleObjectSelector;
       readonly power: number;
@@ -811,6 +826,13 @@ export type OracleEffectStep =
     }
   | {
       readonly kind: 'reveal_hand';
+      readonly who: OraclePlayerSelector;
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
+      readonly kind: 'look_hand';
       readonly who: OraclePlayerSelector;
       readonly optional?: boolean;
       readonly sequence?: 'then';
@@ -1062,6 +1084,22 @@ export type OracleEffectStep =
   | {
       readonly kind: 'turn_face_up';
       readonly target: OracleObjectSelector;
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
+      readonly kind: 'turn_face_down';
+      readonly target: OracleObjectSelector;
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
+      readonly kind: 'set_basic_land_type';
+      readonly target: OracleObjectSelector;
+      readonly landType: 'choice' | 'Plains' | 'Island' | 'Swamp' | 'Mountain' | 'Forest';
+      readonly duration: 'end_of_turn' | 'static';
       readonly optional?: boolean;
       readonly sequence?: 'then';
       readonly raw: string;

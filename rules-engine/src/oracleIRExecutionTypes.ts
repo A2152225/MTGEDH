@@ -36,6 +36,8 @@ export interface OracleIRSelectorContext {
   readonly chosenMana?: string;
   /** Bound chosen creature type for clauses like "choose a creature type." */
   readonly chosenCreatureType?: string;
+  /** Bound chosen basic land type for clauses like "basic land type of your choice." */
+  readonly chosenBasicLandType?: string;
   /** Bound chosen card name for clauses like "choose a card name." */
   readonly chosenCardName?: string;
   /** Bound pay/decline choice for unless-pays-life wrappers when already known. */
@@ -67,6 +69,8 @@ export interface OracleIRExecutionEventHint {
   readonly chosenMana?: string;
   /** Explicit creature type choice when already known. */
   readonly chosenCreatureType?: string;
+  /** Explicit basic land type choice when already known. */
+  readonly chosenBasicLandType?: string;
   /** Explicit card-name choice when already known. */
   readonly chosenCardName?: string;
   /** Explicit pay/decline choice for unless-pays-life wrappers when already known. */

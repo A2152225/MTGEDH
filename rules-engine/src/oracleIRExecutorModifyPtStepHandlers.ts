@@ -5,6 +5,7 @@ import type { LastKnownPermanentSnapshot } from './oracleIRExecutorLastKnownInfo
 import {
   applyTemporaryPowerToughnessModifier,
   applyTemporarySetBasePowerToughness,
+  applyTemporarySwitchPowerToughness,
   resolveCreatureTargetIds,
   resolveSingleCreatureTargetId,
   resolveTrepanationBoostTargetCreatureId,
@@ -266,5 +267,35 @@ export function applySetBasePtStep(
     kind: 'applied',
     state: nextState,
     log: [`${targetCreatureId} has base power and toughness ${step.power}/${step.toughness} until end of turn`],
+  };
+}
+
+export function applySwitchPowerToughnessStep(
+  state: GameState,
+  step: Extract<OracleEffectStep, { kind: 'switch_power_toughness' }>,
+  ctx: OracleIRExecutionContext
+): ModifyPtStepHandlerResult {
+  const targetCreatureId = resolveSingleCreatureTargetId(state, step.target, ctx);
+  if (!targetCreatureId) {
+    return {
+      kind: 'recorded_skip',
+      message: `Skipped power/toughness switch (no deterministic creature target): ${step.raw}`,
+      reason: 'no_deterministic_target',
+    };
+  }
+
+  const nextState = applyTemporarySwitchPowerToughness(state, targetCreatureId, ctx);
+  if (!nextState) {
+    return {
+      kind: 'recorded_skip',
+      message: `Skipped power/toughness switch (target not on battlefield): ${step.raw}`,
+      reason: 'target_not_on_battlefield',
+    };
+  }
+
+  return {
+    kind: 'applied',
+    state: nextState,
+    log: [`${targetCreatureId} switches power and toughness until end of turn`],
   };
 }

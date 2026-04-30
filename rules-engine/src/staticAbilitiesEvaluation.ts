@@ -354,5 +354,15 @@ export function calculateEffectivePT(
     }
   }
 
+  const switchCount = Array.isArray(permanent.modifiers)
+    ? permanent.modifiers.filter(mod => {
+        const type = String((mod as any)?.type || '');
+        return type === 'switchPowerToughness' || type === 'SWITCH_POWER_TOUGHNESS';
+      }).length
+    : 0;
+  if (switchCount % 2 === 1) {
+    [power, toughness] = [toughness, power];
+  }
+
   return { power, toughness, grantedAbilities, removedAbilities };
 }

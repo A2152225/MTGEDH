@@ -267,11 +267,28 @@ export function executeCleanupStep(
     const remainingModifiers = Array.isArray(perm?.modifiers)
       ? perm.modifiers.filter((modifier: any) => modifier?.duration !== 'end_of_turn' && modifier?.duration !== 'end_of_combat')
       : [];
+    const expiringBasicLandTypeModifier = Array.isArray(perm?.modifiers)
+      ? perm.modifiers.find((modifier: any) => modifier?.duration === 'end_of_turn' && modifier?.type === 'setBasicLandType')
+      : undefined;
+    const restoredPermanent = expiringBasicLandTypeModifier
+      ? {
+          ...perm,
+          type_line: expiringBasicLandTypeModifier.originalTypeLine,
+          subtypes: expiringBasicLandTypeModifier.originalSubtypes,
+          grantedTypes: expiringBasicLandTypeModifier.originalGrantedTypes,
+          card: {
+            ...(perm.card || {}),
+            type_line: expiringBasicLandTypeModifier.originalCardTypeLine,
+            subtypes: expiringBasicLandTypeModifier.originalCardSubtypes,
+            basicLandType: undefined,
+          },
+        }
+      : perm;
 
     return {
-      ...perm,
+      ...restoredPermanent,
       counters: {
-        ...perm.counters,
+        ...restoredPermanent.counters,
         damage: 0,
       },
       damageSourceIds: [],

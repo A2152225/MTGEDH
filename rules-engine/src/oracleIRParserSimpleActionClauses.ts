@@ -191,6 +191,24 @@ export function tryParseSimpleActionClause(args: {
         });
     }
   }
+
+  {
+    const rollSixSidedDice = clause.match(
+      /^roll\s+(a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+six-sided\s+(?:die|dice)$/i
+    );
+    if (rollSixSidedDice) {
+      const count = parseSmallNumber(rollSixSidedDice[1]);
+      if (count && count > 0) {
+        return withMeta({
+          kind: 'roll_die',
+          who: { kind: 'you' },
+          sides: 6,
+          count,
+          raw: rawClause,
+          });
+      }
+    }
+  }
   {
     const searchTop = clause.match(
       /^search your library for (?:up to one |a |an )(?:(.+?)\s+)?card(?:,\s*reveal it)?,\s*(?:then\s+)?shuffle(?: your library)? and put (?:it|that card) on top$/i
@@ -306,6 +324,16 @@ export function tryParseSimpleActionClause(args: {
     if (chooseCreatureType) {
       return withMeta({
         kind: 'choose_creature_type',
+        raw: rawClause,
+        });
+    }
+  }
+
+  {
+    const chooseBasicLandType = clause.match(/^choose\s+a\s+basic\s+land\s+type\s*$/i);
+    if (chooseBasicLandType) {
+      return withMeta({
+        kind: 'choose_basic_land_type',
         raw: rawClause,
         });
     }
@@ -1066,6 +1094,32 @@ export function tryParseSimpleActionClause(args: {
   }
 
   {
+    const turnFaceDownMatch = clause.match(/^turn\s+(.+?)\s+face down$/i);
+    if (turnFaceDownMatch) {
+      return withMeta({
+        kind: 'turn_face_down',
+        target: parseObjectSelector(String(turnFaceDownMatch[1] || '').trim()),
+        raw: rawClause,
+        });
+    }
+  }
+
+  {
+    const basicLandTypeChoice = clause.match(
+      /^(.+?)\s+becomes\s+the\s+basic\s+land\s+type\s+of\s+your\s+choice(?:\s+until\s+end\s+of\s+turn)?$/i
+    );
+    if (basicLandTypeChoice) {
+      return withMeta({
+        kind: 'set_basic_land_type',
+        target: parseObjectSelector(String(basicLandTypeChoice[1] || '').trim()),
+        landType: 'choice',
+        duration: /\buntil\s+end\s+of\s+turn\b/i.test(clause) ? 'end_of_turn' : 'static',
+        raw: rawClause,
+        });
+    }
+  }
+
+  {
     const populate = clause.match(new RegExp(`^${PLAYER_SUBJECT_PREFIX}(?:populate|populates)\\b$`, 'i'));
     if (populate) {
       return withMeta({
@@ -1213,6 +1267,19 @@ export function tryParseSimpleActionClause(args: {
   }
 
   {
+    const lookHand = clause.match(
+      /^(?:you\s+)?look\s+at\s+(target opponent|target player|that opponent|that player|each opponent|each player|an opponent|your|their|his or her)(?:'s|’s)?\s+hand\b/i
+    );
+    if (lookHand) {
+      const rawWho = String(lookHand[1] || '').trim().toLowerCase();
+      const selectorText = rawWho === 'an opponent' ? 'target opponent' : rawWho;
+      return withMeta({
+        kind: 'look_hand',
+        who: parsePlayerSelector(selectorText),
+        raw: rawClause,
+        });
+    }
+
     const revealHand = clause.match(
       new RegExp(`^${PLAYER_SUBJECT_PREFIX}reveals?\\s+(?:your|their|his or her)\\s+hand\\b`, 'i')
     );

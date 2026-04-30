@@ -484,6 +484,54 @@ export function applyTemporarySetBasePowerToughness(
   return { ...(state as any), battlefield } as any;
 }
 
+export function applyTemporarySwitchPowerToughness(
+  state: GameState,
+  creatureId: string,
+  ctx: OracleIRExecutionContext
+): GameState | null {
+  const battlefield = [...((state.battlefield || []) as BattlefieldPermanent[])];
+  const index = battlefield.findIndex(permanent => permanent.id === creatureId);
+  if (index < 0) return null;
+
+  const permanent: any = battlefield[index] as any;
+  const modifiers = Array.isArray(permanent.modifiers) ? [...permanent.modifiers] : [];
+  modifiers.push({
+    type: 'switchPowerToughness',
+    sourceId: ctx.sourceId,
+    duration: 'end_of_turn',
+  } as any);
+
+  battlefield[index] = {
+    ...permanent,
+    modifiers,
+    effectivePower: undefined,
+    effectiveToughness: undefined,
+  } as any;
+
+  const recalculatedBattlefield = getProcessedBattlefield({ ...(state as any), battlefield } as any);
+  const recalculatedPermanent = recalculatedBattlefield.find(
+    permanent => String((permanent as any)?.id || '').trim() === creatureId
+  ) as any;
+  if (recalculatedPermanent) {
+    battlefield[index] = {
+      ...(battlefield[index] as any),
+      power:
+        typeof recalculatedPermanent.effectivePower === 'number'
+          ? recalculatedPermanent.effectivePower
+          : (battlefield[index] as any)?.power,
+      toughness:
+        typeof recalculatedPermanent.effectiveToughness === 'number'
+          ? recalculatedPermanent.effectiveToughness
+          : (battlefield[index] as any)?.toughness,
+      effectivePower: recalculatedPermanent.effectivePower,
+      effectiveToughness: recalculatedPermanent.effectiveToughness,
+      grantedAbilities: recalculatedPermanent.grantedAbilities,
+    } as any;
+  }
+
+  return { ...(state as any), battlefield } as any;
+}
+
 export function resolveGoadTargetCreatureIds(
   state: GameState,
   target: OracleObjectSelector,
