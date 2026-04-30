@@ -1378,6 +1378,43 @@ function mergeBattlefieldEntryAuraRewriteIntoMoveZone(
   };
 }
 
+function parseBattlefieldEntryTreasureArtifactRewriteFollowup(rawClause: string): {
+  readonly setTypeLine: string;
+  readonly setOracleText: string;
+} | null {
+  const normalized = normalizeOracleText(rawClause).replace(/[.]+$/g, '').trim();
+  if (!normalized) return null;
+
+  const match = normalized.match(
+    /^it(?:'s| is)\s+a\s+treasure\s+artifact\s+with\s+"([^"]+)"\s*,?\s+and\s+it\s+loses\s+all\s+other\s+card\s+types$/i
+  );
+  if (!match) return null;
+
+  const grantedAbility = String(match[1] || '').trim();
+  if (!grantedAbility) return null;
+
+  return {
+    setTypeLine: 'Artifact - Treasure',
+    setOracleText: grantedAbility,
+  };
+}
+
+function mergeBattlefieldEntryTreasureArtifactRewriteIntoMoveZone(
+  step: Extract<OracleEffectStep, { kind: 'move_zone' }>,
+  parsed: ReturnType<typeof parseBattlefieldEntryTreasureArtifactRewriteFollowup>,
+  rawClause: string
+): Extract<OracleEffectStep, { kind: 'move_zone' }> | null {
+  if (step.to !== 'battlefield' || !parsed) return null;
+  if (step.battlefieldSetTypeLine || step.battlefieldSetOracleText) return null;
+
+  return {
+    ...step,
+    battlefieldSetTypeLine: parsed.setTypeLine,
+    battlefieldSetOracleText: parsed.setOracleText,
+    raw: `${String(step.raw || '').trim()}. ${String(rawClause || '').trim()}`.trim(),
+  };
+}
+
 function mergeBattlefieldEntryAuraRewriteFollowups(steps: readonly OracleEffectStep[]): OracleEffectStep[] {
   const merged: OracleEffectStep[] = [];
 
@@ -1387,6 +1424,7 @@ function mergeBattlefieldEntryAuraRewriteFollowups(steps: readonly OracleEffectS
 
     if (next?.kind === 'unknown') {
       const parsed = parseBattlefieldEntryAuraRewriteFollowup(next.raw);
+      const parsedTreasureArtifact = parseBattlefieldEntryTreasureArtifactRewriteFollowup(next.raw);
       if (parsed) {
         if (current?.kind === 'move_zone') {
           const mergedMove = mergeBattlefieldEntryAuraRewriteIntoMoveZone(current, parsed, next.raw);
@@ -1423,6 +1461,39 @@ function mergeBattlefieldEntryAuraRewriteFollowups(steps: readonly OracleEffectS
           });
           i += 1;
           continue;
+        }
+      }
+
+      if (parsedTreasureArtifact) {
+        if (current?.kind === 'move_zone') {
+          const mergedMove = mergeBattlefieldEntryTreasureArtifactRewriteIntoMoveZone(current, parsedTreasureArtifact, next.raw);
+          if (mergedMove) {
+            merged.push(mergedMove);
+            i += 1;
+            continue;
+          }
+        }
+
+        if (current?.kind === 'conditional') {
+          const innerSteps = [...current.steps];
+          const lastStep = innerSteps[innerSteps.length - 1];
+          if (lastStep?.kind === 'move_zone') {
+            const mergedMove = mergeBattlefieldEntryTreasureArtifactRewriteIntoMoveZone(
+              lastStep,
+              parsedTreasureArtifact,
+              next.raw
+            );
+            if (mergedMove) {
+              innerSteps[innerSteps.length - 1] = mergedMove;
+              merged.push({
+                ...current,
+                steps: innerSteps,
+                raw: `${String(current.raw || '').trim()}. ${String(next.raw || '').trim()}`.trim(),
+              });
+              i += 1;
+              continue;
+            }
+          }
         }
       }
     }
@@ -1730,6 +1801,17 @@ export function expandMoveZoneCopiedSpellAbilities(
         });
         changed = true;
         i += 1;
+        continue;
+      }
+
+      if (current?.kind === 'move_zone' && /\band copy it\.?$/i.test(String(current.raw || ''))) {
+        expandedSteps.push(stripCopyItSuffix(current));
+        expandedSteps.push({
+          kind: 'copy_spell',
+          subject: 'last_moved_card',
+          raw: 'copy it',
+        });
+        changed = true;
         continue;
       }
 
@@ -4063,6 +4145,28 @@ export function pruneLateKeywordReminderOnlyAbilities(
       const normalizedText = normalizeOracleText(String(ability.text || ability.effectText || ''))
         .replace(/\s+/g, ' ')
         .trim();
+
+      if (/\bdredge\s+\d+\s*\(if you would draw a card\b/i.test(normalizedText)) {
+        const dredgeStartIndex = ability.steps.findIndex((step) => {
+          if (step.kind !== 'unknown') return false;
+          return /^dredge\s+\d+\s*\(if you would draw a card\b/i.test(
+            normalizeReminderStepRaw(step)
+          );
+        });
+
+        if (dredgeStartIndex >= 0) {
+          const nextSteps = ability.steps.filter((step, index) => {
+            if (index < dredgeStartIndex) return true;
+            if (step.kind === 'unknown') {
+              return !/^dredge\s+\d+\s*\(if you would draw a card\b/i.test(normalizeReminderStepRaw(step));
+            }
+            const normalizedRaw = normalizeReminderStepRaw(step as any);
+            return !/^(?:if you do,\s*)?return this card from your graveyard to your hand$/i.test(normalizedRaw);
+          });
+          return nextSteps.length > 0 ? [{ ...ability, steps: nextSteps }] : [];
+        }
+      }
+
       if (/^warp\s+(?:\{[^}]+\})+(?:\s*\(.*\))?[.)]*$/i.test(normalizedText)) {
         return [];
       }
@@ -4164,6 +4268,10 @@ function isCurrentBatchReminderOrPlatformOnlyText(raw: string): boolean {
     /^its harmonize cost is equal to its mana cost$/i.test(normalizedText) ||
     /^you may tap a creature you control to reduce the cost to harmonize this card by \{\d+\}$/i.test(normalizedText) ||
     /^you may tap a creature you control to reduce that cost by \{x\}, where x is its power$/i.test(normalizedText) ||
+    /^you may tap a creature you control to reduce that cost by an amount of generic mana equal to its power$/i.test(normalizedText) ||
+    /^you may tap a creature you control to r$/i.test(normalizedText) ||
+    /^you may cast a legendary sorcery only if you control a legendary creature or planeswalker$/i.test(normalizedText) ||
+    /^and has the chosen base power and toughness$/i.test(normalizedText) ||
     /^formidable\s*-\s*activate only if creatures you control have total power \d+ or greater$/i.test(normalizedText) ||
     /^activate only if creatures you control have total power \d+ or greater$/i.test(normalizedText) ||
     /^bestow\s+(?:\{[^}]+\})+(?:\s*\([^)]*\))?$/i.test(normalizedText) ||
@@ -7143,10 +7251,42 @@ function parseGraveyardPermissionDuration(raw: string | undefined):
 function parseGraveyardPermissionUnknownStep(step: Extract<OracleEffectStep, { kind: 'unknown' }>): OracleEffectStep | null {
   const normalized = normalizeOracleText(String(step.raw || ''))
     .replace(/^then\b\s*/i, '')
+    .replace(/^[\u2022]\s+/, '')
+    .replace(
+      /^[a-z0-9][a-z0-9\s'.,/&-]{0,80}\s+-\s+(?=(?:you|each|target|up to one target|during|once|flashback|escape|retrace|jump-start|harmonize|mayhem)\b)/i,
+      ''
+    )
     .replace(/^\(\s*/, '')
     .replace(/\s*\)\s*$/i, '')
     .trim();
   if (!normalized) return null;
+
+  const mayhemSelfMatch = normalized.match(
+    /^mayhem\b.*?you may play this card from your graveyard(?:\s+if\s+(.+?))?[.)]*$/i
+  );
+  if (mayhemSelfMatch) {
+    const permissionStep: OracleEffectStep = {
+      kind: 'grant_graveyard_permission',
+      who: { kind: 'you' },
+      permission: 'play',
+      what: { kind: 'raw', text: 'this card' },
+      duration: 'during_resolution',
+      optional: true,
+      ...(step.sequence ? { sequence: step.sequence } : {}),
+      raw: normalized,
+    };
+    const conditionText = String(mayhemSelfMatch[1] || '').trim();
+    if (conditionText) {
+      return {
+        kind: 'conditional',
+        condition: { kind: 'as_long_as', raw: conditionText },
+        steps: [permissionStep],
+        ...(step.sequence ? { sequence: step.sequence } : {}),
+        raw: normalized,
+      };
+    }
+    return permissionStep;
+  }
 
   const keywordSelfMatch = normalized.match(/^(flashback|escape|retrace|jump-start|harmonize)\b/i);
   if (keywordSelfMatch) {
@@ -7251,6 +7391,27 @@ function parseGraveyardPermissionUnknownStep(step: Extract<OracleEffectStep, { k
     };
   }
 
+  const grantedQuotedSelfPermissionMatch = normalized.match(
+    /^(?:until end of turn,\s+)?((?:each|all|target|up to one target)\s+.+?)\s+in\s+your\s+graveyard\s+(?:has|gain|gains)\s+"you may\s+(cast|play)\s+this card from your graveyard\.?"?$/i
+  );
+  if (grantedQuotedSelfPermissionMatch) {
+    const selectorText = String(grantedQuotedSelfPermissionMatch[1] || '')
+      .trim()
+      .replace(/^(?:each|all)\s+/i, '')
+      .trim();
+
+    return {
+      kind: 'grant_graveyard_permission',
+      who: { kind: 'you' },
+      permission: String(grantedQuotedSelfPermissionMatch[2] || '').trim().toLowerCase() === 'play' ? 'play' : 'cast',
+      what: { kind: 'raw', text: selectorText },
+      duration: /^until end of turn,/i.test(normalized) ? 'this_turn' : 'during_resolution',
+      optional: true,
+      ...(step.sequence ? { sequence: step.sequence } : {}),
+      raw: normalized,
+    };
+  }
+
   const match = normalized.match(
     /^(.+?)\s+may\s+(cast|play)\s+(.+?)\s+from\s+(your|their|his or her|its owner's|its controller's)\s+graveyard(?:\s+(.+))?$/i
   );
@@ -7290,17 +7451,96 @@ function parseGraveyardPermissionUnknownStep(step: Extract<OracleEffectStep, { k
   return permissionStep;
 }
 
+function parseCombinedGraveyardPlayCastPermissionUnknownSteps(
+  step: Extract<OracleEffectStep, { kind: 'unknown' }>
+): OracleEffectStep[] | null {
+  let normalized = normalizeOracleText(String(step.raw || ''))
+    .replace(/^then\b\s*/i, '')
+    .replace(/^[\u2022]\s+/, '')
+    .replace(
+      /^[a-z0-9][a-z0-9\s'.,/&-]{0,80}\s+-\s+(?=(?:during|once|until|you)\b)/i,
+      ''
+    )
+    .replace(/^\(\s*/, '')
+    .replace(/\s*\)\s*$/i, '')
+    .trim();
+  if (!normalized) return null;
+
+  let duration: Extract<Extract<OracleEffectStep, { kind: 'grant_graveyard_permission' }>['duration'], string> = 'during_resolution';
+  let condition: OracleClauseCondition | null = null;
+  const turnScopedMatch = normalized.match(/^(?:once\s+)?during each of your turns,\s+(.+)$/i);
+  if (turnScopedMatch) {
+    condition = { kind: 'as_long_as', raw: "it's your turn" };
+    duration = 'this_turn';
+    normalized = String(turnScopedMatch[1] || '').trim();
+  }
+
+  const leadingDurationMatch = normalized.match(/^(until (?:the )?end of turn|this turn),\s+(.+)$/i);
+  if (leadingDurationMatch) {
+    duration = 'this_turn';
+    normalized = String(leadingDurationMatch[2] || '').trim();
+  }
+
+  const match = normalized.match(/^you may play\s+(.+?)\s+and\s+cast\s+(.+?)\s+from your graveyard(?:\s+(.+))?$/i);
+  if (!match) return null;
+
+  const playText = String(match[1] || '').trim();
+  const castText = String(match[2] || '').trim();
+  const trailingText = String(match[3] || '').trim();
+  const resolvedDuration = trailingText ? parseGraveyardPermissionDuration(trailingText) : duration;
+  if (!playText || !castText) return null;
+
+  const steps: OracleEffectStep[] = [
+    {
+      kind: 'grant_graveyard_permission',
+      who: { kind: 'you' },
+      permission: 'play',
+      what: parseObjectSelector(playText),
+      duration: resolvedDuration,
+      optional: true,
+      ...(step.sequence ? { sequence: step.sequence } : {}),
+      raw: normalized,
+    },
+    {
+      kind: 'grant_graveyard_permission',
+      who: { kind: 'you' },
+      permission: 'cast',
+      what: parseObjectSelector(castText),
+      duration: resolvedDuration,
+      optional: true,
+      ...(step.sequence ? { sequence: step.sequence } : {}),
+      raw: normalized,
+    },
+  ];
+
+  if (!condition) return steps;
+  return [
+    {
+      kind: 'conditional',
+      condition,
+      steps,
+      ...(step.sequence ? { sequence: step.sequence } : {}),
+      raw: normalized,
+    },
+  ];
+}
+
 export function expandGraveyardPermissionUnknownAbilities(
   abilities: readonly OracleIRAbility[]
 ): OracleIRAbility[] {
   return abilities.map((ability) => {
     let changed = false;
-    const expandedSteps = ability.steps.map((step) => {
-      if (step.kind !== 'unknown') return step;
+    const expandedSteps = ability.steps.flatMap((step) => {
+      if (step.kind !== 'unknown') return [step];
+      const expandedMany = parseCombinedGraveyardPlayCastPermissionUnknownSteps(step);
+      if (expandedMany) {
+        changed = true;
+        return expandedMany;
+      }
       const expanded = parseGraveyardPermissionUnknownStep(step);
-      if (!expanded) return step;
+      if (!expanded) return [step];
       changed = true;
-      return expanded;
+      return [expanded];
     });
 
     return changed ? { ...ability, steps: expandedSteps } : ability;
@@ -8887,7 +9127,7 @@ function parseCreateEmblemUnknownStep(rawClause: string, cardName?: string): Ora
   const normalized = normalizeOracleText(rawClause).trim();
   if (!normalized) return null;
 
-  const match = normalized.match(/^you get an emblem with\s+"([^"]+)"$/i);
+  const match = normalized.match(/^you get an emblem with\s+"([^"]+)"?$/i);
   if (!match) return null;
 
   const abilityText = String(match[1] || '').trim();

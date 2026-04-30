@@ -303,7 +303,7 @@ const TRIGGER_CONDITION_EVENT_HINTS = [
 ];
 
 function stripLeadingTriggeredAbilityLabel(text: string): string {
-  const trimmed = String(text || '').trim();
+  const trimmed = String(text || '').trim().replace(/^[\u2022•]\s+/, '');
   if (!trimmed) return trimmed;
 
   return trimmed.replace(
@@ -321,6 +321,26 @@ function looksLikeCompleteTriggerCondition(text: string): boolean {
 function splitMixedStandaloneAndTriggeredLine(text: string): string[] {
   const trimmed = String(text || '').trim();
   if (!trimmed) return [];
+
+  const keywordLeadTrigger = trimmed.match(/^([A-Za-z][A-Za-z\s,'-]{0,80}?)\s+((?:when|whenever|at\s+the\s+beginning)\b[\s\S]+)$/i);
+  if (keywordLeadTrigger) {
+    const firstBody = String(keywordLeadTrigger[1] || '').trim();
+    const remainder = String(keywordLeadTrigger[2] || '').trim();
+    const standaloneKeywords = parseKeywordsFromOracleText(firstBody);
+    const normalizedFirstBody = firstBody
+      .toLowerCase()
+      .replace(/\band\b/g, ',')
+      .replace(/\s*,\s*/g, ',')
+      .replace(/\s+/g, ' ')
+      .trim();
+    const normalizedKeywordText = standaloneKeywords
+      .map(keyword => keyword.toLowerCase())
+      .join(',')
+      .trim();
+    if (standaloneKeywords.length > 0 && normalizedFirstBody === normalizedKeywordText && remainder) {
+      return [firstBody, remainder];
+    }
+  }
 
   const sentenceBoundary = trimmed.match(/^([^.!?]+[.!?])\s+([\s\S]+)$/);
   if (!sentenceBoundary) return [trimmed];

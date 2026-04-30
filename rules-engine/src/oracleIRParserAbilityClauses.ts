@@ -80,7 +80,7 @@ function splitConservativeModifyPtGrantedDiesTriggerClause(args: {
   if (!normalized || !/\bgets\b/i.test(normalized) || !/\band gains?\s+"/i.test(normalized)) return null;
 
   const match = normalized.match(
-    /^(until end of turn,\s+)?(.+?)\s+gets\s+(.+?)\s+and\s+gains?\s+("when\s+(?:this creature|this permanent|it)\s+dies(?:\s+this\s+turn)?,\s+.+")$/i
+    /^(until end of turn,\s+)?(.+?)\s+gets\s+(.+?)\s+and\s+gains?\s+("when\s+(?:this creature|this permanent|it)\s+dies(?:\s+this\s+turn)?,\s+.+?")\s*(?:\([^)]*\))?$/i
   );
   if (!match) return null;
 
@@ -167,6 +167,20 @@ function splitConservativeGrantedDiesTriggerSetBasePtClause(args: {
   const { rawClause, parseEffectClauseToStep } = args;
   const normalized = normalizeOracleText(rawClause).trim();
   if (!normalized || !/\band\s+has\s+/i.test(normalized) || !/\bgains?\s+"/i.test(normalized)) return null;
+
+  const chosenMatch = normalized.match(
+    /^(until end of turn,\s+)?(.+?)\s+gains?\s+("when\s+(?:this creature|this permanent|it)\s+dies,\s+.+")\s+and\s+has\s+the\s+chosen\s+base\s+power\s+and\s+toughness$/i
+  );
+  if (chosenMatch) {
+    const durationPrefix = String(chosenMatch[1] || '');
+    const targetText = String(chosenMatch[2] || '').trim();
+    const quotedTrigger = String(chosenMatch[3] || '').trim();
+    if (!targetText || !quotedTrigger) return null;
+
+    const first = `${durationPrefix}${targetText} gains ${quotedTrigger}`.trim();
+    const firstStep = parseEffectClauseToStep(first);
+    return firstStep.kind === 'unknown' ? null : [first];
+  }
 
   const match = normalized.match(
     /^(until end of turn,\s+)?(.+?)\s+gains?\s+("when\s+(?:this creature|this permanent|it)\s+dies,\s+.+")\s+and\s+has\s+(?:the\s+)?base power and toughness\s+(\d+)\s*\/\s*(\d+)$/i

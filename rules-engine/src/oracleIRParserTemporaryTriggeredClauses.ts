@@ -24,6 +24,12 @@ function buildGrantedDiesTriggerStep(args: {
   });
 }
 
+function trimGrantedDiesReminderTail(effectText: string): string {
+  return String(effectText || '')
+    .replace(/\s+\([^)]*$/g, '')
+    .trim();
+}
+
 export function tryParseTemporaryGrantedDiesTriggerClause(args: {
   clause: string;
   rawClause: string;
@@ -41,27 +47,35 @@ export function tryParseTemporaryGrantedDiesTriggerClause(args: {
     return null;
   }
 
-  const match = normalized.match(
-    /^until end of turn,\s+(.+?)\s+gains?\s+(?:(?:[^"]+?)\s+and\s+)?"when\s+(?:this creature|this permanent|it)\s+dies(?:\s+this\s+turn)?,\s+(.+?)"\s*(?:\([^)]*\))?$/i
-  );
+  const match =
+    normalized.match(
+      /^until end of turn,\s+(.+?)\s+gains?\s+(?:(?:[^"]+?)\s+and\s+)?"when\s+(?:this creature|this permanent|it)\s+dies(?:\s+this\s+turn)?,\s+([^"]+)"\s*(?:\([^)]*\)?)?$/i
+    ) ??
+    normalized.match(
+      /^until end of turn,\s+(.+?)\s+gains?\s+(?:(?:[^"]+?)\s+and\s+)?"when\s+(?:this creature|this permanent|it)\s+dies(?:\s+this\s+turn)?,\s+([^"]+)$/i
+    );
   if (match) {
     return buildGrantedDiesTriggerStep({
       targetText: String(match[1] || ''),
-      effectText: String(match[2] || ''),
+      effectText: trimGrantedDiesReminderTail(String(match[2] || '')),
       rawClause,
       duration: 'until_end_of_turn',
       withMeta,
     });
   }
 
-  const permanentMatch = normalized.match(
-    /^(.+?)\s+gains?\s+(?:(?:[^"]+?)\s+and\s+)?"when\s+(?:this creature|this permanent|it)\s+dies(?:\s+this\s+turn)?,\s+(.+?)"\s*(?:\([^)]*\))?$/i
-  );
+  const permanentMatch =
+    normalized.match(
+      /^(.+?)\s+gains?\s+(?:(?:[^"]+?)\s+and\s+)?"when\s+(?:this creature|this permanent|it)\s+dies(?:\s+this\s+turn)?,\s+([^"]+)"\s*(?:\([^)]*\)?)?$/i
+    ) ??
+    normalized.match(
+      /^(.+?)\s+gains?\s+(?:(?:[^"]+?)\s+and\s+)?"when\s+(?:this creature|this permanent|it)\s+dies(?:\s+this\s+turn)?,\s+([^"]+)$/i
+    );
   if (!permanentMatch) return null;
 
   return buildGrantedDiesTriggerStep({
     targetText: String(permanentMatch[1] || ''),
-    effectText: String(permanentMatch[2] || ''),
+    effectText: trimGrantedDiesReminderTail(String(permanentMatch[2] || '')),
     rawClause,
     duration: 'while_on_battlefield',
     withMeta,

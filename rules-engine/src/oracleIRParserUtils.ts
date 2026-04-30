@@ -153,6 +153,13 @@ export function normalizeClauseForParse(clause: string): {
   working = working.replace(/^(?:[ivxlcdm]+)\s*(?:[-?]|[^\w\s])+\s*/i, '');
 
   working = working
+    .replace(/^-+\s+(?=[a-z])/i, '')
+    .replace(
+      /^[a-z0-9][a-z0-9\s'.,/&-]{0,80}\s+-\s+(?=(?:at|when|whenever|if|during|until|you|each|target|return|put|exile|draw|destroy|create|look|choose|search|investigate|populate|proliferate|surveil|scry|mill|discard|tap|untap|gain|lose|deal)\b)/i,
+      ''
+    );
+
+  working = working
     .replace(/^each\s+of\s+your\s+opponents\b/i, 'each opponent')
     .replace(/^each\s+of\s+the\s+opponents\b/i, 'each opponent')
     .replace(/^all\s+of\s+your\s+opponents\b/i, 'each opponent')
