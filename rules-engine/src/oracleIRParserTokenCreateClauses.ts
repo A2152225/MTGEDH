@@ -7,7 +7,13 @@ import {
   parseQuantity,
 } from './oracleIRParserUtils';
 
-const TOKEN_AMOUNT_PATTERN = '(?:that many|that much|a|an|\\d+|x|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)';
+const TOKEN_AMOUNT_PATTERN = '(?:twice\\s+x|that many|that much|a|an|\\d+|x|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)';
+
+function parseTokenQuantity(raw: string | undefined): OracleQuantity {
+  const s = String(raw || '').trim();
+  if (/^twice\s+x$/i.test(s)) return { kind: 'x' };
+  return parseQuantity(raw);
+}
 
 export function tryParseMultiCreateTokensClause(rawClause: string): OracleEffectStep[] | null {
   const normalized = normalizeClauseForParse(rawClause);
@@ -39,7 +45,7 @@ export function tryParseMultiCreateTokensClause(rawClause: string): OracleEffect
 
   let m: RegExpExecArray | null;
   while ((m = tokenRegex.exec(rest)) !== null) {
-    const amount = parseQuantity(m[1]);
+    const amount = parseTokenQuantity(m[1]);
     const entersTapped = Boolean(m[2]) || Boolean(m[5]);
     const abilityText = String(m[4] || '').trim();
     const token = `${String(m[3] || '').trim()}${abilityText ? ` with ${abilityText}` : ''}`.trim();

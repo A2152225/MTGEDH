@@ -36871,6 +36871,94 @@ This creature has protection from each of the exiled card's card types. (Artifac
     expect((token.card?.name || '').toLowerCase()).toContain('treasure');
   });
 
+  it('creates X tokens from bound X reference amount', () => {
+    const ir = parseOracleTextToIR('Create X 1/1 white Warrior creature tokens.', 'Secure the Wastes');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState();
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceName: 'Secure the Wastes',
+      referenceAmount: 4,
+    });
+
+    const warriors = (result.state.battlefield || []).filter((perm: any) => perm.card?.name === 'Warrior');
+    expect(result.automationGaps).toHaveLength(0);
+    expect(warriors).toHaveLength(4);
+  });
+
+  it('creates twice-X tokens from bound X reference amount', () => {
+    const ir = parseOracleTextToIR(
+      'Create twice X 1/1 black and green Pest creature tokens with "When this token dies, you gain 1 life."',
+      'Pest Infestation'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState();
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceName: 'Pest Infestation',
+      referenceAmount: 3,
+    });
+
+    const pests = (result.state.battlefield || []).filter((perm: any) => perm.card?.name === 'Pest');
+    expect(result.automationGaps).toHaveLength(0);
+    expect(pests).toHaveLength(6);
+  });
+
+  it('creates for-each tokens from controlled permanent counts', () => {
+    const ir = parseOracleTextToIR('For each land you control, create a Treasure token.', "Brass's Bounty");
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      battlefield: [
+        { id: 'land-1', controller: 'p1', owner: 'p1', card: { name: 'Island', type_line: 'Land' } } as any,
+        { id: 'land-2', controller: 'p1', owner: 'p1', card: { name: 'Forest', type_line: 'Basic Land - Forest' } } as any,
+        { id: 'rock-1', controller: 'p1', owner: 'p1', card: { name: 'Signet', type_line: 'Artifact' } } as any,
+        { id: 'opp-land', controller: 'p2', owner: 'p2', card: { name: 'Swamp', type_line: 'Land' } } as any,
+      ],
+    } as any);
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceName: "Brass's Bounty",
+    });
+
+    const treasures = (result.state.battlefield || []).filter((perm: any) => perm.card?.name === 'Treasure');
+    expect(result.automationGaps).toHaveLength(0);
+    expect(treasures).toHaveLength(2);
+  });
+
+  it('creates token copies from target creature bindings', () => {
+    const ir = parseOracleTextToIR('Create a token that\'s a copy of target creature, except it has haste.', 'Rite of Replication');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      battlefield: [
+        {
+          id: 'target-creature',
+          controller: 'p2',
+          owner: 'p2',
+          basePower: 4,
+          baseToughness: 4,
+          card: { id: 'target-card', name: 'Hill Giant', type_line: 'Creature - Giant', power: '4', toughness: '4' },
+        } as any,
+      ],
+    } as any);
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceName: 'Rite of Replication',
+      selectorContext: { targetCreatureId: 'target-creature' },
+    });
+
+    const copies = (result.state.battlefield || []).filter((perm: any) => perm.isToken && perm.card?.name === 'Hill Giant');
+    expect(result.automationGaps).toHaveLength(0);
+    expect(copies).toHaveLength(1);
+    expect(copies[0].controller).toBe('p1');
+    expect(copies[0].card?.oracle_text).toContain('Haste');
+  });
+
   it('creates a Treasure token for each player', () => {
     const ir = parseOracleTextToIR('Each player creates a Treasure token.', 'Test');
     const steps = ir.abilities[0]?.steps ?? [];

@@ -39,7 +39,7 @@ export function parseTokenCreationFromText(
   };
 
   const createMatch = lowerText.match(
-    /creates?\s+(a|an|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|\d+)\s+(\d+\/\d+)?\s*([a-z,\s]+?)(?:\s+(artifact|creature|enchantment))?(?:\s+tokens?)?/i
+    /creates?\s+(twice\s+x|x|a\s+number\s+of|a|an|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|\d+)\s+(\d+\/\d+)?\s*([a-z,\s]+?)(?:\s+(artifact|creature|enchantment|land))?(?:\s+tokens?)?/i
   );
 
   if (!createMatch) return null;
@@ -63,6 +63,7 @@ export function parseTokenCreationFromText(
   if (mainType.includes('creature') || power !== undefined) types.push('Creature');
   if (mainType.includes('artifact') || descriptors.includes('artifact')) types.push('Artifact');
   if (mainType.includes('enchantment') || descriptors.includes('enchantment')) types.push('Enchantment');
+  if (mainType.includes('land') || descriptors.includes('land')) types.push('Land');
   if (types.length === 0 && power !== undefined) {
     types.push('Creature');
   }
@@ -73,9 +74,12 @@ export function parseTokenCreationFromText(
     'elf', 'human', 'vampire', 'wolf', 'bird', 'cat', 'rat', 'bat', 'elemental',
     'saproling', 'servo', 'thopter', 'clue', 'treasure', 'food', 'blood', 'warrior',
     'knight', 'wizard', 'rogue', 'cleric', 'horror', 'insect', 'spider', 'snake', 'merfolk',
+    'phyrexian', 'germ', 'wurm', 'gnome', 'fish', 'pegasus', 'pest', 'dryad', 'forest',
+    'mite', 'dinosaur', 'assassin', 'otter', 'pilot', 'lander', 'rabbit', 'myr', 'slug',
+    'kobold', 'samurai', 'monk', 'citizen', 'construct', 'plant', 'serpent', 'golem',
   ];
   const subtypeSource = lowerText
-    .replace(/^.*?\bcreates?\s+(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|\d+)\s+/, '')
+    .replace(/^.*?\bcreates?\s+(?:twice\s+x|x|a\s+number\s+of|a|an|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|\d+)\s+/, '')
     .replace(/^\d+\/\d+\s+/, '')
     .replace(/\b(?:white|blue|black|red|green|colorless)\b/g, ' ')
     .replace(/\b(?:artifact|creature|enchantment|token|tokens)\b/g, ' ')
@@ -98,8 +102,12 @@ export function parseTokenCreationFromText(
   if (lowerText.includes('menace')) abilities.push('Menace');
   if (lowerText.includes('first strike')) abilities.push('First strike');
   if (lowerText.includes('double strike')) abilities.push('Double strike');
+  if (lowerText.includes('reach')) abilities.push('Reach');
+  if (lowerText.includes('prowess')) abilities.push('Prowess');
+  if (lowerText.includes('decayed')) abilities.push('Decayed');
+  if (lowerText.includes('toxic 1')) abilities.push('Toxic 1');
 
-  let name = subtypes[0] || 'Token';
+  let name = subtypes[subtypes.length - 1] || 'Token';
   if (descriptors.includes('treasure')) name = 'Treasure';
   if (descriptors.includes('food')) name = 'Food';
   if (descriptors.includes('clue')) name = 'Clue';

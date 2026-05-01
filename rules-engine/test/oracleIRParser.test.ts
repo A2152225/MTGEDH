@@ -3219,6 +3219,49 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
     expect(String(create.token || '').toLowerCase()).toContain('treasure');
   });
 
+  it('parses for-each token creation as a dynamic create-token amount', () => {
+    const text = 'For each land you control, create a Treasure token.';
+    const ir = parseOracleTextToIR(text);
+    const create = ir.abilities[0].steps.find(s => s.kind === 'create_token') as any;
+
+    expect(create).toBeTruthy();
+    expect(create.amount).toEqual({ kind: 'x' });
+    expect(String(create.raw || '')).toContain('For each land you control');
+    expect(String(create.token || '').toLowerCase()).toContain('treasure');
+  });
+
+  it('parses twice-X token creation without absorbing X into the token descriptor', () => {
+    const text = 'Create twice X 1/1 black and green Pest creature tokens with "When this token dies, you gain 1 life."';
+    const ir = parseOracleTextToIR(text);
+    const create = ir.abilities[0].steps.find(s => s.kind === 'create_token') as any;
+
+    expect(create).toBeTruthy();
+    expect(create.amount).toEqual({ kind: 'x' });
+    expect(String(create.token || '').toLowerCase()).toContain('pest');
+    expect(String(create.token || '')).not.toMatch(/^x\s/i);
+  });
+
+  it('parses equal-to token creation as a dynamic amount', () => {
+    const text = "Create a number of tapped Treasure tokens equal to this creature's power.";
+    const ir = parseOracleTextToIR(text);
+    const create = ir.abilities[0].steps.find(s => s.kind === 'create_token') as any;
+
+    expect(create).toBeTruthy();
+    expect(create.amount).toEqual({ kind: 'x' });
+    expect(create.entersTapped).toBe(true);
+    expect(String(create.token || '').toLowerCase()).toContain('treasure');
+  });
+
+  it('marks ordinary tapped-and-attacking token creation for combat placement', () => {
+    const text = 'Create two 1/1 white Soldier creature tokens that are tapped and attacking.';
+    const ir = parseOracleTextToIR(text);
+    const create = ir.abilities[0].steps.find(s => s.kind === 'create_token') as any;
+
+    expect(create).toBeTruthy();
+    expect(create.entersTapped).toBe(true);
+    expect(create.attacking).toBe('defending_player');
+  });
+
   it('parses per-segment enters-tapped in multi-token clauses', () => {
     const text = 'Create a Treasure token tapped and a Clue token.';
     const ir = parseOracleTextToIR(text);

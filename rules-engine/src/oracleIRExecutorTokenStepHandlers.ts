@@ -73,6 +73,140 @@ function quantitySpecToNumber(value: unknown): number {
   return 1;
 }
 
+function readFiniteAmount(value: unknown): number | null {
+  const amount = Number(value);
+  return Number.isFinite(amount) ? Math.max(0, Math.floor(amount)) : null;
+}
+
+function parseSmallTokenQuantityText(value: string | undefined): number | null {
+  const raw = String(value || '').trim().toLowerCase();
+  if (!raw) return null;
+  if (/^\d+$/.test(raw)) return Number.parseInt(raw, 10);
+  const wordCounts: Record<string, number> = {
+    a: 1,
+    an: 1,
+    one: 1,
+    two: 2,
+    three: 3,
+    four: 4,
+    five: 5,
+    six: 6,
+    seven: 7,
+    eight: 8,
+    nine: 9,
+    ten: 10,
+    eleven: 11,
+    twelve: 12,
+    thirteen: 13,
+    fourteen: 14,
+    fifteen: 15,
+    sixteen: 16,
+    seventeen: 17,
+    eighteen: 18,
+    nineteen: 19,
+    twenty: 20,
+  };
+  return wordCounts[raw] ?? null;
+}
+
+function pluralizeCountExpression(value: string): string {
+  const raw = String(value || '')
+    .replace(/\.$/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!raw) return raw;
+  if (/\b(?:you|they|player|opponent|control|controls|this way|this turn|attacking|blocked|died|destroyed)\b/i.test(raw)) {
+    const words = raw.split(/\s+/g);
+    const first = words[0] || '';
+    const nounIndex = /^(?:non[- ]?token|non[- ]?land|tapped|untapped|attacking|blocked|other)$/i.test(first) && words[1] ? 1 : 0;
+    const noun = words[nounIndex] || '';
+    if (noun && !/(?:s|x|ch|sh)$/i.test(noun) && !/^(?:each|one|two|three|four|five|six|seven|eight|nine|ten)$/i.test(noun)) {
+      words[nounIndex] = `${noun}s`;
+      return words.join(' ');
+    }
+  }
+  return raw;
+}
+
+function evaluateTokenAmountExpression(
+  state: GameState,
+  controllerId: PlayerID,
+  expression: string,
+  ctx: OracleIRExecutionContext,
+  runtime?: TokenStepRuntime
+): number | null {
+  const rawExpression = String(expression || '')
+    .replace(/\.$/g, '')
+    .replace(/^the\s+difference$/i, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!rawExpression) return null;
+
+  const evaluated = evaluateModifyPtWhereX(
+    state,
+    controllerId,
+    /^x\s+is\b/i.test(rawExpression) ? rawExpression : `X is ${rawExpression}`,
+    undefined,
+    ctx,
+    {
+      lastMovedCards: Array.isArray(runtime?.lastMovedCards) ? runtime.lastMovedCards : [],
+    } as any
+  );
+  return evaluated === null ? null : Math.max(0, Math.floor(evaluated));
+}
+
+function resolveForEachTokenAmount(
+  state: GameState,
+  controllerId: PlayerID,
+  raw: string,
+  ctx: OracleIRExecutionContext,
+  runtime?: TokenStepRuntime
+): number | null {
+  const match = String(raw || '').match(
+    /^for each\s+(.+?),\s+(?:(?:you|they|that player|target player|target opponent)\s+)?create(?:s)?\s+(twice\s+x|that many|that much|a|an|\d+|x|[a-z]+)\s+/i
+  );
+  if (!match) return null;
+
+  const countedExpression = String(match[1] || '').trim();
+  if (/\bthis way\b/i.test(countedExpression)) {
+    const fallbackAmount = readFiniteAmount(runtime?.lastReferenceAmount ?? ctx.referenceAmount);
+    if (fallbackAmount !== null) return fallbackAmount;
+  }
+
+  const count = evaluateTokenAmountExpression(
+    state,
+    controllerId,
+    `the number of ${pluralizeCountExpression(countedExpression)}`,
+    ctx,
+    runtime
+  );
+  if (count === null) return null;
+
+  const perTokenAmountRaw = String(match[2] || '').trim();
+  const perTokenAmount = /^x$/i.test(perTokenAmountRaw)
+    ? readFiniteAmount(ctx.referenceAmount ?? runtime?.lastReferenceAmount)
+    : /^twice\s+x$/i.test(perTokenAmountRaw)
+      ? (() => {
+          const ref = readFiniteAmount(ctx.referenceAmount ?? runtime?.lastReferenceAmount);
+          return ref === null ? null : ref * 2;
+        })()
+      : parseSmallTokenQuantityText(perTokenAmountRaw);
+
+  return count * (perTokenAmount ?? 1);
+}
+
+function resolveEqualToTokenAmount(
+  state: GameState,
+  controllerId: PlayerID,
+  raw: string,
+  ctx: OracleIRExecutionContext,
+  runtime?: TokenStepRuntime
+): number | null {
+  const match = String(raw || '').match(/\bcreate(?:s)?\s+a\s+number\s+of\s+.+?\s+tokens?\s+equal\s+to\s+(.+)$/i);
+  if (!match) return null;
+  return evaluateTokenAmountExpression(state, controllerId, String(match[1] || ''), ctx, runtime);
+}
+
 function resolveTokenCreationSpecsForReplacementEffects(
   state: GameState,
   playerId: PlayerID,
@@ -193,16 +327,27 @@ function resolveTokenAmount(
   const numericAmount = quantityToNumber(step.amount, ctx);
   if (numericAmount !== null) return numericAmount;
   if (step.amount.kind === 'reference_amount') {
-    const fallbackAmount = Number(runtime?.lastReferenceAmount);
-    return Number.isFinite(fallbackAmount) ? Math.max(0, fallbackAmount) : null;
+    return readFiniteAmount(runtime?.lastReferenceAmount);
   }
   if (step.amount.kind !== 'x') return null;
 
-  const whereMatch = String(step.raw || '').match(/\bwhere\s+x\s+is\s+(.+)$/i);
-  if (!whereMatch) return null;
-
   const controllerId = (String(ctx.controllerId || '').trim() || ctx.controllerId) as PlayerID;
   if (!controllerId) return null;
+
+  const raw = String(step.raw || '').trim();
+  const twiceXMultiplier = /\bcreate(?:s)?\s+twice\s+x\b/i.test(raw) ? 2 : 1;
+
+  const forEachAmount = resolveForEachTokenAmount(state, controllerId, raw, ctx, runtime);
+  if (forEachAmount !== null) return forEachAmount;
+
+  const equalToAmount = resolveEqualToTokenAmount(state, controllerId, raw, ctx, runtime);
+  if (equalToAmount !== null) return equalToAmount * twiceXMultiplier;
+
+  const whereMatch = raw.match(/\bwhere\s+x\s+is\s+(.+)$/i);
+  if (!whereMatch) {
+    const contextX = readFiniteAmount(ctx.referenceAmount ?? runtime?.lastReferenceAmount);
+    return contextX === null ? null : contextX * twiceXMultiplier;
+  }
 
   const whereRaw = `X is ${String(whereMatch[1] || '').trim()}`;
   const evaluated = evaluateModifyPtWhereX(
@@ -215,7 +360,7 @@ function resolveTokenAmount(
       lastMovedCards: Array.isArray(runtime?.lastMovedCards) ? runtime.lastMovedCards : [],
     } as any
   );
-  if (evaluated !== null) return evaluated;
+  if (evaluated !== null) return evaluated * twiceXMultiplier;
 
   const moved = Array.isArray(runtime?.lastMovedCards) ? runtime.lastMovedCards : [];
   if (moved.length !== 1) return null;
@@ -298,6 +443,21 @@ type CopyTokenOverrides = {
   readonly removeLegendary?: boolean;
 };
 
+const COPY_TOKEN_KEYWORDS = [
+  'flying',
+  'haste',
+  'lifelink',
+  'deathtouch',
+  'trample',
+  'vigilance',
+  'menace',
+  'reach',
+  'first strike',
+  'double strike',
+  'prowess',
+  'ward',
+];
+
 const COLOR_WORD_TO_SYMBOL: Record<string, string> = {
   white: 'W',
   blue: 'U',
@@ -320,12 +480,84 @@ function dedupeStrings(values: readonly string[]): readonly string[] {
   return out;
 }
 
+function capitalizeAbility(value: string): string {
+  const raw = String(value || '').trim();
+  return raw ? raw.charAt(0).toUpperCase() + raw.slice(1) : raw;
+}
+
+function extractCopyGrantedAbilities(exceptionText: string): readonly string[] {
+  const raw = String(exceptionText || '').trim();
+  if (!raw) return [];
+
+  const quoted = Array.from(raw.matchAll(/"([^"]+)"/g))
+    .map(match => String(match[1] || '').trim())
+    .filter(Boolean);
+
+  const unquotedAbilities: string[] = [];
+  const hasMatch = raw.match(/\b(?:it|they|the token|the tokens)\s+ha(?:s|ve)\s+(.+)$/i);
+  if (hasMatch) {
+    const body = String(hasMatch[1] || '')
+      .replace(/"[^"]+"/g, ' ')
+      .replace(/\b(?:until|at)\b.+$/i, '')
+      .replace(/[.]+$/g, '')
+      .trim();
+    for (const piece of body.split(/\s*,\s*|\s+and\s+/gi)) {
+      const normalized = piece.trim().toLowerCase();
+      if (!normalized) continue;
+      const keyword = COPY_TOKEN_KEYWORDS.find(candidate => normalized === candidate || normalized.startsWith(`${candidate} `));
+      if (keyword) unquotedAbilities.push(capitalizeAbility(keyword));
+    }
+  }
+
+  return dedupeStrings([...quoted, ...unquotedAbilities]);
+}
+
 function parseCopyTokenOverrides(exceptionText: string): CopyTokenOverrides {
   const normalized = normalizeReferenceText(exceptionText);
+  const directAbilities = extractCopyGrantedAbilities(exceptionText);
+  const removeLegendary = /\bisn'?t legendary\b/i.test(normalized);
   if (!normalized) return {};
 
+  const ptAdditionalCreatureMatch = normalized.match(
+    /^(?:it's|it is|they're|they are|the token is|the tokens are)\s+(?:a\s+)?(\d+)\/(\d+)\s+(.+?)\s+creatures?\s+in addition to (?:its|their) other types(?:,?\s+and\s+(?:it|they)\s+ha(?:s|ve)\s+(.+?))?$/
+  );
+  if (ptAdditionalCreatureMatch) {
+    const descriptorWords = String(ptAdditionalCreatureMatch[3] || '')
+      .split(/\s+/g)
+      .map(word => word.trim())
+      .filter(Boolean);
+    const colors: string[] = [];
+    const subtypeWords: string[] = [];
+    for (const word of descriptorWords) {
+      const color = COLOR_WORD_TO_SYMBOL[word];
+      if (color) colors.push(color);
+      else if (word !== 'and') subtypeWords.push(word);
+    }
+
+    const abilities = dedupeStrings([
+      ...directAbilities,
+      ...String(ptAdditionalCreatureMatch[4] || '')
+        .split(/\s*,\s*|\s+and\s+/gi)
+        .map(part => part.trim())
+        .filter(Boolean)
+        .map(capitalizeAbility),
+    ]);
+
+    return {
+      power: Number.parseInt(String(ptAdditionalCreatureMatch[1] || ''), 10),
+      toughness: Number.parseInt(String(ptAdditionalCreatureMatch[2] || ''), 10),
+      ...(colors.length > 0 ? { colors } : {}),
+      addCardTypes: ['Creature'],
+      ...(subtypeWords.length > 0
+        ? { addSubtypes: dedupeStrings(subtypeWords.map(word => word.charAt(0).toUpperCase() + word.slice(1))) }
+        : {}),
+      ...(abilities.length > 0 ? { addAbilities: abilities } : {}),
+      ...(removeLegendary ? { removeLegendary: true } : {}),
+    };
+  }
+
   const ptCreatureMatch = normalized.match(
-    /^(?:it's|it is|the token is)\s+a\s+(\d+)\/(\d+)\s+(.+?)\s+creature(?:\s+with\s+(.+?))?(?:\s+in addition to its other types)?$/
+    /^(?:it's|it is|they're|they are|the token is|the tokens are)\s+a\s+(\d+)\/(\d+)\s+(.+?)\s+creatures?(?:\s+with\s+(.+?))?(?:\s+in addition to (?:its|their) other types)?$/
   );
   if (ptCreatureMatch) {
     const descriptorWords = String(ptCreatureMatch[3] || '')
@@ -344,7 +576,7 @@ function parseCopyTokenOverrides(exceptionText: string): CopyTokenOverrides {
       .split(/\s*,\s*|\s+and\s+/gi)
       .map(part => part.trim())
       .filter(Boolean)
-      .map(part => part.charAt(0).toUpperCase() + part.slice(1));
+      .map(capitalizeAbility);
 
     return {
       power: Number.parseInt(String(ptCreatureMatch[1] || ''), 10),
@@ -358,12 +590,20 @@ function parseCopyTokenOverrides(exceptionText: string): CopyTokenOverrides {
             ),
           }
         : {}),
-      ...(abilities.length > 0 ? { addAbilities: dedupeStrings(abilities) } : {}),
+      ...(abilities.length > 0 || directAbilities.length > 0 ? { addAbilities: dedupeStrings([...abilities, ...directAbilities]) } : {}),
+      ...(removeLegendary ? { removeLegendary: true } : {}),
     };
   }
 
-  if (/isn't legendary/i.test(exceptionText)) {
+  if (removeLegendary && directAbilities.length === 0) {
     return { removeLegendary: true };
+  }
+
+  if (removeLegendary || directAbilities.length > 0) {
+    return {
+      ...(removeLegendary ? { removeLegendary: true } : {}),
+      ...(directAbilities.length > 0 ? { addAbilities: directAbilities } : {}),
+    };
   }
 
   const colors = Array.from(
@@ -386,7 +626,7 @@ function parseCopyTokenOverrides(exceptionText: string): CopyTokenOverrides {
     : undefined;
   const removeManaCost = /\bhas no mana cost\b/i.test(normalized);
 
-  if (colors.length > 0 || ptMatch || (addSubtypes && addSubtypes.length > 0) || removeManaCost) {
+  if (colors.length > 0 || ptMatch || (addSubtypes && addSubtypes.length > 0) || removeManaCost || directAbilities.length > 0) {
     return {
       ...(colors.length > 0 ? { colors } : {}),
       ...(ptMatch
@@ -397,6 +637,7 @@ function parseCopyTokenOverrides(exceptionText: string): CopyTokenOverrides {
         : {}),
       ...(addSubtypes && addSubtypes.length > 0 ? { addSubtypes } : {}),
       ...(removeManaCost ? { removeManaCost: true } : {}),
+      ...(directAbilities.length > 0 ? { addAbilities: directAbilities } : {}),
     };
   }
 
@@ -581,6 +822,81 @@ function findSourceObjectByIdAcrossState(state: GameState, sourceId: string): an
   return null;
 }
 
+function findBattlefieldObjectById(state: GameState, id: string): any | null {
+  const normalized = String(id || '').trim();
+  if (!normalized) return null;
+  return (state.battlefield || []).find((perm: any) => String(perm?.id || perm?.card?.id || '').trim() === normalized) || null;
+}
+
+function typeLineHasWord(object: any, word: string): boolean {
+  const typeLine = String(object?.type_line || object?.cardType || object?.card?.type_line || '').toLowerCase();
+  return new RegExp(`\\b${word}\\b`, 'i').test(typeLine);
+}
+
+function copyReferenceMatchesObject(referenceText: string, object: any, controllerId: PlayerID, sourceId?: string): boolean {
+  const reference = normalizeReferenceText(referenceText);
+  if (!object) return false;
+  if (/\byou control\b/i.test(reference) && String(object?.controller || '').trim() !== String(controllerId)) return false;
+  if (/\banother\b/i.test(reference) && sourceId && String(object?.id || '').trim() === String(sourceId).trim()) return false;
+  if (/\bnoncreature\b/i.test(reference) && typeLineHasWord(object, 'creature')) return false;
+  if (/\bcreature\b/i.test(reference) && !/\bnoncreature\b/i.test(reference) && !typeLineHasWord(object, 'creature')) return false;
+  if (/\bpermanent\b/i.test(reference) && /\bnoncreature\b/i.test(reference) && typeLineHasWord(object, 'creature')) return false;
+  if (/\btoken\b/i.test(reference) && !Boolean(object?.isToken || object?.card?.isToken)) return false;
+  if (/\bartifact\b/i.test(reference) && !typeLineHasWord(object, 'artifact')) return false;
+  if (/\benchantment\b/i.test(reference) && !typeLineHasWord(object, 'enchantment')) return false;
+  if (/\bland\b/i.test(reference) && !typeLineHasWord(object, 'land')) return false;
+  return true;
+}
+
+function resolveTargetCopySource(
+  state: GameState,
+  referenceText: string,
+  ctx: OracleIRExecutionContext
+): CopySourceResolution | null {
+  const reference = normalizeReferenceText(referenceText);
+  if (!/\btarget\b/i.test(reference)) return null;
+
+  const controllerId = ctx.controllerId;
+  const sourceId = String(ctx.sourceId || '').trim();
+  const explicitIds = [
+    ctx.targetCreatureId,
+    ctx.targetPermanentId,
+    ctx.selectorContext?.targetCreatureId,
+    ctx.selectorContext?.targetPermanentId,
+    ...getChosenObjectIds(ctx),
+  ]
+    .map(id => String(id || '').trim())
+    .filter(Boolean);
+
+  const seen = new Set<string>();
+  const explicitMatches: any[] = [];
+  for (const id of explicitIds) {
+    if (seen.has(id)) continue;
+    seen.add(id);
+    const object = findBattlefieldObjectById(state, id);
+    if (object && copyReferenceMatchesObject(reference, object, controllerId, sourceId)) explicitMatches.push(object);
+  }
+
+  if (explicitMatches.length === 1) return { kind: 'resolved', sourceObject: explicitMatches[0] };
+  if (explicitMatches.length > 1) {
+    return {
+      kind: 'player_choice_required',
+      availableIds: explicitMatches.map(object => String(object?.id || '').trim()).filter(Boolean),
+    };
+  }
+
+  const candidates = (state.battlefield || []).filter((perm: any) => copyReferenceMatchesObject(reference, perm, controllerId, sourceId));
+  if (candidates.length === 1) return { kind: 'resolved', sourceObject: candidates[0] };
+  if (candidates.length > 1) {
+    return {
+      kind: 'player_choice_required',
+      availableIds: candidates.map((object: any) => String(object?.id || '').trim()).filter(Boolean),
+    };
+  }
+
+  return { kind: 'unavailable' };
+}
+
 function resolveCopyTokenSource(
   state: GameState,
   tokenHint: string,
@@ -593,6 +909,9 @@ function resolveCopyTokenSource(
   const referenceText = normalizeReferenceText(parsed.referenceText);
   const chosenObjectIds = getChosenObjectIds(ctx);
   const movedCards = Array.isArray(runtime?.lastMovedCards) ? runtime.lastMovedCards : [];
+
+  const targetCopySource = resolveTargetCopySource(state, referenceText, ctx);
+  if (targetCopySource) return targetCopySource;
 
   if (
     referenceText === 'it' ||
@@ -628,9 +947,11 @@ function resolveCopyTokenSource(
     const battlefieldIds = Array.isArray(runtime?.lastMovedBattlefieldPermanentIds)
       ? runtime.lastMovedBattlefieldPermanentIds.map(id => String(id || '').trim()).filter(Boolean)
       : [];
-    const candidateIds = chosenObjectIds.length > 0
-      ? battlefieldIds.filter(id => chosenObjectIds.includes(id))
-      : battlefieldIds;
+    const candidateIds = battlefieldIds.length > 0
+      ? chosenObjectIds.length > 0
+        ? battlefieldIds.filter(id => chosenObjectIds.includes(id))
+        : battlefieldIds
+      : chosenObjectIds;
     if (candidateIds.length !== 1) {
       return candidateIds.length > 1
         ? { kind: 'player_choice_required', availableIds: candidateIds }
