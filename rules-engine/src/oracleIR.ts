@@ -381,6 +381,17 @@ export type OracleEffectStep =
       readonly raw: string;
     }
   | {
+      readonly kind: 'grant_graveyard_keyword_ability';
+      readonly who: OraclePlayerSelector;
+      readonly what: OracleObjectSelector;
+      readonly keyword: 'unearth' | 'embalm' | 'eternalize';
+      readonly costRaw?: string;
+      readonly duration: 'this_turn' | 'during_resolution';
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
       readonly kind: 'add_mana';
       readonly who: OraclePlayerSelector;
       /** Raw mana string, e.g. "{R}{R}{R}" or "{2}{C}" */
@@ -816,6 +827,18 @@ export type OracleEffectStep =
       readonly raw: string;
     }
   | {
+      readonly kind: 'grant_static_ability';
+      readonly target: OracleObjectSelector;
+      readonly abilities?: readonly string[];
+      readonly effectText?: readonly string[];
+      readonly power?: number;
+      readonly toughness?: number;
+      readonly duration?: 'static' | 'while_attached';
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
       readonly kind: 'discard';
       readonly who: OraclePlayerSelector;
       readonly amount: OracleQuantity;
@@ -948,6 +971,16 @@ export type OracleEffectStep =
       readonly atNextEndStep?: 'sacrifice' | 'exile';
       /** Create a delayed trigger for the created token(s) at end of combat (beginning of the end of combat step). */
       readonly atEndOfCombat?: 'sacrifice' | 'exile';
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
+      readonly kind: 'modify_token_creation';
+      readonly who: OraclePlayerSelector;
+      readonly tokenTypes: readonly string[];
+      readonly mode: 'replace_with_one_of_each' | 'add_additional_token';
+      readonly additionalAmount?: OracleQuantity;
       readonly optional?: boolean;
       readonly sequence?: 'then';
       readonly raw: string;

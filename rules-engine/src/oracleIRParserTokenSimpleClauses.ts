@@ -58,7 +58,72 @@ export function tryParseSimpleCreateTokenClause(args: {
   rawClause: string;
   withMeta: WithMeta;
 }): OracleEffectStep | null {
-  const { clause, rawClause, withMeta } = args;
+  const { rawClause, withMeta } = args;
+  const clause = normalizeOracleText(args.clause)
+    .replace(/^\(+\s*/, '')
+    .replace(/\s*\)+\s*$/g, '')
+    .replace(/[.]+$/g, '')
+    .trim();
+
+  const perOpponentAttackingCreate = clause.match(
+    new RegExp(
+      `^for each opponent,\\s+create\\s+(${TOKEN_AMOUNT_PATTERN})\\s+(tapped\\s+)?(.+?)\\s+(?:creature\\s+)?token(?:s)?(?:\\s+that(?:'s| is| are)\\s+tapped\\s+and\\s+attacking\\s+that\\s+player(?:\\s+or\\s+a\\s+planeswalker\\s+they\\s+control)?)?$`,
+      'i'
+    )
+  );
+  if (perOpponentAttackingCreate) {
+    return withMeta({
+      kind: 'create_token',
+      who: { kind: 'you' },
+      amount: parseQuantity(perOpponentAttackingCreate[1]),
+      token: String(perOpponentAttackingCreate[3] || '').trim(),
+      entersTapped: Boolean(perOpponentAttackingCreate[2]) || /\btapped\s+and\s+attacking\b/i.test(clause) || undefined,
+      attacking: 'each_opponent',
+      raw: rawClause,
+    });
+  }
+
+  const perPreventedDamageCreate = clause.match(
+    new RegExp(
+      `^for each 1 damage prevented this way,\\s+create\\s+(${TOKEN_AMOUNT_PATTERN})\\s+(tapped\\s+)?(.+?)\\s+(?:creature\\s+)?token(?:s)?\\b`,
+      'i'
+    )
+  );
+  if (perPreventedDamageCreate) {
+    return withMeta({
+      kind: 'create_token',
+      who: { kind: 'you' },
+      amount: { kind: 'reference_amount', raw: 'damage_prevented_this_way' },
+      token: String(perPreventedDamageCreate[3] || '').trim(),
+      entersTapped: Boolean(perPreventedDamageCreate[2]) || /\btoken(?:s)?\s+tapped\b/i.test(clause) || undefined,
+      raw: rawClause,
+    });
+  }
+
+  const createTokenCopy = clause.match(
+    new RegExp(
+      `^${PLAYER_SUBJECT_PREFIX}create(?:s)?\\s+(${TOKEN_AMOUNT_PATTERN})\\s+((?:(?!token\\s+cop).)*?)token\\s+cop(?:y|ies)(?:\\s+of\\s+(.+?))?(?:\\s+that(?:'s| is| are)\\s+tapped\\s+and\\s+attacking\\s+.+)?$`,
+      'i'
+    )
+  );
+  if (createTokenCopy) {
+    const rawWho = String(createTokenCopy[1] || '').trim().toLowerCase();
+    const who =
+      rawWho === 'its owner'
+        ? ({ kind: 'owner_of_moved_cards' } as const)
+        : parsePlayerSelector(createTokenCopy[1]);
+    const descriptor = String(createTokenCopy[3] || '').trim();
+    const source = String(createTokenCopy[4] || 'it').trim();
+    const token = `${descriptor ? `${descriptor} ` : ''}copy of ${source}`.trim();
+    return withMeta({
+      kind: 'create_token',
+      who,
+      amount: parseQuantity(createTokenCopy[2]),
+      token,
+      entersTapped: /\btapped\s+and\s+attacking\b/i.test(clause) || undefined,
+      raw: rawClause,
+    });
+  }
 
   const createCopy = clause.match(
     new RegExp(

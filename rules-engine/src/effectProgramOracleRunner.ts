@@ -1,6 +1,10 @@
 import type { GameState } from '../../shared/src';
 import { ChoiceEventType, type ChoiceOption, type ChoiceResponse } from './choiceEventsTypes';
 import { applyOracleIRStepsToGameState } from './oracleIRExecutor';
+import {
+  applyGrantGraveyardPermissionStep,
+  applyModifyGraveyardPermissionsStep,
+} from './oracleIRExecutorPlayerStepHandlers';
 import { resolveSingleCreatureTargetId } from './oracleIRExecutorCreatureStepUtils';
 import { evaluateConditionalWrapperCondition } from './oracleIRExecutorConditionalStepSupport';
 import { applyProliferateSelectedTargetIds, getProliferateChoiceTargets } from './oracleIRExecutorKeywordStepHandlers';
@@ -56,6 +60,8 @@ interface DerivedOracleIRContextBindings {
   selectorContext?: Record<string, unknown>;
 }
 
+const LAST_GRANTED_GRAVEYARD_CARDS_BINDING = '__oracleLastGrantedGraveyardCards';
+
 export type OracleIREffectProgramHandlerOverrides = Omit<EffectProgramHandlers<GameState>, 'applyCommand'> & {
   readonly applyCommand?: EffectProgramHandlers<GameState>['applyCommand'];
 };
@@ -95,6 +101,16 @@ export function createOracleIRCommandHandler(
       return topLibraryResult;
     }
 
+    const graveyardGrantResult = applyGraveyardPermissionGrantCommand(state, oracleCommand.step, step, runtime, ctx);
+    if (graveyardGrantResult) {
+      return graveyardGrantResult;
+    }
+
+    const graveyardPermissionModifierResult = applyGraveyardPermissionModifierCommand(state, oracleCommand.step, step, runtime);
+    if (graveyardPermissionModifierResult) {
+      return graveyardPermissionModifierResult;
+    }
+
     const execution = applyOracleIRStepsToGameState(
       state,
       [oracleCommand.step],
@@ -105,6 +121,73 @@ export function createOracleIRCommandHandler(
       state: execution.state,
       events: [createOracleIRCommandExecutionEvent(step.id, execution)],
     };
+  };
+}
+
+function applyGraveyardPermissionGrantCommand(
+  state: GameState,
+  oracleStep: OracleEffectStep,
+  commandStep: EffectProgramCommandStep,
+  runtime: EffectProgramRuntime<GameState>,
+  ctx: OracleIRExecutionContext
+): EffectProgramCommandResult<GameState> | undefined {
+  if (oracleStep.kind !== 'grant_graveyard_permission') return undefined;
+
+  const result = applyGrantGraveyardPermissionStep(
+    state,
+    oracleStep,
+    createOracleIRContextWithEffectProgramBindings(ctx, runtime)
+  ) as any;
+  if ('message' in result) return undefined;
+
+  return {
+    state: result.state,
+    bindings: {
+      [LAST_GRANTED_GRAVEYARD_CARDS_BINDING]: Array.isArray(result.lastGrantedGraveyardCards)
+        ? result.lastGrantedGraveyardCards
+        : [],
+    },
+    events: [createDirectOracleIRCommandExecutionEvent(commandStep.id, [oracleStep.kind], [])],
+  };
+}
+
+function applyGraveyardPermissionModifierCommand(
+  state: GameState,
+  oracleStep: OracleEffectStep,
+  commandStep: EffectProgramCommandStep,
+  runtime: EffectProgramRuntime<GameState>
+): EffectProgramCommandResult<GameState> | undefined {
+  if (oracleStep.kind !== 'modify_graveyard_permissions') return undefined;
+
+  const lastGrantedGraveyardCards = runtime.bindings[LAST_GRANTED_GRAVEYARD_CARDS_BINDING];
+  if (!Array.isArray(lastGrantedGraveyardCards)) return undefined;
+
+  const result = applyModifyGraveyardPermissionsStep(state, oracleStep, { lastGrantedGraveyardCards }) as any;
+  if ('message' in result) {
+    return {
+      state,
+      events: [createDirectOracleIRCommandExecutionEvent(commandStep.id, [], [oracleStep.kind])],
+    };
+  }
+
+  return {
+    state: result.state,
+    events: [createDirectOracleIRCommandExecutionEvent(commandStep.id, [oracleStep.kind], [])],
+  };
+}
+
+function createDirectOracleIRCommandExecutionEvent(
+  stepId: string,
+  appliedStepKinds: readonly string[],
+  skippedStepKinds: readonly string[]
+): OracleIRCommandExecutionEvent {
+  return {
+    type: 'oracle_ir_execution',
+    stepId,
+    appliedStepKinds,
+    skippedStepKinds,
+    automationGapCount: 0,
+    pendingOptionalStepCount: 0,
   };
 }
 

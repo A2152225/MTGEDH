@@ -18,6 +18,21 @@ function collectUnknowns(value: unknown): unknown[] {
   return unknowns;
 }
 
+function collectSteps(value: unknown): any[] {
+  const steps: any[] = [];
+  const walk = (node: unknown): void => {
+    if (!node || typeof node !== 'object') return;
+    if (typeof (node as any).kind === 'string') steps.push(node);
+    if (Array.isArray(node)) {
+      for (const item of node) walk(item);
+      return;
+    }
+    for (const child of Object.values(node)) walk(child);
+  };
+  walk(value);
+  return steps;
+}
+
 function makeState(overrides: Partial<GameState> = {}): GameState {
   const base: any = {
     id: 'oracle-ir-current-batch',
@@ -248,5 +263,87 @@ describe('Oracle IR current audit batch support', () => {
     expect(player.energyCounters).toBe(4);
     expect(player.poisonCounters).toBe(2);
     expect(player.counters.ticket).toBe(6);
+  });
+
+  it('parses current-batch graveyard keyword, token replacement, and static grant gaps', () => {
+    const samples = [
+      [
+        'Iroh, Grand Lotus',
+        'During your turn, each non-Lesson instant and sorcery card in your graveyard has flashback.',
+      ],
+      ['Salvation Colossus', 'Unearth-Pay eight {E}.'],
+      ['Meticulous Excavation', "If it has unearth, instead exile it, then return that card to its owner's hand."],
+      ['Mishra, Tamer of Mak Fawa', 'Each artifact card in your graveyard has unearth {1}{B}{R}.'],
+      [
+        'Ghost Ark',
+        'Whenever this Vehicle becomes crewed, each artifact creature card in your graveyard gains unearth {3} until end of turn.',
+      ],
+      ['Deeproot Historian', 'Merfolk and Druid cards in your graveyard have retrace.'],
+      ['Cursecloth Wrappings', 'Target creature card in your graveyard gains embalm until end of turn.'],
+      [
+        "The Grim Captain's Locker",
+        'Until end of turn, each creature card in your graveyard gains "Escape-{3}{B}, Exile four other cards from your graveyard." (You may cast a card with escape from your graveyard for its escape cost.)',
+      ],
+      [
+        "Urza's Saga",
+        'II — This Saga gains "{2}, {T}: Create a 0/0 colorless Construct artifact creature token with \'This token gets +1/+1 for each artifact you control.\'"',
+      ],
+      ['Academy Manufactor', 'If you would create a Clue, Food, or Treasure token, instead create one of each.'],
+      [
+        'The Reaver Cleaver',
+        'Equipped creature gets +1/+1 and has trample and "Whenever this creature deals combat damage to a player or planeswalker, create that many Treasure tokens."',
+      ],
+      ['Coruscation Mage', 'If you do, when this creature enters, create a 1/1 token copy of it.)'],
+      [
+        'Blade of Selves',
+        'Equipped creature has myriad. (Whenever it attacks, for each opponent other than defending player, you may create a token copy that\'s tapped and attacking that player or a planeswalker they control. Exile the tokens at end of combat.)',
+      ],
+      ['Xorn', 'If you would create one or more Treasure tokens, instead create those tokens plus an additional Treasure token.'],
+    ] as const;
+
+    for (const [cardName, oracleText] of samples) {
+      const ir = parseOracleTextToIR(oracleText, cardName);
+      expect(collectUnknowns(ir.abilities), cardName).toEqual([]);
+    }
+
+    expect(parseOracleTextToIR('Unearth-Pay eight {E}.', 'Salvation Colossus').abilities[0]).toMatchObject({
+      cost: 'Pay eight {E}',
+      steps: [{ kind: 'move_zone' }, { kind: 'schedule_delayed_battlefield_action' }, { kind: 'grant_leave_battlefield_replacement' }],
+    });
+
+    const grimSteps = collectSteps(parseOracleTextToIR(samples[7][1], samples[7][0]).abilities);
+    expect(grimSteps).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'grant_graveyard_permission', permission: 'cast', duration: 'this_turn' }),
+      expect.objectContaining({
+        kind: 'modify_graveyard_permissions',
+        castCostRaw: '{3}{B}',
+        additionalCost: expect.objectContaining({ kind: 'exile_from_graveyard', count: 4 }),
+      }),
+    ]));
+
+    expect(collectSteps(parseOracleTextToIR(samples[9][1], samples[9][0]).abilities)).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        kind: 'modify_token_creation',
+        tokenTypes: ['clue', 'food', 'treasure'],
+        mode: 'replace_with_one_of_each',
+      }),
+    ]));
+
+    expect(collectSteps(parseOracleTextToIR(samples[10][1], samples[10][0]).abilities)).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        kind: 'grant_static_ability',
+        abilities: ['trample'],
+        power: 1,
+        toughness: 1,
+      }),
+    ]));
+
+    expect(collectSteps(parseOracleTextToIR(samples[11][1], samples[11][0]).abilities)).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'create_token', token: '1/1 copy of it' }),
+    ]));
+
+    expect(collectSteps(parseOracleTextToIR(samples[12][1], samples[12][0]).abilities)).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'grant_static_ability', abilities: ['myriad'] }),
+    ]));
   });
 });

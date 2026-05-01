@@ -61,7 +61,9 @@ import {
   expandEncoreKeywordAbilities,
   expandMyriadKeywordAbilities,
   expandMobilizeKeywordAbilities,
+  expandTokenCreationReplacementUnknownAbilities,
   expandParadigmKeywordAbilities,
+  pruneStaticMyriadReminderTailAbilities,
   expandGraveyardPermissionModifierUnknownAbilities,
   expandGraveyardPermissionUnknownAbilities,
   expandGraveyardOrExilePermissionAbilities,
@@ -183,7 +185,9 @@ import {
   tryParseMultiCreateTokensClause as tryParseMultiCreateTokensClauseFromModule,
 } from './oracleIRParserTokenCreateClauses';
 import { tryParseSimpleCreateTokenClause } from './oracleIRParserTokenSimpleClauses';
+import { tryParseTokenCreationReplacementClause } from './oracleIRParserTokenReplacementClauses';
 import { tryParseSimpleActionClause } from './oracleIRParserSimpleActionClauses';
+import { tryParseStaticAbilityGrantClause } from './oracleIRParserStaticAbilityClauses';
 import { tryParseTemporaryAbilityClause } from './oracleIRParserTemporaryAbilityClauses';
 import { tryParseTemporaryGrantedDiesTriggerClause } from './oracleIRParserTemporaryTriggeredClauses';
 import { tryParseZoneAndRemovalClause } from './oracleIRParserZoneAndRemovalActions';
@@ -237,6 +241,11 @@ function parseEffectClauseToStep(rawClause: string): OracleEffectStep {
     if (parsed) return parsed;
   }
 
+  {
+    const parsed = tryParseStaticAbilityGrantClause({ clause, rawClause, withMeta });
+    if (parsed) return parsed;
+  }
+
   // Temporary P/T modification (composable: target + base delta + duration + optional scaler)
   {
     const parsed = tryParseTemporarySetBasePtClause({ clause, rawClause, withMeta });
@@ -258,10 +267,26 @@ function parseEffectClauseToStep(rawClause: string): OracleEffectStep {
 
   // Create token(s)
   {
+    const triggeredCreateMatch = clause.match(/^(?:when|whenever)\s+this\s+creature\s+enters,\s+(.+)$/i);
+    if (triggeredCreateMatch) {
+      const triggeredCreateBody = String(triggeredCreateMatch[1] || '').trim();
+      const parsed = tryParseSimpleCreateTokenClause({
+        clause: /\btoken\s+copy\b/i.test(triggeredCreateBody) ? triggeredCreateBody : '',
+        rawClause,
+        withMeta,
+      });
+      if (parsed) return parsed;
+    }
+
     const parsed = tryParseSimpleCreateTokenClause({ clause, rawClause, withMeta });
     if (parsed) return parsed;
     /* Legacy inline simple-token parsing removed from the active path.
        tryParseSimpleCreateTokenClause(...) is now the single maintained entry point. */
+  }
+
+  {
+    const parsed = tryParseTokenCreationReplacementClause({ clause, rawClause, withMeta });
+    if (parsed) return parsed;
   }
 
   {
@@ -1422,6 +1447,7 @@ export function parseOracleTextToIR(oracleText: string, cardName?: string): Orac
   abilities = expandUnlessSacrificeAbilities(abilities);
   abilities = expandOtherwiseConditionalUnknownAbilities(abilities);
   abilities = expandExilePermissionUnknownAbilities(abilities);
+  abilities = expandTokenCreationReplacementUnknownAbilities(abilities);
   abilities = expandGraveyardPermissionUnknownAbilities(abilities);
   abilities = expandFreeGraveyardCastPermissionAbilities(abilities);
   abilities = expandGraveyardOrExilePermissionAbilities(abilities);
@@ -1480,6 +1506,7 @@ export function parseOracleTextToIR(oracleText: string, cardName?: string): Orac
   abilities = expandTransmuteKeywordAbilities(abilities);
   abilities = expandEncoreKeywordAbilities(abilities);
   abilities = expandMyriadKeywordAbilities(abilities);
+  abilities = pruneStaticMyriadReminderTailAbilities(abilities);
   abilities = expandMobilizeKeywordAbilities(abilities);
   abilities = expandParadigmKeywordAbilities(abilities);
   abilities = expandEmbalmKeywordAbilities(abilities);

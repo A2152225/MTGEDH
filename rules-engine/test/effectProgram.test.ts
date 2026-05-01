@@ -226,6 +226,67 @@ describe('EffectProgram', () => {
     });
   });
 
+  it('keeps capability-grant Oracle IR steps internal instead of surfacing optional prompts', () => {
+    const { programs: unearthPrograms } = buildEffectProgramsFromOracleText({
+      idPrefix: 'mishra-program',
+      oracleText: 'Each artifact card in your graveyard has unearth {1}{B}{R}.',
+      controllerId: 'p1',
+      sourceId: 'source-1',
+      sourceName: 'Mishra, Tamer of Mak Fawa',
+    });
+
+    expect(unearthPrograms[0]?.steps.map(step => step.kind)).toEqual(['command']);
+    expect((unearthPrograms[0]?.steps[0] as any)?.command?.step?.kind).toBe('grant_graveyard_keyword_ability');
+
+    const { programs: escapePrograms } = buildEffectProgramsFromOracleText({
+      idPrefix: 'escape-program',
+      oracleText: 'Until end of turn, each creature card in your graveyard gains "Escape-{3}{B}, Exile four other cards from your graveyard."',
+      controllerId: 'p1',
+      sourceId: 'source-2',
+      sourceName: "The Grim Captain's Locker",
+    });
+
+    expect(escapePrograms[0]?.steps.map(step => step.kind)).toEqual(['command', 'command']);
+    expect(escapePrograms[0]?.steps.map(step => (step as any).command?.step?.kind)).toEqual([
+      'grant_graveyard_permission',
+      'modify_graveyard_permissions',
+    ]);
+
+    const result = runOracleEffectProgram(
+      createEffectProgramRuntime({
+        program: escapePrograms[0]!,
+        state: makeState({
+          turnNumber: 7,
+          players: [
+            {
+              id: 'p1',
+              name: 'P1',
+              seat: 0,
+              life: 40,
+              library: [],
+              hand: [],
+              graveyard: [
+                { id: 'creature-card', name: 'Graveyard Creature', type_line: 'Creature - Pirate', mana_cost: '{2}{B}' },
+              ],
+            } as any,
+          ],
+        }),
+      }),
+      { controllerId: 'p1', sourceId: 'source-2', sourceName: "The Grim Captain's Locker" },
+      { allowOptional: true }
+    );
+
+    const graveyardCard = (result.state.players[0] as any).graveyard[0];
+    expect(result.status).toBe('completed');
+    expect((result.state as any).playableFromGraveyard?.p1?.['creature-card']).toBe(7);
+    expect(graveyardCard.graveyardCastCostRaw).toBe('{3}{B}');
+    expect(graveyardCard.graveyardAdditionalCost).toEqual({
+      kind: 'exile_from_graveyard',
+      count: 4,
+      raw: 'Exile four other cards from your graveyard',
+    });
+  });
+
   it('lowers ability-level intervening-if clauses into executable condition steps', () => {
     const program = buildEffectProgramFromOracleIR({
       id: 'intervening-program',

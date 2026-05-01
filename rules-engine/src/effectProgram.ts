@@ -775,7 +775,7 @@ function appendOracleStepToEffectProgram(args: {
     };
 
     let guard: EffectProgramStepGuard | undefined;
-    if ((oracleStep as any).optional === true) {
+    if (oracleStepOptionalRequiresChoice(oracleStep)) {
       const bindingKey = `${baseId}:may`;
       steps.push({
         id: `${baseId}:may-choice`,
@@ -918,7 +918,7 @@ function appendOracleStepToEffectProgram(args: {
       return `${baseId}:condition`;
     }
 
-    if ((oracleStep as any).optional === true) {
+    if (oracleStepOptionalRequiresChoice(oracleStep)) {
       return `${baseId}:may-choice`;
     }
 
@@ -943,6 +943,18 @@ function appendOracleStepToEffectProgram(args: {
       || kind === 'surveil'
       || (kind === 'add_mana' && (step as any).requiresChosenMana === true);
   }
+
+function oracleStepOptionalRequiresChoice(step: OracleEffectStep): boolean {
+  if ((step as any).optional !== true) return false;
+
+  const kind = String((step as any).kind || '');
+  return !(
+    kind === 'grant_exile_permission' ||
+    kind === 'grant_graveyard_permission' ||
+    kind === 'grant_graveyard_keyword_ability' ||
+    kind === 'modify_graveyard_permissions'
+  );
+}
 
 function normalizeInterveningIfCondition(
   condition: string | OracleClauseCondition | undefined

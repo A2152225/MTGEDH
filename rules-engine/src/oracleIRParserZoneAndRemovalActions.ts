@@ -193,6 +193,11 @@ export function tryParseZoneAndRemovalClause(args: {
     return withMeta({ kind: 'move_zone', what: parseObjectSelector(whatRaw), to: 'exile', toRaw: 'exile', raw: rawClause });
   }
 
+  const insteadExileMatch = clause.match(/^instead\s+exile\s+(.+)$/i);
+  if (insteadExileMatch) {
+    return withMeta({ kind: 'exile', target: parseObjectSelector(insteadExileMatch[1]), raw: rawClause });
+  }
+
   const exileMatch = clause.match(/^exile\s+(.+)$/i);
   if (exileMatch) {
     return withMeta({ kind: 'exile', target: parseObjectSelector(exileMatch[1]), raw: rawClause });

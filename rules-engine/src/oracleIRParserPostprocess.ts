@@ -21,6 +21,7 @@ import { tryParseLifeAndCombatClause } from './oracleIRParserLifeAndCombatClause
 import { tryParseTemporaryModifyPtClause } from './oracleIRParserModifyPtClauses';
 import { tryParseSimpleActionClause } from './oracleIRParserSimpleActionClauses';
 import { tryParseSimpleCreateTokenClause } from './oracleIRParserTokenSimpleClauses';
+import { tryParseTokenCreationReplacementClause } from './oracleIRParserTokenReplacementClauses';
 import { tryParseZoneAndRemovalClause } from './oracleIRParserZoneAndRemovalActions';
 import {
   normalizeClauseForParse,
@@ -2948,14 +2949,36 @@ function normalizeInlineManaCost(rawCost: string | undefined): string | null {
   return /^(?:\{[^}]+\})+$/.test(normalized) ? normalized : null;
 }
 
+function parseGraveyardPermissionCastCostFromText(rawText: string): string | null {
+  const normalized = normalizeOracleText(String(rawText || '')).trim();
+  if (!normalized) return null;
+
+  const keywordCostMatch = normalized.match(
+    /\b(?:flashback|jump-start|escape|harmonize)\b\s*(?:-|:)?\s*((?:\{[^}]+\}\s*)+)/i
+  );
+  if (keywordCostMatch) {
+    const cost = String(keywordCostMatch[1] || '').replace(/\s+/g, '').trim();
+    return /^(?:\{[^}]+\})+$/.test(cost) ? cost : null;
+  }
+
+  return normalizeInlineManaCost(normalized);
+}
+
 function parseGraveyardAdditionalCostFromText(rawText: string): OracleGraveyardAdditionalCost | null {
   let normalized = normalizeOracleText(String(rawText || ''))
     .replace(/^then\b\s*/i, '')
     .trim();
   if (!normalized) return null;
 
-  normalized = normalized.replace(/^(?:flashback|jump-start|retrace|escape|harmonize)\b[:â€”-]?\s*/i, '').trim();
-  normalized = normalized.replace(/^(?:\{[^}]+\})+(?:,\s*|\s+)/, '').trim();
+  const embeddedKeywordCostMatch = normalized.match(
+    /\b(?:flashback|jump-start|retrace|escape|harmonize)\b\s*(?:-|:)?\s*(?:\{[^}]+\})+\s*,\s*([^".]+)(?:[".]|$)/i
+  );
+  if (embeddedKeywordCostMatch) {
+    normalized = String(embeddedKeywordCostMatch[1] || '').trim();
+  } else {
+    normalized = normalized.replace(/^(?:flashback|jump-start|retrace|escape|harmonize)\b[:â€”-]?\s*/i, '').trim();
+    normalized = normalized.replace(/^(?:\{[^}]+\})+(?:,\s*|\s+)/, '').trim();
+  }
 
   const byMatch = normalized.match(
     /\bby\s+(.+?)\s+in addition to paying (?:its|their|that card's|that spell's|those cards'|those spells') other costs\b/i
@@ -3075,20 +3098,31 @@ function appendGrantedGraveyardAdditionalCostModifiers(steps: readonly OracleEff
     expanded.push(step);
     if (step.kind !== 'grant_graveyard_permission') continue;
 
-  const normalizedRaw = normalizeOracleText(String(step.raw || '')).trim();
-  if (/^[^.:]+:\s*/.test(normalizedRaw)) continue;
+    const normalizedRaw = normalizeOracleText(String(step.raw || '')).trim();
+    if (/^[^.:]+:\s*/.test(normalizedRaw)) continue;
 
+    const castCostRaw = parseGraveyardPermissionCastCostFromText(step.raw);
     const additionalCost = parseGraveyardAdditionalCostFromText(step.raw);
-    if (!additionalCost) continue;
+    if (!castCostRaw && !additionalCost) continue;
 
     const next = steps[i + 1];
-    if (next?.kind === 'modify_graveyard_permissions' && next.additionalCost) continue;
+    const nextModifier = next?.kind === 'modify_graveyard_permissions'
+      ? (next as Extract<OracleEffectStep, { kind: 'modify_graveyard_permissions' }>)
+      : null;
+    if (
+      nextModifier &&
+      (!castCostRaw || nextModifier.castCostRaw === castCostRaw || nextModifier.castCost === 'mana_cost') &&
+      (!additionalCost || Boolean(nextModifier.additionalCost))
+    ) {
+      continue;
+    }
 
     expanded.push({
       kind: 'modify_graveyard_permissions',
       scope: 'last_granted_graveyard_cards',
-      additionalCost,
-      raw: additionalCost.raw,
+      ...(castCostRaw ? { castCostRaw } : {}),
+      ...(additionalCost ? { additionalCost } : {}),
+      raw: additionalCost?.raw || `Cast cost ${castCostRaw}`,
     });
   }
 
@@ -3201,6 +3235,13 @@ function extractLeadingInlineManaCost(text: string | undefined): string | null {
   return match ? match[1] : null;
 }
 
+function parseUnearthCostFromText(text: string | undefined): string | null {
+  const raw = normalizeOracleText(String(text || '')).trim();
+  const match = raw.match(/^unearth\s*(?:-|:)\s*(.+)$/i) || raw.match(/^unearth\s+(.+)$/i);
+  const cost = String(match?.[1] || '').trim().replace(/[.)]+$/g, '').trim();
+  return cost || null;
+}
+
 export function expandUnearthKeywordAbilities(
   abilities: readonly OracleIRAbility[]
 ): OracleIRAbility[] {
@@ -3217,13 +3258,17 @@ export function expandUnearthKeywordAbilities(
     if (alreadyExpanded) {
       return [ability];
     }
-    if (normalizedEffect !== 'unearth' && !normalizedText.startsWith('unearth ')) {
+    if (normalizedEffect !== 'unearth' && !/^unearth(?:\s+|[-:])/.test(normalizedText)) {
       return [ability];
     }
 
-    const manaCost = extractLeadingInlineManaCost(ability.cost) || String(ability.cost || '').trim();
+    const manaCost =
+      extractLeadingInlineManaCost(ability.cost) ||
+      parseUnearthCostFromText(ability.text) ||
+      parseUnearthCostFromText(ability.effectText) ||
+      String(ability.cost || '').trim();
     const existingSteps = ability.steps.filter(
-      (step) => !(step.kind === 'unknown' && normalizeOracleText(String(step.raw || '')).trim().toLowerCase() === 'unearth')
+      (step) => !(step.kind === 'unknown' && /^unearth(?:$|\s|[-:])/i.test(normalizeOracleText(String(step.raw || '')).trim()))
     );
 
     return [{
@@ -5442,10 +5487,19 @@ export function expandMyriadKeywordAbilities(
       ability.steps.some((step) => step.kind === 'create_token' && (step as any).attacking === 'each_other_opponent');
     const canonicalEffectPrefix =
       "for each opponent other than defending player, create a token that's a copy of it";
+    const canonicalTokenCopyEffectPrefix =
+      'for each opponent other than defending player, create a token copy';
+    const canonicalOptionalTokenCopyEffectPrefix =
+      'for each opponent other than defending player, you may create a token copy';
+    const normalizedTextWithoutTrigger = normalizedText.replace(/^whenever it attacks,\s*/i, '');
     const matchesKeywordLine = normalizedText === 'myriad';
     const matchesCanonicalEffect =
       normalizedEffect.startsWith(canonicalEffectPrefix) ||
-      normalizedText.startsWith(canonicalEffectPrefix);
+      normalizedText.startsWith(canonicalEffectPrefix) ||
+      normalizedEffect.startsWith(canonicalTokenCopyEffectPrefix) ||
+      normalizedEffect.startsWith(canonicalOptionalTokenCopyEffectPrefix) ||
+      normalizedTextWithoutTrigger.startsWith(canonicalTokenCopyEffectPrefix) ||
+      normalizedTextWithoutTrigger.startsWith(canonicalOptionalTokenCopyEffectPrefix);
     if (alreadyExpanded || (!matchesKeywordLine && !matchesCanonicalEffect)) {
       return ability;
     }
@@ -5481,7 +5535,7 @@ export function expandMobilizeKeywordAbilities(
     const alreadyExpanded =
       ability.triggerCondition === 'this creature attacks' &&
       ability.steps.some((step) => step.kind === 'create_token' && (step as any).attacking === 'defending_player');
-    const mobilizeMatch = normalizedText.match(/^mobilize\s+(\d+)$/i);
+    const mobilizeMatch = normalizedText.match(/^mobilize\s+(\d+)(?:\s*\(.*)?$/i);
     const canonicalEffectPrefix = 'create ';
     const matchesCanonicalEffect =
       normalizedEffect.startsWith(canonicalEffectPrefix) &&
@@ -5516,6 +5570,62 @@ export function expandMobilizeKeywordAbilities(
       effectText: createTokenStep.raw,
       steps: [createTokenStep],
     };
+  });
+}
+
+export function expandTokenCreationReplacementUnknownAbilities(
+  abilities: readonly OracleIRAbility[]
+): OracleIRAbility[] {
+  return abilities.map((ability) => {
+    if (!ability.steps.some((step) => step.kind === 'unknown')) return ability;
+
+    const rawText = String(ability.text || ability.effectText || '').trim();
+    if (!rawText) return ability;
+
+    const parsed = tryParseTokenCreationReplacementClause({
+      clause: rawText,
+      rawClause: rawText,
+      withMeta: <T extends OracleEffectStep>(step: T): T => step,
+    });
+    if (!parsed) return ability;
+
+    return {
+      ...ability,
+      effectText: rawText,
+      steps: [parsed],
+    };
+  });
+}
+
+export function pruneStaticMyriadReminderTailAbilities(
+  abilities: readonly OracleIRAbility[]
+): OracleIRAbility[] {
+  return abilities.map((ability) => {
+    const hasStaticMyriadGrant = ability.steps.some((step) => {
+      if (step.kind !== 'grant_static_ability') return false;
+      return Array.isArray((step as any).abilities) && (step as any).abilities.includes('myriad');
+    });
+    if (!hasStaticMyriadGrant) return ability;
+
+    const nextSteps = ability.steps.filter((step) => {
+      const raw = normalizeOracleText(String(step.raw || ''))
+        .replace(/^[()\s]+/, '')
+        .replace(/[.)\s]+$/g, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+      if (
+        step.kind === 'unknown' &&
+        /^whenever it attacks, for each opponent other than defending player, you may create a token copy (?:that(?:'|â€™)?s|that is) tapped and attacking that player/i.test(raw)
+      ) {
+        return false;
+      }
+      if (step.kind === 'exile' && /^exile the tokens at end of combat$/i.test(raw)) {
+        return false;
+      }
+      return true;
+    });
+
+    return nextSteps.length === ability.steps.length ? ability : { ...ability, steps: nextSteps };
   });
 }
 
@@ -7248,6 +7358,30 @@ function parseGraveyardPermissionDuration(raw: string | undefined):
   return 'during_resolution';
 }
 
+function normalizeGraveyardGrantSelector(rawSelector: string, qualifier = '', stripTerminalCardWords = false): string {
+  let selector = normalizeOracleText(rawSelector)
+    .replace(/^(?:each|all)\s+/i, '')
+    .trim();
+  if (stripTerminalCardWords) {
+    selector = selector
+      .replace(/\s+cards?$/i, '')
+      .replace(/\s+spells?$/i, '')
+      .trim();
+  }
+  const cleanQualifier = normalizeOracleText(qualifier).trim();
+  return `${selector}${cleanQualifier ? ` ${cleanQualifier}` : ''}`.replace(/\s+/g, ' ').trim();
+}
+
+function parseGraveyardKeywordAbilityCost(rawCost: string | undefined): string | undefined {
+  const cost = normalizeOracleText(String(rawCost || ''))
+    .replace(/[.)]+$/g, '')
+    .trim();
+  if (!cost) return undefined;
+  if (/^(?:\{[^}]+\}\s*)+$/.test(cost)) return cost.replace(/\s+/g, '');
+  if (/^pay\s+.+$/i.test(cost)) return cost;
+  return undefined;
+}
+
 function parseGraveyardPermissionUnknownStep(step: Extract<OracleEffectStep, { kind: 'unknown' }>): OracleEffectStep | null {
   const normalized = normalizeOracleText(String(step.raw || ''))
     .replace(/^then\b\s*/i, '')
@@ -7303,14 +7437,10 @@ function parseGraveyardPermissionUnknownStep(step: Extract<OracleEffectStep, { k
   }
 
   const duringYourTurnKeywordMatch = normalized.match(
-    /^during your turn,\s+(.+?)\s+in\s+your\s+graveyard\s+have\s+(flashback|escape|retrace|jump-start|harmonize)$/i
+    /^during your turn,\s+(.+?)\s+in\s+your\s+graveyard\s+(?:has|have)\s+(flashback|escape|retrace|jump-start|harmonize)$/i
   );
   if (duringYourTurnKeywordMatch) {
-    const selectorText = String(duringYourTurnKeywordMatch[1] || '')
-      .trim()
-      .replace(/\s+cards?$/i, '')
-      .replace(/\s+spells?$/i, '')
-      .trim();
+    const selectorText = normalizeGraveyardGrantSelector(String(duringYourTurnKeywordMatch[1] || ''), '', true);
     const permissionStep: OracleEffectStep = {
       kind: 'grant_graveyard_permission',
       who: { kind: 'you' },
@@ -7367,16 +7497,57 @@ function parseGraveyardPermissionUnknownStep(step: Extract<OracleEffectStep, { k
     };
   }
 
+  const grantedQuotedKeywordMatch = normalized.match(
+    /^(until end of turn,\s+)?((?:each|all|target|up to one target)\s+.+?)\s+in\s+your\s+graveyard\s+(?:has|have|gain|gains)\s+"?(flashback|escape|retrace|jump-start|harmonize)\s*(?:-|:)\s*((?:\{[^}]+\}\s*)+)(?:,\s*([^"]+?))?\.?'?"?(?:\s*\(.*)?$/i
+  );
+  if (grantedQuotedKeywordMatch) {
+    return {
+      kind: 'grant_graveyard_permission',
+      who: { kind: 'you' },
+      permission: 'cast',
+      what: { kind: 'raw', text: normalizeGraveyardGrantSelector(String(grantedQuotedKeywordMatch[2] || '')) },
+      duration: grantedQuotedKeywordMatch[1] ? 'this_turn' : 'during_resolution',
+      optional: true,
+      ...(step.sequence ? { sequence: step.sequence } : {}),
+      raw: normalized,
+    };
+  }
+
+  const activatedKeywordGrantMatch = normalized.match(
+    /^(until end of turn,\s+)?((?:(?:each|all|target|up to one target)\s+)?[a-z0-9][^"]*?)\s+in\s+your\s+graveyard((?:\s+that(?:'s| is)\s+.+?)?)\s+(?:has|have|gain|gains)\s+(unearth|embalm|eternalize)(?:\s+((?:(?:\{[^}]+\}\s*)+|pay\s+.+?)))?(?:\s+(until end of turn|this turn))?$/i
+  );
+  if (activatedKeywordGrantMatch) {
+    const leadingDuration = Boolean(activatedKeywordGrantMatch[1]);
+    const trailingDuration = String(activatedKeywordGrantMatch[6] || '').trim().toLowerCase();
+    const costRaw = parseGraveyardKeywordAbilityCost(activatedKeywordGrantMatch[5]);
+    const keyword = String(activatedKeywordGrantMatch[4] || '').trim().toLowerCase();
+    if (keyword !== 'unearth' && keyword !== 'embalm' && keyword !== 'eternalize') return null;
+    return {
+      kind: 'grant_graveyard_keyword_ability',
+      who: { kind: 'you' },
+      what: {
+        kind: 'raw',
+        text: normalizeGraveyardGrantSelector(
+          String(activatedKeywordGrantMatch[2] || ''),
+          String(activatedKeywordGrantMatch[3] || '')
+        ),
+      },
+      keyword,
+      ...(costRaw ? { costRaw } : {}),
+      duration: leadingDuration || trailingDuration === 'until end of turn' || trailingDuration === 'this turn' ? 'this_turn' : 'during_resolution',
+      optional: true,
+      ...(step.sequence ? { sequence: step.sequence } : {}),
+      raw: normalized,
+    };
+  }
+
   const grantedKeywordMatch = normalized.match(
-    /^((?:each|target|up to one target)\s+.+?)\s+in\s+your\s+graveyard((?:\s+that(?:'s| is)\s+.+?)?)\s+(?:has|gain|gains)\s+(flashback|escape|retrace|jump-start|harmonize)(?:\s+(until end of turn|this turn))?$/i
+    /^((?:(?:each|all|target|up to one target)\s+)?[a-z0-9].+?)\s+in\s+your\s+graveyard((?:\s+that(?:'s| is)\s+.+?)?)\s+(?:has|have|gain|gains)\s+(flashback|escape|retrace|jump-start|harmonize)(?:\s+(until end of turn|this turn))?$/i
   );
   if (grantedKeywordMatch) {
     const rawSelector = String(grantedKeywordMatch[1] || '').trim();
     const qualifier = String(grantedKeywordMatch[2] || '').trim();
-    const selectorText = /^(?:each|all)\s+/i.test(rawSelector)
-      ? rawSelector.replace(/^(?:each|all)\s+/i, '').trim()
-      : rawSelector;
-    const qualifiedSelector = `${selectorText}${qualifier ? ` ${qualifier}` : ''}`.trim();
+    const qualifiedSelector = normalizeGraveyardGrantSelector(rawSelector, qualifier);
     const durationText = String(grantedKeywordMatch[4] || '').trim().toLowerCase();
 
     return {
