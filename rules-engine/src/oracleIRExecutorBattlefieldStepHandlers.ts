@@ -1125,6 +1125,168 @@ function applyTemporaryEffectToPermanents(
   return { ...(state as any), battlefield: nextBattlefield } as GameState;
 }
 
+function resolveAttachedStaticAbilityGrantTargets(
+  battlefield: readonly BattlefieldPermanent[],
+  target: { readonly kind: string; readonly text?: string; readonly raw?: string } | undefined,
+  ctx: OracleIRExecutionContext
+): BattlefieldPermanent[] {
+  if (!target || target.kind !== 'raw') return [];
+  const normalized = String((target as any).text || '')
+    .replace(/\u2019/g, "'")
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!normalized) return [];
+
+  const sourceId = String(ctx.sourceId || '').trim();
+  if (!sourceId) return [];
+  const sourcePermanent = battlefield.find((perm: any) => String((perm as any)?.id || '').trim() === sourceId) as any;
+
+  const sourceSelfMatch = normalized.match(/^this\s+(creature|land|saga|permanent)$/i);
+  if (sourceSelfMatch) {
+    if (!sourcePermanent) return [];
+    const requiredType = String(sourceSelfMatch[1] || '').toLowerCase() === 'saga' ? 'enchantment' : String(sourceSelfMatch[1] || '').toLowerCase();
+    if (requiredType !== 'permanent' && !permanentMatchesType(sourcePermanent, requiredType as any)) return [];
+    return [sourcePermanent];
+  }
+
+  const attachedTargetMatch = normalized.match(/^(?:equipped|enchanted)\s+(creature|land|permanent)$/i);
+  if (!attachedTargetMatch || !sourcePermanent) return [];
+
+  const attachedToId = String(sourcePermanent.attachedTo || sourcePermanent.enchanting || '').trim();
+  if (!attachedToId) return [];
+  const attachedPermanent = battlefield.find((perm: any) => String((perm as any)?.id || '').trim() === attachedToId);
+  if (!attachedPermanent) return [];
+
+  const requiredType = String(attachedTargetMatch[1] || '').trim().toLowerCase();
+  if (requiredType !== 'permanent' && !permanentMatchesType(attachedPermanent, requiredType as any)) return [];
+  return [attachedPermanent];
+}
+
+export function applyGrantStaticAbilityStep(
+  state: GameState,
+  step: Extract<OracleEffectStep, { kind: 'grant_static_ability' }>,
+  ctx: OracleIRExecutionContext
+): BattlefieldStepHandlerResult {
+  const battlefield = (state.battlefield || []) as BattlefieldPermanent[];
+  const attachedTargets = resolveAttachedStaticAbilityGrantTargets(battlefield, step.target as any, ctx);
+  const directTargets = attachedTargets.length > 0 ? [] : resolveDirectBattlefieldPermanents(battlefield, step.target as any, ctx);
+  const targets = attachedTargets.length > 0 ? attachedTargets : directTargets;
+  const targetText = String((step.target as any)?.text || '').trim().toLowerCase();
+
+  if (targets.length === 0 && /^target\b/.test(targetText)) {
+    return {
+      applied: false,
+      message: `Skipped static ability grant (needs player choice): ${step.raw}`,
+      reason: 'player_choice_required',
+      options: { classification: 'player_choice' },
+    };
+  }
+
+  const sourceId = String(ctx.sourceId || '').trim();
+  const sourceName = String(ctx.sourceName || '').trim();
+  const existingStaticGrantEffects = Array.isArray((state as any).staticAbilityGrantEffects)
+    ? [...(state as any).staticAbilityGrantEffects]
+    : [];
+  const staticGrantEffect = {
+    id: `${sourceId || sourceName || 'oracle'}:static-grant:${existingStaticGrantEffects.length + 1}`,
+    sourceId: sourceId || undefined,
+    sourceName: sourceName || undefined,
+    controllerId: String(ctx.controllerId || '').trim() || undefined,
+    target: step.target,
+    abilities: Array.isArray(step.abilities) ? [...step.abilities] : [],
+    effectText: Array.isArray(step.effectText) ? [...step.effectText] : [],
+    power: step.power,
+    toughness: step.toughness,
+    duration: step.duration || 'static',
+    raw: step.raw,
+  };
+  const duplicateStaticGrant = existingStaticGrantEffects.some((entry: any) =>
+    String(entry?.sourceId || '').trim() === String(staticGrantEffect.sourceId || '').trim() &&
+    String(entry?.raw || '').trim() === step.raw
+  );
+
+  if (targets.length === 0) {
+    return {
+      applied: true,
+      state: {
+        ...(state as any),
+        staticAbilityGrantEffects: duplicateStaticGrant
+          ? existingStaticGrantEffects
+          : [...existingStaticGrantEffects, staticGrantEffect],
+      } as GameState,
+      log: [`Registered static ability grant: ${step.raw}`],
+    };
+  }
+
+  const targetIds = new Set(targets.map((target: any) => String(target?.id || '').trim()).filter(Boolean));
+  const grantedAbilities = [
+    ...(Array.isArray(step.abilities) ? step.abilities : []),
+    ...(Array.isArray(step.effectText) ? step.effectText : []),
+  ]
+    .map(value => String(value || '').trim())
+    .filter(Boolean);
+
+  const nextBattlefield = battlefield.map((perm: any) => {
+    const permanentId = String(perm?.id || '').trim();
+    if (!targetIds.has(permanentId)) return perm;
+
+    const existingGranted = Array.isArray(perm.grantedAbilities) ? [...perm.grantedAbilities] : [];
+    for (const ability of grantedAbilities) {
+      const normalizedAbility = ability.toLowerCase();
+      if (!existingGranted.some(entry => String(entry || '').trim().toLowerCase() === normalizedAbility)) {
+        existingGranted.push(normalizedAbility);
+      }
+    }
+
+    const existingModifiers = Array.isArray(perm.modifiers) ? [...perm.modifiers] : [];
+    if (typeof step.power === 'number' || typeof step.toughness === 'number') {
+      const power = step.power || 0;
+      const toughness = step.toughness || 0;
+      const duration = step.duration || 'static';
+      const duplicateModifier = existingModifiers.some((modifier: any) =>
+        String(modifier?.type || '').trim() === 'powerToughness' &&
+        Number(modifier?.power || 0) === power &&
+        Number(modifier?.toughness || 0) === toughness &&
+        String(modifier?.sourceId || '').trim() === sourceId &&
+        String(modifier?.duration || '').trim() === duration
+      );
+      if (!duplicateModifier) {
+        existingModifiers.push({
+          type: 'powerToughness',
+          power,
+          toughness,
+          sourceId: sourceId || undefined,
+          sourceName: sourceName || undefined,
+          duration,
+        } as any);
+      }
+    }
+
+    return {
+      ...perm,
+      ...(existingGranted.length > 0 ? { grantedAbilities: existingGranted } : {}),
+      ...(existingModifiers.length > 0 ? { modifiers: existingModifiers } : {}),
+      effectivePower: undefined,
+      effectiveToughness: undefined,
+    } as BattlefieldPermanent;
+  });
+
+  const processedBattlefield = getProcessedBattlefield({ ...(state as any), battlefield: nextBattlefield } as any);
+
+  return {
+    applied: true,
+    state: {
+      ...(state as any),
+      battlefield: processedBattlefield,
+      staticAbilityGrantEffects: duplicateStaticGrant
+        ? existingStaticGrantEffects
+        : [...existingStaticGrantEffects, staticGrantEffect],
+    } as GameState,
+    log: [`Applied static ability grant to ${targets.length} permanent(s)`],
+  };
+}
+
 function resolveRecentlyMovedBattlefieldPermanents(
   battlefield: readonly BattlefieldPermanent[],
   target:

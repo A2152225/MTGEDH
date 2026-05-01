@@ -41,6 +41,7 @@ import {
   applyExileStep,
   applyGainClassLevelStep,
   applyGainControlStep,
+  applyGrantStaticAbilityStep,
   applyRegenerateStep,
   applyGrantLeaveBattlefieldReplacementStep,
   applyGrantTemporaryAbilityStep,
@@ -112,7 +113,9 @@ import {
   applyLearnStep,
   applyManifestDreadStep,
   applyGrantGraveyardPermissionStep,
+  applyGrantGraveyardKeywordAbilityStep,
   applyModifyGraveyardPermissionsStep,
+  applyModifyTokenCreationStep,
   evaluateUnlessPaysLifeStep,
   evaluateUnlessPaysManaStep,
   applyGainLifeStep,
@@ -1261,10 +1264,25 @@ export function applyOracleIRStepsToGameStateImpl(
         });
         break;
       }
+      case 'grant_graveyard_keyword_ability': {
+        const result = applyGrantGraveyardKeywordAbilityStep(nextState, step, currentCtx);
+        applyHandledStepResult(step, result);
+        break;
+      }
       case 'modify_graveyard_permissions': {
         const result = applyModifyGraveyardPermissionsStep(nextState, step, {
           lastGrantedGraveyardCards,
         });
+        applyHandledStepResult(step, result);
+        break;
+      }
+      case 'modify_token_creation': {
+        const result = applyModifyTokenCreationStep(nextState, step, currentCtx);
+        applyHandledStepResult(step, result);
+        break;
+      }
+      case 'grant_static_ability': {
+        const result = applyGrantStaticAbilityStep(nextState, step, currentCtx);
         applyHandledStepResult(step, result);
         break;
       }

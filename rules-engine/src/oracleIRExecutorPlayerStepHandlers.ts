@@ -1446,7 +1446,7 @@ function buildExilePermissionCriteria(text: string): {
 function resolveGraveyardPermissionTargets(
   state: GameState,
   playerId: PlayerID,
-  step: Extract<OracleEffectStep, { kind: 'grant_graveyard_permission' }>,
+  step: Extract<OracleEffectStep, { kind: 'grant_graveyard_permission' | 'grant_graveyard_keyword_ability' }>,
   ctx: OracleIRExecutionContext
 ): { cards: readonly any[]; reason?: 'unsupported_selector' | 'failed_to_apply' } {
   const player = state.players.find(p => p.id === playerId) as any;
@@ -1682,6 +1682,141 @@ export function applyGrantGraveyardPermissionStep(
   };
 }
 
+export function applyGrantGraveyardKeywordAbilityStep(
+  state: GameState,
+  step: Extract<OracleEffectStep, { kind: 'grant_graveyard_keyword_ability' }>,
+  ctx: OracleIRExecutionContext
+): PlayerStepHandlerResult {
+  const players = resolvePlayers(state, step.who, ctx);
+  if (players.length === 0) {
+    return {
+      applied: false,
+      message: `Skipped graveyard keyword grant (unsupported player selector): ${step.raw}`,
+      reason: 'unsupported_player_selector',
+    };
+  }
+
+  const playableUntilTurn = getPlayableUntilTurnForImpulseDuration(state, step.duration);
+  let nextStateAny: any = { ...(state as any) };
+  let changed = 0;
+  const sourceId = String(ctx.sourceId || '').trim();
+  const sourceName = String(ctx.sourceName || '').trim();
+  const temporaryGrantEntries: any[] = [];
+  for (const playerId of players) {
+    const resolved = resolveGraveyardPermissionTargets(nextStateAny as GameState, playerId, step, ctx);
+    if (resolved.reason === 'unsupported_selector') {
+      return {
+        applied: false,
+        message: `Skipped graveyard keyword grant (unsupported selector): ${step.raw}`,
+        reason: 'failed_to_apply',
+        options: { classification: 'ambiguous' },
+      };
+    }
+    if (resolved.reason === 'failed_to_apply') {
+      return {
+        applied: false,
+        message: `Skipped graveyard keyword grant (referenced card unavailable): ${step.raw}`,
+        reason: 'failed_to_apply',
+        options: { classification: 'invalid_input', persist: false },
+      };
+    }
+
+    const targetIds = new Set(
+      resolved.cards
+        .map(card => String((card as any)?.id ?? (card as any)?.cardId ?? '').trim())
+        .filter(Boolean)
+    );
+      if (targetIds.size === 0) continue;
+
+      const player = (nextStateAny.players || []).find((candidate: any) => String(candidate?.id || '').trim() === playerId) as any;
+      if (!player) continue;
+
+    const graveyard = Array.isArray(player?.graveyard) ? player.graveyard : [];
+      const affectedIds: string[] = [];
+    const nextGraveyard = graveyard.map((card: any) => {
+      const cardId = String(card?.id ?? card?.cardId ?? '').trim();
+      if (!cardId || !targetIds.has(cardId)) return card;
+
+      const existingKeywordAbilities = Array.isArray(card?.graveyardKeywordAbilities)
+        ? [...card.graveyardKeywordAbilities]
+        : [];
+      const keywordAbility = {
+        keyword: step.keyword,
+        type: step.keyword,
+        ...(step.costRaw ? { costRaw: step.costRaw } : {}),
+        duration: step.duration,
+        playableUntilTurn,
+        sourceId: sourceId || undefined,
+        sourceName: sourceName || undefined,
+      };
+      const duplicate = existingKeywordAbilities.some((entry: any) =>
+        String(entry?.keyword || entry?.type || '').trim().toLowerCase() === step.keyword &&
+        String(entry?.costRaw || '').trim() === String(step.costRaw || '').trim() &&
+        String(entry?.sourceId || '').trim() === sourceId
+      );
+
+      changed += 1;
+      affectedIds.push(cardId);
+      temporaryGrantEntries.push({
+        playerId: String(playerId),
+        cardId,
+        keyword: step.keyword,
+        ...(step.costRaw ? { cost: step.costRaw } : {}),
+        ...(sourceId ? { sourceId } : {}),
+        ...(sourceName ? { sourceName } : {}),
+        expiresAt: step.duration === 'this_turn' ? 'end_of_turn' : step.duration,
+        turnApplied: Number((nextStateAny as any).turnNumber ?? (nextStateAny as any).turn ?? 0) || 0,
+      });
+      return {
+        ...card,
+        zone: 'graveyard',
+        graveyardKeywordAbilities: duplicate ? existingKeywordAbilities : [...existingKeywordAbilities, keywordAbility],
+        [`${step.keyword}Cost`]: step.costRaw,
+        canActivateFromGraveyardBy: playerId,
+        graveyardActivationUntilTurn: playableUntilTurn,
+      };
+    });
+
+    nextStateAny = {
+      ...nextStateAny,
+      players: (nextStateAny.players || []).map((candidate: any) =>
+        String(candidate?.id || '').trim() === playerId ? { ...candidate, graveyard: nextGraveyard } : candidate
+      ),
+    };
+
+    if (affectedIds.length > 0) {
+      nextStateAny.activatableFromGraveyard = { ...(nextStateAny.activatableFromGraveyard || {}) };
+      nextStateAny.activatableFromGraveyard[playerId] = { ...(nextStateAny.activatableFromGraveyard[playerId] || {}) };
+      for (const cardId of affectedIds) {
+        nextStateAny.activatableFromGraveyard[playerId][cardId] = playableUntilTurn ?? Number.MAX_SAFE_INTEGER;
+      }
+    }
+  }
+
+  if (temporaryGrantEntries.length > 0) {
+    const replacementKeys = new Set(temporaryGrantEntries.map(entry =>
+      `${entry.playerId}:${entry.cardId}:${entry.keyword}:${String(entry.sourceId || '')}`
+    ));
+    const existingTemporaryGrants = Array.isArray(nextStateAny.temporaryGraveyardKeywordGrants)
+      ? nextStateAny.temporaryGraveyardKeywordGrants
+      : [];
+    nextStateAny.temporaryGraveyardKeywordGrants = [
+      ...existingTemporaryGrants.filter((entry: any) =>
+        !replacementKeys.has(`${String(entry?.playerId || '')}:${String(entry?.cardId || '')}:${String(entry?.keyword || '')}:${String(entry?.sourceId || '')}`)
+      ),
+      ...temporaryGrantEntries,
+    ];
+  }
+
+  return {
+    applied: true,
+    state: nextStateAny as GameState,
+    log: changed > 0
+      ? [`Granted ${step.keyword} to ${changed} graveyard card(s)`]
+      : [`Granted no graveyard keyword abilities: ${step.raw}`],
+  };
+}
+
 export function applyGrantExilePermissionStep(
   state: GameState,
   step: Extract<OracleEffectStep, { kind: 'grant_exile_permission' }>,
@@ -1797,6 +1932,52 @@ export function applyModifyGraveyardPermissionsStep(
       changed > 0
         ? [`Updated graveyard permissions for ${changed} graveyard card(s)`]
         : [`Updated no graveyard permissions: ${step.raw}`],
+  };
+}
+
+export function applyModifyTokenCreationStep(
+  state: GameState,
+  step: Extract<OracleEffectStep, { kind: 'modify_token_creation' }>,
+  ctx: OracleIRExecutionContext
+): PlayerStepHandlerResult {
+  const players = resolvePlayers(state, step.who, ctx);
+  if (players.length === 0) {
+    return {
+      applied: false,
+      message: `Skipped token creation replacement (unsupported player selector): ${step.raw}`,
+      reason: 'unsupported_player_selector',
+    };
+  }
+
+  const existing = Array.isArray((state as any).tokenCreationReplacementEffects)
+    ? [...(state as any).tokenCreationReplacementEffects]
+    : [];
+  const sourceId = String(ctx.sourceId || '').trim();
+  const sourceName = String(ctx.sourceName || '').trim();
+  const replacement = {
+    id: `${sourceId || sourceName || 'oracle'}:token-replacement:${existing.length + 1}`,
+    sourceId: sourceId || undefined,
+    sourceName: sourceName || undefined,
+    controllerId: String(ctx.controllerId || '').trim() || undefined,
+    playerIds: players,
+    tokenTypes: step.tokenTypes.map(value => String(value || '').trim().toLowerCase()).filter(Boolean),
+    mode: step.mode,
+    additionalAmount: step.additionalAmount,
+    raw: step.raw,
+  };
+  const duplicate = existing.some((entry: any) =>
+    String(entry?.sourceId || '').trim() === String(replacement.sourceId || '').trim() &&
+    String(entry?.raw || '').trim() === step.raw &&
+    String(entry?.mode || '').trim() === step.mode
+  );
+
+  return {
+    applied: true,
+    state: {
+      ...(state as any),
+      tokenCreationReplacementEffects: duplicate ? existing : [...existing, replacement],
+    } as GameState,
+    log: [`Registered token creation replacement: ${step.raw}`],
   };
 }
 

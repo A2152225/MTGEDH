@@ -238,6 +238,53 @@ describe('EffectProgram', () => {
     expect(unearthPrograms[0]?.steps.map(step => step.kind)).toEqual(['command']);
     expect((unearthPrograms[0]?.steps[0] as any)?.command?.step?.kind).toBe('grant_graveyard_keyword_ability');
 
+    const unearthResult = runOracleEffectProgram(
+      createEffectProgramRuntime({
+        program: unearthPrograms[0]!,
+        state: makeState({
+          turnNumber: 7,
+          players: [
+            {
+              id: 'p1',
+              name: 'P1',
+              seat: 0,
+              life: 40,
+              library: [],
+              hand: [],
+              graveyard: [
+                { id: 'artifact-card', name: 'Scrapwork Cohort', type_line: 'Artifact Creature - Soldier' },
+                { id: 'spell-card', name: 'Nonartifact Spell', type_line: 'Sorcery' },
+              ],
+            } as any,
+          ],
+        }),
+      }),
+      { controllerId: 'p1', sourceId: 'source-1', sourceName: 'Mishra, Tamer of Mak Fawa' },
+      { allowOptional: true }
+    );
+
+    const unearthGraveyard = (unearthResult.state.players[0] as any).graveyard;
+    const artifactCard = unearthGraveyard.find((card: any) => card.id === 'artifact-card');
+    const nonArtifactCard = unearthGraveyard.find((card: any) => card.id === 'spell-card');
+    expect(unearthResult.status).toBe('completed');
+    expect(unearthResult.events).toMatchObject([
+      { appliedStepKinds: ['grant_graveyard_keyword_ability'], skippedStepKinds: [], automationGapCount: 0 },
+    ]);
+    expect((unearthResult.state as any).activatableFromGraveyard?.p1?.['artifact-card']).toBe(7);
+    expect((unearthResult.state as any).temporaryGraveyardKeywordGrants).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        playerId: 'p1',
+        cardId: 'artifact-card',
+        keyword: 'unearth',
+        cost: '{1}{B}{R}',
+        expiresAt: 'during_resolution',
+      }),
+    ]));
+    expect(artifactCard?.graveyardKeywordAbilities).toEqual(expect.arrayContaining([
+      expect.objectContaining({ keyword: 'unearth', costRaw: '{1}{B}{R}' }),
+    ]));
+    expect(nonArtifactCard?.graveyardKeywordAbilities).toBeUndefined();
+
     const { programs: escapePrograms } = buildEffectProgramsFromOracleText({
       idPrefix: 'escape-program',
       oracleText: 'Until end of turn, each creature card in your graveyard gains "Escape-{3}{B}, Exile four other cards from your graveyard."',
@@ -285,6 +332,96 @@ describe('EffectProgram', () => {
       count: 4,
       raw: 'Exile four other cards from your graveyard',
     });
+  });
+
+  it('executes static grant and token replacement Oracle IR commands through EffectProgram', () => {
+    const { programs: manufactorPrograms } = buildEffectProgramsFromOracleText({
+      idPrefix: 'academy-program',
+      oracleText: 'If you would create a Clue, Food, or Treasure token, instead create one of each.',
+      controllerId: 'p1',
+      sourceId: 'academy-manufactor',
+      sourceName: 'Academy Manufactor',
+    });
+
+    const registeredReplacement = runOracleEffectProgram(
+      createEffectProgramRuntime({ program: manufactorPrograms[0]!, state: makeState() }),
+      { controllerId: 'p1', sourceId: 'academy-manufactor', sourceName: 'Academy Manufactor' },
+      { allowOptional: true }
+    );
+
+    expect(registeredReplacement.status).toBe('completed');
+    expect(registeredReplacement.events).toMatchObject([
+      { appliedStepKinds: ['modify_token_creation'], skippedStepKinds: [], automationGapCount: 0 },
+    ]);
+    expect((registeredReplacement.state as any).tokenCreationReplacementEffects).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        mode: 'replace_with_one_of_each',
+        tokenTypes: ['clue', 'food', 'treasure'],
+      }),
+    ]));
+
+    const { programs: treasurePrograms } = buildEffectProgramsFromOracleText({
+      idPrefix: 'treasure-program',
+      oracleText: 'Create a Treasure token.',
+      controllerId: 'p1',
+      sourceId: 'treasure-source',
+      sourceName: 'Treasure Source',
+    });
+    const replacedTokens = runOracleEffectProgram(
+      createEffectProgramRuntime({ program: treasurePrograms[0]!, state: registeredReplacement.state }),
+      { controllerId: 'p1', sourceId: 'treasure-source', sourceName: 'Treasure Source' },
+      { allowOptional: true }
+    );
+    const tokenNames = ((replacedTokens.state.battlefield || []) as any[]).map(perm => String(perm?.card?.name || perm?.name || '').toLowerCase());
+    expect(tokenNames).toEqual(expect.arrayContaining(['clue', 'food', 'treasure']));
+
+    const { programs: staticPrograms } = buildEffectProgramsFromOracleText({
+      idPrefix: 'reaver-program',
+      oracleText: 'Equipped creature gets +1/+1 and has trample and "Whenever this creature deals combat damage to a player or planeswalker, create that many Treasure tokens."',
+      controllerId: 'p1',
+      sourceId: 'reaver-cleaver',
+      sourceName: 'The Reaver Cleaver',
+    });
+
+    const staticResult = runOracleEffectProgram(
+      createEffectProgramRuntime({
+        program: staticPrograms[0]!,
+        state: makeState({
+          battlefield: [
+            {
+              id: 'reaver-cleaver',
+              controller: 'p1',
+              owner: 'p1',
+              attachedTo: 'equipped-bear',
+              card: { id: 'reaver-card', name: 'The Reaver Cleaver', type_line: 'Artifact - Equipment' },
+            } as any,
+            {
+              id: 'equipped-bear',
+              controller: 'p1',
+              owner: 'p1',
+              basePower: 2,
+              baseToughness: 2,
+              counters: {},
+              card: { id: 'bear-card', name: 'Equipped Bear', type_line: 'Creature - Bear', power: '2', toughness: '2' },
+            } as any,
+          ],
+        }),
+      }),
+      { controllerId: 'p1', sourceId: 'reaver-cleaver', sourceName: 'The Reaver Cleaver' },
+      { allowOptional: true }
+    );
+
+    const equippedBear = (staticResult.state.battlefield as any[]).find(perm => perm.id === 'equipped-bear');
+    expect(staticResult.status).toBe('completed');
+    expect(staticResult.events).toMatchObject([
+      { appliedStepKinds: ['grant_static_ability'], skippedStepKinds: [], automationGapCount: 0 },
+    ]);
+    expect(equippedBear?.grantedAbilities).toEqual(expect.arrayContaining([
+      'trample',
+      'whenever this creature deals combat damage to a player or planeswalker, create that many treasure tokens.',
+    ]));
+    expect(equippedBear?.effectivePower).toBe(3);
+    expect(equippedBear?.effectiveToughness).toBe(3);
   });
 
   it('lowers ability-level intervening-if clauses into executable condition steps', () => {

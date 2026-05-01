@@ -41,6 +41,92 @@ type TokenStepRuntime = {
   readonly lastReferenceAmount?: number;
 };
 
+type TokenCreationSpec = {
+  readonly tokenHint: string;
+  readonly amount: number;
+};
+
+function normalizeTokenTypeText(value: unknown): string {
+  return String(value || '')
+    .replace(/\u2019/g, "'")
+    .toLowerCase()
+    .replace(/\b(?:token|tokens|artifact|creature|enchantment)\b/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function tokenHintMatchesReplacementType(tokenHint: string, tokenType: string): boolean {
+  const normalizedHint = normalizeTokenTypeText(tokenHint);
+  const normalizedType = normalizeTokenTypeText(tokenType);
+  if (!normalizedHint || !normalizedType) return false;
+  return normalizedHint === normalizedType || normalizedHint.includes(normalizedType);
+}
+
+function quantitySpecToNumber(value: unknown): number {
+  if (!value || typeof value !== 'object') return 1;
+  const kind = String((value as any).kind || '').trim();
+  if (kind === 'number') {
+    const n = Number((value as any).value);
+    return Number.isFinite(n) ? Math.max(0, Math.floor(n)) : 1;
+  }
+  if (kind === 'one') return 1;
+  return 1;
+}
+
+function resolveTokenCreationSpecsForReplacementEffects(
+  state: GameState,
+  playerId: PlayerID,
+  tokenHint: string,
+  amount: number
+): readonly TokenCreationSpec[] {
+  const effects = Array.isArray((state as any).tokenCreationReplacementEffects)
+    ? (state as any).tokenCreationReplacementEffects
+    : [];
+  if (effects.length === 0) return [{ tokenHint, amount }];
+
+  let specs: TokenCreationSpec[] = [{ tokenHint, amount }];
+  for (const effect of effects) {
+    const playerIds = Array.isArray(effect?.playerIds)
+      ? effect.playerIds.map((id: unknown) => String(id || '').trim()).filter(Boolean)
+      : [];
+    if (playerIds.length > 0 && !playerIds.includes(String(playerId))) continue;
+
+    const tokenTypes = Array.isArray(effect?.tokenTypes)
+      ? effect.tokenTypes.map((value: unknown) => String(value || '').trim().toLowerCase()).filter(Boolean)
+      : [];
+    if (tokenTypes.length === 0) continue;
+
+    const nextSpecs: TokenCreationSpec[] = [];
+    for (const spec of specs) {
+      const matches = tokenTypes.some(tokenType => tokenHintMatchesReplacementType(spec.tokenHint, tokenType));
+      if (!matches) {
+        nextSpecs.push(spec);
+        continue;
+      }
+
+      if (effect.mode === 'replace_with_one_of_each') {
+        for (const tokenType of tokenTypes) {
+          nextSpecs.push({ tokenHint: tokenType, amount: spec.amount });
+        }
+        continue;
+      }
+
+      if (effect.mode === 'add_additional_token') {
+        nextSpecs.push({
+          tokenHint: spec.tokenHint,
+          amount: spec.amount + quantitySpecToNumber(effect.additionalAmount),
+        });
+        continue;
+      }
+
+      nextSpecs.push(spec);
+    }
+    specs = nextSpecs;
+  }
+
+  return specs;
+}
+
 function applyTemporaryGrantedAbilitiesToToken(
   token: BattlefieldPermanent | any,
   grantedAbilities: readonly string[] | undefined
@@ -944,26 +1030,31 @@ export function applyCreateTokenStep(
         : [undefined];
 
     for (const attackTarget of attackTargets) {
-      const result = addTokensToBattlefield(
-        nextState,
-        playerId,
-        amount,
-        step.token,
-        step.raw,
-        ctx,
-        runtime,
-        step.entersTapped,
-        step.withCounters,
-        attackTarget,
-        step.grantsHaste === 'until_end_of_turn' ? ['haste'] : step.grantsAbilitiesUntilEndOfTurn,
-        step.grantsHaste === 'permanent' ? ['haste'] : undefined
-      );
-      if (!result.applied) return result;
-      nextState = result.state;
-      log.push(...result.log);
-      allCreatedTokenIds.push(...result.createdTokenIds);
+      const tokenSpecs = resolveTokenCreationSpecsForReplacementEffects(nextState, playerId, step.token, amount);
+      const createdForAttackTarget: string[] = [];
+      for (const tokenSpec of tokenSpecs) {
+        const result = addTokensToBattlefield(
+          nextState,
+          playerId,
+          tokenSpec.amount,
+          tokenSpec.tokenHint,
+          step.raw,
+          ctx,
+          runtime,
+          step.entersTapped,
+          step.withCounters,
+          attackTarget,
+          step.grantsHaste === 'until_end_of_turn' ? ['haste'] : step.grantsAbilitiesUntilEndOfTurn,
+          step.grantsHaste === 'permanent' ? ['haste'] : undefined
+        );
+        if (!result.applied) return result;
+        nextState = result.state;
+        log.push(...result.log);
+        allCreatedTokenIds.push(...result.createdTokenIds);
+        createdForAttackTarget.push(...result.createdTokenIds);
+      }
 
-      if (result.createdTokenIds.length > 0 && step.battlefieldAttachedTo) {
+      if (createdForAttackTarget.length > 0 && step.battlefieldAttachedTo) {
         if ((step.battlefieldAttachedTo as any)?.kind !== 'raw') {
           return {
             applied: false,
@@ -991,7 +1082,7 @@ export function applyCreateTokenStep(
           };
         }
 
-        for (const tokenId of result.createdTokenIds) {
+        for (const tokenId of createdForAttackTarget) {
           const attachResult = attachExistingBattlefieldPermanentToTarget(nextState, tokenId, attachmentTargetId);
           if (attachResult.kind === 'impossible') {
             return {
@@ -1005,13 +1096,13 @@ export function applyCreateTokenStep(
         }
       }
 
-      if (result.createdTokenIds.length > 0 && step.atNextEndStep) {
+      if (createdForAttackTarget.length > 0 && step.atNextEndStep) {
         const scheduled = scheduleTokenCleanup(
           nextState,
           playerId,
           ctx.sourceName,
           ctx.sourceId,
-          result.createdTokenIds,
+          createdForAttackTarget,
           DelayedTriggerTiming.NEXT_END_STEP,
           step.atNextEndStep
         );
@@ -1019,13 +1110,13 @@ export function applyCreateTokenStep(
         log.push(...scheduled.log);
       }
 
-      if (result.createdTokenIds.length > 0 && step.atEndOfCombat) {
+      if (createdForAttackTarget.length > 0 && step.atEndOfCombat) {
         const scheduled = scheduleTokenCleanup(
           nextState,
           playerId,
           ctx.sourceName,
           ctx.sourceId,
-          result.createdTokenIds,
+          createdForAttackTarget,
           DelayedTriggerTiming.END_OF_COMBAT,
           step.atEndOfCombat
         );
