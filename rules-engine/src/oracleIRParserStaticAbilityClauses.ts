@@ -79,8 +79,13 @@ export function tryParseStaticAbilityGrantClause(args: {
   const normalized = normalizeOracleText(clause).replace(/[.]+$/g, '').trim();
   if (!normalized) return null;
 
-  const quotedGrantMatch = normalized.match(/^(.+?)\s+gains?\s+"([^"]+)"$/i);
-  if (quotedGrantMatch && !/\bin\s+your\s+graveyard\b/i.test(normalized)) {
+  const quotedGrantMatch = normalized.match(/^(.+?)\s+(?:gains?|gain|has|have)\s+"([^"]+)"$/i);
+  if (
+    quotedGrantMatch &&
+    !/\bgraveyard\b/i.test(String(quotedGrantMatch[1] || '')) &&
+    !/^until\s+end\s+of\s+turn,?\s+/i.test(normalized) &&
+    !(/^(?:it|they)$/i.test(String(quotedGrantMatch[1] || '').trim()) && /^sacrifice this token:\s*add\s+\{c\}/i.test(String(quotedGrantMatch[2] || '').trim()))
+  ) {
     return withMeta({
       kind: 'grant_static_ability',
       target: parseObjectSelector(String(quotedGrantMatch[1] || '').trim()),
@@ -93,15 +98,37 @@ export function tryParseStaticAbilityGrantClause(args: {
   const equippedGrantMatch = normalized.match(
     /^(equipped creature|enchanted creature|equipped land|this creature|this saga)\s+(?:(?:gets\s+([+-]?\d+)\s*\/\s*([+-]?\d+)\s+and\s+)?(?:has|have|gains?|gain)\s+(.+))$/i
   );
-  if (!equippedGrantMatch) return null;
+  if (equippedGrantMatch) {
+    const targetText = String(equippedGrantMatch[1] || '').trim();
+    const tail = String(equippedGrantMatch[4] || '').trim();
+    const effectText = extractQuotedAbilityText(tail);
+    const abilities = parseKeywordAbilityList(tail);
+    const power = parseSignedInt(equippedGrantMatch[2]);
+    const toughness = parseSignedInt(equippedGrantMatch[3]);
+    if (!effectText.length && !abilities.length && power === undefined && toughness === undefined) return null;
+    if (!effectText.length && !abilities.includes('myriad')) return null;
 
-  const targetText = String(equippedGrantMatch[1] || '').trim();
-  const tail = String(equippedGrantMatch[4] || '').trim();
+    return withMeta({
+      kind: 'grant_static_ability',
+      target: parseObjectSelector(targetText),
+      ...(abilities.length > 0 ? { abilities } : {}),
+      ...(effectText.length > 0 ? { effectText } : {}),
+      ...(power !== undefined ? { power } : {}),
+      ...(toughness !== undefined ? { toughness } : {}),
+      duration: /^(?:equipped|enchanted)\b/i.test(targetText) ? 'while_attached' : 'static',
+      raw: rawClause,
+    });
+  }
+
+  const genericGrantMatch = normalized.match(/^(.+?)\s+(?:has|have|gains?|gain)\s+(.+)$/i);
+  if (!genericGrantMatch) return null;
+
+  const targetText = String(genericGrantMatch[1] || '').trim();
+  const tail = String(genericGrantMatch[2] || '').trim();
+  if (/\bgraveyard\b/i.test(targetText) || /^until\s+end\s+of\s+turn,?\s+/i.test(normalized)) return null;
+  if (/^(?:it|they)$/i.test(targetText) && /^"?sacrifice this token:\s*add\s+\{c\}/i.test(tail)) return null;
   const effectText = extractQuotedAbilityText(tail);
   const abilities = parseKeywordAbilityList(tail);
-  const power = parseSignedInt(equippedGrantMatch[2]);
-  const toughness = parseSignedInt(equippedGrantMatch[3]);
-  if (!effectText.length && !abilities.length && power === undefined && toughness === undefined) return null;
   if (!effectText.length && !abilities.includes('myriad')) return null;
 
   return withMeta({
@@ -109,9 +136,7 @@ export function tryParseStaticAbilityGrantClause(args: {
     target: parseObjectSelector(targetText),
     ...(abilities.length > 0 ? { abilities } : {}),
     ...(effectText.length > 0 ? { effectText } : {}),
-    ...(power !== undefined ? { power } : {}),
-    ...(toughness !== undefined ? { toughness } : {}),
-    duration: /^(?:equipped|enchanted)\b/i.test(targetText) ? 'while_attached' : 'static',
+    duration: 'static',
     raw: rawClause,
   });
 }

@@ -296,6 +296,17 @@ export function splitLeadingConditionalBody(args: {
       }
     }
 
+    const andCreateMatch = clause.match(/^(.+?)\s+and\s+(create(?:s)?\b.+)$/i);
+    if (andCreateMatch) {
+      const first = String(andCreateMatch[1] || '').trim();
+      const second = String(andCreateMatch[2] || '').trim();
+      const secondStep = parseEffectClauseToStep(second);
+      if (first && secondStep.kind === 'create_token') {
+        out.push(first, second);
+        continue;
+      }
+    }
+
     const split = splitConservativeSacrificeLeadClause({
       rawClause: clause,
       cardName,

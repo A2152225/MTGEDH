@@ -2863,12 +2863,18 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
   it('parses Populate keyword lines into populate steps', () => {
     const ir = parseOracleTextToIR('Populate', 'Eyes in the Skies');
 
-    expect(ir.abilities[0]?.steps).toEqual([
+    expect(ir.abilities[0]?.steps).toMatchObject([
       {
         kind: 'populate',
         who: { kind: 'you' },
         amount: { kind: 'number', value: 1 },
         raw: 'Populate',
+        steps: [
+          {
+            kind: 'create_token',
+            token: 'copy of a creature token you control',
+          },
+        ],
       },
     ]);
   });

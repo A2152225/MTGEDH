@@ -4216,6 +4216,10 @@ export function pruneLateKeywordReminderOnlyAbilities(
         return [];
       }
 
+      if (/^squad\b.*$/i.test(normalizedText)) {
+        return [];
+      }
+
       if (/^when this creature enters, if x is 5 or more, draw a card[.)]*$/i.test(normalizedText)) {
         return [];
       }
@@ -4360,6 +4364,13 @@ export function pruneCurrentBatchReminderUnknownAbilities(
 
     if (isUnknownOnlyAbility && /^flash(?:\s*\([^)]*\))?$/i.test(normalizedAbilityText)) {
       return [{ ...ability, steps: [] }];
+    }
+
+    if (
+      /^you may reveal this card from your opening hand(?:[.)]*\s*if you do, at the beginning of the first upkeep, .+)?$/i.test(normalizedAbilityText) ||
+      /^if you do, at the beginning of the first upkeep,\s+create\b.+$/i.test(normalizedAbilityText)
+    ) {
+      return [];
     }
 
     if (isUnknownOnlyAbility && isCurrentBatchReminderOrPlatformOnlyText(normalizedAbilityText)) {
@@ -4587,6 +4598,7 @@ export function pruneExternallyHandledStaticUnknownAbilities(
       /^sunburst \(this (?:creature|permanent|artifact) enters with (?:a \+1\/\+1 counter|that many charge counters?|a charge counter) on it for each color of mana spent to cast it\.?\)[.)]*$/i.test(normalizedText) ||
       /^if it's neither day nor night, it becomes day as this (?:creature|permanent) enters[.)]*$/i.test(normalizedText) ||
       /^you may reveal this card from your opening hand(?:[.)]*\s*if you do, at the beginning of the first upkeep, .+)?$/i.test(normalizedText) ||
+      /^if you do, at the beginning of the first upkeep,\s+create\b.+$/i.test(normalizedText) ||
       /^play with the top card of your library revealed[.)]*$/i.test(normalizedText) ||
       /^creatures you control get [+-]\d+\/[+-]\d+[.)]*$/i.test(normalizedText) ||
       /^other creatures you control get [+-]\d+\/[+-]\d+[.)]*$/i.test(normalizedText) ||
@@ -5594,6 +5606,169 @@ export function expandTokenCreationReplacementUnknownAbilities(
       effectText: rawText,
       steps: [parsed],
     };
+  });
+}
+
+function uniqueTokenCreationCandidates(rawText: string): string[] {
+  const normalized = normalizeOracleText(rawText)
+    .replace(/^[\s(]+/, '')
+    .replace(/[\s.)]+$/g, '')
+    .replace(/^[\u2022•]\s*/, '')
+    .trim();
+  if (!normalized) return [];
+
+  const candidates: string[] = [];
+  const addCandidate = (candidate: string) => {
+    const value = normalizeOracleText(candidate)
+      .replace(/^[\s(]+/, '')
+      .replace(/[\s.)]+$/g, '')
+      .trim();
+    if (value && !candidates.includes(value)) candidates.push(value);
+  };
+
+  addCandidate(normalized);
+
+  const activatedBody = normalized.match(/:\s*(create(?:s)?\b.+)$/i);
+  if (activatedBody) addCandidate(String(activatedBody[1] || '').trim());
+
+  const dieBandPattern = /(\d+)(?:\s*[-\u2013\u2014]\s*(\d+))?\s*\|\s*([\s\S]*?)(?=\s+\d+(?:\s*[-\u2013\u2014]\s*\d+)?\s*\||$)/g;
+  let dieBandMatch: RegExpExecArray | null;
+  while ((dieBandMatch = dieBandPattern.exec(normalized)) !== null) {
+    addCandidate(String(dieBandMatch[3] || '').trim());
+  }
+
+  const pipeMatch = normalized.match(/^\s*[^|]+\|\s*(.+)$/);
+  if (pipeMatch) addCandidate(String(pipeMatch[1] || '').trim());
+
+  const triggerMatch = normalized.match(/^(?:(?:when|whenever)\b.+?|at the beginning of\b.+?),\s+(.+)$/i);
+  if (triggerMatch) addCandidate(String(triggerMatch[1] || '').trim());
+
+  const conditionalMatch = normalized.match(/^if\b[^,]+,\s+(.+)$/i);
+  if (conditionalMatch) addCandidate(String(conditionalMatch[1] || '').trim());
+
+  const andCreateMatch = normalized.match(/\band\s+(create(?:s)?\b.+)$/i);
+  if (andCreateMatch) addCandidate(String(andCreateMatch[1] || '').trim());
+
+  const thenCreateMatch = normalized.match(/\bthen\s+(create(?:s)?\b.+)$/i);
+  if (thenCreateMatch) addCandidate(String(thenCreateMatch[1] || '').trim());
+
+  const quoted = /"([^"]+)"/g;
+  let quotedMatch: RegExpExecArray | null;
+  while ((quotedMatch = quoted.exec(normalized)) !== null) {
+    const quotedText = String(quotedMatch[1] || '').trim();
+    addCandidate(quotedText);
+    const activatedBody = quotedText.match(/:\s*(create(?:s)?\b.+)$/i);
+    if (activatedBody) addCandidate(String(activatedBody[1] || '').trim());
+  }
+
+  return candidates;
+}
+
+function parseTokenCreationMetadataStep(rawText: string): OracleEffectStep | null {
+  for (const candidate of uniqueTokenCreationCandidates(rawText)) {
+    const normalized = normalizeClauseForParse(candidate);
+    const strippedMayCandidate = normalized.clause.replace(/^you\s+may\s+/i, '').trim();
+    for (const createClause of [normalized.clause, strippedMayCandidate]) {
+      const parsed = tryParseSimpleCreateTokenClause({
+        clause: createClause,
+        rawClause: rawText,
+        withMeta: <T extends OracleEffectStep>(step: T): T => step,
+      });
+      if (parsed) return parsed;
+    }
+  }
+
+  return null;
+}
+
+function parseMyriadTokenCreationMetadataStep(rawText: string): OracleEffectStep | null {
+  const normalized = normalizeOracleText(rawText);
+  const hasMyriadKeyword = /\bmyriad\b/i.test(normalized);
+  if (!hasMyriadKeyword) {
+    if (!/for each opponent other than defending player/i.test(normalized)) return null;
+    if (!/\bcreate\s+a\s+token\s+cop(?:y|ies)\b/i.test(normalized)) return null;
+  }
+
+  return {
+    kind: 'create_token',
+    who: { kind: 'you' },
+    amount: { kind: 'x' },
+    token: 'copy of it',
+    entersTapped: true,
+    attacking: 'each_other_opponent',
+    atEndOfCombat: 'exile',
+    raw: rawText,
+  };
+}
+
+function annotateTokenCreationMetadataOnStep(step: OracleEffectStep): OracleEffectStep {
+  if (step.kind === 'choose_mode') {
+    const modes = step.modes.map((mode) => ({
+      ...mode,
+      steps: mode.steps.map(annotateTokenCreationMetadataOnStep),
+    }));
+    return modes.some((mode, index) => mode.steps !== step.modes[index]?.steps) ? { ...step, modes } : step;
+  }
+
+  if (step.kind === 'die_roll_results') {
+    const results = step.results.map((result) => ({
+      ...result,
+      steps: result.steps.map(annotateTokenCreationMetadataOnStep),
+    }));
+    return results.some((result, index) => result.steps !== step.results[index]?.steps) ? { ...step, results } : step;
+  }
+
+  if (step.kind === 'conditional' || step.kind === 'unless_pays_life' || step.kind === 'unless_pays_mana') {
+    const steps = step.steps.map(annotateTokenCreationMetadataOnStep);
+    return steps !== step.steps ? { ...step, steps } : step;
+  }
+
+  if (step.kind === 'populate') {
+    const nestedStep: OracleEffectStep = {
+      kind: 'create_token',
+      who: step.who,
+      amount: step.amount,
+      token: 'copy of a creature token you control',
+      raw: step.raw,
+      ...(step.optional ? { optional: step.optional } : {}),
+      ...(step.sequence ? { sequence: step.sequence } : {}),
+    };
+    const existingSteps = Array.isArray((step as any).steps) ? [...((step as any).steps as OracleEffectStep[])] : [];
+    if (existingSteps.some((existingStep) => existingStep.kind === 'create_token')) return step;
+    return { ...step, steps: [...existingSteps, nestedStep] };
+  }
+
+  if (step.kind === 'grant_static_ability' || step.kind === 'grant_temporary_ability') {
+    const existingSteps = Array.isArray((step as any).steps) ? [...((step as any).steps as OracleEffectStep[])] : [];
+    const metadataSteps: OracleEffectStep[] = [];
+    const effectTexts = Array.isArray((step as any).effectText) ? ((step as any).effectText as readonly string[]) : [];
+    for (const effectText of effectTexts) {
+      const parsed = parseTokenCreationMetadataStep(effectText) ?? parseMyriadTokenCreationMetadataStep(effectText);
+      if (parsed) metadataSteps.push(parsed);
+    }
+    if (Array.isArray((step as any).abilities) && ((step as any).abilities as readonly string[]).includes('myriad')) {
+      const parsed = parseMyriadTokenCreationMetadataStep(step.raw || 'myriad');
+      if (parsed) metadataSteps.push(parsed);
+    }
+    if (metadataSteps.length === 0) return step;
+    return { ...step, steps: [...existingSteps, ...metadataSteps] };
+  }
+
+  if (step.kind === 'unknown' && /^\d+(?:\s*[-\u2013\u2014]\s*\d+)?\s*\|/i.test(normalizeOracleText(String(step.raw || '')))) {
+    const parsed = parseTokenCreationMetadataStep(step.raw);
+    if (!parsed) return step;
+    return { ...(step as any), steps: [parsed] } as OracleEffectStep;
+  }
+
+  return step;
+}
+
+export function annotateTokenCreationMetadataAbilities(
+  abilities: readonly OracleIRAbility[]
+): OracleIRAbility[] {
+  return abilities.map((ability) => {
+    const steps = ability.steps.map(annotateTokenCreationMetadataOnStep);
+    return steps.some((step, index) => step !== ability.steps[index]) ? { ...ability, steps } : ability;
   });
 }
 
@@ -6696,6 +6871,16 @@ function buildDieRollBand(
           raw: effectText,
         },
       ],
+    };
+  }
+
+  const createTokenStep = parseTokenCreationMetadataStep(effectText);
+  if (createTokenStep) {
+    return {
+      min,
+      max,
+      raw,
+      steps: [createTokenStep],
     };
   }
 

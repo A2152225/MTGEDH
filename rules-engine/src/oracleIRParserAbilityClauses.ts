@@ -203,6 +203,41 @@ function splitConservativeGrantedDiesTriggerSetBasePtClause(args: {
   return [first, second];
 }
 
+function splitConservativeQuotedCreateTokenFollowupClause(args: {
+  rawClause: string;
+  parseEffectClauseToStep: (rawClause: string) => OracleEffectStep;
+}): string[] | null {
+  const { rawClause, parseEffectClauseToStep } = args;
+  const clause = normalizeOracleText(rawClause).replace(/[.]+$/g, '').trim();
+  const match = clause.match(/^(create(?:s)?\s+.+?\btoken(?:s)?\s+with\s+"[^"]+")\s+([A-Z][\s\S]+)$/i);
+  if (!match) return null;
+
+  const first = String(match[1] || '').trim();
+  const second = String(match[2] || '').trim();
+  const firstStep = parseEffectClauseToStep(first);
+  const secondStep = parseEffectClauseToStep(second);
+  if (firstStep.kind !== 'create_token' || secondStep.kind === 'unknown') return null;
+
+  return [first, second];
+}
+
+function splitConservativeAndCreateTokenClause(args: {
+  rawClause: string;
+  parseEffectClauseToStep: (rawClause: string) => OracleEffectStep;
+}): string[] | null {
+  const { rawClause, parseEffectClauseToStep } = args;
+  const clause = normalizeOracleText(rawClause).replace(/[.]+$/g, '').trim();
+  const match = clause.match(/^(.+?)\s+and\s+(create(?:s)?\b.+)$/i);
+  if (!match) return null;
+
+  const first = String(match[1] || '').trim();
+  const second = String(match[2] || '').trim();
+  const secondStep = parseEffectClauseToStep(second);
+  if (!first || secondStep.kind !== 'create_token') return null;
+
+  return [first, second];
+}
+
 export function buildAbilityClauses(args: {
   effectText: string;
   cardName?: string;
@@ -234,6 +269,8 @@ export function buildAbilityClauses(args: {
     splitConservativeModifyPtGrantedDiesTriggerClause({ rawClause: clause, parseEffectClauseToStep }) ??
     splitConservativeModifyPtTemporaryAbilityClause({ rawClause: clause, parseEffectClauseToStep }) ??
     splitConservativeCantAttackOrBlockClause({ rawClause: clause, parseEffectClauseToStep }) ??
+    splitConservativeQuotedCreateTokenFollowupClause({ rawClause: clause, parseEffectClauseToStep }) ??
+    splitConservativeAndCreateTokenClause({ rawClause: clause, parseEffectClauseToStep }) ??
     splitConservativeActionConjunctionClause({ rawClause: clause, parseEffectClauseToStep }) ??
     splitConservativeCreateTokenLeadClause({ rawClause: clause, parseEffectClauseToStep }) ??
     splitConservativeExileFromLeadClause({ rawClause: clause, parseEffectClauseToStep }) ??

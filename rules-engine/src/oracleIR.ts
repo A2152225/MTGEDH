@@ -822,6 +822,8 @@ export type OracleEffectStep =
       readonly abilities?: readonly string[];
       /** Additional temporary text that should matter while this effect lasts. */
       readonly effectText?: readonly string[];
+      /** Parsed metadata for granted effect text; not executed as part of the host effect. */
+      readonly steps?: readonly OracleEffectStep[];
       readonly optional?: boolean;
       readonly sequence?: 'then';
       readonly raw: string;
@@ -834,6 +836,8 @@ export type OracleEffectStep =
       readonly power?: number;
       readonly toughness?: number;
       readonly duration?: 'static' | 'while_attached';
+      /** Parsed metadata for granted effect text; not executed as part of the host effect. */
+      readonly steps?: readonly OracleEffectStep[];
       readonly optional?: boolean;
       readonly sequence?: 'then';
       readonly raw: string;
@@ -1246,6 +1250,8 @@ export type OracleEffectStep =
       readonly kind: 'populate';
       readonly who: OraclePlayerSelector;
       readonly amount: OracleQuantity;
+      /** Metadata-only lowering of the keyword action's token-copy creation. */
+      readonly steps?: readonly OracleEffectStep[];
       readonly optional?: boolean;
       readonly sequence?: 'then';
       readonly raw: string;

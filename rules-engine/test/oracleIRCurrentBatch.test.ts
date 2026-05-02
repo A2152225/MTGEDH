@@ -346,4 +346,32 @@ describe('Oracle IR current audit batch support', () => {
       expect.objectContaining({ kind: 'grant_static_ability', abilities: ['myriad'] }),
     ]));
   });
+
+  it('surfaces current-batch wrapped token creation metadata', () => {
+    const delinaSteps = collectSteps(parseOracleTextToIR(
+      'Whenever Delina attacks, choose target creature you control, then roll a d20.\n1-14 | Create a tapped and attacking token that\'s a copy of that creature, except it\'s not legendary and it has "At end of combat, exile this token."\n15-20 | Create one of those tokens. You may roll again.',
+      'Delina, Wild Mage'
+    ).abilities);
+    expect(delinaSteps).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'create_token', entersTapped: true, attacking: 'defending_player' }),
+    ]));
+
+    const spotlightSteps = collectSteps(parseOracleTextToIR(
+      'Each opponent chooses fame or fortune. For each player who chose fame, gain control of a creature that player controls until end of turn. Untap those creatures and they gain haste until end of turn. For each player who chose fortune, you draw a card and create a Treasure token.',
+      'Seize the Spotlight'
+    ).abilities);
+    expect(spotlightSteps).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'create_token', token: 'Treasure' }),
+    ]));
+
+    const stashSteps = collectSteps(parseOracleTextToIR(
+      'Lands you control have "{T}: Create a Treasure token."',
+      "Bootleggers' Stash"
+    ).abilities);
+    expect(collectUnknowns(stashSteps)).toEqual([]);
+    expect(stashSteps).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'grant_static_ability' }),
+      expect.objectContaining({ kind: 'create_token', token: 'Treasure' }),
+    ]));
+  });
 });

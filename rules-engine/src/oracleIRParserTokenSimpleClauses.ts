@@ -131,6 +131,25 @@ export function tryParseSimpleCreateTokenClause(args: {
     });
   }
 
+  const forEachOfThemCreateCopy = clause.match(
+    new RegExp(
+      `^for each of (?:them|those (?:creatures|permanents|tokens)),\\s+create(?:s)?\\s+(${TOKEN_AMOUNT_PATTERN})\\s+(tapped\\s+and\\s+attacking\\s+)?token(?:s)?\\s+that(?:'s| is| are)\\s+(?:a\\s+copy|copies)\\s+of\\s+(.+)$`,
+      'i'
+    )
+  );
+  if (forEachOfThemCreateCopy) {
+    const tappedAndAttacking = Boolean(forEachOfThemCreateCopy[2]) || hasTappedAndAttackingClause(clause);
+    return withMeta({
+      kind: 'create_token',
+      who: { kind: 'you' },
+      amount: { kind: 'x' },
+      token: `copy of ${String(forEachOfThemCreateCopy[3] || '').trim()}`.trim(),
+      entersTapped: tappedAndAttacking || undefined,
+      ...(tappedAndAttacking ? { attacking: 'defending_player' as const } : {}),
+      raw: rawClause,
+    });
+  }
+
   const createNumberEqual = clause.match(
     new RegExp(
       `^${PLAYER_SUBJECT_PREFIX}create(?:s)?\\s+a\\s+number\\s+of\\s+(tapped\\s+)?(.+?)\\s+(?:creature\\s+)?token(?:s)?\\s+equal\\s+to\\s+(.+)$`,
@@ -176,6 +195,30 @@ export function tryParseSimpleCreateTokenClause(args: {
     });
   }
 
+  const createAdjectivalCopy = clause.match(
+    new RegExp(
+      `^${PLAYER_SUBJECT_PREFIX}create(?:s)?\\s+(${TOKEN_AMOUNT_PATTERN})\\s+(tapped\\s+and\\s+attacking\\s+)?token(?:s)?\\s+that(?:'s| is| are)\\s+(?:a\\s+copy|copies)\\s+of\\s+(.+)$`,
+      'i'
+    )
+  );
+  if (createAdjectivalCopy) {
+    const rawWho = String(createAdjectivalCopy[1] || '').trim().toLowerCase();
+    const who =
+      rawWho === 'its owner'
+        ? ({ kind: 'owner_of_moved_cards' } as const)
+        : parsePlayerSelector(createAdjectivalCopy[1]);
+    const tappedAndAttacking = Boolean(createAdjectivalCopy[3]) || hasTappedAndAttackingClause(clause);
+    return withMeta({
+      kind: 'create_token',
+      who,
+      amount: parseTokenQuantity(createAdjectivalCopy[2]),
+      token: `copy of ${String(createAdjectivalCopy[4] || '').trim()}`.trim(),
+      entersTapped: tappedAndAttacking || undefined,
+      ...(tappedAndAttacking ? { attacking: 'defending_player' as const } : {}),
+      raw: rawClause,
+    });
+  }
+
   const createCopy = clause.match(
     new RegExp(
       `^${PLAYER_SUBJECT_PREFIX}create(?:s)?\\s+(${TOKEN_AMOUNT_PATTERN})\\s+token(?:s)?\\s+that(?:'s| are)\\s+(?:a\\s+copy|copies)\\s+of\\s+(.+)$`,
@@ -202,6 +245,32 @@ export function tryParseSimpleCreateTokenClause(args: {
       ...(tappedAndAttacking ? { attacking: 'defending_player' as const } : {}),
       withCounters,
       battlefieldAttachedTo,
+      raw: rawClause,
+    });
+  }
+
+  const createNamedToken = clause.match(
+    new RegExp(
+      `^${PLAYER_SUBJECT_PREFIX}create(?:s)?\\s+([A-Z][^,]+),\\s+(?:a|an)\\s+(.+?)\\s+(?:creature\\s+)?token(?:s)?\\b`,
+      'i'
+    )
+  );
+  if (createNamedToken) {
+    const rawWho = String(createNamedToken[1] || '').trim().toLowerCase();
+    const who =
+      rawWho === 'its owner'
+        ? ({ kind: 'owner_of_moved_cards' } as const)
+        : parsePlayerSelector(createNamedToken[1]);
+    const name = String(createNamedToken[2] || '').trim();
+    const descriptor = String(createNamedToken[3] || '').trim();
+    const tappedAndAttacking = hasTappedAndAttackingClause(clause);
+    return withMeta({
+      kind: 'create_token',
+      who,
+      amount: { kind: 'number', value: 1 },
+      token: `${name}, ${descriptor}`.trim(),
+      entersTapped: tappedAndAttacking || undefined,
+      ...(tappedAndAttacking ? { attacking: 'defending_player' as const } : {}),
       raw: rawClause,
     });
   }

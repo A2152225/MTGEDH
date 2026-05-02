@@ -62,6 +62,7 @@ import {
   expandMyriadKeywordAbilities,
   expandMobilizeKeywordAbilities,
   expandTokenCreationReplacementUnknownAbilities,
+  annotateTokenCreationMetadataAbilities,
   expandParadigmKeywordAbilities,
   pruneStaticMyriadReminderTailAbilities,
   expandGraveyardPermissionModifierUnknownAbilities,
@@ -229,6 +230,26 @@ function parseEffectClauseToStep(rawClause: string): OracleEffectStep {
   {
     const parsed = tryParseSimpleActionClause({ clause, rawClause, withMeta });
     if (parsed) return parsed;
+  }
+
+  // Create token(s). Keep this before broad temporary grants so clauses like
+  // `Create ... with "This token can't block." Creatures you control gain...`
+  // preserve the token creation as the primary action.
+  {
+    const candidateClauses = [clause];
+    const triggeredCreateMatch = clause.match(/^(?:(?:when|whenever)\b.+?|at the beginning of\b.+?),\s+(.+)$/i);
+    if (triggeredCreateMatch) candidateClauses.push(String(triggeredCreateMatch[1] || '').trim());
+    const conditionalCreateMatch = clause.match(/^if\b[^,]+,\s+(.+)$/i);
+    if (conditionalCreateMatch) candidateClauses.push(String(conditionalCreateMatch[1] || '').trim());
+
+    for (const candidate of candidateClauses) {
+      const normalizedCandidate = normalizeClauseForParse(candidate).clause;
+      const strippedMayCandidate = normalizedCandidate.replace(/^you\s+may\s+/i, '').trim();
+      for (const createClause of [normalizedCandidate, strippedMayCandidate]) {
+        const parsed = tryParseSimpleCreateTokenClause({ clause: createClause, rawClause, withMeta });
+        if (parsed) return parsed;
+      }
+    }
   }
 
   {
@@ -1549,6 +1570,7 @@ export function parseOracleTextToIR(oracleText: string, cardName?: string): Orac
   abilities = expandMoveZoneAttachUnknownAbilities(abilities);
   abilities = expandCreateEmblemUnknownAbilities(abilities, cardName);
   abilities = mergeDieRollResultTableAbilities(abilities);
+  abilities = annotateTokenCreationMetadataAbilities(abilities);
   abilities = pruneRedundantFaceDownReminderUnknownAbilities(abilities);
   abilities = pruneRedundantProliferateReminderUnknownAbilities(abilities);
   abilities = pruneExternallyHandledStaticUnknownAbilities(abilities);
