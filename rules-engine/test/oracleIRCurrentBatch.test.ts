@@ -374,4 +374,41 @@ describe('Oracle IR current audit batch support', () => {
       expect.objectContaining({ kind: 'create_token', token: 'Treasure' }),
     ]));
   });
+
+  it('surfaces token creation metadata for offset-800 automation gaps', () => {
+    const cases = [
+      ['Kozilek\'s Unsealing', 'Whenever you cast a creature spell with mana value 4, 5, or 6, create two 0/1 colorless Eldrazi Spawn creature tokens with "Sacrifice this token: Add {C}."'],
+      ['Warden of the Grove', '(Put X +1/+1 counters on the creature that entered or create an X/X white Spirit creature token.)'],
+      ['Sedgemoor Witch', 'Magecraft - Whenever you cast or copy an instant or sorcery spell, create a 1/1 black and green Pest creature token with "When this token dies, you gain 1 life."'],
+      ['Doppelgang', 'For each of X target permanents, create X tokens that are copies of that permanent.'],
+      ['Master of Ceremonies', 'For each player who chose money, you and that player each create a Treasure token.'],
+      ['Gluntch, the Bestower', 'Then choose a third player to create two Treasure tokens.'],
+      ['Den of the Bugbear', '{3}{R}: Until end of turn, this land becomes a 3/2 red Goblin creature with "Whenever this creature attacks, create a 1/1 red Goblin creature token that\'s tapped and attacking." It\'s still a land.'],
+      ['Guild Artisan', 'Commander creatures you own have "Whenever this creature attacks a player, if no opponent has more life than that player, you create two Treasure tokens."'],
+      ['Scurry of Squirrels', 'Myriad, myriad (Whenever this creature attacks, for each opponent other than defending player, you may create a token copy that\'s tapped and attacking that player or a planeswalker they control. Exile the tokens at end of combat.)'],
+      ['Galadhrim Brigade', 'Squad {1}{G} (As an additional cost to cast this spell, you may pay {1}{G} any number of times. When this creature enters, create that many tokens that are copies of it.)\nOther Elves you control get +1/+1.'],
+      ['Infantry Shield', '(Whenever it attacks, create X tapped and attacking 1/1 red Warrior creature tokens.)'],
+      ['Mirror March', 'Whenever a nontoken creature you control enters, flip a coin until you lose a flip. For each flip you won, create a token that\'s a copy of that creature. Those tokens gain haste. Exile them at the beginning of the next end step.'],
+      ['Bloodroot Apothecary', 'When this creature enters, you and target opponent each create a Treasure token.'],
+    ] as const;
+
+    const stepsByName = new Map(cases.map(([name, text]) => [name, collectSteps(parseOracleTextToIR(text, name).abilities)]));
+
+    for (const [name] of cases) {
+      expect(stepsByName.get(name)?.some((step) => step.kind === 'create_token'), `${name} should surface create_token`).toBe(true);
+    }
+
+    expect(stepsByName.get('Infantry Shield')).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'create_token', token: '1/1 red Warrior', entersTapped: true, attacking: 'defending_player' }),
+    ]));
+
+    expect(stepsByName.get('Guild Artisan')).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'grant_static_ability' }),
+      expect.objectContaining({ kind: 'create_token', token: 'Treasure' }),
+    ]));
+
+    expect(stepsByName.get('Galadhrim Brigade')).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'create_token', token: 'copy of it' }),
+    ]));
+  });
 });

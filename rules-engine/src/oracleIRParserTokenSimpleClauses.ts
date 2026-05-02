@@ -54,6 +54,14 @@ function hasTappedAndAttackingClause(clauseText: string): boolean {
   return /\bthat(?:'s| is| are)\s+tapped\s+and\s+attacking\b/i.test(clauseText);
 }
 
+function tokenEntersTapped(rawTapped: string | undefined, clauseText: string): boolean | undefined {
+  return Boolean(rawTapped) || /\btoken(?:s)?\s+tapped\b/i.test(clauseText) || hasTappedAndAttackingClause(clauseText) || undefined;
+}
+
+function tokenIsAttacking(rawTapped: string | undefined, clauseText: string): boolean {
+  return /\battacking\b/i.test(String(rawTapped || '')) || hasTappedAndAttackingClause(clauseText);
+}
+
 function buildSimpleCreateTokenLeadPattern(): RegExp {
   const playerSubjectPrefixNoCapture =
     "(?:(?:you|each player|each opponent|each of those opponents|target player|target opponent|that player|that opponent|defending player|the defending player|he or she|they|its controller|its owner|that [a-z0-9][a-z0-9 ,.'â€™-]*?(?:'s|â€™s)? (?:controller|owner))\\s+)?";
@@ -277,7 +285,7 @@ export function tryParseSimpleCreateTokenClause(args: {
 
   const create = clause.match(
     new RegExp(
-      `^${PLAYER_SUBJECT_PREFIX}create(?:s)?\\s+(${TOKEN_AMOUNT_PATTERN})\\s+(tapped\\s+)?(.+?)\\s+(?:creature\\s+)?token(?:s)?\\b`,
+      `^${PLAYER_SUBJECT_PREFIX}create(?:s)?\\s+(${TOKEN_AMOUNT_PATTERN})\\s+((?:tapped\\s+and\\s+attacking|tapped)\\s+)?(.+?)\\s+(?:creature\\s+)?token(?:s)?\\b`,
       'i'
     )
   );
@@ -288,8 +296,8 @@ export function tryParseSimpleCreateTokenClause(args: {
         ? ({ kind: 'owner_of_moved_cards' } as const)
         : parsePlayerSelector(create[1]);
     const amount = parseTokenQuantity(create[2]);
-    const tappedAndAttacking = hasTappedAndAttackingClause(clause);
-    const entersTapped = Boolean(create[3]) || /\btoken(?:s)?\s+tapped\b/i.test(clause) || tappedAndAttacking;
+    const tappedAndAttacking = tokenIsAttacking(create[3], clause);
+    const entersTapped = tokenEntersTapped(create[3], clause);
     const token = String(create[4] || '').trim();
     const withCounters = parseWithCountersFromClause(clause);
     const battlefieldAttachedTo = parseAttachmentTargetFromClause(clause);
@@ -306,10 +314,10 @@ export function tryParseSimpleCreateTokenClause(args: {
     });
   }
 
-  const createDefault = clause.match(new RegExp(`^create(?:s)?\\s+(${TOKEN_AMOUNT_PATTERN})\\s+(tapped\\s+)?(.+?)\\s+(?:creature\\s+)?token(?:s)?\\b`, 'i'));
+  const createDefault = clause.match(new RegExp(`^create(?:s)?\\s+(${TOKEN_AMOUNT_PATTERN})\\s+((?:tapped\\s+and\\s+attacking|tapped)\\s+)?(.+?)\\s+(?:creature\\s+)?token(?:s)?\\b`, 'i'));
   if (createDefault) {
-    const tappedAndAttacking = hasTappedAndAttackingClause(clause);
-    const entersTapped = Boolean(createDefault[2]) || /\btoken(?:s)?\s+tapped\b/i.test(clause) || tappedAndAttacking;
+    const tappedAndAttacking = tokenIsAttacking(createDefault[2], clause);
+    const entersTapped = tokenEntersTapped(createDefault[2], clause);
     const withCounters = parseWithCountersFromClause(clause);
     const battlefieldAttachedTo = parseAttachmentTargetFromClause(clause);
     return withMeta({

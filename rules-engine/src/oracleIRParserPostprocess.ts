@@ -5652,6 +5652,14 @@ function uniqueTokenCreationCandidates(rawText: string): string[] {
   const thenCreateMatch = normalized.match(/\bthen\s+(create(?:s)?\b.+)$/i);
   if (thenCreateMatch) addCandidate(String(thenCreateMatch[1] || '').trim());
 
+  const createAnywhereMatch = normalized.match(/\b(create(?:s)?\b[\s\S]+)$/i);
+  if (createAnywhereMatch) addCandidate(String(createAnywhereMatch[1] || '').trim());
+
+  for (const line of normalized.split(/\n+/)) {
+    const createLineMatch = line.match(/\b(create(?:s)?\b.+)$/i);
+    if (createLineMatch) addCandidate(String(createLineMatch[1] || '').trim());
+  }
+
   const quoted = /"([^"]+)"/g;
   let quotedMatch: RegExpExecArray | null;
   while ((quotedMatch = quoted.exec(normalized)) !== null) {
@@ -5746,6 +5754,8 @@ function annotateTokenCreationMetadataOnStep(step: OracleEffectStep): OracleEffe
       const parsed = parseTokenCreationMetadataStep(effectText) ?? parseMyriadTokenCreationMetadataStep(effectText);
       if (parsed) metadataSteps.push(parsed);
     }
+    const rawParsed = parseTokenCreationMetadataStep(step.raw) ?? parseMyriadTokenCreationMetadataStep(step.raw);
+    if (rawParsed) metadataSteps.push(rawParsed);
     if (Array.isArray((step as any).abilities) && ((step as any).abilities as readonly string[]).includes('myriad')) {
       const parsed = parseMyriadTokenCreationMetadataStep(step.raw || 'myriad');
       if (parsed) metadataSteps.push(parsed);
@@ -5754,8 +5764,8 @@ function annotateTokenCreationMetadataOnStep(step: OracleEffectStep): OracleEffe
     return { ...step, steps: [...existingSteps, ...metadataSteps] };
   }
 
-  if (step.kind === 'unknown' && /^\d+(?:\s*[-\u2013\u2014]\s*\d+)?\s*\|/i.test(normalizeOracleText(String(step.raw || '')))) {
-    const parsed = parseTokenCreationMetadataStep(step.raw);
+  if (step.kind === 'unknown' && /(?:\bcreate(?:s)?\b[\s\S]*\btoken|\bmyriad\b)/i.test(normalizeOracleText(String(step.raw || '')))) {
+    const parsed = parseTokenCreationMetadataStep(step.raw) ?? parseMyriadTokenCreationMetadataStep(step.raw);
     if (!parsed) return step;
     return { ...(step as any), steps: [parsed] } as OracleEffectStep;
   }
@@ -5763,13 +5773,84 @@ function annotateTokenCreationMetadataOnStep(step: OracleEffectStep): OracleEffe
   return step;
 }
 
+function hasCreateTokenStepInTree(steps: readonly OracleEffectStep[] | undefined): boolean {
+  if (!Array.isArray(steps)) return false;
+  for (const step of steps) {
+    if (step.kind === 'create_token') return true;
+    if (hasCreateTokenStepInTree((step as any).steps)) return true;
+    if (Array.isArray((step as any).modes)) {
+      for (const mode of (step as any).modes) {
+        if (hasCreateTokenStepInTree(mode?.steps)) return true;
+      }
+    }
+    if (Array.isArray((step as any).results)) {
+      for (const result of (step as any).results) {
+        if (hasCreateTokenStepInTree(result?.steps)) return true;
+      }
+    }
+  }
+  return false;
+}
+
+function parseTokenCreationMetadataFromAbilityText(ability: OracleIRAbility): OracleEffectStep | null {
+  const candidates = [ability.effectText, ability.text];
+  for (const candidate of candidates) {
+    const parsed = parseTokenCreationMetadataStep(candidate) ?? parseMyriadTokenCreationMetadataStep(candidate);
+    if (parsed) return parsed;
+  }
+  return null;
+}
+
+function isSquadReminderAbilityText(ability: OracleIRAbility): boolean {
+  return /^squad\b/i.test(
+    normalizeOracleText(String(ability.text || ability.effectText || ''))
+      .replace(/\s+/g, ' ')
+      .trim()
+  );
+}
+
+const TOKEN_METADATA_ABILITY_FALLBACK_BLOCKED_KINDS = new Set<string>([
+  'grant_static_ability',
+  'grant_temporary_ability',
+  'grant_temporary_dies_trigger',
+  'modify_token_creation',
+]);
+
 export function annotateTokenCreationMetadataAbilities(
-  abilities: readonly OracleIRAbility[]
+  abilities: readonly OracleIRAbility[],
+  oracleText?: string
 ): OracleIRAbility[] {
-  return abilities.map((ability) => {
+  const annotated = abilities.map((ability) => {
     const steps = ability.steps.map(annotateTokenCreationMetadataOnStep);
-    return steps.some((step, index) => step !== ability.steps[index]) ? { ...ability, steps } : ability;
+    const withAnnotatedSteps = steps.some((step, index) => step !== ability.steps[index]) ? { ...ability, steps } : ability;
+    if (hasCreateTokenStepInTree(withAnnotatedSteps.steps)) return withAnnotatedSteps;
+    if (withAnnotatedSteps.steps.some((step) => TOKEN_METADATA_ABILITY_FALLBACK_BLOCKED_KINDS.has(step.kind))) return withAnnotatedSteps;
+
+    const parsed = parseTokenCreationMetadataFromAbilityText(withAnnotatedSteps);
+    if (!parsed) return withAnnotatedSteps;
+    return { ...withAnnotatedSteps, steps: [...withAnnotatedSteps.steps, parsed] };
   });
+
+  if (oracleText && /^squad\b/i.test(normalizeOracleText(oracleText).trim())) {
+    const squadAbility = annotated.find((ability) => isSquadReminderAbilityText(ability));
+    const targetIndex = annotated.findIndex((ability) => !isSquadReminderAbilityText(ability));
+    const parsed = squadAbility ? parseTokenCreationMetadataFromAbilityText(squadAbility) : null;
+    if (parsed && targetIndex >= 0 && !hasCreateTokenStepInTree(annotated[targetIndex].steps)) {
+      const metadataWrapper = { kind: 'unknown', raw: squadAbility?.text || oracleText, steps: [parsed] } as any as OracleEffectStep;
+      return annotated.map((ability, index) =>
+        index === targetIndex ? { ...ability, steps: [...ability.steps, metadataWrapper] } : ability
+      );
+    }
+  }
+
+  if (hasCreateTokenStepInTree(annotated.flatMap((ability) => ability.steps))) return annotated;
+  if (annotated.length === 0 || !oracleText || !/^squad\b/i.test(normalizeOracleText(oracleText).trim())) return annotated;
+
+  const parsed = parseTokenCreationMetadataStep(oracleText);
+  if (!parsed) return annotated;
+  const firstAbility = annotated[0];
+  const metadataWrapper = { kind: 'unknown', raw: oracleText, steps: [parsed] } as any as OracleEffectStep;
+  return [{ ...firstAbility, steps: [...firstAbility.steps, metadataWrapper] }, ...annotated.slice(1)];
 }
 
 export function pruneStaticMyriadReminderTailAbilities(

@@ -1570,7 +1570,7 @@ export function parseOracleTextToIR(oracleText: string, cardName?: string): Orac
   abilities = expandMoveZoneAttachUnknownAbilities(abilities);
   abilities = expandCreateEmblemUnknownAbilities(abilities, cardName);
   abilities = mergeDieRollResultTableAbilities(abilities);
-  abilities = annotateTokenCreationMetadataAbilities(abilities);
+  abilities = annotateTokenCreationMetadataAbilities(abilities, normalizedOracleText);
   abilities = pruneRedundantFaceDownReminderUnknownAbilities(abilities);
   abilities = pruneRedundantProliferateReminderUnknownAbilities(abilities);
   abilities = pruneExternallyHandledStaticUnknownAbilities(abilities);
