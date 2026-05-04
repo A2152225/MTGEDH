@@ -58,6 +58,48 @@ type StepApplyResult = {
   readonly lastSetInMotionScheme?: any;
 };
 
+function readPermanentPower(permanent: any): number | null {
+  for (const value of [permanent?.effectivePower, permanent?.basePower, permanent?.card?.power, permanent?.power]) {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return null;
+}
+
+function permanentIsCreature(permanent: any): boolean {
+  const typeLine = String(permanent?.card?.type_line || permanent?.type_line || permanent?.cardType || '')
+    .toLowerCase();
+  return /\bcreature\b/.test(typeLine);
+}
+
+function permanentHasSubtype(permanent: any, subtype: string | undefined): boolean {
+  const needle = String(subtype || '').trim().toLowerCase();
+  if (!needle) return false;
+  const typeLine = String(permanent?.card?.type_line || permanent?.type_line || permanent?.cardType || '')
+    .toLowerCase();
+  return new RegExp(`\\b${needle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i').test(typeLine);
+}
+
+function resolveDynamicDrawAmount(
+  state: GameState,
+  step: Extract<OracleEffectStep, { kind: 'draw' }>,
+  ctx: OracleIRExecutionContext
+): number | null {
+  if (step.amount.kind === 'source_power') return resolveSourcePower(state, ctx);
+  if (step.amount.kind === 'greatest_power_among_creatures_you_control') {
+    const controllerId = String(ctx.controllerId || '').trim();
+    const excludeSubtype = step.amount.excludeSubtype;
+    const powers = ((state.battlefield || []) as any[])
+      .filter((permanent) => String(permanent?.controller || '').trim() === controllerId)
+      .filter(permanentIsCreature)
+      .filter((permanent) => !permanentHasSubtype(permanent, excludeSubtype))
+      .map(readPermanentPower)
+      .filter((value): value is number => value !== null);
+    return powers.length > 0 ? Math.max(0, ...powers) : 0;
+  }
+  return quantityToNumber(step.amount, ctx);
+}
+
 type StepSkipResult = {
   readonly applied: false;
   readonly message: string;
@@ -3732,9 +3774,7 @@ export function applyDrawStep(
   step: Extract<OracleEffectStep, { kind: 'draw' }>,
   ctx: OracleIRExecutionContext
 ): PlayerStepHandlerResult {
-  const amount = step.amount.kind === 'source_power'
-    ? resolveSourcePower(state, ctx)
-    : quantityToNumber(step.amount, ctx);
+  const amount = resolveDynamicDrawAmount(state, step, ctx);
   if (amount === null) {
     return {
       applied: false,

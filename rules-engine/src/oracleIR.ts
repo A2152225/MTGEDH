@@ -9,18 +9,22 @@ export type OracleQuantity =
   | { readonly kind: 'until_nonland_mana_value_lte'; readonly value: number }
   | { readonly kind: 'source_power' }
   | { readonly kind: 'greatest_power_among_other_creatures_you_control' }
+  | { readonly kind: 'greatest_power_among_creatures_you_control'; readonly excludeSubtype?: string }
   | { readonly kind: 'x' }
   | { readonly kind: 'all' }
   | { readonly kind: 'replicate_count' }
   | { readonly kind: 'spells_cast_before_this_turn' }
   | { readonly kind: 'votes_for_choice'; readonly choice: string; readonly multiplier?: number }
-  | { readonly kind: 'object_stat'; readonly subject: 'it' | 'that_card' | 'that_creature' | 'the_sacrificed_creature'; readonly stat: 'power' | 'toughness' | 'mana_value' }
+  | { readonly kind: 'object_stat'; readonly subject: 'it' | 'that_card' | 'that_creature' | 'the_sacrificed_creature' | 'source'; readonly stat: 'power' | 'toughness' | 'mana_value'; readonly multiplier?: number }
   | { readonly kind: 'unknown'; readonly raw?: string };
 
 export type OraclePlayerSelector =
   | { readonly kind: 'you' }
   | { readonly kind: 'each_player' }
   | { readonly kind: 'each_opponent' }
+  | { readonly kind: 'any_number_of_target_opponents' }
+  | { readonly kind: 'you_and_target_opponent' }
+  | { readonly kind: 'you_and_target_player' }
   /**
    * Contextual subset reference used by oracle text such as
    * "each of those opponents". The concrete set is defined by prior
@@ -886,6 +890,18 @@ export type OracleEffectStep =
       readonly amount: OracleQuantity;
       readonly source?: OracleObjectSelector;
       readonly target: OracleObjectSelector;
+      readonly division?: 'as_you_choose' | 'evenly_rounded_down';
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
+      readonly kind: 'modify_damage';
+      readonly mode: 'add' | 'subtract';
+      readonly amount: OracleQuantity;
+      readonly sourceFilter?: string;
+      readonly targetFilter?: string;
+      readonly damageFilter?: 'combat' | 'noncombat' | 'any';
       readonly optional?: boolean;
       readonly sequence?: 'then';
       readonly raw: string;
@@ -1040,6 +1056,8 @@ export type OracleEffectStep =
         | 'next_upkeep'
         | 'your_next_upkeep';
       readonly effect: string;
+      /** Parsed metadata for delayed effect text; not executed when scheduling. */
+      readonly steps?: readonly OracleEffectStep[];
       readonly optional?: boolean;
       readonly sequence?: 'then';
       readonly raw: string;
@@ -1228,6 +1246,8 @@ export type OracleEffectStep =
       readonly kind: 'create_emblem';
       readonly abilities: readonly string[];
       readonly name?: string;
+      /** Parsed metadata for emblem text; not executed while creating the emblem. */
+      readonly steps?: readonly OracleEffectStep[];
       readonly optional?: boolean;
       readonly sequence?: 'then';
       readonly raw: string;

@@ -204,7 +204,8 @@ function resolveDamageAmount(
       .map((entry) => readObjectStat(entry, amount.stat))
       .filter((entry): entry is number => entry !== null);
     if (values.length === 0) return null;
-    return values.reduce((sum, value) => sum + value, 0);
+    const multiplier = Number.isFinite(Number((amount as any).multiplier)) ? Math.max(0, Number((amount as any).multiplier)) : 1;
+    return values.reduce((sum, value) => sum + value, 0) * multiplier;
   }
   if (amount.kind !== 'unknown') return null;
 

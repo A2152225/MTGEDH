@@ -136,11 +136,13 @@ export function parseKeywordActionAbility(text: string): ParsedAbility | null {
     };
   }
 
-  if (/^max speed\s+[—-]\s*.+$/i.test(cleaned)) {
+  const maxSpeedMatch = cleaned.match(/^max speed\s+[—-]\s*(.+)$/i);
+  if (maxSpeedMatch) {
+    const effect = String(maxSpeedMatch[1] || '').trim();
     return {
       type: AbilityType.STATIC,
       text,
-      effect: '',
+      effect: /\bwould\s+draw\b/i.test(effect) ? effect : '',
     };
   }
 

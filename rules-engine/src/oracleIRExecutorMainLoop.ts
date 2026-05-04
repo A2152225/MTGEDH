@@ -1067,10 +1067,12 @@ export function applyOracleIRStepsToGameStateImpl(
           lastMovedCards = Array.isArray(appliedResult.lastMovedCards)
             ? [...appliedResult.lastMovedCards]
             : lastMovedCards;
+          lastReferenceAmount = lastDiscardedCardCount;
           currentCtx = {
             ...currentCtx,
             lastDiscardedCards,
             lastMovedCards,
+            referenceAmount: lastReferenceAmount,
           };
         });
         break;
@@ -1702,10 +1704,12 @@ export function applyOracleIRStepsToGameStateImpl(
           lastMovedCards = Array.isArray(appliedResult.lastMovedCards)
             ? [...appliedResult.lastMovedCards]
             : lastMovedCards;
+          lastReferenceAmount = lastDiscardedCardCount;
           currentCtx = {
             ...currentCtx,
             lastDiscardedCards,
             lastMovedCards,
+            referenceAmount: lastReferenceAmount,
           };
         });
         break;
@@ -1776,10 +1780,12 @@ export function applyOracleIRStepsToGameStateImpl(
           lastMovedCards = Array.isArray(appliedResult.lastMovedCards)
             ? [...appliedResult.lastMovedCards]
             : lastMovedCards;
+          lastReferenceAmount = lastDiscardedCardCount;
           currentCtx = {
             ...currentCtx,
             lastDiscardedCards,
             lastMovedCards,
+            referenceAmount: lastReferenceAmount,
           };
         });
         break;

@@ -108,6 +108,7 @@ export function parsePlayerSelector(raw: string | undefined): OraclePlayerSelect
   if (s === 'each opponent') return { kind: 'each_opponent' };
   if (s === 'each of your opponents') return { kind: 'each_opponent' };
   if (s === 'your opponents') return { kind: 'each_opponent' };
+  if (s === 'any number of target opponents') return { kind: 'any_number_of_target_opponents' };
   if (isThoseOpponentsSelector(s)) return { kind: 'each_of_those_opponents' };
   if (s === 'target player') return { kind: 'target_player' };
   if (s === 'target opponent') return { kind: 'target_opponent' };

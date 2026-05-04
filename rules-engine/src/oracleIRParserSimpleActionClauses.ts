@@ -1,10 +1,12 @@
 import type { OracleEffectStep } from './oracleIR';
 import { normalizeCounterName } from './oracleIRParserSacrificeHelpers';
-import { parseObjectSelector, parsePlayerSelector, parseQuantity } from './oracleIRParserUtils';
+import { normalizeOracleText, parseObjectSelector, parsePlayerSelector, parseQuantity } from './oracleIRParserUtils';
 type WithMeta = <T extends OracleEffectStep>(step: T) => T;
 
 const PLAYER_SUBJECT_PREFIX =
-  "(?:(you|each player|each opponent|each of those opponents|target player|target opponent|that player|that opponent|defending player|the defending player|he or she|they|its controller|its owner|that [a-z0-9][a-z0-9 ,.'’-]*?(?:'s|’s)? (?:controller|owner))\\s+)?";
+  "(?:(you|each player|each opponent|each of those opponents|any number of target opponents|each of that player's opponents|target player|target opponent|that player|that opponent|defending player|the defending player|the attacking player|the controller of those creatures|he or she|they|its controller|its owner|that [a-z0-9][a-z0-9 ,.'’-]*?(?:'s|’s)? (?:controller|owner))\\s+)?";
+
+const DRAW_AMOUNT_WORD_PATTERN = '(?:that many|that much|a|an|\\d+|x|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)';
 
 const COUNTER_AMOUNT_PATTERN = '(?:a|an|\\d+|x|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)';
 const REFERENCEABLE_COUNTER_AMOUNT_PATTERN = '(?:that many|that much|a|an|\\d+|x|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)';
@@ -49,6 +51,81 @@ function parseSmallNumber(raw: string): number | null {
     default:
       return null;
   }
+}
+
+function parseDrawAmount(raw: string | undefined): Extract<OracleEffectStep, { kind: 'draw' }>['amount'] {
+  const normalized = String(raw || '')
+    .replace(/[\u2019]/g, "'")
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+
+  if (normalized === 'its power') return { kind: 'source_power' };
+  if (normalized === "the sacrificed creature's power") {
+    return { kind: 'object_stat', subject: 'the_sacrificed_creature', stat: 'power' };
+  }
+
+  const greatestPower = normalized.match(/^the greatest power among (non[- ]?([a-z][a-z-]*) )?creatures you control$/i);
+  if (greatestPower) {
+    const excludedSubtype = String(greatestPower[2] || '').trim().toLowerCase();
+    return {
+      kind: 'greatest_power_among_creatures_you_control',
+      ...(excludedSubtype ? { excludeSubtype: excludedSubtype } : {}),
+    };
+  }
+
+  const parsed = parseQuantity(raw);
+  return parsed.kind === 'unknown' ? { kind: 'unknown', raw: String(raw || '').trim() } : parsed;
+}
+
+function normalizeDrawClauseForParse(rawClause: string): string {
+  let clause = normalizeOracleText(rawClause)
+    .replace(/^[\s(]+/, '')
+    .replace(/[.)"\s]+$/g, '')
+    .replace(/^[\u2022•]\s*/, '')
+    .replace(/^then\s+/i, '')
+    .replace(/^if you do,\s*/i, '')
+    .replace(/^[+−-]\s*(?:\{[^}]+\}\s*)+[-—]\s*/i, '')
+    .replace(/^(?:\{[^}]+\}\s*)+[-—]\s*/i, '')
+    .replace(/^\d+\s*(?:[-–—]\s*\d+)?\s*\|\s*/i, '')
+    .trim();
+
+  clause = clause.replace(/^([a-z][a-z0-9 ',/-]{0,60})[-—]\s+(?=(?:you|target|each|any number|draw)\b.*\bdraws?\b|draw\b)/i, '');
+
+  const triggerBody = clause.match(/^(?:(?:when|whenever)\b.+?|at the beginning of\b.+?),\s+(.+)$/i);
+  if (triggerBody && /\bdraws?\b/i.test(String(triggerBody[1] || ''))) {
+    clause = String(triggerBody[1] || '').trim();
+  }
+
+  const replacementDrawBody = clause.match(/^if\b[\s\S]*?\bwould\s+draw\b[\s\S]*?,\s+(?:instead\s+)?((?:you\s+and\s+.+?\s+each\s+draws?\b[\s\S]+)|(?:(?:you|target player|target opponent|that player|that opponent|each player|each opponent|any number of target opponents|each of that player's opponents|its controller)\s+)?(?:may\s+)?draws?\b[\s\S]+)(?:\s+instead)?$/i);
+  if (replacementDrawBody) {
+    clause = String(replacementDrawBody[1] || '').replace(/\s+instead$/i, '').trim();
+  }
+
+  const conditionalDrawBody = clause.match(/^if\b(?!\s+[^,]*\bwould\s+draw\b).+?,\s+((?:you\s+may\s+have\s+)?(?:(?:you|target player|target opponent|that player|that opponent|defending player|the defending player|the attacking player|any number of target opponents|each of that player's opponents|its controller)\s+)?draws?\b[\s\S]+|you\s+and\s+.+?\s+each\s+draws?\b[\s\S]+)$/i);
+  if (conditionalDrawBody) clause = String(conditionalDrawBody[1] || '').trim();
+
+  const trailingCommaDraw = clause.match(/,\s*((?:you\s+may\s+have\s+)?(?:(?:you|its controller|that player|that opponent|target player|target opponent|each player|each opponent|any number of target opponents|each of that player's opponents|defending player|the defending player|the attacking player)\s+)?(?:may\s+)?draws?\b[\s\S]+|you\s+and\s+.+?\s+each\s+draws?\b[\s\S]+)$/i);
+  if (trailingCommaDraw && !/^\s*(?:whenever|when|if)\b/i.test(String(trailingCommaDraw[1] || ''))) {
+    clause = String(trailingCommaDraw[1] || '').trim();
+  }
+
+  const trailingAndDraw = clause.match(/\band\s+((?:you\s+may\s+have\s+)?(?:(?:you|its controller|that player|that opponent|target player|target opponent|each player|each opponent|any number of target opponents|each of that player's opponents|defending player|the defending player|the attacking player)\s+)?(?:may\s+)?draws?\b[\s\S]+|you\s+and\s+.+?\s+each\s+draws?\b[\s\S]+)$/i);
+  if (trailingAndDraw) clause = String(trailingAndDraw[1] || '').trim();
+
+  clause = clause.replace(/^then\s+/i, '').replace(/^if you do,\s*/i, '').trim();
+
+  return clause;
+}
+
+function sharedDrawSelector(raw: string): Extract<OracleEffectStep, { kind: 'draw' }>['who'] {
+  const normalized = String(raw || '')
+    .replace(/[\u2019]/g, "'")
+    .replace(/^the\s+/i, '')
+    .trim()
+    .toLowerCase();
+  if (normalized === 'target opponent') return { kind: 'you_and_target_opponent' };
+  return { kind: 'you_and_target_player' };
 }
 
 function buildRepeatedMana(symbol: string, count: number): string {
@@ -385,7 +462,52 @@ export function tryParseSimpleActionClause(args: {
   }
 
   {
-    const drawEqualPower = clause.match(new RegExp(`^${PLAYER_SUBJECT_PREFIX}draws?\\s+cards?\\s+equal\\s+to\\s+its\\s+power$`, 'i'));
+    const drawClause = normalizeDrawClauseForParse(clause);
+
+    const havePlayerDraw = drawClause.match(new RegExp(`^(?:(?:target opponent|that opponent|defending player|the defending player|that player)\\s+may\\s+have\\s+|you\\s+may\\s+have\\s+)(you|target player|target opponent|that player|that opponent)\\s+draws?\\s+(${DRAW_AMOUNT_WORD_PATTERN})\\s+cards?\\b`, 'i'));
+    if (havePlayerDraw) {
+      return withMeta({
+        kind: 'draw',
+        who: parsePlayerSelector(havePlayerDraw[1]),
+        amount: parseQuantity(havePlayerDraw[2]),
+        optional: true,
+        raw: rawClause,
+        });
+    }
+
+    const sharedDraw = drawClause.match(new RegExp(`^you\\s+and\\s+(.+?)\\s+each\\s+draws?\\s+(${DRAW_AMOUNT_WORD_PATTERN})\\s+cards?\\b`, 'i'));
+    if (sharedDraw) {
+      return withMeta({
+        kind: 'draw',
+        who: sharedDrawSelector(sharedDraw[1]),
+        amount: parseQuantity(sharedDraw[2]),
+        raw: rawClause,
+        });
+    }
+
+    const targetOpponentsEachDraw = drawClause.match(
+      new RegExp(`^any\\s+number\\s+of\\s+target\\s+opponents\\s+each\\s+draws?\\s+(${DRAW_AMOUNT_WORD_PATTERN})\\s+cards?\\b`, 'i')
+    );
+    if (targetOpponentsEachDraw) {
+      return withMeta({
+        kind: 'draw',
+        who: { kind: 'any_number_of_target_opponents' },
+        amount: parseQuantity(targetOpponentsEachDraw[1]),
+        raw: rawClause,
+        });
+    }
+
+    const drawEqual = drawClause.match(new RegExp(`^${PLAYER_SUBJECT_PREFIX}(?:may\\s+)?draws?\\s+cards?\\s+equal\\s+to\\s+(.+?)(?:,\\s*then\\b[\\s\\S]*)?$`, 'i'));
+    if (drawEqual) {
+      return withMeta({
+        kind: 'draw',
+        who: parsePlayerSelector(drawEqual[1]),
+        amount: parseDrawAmount(drawEqual[2]),
+        raw: rawClause,
+        });
+    }
+
+    const drawEqualPower = drawClause.match(new RegExp(`^${PLAYER_SUBJECT_PREFIX}(?:may\\s+)?draws?\\s+cards?\\s+equal\\s+to\\s+its\\s+power$`, 'i'));
     if (drawEqualPower) {
       return withMeta({
         kind: 'draw',
@@ -395,8 +517,21 @@ export function tryParseSimpleActionClause(args: {
         });
     }
 
-    const moreCards = clause.match(
-      new RegExp(`^${PLAYER_SUBJECT_PREFIX}draws?\\s+(that many|that much|[a-z0-9]+)\\s+more\\s+cards?\\b`, 'i')
+    const drawForEach = drawClause.match(new RegExp(`^${PLAYER_SUBJECT_PREFIX}(?:may\\s+)?draws?\\s+a\\s+card\\s+for\\s+each\\s+(.+)$`, 'i'));
+    if (drawForEach) {
+      const forEachText = String(drawForEach[2] || '').trim();
+      return withMeta({
+        kind: 'draw',
+        who: parsePlayerSelector(drawForEach[1]),
+        amount: /\b(?:land\s+)?cards?\s+discarded\s+this\s+way\b/i.test(forEachText)
+          ? { kind: 'reference_amount', raw: `a card for each ${forEachText}` }
+          : { kind: 'unknown', raw: `a card for each ${forEachText}` },
+        raw: rawClause,
+        });
+    }
+
+    const moreCards = drawClause.match(
+      new RegExp(`^${PLAYER_SUBJECT_PREFIX}(?:may\\s+)?draws?\\s+(${DRAW_AMOUNT_WORD_PATTERN}|[a-z0-9]+)\\s+more\\s+cards?\\b`, 'i')
     );
     if (moreCards) {
       return withMeta({
@@ -407,8 +542,8 @@ export function tryParseSimpleActionClause(args: {
         });
     }
 
-    const draw = clause.match(
-      new RegExp(`^${PLAYER_SUBJECT_PREFIX}draws?\\s+(that many|that much|a|an|\\d+|x|[a-z]+)\\s+cards?\\b`, 'i')
+    const draw = drawClause.match(
+      new RegExp(`^${PLAYER_SUBJECT_PREFIX}(?:may\\s+)?draws?\\s+(${DRAW_AMOUNT_WORD_PATTERN})\\s+cards?\\b`, 'i')
     );
     if (draw) {
       return withMeta({
@@ -419,7 +554,7 @@ export function tryParseSimpleActionClause(args: {
         });
     }
 
-    const drawDefault = clause.match(/^draw\s+(that many|that much|a|an|\d+|x|[a-z]+)\s+cards?\b/i);
+    const drawDefault = drawClause.match(new RegExp(`^(?:may\\s+)?draw\\s+(${DRAW_AMOUNT_WORD_PATTERN})\\s+cards?\\b`, 'i'));
     if (drawDefault) {
       return withMeta({
         kind: 'draw',
@@ -1024,12 +1159,12 @@ export function tryParseSimpleActionClause(args: {
   }
 
   {
-    const investigate = clause.match(new RegExp(`^${PLAYER_SUBJECT_PREFIX}(?:investigate|investigates)\\b$`, 'i'));
+    const investigate = clause.match(new RegExp(`^${PLAYER_SUBJECT_PREFIX}(?:investigate|investigates)(?:\\s+(twice|that many|that much|\\d+|x|[a-z]+))?\\b$`, 'i'));
     if (investigate) {
       return withMeta({
         kind: 'investigate',
         who: parsePlayerSelector(investigate[1]),
-        amount: { kind: 'number', value: 1 },
+        amount: /^twice$/i.test(String(investigate[2] || '')) ? { kind: 'number', value: 2 } : parseQuantity(investigate[2] || '1'),
         raw: rawClause,
         });
     }

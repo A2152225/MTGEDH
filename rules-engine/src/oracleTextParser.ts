@@ -280,7 +280,7 @@ const TRIGGER_CONDITION_EVENT_HINTS = [
   /\bdies$/i,
   /\bis put into (?:(?:a|an|your|its owner's|their owner's)\s+)?graveyard from the battlefield$/i,
   /\benters(?: the battlefield)?(?: under your control)?$/i,
-  /\battacks(?: alone)?$/i,
+  /\battacks?(?: alone| with [\s\S]+)?$/i,
   /\bblocks$/i,
   /\bbecomes blocked$/i,
   /\bdeals combat damage(?: to (?:a|an|target) [a-z0-9' -]+)?$/i,
@@ -297,6 +297,8 @@ const TRIGGER_CONDITION_EVENT_HINTS = [
   /\bbecomes untapped$/i,
   /\buntaps$/i,
   /\bis exiled$/i,
+  /\b(?:is|are) milled$/i,
+  /\b(?:is|are) put (?:on|onto|into) [\s\S]+$/i,
   /\bleaves the battlefield$/i,
   /\bbecomes the target$/i,
   /\bis targeted$/i,
@@ -484,7 +486,7 @@ export function parseTriggeredAbility(text: string): ParsedAbility | null {
  * "Instead" clause pattern - most common modification structure
  * If [condition] would [event], [replacement] instead.
  */
-const INSTEAD_PATTERN = /If\s+(.+?)\s+would\s+(.+?),\s+(.+?)\s+instead\.?/i;
+const INSTEAD_PATTERN = /^If\s+([^()]+?)\s+would\s+(.+?),\s+(.+?)\s+instead\.?$/i;
 
 /**
  * "Enters with" or "Enters as" clause pattern

@@ -23,6 +23,7 @@ const KEYWORD_ABILITIES = new Set([
   'double strike',
   'haste',
   'ward',
+  'myriad',
 ]);
 
 function parseKeywordAbilityList(raw: string): string[] | null {

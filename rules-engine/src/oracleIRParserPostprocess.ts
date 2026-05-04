@@ -4305,9 +4305,30 @@ function isCurrentBatchReminderOrPlatformOnlyText(raw: string): boolean {
   if (!normalizedText) return false;
 
   return (
+    /^as this saga enters and after your draw step, add a lore counter$/i.test(normalizedText) ||
+    /^devoid \(this card has no color\)?$/i.test(normalizedText) ||
+    /^gain the next level as a sorcery to add its ability$/i.test(normalizedText) ||
+    /^offspring\s+(?:\{[^}]+\})+\s*\(you may pay an additional (?:\{[^}]+\})+ as you cast this spell$/i.test(normalizedText) ||
+    /^enchant (?:creature(?: you control)?|land|player)$/i.test(normalizedText) ||
+    /^ward\s*(?:\{[^}]+\}|\d+)$/i.test(normalizedText) ||
+    /^a creature with hexproof can(?:not|'t) be the target of spells or abilities your opponents control$/i.test(normalizedText) ||
+    /^a suspected creature has menace and can(?:not|'t) block$/i.test(normalizedText) ||
+    /^artifacts, legendaries, and sagas are historic$/i.test(normalizedText) ||
+    /^assassins, mercenaries, pirates, rogues, and warlocks are outlaws$/i.test(normalizedText) ||
+    /^each \{[wubrgc]\} in the mana costs of permanents you control counts toward your devotion to [a-z]+$/i.test(normalizedText) ||
+    /^equipment, auras you control, and counters are modifications$/i.test(normalizedText) ||
+    /^it(?:'|â€™)?s every creature type$/i.test(normalizedText) ||
+    /^changeling \(this card is every creature type\)$/i.test(normalizedText) ||
+    /^to mill (?:a|one|two|three|four|five|six|seven|eight|nine|ten|\d+) cards?, put the top (?:a|one|two|three|four|five|six|seven|eight|nine|ten|\d+) cards? of your library into your graveyard$/i.test(normalizedText) ||
+    /^you descended if a permanent card was put into your graveyard from anywhere$/i.test(normalizedText) ||
+    /^you may put the top (?:a|one|two|three|four|five|six|seven|eight|nine|ten|\d+) cards? of your library into your graveyard$/i.test(normalizedText) ||
     /^a deck can have only one card named .+$/i.test(normalizedText) ||
     /^you can(?:'|â€™)?t include this card in your deck if .+$/i.test(normalizedText) ||
     /^choose one$/i.test(normalizedText) ||
+    /^for mirrodin!?$/i.test(normalizedText) ||
+    /^when this equipment enters, create a 2\/2 red rebel creature token, then attach this to it$/i.test(normalizedText) ||
+    /^to investigate, create a clue token$/i.test(normalizedText) ||
+    /^it(?:'|â€™)?s an artifact with "?\{2\}, sacrifice this (?:artifact|token): draw a card"?$/i.test(normalizedText) ||
     /^players can(?:'|â€™)?t gain life this turn$/i.test(normalizedText) ||
     /^copy a random spell you cast from exile or in a graveyard this game(?:\s+you may cast the copy without paying its mana cost)?$/i.test(normalizedText) ||
     /^create a copy of one of the following, chosen at random:.+$/i.test(normalizedText) ||
@@ -4353,6 +4374,42 @@ function isCurrentBatchReminderOrPlatformOnlyText(raw: string): boolean {
   );
 }
 
+function isClueArtifactReminderTailText(raw: string): boolean {
+  const normalizedText = normalizeOracleText(String(raw || ''))
+    .replace(/^[()\s]+/, '')
+    .replace(/[.)\s]+$/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!normalizedText) return false;
+
+  return /^it(?:'|â€™)?s an artifact with "?\{2\}, sacrifice this (?:artifact|token): draw a card"?$/i.test(normalizedText);
+}
+
+function isRoleTokenReminderText(raw: string): boolean {
+  const normalizedText = normalizeOracleText(String(raw || ''))
+    .replace(/^[()\s]+/, '')
+    .replace(/[.)\s]+$/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!normalizedText) return false;
+
+  return (
+    /^if you control another role on it, put that one into the graveyard$/i.test(normalizedText) ||
+    /^enchanted creature gets [+-]\d+\/[+-]\d+(?: and has [a-z, ]+)?$/i.test(normalizedText) ||
+    /^when this token is put into a graveyard, each opponent loses \d+ life$/i.test(normalizedText)
+  );
+}
+
+function isStaticMyriadReminderText(raw: string): boolean {
+  const normalizedText = normalizeOracleText(String(raw || ''))
+    .replace(/[.)\s]+$/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!normalizedText) return false;
+
+  return /^(?:[a-z]+(?:,|\s)+)*myriad\s*\(whenever this creature attacks, for each opponent other than defending player, you may create a token cop(?:y|ies) that(?:'|â€™)?s tapped and attacking that player or a planeswalker they control(?:\.\s*exile the tokens at end of combat)?$/i.test(normalizedText);
+}
+
 export function pruneCurrentBatchReminderUnknownAbilities(
   abilities: readonly OracleIRAbility[]
 ): OracleIRAbility[] {
@@ -4361,6 +4418,7 @@ export function pruneCurrentBatchReminderUnknownAbilities(
     const normalizedAbilityText = normalizeOracleText(String(ability.text || ability.effectText || ''))
       .replace(/\s+/g, ' ')
       .trim();
+    const mentionsRoleToken = /\brole token\b/i.test(normalizedAbilityText);
 
     if (isUnknownOnlyAbility && /^flash(?:\s*\([^)]*\))?$/i.test(normalizedAbilityText)) {
       return [{ ...ability, steps: [] }];
@@ -4377,11 +4435,49 @@ export function pruneCurrentBatchReminderUnknownAbilities(
       return [];
     }
 
-    const nextSteps = ability.steps.filter((step) => {
-      if (step.kind !== 'unknown') return true;
-      return !isCurrentBatchReminderOrPlatformOnlyText(String(step.raw || ''));
-    });
-    if (nextSteps.length === ability.steps.length) return [ability];
+    const nextSteps: OracleEffectStep[] = [];
+    let changed = false;
+    for (const step of ability.steps) {
+      if (isClueArtifactReminderTailText(String(step.raw || ''))) {
+        changed = true;
+        continue;
+      }
+
+      if (step.kind !== 'unknown') {
+        nextSteps.push(step);
+        continue;
+      }
+
+      if (mentionsRoleToken && isRoleTokenReminderText(String(step.raw || ''))) {
+        changed = true;
+        continue;
+      }
+
+      if (isStaticMyriadReminderText(String(step.raw || ''))) {
+        const metadataSteps = Array.isArray((step as any).steps) ? ((step as any).steps as readonly OracleEffectStep[]) : [];
+        const parsedMyriad = metadataSteps.length > 0 ? [...metadataSteps] : [parseMyriadTokenCreationMetadataStep(String(step.raw || ''))].filter(Boolean) as OracleEffectStep[];
+        if (parsedMyriad.length > 0) {
+          nextSteps.push({
+            kind: 'grant_static_ability',
+            target: parseObjectSelector('this creature'),
+            abilities: ['myriad'],
+            duration: 'static',
+            raw: String(step.raw || 'myriad'),
+            steps: parsedMyriad,
+          });
+        }
+        changed = true;
+        continue;
+      }
+
+      if (isCurrentBatchReminderOrPlatformOnlyText(String(step.raw || ''))) {
+        changed = true;
+        continue;
+      }
+
+      nextSteps.push(step);
+    }
+    if (!changed) return [ability];
     if (nextSteps.length === 0) return [];
     return [{ ...ability, steps: nextSteps }];
   });
@@ -5618,27 +5714,32 @@ function uniqueTokenCreationCandidates(rawText: string): string[] {
   if (!normalized) return [];
 
   const candidates: string[] = [];
-  const addCandidate = (candidate: string) => {
+  const addCandidate = (candidate: string, includeDerived = true) => {
     const value = normalizeOracleText(candidate)
       .replace(/^[\s(]+/, '')
       .replace(/[\s.)]+$/g, '')
       .trim();
-    if (value && !candidates.includes(value)) candidates.push(value);
+    if (!value) return;
+    if (!candidates.includes(value)) candidates.push(value);
+    if (!includeDerived) return;
+
+    const activatedBody = value.match(/:\s*(create(?:s)?\b.+)$/i);
+    if (activatedBody) addCandidate(String(activatedBody[1] || '').trim(), false);
+
+    const pipeBody = value.match(/^\s*[^|]+\|\s*(.+)$/);
+    if (pipeBody) addCandidate(String(pipeBody[1] || '').trim(), false);
   };
 
   addCandidate(normalized);
 
-  const activatedBody = normalized.match(/:\s*(create(?:s)?\b.+)$/i);
-  if (activatedBody) addCandidate(String(activatedBody[1] || '').trim());
+  const squadReminderCreate = normalized.match(/\bsquad\b[\s\S]*?\bwhen this (?:creature|permanent) enters,\s*(create(?:s)?\b[\s\S]*?)(?=\)|$)/i);
+  if (squadReminderCreate) addCandidate(String(squadReminderCreate[1] || '').trim());
 
   const dieBandPattern = /(\d+)(?:\s*[-\u2013\u2014]\s*(\d+))?\s*\|\s*([\s\S]*?)(?=\s+\d+(?:\s*[-\u2013\u2014]\s*\d+)?\s*\||$)/g;
   let dieBandMatch: RegExpExecArray | null;
   while ((dieBandMatch = dieBandPattern.exec(normalized)) !== null) {
     addCandidate(String(dieBandMatch[3] || '').trim());
   }
-
-  const pipeMatch = normalized.match(/^\s*[^|]+\|\s*(.+)$/);
-  if (pipeMatch) addCandidate(String(pipeMatch[1] || '').trim());
 
   const triggerMatch = normalized.match(/^(?:(?:when|whenever)\b.+?|at the beginning of\b.+?),\s+(.+)$/i);
   if (triggerMatch) addCandidate(String(triggerMatch[1] || '').trim());
@@ -5795,6 +5896,7 @@ function hasCreateTokenStepInTree(steps: readonly OracleEffectStep[] | undefined
 function parseTokenCreationMetadataFromAbilityText(ability: OracleIRAbility): OracleEffectStep | null {
   const candidates = [ability.effectText, ability.text];
   for (const candidate of candidates) {
+    if (/\bto investigate,\s*create a clue token\b/i.test(normalizeOracleText(String(candidate || '')))) continue;
     const parsed = parseTokenCreationMetadataStep(candidate) ?? parseMyriadTokenCreationMetadataStep(candidate);
     if (parsed) return parsed;
   }
@@ -5809,12 +5911,58 @@ function isSquadReminderAbilityText(ability: OracleIRAbility): boolean {
   );
 }
 
+function hasSquadTokenReminderText(rawText: string | undefined): boolean {
+  return /\bsquad\b[\s\S]*?\bwhen this (?:creature|permanent) enters,\s*create(?:s)?\s+that many tokens? that (?:are|is) copies of it/i.test(
+    normalizeOracleText(String(rawText || ''))
+  );
+}
+
 const TOKEN_METADATA_ABILITY_FALLBACK_BLOCKED_KINDS = new Set<string>([
   'grant_static_ability',
   'grant_temporary_ability',
   'grant_temporary_dies_trigger',
   'modify_token_creation',
 ]);
+
+function canAppendTokenMetadataDespiteBlockedKinds(ability: OracleIRAbility): boolean {
+  const blockedSteps = ability.steps.filter((step) => TOKEN_METADATA_ABILITY_FALLBACK_BLOCKED_KINDS.has(step.kind));
+  if (blockedSteps.length === 0) return true;
+  const allBlockedStepsAreTemporaryGrant = blockedSteps.every((step) => step.kind === 'grant_temporary_ability');
+  if (!allBlockedStepsAreTemporaryGrant) return false;
+
+  const text = normalizeOracleText(`${String(ability.text || '')} ${String(ability.effectText || '')}`);
+  return /\b\d+\+\s*\|[\s\S]*\bcreate(?:s)?\b[\s\S]*\btoken/i.test(text);
+}
+
+function appendSquadTokenMetadataFallback(
+  abilities: readonly OracleIRAbility[],
+  parsed: OracleEffectStep,
+  rawText: string
+): OracleIRAbility[] {
+  const metadataWrapper = { kind: 'unknown', raw: 'Token creation metadata', steps: [parsed] } as any as OracleEffectStep;
+  const targetIndex = abilities.findIndex(
+    (ability) =>
+      !isSquadReminderAbilityText(ability) &&
+      !hasCreateTokenStepInTree(ability.steps) &&
+      ability.steps.some((step) => step.kind !== 'unknown')
+  );
+
+  if (targetIndex >= 0) {
+    return abilities.map((ability, index) =>
+      index === targetIndex ? { ...ability, steps: [...ability.steps, metadataWrapper] } : ability
+    );
+  }
+
+  return [
+    ...abilities,
+    {
+      type: AbilityType.STATIC,
+      text: 'Token creation metadata',
+      effectText: rawText,
+      steps: [metadataWrapper],
+    },
+  ];
+}
 
 export function annotateTokenCreationMetadataAbilities(
   abilities: readonly OracleIRAbility[],
@@ -5824,33 +5972,363 @@ export function annotateTokenCreationMetadataAbilities(
     const steps = ability.steps.map(annotateTokenCreationMetadataOnStep);
     const withAnnotatedSteps = steps.some((step, index) => step !== ability.steps[index]) ? { ...ability, steps } : ability;
     if (hasCreateTokenStepInTree(withAnnotatedSteps.steps)) return withAnnotatedSteps;
-    if (withAnnotatedSteps.steps.some((step) => TOKEN_METADATA_ABILITY_FALLBACK_BLOCKED_KINDS.has(step.kind))) return withAnnotatedSteps;
 
     const parsed = parseTokenCreationMetadataFromAbilityText(withAnnotatedSteps);
     if (!parsed) return withAnnotatedSteps;
+    if (!canAppendTokenMetadataDespiteBlockedKinds(withAnnotatedSteps)) return withAnnotatedSteps;
     return { ...withAnnotatedSteps, steps: [...withAnnotatedSteps.steps, parsed] };
   });
 
-  if (oracleText && /^squad\b/i.test(normalizeOracleText(oracleText).trim())) {
+  const nonSquadAbilities = annotated.filter((ability) => !isSquadReminderAbilityText(ability));
+  if (hasCreateTokenStepInTree(nonSquadAbilities.flatMap((ability) => ability.steps))) return annotated;
+
+  if (oracleText && hasSquadTokenReminderText(oracleText)) {
     const squadAbility = annotated.find((ability) => isSquadReminderAbilityText(ability));
-    const targetIndex = annotated.findIndex((ability) => !isSquadReminderAbilityText(ability));
-    const parsed = squadAbility ? parseTokenCreationMetadataFromAbilityText(squadAbility) : null;
-    if (parsed && targetIndex >= 0 && !hasCreateTokenStepInTree(annotated[targetIndex].steps)) {
-      const metadataWrapper = { kind: 'unknown', raw: squadAbility?.text || oracleText, steps: [parsed] } as any as OracleEffectStep;
-      return annotated.map((ability, index) =>
-        index === targetIndex ? { ...ability, steps: [...ability.steps, metadataWrapper] } : ability
-      );
+    const parsed = squadAbility ? parseTokenCreationMetadataFromAbilityText(squadAbility) : parseTokenCreationMetadataStep(oracleText);
+    if (parsed && nonSquadAbilities.length > 0) {
+      return appendSquadTokenMetadataFallback(annotated, parsed, squadAbility?.text || oracleText);
     }
   }
 
   if (hasCreateTokenStepInTree(annotated.flatMap((ability) => ability.steps))) return annotated;
-  if (annotated.length === 0 || !oracleText || !/^squad\b/i.test(normalizeOracleText(oracleText).trim())) return annotated;
+  if (annotated.length === 0 || !oracleText || !hasSquadTokenReminderText(oracleText)) return annotated;
 
   const parsed = parseTokenCreationMetadataStep(oracleText);
   if (!parsed) return annotated;
-  const firstAbility = annotated[0];
-  const metadataWrapper = { kind: 'unknown', raw: oracleText, steps: [parsed] } as any as OracleEffectStep;
-  return [{ ...firstAbility, steps: [...firstAbility.steps, metadataWrapper] }, ...annotated.slice(1)];
+  return appendSquadTokenMetadataFallback(annotated, parsed, oracleText);
+}
+
+function uniqueDamageCandidates(rawText: string | undefined): string[] {
+  const normalized = normalizeOracleText(String(rawText || ''));
+  const candidates: string[] = [];
+  const addCandidate = (raw: string | undefined, includeDerived = true): void => {
+    const value = normalizeOracleText(String(raw || ''))
+      .replace(/^[\s(]+/, '')
+      .replace(/[\s.)]+$/g, '')
+      .trim();
+    if (!value || !/(?:\bdeals?\b[\s\S]*\bdamage\b|\bdamage\b[\s\S]*\binstead\b|\bfights?\b)/i.test(value)) return;
+    if (!candidates.includes(value)) candidates.push(value);
+    if (!includeDerived) return;
+
+    const activatedBody = value.match(/:\s*([\s\S]*?(?:\bdeals?\b[\s\S]*\bdamage\b|\bfights?\b)[\s\S]*)$/i);
+    if (activatedBody) addCandidate(String(activatedBody[1] || '').trim(), false);
+
+    const pipeBody = value.match(/^\s*[^|]+\|\s*(.+)$/);
+    if (pipeBody) addCandidate(String(pipeBody[1] || '').trim(), false);
+  };
+
+  addCandidate(normalized);
+
+  const triggerMatch = normalized.match(/^(?:(?:when|whenever)\b.+?|at the beginning of\b.+?),\s+(.+)$/i);
+  if (triggerMatch) addCandidate(String(triggerMatch[1] || '').trim());
+
+  const conditionalMatch = normalized.match(/^if\b.+?(?:\bwould\s+deal\b|,),\s+(.+)$/i);
+  if (conditionalMatch) addCandidate(String(conditionalMatch[1] || '').trim());
+
+  const commaEmbeddedDamage = normalized.match(/,\s*([^,;]*\bdeals?\b[\s\S]*)$/i);
+  if (commaEmbeddedDamage) addCandidate(String(commaEmbeddedDamage[1] || '').trim());
+
+  const andDamageMatch = normalized.match(/\band\s+([\s\S]*?(?:\bdeals?\b[\s\S]*\bdamage\b|\bfights?\b)[\s\S]*)$/i);
+  if (andDamageMatch) addCandidate(String(andDamageMatch[1] || '').trim());
+
+  const thenDamageMatch = normalized.match(/\bthen\s+([\s\S]*?(?:\bdeals?\b[\s\S]*\bdamage\b|\bfights?\b)[\s\S]*)$/i);
+  if (thenDamageMatch) addCandidate(String(thenDamageMatch[1] || '').trim());
+
+  const damageAnywhereMatch = normalized.match(/((?:if\b[\s\S]*?would\s+deal\s+[\s\S]*?instead|[\s\S]*?\bdeals?\s+[\s\S]*?\bdamage\b[\s\S]*|[\s\S]*?\bfights?\b[\s\S]*))$/i);
+  if (damageAnywhereMatch) addCandidate(String(damageAnywhereMatch[1] || '').trim());
+
+  for (const line of normalized.split(/\n+/)) addCandidate(line);
+  for (const sentence of normalized.split(/\.\s+/)) addCandidate(sentence);
+
+  const haveDealMatch = normalized.match(/(?:^|\.\s*)([^.]*\bmay\s+have\b[^.]*\bdeal\b[^.]*)/i);
+  if (haveDealMatch) addCandidate(String(haveDealMatch[1] || '').trim());
+
+  const quoted = /"([^"]+)"/g;
+  let quotedMatch: RegExpExecArray | null;
+  while ((quotedMatch = quoted.exec(normalized)) !== null) {
+    const quotedText = String(quotedMatch[1] || '').trim();
+    addCandidate(quotedText);
+    const activatedBody = quotedText.match(/:\s*([\s\S]*?(?:\bdeals?\b[\s\S]*\bdamage\b|\bfights?\b)[\s\S]*)$/i);
+    if (activatedBody) addCandidate(String(activatedBody[1] || '').trim());
+  }
+
+  return candidates;
+}
+
+function parseDamageMetadataStep(rawText: string | undefined): OracleEffectStep | null {
+  for (const candidate of uniqueDamageCandidates(rawText)) {
+    const normalized = normalizeClauseForParse(candidate);
+    const strippedMayCandidate = normalized.clause.replace(/^you\s+may\s+/i, '').trim();
+    for (const damageClause of [normalized.clause, strippedMayCandidate]) {
+      const parsed = tryParseLifeAndCombatClause({
+        clause: damageClause,
+        rawClause: candidate,
+        withMeta: <T extends OracleEffectStep>(step: T): T => step,
+      });
+      if (parsed && (parsed.kind === 'deal_damage' || parsed.kind === 'modify_damage')) return parsed;
+    }
+  }
+
+  return null;
+}
+
+function uniqueDrawCandidates(rawText: string | undefined): string[] {
+  const normalized = normalizeOracleText(String(rawText || ''));
+  const candidates: string[] = [];
+  const addCandidate = (raw: string | undefined, includeDerived = true): void => {
+    const value = normalizeOracleText(String(raw || ''))
+      .replace(/^[\s(]+/, '')
+      .replace(/[\s.)]+$/g, '')
+      .trim();
+    if (!value || !/\bdraws?\b/i.test(value)) return;
+    if (!candidates.includes(value)) candidates.push(value);
+    if (!includeDerived) return;
+
+    const activatedBody = value.match(/:\s*([\s\S]*?\bdraws?\b[\s\S]*)$/i);
+    if (activatedBody) addCandidate(String(activatedBody[1] || '').trim(), false);
+
+    const quoted = /"([^"]+)"/g;
+    let quotedMatch: RegExpExecArray | null;
+    while ((quotedMatch = quoted.exec(value)) !== null) {
+      addCandidate(String(quotedMatch[1] || '').trim(), false);
+    }
+  };
+
+  addCandidate(normalized);
+  return candidates;
+}
+
+function parseDrawMetadataStep(rawText: string | undefined): OracleEffectStep | null {
+  for (const candidate of uniqueDrawCandidates(rawText)) {
+    const normalized = normalizeClauseForParse(candidate);
+    const strippedMayCandidate = normalized.clause.replace(/^you\s+may\s+/i, '').trim();
+    for (const drawClause of [normalized.clause, strippedMayCandidate]) {
+      const parsed = tryParseSimpleActionClause({
+        clause: drawClause,
+        rawClause: candidate,
+        withMeta: <T extends OracleEffectStep>(step: T): T => step,
+      });
+      if (parsed?.kind === 'draw') return parsed;
+    }
+  }
+
+  return null;
+}
+
+function hasDrawStepInTree(steps: readonly OracleEffectStep[] | undefined): boolean {
+  if (!Array.isArray(steps)) return false;
+  for (const step of steps) {
+    if (step.kind === 'draw') return true;
+    if (hasDrawStepInTree((step as any).steps)) return true;
+    if (Array.isArray((step as any).modes)) {
+      for (const mode of (step as any).modes) {
+        if (hasDrawStepInTree(mode?.steps)) return true;
+      }
+    }
+    if (Array.isArray((step as any).results)) {
+      for (const result of (step as any).results) {
+        if (hasDrawStepInTree(result?.steps)) return true;
+      }
+    }
+  }
+  return false;
+}
+
+function annotateDrawMetadataOnStep(step: OracleEffectStep): OracleEffectStep {
+  if (step.kind === 'choose_mode') {
+    const modes = step.modes.map((mode) => ({
+      ...mode,
+      steps: mode.steps.map(annotateDrawMetadataOnStep),
+    }));
+    return modes.some((mode, index) => mode.steps !== step.modes[index]?.steps) ? { ...step, modes } : step;
+  }
+
+  if (step.kind === 'die_roll_results') {
+    const results = step.results.map((result) => ({
+      ...result,
+      steps: result.steps.map(annotateDrawMetadataOnStep),
+    }));
+    return results.some((result, index) => result.steps !== step.results[index]?.steps) ? { ...step, results } : step;
+  }
+
+  if (step.kind === 'conditional' || step.kind === 'unless_pays_life' || step.kind === 'unless_pays_mana') {
+    const steps = step.steps.map(annotateDrawMetadataOnStep);
+    return steps !== step.steps ? { ...step, steps } : step;
+  }
+
+  if (step.kind === 'grant_static_ability' || step.kind === 'grant_temporary_ability') {
+    const existingSteps = Array.isArray((step as any).steps) ? [...((step as any).steps as OracleEffectStep[])] : [];
+    if (hasDrawStepInTree(existingSteps)) return step;
+    const effectTexts = Array.isArray((step as any).effectText) ? ((step as any).effectText as readonly string[]) : [];
+    const metadataSteps = effectTexts
+      .map((effectText) => parseDrawMetadataStep(effectText))
+      .filter((parsed): parsed is OracleEffectStep => Boolean(parsed));
+    const rawParsed = parseDrawMetadataStep(step.raw);
+    if (rawParsed) metadataSteps.push(rawParsed);
+    if (metadataSteps.length === 0) return step;
+    return { ...step, steps: [...existingSteps, ...metadataSteps] };
+  }
+
+  if (step.kind === 'create_emblem') {
+    const existingSteps = Array.isArray((step as any).steps) ? [...((step as any).steps as OracleEffectStep[])] : [];
+    if (hasDrawStepInTree(existingSteps)) return step;
+    const metadataSteps = step.abilities
+      .map((emblemAbility) => parseDrawMetadataStep(emblemAbility))
+      .filter((parsed): parsed is OracleEffectStep => Boolean(parsed));
+    const rawParsed = parseDrawMetadataStep(step.raw);
+    if (rawParsed) metadataSteps.push(rawParsed);
+    if (metadataSteps.length === 0) return step;
+    return { ...step, steps: [...existingSteps, ...metadataSteps] };
+  }
+
+  return step;
+}
+
+export function annotateDrawMetadataAbilities(abilities: readonly OracleIRAbility[]): OracleIRAbility[] {
+  return abilities.map((ability) => {
+    const steps = ability.steps.map(annotateDrawMetadataOnStep);
+    return steps.some((step, index) => step !== ability.steps[index]) ? { ...ability, steps } : ability;
+  });
+}
+
+function hasDamageStepInTree(steps: readonly OracleEffectStep[] | undefined): boolean {
+  if (!Array.isArray(steps)) return false;
+  for (const step of steps) {
+    if (step.kind === 'deal_damage' || step.kind === 'modify_damage') return true;
+    if (hasDamageStepInTree((step as any).steps)) return true;
+    if (Array.isArray((step as any).modes)) {
+      for (const mode of (step as any).modes) {
+        if (hasDamageStepInTree(mode?.steps)) return true;
+      }
+    }
+    if (Array.isArray((step as any).results)) {
+      for (const result of (step as any).results) {
+        if (hasDamageStepInTree(result?.steps)) return true;
+      }
+    }
+  }
+  return false;
+}
+
+function appendUniqueDamageMetadataSteps(
+  existingSteps: readonly OracleEffectStep[],
+  metadataSteps: readonly OracleEffectStep[]
+): OracleEffectStep[] {
+  const nextSteps = [...existingSteps];
+  const seen = new Set(nextSteps.map((step) => `${step.kind}:${normalizeOracleText(String(step.raw || ''))}`));
+  for (const parsed of metadataSteps) {
+    const key = `${parsed.kind}:${normalizeOracleText(String(parsed.raw || ''))}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    nextSteps.push(parsed);
+  }
+  return nextSteps;
+}
+
+function annotateDamageMetadataOnStep(step: OracleEffectStep): OracleEffectStep {
+  if (step.kind === 'choose_mode') {
+    const modes = step.modes.map((mode) => ({
+      ...mode,
+      steps: mode.steps.map(annotateDamageMetadataOnStep),
+    }));
+    return modes.some((mode, index) => mode.steps !== step.modes[index]?.steps) ? { ...step, modes } : step;
+  }
+
+  if (step.kind === 'die_roll_results') {
+    const results = step.results.map((result) => ({
+      ...result,
+      steps: result.steps.map(annotateDamageMetadataOnStep),
+    }));
+    return results.some((result, index) => result.steps !== step.results[index]?.steps) ? { ...step, results } : step;
+  }
+
+  if (step.kind === 'conditional' || step.kind === 'unless_pays_life' || step.kind === 'unless_pays_mana') {
+    const steps = step.steps.map(annotateDamageMetadataOnStep);
+    return steps !== step.steps ? { ...step, steps } : step;
+  }
+
+  if (step.kind === 'schedule_delayed_trigger') {
+    const existingSteps = Array.isArray((step as any).steps) ? [...((step as any).steps as OracleEffectStep[])] : [];
+    const parsed = parseDamageMetadataStep(step.effect);
+    if (!parsed) return step;
+    const steps = appendUniqueDamageMetadataSteps(existingSteps, [parsed]);
+    return steps.length === existingSteps.length ? step : { ...step, steps };
+  }
+
+  if (step.kind === 'grant_static_ability' || step.kind === 'grant_temporary_ability') {
+    const existingSteps = Array.isArray((step as any).steps) ? [...((step as any).steps as OracleEffectStep[])] : [];
+    const metadataSteps: OracleEffectStep[] = [];
+    const effectTexts = Array.isArray((step as any).effectText) ? ((step as any).effectText as readonly string[]) : [];
+    for (const effectText of effectTexts) {
+      const parsed = parseDamageMetadataStep(effectText);
+      if (parsed) metadataSteps.push(parsed);
+    }
+    const rawParsed = parseDamageMetadataStep(step.raw);
+    if (rawParsed) metadataSteps.push(rawParsed);
+    if (metadataSteps.length === 0) return step;
+    const steps = appendUniqueDamageMetadataSteps(existingSteps, metadataSteps);
+    return steps.length === existingSteps.length ? step : { ...step, steps };
+  }
+
+  if (step.kind === 'create_emblem') {
+    const existingSteps = Array.isArray((step as any).steps) ? [...((step as any).steps as OracleEffectStep[])] : [];
+    const metadataSteps: OracleEffectStep[] = [];
+    for (const emblemAbility of step.abilities) {
+      const parsed = parseDamageMetadataStep(emblemAbility);
+      if (parsed) metadataSteps.push(parsed);
+    }
+    const rawParsed = parseDamageMetadataStep(step.raw);
+    if (rawParsed) metadataSteps.push(rawParsed);
+    if (metadataSteps.length === 0) return step;
+    const steps = appendUniqueDamageMetadataSteps(existingSteps, metadataSteps);
+    return steps.length === existingSteps.length ? step : { ...step, steps };
+  }
+
+  if (step.kind === 'unknown' && /(?:\bdeals?\b[\s\S]*\bdamage\b|\bdamage\b[\s\S]*\binstead\b|\bfights?\b)/i.test(normalizeOracleText(String(step.raw || '')))) {
+    const parsed = parseDamageMetadataStep(step.raw);
+    if (!parsed) return step;
+    const existingSteps = Array.isArray((step as any).steps) ? ((step as any).steps as readonly OracleEffectStep[]) : [];
+    const steps = appendUniqueDamageMetadataSteps(existingSteps, [parsed]);
+    return steps.length === existingSteps.length ? step : ({ ...(step as any), steps } as OracleEffectStep);
+  }
+
+  return step;
+}
+
+function parseDamageMetadataFromAbilityText(ability: OracleIRAbility): OracleEffectStep | null {
+  const candidates = [ability.effectText, ability.text];
+  for (const candidate of candidates) {
+    const parsed = parseDamageMetadataStep(candidate);
+    if (parsed) return parsed;
+  }
+  return null;
+}
+
+const DAMAGE_METADATA_ABILITY_FALLBACK_BLOCKED_KINDS = new Set<string>([
+  'grant_static_ability',
+  'grant_temporary_ability',
+  'deal_damage',
+  'modify_damage',
+  'prevent_damage',
+]);
+
+function canAppendDamageMetadataDespiteBlockedKinds(ability: OracleIRAbility): boolean {
+  return !ability.steps.some((step) => DAMAGE_METADATA_ABILITY_FALLBACK_BLOCKED_KINDS.has(step.kind));
+}
+
+export function annotateDamageMetadataAbilities(abilities: readonly OracleIRAbility[]): OracleIRAbility[] {
+  return abilities.map((ability) => {
+    const steps = ability.steps.map(annotateDamageMetadataOnStep);
+    const withAnnotatedSteps = steps.some((step, index) => step !== ability.steps[index]) ? { ...ability, steps } : ability;
+    if (hasDamageStepInTree(withAnnotatedSteps.steps)) return withAnnotatedSteps;
+
+    const parsed = parseDamageMetadataFromAbilityText(withAnnotatedSteps);
+    if (!parsed) return withAnnotatedSteps;
+    if (!canAppendDamageMetadataDespiteBlockedKinds(withAnnotatedSteps)) return withAnnotatedSteps;
+
+    const metadataWrapper = { kind: 'unknown', raw: 'Damage metadata', steps: [parsed] } as any as OracleEffectStep;
+    return { ...withAnnotatedSteps, steps: [...withAnnotatedSteps.steps, metadataWrapper] };
+  });
 }
 
 export function pruneStaticMyriadReminderTailAbilities(
@@ -5858,7 +6336,7 @@ export function pruneStaticMyriadReminderTailAbilities(
 ): OracleIRAbility[] {
   return abilities.map((ability) => {
     const hasStaticMyriadGrant = ability.steps.some((step) => {
-      if (step.kind !== 'grant_static_ability') return false;
+      if (step.kind !== 'grant_static_ability' && step.kind !== 'grant_temporary_ability') return false;
       return Array.isArray((step as any).abilities) && (step as any).abilities.includes('myriad');
     });
     if (!hasStaticMyriadGrant) return ability;
@@ -9564,15 +10042,22 @@ function parseCreateEmblemUnknownStep(rawClause: string, cardName?: string): Ora
   const normalized = normalizeOracleText(rawClause).trim();
   if (!normalized) return null;
 
-  const match = normalized.match(/^you get an emblem with\s+"([^"]+)"?$/i);
-  if (!match) return null;
+  if (!/^you get an emblem with\b/i.test(normalized)) return null;
 
-  const abilityText = String(match[1] || '').trim();
-  if (!abilityText) return null;
+  const abilities = Array.from(normalized.matchAll(/"([^"]+)"/g))
+    .map(match => String(match[1] || '').trim())
+    .filter(Boolean);
+  if (abilities.length === 0) {
+    const fallback = String(normalized.match(/^you get an emblem with\s+([\s\S]+)$/i)?.[1] || '')
+      .replace(/[.]+$/g, '')
+      .trim();
+    if (fallback) abilities.push(fallback);
+  }
+  if (abilities.length === 0) return null;
 
   return {
     kind: 'create_emblem',
-    abilities: [abilityText],
+    abilities,
     ...(cardName ? { name: `${cardName} Emblem` } : {}),
     raw: normalized,
   };

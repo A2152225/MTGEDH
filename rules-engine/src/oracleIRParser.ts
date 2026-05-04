@@ -63,6 +63,8 @@ import {
   expandMobilizeKeywordAbilities,
   expandTokenCreationReplacementUnknownAbilities,
   annotateTokenCreationMetadataAbilities,
+  annotateDamageMetadataAbilities,
+  annotateDrawMetadataAbilities,
   expandParadigmKeywordAbilities,
   pruneStaticMyriadReminderTailAbilities,
   expandGraveyardPermissionModifierUnknownAbilities,
@@ -1571,12 +1573,17 @@ export function parseOracleTextToIR(oracleText: string, cardName?: string): Orac
   abilities = expandCreateEmblemUnknownAbilities(abilities, cardName);
   abilities = mergeDieRollResultTableAbilities(abilities);
   abilities = annotateTokenCreationMetadataAbilities(abilities, normalizedOracleText);
+  abilities = annotateDamageMetadataAbilities(abilities);
+  abilities = annotateDrawMetadataAbilities(abilities);
   abilities = pruneRedundantFaceDownReminderUnknownAbilities(abilities);
   abilities = pruneRedundantProliferateReminderUnknownAbilities(abilities);
   abilities = pruneExternallyHandledStaticUnknownAbilities(abilities);
   abilities = repairSubjectlessDrawAfterZoneShuffleAbilities(abilities);
   abilities = pruneCurrentBatchReminderUnknownAbilities(abilities);
   abilities = pruneLateKeywordReminderOnlyAbilities(abilities);
+  abilities = annotateTokenCreationMetadataAbilities(abilities, normalizedOracleText);
+  abilities = annotateDamageMetadataAbilities(abilities);
+  abilities = annotateDrawMetadataAbilities(abilities);
   abilities = abilities.map(wrapTriggeredInterveningIfAbility);
 
   return {

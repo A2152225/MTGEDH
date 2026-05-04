@@ -21,6 +21,12 @@ function parseDamageAmount(raw: string | undefined): Extract<OracleEffectStep, {
   if (normalized === 'its mana value') {
     return { kind: 'object_stat', subject: 'it', stat: 'mana_value' };
   }
+  if (normalized === 'twice its power') {
+    return { kind: 'object_stat', subject: 'it', stat: 'power', multiplier: 2 };
+  }
+  if (normalized === 'twice x') {
+    return { kind: 'unknown', raw: 'twice X' };
+  }
   if (normalized === "that card's power") {
     return { kind: 'object_stat', subject: 'that_card', stat: 'power' };
   }
@@ -36,6 +42,9 @@ function parseDamageAmount(raw: string | undefined): Extract<OracleEffectStep, {
   if (normalized === "that creature's toughness") {
     return { kind: 'object_stat', subject: 'that_creature', stat: 'toughness' };
   }
+  if (normalized === "that spell's mana value") {
+    return { kind: 'unknown', raw: normalized };
+  }
   if (normalized === "the sacrificed creature's power") {
     return { kind: 'object_stat', subject: 'the_sacrificed_creature', stat: 'power' };
   }
@@ -45,6 +54,15 @@ function parseDamageAmount(raw: string | undefined): Extract<OracleEffectStep, {
   if (normalized === "the sacrificed creature's mana value") {
     return { kind: 'object_stat', subject: 'the_sacrificed_creature', stat: 'mana_value' };
   }
+  if (normalized === "the sacrificed artifact's mana value") {
+    return { kind: 'unknown', raw: normalized };
+  }
+  if (normalized === 'its power' || normalized === 'their power') {
+    return { kind: 'object_stat', subject: 'source', stat: 'power' };
+  }
+
+  const parsedQuantity = parseQuantity(raw);
+  if (parsedQuantity.kind !== 'unknown') return parsedQuantity;
 
   return { kind: 'unknown', raw: String(raw || '').trim() };
 }
@@ -95,10 +113,62 @@ const PLAYER_SUBJECT_PREFIX =
   "(?:(you|each player|each opponent|each of those opponents|target player|target opponent|that player|that opponent|defending player|the defending player|he or she|they|its controller|its owner|that [a-z0-9][a-z0-9 ,.'â€™-]*?(?:'s|â€™s)? (?:controller|owner)|[a-z0-9][a-z0-9 ,.'â€™-]*?(?:'s|â€™s) (?:controller|owner))\\s+)?";
 
 const SELF_DAMAGE_SOURCE_SUBJECT_PATTERN =
-  "(?:it|this (?:permanent|spell|creature|artifact|enchantment|planeswalker|battle|land|card|emblem|token)|that [a-z0-9][a-z0-9 ,.'â€™-]*|target [a-z0-9][a-z0-9 ,.'â€™-]*|another target [a-z0-9][a-z0-9 ,.'â€™-]*)";
+  "(?:it|he|she|this (?:permanent|spell|creature|artifact|enchantment|planeswalker|battle|land|card|emblem|token|aura|equipment|class|saga|spacecraft|vehicle)|enchanted creature|equipped creature|each creature(?: you control)?(?: that[^,]+?)?|up to [a-z0-9 -]+ target creatures? you control|that [a-z0-9][a-z0-9 ,.'â€™-]*|target [a-z0-9][a-z0-9 ,.'â€™-]*|another target [a-z0-9][a-z0-9 ,.'â€™-]*)";
 
 const NAMED_DAMAGE_SOURCE_PATTERN =
   "[A-Z0-9][A-Za-z0-9'â€™/-]*(?: [A-Z0-9][A-Za-z0-9'â€™/-]*)*(?:, [A-Z0-9][A-Za-z0-9'â€™/-]*(?: [A-Z0-9][A-Za-z0-9'â€™/-]*)*)?";
+
+const DAMAGE_AMOUNT_PATTERN = "that much|that many|twice\\s+x|x|\\d+|[a-z]+";
+
+function isDamageAmountDescriptor(raw: string | undefined): boolean {
+  return /^(?:combat|noncombat)$/i.test(String(raw || '').trim());
+}
+
+function shouldSkipGenericDamageSource(raw: string | undefined): boolean {
+  const normalized = normalizeOracleText(String(raw || ''))
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+  if (!normalized) return true;
+  if (/^otherwise\b/.test(normalized)) return true;
+  if (/\band\b/.test(normalized) && /\b(?:gets?|gains?|draws?|creates?|destroys?|returns?|exiles?|adds?|gain|draw|create|destroy|return|exile|add)\b/.test(normalized)) return true;
+  return false;
+}
+
+function normalizeDamageClauseForParse(clause: string): string {
+  let working = normalizeOracleText(clause)
+    .replace(/^[\s(]+/, '')
+    .replace(/[.)\s]+$/g, '')
+    .replace(/^[\u2022•]\s*/, '')
+    .trim();
+
+  working = working.replace(/^(?:[ivxlcdm]+)\s*(?:[-?]|[^\w\s])+\s*/i, '');
+  working = working.replace(
+    /^[a-z0-9][a-z0-9\s'.,/&-]{0,80}\s+-\s+(?=(?:this|it|he|she|each|target|enchanted|equipped|[A-Z0-9]).*\bdeals?\b)/i,
+    ''
+  );
+  working = working.replace(
+    /^[a-z0-9][a-z0-9\s'.,/&-]{0,80}\s+\.\.\s*(?=(?:this|it|he|she|each|target|enchanted|equipped|[A-Z0-9]).*\bdeals?\b)/i,
+    ''
+  );
+  working = working.replace(/^\+\s*\{[^}]+\}\s+-\s*/i, '');
+
+  const commaEmbeddedDamage = working.match(/^[\s\S]+?,\s*([^,;]*\bdeals?\b[\s\S]*)$/i);
+  if (commaEmbeddedDamage && !/^\s*[^,;]*\bdeals?\b/i.test(working)) {
+    working = String(commaEmbeddedDamage[1] || '').trim();
+  }
+  working = working.replace(/,\s*then\b[\s\S]*$/i, '').trim();
+
+  const triggerBody = working.match(/^(?:(?:when|whenever)\b.+?|at the beginning of\b.+?),\s+(.+)$/i);
+  if (triggerBody) working = String(triggerBody[1] || '').trim();
+
+  const mayHave = working.match(/^(?:(?:you|any opponent|any player|that player|that opponent|its controller|that [a-z0-9][a-z0-9 ,'â€™-]*?(?:'s|â€™s)? controller)\s+may\s+)?have\s+(.+?)\s+deal\s+(.+)$/i);
+  if (mayHave) {
+    working = `${String(mayHave[1] || '').trim()} deals ${String(mayHave[2] || '').trim()}`;
+  }
+
+  return working.trim();
+}
 
 export function tryParseLifeAndCombatClause(args: {
   clause: string;
@@ -106,7 +176,6 @@ export function tryParseLifeAndCombatClause(args: {
   withMeta: WithMeta;
 }): OracleEffectStep | null {
   const { clause, rawClause, withMeta } = args;
-  const normalizedRawClause = normalizeOracleText(rawClause);
 
   {
     const gain = clause.match(new RegExp(`^${PLAYER_SUBJECT_PREFIX}gains?\\s+(that much|that many|\\d+|x|[a-z]+)\\s+life\\b`, 'i'));
@@ -193,7 +262,124 @@ export function tryParseLifeAndCombatClause(args: {
   }
 
   {
-    const dealDamageEqual = clause.match(/^deal\s+damage\s+equal\s+to\s+(.+?)\s+to\s+(.+)$/i);
+    const damageClause = normalizeDamageClauseForParse(clause);
+
+    const damageIncrease = damageClause.match(
+      /^if\s+(.+?)\s+would\s+deal\s+(?:(combat|noncombat)\s+)?damage\s+to\s+(.+?),\s*it\s+deals?\s+that much damage plus\s+(.+?)\s+instead$/i
+    );
+    if (damageIncrease) {
+      const damageFilterRaw = String(damageIncrease[2] || '').toLowerCase();
+      return withMeta({
+        kind: 'modify_damage',
+        mode: 'add',
+        amount: parseQuantity(String(damageIncrease[4] || '').trim()),
+        sourceFilter: String(damageIncrease[1] || '').trim(),
+        targetFilter: String(damageIncrease[3] || '').trim(),
+        damageFilter: damageFilterRaw === 'combat' ? 'combat' : damageFilterRaw === 'noncombat' ? 'noncombat' : 'any',
+        raw: rawClause,
+      } as OracleEffectStep);
+    }
+
+    const damageIncreaseFollowup = damageClause.match(/^it\s+deals?\s+that much damage plus\s+(.+?)(?:\s+instead)?$/i);
+    if (damageIncreaseFollowup) {
+      return withMeta({
+        kind: 'modify_damage',
+        mode: 'add',
+        amount: parseQuantity(String(damageIncreaseFollowup[1] || '').trim()),
+        damageFilter: 'any',
+        raw: rawClause,
+      } as OracleEffectStep);
+    }
+
+    const damageDecrease = damageClause.match(
+      /^if\s+(.+?)\s+would\s+deal\s+(?:(combat|noncombat)\s+)?damage\s+to\s+(.+?),\s*it\s+deals?\s+that much damage minus\s+(.+?)(?:\s+to\s+.+?)?\s+instead$/i
+    );
+    if (damageDecrease) {
+      const damageFilterRaw = String(damageDecrease[2] || '').toLowerCase();
+      return withMeta({
+        kind: 'modify_damage',
+        mode: 'subtract',
+        amount: parseQuantity(String(damageDecrease[4] || '').trim()),
+        sourceFilter: String(damageDecrease[1] || '').trim(),
+        targetFilter: String(damageDecrease[3] || '').trim(),
+        damageFilter: damageFilterRaw === 'combat' ? 'combat' : damageFilterRaw === 'noncombat' ? 'noncombat' : 'any',
+        raw: rawClause,
+      } as OracleEffectStep);
+    }
+
+    const damageDecreaseFollowup = damageClause.match(/^it\s+deals?\s+that much damage minus\s+(.+?)(?:\s+to\s+.+?)?(?:\s+instead)?$/i);
+    if (damageDecreaseFollowup) {
+      return withMeta({
+        kind: 'modify_damage',
+        mode: 'subtract',
+        amount: parseQuantity(String(damageDecreaseFollowup[1] || '').trim()),
+        damageFilter: 'any',
+        raw: rawClause,
+      } as OracleEffectStep);
+    }
+
+    if (/^each deals damage equal to its power to the other$/i.test(damageClause)) {
+      return withMeta({
+        kind: 'deal_damage',
+        amount: { kind: 'object_stat', subject: 'source', stat: 'power' },
+        source: { kind: 'raw', text: 'each creature' },
+        target: { kind: 'raw', text: 'the other creature' },
+        raw: rawClause,
+      });
+    }
+
+    const fight = damageClause.match(/^(.+?)\s+fights?\s+(.+)$/i);
+    if (fight) {
+      return withMeta({
+        kind: 'deal_damage',
+        amount: { kind: 'object_stat', subject: 'source', stat: 'power' },
+        source: parseObjectSelector(String(fight[1] || '').trim()),
+        target: parseObjectSelector(String(fight[2] || '').trim()),
+        raw: rawClause,
+      });
+    }
+
+    const equalDividedDamage = damageClause.match(
+      /^(.+?)\s+deals?\s+damage\s+equal\s+to\s+(.+?)\s+divided(?:\s+(evenly, rounded down),?\s+among|\s+as you choose among)\s+(.+)$/i
+    );
+    if (equalDividedDamage) {
+      return withMeta({
+        kind: 'deal_damage',
+        amount: parseDamageAmount(equalDividedDamage[2]),
+        source: parseObjectSelector(equalDividedDamage[1]),
+        target: parseObjectSelector(equalDividedDamage[4]),
+        division: equalDividedDamage[3] ? 'evenly_rounded_down' : 'as_you_choose',
+        raw: rawClause,
+      });
+    }
+
+    const dividedDamage = damageClause.match(new RegExp(`^(?:(.+?)\\s+)?deals?\\s+(${DAMAGE_AMOUNT_PATTERN})\\s+damage\\s+divided(?:\\s+(evenly, rounded down))?\\s+as you choose among\\s+(.+)$`, 'i'));
+    if (dividedDamage) {
+      const sourceText = String(dividedDamage[1] || '').trim();
+      return withMeta({
+        kind: 'deal_damage',
+        amount: parseQuantity(String(dividedDamage[2] || '').trim()),
+        ...(sourceText ? { source: parseObjectSelector(sourceText) } : {}),
+        target: parseObjectSelector(String(dividedDamage[4] || '').trim()),
+        division: dividedDamage[3] ? 'evenly_rounded_down' : 'as_you_choose',
+        raw: rawClause,
+      });
+    }
+
+    const evenlyDividedDamage = damageClause.match(new RegExp(`^(?:(.+?)\\s+)?deals?\\s+(${DAMAGE_AMOUNT_PATTERN})\\s+damage\\s+divided\\s+(evenly, rounded down),?\\s+among\\s+(.+)$`, 'i'));
+    if (evenlyDividedDamage && !isDamageAmountDescriptor(evenlyDividedDamage[2])) {
+      const sourceText = String(evenlyDividedDamage[1] || '').trim();
+      return withMeta({
+        kind: 'deal_damage',
+        amount: parseQuantity(String(evenlyDividedDamage[2] || '').trim()),
+        ...(sourceText ? { source: parseObjectSelector(sourceText) } : {}),
+        target: parseObjectSelector(String(evenlyDividedDamage[4] || '').trim()),
+        division: 'evenly_rounded_down',
+        raw: rawClause,
+      });
+    }
+
+    const dealDamageEqual = damageClause.match(/^deal\s+damage\s+equal\s+to\s+(.+?)\s+to\s+(.+)$/i);
     if (dealDamageEqual) {
       return withMeta({
         kind: 'deal_damage',
@@ -203,7 +389,7 @@ export function tryParseLifeAndCombatClause(args: {
       });
     }
 
-    const sourceDealsDamageEqual = clause.match(
+    const sourceDealsDamageEqual = damageClause.match(
       new RegExp(`^(${SELF_DAMAGE_SOURCE_SUBJECT_PATTERN})\\s+deals?\\s+damage\\s+equal\\s+to\\s+(.+?)\\s+to\\s+(.+)$`, 'i')
     );
     if (sourceDealsDamageEqual) {
@@ -216,7 +402,18 @@ export function tryParseLifeAndCombatClause(args: {
       });
     }
 
-    const namedSourceDealsDamageEqual = normalizedRawClause.match(
+    const genericSourceDealsDamageEqual = damageClause.match(/^(.+?)\s+deals?\s+damage\s+equal\s+to\s+(.+?)\s+to\s+(.+)$/i);
+    if (genericSourceDealsDamageEqual && !shouldSkipGenericDamageSource(genericSourceDealsDamageEqual[1])) {
+      return withMeta({
+        kind: 'deal_damage',
+        amount: parseDamageAmount(genericSourceDealsDamageEqual[2]),
+        source: parseObjectSelector(genericSourceDealsDamageEqual[1]),
+        target: parseObjectSelector(genericSourceDealsDamageEqual[3]),
+        raw: rawClause,
+      });
+    }
+
+    const namedSourceDealsDamageEqual = normalizeOracleText(damageClause).match(
       new RegExp(`^(${NAMED_DAMAGE_SOURCE_PATTERN})\\s+deals?\\s+damage\\s+equal\\s+to\\s+(.+?)\\s+to\\s+(.+)$`)
     );
     if (namedSourceDealsDamageEqual) {
@@ -229,20 +426,20 @@ export function tryParseLifeAndCombatClause(args: {
       });
     }
 
-    const dealDamage = clause.match(/^deal\s+(that much|\d+|x|[a-z]+)\s+damage\s+to\s+(.+)$/i);
-    if (dealDamage) {
+    const dealDamage = damageClause.match(new RegExp(`^deals?\\s+(${DAMAGE_AMOUNT_PATTERN})\\s+damage\\s+to\\s+(.+)$`, 'i'));
+    if (dealDamage && !isDamageAmountDescriptor(dealDamage[1])) {
       return withMeta({
         kind: 'deal_damage',
-        amount: parseQuantity(dealDamage[1]),
+        amount: parseQuantity(String(dealDamage[1] || '').trim()),
         target: parseObjectSelector(dealDamage[2]),
         raw: rawClause,
       });
     }
 
-    const sourceDealsDamage = clause.match(
-      new RegExp(`^(${SELF_DAMAGE_SOURCE_SUBJECT_PATTERN})\\s+deals?\\s+(that much|\\d+|x|[a-z]+)\\s+damage\\s+to\\s+(.+)$`, 'i')
+    const sourceDealsDamage = damageClause.match(
+      new RegExp(`^(${SELF_DAMAGE_SOURCE_SUBJECT_PATTERN})\\s+deals?\\s+(${DAMAGE_AMOUNT_PATTERN})\\s+damage\\s+to\\s+(.+)$`, 'i')
     );
-    if (sourceDealsDamage) {
+    if (sourceDealsDamage && !isDamageAmountDescriptor(sourceDealsDamage[2])) {
       return withMeta({
         kind: 'deal_damage',
         amount: parseQuantity(sourceDealsDamage[2]),
@@ -252,10 +449,21 @@ export function tryParseLifeAndCombatClause(args: {
       });
     }
 
-    const namedSourceDealsDamage = normalizedRawClause.match(
-      new RegExp(`^(${NAMED_DAMAGE_SOURCE_PATTERN})\\s+deals?\\s+(that much|\\d+|x|[a-z]+)\\s+damage\\s+to\\s+(.+)$`)
+    const genericSourceDealsDamage = damageClause.match(new RegExp(`^(.+?)\\s+deals?\\s+(${DAMAGE_AMOUNT_PATTERN})\\s+damage\\s+to\\s+(.+)$`, 'i'));
+    if (genericSourceDealsDamage && !isDamageAmountDescriptor(genericSourceDealsDamage[2]) && !shouldSkipGenericDamageSource(genericSourceDealsDamage[1])) {
+      return withMeta({
+        kind: 'deal_damage',
+        amount: parseQuantity(String(genericSourceDealsDamage[2] || '').trim()),
+        source: parseObjectSelector(genericSourceDealsDamage[1]),
+        target: parseObjectSelector(genericSourceDealsDamage[3]),
+        raw: rawClause,
+      });
+    }
+
+    const namedSourceDealsDamage = normalizeOracleText(damageClause).match(
+      new RegExp(`^(${NAMED_DAMAGE_SOURCE_PATTERN})\\s+deals?\\s+(${DAMAGE_AMOUNT_PATTERN})\\s+damage\\s+to\\s+(.+)$`)
     );
-    if (namedSourceDealsDamage) {
+    if (namedSourceDealsDamage && !isDamageAmountDescriptor(namedSourceDealsDamage[2])) {
       return withMeta({
         kind: 'deal_damage',
         amount: parseQuantity(namedSourceDealsDamage[2]),

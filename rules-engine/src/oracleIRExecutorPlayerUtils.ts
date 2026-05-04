@@ -627,6 +627,25 @@ export function resolvePlayers(
       return state.players.map(p => p.id);
     case 'each_opponent':
       return opponents;
+    case 'any_number_of_target_opponents': {
+      const chosenTargets = Array.isArray(ctx.selectorContext?.chosenObjectIds)
+        ? dedupeOpponents(ctx.selectorContext.chosenObjectIds as PlayerID[])
+        : [];
+      if (chosenTargets.length > 0) return chosenTargets;
+      const bound = normalizeId(ctx.selectorContext?.targetOpponentId);
+      if (bound && opponentIdSet.has(bound)) return [bound];
+      return [];
+    }
+    case 'you_and_target_opponent': {
+      const target = normalizeId(ctx.selectorContext?.targetOpponentId) ?? normalizeId(ctx.selectorContext?.targetPlayerId);
+      const opponent = target && opponentIdSet.has(target) ? target : opponents.length === 1 ? opponents[0] : undefined;
+      return opponent ? dedupe([controllerId, opponent]) : (hasValidController ? [controllerId] : []);
+    }
+    case 'you_and_target_player': {
+      const target = normalizeId(ctx.selectorContext?.targetPlayerId) ?? normalizeId(ctx.selectorContext?.targetOpponentId);
+      const player = target && allPlayerIds.has(target) ? target : opponents.length === 1 ? opponents[0] : undefined;
+      return player ? dedupe([controllerId, player]) : (hasValidController ? [controllerId] : []);
+    }
     case 'each_of_those_opponents': {
       const contextual = ctx.selectorContext?.eachOfThoseOpponents;
       if (Array.isArray(contextual) && contextual.length > 0) {
