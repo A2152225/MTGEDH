@@ -2109,6 +2109,17 @@ function resolveVariableAmount(
 
   const numericAmount = quantityToNumber(amount, ctx);
   if (numericAmount !== null) return numericAmount;
+  if (amount.kind === 'unknown') {
+    const normalized = normalizeOracleText(String(amount.raw || ''));
+    const spellsCastMatch = normalized.match(/^(?:(\d+)\s+)?for each spells? (?:you(?:'ve| have)?|you) cast this turn$|^(\d+)\s+for each spells? (?:you(?:'ve| have)?|you) cast this turn$/i);
+    if (spellsCastMatch) {
+      const multiplier = Number(spellsCastMatch[1] || spellsCastMatch[2] || 1);
+      const contextCount = readFinite(ctx.spellCastCountThisTurn);
+      const stateCount = readFinite((state as any)?.spellsCastThisTurn?.[controllerId]);
+      const castCount = contextCount ?? stateCount;
+      if (castCount !== null && Number.isFinite(multiplier)) return Math.max(0, castCount * Math.max(0, multiplier));
+    }
+  }
   if (amount.kind === 'reference_amount') {
     const runtimeAmount = Number(runtime?.lastReferenceAmount);
     return Number.isFinite(runtimeAmount) ? Math.max(0, runtimeAmount) : null;

@@ -173,16 +173,31 @@ export function tryParseZoneAndRemovalClause(args: {
     });
   }
 
-  const counterSpellMatch = clause.match(/^counter\s+target\s+spell$/i);
-  if (counterSpellMatch) {
-    return withMeta({ kind: 'counter_spell', target: parseObjectSelector('target spell'), raw: rawClause });
-  }
-
-  const counterTargetedSpellMatch = clause.match(/^counter\s+(target\s+.+?spell(?:\s+.+)?)$/i);
-  if (counterTargetedSpellMatch) {
+  const counterUnlessVariablePaysMatch = clause.match(/^counter\s+(target\s+.+?)\s+unless\s+its\s+controller\s+pays\s+(.+)$/i);
+  if (counterUnlessVariablePaysMatch && /\b(?:spell|spells|ability|abilities)\b/i.test(String(counterUnlessVariablePaysMatch[1] || ''))) {
     return withMeta({
       kind: 'counter_spell',
-      target: parseObjectSelector(String(counterTargetedSpellMatch[1] || '').trim()),
+      target: parseObjectSelector(String(counterUnlessVariablePaysMatch[1] || '').trim()),
+      raw: rawClause,
+    });
+  }
+
+  const counterUpToStackObjectsMatch = clause.match(
+    /^counter\s+(up to\s+(?:one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+target\s+.+)$/i
+  );
+  if (counterUpToStackObjectsMatch && /\b(?:spell|spells|ability|abilities)\b/i.test(String(counterUpToStackObjectsMatch[1] || ''))) {
+    return withMeta({
+      kind: 'counter_spell',
+      target: parseObjectSelector(String(counterUpToStackObjectsMatch[1] || '').trim()),
+      raw: rawClause,
+    });
+  }
+
+  const counterTargetedStackObjectMatch = clause.match(/^counter\s+(target\s+.+)$/i);
+  if (counterTargetedStackObjectMatch && /\b(?:spell|spells|ability|abilities)\b/i.test(String(counterTargetedStackObjectMatch[1] || ''))) {
+    return withMeta({
+      kind: 'counter_spell',
+      target: parseObjectSelector(String(counterTargetedStackObjectMatch[1] || '').trim()),
       raw: rawClause,
     });
   }

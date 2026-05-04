@@ -127,6 +127,8 @@ export function buildOracleIRExecutionContext(
     hint?.unlessPaysManaChoice === 'pay' || hint?.unlessPaysManaChoice === 'decline'
       ? hint.unlessPaysManaChoice
       : undefined;
+  const hintSpellCastCountThisTurn = Number(hint?.spellCastCountThisTurn);
+  const hintNoncreatureSpellCastCountThisTurn = Number(hint?.noncreatureSpellCastCountThisTurn);
   const baseTargetOpponentId = normalizeId(baseSel?.targetOpponentId);
   const baseTargetPlayerId = normalizeId(baseSel?.targetPlayerId);
   const baseTargetSpellId = normalizeId(baseSel?.targetSpellId);
@@ -295,6 +297,10 @@ export function buildOracleIRExecutionContext(
       ...(referenceSpellTypes ? { referenceSpellTypes } : {}),
       ...(typeof referenceSpellManaValue !== 'undefined' ? { referenceSpellManaValue } : {}),
       ...(typeof referenceAmount !== 'undefined' ? { referenceAmount } : {}),
+      ...(Number.isFinite(hintSpellCastCountThisTurn) ? { spellCastCountThisTurn: hintSpellCastCountThisTurn } : {}),
+      ...(Number.isFinite(hintNoncreatureSpellCastCountThisTurn)
+        ? { noncreatureSpellCastCountThisTurn: hintNoncreatureSpellCastCountThisTurn }
+        : {}),
       ...(typeof hint?.wonCoinFlip === 'boolean' ? { wonCoinFlip: hint.wonCoinFlip } : {}),
       ...(typeof hint?.winningVoteChoice !== 'undefined' ? { winningVoteChoice: hint.winningVoteChoice } : {}),
       ...(hintVoteChoiceCounts ? { voteChoiceCounts: hintVoteChoiceCounts } : {}),
@@ -318,6 +324,10 @@ export function buildOracleIRExecutionContext(
     ...(referenceSpellTypes ? { referenceSpellTypes } : {}),
     ...(typeof referenceSpellManaValue !== 'undefined' ? { referenceSpellManaValue } : {}),
     ...(typeof referenceAmount !== 'undefined' ? { referenceAmount } : {}),
+    ...(Number.isFinite(hintSpellCastCountThisTurn) ? { spellCastCountThisTurn: hintSpellCastCountThisTurn } : {}),
+    ...(Number.isFinite(hintNoncreatureSpellCastCountThisTurn)
+      ? { noncreatureSpellCastCountThisTurn: hintNoncreatureSpellCastCountThisTurn }
+      : {}),
     ...(typeof hint?.wonCoinFlip === 'boolean' ? { wonCoinFlip: hint.wonCoinFlip } : {}),
     ...(typeof hint?.winningVoteChoice !== 'undefined' ? { winningVoteChoice: hint.winningVoteChoice } : {}),
     ...(hintVoteChoiceCounts ? { voteChoiceCounts: hintVoteChoiceCounts } : {}),

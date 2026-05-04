@@ -536,6 +536,30 @@ export function tryParseLifeAndCombatClause(args: {
       });
     }
 
+    const nonTargetTapUntap = clause.match(
+      /^(tap|untap)\s+((?:(?:all|each)\s+|up to\s+(?:one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+)?(?:creatures?|lands?|artifacts?|enchantments?|permanents?)(?:\s+(?:you control|target player controls|an opponent controls|your opponents control|that player controls|that opponent controls))?(?:\s+with\s+.+?)?)$/i
+    );
+    if (nonTargetTapUntap) {
+      return withMeta({
+        kind: 'tap_or_untap',
+        target: parseObjectSelector(String(nonTargetTapUntap[2] || '').trim()),
+        mode: String(nonTargetTapUntap[1] || '').toLowerCase() as 'tap' | 'untap',
+        raw: rawClause,
+      });
+    }
+
+    const broadNonTargetTapUntap = clause.match(
+      /^(?:(?:you|target player)\s+)?(tap|untap)s?\s+((?:(?:all|each(?:\s+other)?|up to\s+(?:one|two|three|four|five|six|seven|eight|nine|ten|\d+|x))\s+).+)$/i
+    );
+    if (broadNonTargetTapUntap && /\b(?:creatures?|lands?|artifacts?|enchantments?|permanents?|you control)\b/i.test(String(broadNonTargetTapUntap[2] || ''))) {
+      return withMeta({
+        kind: 'tap_or_untap',
+        target: parseObjectSelector(String(broadNonTargetTapUntap[2] || '').trim()),
+        mode: String(broadNonTargetTapUntap[1] || '').toLowerCase() as 'tap' | 'untap',
+        raw: rawClause,
+      });
+    }
+
     const tapTarget = clause.match(
       /^tap\s+((?:(?:all|(?:up to\s+(?:one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+)?target|that|those|this|enchanted|equipped)\s+.+|it|them))$/i
     );

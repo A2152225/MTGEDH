@@ -2066,7 +2066,7 @@ function parseStandaloneTopLibraryInfoUnknownStep(step: Extract<OracleEffectStep
   }
 
   const match = normalized.match(
-    /^(?:you may\s+)?(look at|reveal) the top (?:(a|an|\d+|x|[a-z]+) cards?|card) of (your|target player's|target opponent's|that player's|that opponent's) library$/i
+    /^(?:you may\s+)?(look at|reveal) the top (?:(a|an|\d+|x|[a-z]+) cards?|card) of (your|target player's|target opponent's|that player's|that opponent's) library(?: any time)?(?:,\s*where\s+.+)?$/i
   );
   if (!match) return null;
 
@@ -3645,9 +3645,15 @@ function parseConditionalIfYouDoImpulseStep(
 ): OracleEffectStep | null {
   if (step.condition.kind !== 'if') return null;
   if (normalizeLeadingConditionalCondition(String(step.condition.raw || '').trim()) !== 'you do') return null;
-  if (nextStep?.kind !== 'unknown') return null;
 
-  const permission = parseEffectLevelImpulsePermissionClause(cleanImpulseClause(String(nextStep.raw || '')));
+  const permission = nextStep?.kind === 'unknown'
+    ? parseEffectLevelImpulsePermissionClause(cleanImpulseClause(String(nextStep.raw || '')))
+    : nextStep?.kind === 'grant_exile_permission' && /^(?:that card|the exiled card|it)$/i.test(String((nextStep.what as any)?.text || '').trim())
+      ? {
+          permission: nextStep.permission,
+          duration: nextStep.duration,
+        }
+      : null;
   if (!permission) return null;
 
   const clauses = splitIntoClauses(
@@ -3793,6 +3799,23 @@ function parseExilePermissionModifierUnknownStep(step: Extract<OracleEffectStep,
     .replace(/^then\b\s*/i, '')
     .trim();
   if (!normalized) return null;
+
+  const exiledCardPermissionMatch = normalized.match(
+    /^you may (cast|play) (the exiled card|that card|it)(?: without paying its mana cost)?(?: this turn)?(?: if .+)?$/i
+  );
+  if (exiledCardPermissionMatch) {
+    return {
+      kind: 'grant_exile_permission',
+      who: { kind: 'you' },
+      what: parseObjectSelector(String(exiledCardPermissionMatch[2] || '').trim()),
+      duration: /\bthis turn\b/i.test(normalized) ? 'this_turn' : 'during_resolution',
+      permission: String(exiledCardPermissionMatch[1] || '').toLowerCase() === 'play' ? 'play' : 'cast',
+      withoutPayingManaCost: /without paying its mana cost/i.test(normalized) || undefined,
+      optional: true,
+      ...(step.sequence ? { sequence: step.sequence } : {}),
+      raw: normalized,
+    };
+  }
 
   if (
     /^you may (?:cast|play) (?:(?:cards?|spells?) this way|(?:cards?|spells?) exiled this way|(?:those|the exiled) (?:cards?|spells?)|that card|that spell|it|them) without paying (?:its|their|that spell(?:'s)?|those spells(?:')?) mana costs?$/i.test(
@@ -4547,7 +4570,18 @@ export function pruneKickerReminderAbilities(
 }
 
 function isRedundantCascadeReminderUnknownStep(step: OracleEffectStep): boolean {
-  if (!step || step.kind !== 'unknown') return false;
+  if (!step) return false;
+
+  if (step.kind === 'grant_exile_permission') {
+    const normalizedGrant = normalizeOracleText(String(step.raw || ''))
+      .replace(/^then\b\s*/i, '')
+      .replace(/^[()\s]+/, '')
+      .replace(/[.)\s]+$/g, '')
+      .trim();
+    return /^you may cast it without paying its mana cost$/i.test(normalizedGrant);
+  }
+
+  if (step.kind !== 'unknown') return false;
 
   const normalized = normalizeOracleText(String(step.raw || ''))
     .replace(/^then\b\s*/i, '')
@@ -5019,6 +5053,17 @@ function isRedundantArtifactTokenReminderUnknownStep(step: OracleEffectStep): bo
   );
 }
 
+function isRedundantArtifactTokenReminderParsedStep(step: OracleEffectStep): boolean {
+  const normalized = normalizeOracleText(String(step.raw || ''))
+    .replace(/^then\b\s*/i, '')
+    .replace(/^[()\s]+/, '')
+    .replace(/[.)"â€\s]+$/g, '')
+    .trim();
+  if (!normalized) return false;
+
+  return /^(?:search your library for a basic land card|put it onto the battlefield tapped|shuffle)$/i.test(normalized);
+}
+
 function isArtifactTokenReminderContextUnknownStep(step: OracleEffectStep): boolean {
   const normalized = normalizeUnknownStepText(step);
   if (!normalized) return false;
@@ -5058,11 +5103,20 @@ export function pruneRedundantArtifactTokenReminderUnknownAbilities(
 
     const hasSplitReminderLead = ability.steps.some(isArtifactTokenReminderLeadUnknownStep);
     const mentionsJunkToken = /\bjunk tokens?\b/i.test(normalizedAbilityText);
+    const mentionsLanderToken = /\blander tokens?\b/i.test(normalizedAbilityText);
     const nextSteps = ability.steps.filter(step => {
       if (isRedundantArtifactTokenReminderUnknownStep(step)) return false;
+      if ((hasSplitReminderLead || mentionsLanderToken) && isRedundantArtifactTokenReminderParsedStep(step)) return false;
       if (hasSplitReminderLead && isArtifactTokenReminderLeadUnknownStep(step)) return false;
       if (hasSplitReminderLead && isArtifactTokenReminderTailUnknownStep(step)) return false;
       if (mentionsJunkToken && step.kind === 'unknown' && /^you may play that card this turn$/i.test(normalizeUnknownStepText(step))) return false;
+      if (
+        mentionsJunkToken &&
+        step.kind === 'grant_exile_permission' &&
+        /^you may play that card this turn$/i.test(normalizeOracleText(String(step.raw || '')).replace(/^then\b\s*/i, '').trim())
+      ) {
+        return false;
+      }
       return true;
     });
     return nextSteps.length === ability.steps.length ? [ability] : [{ ...ability, steps: nextSteps }];
@@ -5326,6 +5380,13 @@ export function pruneLateKeywordReminderOnlyAbilities(
         return [];
       }
 
+      if (
+        /^umbra armor(?:\s*\(.*\))?[.)]*$/i.test(normalizedText) ||
+        /^whenever another creature enters, you may move a \+1\/\+1 counter from this creature onto it[.)]*$/i.test(normalizedText)
+      ) {
+        return [];
+      }
+
       if (/^squad\b.*$/i.test(normalizedText)) {
         return [];
       }
@@ -5422,6 +5483,7 @@ function isCurrentBatchReminderOrPlatformOnlyText(raw: string): boolean {
     /^enchant (?:creature(?: you control)?|land|player)$/i.test(normalizedText) ||
     /^ward\s*(?:\{[^}]+\}|\d+)$/i.test(normalizedText) ||
     /^a creature with hexproof can(?:not|'t) be the target of spells or abilities your opponents control$/i.test(normalizedText) ||
+    /^you can(?:not|'t) be the target of spells or abilities your opponents control$/i.test(normalizedText) ||
     /^a suspected creature has menace and can(?:not|'t) block$/i.test(normalizedText) ||
     /^artifacts, legendaries, and sagas are historic$/i.test(normalizedText) ||
     /^assassins, mercenaries, pirates, rogues, and warlocks are outlaws$/i.test(normalizedText) ||
@@ -6612,7 +6674,9 @@ export function expandTransfigureKeywordAbilities(
   return abilities.map((ability) => {
     const normalizedEffect = normalizeOracleText(String(ability.effectText || '')).trim().toLowerCase();
     const normalizedText = normalizeOracleText(String(ability.text || '')).trim().toLowerCase();
-    const alreadyExpanded = ability.steps.some((step) => step.kind === 'search_library');
+    const alreadyExpanded = ability.steps.some(
+      (step) => step.kind === 'search_library' && (step as any).criteria?.kind === 'same_mana_value_as_source'
+    );
     const canonicalEffectPrefix = 'search your library for a creature card with the same mana value as this permanent';
     const matchesKeywordLine = normalizedText.startsWith('transfigure ');
     const matchesCanonicalEffect =
@@ -8702,6 +8766,45 @@ function parseCopySpellUnknownStep(
     };
   }
 
+  if (/^(?:if you do,\s*)?copy that ability$/i.test(normalized)) {
+    return {
+      kind: 'copy_spell',
+      subject: 'target_spell',
+      target: { kind: 'raw', text: 'that ability' },
+      ...(allowNewTargets ? { allowNewTargets: true } : {}),
+      ...(optional ? { optional: true } : {}),
+      ...(step.sequence ? { sequence: step.sequence } : {}),
+      raw: appendFollowupSentence(normalized, rawRetargetTail),
+    };
+  }
+
+  const copyItForEachPreviousSpellMatch = normalized.match(
+    /^copy it for each (?:other )?(instant and sorcery spell|spell) (?:you(?:'ve| have) )?cast before it this turn$/i
+  );
+  if (copyItForEachPreviousSpellMatch) {
+    return {
+      kind: 'copy_spell',
+      subject: 'target_spell',
+      target: { kind: 'raw', text: 'it' },
+      copies: { kind: 'spells_cast_before_this_turn' },
+      ...(allowNewTargets ? { allowNewTargets: true } : {}),
+      ...(optional ? { optional: true } : {}),
+      ...(step.sequence ? { sequence: step.sequence } : {}),
+      raw: appendFollowupSentence(normalized, rawRetargetTail),
+    };
+  }
+
+  if (/^for each .+? exiled this way,\s*copy it$/i.test(normalized)) {
+    return {
+      kind: 'copy_spell',
+      subject: 'last_moved_card',
+      ...(allowNewTargets ? { allowNewTargets: true } : {}),
+      ...(optional ? { optional: true } : {}),
+      ...(step.sequence ? { sequence: step.sequence } : {}),
+      raw: appendFollowupSentence(normalized, rawRetargetTail),
+    };
+  }
+
   if (/^(?:you may\s+)?copy the spell countered this way$/i.test(normalized)) {
     return {
       kind: 'copy_spell',
@@ -8773,6 +8876,20 @@ function parseCopySpellUnknownStep(
   const targetedSpellMatch = normalized.match(/^(?:you may\s+)?copy\s+(target(?:\s+.+?)?\s+spell(?:\s+.+)?)$/i);
   if (targetedSpellMatch) {
     const targetText = String(targetedSpellMatch[1] || '').trim();
+    return {
+      kind: 'copy_spell',
+      subject: 'target_spell',
+      target: parseObjectSelector(targetText),
+      ...(allowNewTargets ? { allowNewTargets: true } : {}),
+      ...(optional ? { optional: true } : {}),
+      ...(step.sequence ? { sequence: step.sequence } : {}),
+      raw: appendFollowupSentence(normalized, rawRetargetTail),
+    };
+  }
+
+  const targetedStackObjectMatch = normalized.match(/^(?:you may\s+)?copy\s+(target\s+.+)$/i);
+  if (targetedStackObjectMatch && /\b(?:spell|ability|abilities)\b/i.test(String(targetedStackObjectMatch[1] || ''))) {
+    const targetText = String(targetedStackObjectMatch[1] || '').trim();
     return {
       kind: 'copy_spell',
       subject: 'target_spell',
@@ -11695,7 +11812,7 @@ function parseStandaloneAttachUnknownStep(rawClause: string): OracleEffectStep |
   if (!normalized) return null;
 
   const match = normalized.match(
-    /^(?:(you)\s+may\s+)?attach\s+(this enchantment|this equipment|this permanent|it)\s+to\s+(target creature(?: you control)?|target land(?: you control)?|that creature|that land|it)$/i
+    /^(?:(you)\s+may\s+)?attach\s+((?:this enchantment|this equipment|this permanent|it|target (?:aura|equipment|aura or equipment|equipment or aura)(?:\s+you control)?|any number of (?:(?:auras and equipment)|equipment|auras) you control))\s+to\s+(target (?:creature|land|permanent|player|permanent or player)(?: you control)?|that creature|that land|it)$/i
   );
   if (!match) return null;
 

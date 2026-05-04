@@ -1,5 +1,5 @@
 import type { OracleEffectStep } from './oracleIR';
-import { parseObjectSelector } from './oracleIRParserUtils';
+import { normalizeOracleText, parseObjectSelector } from './oracleIRParserUtils';
 
 type WithMeta = <T extends OracleEffectStep>(step: T) => T;
 
@@ -56,6 +56,27 @@ export function tryParseTemporaryAbilityClause(args: {
   withMeta: WithMeta;
 }): OracleEffectStep | null {
   const { clause, rawClause, withMeta } = args;
+
+  {
+    const normalized = normalizeOracleText(clause).trim();
+    const m = normalized.match(/^(?:until end of turn,\s+)?(.+?)\s+gains?\s+"([^"]+)"(?:\s+until end of turn)?$/i);
+    if (m && (/^until end of turn,/i.test(normalized) || /\buntil end of turn$/i.test(normalized))) {
+      const targetText = String(m[1] || '').trim();
+      const grantedText = String(m[2] || '').trim();
+      if (/\bgraveyard\b/i.test(targetText) && /^(?:you may\s+(?:cast|play)\s+this card from your graveyard|(?:flashback|escape|retrace|jump-start|harmonize)\b)/i.test(grantedText)) {
+        return null;
+      }
+      if (grantedText) {
+        return withMeta({
+          kind: 'grant_temporary_ability',
+          target: parseObjectSelector(targetText),
+          duration: 'end_of_turn',
+          effectText: [grantedText],
+          raw: rawClause,
+        });
+      }
+    }
+  }
 
   {
     const m = clause.match(/^(?:until end of turn,\s+)?(.+?)\s+gains?\s+(.+?)\s+until end of turn$/i);

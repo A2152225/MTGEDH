@@ -375,7 +375,10 @@ function tryParseVillainousChoiceStep(
 }
 
 function parseAbilityToIRAbility(ability: ParsedAbility, cardName?: string): OracleIRAbility {
-  const effectText = abilityEffectText(ability);
+  let effectText = abilityEffectText(ability);
+  if (!effectText && /^you\s+may\s+look\s+at\s+the\s+top\s+/i.test(String(ability.text || '').trim())) {
+    effectText = String(ability.text || '').trim();
+  }
   const parseEffectTextToFlatSteps = (text: string): readonly OracleEffectStep[] => {
     const clauses = buildAbilityClauses({ effectText: text, cardName, parseEffectClauseToStep });
     return clauses.map(parseEffectClauseToStep);

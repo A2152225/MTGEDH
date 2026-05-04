@@ -143,6 +143,8 @@ export function normalizeClauseForParse(clause: string): {
   let optional: boolean | undefined;
 
   working = working.replace(/^[\u2022]\s+/, '');
+  working = working.replace(/^\(\s*(\{T\}\s*:\s*.+?)\s*\)?$/i, '$1');
+  working = working.replace(/^\(\s*((?:look at|reveal)\s+the\s+top\s+.+?)\s*\)?$/i, '$1');
 
   if (/^then\b/i.test(working)) {
     sequence = 'then';
@@ -164,7 +166,7 @@ export function normalizeClauseForParse(clause: string): {
     .replace(/^\d+\+\s*\|\s*/i, '')
     .replace(/^-+\s+(?=[a-z])/i, '')
     .replace(
-      /^[a-z0-9][a-z0-9\s'.,/&-]{0,80}\s+-\s+(?=(?:at|when|whenever|if|during|until|you|each|target|return|put|exile|draw|destroy|create|look|choose|search|investigate|populate|proliferate|surveil|scry|mill|discard|tap|untap|gain|lose|deal)\b)/i,
+      /^[a-z0-9][a-z0-9\s'.,/&-]{0,80}\s+-\s+(?=(?:at|when|whenever|if|during|until|you|each|target|return|put|exile|draw|destroy|create|look|choose|search|investigate|populate|proliferate|surveil|scry|mill|discard|tap|untap|gain|lose|deal|counter)\b)/i,
       ''
     );
 

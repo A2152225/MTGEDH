@@ -347,6 +347,176 @@ describe('Oracle IR current audit batch support', () => {
     ]));
   });
 
+  it('surfaces next-category generic attachment, grant, counter, and untap templates', () => {
+    const cases = [
+      [
+        'Retraction Helix',
+        'Until end of turn, target creature gains "{T}: Return target nonland permanent to its owner\'s hand."',
+      ],
+      ['Swiftfoot Boots', 'Equipped creature has hexproof and haste.\nEquip {1}'],
+      ['Animate Dead', 'Enchant creature card in a graveyard\nWhen Animate Dead enters, if it\'s on the battlefield, it loses "enchant creature card in a graveyard" and gains "enchant creature put onto the battlefield with Animate Dead." Return enchanted creature card to the battlefield under your control and attach Animate Dead to it. When Animate Dead leaves the battlefield, that creature\'s controller sacrifices it.\nEnchanted creature gets -1/-0.'],
+      ['Blackblade Reforged', 'Equipped creature gets +1/+1 for each land you control.\nEquip legendary creature {3}\nEquip {7}'],
+      ['Mental Misstep', 'Counter target spell with mana value 1.'],
+      ['Disallow', 'Counter target spell, activated ability, or triggered ability.'],
+      ['Snap', 'Return target creature to its owner\'s hand. Untap up to two lands.'],
+      ['Brass Squire', '{T}: Attach target Equipment you control to target creature you control.'],
+    ] as const;
+
+    const stepsByName = new Map(cases.map(([name, text]) => [name, collectSteps(parseOracleTextToIR(text, name).abilities)]));
+
+    expect(stepsByName.get('Retraction Helix')).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'grant_temporary_ability', effectText: ['{T}: Return target nonland permanent to its owner\'s hand.'] }),
+    ]));
+    expect(stepsByName.get('Swiftfoot Boots')).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'grant_static_ability', abilities: ['hexproof', 'haste'] }),
+    ]));
+    expect(stepsByName.get('Animate Dead')).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'grant_static_ability', power: -1, toughness: 0 }),
+    ]));
+    expect(stepsByName.get('Blackblade Reforged')).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'grant_static_ability', effectText: ['gets +1/+1 for each land you control'] }),
+    ]));
+    expect(stepsByName.get('Mental Misstep')).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'counter_spell', target: { kind: 'raw', text: 'target spell with mana value 1' } }),
+    ]));
+    expect(stepsByName.get('Disallow')).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'counter_spell', target: { kind: 'raw', text: 'target spell, activated ability, or triggered ability' } }),
+    ]));
+    expect(stepsByName.get('Snap')).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'tap_or_untap', mode: 'untap', target: { kind: 'raw', text: 'up to two lands' } }),
+    ]));
+    expect(stepsByName.get('Brass Squire')).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'attach', attachment: { kind: 'raw', text: 'target Equipment you control' }, to: { kind: 'raw', text: 'target creature you control' } }),
+    ]));
+  });
+
+  it('surfaces next-category static restrictions, gain-then-pump, copy, and conditional mana templates', () => {
+    const cases = [
+      ['Ghostly Prison', 'Creatures can\'t attack you unless their controller pays {2} for each creature they control that\'s attacking you.'],
+      ['Mirari\'s Wake', 'Creatures you control get +1/+1.'],
+      ['Kavaron, Memorial World', 'Creatures you control gain haste and get +1/+0 until end of turn.'],
+      ['Increasing Vengeance', 'Copy target instant or sorcery spell you control. You may choose new targets for the copy.'],
+      ['Exotic Orchard', '{T}: Add one mana of any color that a land an opponent controls could produce.'],
+      ['Ardenn, Intrepid Archaeologist', 'At the beginning of combat on your turn, you may attach any number of Auras and Equipment you control to target permanent or player.'],
+    ] as const;
+
+    const stepsByName = new Map(cases.map(([name, text]) => [name, collectSteps(parseOracleTextToIR(text, name).abilities)]));
+
+    expect(collectUnknowns(parseOracleTextToIR(cases[0][1], cases[0][0]).abilities)).toEqual([]);
+    expect(stepsByName.get('Ghostly Prison')).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'grant_static_ability', effectText: expect.arrayContaining([expect.stringMatching(/can't attack you unless/i)]) }),
+    ]));
+    expect(stepsByName.get('Mirari\'s Wake')).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'grant_static_ability', power: 1, toughness: 1 }),
+    ]));
+    expect(stepsByName.get('Kavaron, Memorial World')).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'grant_temporary_ability', abilities: ['haste'] }),
+      expect.objectContaining({ kind: 'modify_pt', power: 1, toughness: 0, duration: 'end_of_turn' }),
+    ]));
+    expect(stepsByName.get('Increasing Vengeance')).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'copy_spell', subject: 'target_spell', allowNewTargets: true }),
+    ]));
+    expect(stepsByName.get('Exotic Orchard')).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'add_mana', requiresChosenMana: true, manaOptions: ['{W}', '{U}', '{B}', '{R}', '{G}'] }),
+    ]));
+    expect(stepsByName.get('Ardenn, Intrepid Archaeologist')).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'attach', attachment: { kind: 'raw', text: 'any number of Auras and Equipment you control' }, to: { kind: 'raw', text: 'target permanent or player' } }),
+    ]));
+  });
+
+  it('surfaces next-category stack, library, combat, and reminder templates', () => {
+    const cases = [
+      ['Copperhorn Scout', 'Whenever this creature attacks, untap each other creature you control.'],
+      ['Double Negative', 'Counter up to two target spells.'],
+      ['Evasive Action', 'Domain — Counter target spell unless its controller pays {1} for each basic land type among lands you control.'],
+      ['Watery Grave', '({T}: Add {U} or {B}.)'],
+      ['Mystic Forge', 'You may look at the top card of your library any time.'],
+      ['Mosswort Bridge', '{G}, {T}: You may play the exiled card without paying its mana cost if creatures you control have total power 10 or greater.'],
+      ['Ulamog\'s Crusher', 'This creature attacks each combat if able.'],
+      ['Trailblazer\'s Boots', '(It can\'t be blocked as long as defending player controls a nonbasic land.)'],
+      ['Bloodghast', 'This creature has haste as long as an opponent has 10 or less life.'],
+      ['Rings of Brighthearth', 'If you do, copy that ability.'],
+      ['Thousand-Year Storm', 'Whenever you cast an instant or sorcery spell, copy it for each other instant and sorcery spell you\'ve cast before it this turn.'],
+    ] as const;
+
+    const stepsByName = new Map(cases.map(([name, text]) => [name, collectSteps(parseOracleTextToIR(text, name).abilities)]));
+
+    expect(stepsByName.get('Copperhorn Scout')).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'tap_or_untap', mode: 'untap', target: { kind: 'raw', text: 'each other creature you control' } }),
+    ]));
+    expect(stepsByName.get('Double Negative')).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'counter_spell', target: { kind: 'raw', text: 'up to two target spells' } }),
+    ]));
+    expect(stepsByName.get('Evasive Action')).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'counter_spell', target: { kind: 'raw', text: 'target spell' } }),
+    ]));
+    expect(stepsByName.get('Watery Grave')).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'add_mana', manaOptions: ['{U}', '{B}'] }),
+    ]));
+    expect(stepsByName.get('Mystic Forge')).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'look_top' }),
+    ]));
+    expect(stepsByName.get('Mosswort Bridge')).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'grant_exile_permission', permission: 'play', withoutPayingManaCost: true }),
+    ]));
+    expect(stepsByName.get('Ulamog\'s Crusher')).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'grant_static_ability', effectText: ['attacks each combat if able'] }),
+    ]));
+    expect(stepsByName.get('Trailblazer\'s Boots')).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'grant_static_ability', effectText: expect.arrayContaining([expect.stringMatching(/can't be blocked/i)]) }),
+    ]));
+    expect(stepsByName.get('Bloodghast')).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'grant_static_ability', abilities: ['haste'] }),
+    ]));
+    expect(stepsByName.get('Rings of Brighthearth')).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'copy_spell', target: { kind: 'raw', text: 'that ability' } }),
+    ]));
+    expect(stepsByName.get('Thousand-Year Storm')).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'copy_spell', copies: { kind: 'spells_cast_before_this_turn' } }),
+    ]));
+  });
+
+  it('surfaces next-category broad mana, pump, and restriction templates', () => {
+    const cases = [
+      ['Overwhelming Stampede', 'Until end of turn, creatures you control gain trample and get +X/+X, where X is the greatest power among creatures you control.'],
+      ['Heraldic Banner', 'Creatures you control of the chosen color get +1/+0.'],
+      ['Reflecting Pool', '{T}: Add one mana of any type that a land you control could produce.'],
+      ['Mox Amber', '{T}: Add one mana of any color among legendary creatures and planeswalkers you control.'],
+      ['Jungle Shrine', '{T}: Add {R}, {G}, or {W}.'],
+      ['Bloom Tender', 'For each color among permanents you control, add one mana of that color.'],
+      ['Myr Galvanizer', '{1}, {T}: Untap each other Myr you control.'],
+      ['Void Winnower', 'Your opponents can\'t block with creatures with even mana values.'],
+      ['Pathrazer of Ulamog', 'This creature can\'t be blocked except by three or more creatures.'],
+    ] as const;
+
+    const stepsByName = new Map(cases.map(([name, text]) => [name, collectSteps(parseOracleTextToIR(text, name).abilities)]));
+
+    expect(stepsByName.get('Overwhelming Stampede')).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'grant_temporary_ability', abilities: ['trample'] }),
+      expect.objectContaining({ kind: 'modify_pt', duration: 'end_of_turn' }),
+    ]));
+    expect(stepsByName.get('Heraldic Banner')).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'grant_static_ability', power: 1, toughness: 0 }),
+    ]));
+    for (const name of ['Reflecting Pool', 'Mox Amber', 'Bloom Tender']) {
+      expect(stepsByName.get(name)).toEqual(expect.arrayContaining([
+        expect.objectContaining({ kind: 'add_mana', requiresChosenMana: true }),
+      ]));
+    }
+    expect(stepsByName.get('Jungle Shrine')).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'add_mana', manaOptions: ['{R}', '{G}', '{W}'] }),
+    ]));
+    expect(stepsByName.get('Myr Galvanizer')).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'tap_or_untap', mode: 'untap', target: { kind: 'raw', text: 'each other Myr you control' } }),
+    ]));
+    expect(stepsByName.get('Void Winnower')).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'grant_static_ability', effectText: expect.arrayContaining([expect.stringMatching(/can't block/i)]) }),
+    ]));
+    expect(stepsByName.get('Pathrazer of Ulamog')).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'grant_static_ability', effectText: expect.arrayContaining([expect.stringMatching(/can't be blocked/i)]) }),
+    ]));
+  });
+
   it('surfaces current-batch wrapped token creation metadata', () => {
     const delinaSteps = collectSteps(parseOracleTextToIR(
       'Whenever Delina attacks, choose target creature you control, then roll a d20.\n1-14 | Create a tapped and attacking token that\'s a copy of that creature, except it\'s not legendary and it has "At end of combat, exile this token."\n15-20 | Create one of those tokens. You may roll again.',

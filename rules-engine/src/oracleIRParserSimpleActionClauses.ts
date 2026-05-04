@@ -269,6 +269,7 @@ export function tryParseSimpleActionClause(args: {
         raw: rawClause,
         });
     }
+
   }
 
   {
@@ -378,6 +379,20 @@ export function tryParseSimpleActionClause(args: {
   }
 
   {
+    const addAnyColorLandCouldProduceMana = clause.match(
+      new RegExp(`^${PLAYER_SUBJECT_PREFIX}adds?\\s+one\\s+mana\\s+of\\s+any\\s+(?:one\\s+)?(?:color|type)\\s+that\\s+.+?\\s+could\\s+produce\\s*$`, 'i')
+    );
+    if (addAnyColorLandCouldProduceMana) {
+      return withMeta({
+        kind: 'add_mana',
+        who: parsePlayerSelector(addAnyColorLandCouldProduceMana[1]),
+        mana: '{W}',
+        manaOptions: ['{W}', '{U}', '{B}', '{R}', '{G}'],
+        requiresChosenMana: true,
+        raw: rawClause,
+      });
+    }
+
     const addAnyColorMana = clause.match(new RegExp(`^${PLAYER_SUBJECT_PREFIX}adds?\\s+one\\s+mana\\s+of\\s+any\\s+(?:one\\s+)?color\\s*$`, 'i'));
     if (addAnyColorMana) {
       return withMeta({
@@ -388,9 +403,34 @@ export function tryParseSimpleActionClause(args: {
         raw: rawClause,
         });
     }
+
+      const addAnyColorFromReferenceMana = clause.match(
+        new RegExp(`^${PLAYER_SUBJECT_PREFIX}adds?\\s+one\\s+mana\\s+of\\s+(?:any\\s+of\\s+the\\s+exiled\\s+card'?s\\s+colors|any\\s+color\\s+among\\s+.+)\\s*$`, 'i')
+      );
+      if (addAnyColorFromReferenceMana) {
+        return withMeta({
+          kind: 'add_mana',
+          who: parsePlayerSelector(addAnyColorFromReferenceMana[1]),
+          mana: '{W}',
+          manaOptions: ['{W}', '{U}', '{B}', '{R}', '{G}'],
+          requiresChosenMana: true,
+          raw: rawClause,
+        });
+      }
   }
 
   {
+    const addManaForEach = clause.match(new RegExp(`^${PLAYER_SUBJECT_PREFIX}adds?\\s+(\\{[^}]+\\})\\s+for\\s+each\\s+(.+)$`, 'i'));
+    if (addManaForEach) {
+      return withMeta({
+        kind: 'add_mana',
+        who: parsePlayerSelector(addManaForEach[1]),
+        mana: String(addManaForEach[2] || '').trim(),
+        requiresChosenMana: true,
+        raw: rawClause,
+      });
+    }
+
     const addAnyOneColorMana = clause.match(
       new RegExp(`^${PLAYER_SUBJECT_PREFIX}adds?\\s+(${COUNTER_AMOUNT_PATTERN})\\s+mana\\s+of\\s+any\\s+one\\s+color\\s*$`, 'i')
     );
@@ -406,6 +446,20 @@ export function tryParseSimpleActionClause(args: {
           raw: rawClause,
         });
       }
+    }
+  }
+
+  {
+    const addManaForEachColor = clause.match(/^for\s+each\s+color\s+among\s+.+?,\s+adds?\s+one\s+mana\s+of\s+that\s+color$/i);
+    if (addManaForEachColor) {
+      return withMeta({
+        kind: 'add_mana',
+        who: { kind: 'you' },
+        mana: '{W}',
+        manaOptions: ['{W}', '{U}', '{B}', '{R}', '{G}'],
+        requiresChosenMana: true,
+        raw: rawClause,
+      });
     }
   }
 
@@ -691,6 +745,44 @@ export function tryParseSimpleActionClause(args: {
         level: Number.parseInt(String(gainClassLevel[1] || '0'), 10),
         raw: rawClause,
         });
+    }
+  }
+
+  {
+    const exiledCardPermission = clause.match(/^(cast|play)\s+(the exiled card|that card|it)(?:\s+without\s+paying\s+its\s+mana\s+cost)?(?:\s+this\s+turn)?(?:\s+if\s+.+)?$/i);
+    if (exiledCardPermission) {
+      return withMeta({
+        kind: 'grant_exile_permission',
+        who: { kind: 'you' },
+        what: parseObjectSelector(String(exiledCardPermission[2] || '').trim()),
+        duration: /\bthis\s+turn\b/i.test(clause) ? 'this_turn' : 'during_resolution',
+        permission: String(exiledCardPermission[1] || '').toLowerCase() === 'play' ? 'play' : 'cast',
+        withoutPayingManaCost: /without\s+paying\s+its\s+mana\s+cost/i.test(clause) || undefined,
+        optional: true,
+        raw: rawClause,
+      });
+    }
+  }
+
+  {
+    const copyStackObject = clause.match(/^copy\s+(target\s+.+)$/i);
+    if (copyStackObject && /\b(?:spell|spells|ability|abilities)\b/i.test(String(copyStackObject[1] || ''))) {
+      return withMeta({
+        kind: 'copy_spell',
+        subject: 'target_spell',
+        target: parseObjectSelector(String(copyStackObject[1] || '').trim()),
+        raw: rawClause,
+      });
+    }
+
+    const copyThatStackObject = clause.match(/^copy\s+(that\s+(?:spell|ability))$/i);
+    if (copyThatStackObject) {
+      return withMeta({
+        kind: 'copy_spell',
+        subject: 'target_spell',
+        target: parseObjectSelector(String(copyThatStackObject[1] || '').trim()),
+        raw: rawClause,
+      });
     }
   }
 
@@ -1157,7 +1249,7 @@ export function tryParseSimpleActionClause(args: {
 
   {
     const addManaChoice = clause.match(
-      new RegExp(`^${PLAYER_SUBJECT_PREFIX}adds?\\s+(\\{[^}]+\\}(?:\\s+or\\s+\\{[^}]+\\})+)\\s*$`, 'i')
+      new RegExp(`^${PLAYER_SUBJECT_PREFIX}adds?\\s+(\\{[^}]+\\}(?:(?:\\s*,\\s*|\\s+or\\s+|\\s*,\\s*or\\s*)\\{[^}]+\\})+)\\s*$`, 'i')
     );
     if (addManaChoice) {
       const manaOptions = parseManaChoiceList(String(addManaChoice[2] || '').trim());
@@ -1673,7 +1765,7 @@ export function tryParseSimpleActionClause(args: {
         });
     }
 
-    const mill = clause.match(new RegExp(`^${PLAYER_SUBJECT_PREFIX}mill(?:s)?\\s+(a|an|\\d+|x|[a-z]+)\\s+cards?\\b`, 'i'));
+    const mill = clause.match(new RegExp(`^${PLAYER_SUBJECT_PREFIX}mill(?:s)?\\s+(that many|that much|a|an|\\d+|x|[a-z]+)\\s+cards?\\b`, 'i'));
     if (mill) {
       return withMeta({
         kind: 'mill',
@@ -1683,7 +1775,7 @@ export function tryParseSimpleActionClause(args: {
         });
     }
 
-    const millDefault = clause.match(/^mill\s+(a|an|\d+|x|[a-z]+)\s+cards?\b/i);
+    const millDefault = clause.match(/^mill\s+(that many|that much|a|an|\d+|x|[a-z]+)\s+cards?\b/i);
     if (millDefault) {
       return withMeta({
         kind: 'mill',

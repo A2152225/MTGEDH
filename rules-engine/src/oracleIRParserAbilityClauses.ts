@@ -131,6 +131,36 @@ function splitConservativeModifyPtTemporaryAbilityClause(args: {
   return [first, second];
 }
 
+function splitConservativeTemporaryAbilityThenModifyPtClause(args: {
+  rawClause: string;
+  parseEffectClauseToStep: (rawClause: string) => OracleEffectStep;
+}): string[] | null {
+  const { rawClause, parseEffectClauseToStep } = args;
+  const normalized = normalizeOracleText(rawClause).trim();
+  if (!normalized || !/\bgains?\b/i.test(normalized) || !/\band\s+get(?:s)?\b/i.test(normalized)) return null;
+
+  const match = normalized.match(
+    /^(until end of turn,\s+)?(.+?)\s+gains?\s+(.+?)\s+and\s+get(?:s)?\s+([+-]?(?:\d+|x)\s*\/\s*[+-]?(?:\d+|x))(?:\s+until end of turn)?(.*)$/i
+  );
+  if (!match) return null;
+
+  const durationPrefix = String(match[1] || '');
+  const targetText = String(match[2] || '').trim();
+  const gainsText = String(match[3] || '').trim();
+  const modifyText = String(match[4] || '').trim();
+  const tail = String(match[5] || '').trim();
+  if (!targetText || !gainsText || !modifyText) return null;
+  if (!durationPrefix && !/\buntil\s+end\s+of\s+turn\b/i.test(normalized)) return null;
+
+  const first = `${durationPrefix}${targetText} gains ${gainsText} until end of turn`.trim();
+  const second = `${targetText} gets ${modifyText} until end of turn${tail ? ` ${tail.replace(/^,\s*/, '')}` : ''}`.trim();
+  const firstStep = parseEffectClauseToStep(first);
+  const secondStep = parseEffectClauseToStep(second);
+  if (firstStep.kind === 'unknown' || secondStep.kind === 'unknown') return null;
+
+  return [first, second];
+}
+
 function splitConservativeTemporaryAbilityEvasionClause(args: {
   rawClause: string;
   parseEffectClauseToStep: (rawClause: string) => OracleEffectStep;
@@ -268,6 +298,7 @@ export function buildAbilityClauses(args: {
     splitConservativeGrantedDiesTriggerSetBasePtClause({ rawClause: clause, parseEffectClauseToStep }) ??
     splitConservativeModifyPtGrantedDiesTriggerClause({ rawClause: clause, parseEffectClauseToStep }) ??
     splitConservativeModifyPtTemporaryAbilityClause({ rawClause: clause, parseEffectClauseToStep }) ??
+    splitConservativeTemporaryAbilityThenModifyPtClause({ rawClause: clause, parseEffectClauseToStep }) ??
     splitConservativeCantAttackOrBlockClause({ rawClause: clause, parseEffectClauseToStep }) ??
     splitConservativeQuotedCreateTokenFollowupClause({ rawClause: clause, parseEffectClauseToStep }) ??
     splitConservativeAndCreateTokenClause({ rawClause: clause, parseEffectClauseToStep }) ??

@@ -2154,9 +2154,13 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
     expect(ir.abilities).toHaveLength(1);
     expect(ir.abilities[0]).toMatchObject({
       type: 'static',
-      effectText: '',
     });
-    expect(ir.abilities[0]?.steps).toEqual([]);
+    expect(ir.abilities[0]?.steps).toEqual([
+      expect.objectContaining({
+        kind: 'look_top',
+        amount: { kind: 'number', value: 1 },
+      }),
+    ]);
   });
 
   it('prunes split Map-token reminder steps from create-token abilities', () => {
@@ -2189,25 +2193,45 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
     expect(ir.abilities).toEqual([]);
   });
 
-  it('prunes global creature stat static text as externally handled', () => {
+  it('parses global creature stat static text as a static grant', () => {
     const ir = parseOracleTextToIR('Creatures you control get +1/+1.', "Gaea's Anthem");
 
-    expect(ir.abilities).toEqual([]);
+    expect(ir.abilities[0]?.steps).toEqual([
+      expect.objectContaining({
+        kind: 'grant_static_ability',
+        target: { kind: 'raw', text: 'Creatures you control' },
+        power: 1,
+        toughness: 1,
+      }),
+    ]);
   });
 
-  it('prunes global creature keyword static text as externally handled', () => {
+  it('parses global creature keyword static text as a static grant', () => {
     const ir = parseOracleTextToIR('Creatures you control have haste.', 'Hammer of Purphoros');
 
-    expect(ir.abilities).toEqual([]);
+    expect(ir.abilities[0]?.steps).toEqual([
+      expect.objectContaining({
+        kind: 'grant_static_ability',
+        target: { kind: 'raw', text: 'Creatures you control' },
+        abilities: ['haste'],
+      }),
+    ]);
   });
 
-  it('prunes opening-hand static text as externally handled', () => {
+  it('keeps opening-hand setup pruned while parsing hexproof static text', () => {
     const ir = parseOracleTextToIR(
       'If this card is in your opening hand, you may begin the game with it on the battlefield.\nYou have hexproof. (You can\'t be the target of spells or abilities your opponents control.)',
       'Leyline of Sanctity'
     );
 
-    expect(ir.abilities).toEqual([]);
+    expect(ir.abilities).toHaveLength(1);
+    expect(ir.abilities[0]?.steps).toEqual([
+      expect.objectContaining({
+        kind: 'grant_static_ability',
+        target: { kind: 'raw', text: 'You' },
+        abilities: ['hexproof'],
+      }),
+    ]);
     expect(ir.keywords).toContain('hexproof');
   });
 
@@ -3794,7 +3818,9 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
     });
     expect((ir.abilities[0].steps as any[]).map(step => step.kind)).toEqual(['move_zone', 'add_counter']);
     expect((ir.abilities[1].steps as any[])[0]).toMatchObject({
-      kind: 'unknown',
+      kind: 'grant_static_ability',
+      abilities: ['flying'],
+      effectText: ['as long as a card exiled with it has flying'],
       raw: 'This creature has flying as long as a card exiled with it has flying',
     });
   });
@@ -6855,10 +6881,16 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
     ]);
   });
 
-  it('prunes standalone attack-each-combat requirement abilities from Oracle IR', () => {
+  it('parses standalone attack-each-combat requirements as static grants', () => {
     const ir = parseOracleTextToIR('This creature attacks each combat if able.', 'Goblin Berserker');
 
-    expect(ir.abilities).toEqual([]);
+    expect(ir.abilities[0]?.steps).toEqual([
+      expect.objectContaining({
+        kind: 'grant_static_ability',
+        target: { kind: 'raw', text: 'This creature' },
+        effectText: ['attacks each combat if able'],
+      }),
+    ]);
   });
 
   it('prunes standalone defending-player basic-land attack restrictions from Oracle IR', () => {
@@ -6870,13 +6902,19 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
     expect(ir.abilities).toEqual([]);
   });
 
-  it('prunes standalone blocker-limit restriction abilities from Oracle IR', () => {
+  it('parses standalone blocker-limit restriction abilities as static grants', () => {
     const ir = parseOracleTextToIR(
       "This creature can't be blocked by more than one creature.",
       'Charging Rhino'
     );
 
-    expect(ir.abilities).toEqual([]);
+    expect(ir.abilities[0]?.steps).toEqual([
+      expect.objectContaining({
+        kind: 'grant_static_ability',
+        target: { kind: 'raw', text: 'This creature' },
+        effectText: ["can't be blocked by more than one creature"],
+      }),
+    ]);
   });
 
   it('prunes standalone convoke keyword lines from Oracle IR while keeping the keyword', () => {
@@ -11150,7 +11188,8 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
     expect(copyAbility?.steps.some((step: any) => String(step?.raw || '').trim() === 'You may choose new targets for the copy')).toBe(false);
     expect(copyAbility?.steps[0]).toEqual(
       expect.objectContaining({
-        kind: 'unknown',
+        kind: 'copy_spell',
+        allowNewTargets: true,
         raw: expect.stringContaining('You may choose new targets for the copy'),
       })
     );
@@ -11247,7 +11286,8 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
     expect(ir.abilities[0]?.steps.some((step: any) => String(step?.raw || '').trim() === 'You may choose new targets for the copy')).toBe(false);
     expect(ir.abilities[0]?.steps[0]).toEqual(
       expect.objectContaining({
-        kind: 'unknown',
+        kind: 'copy_spell',
+        allowNewTargets: true,
         raw: expect.stringContaining('You may choose new targets for the copy'),
       })
     );
@@ -11429,13 +11469,20 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
     ]);
   });
 
-  it('prunes other creatures you control get +1/+1 as an externally handled static ability', () => {
+  it('parses other creatures you control get +1/+1 as a static grant', () => {
     const ir = parseOracleTextToIR(
       'Other creatures you control get +1/+1.',
       'Anthem Variant'
     );
 
-    expect(ir.abilities).toEqual([]);
+    expect(ir.abilities[0]?.steps).toEqual([
+      expect.objectContaining({
+        kind: 'grant_static_ability',
+        target: { kind: 'raw', text: 'Other creatures you control' },
+        power: 1,
+        toughness: 1,
+      }),
+    ]);
   });
 
   it('prunes players cannot gain life as an externally handled static ability', () => {
@@ -11465,17 +11512,23 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
     expect(ir.abilities).toEqual([]);
   });
 
-  it('prunes attached creature pump-plus-keyword lines handled by static battlefield evaluation', () => {
+  it('parses attached creature pump-plus-keyword lines as while-attached static grants', () => {
     const ir = parseOracleTextToIR(
       'Enchant creature\nEnchanted creature gets +2/+2 and has flying.',
       'Flight Variant'
     );
 
-    expect(
-      ir.abilities.some((ability) =>
-        /enchanted creature gets \+2\/\+2 and has flying/i.test(String(ability.text || ability.effectText || ''))
-      )
-    ).toBe(false);
+    expect(ir.abilities.some((ability) => /^enchant creature$/i.test(String(ability.text || ability.effectText || '')))).toBe(false);
+    expect(ir.abilities[0]?.steps).toEqual([
+      expect.objectContaining({
+        kind: 'grant_static_ability',
+        target: { kind: 'raw', text: 'Enchanted creature' },
+        power: 2,
+        toughness: 2,
+        abilities: ['flying'],
+        duration: 'while_attached',
+      }),
+    ]);
   });
 
   it('prunes bare landwalk keyword lines from unknown IR steps', () => {

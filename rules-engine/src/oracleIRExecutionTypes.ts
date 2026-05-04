@@ -165,6 +165,10 @@ export interface OracleIRExecutionContext {
   readonly winningVoteChoice?: string | null;
   /** Numeric amount referenced by text like "that much" from trigger data or prior steps. */
   readonly referenceAmount?: number;
+  /** Number of spells the triggering player has cast this turn when relevant. */
+  readonly spellCastCountThisTurn?: number;
+  /** Number of noncreature spells the triggering player has cast this turn when relevant. */
+  readonly noncreatureSpellCastCountThisTurn?: number;
   /** Explicit vote tallies keyed by choice text when already known from runtime context. */
   readonly voteChoiceCounts?: Readonly<Record<string, number>>;
   /** Whether a gift cost was paid / promised for gift-conditional spell text. */
