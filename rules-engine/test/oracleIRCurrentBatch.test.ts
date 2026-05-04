@@ -647,4 +647,941 @@ describe('Oracle IR current audit batch support', () => {
     ]));
     expect(jaceSteps.some((step) => step.kind === 'draw')).toBe(false);
   });
+
+  it('surfaces offset-5050 draw effects before villainous choices and replacement riders', () => {
+    const drEggmanSteps = collectSteps(parseOracleTextToIR(
+      'Flying\nAt the beginning of your end step, draw a card. Then each opponent faces a villainous choice — That player discards a card, or you may put a Construct, Robot, or Vehicle card from your hand onto the battlefield.',
+      'Dr. Eggman'
+    ).abilities);
+    const stunningSteps = collectSteps(parseOracleTextToIR(
+      'The next time you would lose the game this turn, instead draw seven cards and your life total becomes 1.\nExile Stunning Reversal.',
+      'Stunning Reversal'
+    ).abilities);
+
+    expect(drEggmanSteps).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'draw', amount: { kind: 'number', value: 1 } }),
+      expect.objectContaining({ kind: 'choose_mode' }),
+    ]));
+    expect(drEggmanSteps.find((step) => step.kind === 'choose_mode')?.modes).toEqual(expect.arrayContaining([
+      expect.objectContaining({ label: 'That player discards a card' }),
+      expect.objectContaining({ label: 'you may put a Construct, Robot, or Vehicle card from your hand onto the battlefield' }),
+    ]));
+    expect(stunningSteps).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'draw', amount: { kind: 'number', value: 7 } }),
+    ]));
+  });
+
+  it('parses offset-5050 any-number target players draw selector', () => {
+    const steps = collectSteps(parseOracleTextToIR(
+      "Enchant player\nAt the beginning of enchanted player's upkeep, any number of target players other than that player each draw cards equal to the number of Curses attached to that player.",
+      'Curse of Surveillance'
+    ).abilities);
+
+    expect(steps).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        kind: 'draw',
+        who: { kind: 'any_number_of_target_players' },
+        amount: { kind: 'unknown', raw: 'the number of Curses attached to that player' },
+      }),
+    ]));
+  });
+
+  it('keeps offset-5050 draw-trigger and reminder false positives non-draw', () => {
+    const cases = [
+      ['Uba Mask', 'If a player would draw a card, that player exiles that card face up instead.'],
+      ['Tolarian Kraken', 'Whenever you draw a card, you may pay {1}. If you do, you may tap or untap target creature.'],
+      ['Darkblast', 'Target creature gets -1/-1 until end of turn.\nDredge 3 (If you would draw a card, you may mill three cards instead.)'],
+      ['Lorescale Coatl', 'Whenever you draw a card, put a +1/+1 counter on this creature.'],
+      ['First Day of Class', 'Creatures you control get +1/+0 and gain haste until end of turn.\nLearn. (You may reveal a Lesson card you own from outside the game and put it into your hand, or discard a card to draw a card.)'],
+    ] as const;
+
+    for (const [name, text] of cases) {
+      const steps = collectSteps(parseOracleTextToIR(text, name).abilities);
+      expect(steps.some((step) => step.kind === 'draw'), `${name} should not surface executable draw`).toBe(false);
+    }
+  });
+
+  it('surfaces offset-5050 nested granted sacrifice metadata', () => {
+    const cases = [
+      ['Phantasmal Image', 'You may have this creature enter as a copy of any creature on the battlefield, except it\'s an Illusion in addition to its other types and it has "When this creature becomes the target of a spell or ability, sacrifice it."'],
+      ['Kataki, War\'s Wage', 'All artifacts have "At the beginning of your upkeep, sacrifice this artifact unless you pay {1}."'],
+      ['Cultist of the Absolute', 'Commander creatures you own get +3/+3 and have flying, deathtouch, "Ward—Pay 3 life," and "At the beginning of your upkeep, sacrifice a creature."'],
+      ['Hellish Rebuke', 'Until end of turn, permanents your opponents control gain "When this permanent deals damage to the player who cast Hellish Rebuke, sacrifice this permanent. You lose 2 life."'],
+      ['Dropkick Bomber', 'Other Goblins you control get +1/+1.\n{R}: Until end of turn, another target Goblin you control gains flying and "When this creature deals combat damage, sacrifice it."'],
+    ] as const;
+
+    for (const [name, text] of cases) {
+      const steps = collectSteps(parseOracleTextToIR(text, name).abilities);
+      expect(steps.some((step) => step.kind === 'sacrifice'), `${name} should surface nested sacrifice metadata`).toBe(true);
+    }
+  });
+
+  it('parses offset-5050 enchanted-controller sacrifice effects', () => {
+    const steps = collectSteps(parseOracleTextToIR(
+      "Enchant permanent\nVanishing 3 (This Aura enters with three time counters on it. At the beginning of your upkeep, remove a time counter from it. When the last is removed, sacrifice it.)\nWhen this Aura leaves the battlefield, enchanted permanent's controller sacrifices it.",
+      'Reality Acid'
+    ).abilities);
+
+    expect(steps).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'sacrifice', who: { kind: 'target_player' }, what: { kind: 'raw', text: 'it' } }),
+    ]));
+  });
+
+  it('keeps offset-5050 sacrifice keyword reminders non-sacrifice', () => {
+    const cases = [
+      ['Cut Your Losses', 'Casualty 2 (As you cast this spell, you may sacrifice a creature with power 2 or greater. When you do, copy this spell and you may choose a new target for the copy.)\nTarget player mills half their library, rounded down.'],
+      ['Feasting Hobbit', 'Devour Food 3 (As this creature enters, you may sacrifice any number of Foods. It enters with three times that many +1/+1 counters on it.)'],
+      ['Karmic Guide', 'Echo {3}{W}{W} (At the beginning of your upkeep, if this came under your control since the beginning of your last upkeep, sacrifice it unless you pay its echo cost.)\nFlying\nWhen this creature enters, return target creature card from your graveyard to the battlefield.'],
+    ] as const;
+
+    for (const [name, text] of cases) {
+      const steps = collectSteps(parseOracleTextToIR(text, name).abilities);
+      expect(steps.some((step) => step.kind === 'sacrifice'), `${name} should not surface reminder-only sacrifice`).toBe(false);
+    }
+  });
+
+  it('surfaces offset-6050 direct and entry +1/+1 counter placement', () => {
+    const courtSteps = collectSteps(parseOracleTextToIR(
+      'At the beginning of your upkeep, distribute two +1/+1 counters among up to two target creatures.',
+      'Court of Garenbrig'
+    ).abilities);
+    const bardSteps = collectSteps(parseOracleTextToIR(
+      'Legendary creatures you control enter with an additional +1/+1 counter on them.',
+      'Bard Class'
+    ).abilities);
+    const opalSteps = collectSteps(parseOracleTextToIR(
+      "If you spend this mana to cast your commander, it enters with a number of additional +1/+1 counters on it equal to the number of times it's been cast from the command zone this game.",
+      'Opal Palace'
+    ).abilities);
+
+    expect(courtSteps).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'add_counter', amount: { kind: 'number', value: 2 }, counter: '+1/+1' }),
+    ]));
+    expect(bardSteps).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'add_counter', amount: { kind: 'number', value: 1 }, target: { kind: 'raw', text: 'Legendary creatures you control' } }),
+    ]));
+    expect(opalSteps).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'add_counter', amount: { kind: 'unknown', raw: "a number equal to the number of times it's been cast from the command zone this game" } }),
+    ]));
+  });
+
+  it('surfaces offset-6050 granted +1/+1 counter metadata', () => {
+    const powerFistSteps = collectSteps(parseOracleTextToIR(
+      'Equipped creature has trample and "Whenever this creature deals combat damage to a player, put that many +1/+1 counters on it."\nEquip {2}',
+      'Power Fist'
+    ).abilities);
+    const ragingRavineSteps = collectSteps(parseOracleTextToIR(
+      '{2}{R}{G}: Until end of turn, this land becomes a 3/3 red and green Elemental creature with "Whenever this creature attacks, put a +1/+1 counter on it." It\'s still a land.',
+      'Raging Ravine'
+    ).abilities);
+
+    for (const [name, steps] of [['Power Fist', powerFistSteps], ['Raging Ravine', ragingRavineSteps]] as const) {
+      expect(steps.some((step) => step.kind === 'add_counter'), `${name} should surface nested counter metadata`).toBe(true);
+    }
+  });
+
+  it('surfaces offset-6050 delayed sacrifice cleanup on created tokens', () => {
+    const steps = collectSteps(parseOracleTextToIR(
+      'Whenever a nontoken creature you control enters, you may pay {2}. If you do, create a token that\'s a copy of that creature, except it has haste and "At the beginning of the end step, sacrifice this permanent."',
+      'Minion Reflector'
+    ).abilities);
+
+    expect(steps).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'create_token', atNextEndStep: 'sacrifice' }),
+    ]));
+  });
+
+  it('keeps offset-6050 counter replacement and choice reminders non-counter-placement', () => {
+    const cases = [
+      ['Hardened Scales', 'If one or more +1/+1 counters would be put on a creature you control, that many plus one +1/+1 counters are put on it instead.'],
+      ['Rhythm of the Wild', "Creature spells you control can't be countered.\nNontoken creatures you control have riot. (They enter with your choice of a +1/+1 counter or haste.)"],
+    ] as const;
+
+    for (const [name, text] of cases) {
+      const steps = collectSteps(parseOracleTextToIR(text, name).abilities);
+      expect(steps.some((step) => step.kind === 'add_counter'), `${name} should not surface executable counter placement`).toBe(false);
+    }
+  });
+
+  it('surfaces offset-7050 dynamic counter riders on returned permanents and created tokens', () => {
+    const graveEndeavorSteps = collectSteps(parseOracleTextToIR(
+      'Return a creature card from your graveyard to the battlefield with a number of +1/+1 counters on it equal to that result.',
+      'Grave Endeavor'
+    ).abilities);
+    const oversimplifySteps = collectSteps(parseOracleTextToIR(
+      'Each player creates a 0/0 green and blue Fractal creature token and puts a number of +1/+1 counters on it equal to the total power of creatures they controlled that were exiled this way.',
+      'Oversimplify'
+    ).abilities);
+
+    expect(graveEndeavorSteps).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'move_zone', to: 'battlefield' }),
+      expect.objectContaining({
+        kind: 'add_counter',
+        counter: '+1/+1',
+        amount: { kind: 'unknown', raw: 'a number equal to that result' },
+        target: { kind: 'raw', text: 'that creature' },
+      }),
+    ]));
+    expect(graveEndeavorSteps.find((step) => step.kind === 'move_zone')?.withCounters).toBeUndefined();
+    expect(oversimplifySteps).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'create_token', who: { kind: 'each_player' } }),
+      expect.objectContaining({
+        kind: 'add_counter',
+        counter: '+1/+1',
+        amount: { kind: 'unknown', raw: 'a number equal to the total power of creatures they controlled that were exiled this way' },
+        target: { kind: 'raw', text: 'those tokens' },
+      }),
+    ]));
+  });
+
+  it('surfaces offset-7050 prevent-damage remove-counter clauses and entry counter fragments', () => {
+    const undergrowthSteps = collectSteps(parseOracleTextToIR(
+      'If damage would be dealt to this creature while it has a +1/+1 counter on it, prevent that damage and remove a +1/+1 counter from this creature.',
+      'Undergrowth Champion'
+    ).abilities);
+    const fireplaceSteps = collectSteps(parseOracleTextToIR(
+      'This artifact enters tapped with a time counter on it.',
+      'Rotating Fireplace'
+    ).abilities);
+    const questSteps = collectSteps(parseOracleTextToIR(
+      "If it's a creature card, you may reveal it and put a quest counter on this enchantment.",
+      "Quest for Ula's Temple"
+    ).abilities);
+
+    expect(undergrowthSteps).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'prevent_damage', amount: 'all' }),
+      expect.objectContaining({ kind: 'remove_counter', counter: '+1/+1', amount: { kind: 'number', value: 1 } }),
+    ]));
+    expect(fireplaceSteps).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'add_counter', counter: 'time', amount: { kind: 'number', value: 1 } }),
+    ]));
+    expect(questSteps).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'add_counter', counter: 'quest', target: { kind: 'raw', text: 'this enchantment' } }),
+    ]));
+  });
+
+  it('keeps offset-7050 keyword and replacement counter reminders non-counter-placement', () => {
+    const cases = [
+      ['Stratus Dancer', 'Turn it face up any time for its megamorph cost and put a +1/+1 counter on it.)'],
+      ['Arcbound Worker', 'Modular 1 (This creature enters with a +1/+1 counter on it.'],
+      ['Bloodlord of Vaasgoth', 'Bloodthirst 3 (If an opponent was dealt damage this turn, this creature enters with three +1/+1 counters on it.)'],
+      ['Fleecemane Lion', "(If this creature isn't monstrous, put a +1/+1 counter on it and it becomes monstrous.)"],
+      ['Mowu, Loyal Companion', 'If one or more +1/+1 counters would be put on Mowu, that many plus one +1/+1 counters are put on it instead.'],
+    ] as const;
+
+    for (const [name, text] of cases) {
+      const steps = collectSteps(parseOracleTextToIR(text, name).abilities);
+      expect(steps.some((step) => step.kind === 'add_counter'), `${name} should not surface executable counter placement`).toBe(false);
+    }
+  });
+
+  it('surfaces offset-7150 same-kind, pronoun entry, and delayed counter metadata', () => {
+    const denrySteps = collectSteps(parseOracleTextToIR(
+      'Whenever a nontoken creature you control enters, if Denry Klin has counters on it, put the same number of each kind of counter on that creature.',
+      'Denry Klin, Editor in Chief'
+    ).abilities);
+    const scarletSteps = collectSteps(parseOracleTextToIR(
+      'Sensational Save — If Scarlet Spider was cast using web-slinging, he enters with X +1/+1 counters on him, where X is the mana value of the returned creature.',
+      'Scarlet Spider, Ben Reilly'
+    ).abilities);
+    const foeRazerSteps = collectSteps(parseOracleTextToIR(
+      'Whenever a creature you control fights, put two +1/+1 counters on it at the beginning of the next end step.',
+      'Foe-Razer Regent'
+    ).abilities);
+
+    expect(denrySteps).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        kind: 'add_counter',
+        amount: { kind: 'unknown', raw: 'the same number' },
+        counter: 'each kind',
+        target: { kind: 'raw', text: 'that creature' },
+      }),
+    ]));
+    expect(scarletSteps).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        kind: 'add_counter',
+        amount: { kind: 'x' },
+        counter: '+1/+1',
+        target: { kind: 'raw', text: 'this permanent' },
+      }),
+    ]));
+    expect(foeRazerSteps).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'schedule_delayed_trigger', timing: 'next_end_step' }),
+      expect.objectContaining({ kind: 'add_counter', counter: '+1/+1', amount: { kind: 'number', value: 2 } }),
+    ]));
+  });
+
+  it('surfaces offset-7250 choice tails, counter moves, and exile replacement counter riders', () => {
+    const liegeSteps = collectSteps(parseOracleTextToIR(
+      'Whenever this creature deals combat damage to a player, you may choose any number of target lands you control and put an awakening counter on each of them.',
+      'Liege of the Tangle'
+    ).abilities);
+    const bioshiftSteps = collectSteps(parseOracleTextToIR(
+      'Move any number of +1/+1 counters from target creature onto another target creature with the same controller.',
+      'Bioshift'
+    ).abilities);
+    const ravenousSteps = collectSteps(parseOracleTextToIR(
+      "If a creature an opponent controls would die, instead exile it and put a number of +1/+1 counters equal to that creature's power on this creature.",
+      'Ravenous Slime'
+    ).abilities);
+
+    expect(liegeSteps).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'add_counter', counter: 'awakening', target: { kind: 'raw', text: 'each of them' } }),
+    ]));
+    expect(bioshiftSteps).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        kind: 'move_counters',
+        counter: '+1/+1',
+        amount: { kind: 'any_number' },
+        from: { kind: 'raw', text: 'target creature' },
+        to: { kind: 'raw', text: 'another target creature with the same controller' },
+      }),
+    ]));
+    expect(ravenousSteps).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'exile', target: { kind: 'raw', text: 'it' } }),
+      expect.objectContaining({
+        kind: 'add_counter',
+        counter: '+1/+1',
+        amount: { kind: 'unknown', raw: "equal to that creature's power" },
+        target: { kind: 'raw', text: 'this creature' },
+      }),
+    ]));
+  });
+
+  it('surfaces offset-7350 choice keyword counters and counter-plus-draw conditionals', () => {
+    const owenSteps = collectSteps(parseOracleTextToIR(
+      '{T}: Put your choice of a menace, trample, reach, or haste counter on target Dinosaur.',
+      'Owen Grady, Raptor Trainer'
+    ).abilities);
+    const bountySteps = collectSteps(parseOracleTextToIR(
+      'If no counters were removed this way, put a flood counter on this enchantment and draw a card.',
+      'Bounty of the Luxa'
+    ).abilities);
+
+    expect(owenSteps).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        kind: 'add_counter',
+        amount: { kind: 'number', value: 1 },
+        counter: 'choice: a menace, trample, reach, or haste',
+        target: { kind: 'raw', text: 'target Dinosaur' },
+      }),
+    ]));
+    expect(bountySteps).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'add_counter', counter: 'flood', target: { kind: 'raw', text: 'this enchantment' } }),
+      expect.objectContaining({ kind: 'draw', amount: { kind: 'number', value: 1 } }),
+    ]));
+  });
+
+  it('surfaces offset-7450 singular counter moves and kicked entry counters', () => {
+    const fiendSteps = collectSteps(parseOracleTextToIR(
+      'At the beginning of your upkeep, you may move a +1/+1 counter from target creature onto this creature.',
+      'Arcbound Fiend'
+    ).abilities);
+    const kangeeSteps = collectSteps(parseOracleTextToIR(
+      'Kicker {X}{2} (You may pay an additional {X}{2} as you cast this spell.) Flying When Kangee enters, if it was kicked, put X feather counters on it. Other Bird creatures get +1/+1 for each feather counter on Kangee.',
+      'Kangee, Aerie Keeper'
+    ).abilities);
+
+    expect(fiendSteps).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        kind: 'move_counters',
+        amount: { kind: 'number', value: 1 },
+        counter: '+1/+1',
+        from: { kind: 'raw', text: 'target creature' },
+        to: { kind: 'raw', text: 'this creature' },
+      }),
+    ]));
+    expect(kangeeSteps).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        kind: 'add_counter',
+        amount: { kind: 'x' },
+        counter: 'feather',
+        target: { kind: 'raw', text: 'it' },
+      }),
+    ]));
+  });
+
+  it('surfaces offset-7550 token counter metadata and compound counter followups', () => {
+    const ashiokSteps = collectSteps(parseOracleTextToIR(
+      'Create two 1/1 black Nightmare creature tokens with "At the beginning of combat on your turn, if a card was put into exile this turn, put a +1/+1 counter on this token."',
+      'Ashiok, Wicked Manipulator'
+    ).abilities);
+    const mindSpiralSteps = collectSteps(parseOracleTextToIR(
+      'If the gift was promised, tap target creature an opponent controls and put a stun counter on it.',
+      'Mind Spiral'
+    ).abilities);
+    const heroesSteps = collectSteps(parseOracleTextToIR(
+      'Whenever one or more Mutants, Ninjas, and/or Turtles you control deal combat damage to a player, put a +1/+1 counter on each of those creatures and draw a card.',
+      'Heroes in a Half Shell'
+    ).abilities);
+    const sphereSteps = collectSteps(parseOracleTextToIR(
+      'This artifact enters tapped and with three charge counters on it.',
+      'Sphere of the Suns'
+    ).abilities);
+
+    expect(ashiokSteps).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'create_token', token: '1/1 black Nightmare' }),
+      expect.objectContaining({ kind: 'add_counter', counter: '+1/+1', target: { kind: 'raw', text: 'this token' } }),
+    ]));
+    expect(mindSpiralSteps).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'tap_or_untap', target: { kind: 'raw', text: 'target creature an opponent controls' } }),
+      expect.objectContaining({ kind: 'add_counter', counter: 'stun', target: { kind: 'raw', text: 'it' } }),
+    ]));
+    expect(heroesSteps).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'add_counter', counter: '+1/+1', target: { kind: 'raw', text: 'each of those creatures' } }),
+      expect.objectContaining({ kind: 'draw', amount: { kind: 'number', value: 1 } }),
+    ]));
+    expect(sphereSteps).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'add_counter', counter: 'charge', amount: { kind: 'number', value: 3 } }),
+    ]));
+  });
+
+  it('surfaces offset-7650 final counter-window deterministic placements', () => {
+    const dukeSteps = collectSteps(parseOracleTextToIR(
+      'The Duke enters with a +1/+1 counter on him.',
+      'The Duke, Rebel Sentry'
+    ).abilities);
+    const regnaSteps = collectSteps(parseOracleTextToIR(
+      'Each friend puts a +1/+1 counter on each creature they control.',
+      "Regna's Sanction"
+    ).abilities);
+    const meSteps = collectSteps(parseOracleTextToIR(
+      'At the beginning of combat on your turn, put your choice of a +1/+1, first strike, vigilance, or menace counter on Me.',
+      'Me, the Immortal'
+    ).abilities);
+    const zygonSteps = collectSteps(parseOracleTextToIR(
+      'Body-print — {2}{U}: Tap another target creature and put a stun counter on it.',
+      'Zygon Infiltrator'
+    ).abilities);
+
+    expect(dukeSteps).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'add_counter', counter: '+1/+1', target: { kind: 'raw', text: 'this permanent' } }),
+    ]));
+    expect(regnaSteps).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'add_counter', counter: '+1/+1', target: { kind: 'raw', text: 'each creature they control' } }),
+    ]));
+    expect(meSteps).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'add_counter', counter: 'choice: a +1/+1, first strike, vigilance, or menace' }),
+    ]));
+    expect(zygonSteps).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'tap_or_untap', target: { kind: 'raw', text: 'another target creature' } }),
+      expect.objectContaining({ kind: 'add_counter', counter: 'stun', target: { kind: 'raw', text: 'it' } }),
+    ]));
+  });
+
+  it('surfaces offset-7750 life swings split from draw and move-zone clauses', () => {
+    const approachSteps = collectSteps(parseOracleTextToIR(
+      "If this spell was cast from your hand and you've cast another spell named Approach of the Second Sun this game, you win the game. Otherwise, put Approach of the Second Sun into its owner's library seventh from the top and you gain 7 life.",
+      'Approach of the Second Sun'
+    ).abilities);
+    const rankleSteps = collectSteps(parseOracleTextToIR(
+      'Flying, haste\nWhenever Rankle, Master of Pranks deals combat damage to a player, choose any number -\n• Each player discards a card.\n• Each player loses 1 life and draws a card.\n• Each player sacrifices a creature token.',
+      'Rankle, Master of Pranks'
+    ).abilities);
+
+    expect(approachSteps).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'move_zone', to: 'library' }),
+      expect.objectContaining({ kind: 'gain_life', who: { kind: 'you' }, amount: { kind: 'number', value: 7 } }),
+    ]));
+    expect(rankleSteps).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'lose_life', who: { kind: 'each_player' }, amount: { kind: 'number', value: 1 } }),
+      expect.objectContaining({ kind: 'draw', who: { kind: 'each_player' }, amount: { kind: 'number', value: 1 } }),
+    ]));
+  });
+
+  it('surfaces offset-7750 optional target-opponent life loss without parsing lifelink reminders', () => {
+    const discipleSteps = collectSteps(parseOracleTextToIR(
+      'Whenever an artifact is put into a graveyard from the battlefield, you may have target opponent lose 1 life.',
+      'Disciple of the Vault'
+    ).abilities);
+    const basiliskSteps = collectSteps(parseOracleTextToIR(
+      'Equipped creature has deathtouch and lifelink. (Damage dealt by this creature also causes you to gain that much life.)',
+      'Basilisk Collar'
+    ).abilities);
+
+    expect(discipleSteps).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        kind: 'lose_life',
+        who: { kind: 'target_opponent' },
+        amount: { kind: 'number', value: 1 },
+        optional: true,
+      }),
+    ]));
+    expect(basiliskSteps.some((step) => step.kind === 'gain_life')).toBe(false);
+  });
+
+  it('surfaces offset-7850 compound damage, shared gain, and mill-life effects', () => {
+    const swordSteps = collectSteps(parseOracleTextToIR(
+      'Equipped creature gets +2/+2 and has protection from red and from white. Whenever equipped creature deals combat damage to a player, this Equipment deals damage to that player equal to the number of cards in their hand and you gain 1 life for each card in your hand.',
+      'Sword of War and Peace'
+    ).abilities);
+    const angelSteps = collectSteps(parseOracleTextToIR(
+      'Flying, double strike\nWhenever a creature you control deals combat damage to a player, you and that player each gain that much life.',
+      'Angel of Destiny'
+    ).abilities);
+    const tinybonesSteps = collectSteps(parseOracleTextToIR(
+      'Whenever a legendary creature you control enters, any number of target players each mill a card and lose 1 life.',
+      'Tinybones Joins Up'
+    ).abilities);
+
+    expect(swordSteps).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'deal_damage', target: { kind: 'raw', text: 'that player' } }),
+      expect.objectContaining({ kind: 'gain_life', who: { kind: 'you' }, amount: { kind: 'unknown', raw: '1 for each card in your hand' } }),
+    ]));
+    expect(angelSteps).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'gain_life', who: { kind: 'you_and_target_player' }, amount: { kind: 'reference_amount', raw: 'that much' } }),
+    ]));
+    expect(tinybonesSteps).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'mill', who: { kind: 'any_number_of_target_players' }, amount: { kind: 'number', value: 1 } }),
+      expect.objectContaining({ kind: 'lose_life', who: { kind: 'any_number_of_target_players' }, amount: { kind: 'number', value: 1 } }),
+    ]));
+  });
+
+  it('surfaces offset-7950 conditional and qualified-opponent life effects', () => {
+    const altarSteps = collectSteps(parseOracleTextToIR(
+      '{T}: Add one mana of any color. If you control a God, a Demigod, or a legendary enchantment, you gain 1 life.',
+      'Altar of the Pantheon'
+    ).abilities);
+    const atlasSteps = collectSteps(parseOracleTextToIR(
+      'Corrupted — Whenever this artifact becomes tapped, each opponent who has three or more poison counters loses 1 life.',
+      'Phyrexian Atlas'
+    ).abilities);
+
+    expect(altarSteps).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        kind: 'conditional',
+        condition: { kind: 'if', raw: 'you control a God, a Demigod, or a legendary enchantment' },
+      }),
+      expect.objectContaining({ kind: 'gain_life', who: { kind: 'you' }, amount: { kind: 'number', value: 1 } }),
+    ]));
+    expect(atlasSteps).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        kind: 'conditional',
+        condition: { kind: 'if', raw: 'each opponent who has three or more poison counters' },
+      }),
+      expect.objectContaining({ kind: 'lose_life', who: { kind: 'each_opponent' }, amount: { kind: 'number', value: 1 } }),
+    ]));
+  });
+
+  it('surfaces offset-8050 granted and compound life-loss effects', () => {
+    const clawingSteps = collectSteps(parseOracleTextToIR(
+      'Enchant artifact or creature\nAs long as enchanted permanent is a creature, it gets -1/-1 and can\'t block.\nEnchanted permanent has "At the beginning of your upkeep, you lose 1 life."',
+      'Clawing Torment'
+    ).abilities);
+    const experimentSteps = collectSteps(parseOracleTextToIR(
+      'Target player mills two cards, draws two cards, and loses 2 life.',
+      'Atrocious Experiment'
+    ).abilities);
+    const malboroSteps = collectSteps(parseOracleTextToIR(
+      'Bad Breath — When this creature enters, each opponent discards a card, loses 2 life, and exiles the top three cards of their library.',
+      'Malboro'
+    ).abilities);
+
+    expect(clawingSteps).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'grant_static_ability' }),
+      expect.objectContaining({ kind: 'lose_life', who: { kind: 'you' }, amount: { kind: 'number', value: 1 } }),
+    ]));
+    expect(experimentSteps).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'mill', who: { kind: 'target_player' }, amount: { kind: 'number', value: 2 } }),
+      expect.objectContaining({ kind: 'draw', who: { kind: 'target_player' }, amount: { kind: 'number', value: 2 } }),
+      expect.objectContaining({ kind: 'lose_life', who: { kind: 'target_player' }, amount: { kind: 'number', value: 2 } }),
+    ]));
+    expect(malboroSteps).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'discard', who: { kind: 'each_opponent' }, amount: { kind: 'number', value: 1 } }),
+      expect.objectContaining({ kind: 'lose_life', who: { kind: 'each_opponent' }, amount: { kind: 'number', value: 2 } }),
+    ]));
+  });
+
+  it('surfaces offset-8150 draw-life and repeated lose-gain effects', () => {
+    const confluenceSteps = collectSteps(parseOracleTextToIR(
+      'Choose three. You may choose the same mode more than once.\n• Target player draws a card and loses 1 life.',
+      'Wretched Confluence'
+    ).abilities);
+    const sufferSteps = collectSteps(parseOracleTextToIR(
+      'Exile X target cards from target player\'s graveyard. For each card exiled this way, that player loses 1 life and you gain 1 life.',
+      'Suffer the Past'
+    ).abilities);
+    const azorSteps = collectSteps(parseOracleTextToIR(
+      'Whenever Azor attacks, you may pay {X}{W}{U}{U}. If you do, you gain X life and draw X cards.',
+      'Azor, the Lawbringer'
+    ).abilities);
+    const rewardSteps = collectSteps(parseOracleTextToIR(
+      'Each player may bid life. The high bidder loses life equal to the high bid and draws four cards.',
+      "Pain's Reward"
+    ).abilities);
+
+    expect(confluenceSteps).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'draw', who: { kind: 'target_player' }, amount: { kind: 'number', value: 1 } }),
+      expect.objectContaining({ kind: 'lose_life', who: { kind: 'target_player' }, amount: { kind: 'number', value: 1 } }),
+    ]));
+    expect(sufferSteps).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'lose_life', who: { kind: 'target_player' }, amount: { kind: 'unknown', raw: '1 for each card exiled this way' } }),
+      expect.objectContaining({ kind: 'gain_life', who: { kind: 'you' }, amount: { kind: 'unknown', raw: '1 for each card exiled this way' } }),
+    ]));
+    expect(azorSteps).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'gain_life', who: { kind: 'you' }, amount: { kind: 'x' } }),
+      expect.objectContaining({ kind: 'draw', who: { kind: 'you' }, amount: { kind: 'x' } }),
+    ]));
+    expect(rewardSteps).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'lose_life', amount: { kind: 'unknown', raw: 'the high bid' } }),
+      expect.objectContaining({ kind: 'draw', amount: { kind: 'number', value: 4 } }),
+    ]));
+  });
+
+  it('surfaces offset-8250 life pairs, token life metadata, and conditional draw-loss', () => {
+    const hauntSteps = collectSteps(parseOracleTextToIR(
+      'Then the chosen player loses X life and you gain X life, where X is the number of artifacts you control.',
+      'Haunt the Network'
+    ).abilities);
+    const breachSteps = collectSteps(parseOracleTextToIR(
+      'Destroy target artifact or enchantment. If its mana value is 2 or less, create a 1/1 black and green Pest creature token with "When this token dies, you gain 1 life."',
+      'Containment Breach'
+    ).abilities);
+    const sleeperSteps = collectSteps(parseOracleTextToIR(
+      '{1}{B}{B}: If this creature is a Phyrexian, put a +1/+1 counter on it, then you draw a card and you lose 1 life.',
+      'Evolved Sleeper'
+    ).abilities);
+
+    expect(hauntSteps).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'lose_life', amount: { kind: 'x' }, sequence: 'then' }),
+      expect.objectContaining({ kind: 'gain_life', who: { kind: 'you' }, amount: { kind: 'x' }, sequence: 'then' }),
+    ]));
+    expect(breachSteps).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'create_token', token: '1/1 black and green Pest' }),
+      expect.objectContaining({ kind: 'gain_life', who: { kind: 'you' }, amount: { kind: 'number', value: 1 } }),
+    ]));
+    expect(sleeperSteps).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'add_counter', counter: '+1/+1' }),
+      expect.objectContaining({ kind: 'draw', who: { kind: 'you' }, amount: { kind: 'number', value: 1 } }),
+      expect.objectContaining({ kind: 'lose_life', who: { kind: 'you' }, amount: { kind: 'number', value: 1 } }),
+    ]));
+  });
+
+  it('surfaces offset-8350 compound discard, sacrifice, and delayed life effects', () => {
+    const clutchesSteps = collectSteps(parseOracleTextToIR(
+      'Target opponent discards two cards, mills two cards, and loses 2 life.',
+      "Demogorgon's Clutches"
+    ).abilities);
+    const falseCureSteps = collectSteps(parseOracleTextToIR(
+      'Until end of turn, whenever a player gains life, that player loses 2 life for each 1 life they gained.',
+      'False Cure'
+    ).abilities);
+    const broodSteps = collectSteps(parseOracleTextToIR(
+      'When this creature is put into your graveyard from the battlefield, at the beginning of the next end step, you lose 1 life and return this card to your hand.',
+      'Brood of Cockroaches'
+    ).abilities);
+    const verdictSteps = collectSteps(parseOracleTextToIR(
+      'Target player sacrifices a creature of their choice and loses 1 life.',
+      "Geth's Verdict"
+    ).abilities);
+    const scarringSteps = collectSteps(parseOracleTextToIR(
+      'Target opponent sacrifices a creature of their choice, discards a card, and loses 3 life.',
+      'Scarring Memories'
+    ).abilities);
+
+    expect(clutchesSteps).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'discard', who: { kind: 'target_opponent' }, amount: { kind: 'number', value: 2 } }),
+      expect.objectContaining({ kind: 'mill', who: { kind: 'target_opponent' }, amount: { kind: 'number', value: 2 } }),
+      expect.objectContaining({ kind: 'lose_life', who: { kind: 'target_opponent' }, amount: { kind: 'number', value: 2 } }),
+    ]));
+    expect(falseCureSteps).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'lose_life', who: { kind: 'target_player' }, amount: { kind: 'unknown', raw: '2 for each 1 life they gained' }, duration: 'end_of_turn' }),
+    ]));
+    expect(broodSteps).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'schedule_delayed_trigger', timing: 'next_end_step' }),
+      expect.objectContaining({ kind: 'lose_life', who: { kind: 'you' }, amount: { kind: 'number', value: 1 } }),
+      expect.objectContaining({ kind: 'move_zone', to: 'hand' }),
+    ]));
+    expect(verdictSteps).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'sacrifice', who: { kind: 'target_player' }, what: { kind: 'raw', text: 'a creature of their choice' } }),
+      expect.objectContaining({ kind: 'lose_life', who: { kind: 'target_player' }, amount: { kind: 'number', value: 1 } }),
+    ]));
+    expect(scarringSteps).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'sacrifice', who: { kind: 'target_opponent' }, what: { kind: 'raw', text: 'a creature of their choice' } }),
+      expect.objectContaining({ kind: 'discard', who: { kind: 'target_opponent' }, amount: { kind: 'number', value: 1 } }),
+      expect.objectContaining({ kind: 'lose_life', who: { kind: 'target_opponent' }, amount: { kind: 'number', value: 3 } }),
+    ]));
+  });
+
+  it('surfaces offset-8450 for-each, replacement, and result-table life gain', () => {
+    const grimnarchSteps = collectSteps(parseOracleTextToIR(
+      'For each opponent who can\'t, you gain 4 life.',
+      'Cruel Grimnarch'
+    ).abilities);
+    const wordsSteps = collectSteps(parseOracleTextToIR(
+      '{1}: The next time you would draw a card this turn, you gain 5 life instead.',
+      'Words of Worship'
+    ).abilities);
+    const spoilsSteps = collectSteps(parseOracleTextToIR(
+      "For each artifact or creature card in target opponent's graveyard, add {C} and you gain 1 life.",
+      'Spoils of Evil'
+    ).abilities);
+    const shepherdSteps = collectSteps(parseOracleTextToIR(
+      '1—9 | You gain 1 life.',
+      'Sylvan Shepherd'
+    ).abilities);
+
+    expect(grimnarchSteps).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'gain_life', who: { kind: 'you' }, amount: { kind: 'unknown', raw: "4 for each opponent who can't" } }),
+    ]));
+    expect(wordsSteps).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'gain_life', who: { kind: 'you' }, amount: { kind: 'number', value: 5 }, replacementOf: 'draw_card', duration: 'end_of_turn' }),
+    ]));
+    expect(spoilsSteps).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'gain_life', who: { kind: 'you' }, amount: { kind: 'unknown', raw: "1 for each artifact or creature card in target opponent's graveyard" } }),
+    ]));
+    expect(shepherdSteps).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'gain_life', who: { kind: 'you' }, amount: { kind: 'number', value: 1 } }),
+    ]));
+  });
+
+  it('surfaces offset-8550 comma-separated draw and life loss', () => {
+    const steps = collectSteps(parseOracleTextToIR(
+      'You draw two cards, lose 2 life, and get {E}{E} (two energy counters).',
+      'Live Fast'
+    ).abilities);
+
+    expect(steps).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'draw', who: { kind: 'you' }, amount: { kind: 'number', value: 2 } }),
+      expect.objectContaining({ kind: 'lose_life', who: { kind: 'you' }, amount: { kind: 'number', value: 2 } }),
+    ]));
+  });
+
+  it('surfaces offset-8650 trailing trigger, each-other-player, and quoted gain life', () => {
+    const faithfulSteps = collectSteps(parseOracleTextToIR(
+      'Whenever you cast a blue, black, or red spell, you gain 1 life.',
+      "God-Pharaoh's Faithful"
+    ).abilities);
+    const syphonMageSteps = collectSteps(parseOracleTextToIR(
+      '{2}{B}, {T}, Discard a card: Each other player loses 2 life.',
+      'Urborg Syphon-Mage'
+    ).abilities);
+    const katanaSteps = collectSteps(parseOracleTextToIR(
+      'Equipped creature gets +1/+1 and has "Whenever this creature deals combat damage, untap it and you gain 2 life."',
+      'Quintessential Katana'
+    ).abilities);
+
+    expect(faithfulSteps).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'gain_life', who: { kind: 'you' }, amount: { kind: 'number', value: 1 } }),
+    ]));
+    expect(syphonMageSteps).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'lose_life', who: { kind: 'each_opponent' }, amount: { kind: 'number', value: 2 } }),
+    ]));
+    expect(katanaSteps).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'grant_static_ability' }),
+      expect.objectContaining({ kind: 'gain_life', who: { kind: 'you' }, amount: { kind: 'number', value: 2 } }),
+    ]));
+  });
+
+  it('surfaces offset-8750 prefixed and quoted destroy effects', () => {
+    const windgraceSteps = collectSteps(parseOracleTextToIR(
+      'For any number of opponents, destroy target nonland permanent that player controls.',
+      "Windgrace's Judgment"
+    ).abilities);
+    const harmonicSteps = collectSteps(parseOracleTextToIR(
+      'All Slivers have "When this permanent enters, destroy target artifact or enchantment."',
+      'Harmonic Sliver'
+    ).abilities);
+    const dreadmawSteps = collectSteps(parseOracleTextToIR(
+      'Until end of turn, target attacking creature gets +2/+2 and gains trample and "Whenever this creature deals combat damage to a player, destroy target artifact that player controls."',
+      "Dreadmaw's Ire"
+    ).abilities);
+
+    expect(windgraceSteps).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'destroy', target: { kind: 'raw', text: 'target nonland permanent that player controls' } }),
+    ]));
+    expect(harmonicSteps).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'grant_static_ability' }),
+      expect.objectContaining({ kind: 'destroy', target: { kind: 'raw', text: 'target artifact or enchantment' } }),
+    ]));
+    expect(dreadmawSteps).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'destroy', target: { kind: 'raw', text: 'target artifact that player controls' } }),
+    ]));
+  });
+
+  it('surfaces offset-8850 prefixed, activated, and compound destroy effects', () => {
+    const cloudSteps = collectSteps(parseOracleTextToIR(
+      '• Cross-Slash — {0} — Destroy target tapped creature.',
+      "Cloud's Limit Break"
+    ).abilities);
+    const evilTwinSteps = collectSteps(parseOracleTextToIR(
+      'You may have this creature enter as a copy of any creature on the battlefield, except it has "{U}{B}, {T}: Destroy target creature with the same name as this creature."',
+      'Evil Twin'
+    ).abilities);
+    const motherlodeSteps = collectSteps(parseOracleTextToIR(
+      "When you do, destroy target nonbasic land defending player controls, and creatures that player controls without flying can't block this turn.",
+      'The Motherlode, Excavator'
+    ).abilities);
+    const combustionSteps = collectSteps(parseOracleTextToIR(
+      'Whenever Combustion Man attacks, destroy target permanent unless its controller has Combustion Man deal damage to them equal to his power.',
+      'Combustion Man'
+    ).abilities);
+
+    expect(cloudSteps).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'destroy', target: { kind: 'raw', text: 'target tapped creature' } }),
+    ]));
+    expect(evilTwinSteps).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'grant_static_ability' }),
+      expect.objectContaining({ kind: 'destroy', target: { kind: 'raw', text: 'target creature with the same name as this creature' } }),
+    ]));
+    expect(motherlodeSteps).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'destroy', target: { kind: 'raw', text: 'target nonbasic land defending player controls' } }),
+      expect.objectContaining({ kind: 'cant_block', target: { kind: 'raw', text: 'creatures that player controls without flying' } }),
+    ]));
+    expect(combustionSteps).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'destroy', target: { kind: 'raw', text: 'target permanent' } }),
+      expect.objectContaining({ kind: 'deal_damage', source: { kind: 'raw', text: 'this permanent' } }),
+    ]));
+  });
+
+  it('surfaces offset-9050 timed and cost-prefixed destroy effects', () => {
+    const heatStrokeSteps = collectSteps(parseOracleTextToIR(
+      'At end of combat, destroy each creature that blocked or was blocked this turn.',
+      'Heat Stroke'
+    ).abilities);
+    const accidentSteps = collectSteps(parseOracleTextToIR(
+      '+ {2}{B} — Destroy target creature.',
+      'Unfortunate Accident'
+    ).abilities);
+
+    expect(heatStrokeSteps).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'destroy', target: { kind: 'raw', text: 'each creature that blocked or was blocked this turn' }, timing: 'end_of_combat' }),
+    ]));
+    expect(accidentSteps).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'destroy', target: { kind: 'raw', text: 'target creature' } }),
+    ]));
+  });
+
+  it('surfaces offset-9150 destroy before no-combat-damage riders', () => {
+    const steps = collectSteps(parseOracleTextToIR(
+      'If you do, destroy target artifact defending player controls and this creature assigns no combat damage this turn.',
+      'Goblin Vandal'
+    ).abilities);
+
+    expect(steps).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        kind: 'conditional',
+        condition: { kind: 'if', raw: 'you do' },
+      }),
+      expect.objectContaining({ kind: 'destroy', target: { kind: 'raw', text: 'target artifact defending player controls' } }),
+      expect.objectContaining({ kind: 'assign_no_combat_damage', target: { kind: 'raw', text: 'this creature' } }),
+    ]));
+  });
+
+  it('surfaces offset-9550 broad acorn destroy targets without splitting MTGO names', () => {
+    const steps = collectSteps(parseOracleTextToIR(
+      "Destroy target artifact, enchantment, token, emblem, day/night tracker, monarch, initiative, dungeon, city's blessing, Attraction, Contraption, plane, scheme, vanguard, bounty, conspiracy, elite creature, or Magic: The Gathering Online avatar.",
+      'Clear, Fair Magic'
+    ).abilities);
+
+    expect(steps).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        kind: 'destroy',
+        target: {
+          kind: 'raw',
+          text: "target artifact, enchantment, token, emblem, day/night tracker, monarch, initiative, dungeon, city's blessing, Attraction, Contraption, plane, scheme, vanguard, bounty, conspiracy, elite creature, or Magic The Gathering Online avatar",
+        },
+      }),
+    ]));
+  });
+
+  it('surfaces offset-9580 library-search variants', () => {
+    const pathSteps = collectSteps(parseOracleTextToIR(
+      'Its controller may search their library for a basic land card, put that card onto the battlefield tapped, then shuffle.',
+      'Path to Exile'
+    ).abilities);
+    const cultivateSteps = collectSteps(parseOracleTextToIR(
+      'Search your library for up to two basic land cards, reveal those cards, put one onto the battlefield tapped and the other into your hand, then shuffle.',
+      'Cultivate'
+    ).abilities);
+    const thadaSteps = collectSteps(parseOracleTextToIR(
+      "Whenever Thada Adel deals combat damage to a player, search that player's library for an artifact card and exile it.",
+      'Thada Adel, Acquisitor'
+    ).abilities);
+    const doomsdaySteps = collectSteps(parseOracleTextToIR(
+      'Search your library and graveyard for five cards and exile the rest.',
+      'Doomsday'
+    ).abilities);
+
+    expect(pathSteps).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        kind: 'search_library',
+        who: { kind: 'target_player' },
+        criteria: { kind: 'raw', text: 'basic land' },
+        destination: 'battlefield',
+        entersTapped: true,
+        optional: true,
+      }),
+    ]));
+    expect(cultivateSteps).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        kind: 'search_library',
+        criteria: { kind: 'raw', text: 'basic land' },
+        destination: 'battlefield',
+        revealFound: true,
+        entersTapped: true,
+        maxResults: 2,
+      }),
+    ]));
+    expect(thadaSteps).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        kind: 'search_library',
+        who: { kind: 'target_player' },
+        criteria: { kind: 'raw', text: 'artifact' },
+        destination: 'exile',
+      }),
+    ]));
+    expect(doomsdaySteps).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        kind: 'search_library',
+        criteria: { kind: 'raw', text: '' },
+        destination: 'exile',
+        maxResults: 5,
+      }),
+    ]));
+  });
+
+  it('surfaces remaining library-search prevention and search-followup shuffle rows', () => {
+    const ashiokSteps = collectSteps(parseOracleTextToIR(
+      "Spells and abilities your opponents control can't cause their controller to search their library.",
+      'Ashiok, Dream Render'
+    ).abilities);
+    const auditoreSteps = collectSteps(parseOracleTextToIR(
+      'If they search their library this way, they shuffle.',
+      'Auditore Ambush'
+    ).abilities);
+    const arachnusSteps = collectSteps(parseOracleTextToIR(
+      'If you search your library this way, shuffle.',
+      'Arachnus Spinner'
+    ).abilities);
+    const sayItsNameSteps = collectSteps(parseOracleTextToIR(
+      'If you search your library this way, shuffle.',
+      'Say Its Name'
+    ).abilities);
+
+    expect(ashiokSteps).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        kind: 'prevent_library_search',
+        who: { kind: 'each_opponent' },
+        source: { kind: 'raw', text: 'spells and abilities your opponents control' },
+        duration: 'static',
+      }),
+    ]));
+    expect(auditoreSteps).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        kind: 'conditional',
+        condition: { kind: 'if', raw: 'they search their library this way' },
+      }),
+      expect.objectContaining({ kind: 'shuffle_library', who: { kind: 'target_player' } }),
+    ]));
+    for (const steps of [arachnusSteps, sayItsNameSteps]) {
+      expect(steps).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'conditional',
+          condition: { kind: 'if', raw: 'you search your library this way' },
+        }),
+        expect.objectContaining({ kind: 'shuffle_library', who: { kind: 'you' } }),
+      ]));
+    }
+  });
 });

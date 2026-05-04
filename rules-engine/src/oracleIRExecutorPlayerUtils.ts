@@ -636,6 +636,15 @@ export function resolvePlayers(
       if (bound && opponentIdSet.has(bound)) return [bound];
       return [];
     }
+    case 'any_number_of_target_players': {
+      const chosenTargets = Array.isArray(ctx.selectorContext?.chosenObjectIds)
+        ? dedupe(ctx.selectorContext.chosenObjectIds as PlayerID[])
+        : [];
+      if (chosenTargets.length > 0) return chosenTargets;
+      const bound = normalizeId(ctx.selectorContext?.targetPlayerId) ?? normalizeId(ctx.selectorContext?.targetOpponentId);
+      if (bound && allPlayerIds.has(bound)) return [bound];
+      return [];
+    }
     case 'you_and_target_opponent': {
       const target = normalizeId(ctx.selectorContext?.targetOpponentId) ?? normalizeId(ctx.selectorContext?.targetPlayerId);
       const opponent = target && opponentIdSet.has(target) ? target : opponents.length === 1 ? opponents[0] : undefined;

@@ -65,6 +65,10 @@ import {
   annotateTokenCreationMetadataAbilities,
   annotateDamageMetadataAbilities,
   annotateDrawMetadataAbilities,
+  annotateLifeMetadataAbilities,
+  annotateDestroyMetadataAbilities,
+  annotateCounterMetadataAbilities,
+  annotateSacrificeMetadataAbilities,
   expandParadigmKeywordAbilities,
   pruneStaticMyriadReminderTailAbilities,
   expandGraveyardPermissionModifierUnknownAbilities,
@@ -162,6 +166,7 @@ import {
   mergeDeterministicKeywordFollowupAbilities,
   mergeKinshipRevealConditionalAbilities,
   mergeConditionalMoveZoneCounterFollowupAbilities,
+  expandDynamicCounterRiderAbilities,
   mergeConditionalGraveyardReminderFollowupAbilities,
   expandStandaloneTopLibraryInfoAbilities,
   bindImmediateTopLibraryReferenceFollowups,
@@ -317,6 +322,11 @@ function parseEffectClauseToStep(rawClause: string): OracleEffectStep {
     if (parsed) return parsed;
   }
 
+  {
+    const parsed = tryParseVillainousChoiceStep(clause, undefined);
+    if (parsed) return withMeta(parsed);
+  }
+
 
   return withMeta({ kind: 'unknown', raw: rawClause });
 }
@@ -325,13 +335,14 @@ function tryParseVillainousChoiceStep(
   effectText: string,
   cardName: string | undefined
 ): (OracleEffectStep & { kind: 'choose_mode' }) | null {
-  const normalized = normalizeOracleText(effectText);
+  const normalized = normalizeOracleText(effectText).replace(/^then\s+/i, '').trim();
   const match = normalized.match(/^(.+?)\s+faces a villainous choice\s*(?:\u2014|-)\s*(.+)$/i);
   if (!match) return null;
 
   const chooserText = String(match[1] || '').trim();
   const optionsText = String(match[2] || '').trim().replace(/[.]+$/g, '');
-  const separatorIndex = optionsText.toLowerCase().lastIndexOf(', or ');
+  if (/[.;]/.test(chooserText)) return null;
+  const separatorIndex = optionsText.toLowerCase().indexOf(', or ');
   if (!chooserText || !optionsText || separatorIndex < 0) return null;
 
   const optionAText = optionsText.slice(0, separatorIndex).trim();
@@ -1447,6 +1458,7 @@ export function parseOracleTextToIR(oracleText: string, cardName?: string): Orac
   abilities = mergeCopyChapterAbilityFollowupAbilities(abilities);
   abilities = expandConditionalLookTopChooseOneToHandRestToGraveyardAbilities(abilities);
   abilities = mergeConditionalMoveZoneCounterFollowupAbilities(abilities);
+  abilities = expandDynamicCounterRiderAbilities(abilities);
   abilities = mergeBattlefieldEntryCharacteristicFollowupAbilities(abilities);
   abilities = mergeBattlefieldEntryAuraRewriteFollowupAbilities(abilities);
   abilities = expandDeterministicMoveZoneFollowupAbilities(abilities);
@@ -1575,6 +1587,10 @@ export function parseOracleTextToIR(oracleText: string, cardName?: string): Orac
   abilities = annotateTokenCreationMetadataAbilities(abilities, normalizedOracleText);
   abilities = annotateDamageMetadataAbilities(abilities);
   abilities = annotateDrawMetadataAbilities(abilities);
+  abilities = annotateLifeMetadataAbilities(abilities);
+  abilities = annotateDestroyMetadataAbilities(abilities);
+  abilities = annotateCounterMetadataAbilities(abilities);
+  abilities = annotateSacrificeMetadataAbilities(abilities);
   abilities = pruneRedundantFaceDownReminderUnknownAbilities(abilities);
   abilities = pruneRedundantProliferateReminderUnknownAbilities(abilities);
   abilities = pruneExternallyHandledStaticUnknownAbilities(abilities);
@@ -1584,6 +1600,10 @@ export function parseOracleTextToIR(oracleText: string, cardName?: string): Orac
   abilities = annotateTokenCreationMetadataAbilities(abilities, normalizedOracleText);
   abilities = annotateDamageMetadataAbilities(abilities);
   abilities = annotateDrawMetadataAbilities(abilities);
+  abilities = annotateLifeMetadataAbilities(abilities);
+  abilities = annotateDestroyMetadataAbilities(abilities);
+  abilities = annotateCounterMetadataAbilities(abilities);
+  abilities = annotateSacrificeMetadataAbilities(abilities);
   abilities = abilities.map(wrapTriggeredInterveningIfAbility);
 
   return {

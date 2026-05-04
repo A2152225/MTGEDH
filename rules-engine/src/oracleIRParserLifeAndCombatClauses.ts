@@ -110,7 +110,7 @@ function parseLifeChangeAmount(
 }
 
 const PLAYER_SUBJECT_PREFIX =
-  "(?:(you|each player|each opponent|each of those opponents|target player|target opponent|that player|that opponent|defending player|the defending player|he or she|they|its controller|its owner|that [a-z0-9][a-z0-9 ,.'â€™-]*?(?:'s|â€™s)? (?:controller|owner)|[a-z0-9][a-z0-9 ,.'â€™-]*?(?:'s|â€™s) (?:controller|owner))\\s+)?";
+  "(?:(you|you and that player|you and target player|you and that opponent|you and target opponent|each player|each other player|each opponent|each of those opponents|any number of target opponents|any number of target players other than that player|any number of target players|target player|target opponent|that player|that opponent|defending player|the defending player|he or she|they|its controller|its owner|that [a-z0-9][a-z0-9 ,.'â€™-]*?(?:'s|â€™s)? (?:controller|owner)|[a-z0-9][a-z0-9 ,.'â€™-]*?(?:'s|â€™s) (?:controller|owner))\\s+)?";
 
 const SELF_DAMAGE_SOURCE_SUBJECT_PATTERN =
   "(?:it|he|she|this (?:permanent|spell|creature|artifact|enchantment|planeswalker|battle|land|card|emblem|token|aura|equipment|class|saga|spacecraft|vehicle)|enchanted creature|equipped creature|each creature(?: you control)?(?: that[^,]+?)?|up to [a-z0-9 -]+ target creatures? you control|that [a-z0-9][a-z0-9 ,.'â€™-]*|target [a-z0-9][a-z0-9 ,.'â€™-]*|another target [a-z0-9][a-z0-9 ,.'â€™-]*)";
@@ -178,6 +178,26 @@ export function tryParseLifeAndCombatClause(args: {
   const { clause, rawClause, withMeta } = args;
 
   {
+    const gainEach = clause.match(/^(you and (?:that|target) (?:player|opponent))\s+each\s+gain\s+(that much|that many|\d+|x|[a-z]+)\s+life\b/i);
+    if (gainEach) {
+      return withMeta({
+        kind: 'gain_life',
+        who: parsePlayerSelector(gainEach[1]),
+        amount: parseQuantity(gainEach[2]),
+        raw: rawClause,
+      });
+    }
+
+    const gainForEach = clause.match(new RegExp(`^${PLAYER_SUBJECT_PREFIX}gains?\\s+1\\s+life\\s+for\\s+each\\s+(.+)$`, 'i'));
+    if (gainForEach) {
+      return withMeta({
+        kind: 'gain_life',
+        who: parsePlayerSelector(gainForEach[1]),
+        amount: { kind: 'unknown', raw: `1 for each ${String(gainForEach[2] || '').trim()}` },
+        raw: rawClause,
+      });
+    }
+
     const gain = clause.match(new RegExp(`^${PLAYER_SUBJECT_PREFIX}gains?\\s+(that much|that many|\\d+|x|[a-z]+)\\s+life\\b`, 'i'));
     if (gain) {
       return withMeta({
@@ -239,10 +259,31 @@ export function tryParseLifeAndCombatClause(args: {
       });
     }
 
+    const loseEach = clause.match(/^(you and (?:that|target) (?:player|opponent)|any number of target (?:players|opponents))\s+each\s+lose\s+(that much|that many|\d+|x|[a-z]+)\s+life\b/i);
+    if (loseEach) {
+      return withMeta({
+        kind: 'lose_life',
+        who: parsePlayerSelector(loseEach[1]),
+        amount: parseQuantity(loseEach[2]),
+        raw: rawClause,
+      });
+    }
+
+    const mayHaveLose = clause.match(/^(?:you\s+may\s+)?have\s+(.+?)\s+lose\s+(that much|that many|\d+|x|[a-z]+)\s+life\b/i);
+    if (mayHaveLose) {
+      return withMeta({
+        kind: 'lose_life',
+        who: parsePlayerSelector(String(mayHaveLose[1] || '').trim()),
+        amount: parseQuantity(mayHaveLose[2]),
+        optional: true,
+        raw: rawClause,
+      });
+    }
+
     const loseEqual = clause.match(/^(.*?)(?:loses?\s+life\s+equal\s+to)\s+(.+)$/i);
     if (loseEqual) {
       const whoRaw = String(loseEqual[1] || '').trim().replace(/\s+$/, '');
-      return withMeta({
+          return withMeta({
         kind: 'lose_life',
         who: parsePlayerSelector(whoRaw || 'you'),
         amount: parseLifeChangeAmount(loseEqual[2]),
@@ -252,7 +293,7 @@ export function tryParseLifeAndCombatClause(args: {
 
     const loseEqualDefault = clause.match(/^lose\s+life\s+equal\s+to\s+(.+)$/i);
     if (loseEqualDefault) {
-      return withMeta({
+          return withMeta({
         kind: 'lose_life',
         who: { kind: 'you' },
         amount: parseLifeChangeAmount(loseEqualDefault[1]),
@@ -263,7 +304,6 @@ export function tryParseLifeAndCombatClause(args: {
 
   {
     const damageClause = normalizeDamageClauseForParse(clause);
-
     const damageIncrease = damageClause.match(
       /^if\s+(.+?)\s+would\s+deal\s+(?:(combat|noncombat)\s+)?damage\s+to\s+(.+?),\s*it\s+deals?\s+that much damage plus\s+(.+?)\s+instead$/i
     );
@@ -398,6 +438,17 @@ export function tryParseLifeAndCombatClause(args: {
         amount: parseDamageAmount(sourceDealsDamageEqual[2]),
         source: parseObjectSelector(sourceDealsDamageEqual[1]),
         target: parseObjectSelector(sourceDealsDamageEqual[3]),
+        raw: rawClause,
+      });
+    }
+
+    const sourceDealsDamageToEqual = damageClause.match(/^(.+?)\s+deals?\s+damage\s+to\s+(.+?)\s+equal\s+to\s+(.+)$/i);
+    if (sourceDealsDamageToEqual && !shouldSkipGenericDamageSource(sourceDealsDamageToEqual[1])) {
+      return withMeta({
+        kind: 'deal_damage',
+        amount: parseDamageAmount(sourceDealsDamageToEqual[3]),
+        source: parseObjectSelector(sourceDealsDamageToEqual[1]),
+        target: parseObjectSelector(sourceDealsDamageToEqual[2]),
         raw: rawClause,
       });
     }

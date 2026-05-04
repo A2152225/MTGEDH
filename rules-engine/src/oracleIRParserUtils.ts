@@ -8,6 +8,7 @@ export function normalizeOracleText(text: string): string {
     .replace(/Ã¢â‚¬â€|Ã¢â‚¬â€œ|â€”|â€“/g, '-')
     .replace(/[\u2019]/g, "'")
     .replace(/[\u2212\u2013\u2014]/g, '-')
+    .replace(/Magic:\s+The Gathering Online/g, 'Magic The Gathering Online')
     .replace(/\r\n?/g, '\n')
     .replace(/\u00a0/g, ' ')
     .trim();
@@ -104,16 +105,21 @@ export function parsePlayerSelector(raw: string | undefined): OraclePlayerSelect
   if (!s) return { kind: 'you' };
 
   if (s === 'you') return { kind: 'you' };
+  if (s === 'you and that player' || s === 'you and target player') return { kind: 'you_and_target_player' };
+  if (s === 'you and that opponent' || s === 'you and target opponent') return { kind: 'you_and_target_opponent' };
   if (s === 'each player') return { kind: 'each_player' };
+  if (s === 'each other player') return { kind: 'each_opponent' };
   if (s === 'each opponent') return { kind: 'each_opponent' };
   if (s === 'each of your opponents') return { kind: 'each_opponent' };
   if (s === 'your opponents') return { kind: 'each_opponent' };
   if (s === 'any number of target opponents') return { kind: 'any_number_of_target_opponents' };
+  if (s === 'any number of target players' || s === 'any number of target players other than that player') return { kind: 'any_number_of_target_players' };
   if (isThoseOpponentsSelector(s)) return { kind: 'each_of_those_opponents' };
   if (s === 'target player') return { kind: 'target_player' };
   if (s === 'target opponent') return { kind: 'target_opponent' };
   if (s === 'that player' || s === 'he or she' || s === 'him or her' || s === 'they') return { kind: 'target_player' };
   if (s === 'that opponent' || s === 'defending player' || s === 'the defending player') return { kind: 'target_opponent' };
+  if (/^enchanted\s+[a-z0-9 -]+(?:'s)?\s+controller$/.test(s)) return { kind: 'target_player' };
   if (s === 'its controller') return { kind: 'target_player' };
   if (s === 'its owner') return { kind: 'target_player' };
   if (isThatOwnerOrControllerSelector(s)) return { kind: 'target_player' };
@@ -154,6 +160,8 @@ export function normalizeClauseForParse(clause: string): {
   working = working.replace(/^(?:[ivxlcdm]+)\s*(?:[-?]|[^\w\s])+\s*/i, '');
 
   working = working
+    .replace(/^\+\s*\{[^}]+\}\s*[-|]\s*/i, '')
+    .replace(/^\d+\+\s*\|\s*/i, '')
     .replace(/^-+\s+(?=[a-z])/i, '')
     .replace(
       /^[a-z0-9][a-z0-9\s'.,/&-]{0,80}\s+-\s+(?=(?:at|when|whenever|if|during|until|you|each|target|return|put|exile|draw|destroy|create|look|choose|search|investigate|populate|proliferate|surveil|scry|mill|discard|tap|untap|gain|lose|deal)\b)/i,

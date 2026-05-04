@@ -1237,6 +1237,11 @@ export function applyOracleIRStepsToGameStateImpl(
         applyHandledStepResult(step, result);
         break;
       }
+      case 'prevent_library_search': {
+        log.push(`[oracle-ir] Search prevention noted: ${step.raw}`);
+        appliedSteps.push(step);
+        break;
+      }
       case 'skip_next_draw_step': {
         const result = applySkipNextDrawStep(nextState, step, currentCtx);
         applyHandledStepResult(step, result);

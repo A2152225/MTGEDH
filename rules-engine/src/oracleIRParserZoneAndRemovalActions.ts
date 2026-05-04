@@ -51,7 +51,7 @@ function parseMoveZoneBattlefieldCounters(to: OracleZone, toRaw: string): Record
   const normalized = normalizeOracleText(toRaw).trim();
   if (!/\bwith\b/i.test(normalized) || !/\bcounters?\b/i.test(normalized)) return undefined;
 
-  const match = normalized.match(/\bwith\s+(a|an|\d+|x|[a-z]+)\s+([^,.]+?)\s+counters?\s+on\s+it\b/i);
+  const match = normalized.match(/\bwith\s+((?:a\s+number\s+of|number\s+of|a|an|\d+|x|[a-z]+))\s+([^,.]+?)\s+counters?\s+on\s+it\b/i);
   if (!match) return undefined;
   if (/\bof your choice\b/i.test(match[0])) return undefined;
 
@@ -201,6 +201,18 @@ export function tryParseZoneAndRemovalClause(args: {
   const exileMatch = clause.match(/^exile\s+(.+)$/i);
   if (exileMatch) {
     return withMeta({ kind: 'exile', target: parseObjectSelector(exileMatch[1]), raw: rawClause });
+  }
+
+  const enchantedControllerSacrificeMatch = clause.match(/^enchanted\s+[a-z0-9 -]+(?:'s)?\s+controller\s+sacrifices?\s+(.+)$/i);
+  if (enchantedControllerSacrificeMatch) {
+    const parsedObject = splitSacrificeObjectAndCondition(String(enchantedControllerSacrificeMatch[1] || '').trim());
+    return withMeta({
+      kind: 'sacrifice',
+      who: { kind: 'target_player' },
+      what: parseObjectSelector(parsedObject.objectText),
+      ...(parsedObject.condition ? { condition: parsedObject.condition } : {}),
+      raw: rawClause,
+    });
   }
 
   const sacrificeMatch = clause.match(

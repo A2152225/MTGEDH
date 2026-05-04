@@ -23,6 +23,7 @@ export type OraclePlayerSelector =
   | { readonly kind: 'each_player' }
   | { readonly kind: 'each_opponent' }
   | { readonly kind: 'any_number_of_target_opponents' }
+  | { readonly kind: 'any_number_of_target_players' }
   | { readonly kind: 'you_and_target_opponent' }
   | { readonly kind: 'you_and_target_player' }
   /**
@@ -227,6 +228,15 @@ export type OracleEffectStep =
   | {
       readonly kind: 'shuffle_library';
       readonly who: OraclePlayerSelector;
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
+      readonly kind: 'prevent_library_search';
+      readonly who: OraclePlayerSelector;
+      readonly source?: OracleObjectSelector;
+      readonly duration?: 'static' | 'this_turn';
       readonly optional?: boolean;
       readonly sequence?: 'then';
       readonly raw: string;

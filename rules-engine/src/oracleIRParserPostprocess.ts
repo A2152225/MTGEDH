@@ -924,6 +924,1115 @@ function parseConditionalBattlefieldEntryCounters(rawClause: string): {
   };
 }
 
+function counterRecordFromAddCounterStep(step: OracleEffectStep | undefined): Record<string, number> | null {
+  if (!step || step.kind !== 'add_counter') return null;
+  if (step.amount.kind !== 'number' || step.amount.value <= 0) return null;
+  const counter = normalizeCounterName(String(step.counter || '').trim());
+  if (!counter) return null;
+  return { [counter]: Math.max(0, step.amount.value | 0) };
+}
+
+function parseBattlefieldEntryCounterFollowupStep(step: OracleEffectStep | undefined): {
+  readonly condition?: OracleClauseCondition;
+  readonly withCounters: Record<string, number>;
+  readonly raw: string;
+} | null {
+  if (!step) return null;
+
+  if (step.kind === 'unknown' || step.kind === 'add_counter') {
+    const parsed = parseConditionalBattlefieldEntryCounters(String(step.raw || ''));
+    if (parsed) return { ...parsed, raw: String(step.raw || '').trim() };
+  }
+
+  if (step.kind === 'conditional' && step.steps.length === 1) {
+    const withCounters = counterRecordFromAddCounterStep(step.steps[0]);
+    if (withCounters) {
+      return {
+        condition: step.condition,
+        withCounters,
+        raw: String(step.raw || '').trim(),
+      };
+    }
+  }
+
+  return null;
+}
+
+function parseCounterQuantityForMetadata(amountText: string, scalingText = ''): OracleQuantity {
+  const amount = normalizeOracleText(amountText)
+    .replace(/^up to\s+/i, '')
+    .replace(/\s+of$/i, '')
+    .trim();
+  const scaling = normalizeOracleText(scalingText).trim();
+  if (!amount) return { kind: 'unknown' };
+  if (/^(?:a\s+number|number)$/i.test(amount)) {
+    return { kind: 'unknown', raw: scaling ? `${amount} ${scaling}`.trim() : amount };
+  }
+  if (scaling) return { kind: 'unknown', raw: `${amount} ${scaling}`.trim() };
+  return parseQuantity(amount);
+}
+
+function parseDynamicCounterRider(rawText: string, targetText: string): OracleEffectStep | null {
+  const normalized = normalizeOracleText(rawText)
+    .replace(/[.)]+$/g, '')
+    .trim();
+  if (!normalized || !/\bcounters?\b/i.test(normalized)) return null;
+
+  const match = normalized.match(
+    /\b(?:with|put(?:s)?)\s+((?:a\s+number\s+of|number\s+of|that\s+many|x|a|an|\d+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve))\s+(?:additional\s+)?(.+?)\s+counters?\s+on\s+(?:it|them|that creature|those creatures|each of those creatures|each of them)(?:\s+(for\s+each|equal\s+to)\s+(.+?))?$/i
+  );
+  if (!match) return null;
+
+  const counter = normalizeCounterName(String(match[2] || '').trim());
+  if (!counter) return null;
+
+  const scalingText = [match[3], match[4]].filter(Boolean).join(' ').trim();
+  const amount = parseCounterQuantityForMetadata(String(match[1] || '').trim(), scalingText);
+  if (amount.kind === 'number') return null;
+
+  return {
+    kind: 'add_counter',
+    amount,
+    counter,
+    target: parseObjectSelector(targetText),
+    raw: normalized,
+  };
+}
+
+function stripMalformedDynamicWithCounters(step: OracleEffectStep): OracleEffectStep {
+  if (step.kind !== 'move_zone') return step;
+  const counters = (step as any).withCounters;
+  if (!counters || typeof counters !== 'object') return step;
+  const entries = Object.entries(counters);
+  if (!entries.some(([counter]) => /\bnumber\s+of\b/i.test(counter))) return step;
+
+  const { withCounters: _withCounters, ...rest } = step as any;
+  return rest as OracleEffectStep;
+}
+
+function parseSimpleCounterTailStep(rawTail: string): OracleEffectStep | null {
+  const normalized = normalizeClauseForParse(rawTail.replace(/[.]+$/g, '').trim());
+  if (!normalized.clause) return null;
+  const parsed = tryParseSimpleActionClause({
+    clause: normalized.clause,
+    rawClause: rawTail,
+    withMeta: <T extends OracleEffectStep>(value: T) => value,
+  });
+  return parsed && parsed.kind !== 'unknown' ? parsed : null;
+}
+
+function parseLifeTailStep(rawTail: string): OracleEffectStep | null {
+  const normalized = normalizeClauseForParse(rawTail.replace(/[.]+$/g, '').trim());
+  if (!normalized.clause) return null;
+  const parsed = tryParseLifeAndCombatClause({
+    clause: normalized.clause,
+    rawClause: rawTail,
+    withMeta: <T extends OracleEffectStep>(value: T) => value,
+  });
+  return parsed && parsed.kind !== 'unknown' ? parsed : null;
+}
+
+function splitExileAndCounterRiderStep(step: OracleEffectStep): readonly OracleEffectStep[] | null {
+  if (step.kind !== 'exile' || (step.target as any)?.kind !== 'raw') return null;
+  const targetText = normalizeOracleText(String((step.target as any).text || '')).trim();
+  const match = targetText.match(/^(it|that creature|that permanent|that card)\s+and\s+(put\s+.+?\s+counters?\s+.+)$/i);
+  if (!match) return null;
+
+  const counterStep = parseSimpleCounterTailStep(String(match[2] || '').trim());
+  if (!counterStep || counterStep.kind !== 'add_counter') return null;
+
+  return [
+    {
+      ...step,
+      target: parseObjectSelector(String(match[1] || '').trim()),
+      raw: `exile ${String(match[1] || '').trim()}`,
+    },
+    counterStep,
+  ];
+}
+
+function splitCounterAndDrawStep(step: OracleEffectStep): readonly OracleEffectStep[] | null {
+  if (step.kind !== 'draw') return null;
+  const raw = normalizeOracleText(String(step.raw || '')).trim();
+  const match = raw.match(/\b(put\s+.+?\s+counters?\s+on\s+.+?)\s+and\s+(draw\s+.+)$/i);
+  if (!match) return null;
+
+  const counterStep = parseSimpleCounterTailStep(String(match[1] || '').trim());
+  if (!counterStep || counterStep.kind !== 'add_counter') return null;
+  return [counterStep, { ...step, raw: String(match[2] || '').trim() }];
+}
+
+function splitLifeAndDrawStep(step: OracleEffectStep): readonly OracleEffectStep[] | null {
+  if (step.kind !== 'draw') return null;
+  const raw = normalizeOracleText(String(step.raw || '')).replace(/^•\s*/, '').trim();
+  const match = raw.match(/\b((?:you|each player|each opponent|target player|target opponent|that player|that opponent)\s+loses?\s+.+?\s+life)\s+and\s+(draws?\s+.+)$/i);
+  if (!match) return null;
+
+  const lifeStep = parseLifeTailStep(String(match[1] || '').trim());
+  if (!lifeStep || lifeStep.kind !== 'lose_life') return null;
+  const drawRaw = String(match[2] || '').trim();
+  const drawStep: OracleEffectStep = { ...step, raw: drawRaw.replace(/^draws\b/i, 'draw').trim() };
+  if (/^draws\b/i.test(drawRaw)) (drawStep as any).who = (lifeStep as any).who;
+  return [lifeStep, drawStep];
+}
+
+function splitDrawAndLifeStep(step: OracleEffectStep): readonly OracleEffectStep[] | null {
+  if (step.kind !== 'draw') return null;
+  const raw = normalizeOracleText(String(step.raw || '')).replace(/^•\s*/, '').replace(/^then\s+/i, '').trim();
+
+  const drawLose = raw.match(/^(.+?)\s+draws?\s+((?:a|an|\d+|x|[a-z]+)\s+cards?)\s+and\s+(?:(.+?)\s+)?loses?\s+((?:that much|that many|\d+|x|[a-z]+)\s+life)$/i);
+  if (drawLose) {
+    const who = String(drawLose[1] || '').trim();
+    const drawRaw = `${who} ${/^you$/i.test(who) ? 'draw' : 'draws'} ${String(drawLose[2] || '').trim()}`;
+    const lifeWho = String(drawLose[3] || '').trim() || who;
+    const lifeRaw = `${lifeWho} ${/^you$/i.test(lifeWho) ? 'lose' : 'loses'} ${String(drawLose[4] || '').trim()}`;
+    const drawStep = tryParseSimpleActionClause({
+      clause: normalizeClauseForParse(drawRaw).clause,
+      rawClause: drawRaw,
+      withMeta: <T extends OracleEffectStep>(value: T) => value,
+    });
+    const lifeStep = parseLifeTailStep(lifeRaw);
+    if (drawStep?.kind === 'draw' && lifeStep?.kind === 'lose_life') return [drawStep, lifeStep];
+  }
+
+  const drawCommaLose = raw.match(/^(.+?)\s+draws?\s+((?:a|an|\d+|x|[a-z]+)\s+cards?),\s+loses?\s+((?:that much|that many|\d+|x|[a-z]+)\s+life)(?:,\s+and\s+.+)?$/i);
+  if (drawCommaLose) {
+    const who = String(drawCommaLose[1] || '').trim();
+    const drawRaw = `${who} ${/^you$/i.test(who) ? 'draw' : 'draws'} ${String(drawCommaLose[2] || '').trim()}`;
+    const lifeRaw = `${who} ${/^you$/i.test(who) ? 'lose' : 'loses'} ${String(drawCommaLose[3] || '').trim()}`;
+    const drawStep = tryParseSimpleActionClause({
+      clause: normalizeClauseForParse(drawRaw).clause,
+      rawClause: drawRaw,
+      withMeta: <T extends OracleEffectStep>(value: T) => value,
+    });
+    const lifeStep = parseLifeTailStep(lifeRaw);
+    if (drawStep?.kind === 'draw' && lifeStep?.kind === 'lose_life') return [drawStep, lifeStep];
+  }
+
+  const gainDraw = raw.match(/^(.+?)\s+gains?\s+((?:that much|that many|\d+|x|[a-z]+)\s+life)\s+and\s+draws?\s+((?:a|an|\d+|x|[a-z]+)\s+cards?)$/i);
+  if (gainDraw) {
+    const who = String(gainDraw[1] || '').trim();
+    const gainVerb = /^you$/i.test(who) ? 'gain' : 'gains';
+    const drawVerb = /^you$/i.test(who) ? 'draw' : 'draws';
+    const lifeStep = parseLifeTailStep(`${who} ${gainVerb} ${String(gainDraw[2] || '').trim()}`);
+    const drawStep = tryParseSimpleActionClause({
+      clause: normalizeClauseForParse(`${who} ${drawVerb} ${String(gainDraw[3] || '').trim()}`).clause,
+      rawClause: `${who} ${drawVerb} ${String(gainDraw[3] || '').trim()}`,
+      withMeta: <T extends OracleEffectStep>(value: T) => value,
+    });
+    if (lifeStep?.kind === 'gain_life' && drawStep?.kind === 'draw') return [lifeStep, drawStep];
+  }
+
+  const loseEqualDraw = raw.match(/^(.+?)\s+loses?\s+life\s+equal\s+to\s+(.+?)\s+and\s+draws?\s+((?:a|an|\d+|x|[a-z]+)\s+cards?)$/i);
+  if (loseEqualDraw) {
+    const who = String(loseEqualDraw[1] || '').trim();
+    const lifeStep = parseLifeTailStep(`${who} loses life equal to ${String(loseEqualDraw[2] || '').trim()}`);
+    const drawAmount = String(loseEqualDraw[3] || '').trim().replace(/\s+cards?$/i, '');
+    const drawStep: OracleEffectStep = {
+      kind: 'draw',
+      who: parsePlayerSelector(who),
+      amount: parseQuantity(drawAmount),
+      raw: `${who} draws ${String(loseEqualDraw[3] || '').trim()}`,
+    };
+    if (lifeStep?.kind === 'lose_life') return [lifeStep, drawStep];
+  }
+
+  return null;
+}
+
+function parseForEachLifePairUnknownStep(step: OracleEffectStep): readonly OracleEffectStep[] | null {
+  if (step.kind !== 'unknown') return null;
+  const raw = normalizeOracleText(String(step.raw || '')).replace(/^•\s*/, '').trim();
+  const match = raw.match(/^for\s+each\s+(.+?),\s+(.+?)\s+loses?\s+(that much|that many|\d+|x|[a-z]+)\s+life\s+and\s+(.+?)\s+gains?\s+(that much|that many|\d+|x|[a-z]+)\s+life$/i);
+  if (!match) return null;
+  const context = String(match[1] || '').trim();
+  return [
+    {
+      kind: 'lose_life',
+      who: parsePlayerSelector(String(match[2] || '').trim()),
+      amount: { kind: 'unknown', raw: `${String(match[3] || '').trim()} for each ${context}` },
+      raw: `${String(match[2] || '').trim()} loses ${String(match[3] || '').trim()} life for each ${context}`,
+    },
+    {
+      kind: 'gain_life',
+      who: parsePlayerSelector(String(match[4] || '').trim()),
+      amount: { kind: 'unknown', raw: `${String(match[5] || '').trim()} for each ${context}` },
+      raw: `${String(match[4] || '').trim()} ${/^you$/i.test(String(match[4] || '').trim()) ? 'gain' : 'gains'} ${String(match[5] || '').trim()} life for each ${context}`,
+    },
+  ];
+}
+
+function parseLifePairUnknownStep(step: OracleEffectStep): readonly OracleEffectStep[] | null {
+  if (step.kind !== 'unknown') return null;
+  const raw = normalizeOracleText(String(step.raw || ''))
+    .replace(/^•\s*/, '')
+    .replace(/^then\s+/i, '')
+    .trim();
+  const match = raw.match(/^(.+?)\s+loses?\s+(that much|that many|\d+|x|[a-z]+)\s+life\s+and\s+(.+?)\s+gains?\s+(that much|that many|\d+|x|[a-z]+)\s+life(?:,\s+where\s+.+)?$/i);
+  if (!match) return null;
+  return [
+    {
+      kind: 'lose_life',
+      who: parsePlayerSelector(String(match[1] || '').trim()),
+      amount: parseQuantity(String(match[2] || '').trim()),
+      raw: `${String(match[1] || '').trim()} loses ${String(match[2] || '').trim()} life`,
+      ...(step.sequence ? { sequence: step.sequence } : {}),
+    },
+    {
+      kind: 'gain_life',
+      who: parsePlayerSelector(String(match[3] || '').trim()),
+      amount: parseQuantity(String(match[4] || '').trim()),
+      raw: `${String(match[3] || '').trim()} ${/^you$/i.test(String(match[3] || '').trim()) ? 'gain' : 'gains'} ${String(match[4] || '').trim()} life`,
+      ...(step.sequence ? { sequence: step.sequence } : {}),
+    },
+  ];
+}
+
+function parseUntilEndTriggeredLifeUnknownStep(step: OracleEffectStep): OracleEffectStep | null {
+  if (step.kind !== 'unknown') return null;
+  const raw = normalizeOracleText(String(step.raw || '')).trim();
+  const match = raw.match(/^until\s+end\s+of\s+turn,\s+whenever\s+.+?,\s+(.+?)\s+loses?\s+(\d+|x|[a-z]+)\s+life\s+for\s+each\s+(.+)$/i);
+  if (!match) return null;
+  return {
+    kind: 'lose_life',
+    who: parsePlayerSelector(String(match[1] || '').trim()),
+    amount: { kind: 'unknown', raw: `${String(match[2] || '').trim()} for each ${String(match[3] || '').trim()}` },
+    duration: 'end_of_turn',
+    raw,
+  } as OracleEffectStep;
+}
+
+function parseForAnyNumberOpponentsDestroyUnknownStep(step: OracleEffectStep): OracleEffectStep | null {
+  if (step.kind !== 'unknown') return null;
+  const raw = normalizeOracleText(String(step.raw || '')).trim();
+  const match = raw.match(/^for\s+any\s+number\s+of\s+opponents,\s+(destroy\s+.+)$/i);
+  if (!match) return null;
+  const destroyClause = String(match[1] || '').trim();
+  const parsed = tryParseZoneAndRemovalClause({
+    clause: normalizeClauseForParse(destroyClause).clause,
+    rawClause: destroyClause,
+    withMeta: <T extends OracleEffectStep>(value: T) => value,
+  });
+  return parsed?.kind === 'destroy' ? parsed : null;
+}
+
+function parseDestroyClauseFallback(rawClause: string): OracleEffectStep | null {
+  const normalized = normalizeOracleText(rawClause).replace(/[.)"”]+$/g, '').trim();
+  if (!/^destroy\b/i.test(normalized)) return null;
+  const parsed = tryParseZoneAndRemovalClause({
+    clause: normalizeClauseForParse(normalized).clause,
+    rawClause: normalized,
+    withMeta: <T extends OracleEffectStep>(value: T) => value,
+  });
+  if (parsed?.kind === 'destroy') return parsed;
+
+  const targetMatch = normalized.match(/^destroy\s+(.+)$/i);
+  if (!targetMatch) return null;
+  return {
+    kind: 'destroy',
+    target: parseObjectSelector(String(targetMatch[1] || '').trim()),
+    raw: normalized,
+  };
+}
+
+function parseWrappedDestroyUnknownStep(step: OracleEffectStep): OracleEffectStep | null {
+  if (step.kind !== 'unknown') return null;
+  const raw = normalizeOracleText(String(step.raw || '')).replace(/^•\s*/, '').trim();
+  const candidates: string[] = [];
+
+  const parenthetical = raw.match(/\((destroy\s+[^)]+)\)/i);
+  if (parenthetical) candidates.push(String(parenthetical[1] || '').trim());
+
+  const otherwise = raw.match(/^otherwise,?\s+(destroy\s+.+)$/i);
+  if (otherwise) candidates.push(String(otherwise[1] || '').trim());
+
+  const triggerBody = raw.match(/^(?:(?:when|whenever)\b.+?|at the beginning of\b.+?),\s+(?:you\s+may\s+)?(destroy\s+.+)$/i);
+  if (triggerBody) candidates.push(String(triggerBody[1] || '').trim());
+
+  const destroyOccurrence = raw.match(/\b(destroy\s+.+)$/i);
+  if (destroyOccurrence) candidates.push(String(destroyOccurrence[1] || '').trim());
+
+  const forEach = raw.match(/^for\s+each\s+opponent,\s+(destroy\s+.+)$/i);
+  if (forEach) candidates.push(String(forEach[1] || '').trim());
+
+  const stickerPrefix = raw.match(/^(?:\{[^}]+\}\s*)+[-–—]\s+(?:(?:when|whenever)\b.+?,\s+)?(?:you\s+may\s+)?(destroy\s+.+)$/i);
+  if (stickerPrefix) candidates.push(String(stickerPrefix[1] || '').trim());
+
+  const direct = raw.match(/^(destroy\s+.+)$/i);
+  if (direct) candidates.push(String(direct[1] || '').trim());
+
+  for (const candidate of candidates) {
+    const beforeCounterTail = candidate.replace(/\s+and\s+put\b.+$/i, '').trim();
+    const parsed = parseDestroyClauseFallback(beforeCounterTail);
+    if (parsed) return parsed;
+  }
+  return null;
+}
+
+function parseSearchResultCount(raw: string): number | undefined {
+  const normalized = String(raw || '').trim().toLowerCase();
+  if (/^\d+$/.test(normalized)) return Number.parseInt(normalized, 10);
+  switch (normalized) {
+    case 'a':
+    case 'an':
+    case 'one':
+      return 1;
+    case 'two':
+      return 2;
+    case 'three':
+      return 3;
+    case 'four':
+      return 4;
+    case 'five':
+      return 5;
+    case 'six':
+      return 6;
+    case 'seven':
+      return 7;
+    case 'eight':
+      return 8;
+    case 'nine':
+      return 9;
+    case 'ten':
+      return 10;
+    case 'eleven':
+      return 11;
+    case 'twelve':
+      return 12;
+    default:
+      return undefined;
+  }
+}
+
+function normalizeLibrarySearchCriteria(rawCriteria: string): { text: string; maxResults?: number } {
+  let criteria = String(rawCriteria || '').trim();
+  let maxResults: number | undefined;
+
+  const upToMatch = criteria.match(/^up to\s+([a-z0-9]+)\s+(.+)$/i);
+  if (upToMatch) {
+    maxResults = parseSearchResultCount(String(upToMatch[1] || ''));
+    criteria = String(upToMatch[2] || '').trim();
+  }
+
+  const anyNumberMatch = criteria.match(/^any number of\s+(.+)$/i);
+  if (anyNumberMatch) {
+    criteria = String(anyNumberMatch[1] || '').trim();
+  }
+
+  const exactCountMatch = criteria.match(/^(one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|\d+)\s+(.+)$/i);
+  if (exactCountMatch) {
+    maxResults = parseSearchResultCount(String(exactCountMatch[1] || ''));
+    criteria = String(exactCountMatch[2] || '').trim();
+  }
+
+  criteria = criteria
+    .replace(/^(?:a|an)\s+/i, '')
+    .replace(/\bcards?\b/i, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  return { text: criteria, maxResults };
+}
+
+function parseLibrarySearchUnknownStep(step: OracleEffectStep): OracleEffectStep | null {
+  if (step.kind !== 'unknown') return null;
+  const raw = normalizeOracleText(String(step.raw || ''))
+    .replace(/^•\s*/, '')
+    .replace(/[.)]+$/g, '')
+    .trim();
+  if (!raw || /\bcan't\b[\s\S]*\bsearch\b/i.test(raw)) return null;
+
+  const searchStart = raw.match(/\b((?:(?:you|its controller|that player|that opponent)\s+may\s+)?search\s+(?:your|their|that player's|that player’s|target player's|target player’s|that opponent's|that opponent’s)\s+library[\s\S]*)$/i);
+  if (!searchStart) return null;
+  const searchClause = String(searchStart[1] || '').trim();
+  const searchMatch = searchClause.match(/^(?:(you|its controller|that player|that opponent)\s+may\s+)?search\s+(your|their|that player's|that player’s|target player's|target player’s|that opponent's|that opponent’s)\s+library(?:\s+(?:and\/or|and)\s+graveyard)?\s+for\s+([\s\S]+)$/i);
+  if (!searchMatch) return null;
+
+  const subject = String(searchMatch[1] || '').trim();
+  const libraryOwner = String(searchMatch[2] || '').toLowerCase();
+  const afterFor = String(searchMatch[3] || '').trim();
+  const split = afterFor.match(/^([\s\S]+?)(?:,\s*([\s\S]+)|\s+and\s+((?:put|reveal|cast|exile)\b[\s\S]+))?$/i);
+  if (!split) return null;
+
+  const { text: criteriaText, maxResults } = normalizeLibrarySearchCriteria(String(split[1] || '').trim());
+  const tail = String(split[2] || split[3] || '').trim();
+  const combined = `${searchClause} ${tail}`.trim();
+  const destination = /\bonto\s+the\s+battlefield\b/i.test(tail)
+    ? 'battlefield'
+    : /\binto\s+your\s+graveyard\b|\bgraveyard\b/i.test(tail)
+      ? 'graveyard'
+      : /\bexile\b/i.test(tail)
+        ? 'exile'
+        : /\bon\s+top\b/i.test(tail)
+          ? 'top'
+          : /\bon\s+the\s+bottom\b|\bbottom\b/i.test(tail)
+            ? 'bottom'
+            : 'hand';
+  const who = subject
+    ? parsePlayerSelector(subject)
+    : libraryOwner === 'their'
+      ? parsePlayerSelector('that player')
+      : /^that player/.test(libraryOwner)
+        ? parsePlayerSelector('that player')
+        : /^target player/.test(libraryOwner)
+          ? parsePlayerSelector('target player')
+          : /^that opponent/.test(libraryOwner)
+            ? parsePlayerSelector('that opponent')
+      : { kind: 'you' as const };
+
+  return {
+    kind: 'search_library',
+    who,
+    criteria: { kind: 'raw', text: criteriaText },
+    destination,
+    revealFound: /\breveal\b/i.test(combined) || undefined,
+    entersTapped: destination === 'battlefield' && /\btapped\b/i.test(tail) || undefined,
+    shuffle: /\bshuffle\b/i.test(combined) || undefined,
+    maxResults,
+    optional: /\bmay\s+search\b/i.test(searchClause) || undefined,
+    raw: searchClause,
+  };
+}
+
+function parsePrefixedDestroyUnknownStep(step: OracleEffectStep): OracleEffectStep | null {
+  if (step.kind !== 'unknown') return null;
+  const raw = normalizeOracleText(String(step.raw || '')).replace(/^•\s*/, '').trim();
+  const body = raw
+    .replace(/^\+\s*(?:\{[^}]+\}\s*)+[-–—]\s*/i, '')
+    .replace(/^[A-Za-z][A-Za-z0-9 ',\-]+\s+-\s+(?:\{[^}]+\}\s+-\s+)?/i, '')
+    .trim();
+  if (body === raw || !/^destroy\b/i.test(body)) return null;
+  const parsed = tryParseZoneAndRemovalClause({
+    clause: normalizeClauseForParse(body).clause,
+    rawClause: body,
+    withMeta: <T extends OracleEffectStep>(value: T) => value,
+  });
+  return parsed?.kind === 'destroy' ? parsed : null;
+}
+
+function parseTimedDestroyUnknownStep(step: OracleEffectStep): OracleEffectStep | null {
+  if (step.kind !== 'unknown') return null;
+  const raw = normalizeOracleText(String(step.raw || '')).trim();
+  const match = raw.match(/^at\s+end\s+of\s+combat,\s+(destroy\s+.+)$/i);
+  if (!match) return null;
+  const destroyClause = String(match[1] || '').trim();
+  const parsed = tryParseZoneAndRemovalClause({
+    clause: normalizeClauseForParse(destroyClause).clause,
+    rawClause: destroyClause,
+    withMeta: <T extends OracleEffectStep>(value: T) => value,
+  });
+  return parsed?.kind === 'destroy' ? ({ ...parsed, timing: 'end_of_combat' } as OracleEffectStep) : null;
+}
+
+function parseForEachGainLifeUnknownStep(step: OracleEffectStep): OracleEffectStep | null {
+  if (step.kind !== 'unknown') return null;
+  const raw = normalizeOracleText(String(step.raw || '')).trim();
+  const match = raw.match(/^for\s+each\s+(.+?),\s+(.+?)\s+gains?\s+(that much|that many|\d+|x|[a-z]+)\s+life$/i);
+  if (!match) return null;
+  return {
+    kind: 'gain_life',
+    who: parsePlayerSelector(String(match[2] || '').trim()),
+    amount: { kind: 'unknown', raw: `${String(match[3] || '').trim()} for each ${String(match[1] || '').trim()}` },
+    raw,
+  } as OracleEffectStep;
+}
+
+function parseForEachManaGainLifeUnknownStep(step: OracleEffectStep): OracleEffectStep | null {
+  if (step.kind !== 'unknown') return null;
+  const raw = normalizeOracleText(String(step.raw || '')).trim();
+  const match = raw.match(/^for\s+each\s+(.+?),\s+add\s+\{[^}]+\}\s+and\s+(.+?)\s+gains?\s+(that much|that many|\d+|x|[a-z]+)\s+life$/i);
+  if (!match) return null;
+  return {
+    kind: 'gain_life',
+    who: parsePlayerSelector(String(match[2] || '').trim()),
+    amount: { kind: 'unknown', raw: `${String(match[3] || '').trim()} for each ${String(match[1] || '').trim()}` },
+    raw,
+  } as OracleEffectStep;
+}
+
+function parseDrawReplacementGainLifeUnknownStep(step: OracleEffectStep): OracleEffectStep | null {
+  if (step.kind !== 'unknown') return null;
+  const raw = normalizeOracleText(String(step.raw || '')).trim();
+  const match = raw.match(/^the\s+next\s+time\s+you\s+would\s+draw\s+a\s+card\s+this\s+turn,\s+(.+?)\s+gains?\s+(that much|that many|\d+|x|[a-z]+)\s+life\s+instead$/i);
+  if (!match) return null;
+  return {
+    kind: 'gain_life',
+    who: parsePlayerSelector(String(match[1] || '').trim()),
+    amount: parseQuantity(String(match[2] || '').trim()),
+    replacementOf: 'draw_card',
+    duration: 'end_of_turn',
+    raw,
+  } as OracleEffectStep;
+}
+
+function parseResultLifeUnknownStep(step: OracleEffectStep): OracleEffectStep | null {
+  if (step.kind !== 'unknown') return null;
+  const raw = normalizeOracleText(String(step.raw || '')).trim();
+  const match = raw.match(/^\d+(?:\s*-\s*\d+|\+)?\s*\|\s+(.+)$/i);
+  if (!match) return null;
+  const lifeStep = parseLifeTailStep(String(match[1] || '').trim());
+  return lifeStep && (lifeStep.kind === 'gain_life' || lifeStep.kind === 'lose_life') ? lifeStep : null;
+}
+
+function splitMillDrawLifeStep(step: OracleEffectStep): readonly OracleEffectStep[] | null {
+  if (step.kind !== 'draw') return null;
+  const raw = normalizeOracleText(String(step.raw || '')).replace(/^•\s*/, '').trim();
+  const match = raw.match(/^(.+?)\s+mills?\s+((?:a|an|\d+|x|[a-z]+)\s+cards?),\s+draws?\s+((?:a|an|\d+|x|[a-z]+)\s+cards?),\s+and\s+loses?\s+((?:that much|that many|\d+|x|[a-z]+)\s+life)$/i);
+  if (!match) return null;
+
+  const who = String(match[1] || '').trim();
+  const millRaw = `${who} mills ${String(match[2] || '').trim()}`;
+  const drawRaw = `${who} draws ${String(match[3] || '').trim()}`;
+  const lifeRaw = `${who} loses ${String(match[4] || '').trim()}`;
+  const millStep = tryParseSimpleActionClause({
+    clause: normalizeClauseForParse(millRaw).clause,
+    rawClause: millRaw,
+    withMeta: <T extends OracleEffectStep>(value: T) => value,
+  });
+  const drawStep = tryParseSimpleActionClause({
+    clause: normalizeClauseForParse(drawRaw).clause,
+    rawClause: drawRaw,
+    withMeta: <T extends OracleEffectStep>(value: T) => value,
+  });
+  const lifeStep = parseLifeTailStep(lifeRaw);
+  if (!millStep || millStep.kind !== 'mill' || !drawStep || drawStep.kind !== 'draw' || !lifeStep || lifeStep.kind !== 'lose_life') return null;
+  return [millStep, drawStep, lifeStep];
+}
+
+function splitDiscardAndLifeStep(step: OracleEffectStep): readonly OracleEffectStep[] | null {
+  if (step.kind !== 'discard') return null;
+  const raw = normalizeOracleText(String(step.raw || '')).replace(/^•\s*/, '').trim();
+  const match = raw.match(/^(.+?)\s+discards?\s+((?:a|an|\d+|x|[a-z]+)\s+cards?),\s+loses?\s+((?:that much|that many|\d+|x|[a-z]+)\s+life)(?:,\s+and\s+.+)?$/i);
+  if (!match) return null;
+
+  const who = String(match[1] || '').trim();
+  const discardRaw = `${who} discards ${String(match[2] || '').trim()}`;
+  const lifeRaw = `${who} loses ${String(match[3] || '').trim()}`;
+  const lifeStep = parseLifeTailStep(lifeRaw);
+  if (!lifeStep || lifeStep.kind !== 'lose_life') return null;
+  return [{ ...step, raw: discardRaw }, lifeStep];
+}
+
+function splitDiscardMillLifeStep(step: OracleEffectStep): readonly OracleEffectStep[] | null {
+  if (step.kind !== 'discard') return null;
+  const raw = normalizeOracleText(String(step.raw || '')).replace(/^•\s*/, '').trim();
+  const match = raw.match(/^(.+?)\s+discards?\s+((?:a|an|\d+|x|[a-z]+)\s+cards?),\s+mills?\s+((?:a|an|\d+|x|[a-z]+)\s+cards?),\s+and\s+loses?\s+((?:that much|that many|\d+|x|[a-z]+)\s+life)$/i);
+  if (!match) return null;
+
+  const who = String(match[1] || '').trim();
+  const discardRaw = `${who} discards ${String(match[2] || '').trim()}`;
+  const millRaw = `${who} mills ${String(match[3] || '').trim()}`;
+  const lifeRaw = `${who} loses ${String(match[4] || '').trim()}`;
+  const millStep = tryParseSimpleActionClause({
+    clause: normalizeClauseForParse(millRaw).clause,
+    rawClause: millRaw,
+    withMeta: <T extends OracleEffectStep>(value: T) => value,
+  });
+  const lifeStep = parseLifeTailStep(lifeRaw);
+  if (!millStep || millStep.kind !== 'mill' || !lifeStep || lifeStep.kind !== 'lose_life') return null;
+  return [{ ...step, raw: discardRaw }, millStep, lifeStep];
+}
+
+function splitSacrificeAndLifeStep(step: OracleEffectStep): readonly OracleEffectStep[] | null {
+  if (step.kind !== 'sacrifice') return null;
+  const raw = normalizeOracleText(String(step.raw || '')).replace(/^•\s*/, '').trim();
+  const match = raw.match(/^(.+?)\s+sacrifices?\s+(.+?)(?:,\s+discards?\s+((?:a|an|\d+|x|[a-z]+)\s+cards?))?,?\s+and\s+loses?\s+((?:that much|that many|\d+|x|[a-z]+)\s+life)$/i);
+  if (!match) return null;
+
+  const who = String(match[1] || '').trim();
+  const sacrificeWhat = String(match[2] || '').trim();
+  const lifeStep = parseLifeTailStep(`${who} loses ${String(match[4] || '').trim()}`);
+  if (!lifeStep || lifeStep.kind !== 'lose_life') return null;
+  const steps: OracleEffectStep[] = [
+    {
+      ...step,
+      what: parseObjectSelector(sacrificeWhat),
+      raw: `${who} sacrifices ${sacrificeWhat}`,
+    },
+  ];
+  const discardAmount = String(match[3] || '').trim();
+  if (discardAmount) {
+    const discardRaw = `${who} discards ${discardAmount}`;
+    const discardStep = tryParseSimpleActionClause({
+      clause: normalizeClauseForParse(discardRaw).clause,
+      rawClause: discardRaw,
+      withMeta: <T extends OracleEffectStep>(value: T) => value,
+    });
+    if (discardStep?.kind === 'discard') steps.push(discardStep);
+  }
+  steps.push(lifeStep);
+  return steps;
+}
+
+function splitMoveZoneAndLifeUnknownStep(step: OracleEffectStep): readonly OracleEffectStep[] | null {
+  if (step.kind !== 'unknown') return null;
+  const raw = normalizeOracleText(String(step.raw || ''))
+    .replace(/^otherwise,?\s*/i, '')
+    .trim();
+  const match = raw.match(/^(.+?)\s+and\s+((?:you|each player|each opponent|target player|target opponent|that player|that opponent)\s+gains?\s+.+?\s+life)$/i);
+  if (!match) return null;
+
+  const moveClause = normalizeClauseForParse(String(match[1] || '').trim()).clause;
+  const moveStep = tryParseZoneAndRemovalClause({
+    clause: moveClause,
+    rawClause: String(match[1] || '').trim(),
+    withMeta: <T extends OracleEffectStep>(value: T) => value,
+  });
+  const lifeStep = parseLifeTailStep(String(match[2] || '').trim());
+  if (!moveStep || moveStep.kind === 'unknown' || !lifeStep || lifeStep.kind !== 'gain_life') return null;
+  return [moveStep, lifeStep];
+}
+
+function splitDamageAndLifeUnknownStep(step: OracleEffectStep): readonly OracleEffectStep[] | null {
+  if (step.kind !== 'unknown') return null;
+  const raw = normalizeOracleText(String(step.raw || '')).trim();
+  const match = raw.match(/^(.+?)\s+and\s+((?:you|each player|each opponent|target player|target opponent|that player|that opponent)\s+gains?\s+.+?\s+life(?:\s+for\s+each\s+.+)?)$/i);
+  if (!match) return null;
+
+  const damageClause = normalizeClauseForParse(String(match[1] || '').trim()).clause;
+  const damageStep = tryParseLifeAndCombatClause({
+    clause: damageClause,
+    rawClause: String(match[1] || '').trim(),
+    withMeta: <T extends OracleEffectStep>(value: T) => value,
+  });
+  const lifeStep = parseLifeTailStep(String(match[2] || '').trim());
+  if (!damageStep || damageStep.kind !== 'deal_damage' || !lifeStep || lifeStep.kind !== 'gain_life') return null;
+  return [damageStep, lifeStep];
+}
+
+function splitDestroyAndCantBlockStep(step: OracleEffectStep): readonly OracleEffectStep[] | null {
+  if (step.kind !== 'cant_block' || (step.target as any)?.kind !== 'raw') return null;
+  const targetText = normalizeOracleText(String((step.target as any).text || '')).trim();
+  const match = targetText.match(/^(destroy\s+target\s+.+?),\s+and\s+(.+)$/i);
+  if (!match) return null;
+  const destroyClause = String(match[1] || '').trim();
+  const destroyStep = tryParseZoneAndRemovalClause({
+    clause: normalizeClauseForParse(destroyClause).clause,
+    rawClause: destroyClause,
+    withMeta: <T extends OracleEffectStep>(value: T) => value,
+  });
+  if (!destroyStep || destroyStep.kind !== 'destroy') return null;
+  return [
+    destroyStep,
+    {
+      ...step,
+      target: parseObjectSelector(String(match[2] || '').trim()),
+      raw: `${String(match[2] || '').trim()} can't block this turn`,
+    },
+  ];
+}
+
+function splitDestroyAndNoCombatDamageStep(step: OracleEffectStep): readonly OracleEffectStep[] | null {
+  if (step.kind !== 'assign_no_combat_damage' || (step.target as any)?.kind !== 'raw') return null;
+  const targetText = normalizeOracleText(String((step.target as any).text || '')).trim();
+  const match = targetText.match(/^(destroy\s+target\s+.+?)\s+and\s+(.+)$/i);
+  if (!match) return null;
+  const destroyClause = String(match[1] || '').trim();
+  const destroyStep = tryParseZoneAndRemovalClause({
+    clause: normalizeClauseForParse(destroyClause).clause,
+    rawClause: destroyClause,
+    withMeta: <T extends OracleEffectStep>(value: T) => value,
+  });
+  if (!destroyStep || destroyStep.kind !== 'destroy') return null;
+  return [
+    destroyStep,
+    {
+      ...step,
+      target: parseObjectSelector(String(match[2] || '').trim()),
+      raw: `${String(match[2] || '').trim()} assigns no combat damage this turn`,
+    },
+  ];
+}
+
+function splitDestroyUnlessDamageStep(step: OracleEffectStep): readonly OracleEffectStep[] | null {
+  if (step.kind !== 'deal_damage' || ((step as any).source as any)?.kind !== 'raw') return null;
+  const sourceText = normalizeOracleText(String(((step as any).source as any).text || '')).trim();
+  const match = sourceText.match(/^(destroy\s+target\s+.+?)\s+unless\s+.+?\s+has\s+this\s+permanent$/i);
+  if (!match) return null;
+  const destroyClause = String(match[1] || '').trim();
+  const destroyStep = tryParseZoneAndRemovalClause({
+    clause: normalizeClauseForParse(destroyClause).clause,
+    rawClause: destroyClause,
+    withMeta: <T extends OracleEffectStep>(value: T) => value,
+  });
+  if (!destroyStep || destroyStep.kind !== 'destroy') return null;
+  return [destroyStep, { ...step, source: parseObjectSelector('this permanent') }];
+}
+
+function splitMillAndLifeUnknownStep(step: OracleEffectStep): readonly OracleEffectStep[] | null {
+  if (step.kind !== 'unknown') return null;
+  const raw = normalizeOracleText(String(step.raw || '')).trim();
+  const match = raw.match(/^(.+?)\s+each\s+mill(?:s)?\s+((?:a|an|\d+|x|[a-z]+)\s+cards?)\s+and\s+lose\s+((?:that much|that many|\d+|x|[a-z]+)\s+life)$/i);
+  if (!match) return null;
+
+  const who = String(match[1] || '').trim();
+  const millClause = normalizeClauseForParse(`${who} mill ${String(match[2] || '').trim()}`).clause;
+  const lifeClause = normalizeClauseForParse(`${who} each lose ${String(match[3] || '').trim()}`).clause;
+  const millStep = tryParseSimpleActionClause({
+    clause: millClause,
+    rawClause: `${who} each mill ${String(match[2] || '').trim()}`,
+    withMeta: <T extends OracleEffectStep>(value: T) => value,
+  });
+  const lifeStep = parseLifeTailStep(lifeClause);
+  if (!millStep || millStep.kind !== 'mill' || !lifeStep || lifeStep.kind !== 'lose_life') return null;
+  return [millStep, lifeStep];
+}
+
+function splitTapAndCounterStep(step: OracleEffectStep): readonly OracleEffectStep[] | null {
+  if (step.kind !== 'tap_or_untap' || (step.target as any)?.kind !== 'raw') return null;
+  const raw = normalizeOracleText(String(step.raw || '')).trim();
+  const match = raw.match(/^(tap|untap)\s+(.+?)\s+and\s+(put\s+.+?\s+counters?\s+on\s+.+)$/i);
+  if (!match) return null;
+
+  const counterStep = parseSimpleCounterTailStep(String(match[3] || '').trim());
+  if (!counterStep || counterStep.kind !== 'add_counter') return null;
+  return [
+    {
+      ...step,
+      target: parseObjectSelector(String(match[2] || '').trim()),
+      raw: `${String(match[1] || '').trim()} ${String(match[2] || '').trim()}`,
+    },
+    counterStep,
+  ];
+}
+
+function parseChooseAndPutCounterUnknownStep(step: OracleEffectStep): OracleEffectStep | null {
+  if (step.kind !== 'unknown') return null;
+  const normalized = normalizeOracleText(String(step.raw || '')).trim();
+  const match = normalized.match(/^(?:you\s+may\s+)?choose\s+.+?\s+and\s+(put\s+.+?\s+counters?\s+on\s+.+)$/i);
+  if (!match) return null;
+  return parseSimpleCounterTailStep(String(match[1] || '').trim());
+}
+
+function parseTriggeredIfCounterUnknownStep(step: OracleEffectStep): OracleEffectStep | null {
+  if (step.kind !== 'unknown') return null;
+  const normalized = normalizeOracleText(String(step.raw || '')).trim();
+  const match = normalized.match(/^(?:(?:flying|first strike|double strike|deathtouch|haste|hexproof|indestructible|lifelink|menace|reach|trample|vigilance)\s+)?when\s+.+?\s+enters,\s*if\s+(.+?),\s*(put\s+.+?\s+counters?\s+on\s+.+)$/i);
+  if (!match) return null;
+  const counterStep = parseSimpleCounterTailStep(String(match[2] || '').trim());
+  if (!counterStep || counterStep.kind !== 'add_counter') return null;
+  return {
+    kind: 'conditional',
+    condition: { kind: 'if', raw: normalizeLeadingConditionalCondition(String(match[1] || '').trim()) },
+    steps: [counterStep],
+    ...(step.sequence ? { sequence: step.sequence } : {}),
+    raw: normalized,
+  };
+}
+
+function parseTriggeredLifeUnknownStep(step: OracleEffectStep): OracleEffectStep | null {
+  if (step.kind !== 'unknown') return null;
+  const normalized = normalizeOracleText(String(step.raw || '')).trim();
+  const match = normalized.match(/^(?:(?:when|whenever)\b.+?|at the beginning of\b.+?),\s+(.+)$/i);
+  if (!match) return null;
+  const lifeStep = parseLifeTailStep(String(match[1] || '').trim());
+  return lifeStep && (lifeStep.kind === 'gain_life' || lifeStep.kind === 'lose_life') ? lifeStep : null;
+}
+
+function parseLifeUnknownStep(step: OracleEffectStep): OracleEffectStep | null {
+  if (step.kind !== 'unknown') return null;
+  const lifeStep = parseLifeTailStep(String(step.raw || '').trim());
+  return lifeStep && (lifeStep.kind === 'gain_life' || lifeStep.kind === 'lose_life') ? lifeStep : null;
+}
+
+function parseTrailingCommaLifeUnknownStep(step: OracleEffectStep): OracleEffectStep | null {
+  if (step.kind !== 'unknown') return null;
+  const raw = normalizeOracleText(String(step.raw || '')).trim();
+  if (/^if\b/i.test(raw)) return null;
+  const match = raw.match(/,\s+((?:you|each player|each other player|each opponent|target player|target opponent|that player|that opponent)\s+(?:gains?|loses?)\s+.+?\s+life)$/i);
+  if (!match) return null;
+  const lifeStep = parseLifeTailStep(String(match[1] || '').trim());
+  return lifeStep && (lifeStep.kind === 'gain_life' || lifeStep.kind === 'lose_life') ? lifeStep : null;
+}
+
+function parseConditionalLifeUnknownStep(step: OracleEffectStep): OracleEffectStep | null {
+  if (step.kind !== 'unknown') return null;
+  const normalized = normalizeOracleText(String(step.raw || '')).trim();
+  const match = normalized.match(/^if\s+(.+),\s+(.+)$/i);
+  if (!match) return null;
+  const lifeStep = parseLifeTailStep(String(match[2] || '').trim());
+  if (!lifeStep || (lifeStep.kind !== 'gain_life' && lifeStep.kind !== 'lose_life')) return null;
+  return {
+    kind: 'conditional',
+    condition: { kind: 'if', raw: normalizeLeadingConditionalCondition(String(match[1] || '').trim()) },
+    steps: [lifeStep],
+    ...(step.sequence ? { sequence: step.sequence } : {}),
+    raw: normalized,
+  };
+}
+
+function parseQualifiedLifeUnknownStep(step: OracleEffectStep): OracleEffectStep | null {
+  if (step.kind !== 'unknown') return null;
+  const normalized = normalizeOracleText(String(step.raw || '')).trim();
+  const match = normalized.match(/^(each opponent)\s+who\s+(.+?)\s+loses?\s+(that much|that many|\d+|x|[a-z]+)\s+life\b/i);
+  if (!match) return null;
+  const lifeStep = parseLifeTailStep(`${String(match[1] || '').trim()} loses ${String(match[3] || '').trim()} life`);
+  if (!lifeStep || lifeStep.kind !== 'lose_life') return null;
+  return {
+    kind: 'conditional',
+    condition: { kind: 'if', raw: `${String(match[1] || '').trim()} who ${String(match[2] || '').trim()}` },
+    steps: [lifeStep],
+    ...(step.sequence ? { sequence: step.sequence } : {}),
+    raw: normalized,
+  };
+}
+
+function parsePrefixedTapCounterUnknownStep(step: OracleEffectStep): readonly OracleEffectStep[] | null {
+  if (step.kind !== 'unknown') return null;
+  const normalized = normalizeOracleText(String(step.raw || '')).trim();
+  const body = normalized.replace(/^(?:[A-Za-z][A-Za-z0-9 ',\-]+\s+-\s*)?(?:\{[^}]+\}\s*)+:\s*/i, '');
+  const tapCounterMatch = body.match(/^(tap|untap)\s+(.+?)\s+and\s+(put\s+.+?\s+counters?\s+on\s+.+)$/i);
+  if (tapCounterMatch) {
+    const counterStep = parseSimpleCounterTailStep(String(tapCounterMatch[3] || '').trim());
+    if (counterStep?.kind === 'add_counter') {
+      return [
+        {
+          kind: 'tap_or_untap',
+          target: parseObjectSelector(String(tapCounterMatch[2] || '').trim()),
+          mode: String(tapCounterMatch[1] || '').trim().toLowerCase() === 'untap' ? 'untap' : 'tap',
+          raw: `${String(tapCounterMatch[1] || '').trim()} ${String(tapCounterMatch[2] || '').trim()}`,
+        },
+        counterStep,
+      ];
+    }
+  }
+  if (body === normalized) return null;
+  const tapStep = tryParseSimpleActionClause({
+    clause: normalizeClauseForParse(body).clause,
+    rawClause: body,
+    withMeta: <T extends OracleEffectStep>(value: T) => value,
+  });
+  if (!tapStep || tapStep.kind === 'unknown') return null;
+  return splitTapAndCounterStep(tapStep) || [tapStep];
+}
+
+function expandDynamicCounterRiderSteps(steps: readonly OracleEffectStep[]): OracleEffectStep[] {
+  const expanded: OracleEffectStep[] = [];
+
+  for (const step of steps) {
+    let cleanedStep = stripMalformedDynamicWithCounters(step);
+    if (cleanedStep.kind === 'conditional') {
+      const originalNestedSteps = cleanedStep.steps;
+      const nestedSteps = expandDynamicCounterRiderSteps(originalNestedSteps);
+      if (nestedSteps.length !== originalNestedSteps.length || nestedSteps.some((nested, index) => nested !== originalNestedSteps[index])) {
+        cleanedStep = { ...cleanedStep, steps: nestedSteps };
+      }
+    }
+    if (cleanedStep.kind === 'schedule_delayed_trigger' && !cleanedStep.steps) {
+      const effect = normalizeOracleText(String(cleanedStep.effect || '')).trim();
+      const parsed = parseSimpleCounterTailStep(effect) ?? parseLifeTailStep(effect);
+      if (parsed && parsed.kind !== 'unknown') {
+        cleanedStep = { ...cleanedStep, steps: [parsed] };
+      }
+    }
+    const splitExile = splitExileAndCounterRiderStep(cleanedStep);
+    if (splitExile) {
+      expanded.push(...splitExile);
+      continue;
+    }
+    const splitDraw = splitCounterAndDrawStep(cleanedStep);
+    if (splitDraw) {
+      expanded.push(...splitDraw);
+      continue;
+    }
+    const splitLifeDraw = splitLifeAndDrawStep(cleanedStep);
+    if (splitLifeDraw) {
+      expanded.push(...splitLifeDraw);
+      continue;
+    }
+    const splitDrawLife = splitDrawAndLifeStep(cleanedStep);
+    if (splitDrawLife) {
+      expanded.push(...splitDrawLife);
+      continue;
+    }
+    const splitMillDrawLife = splitMillDrawLifeStep(cleanedStep);
+    if (splitMillDrawLife) {
+      expanded.push(...splitMillDrawLife);
+      continue;
+    }
+    const splitDiscardLife = splitDiscardAndLifeStep(cleanedStep);
+    if (splitDiscardLife) {
+      expanded.push(...splitDiscardLife);
+      continue;
+    }
+    const splitDiscardMillLife = splitDiscardMillLifeStep(cleanedStep);
+    if (splitDiscardMillLife) {
+      expanded.push(...splitDiscardMillLife);
+      continue;
+    }
+    const splitSacrificeLife = splitSacrificeAndLifeStep(cleanedStep);
+    if (splitSacrificeLife) {
+      expanded.push(...splitSacrificeLife);
+      continue;
+    }
+    const splitTap = splitTapAndCounterStep(cleanedStep);
+    if (splitTap) {
+      expanded.push(...splitTap);
+      continue;
+    }
+    const chooseCounter = parseChooseAndPutCounterUnknownStep(cleanedStep);
+    if (chooseCounter) {
+      expanded.push(chooseCounter);
+      continue;
+    }
+    const triggeredCounter = parseTriggeredIfCounterUnknownStep(cleanedStep);
+    if (triggeredCounter) {
+      expanded.push(triggeredCounter);
+      continue;
+    }
+    const triggeredLife = parseTriggeredLifeUnknownStep(cleanedStep);
+    if (triggeredLife) {
+      expanded.push(triggeredLife);
+      continue;
+    }
+    const conditionalLife = parseConditionalLifeUnknownStep(cleanedStep);
+    if (conditionalLife) {
+      expanded.push(conditionalLife);
+      continue;
+    }
+    const qualifiedLife = parseQualifiedLifeUnknownStep(cleanedStep);
+    if (qualifiedLife) {
+      expanded.push(qualifiedLife);
+      continue;
+    }
+    const forEachLifePair = parseForEachLifePairUnknownStep(cleanedStep);
+    if (forEachLifePair) {
+      expanded.push(...forEachLifePair);
+      continue;
+    }
+    const lifePair = parseLifePairUnknownStep(cleanedStep);
+    if (lifePair) {
+      expanded.push(...lifePair);
+      continue;
+    }
+    const untilEndLife = parseUntilEndTriggeredLifeUnknownStep(cleanedStep);
+    if (untilEndLife) {
+      expanded.push(untilEndLife);
+      continue;
+    }
+    const forAnyOpponentsDestroy = parseForAnyNumberOpponentsDestroyUnknownStep(cleanedStep);
+    if (forAnyOpponentsDestroy) {
+      expanded.push(forAnyOpponentsDestroy);
+      continue;
+    }
+    const prefixedDestroy = parsePrefixedDestroyUnknownStep(cleanedStep);
+    if (prefixedDestroy) {
+      expanded.push(prefixedDestroy);
+      continue;
+    }
+    const timedDestroy = parseTimedDestroyUnknownStep(cleanedStep);
+    if (timedDestroy) {
+      expanded.push(timedDestroy);
+      continue;
+    }
+    const wrappedDestroy = parseWrappedDestroyUnknownStep(cleanedStep);
+    if (wrappedDestroy) {
+      expanded.push(wrappedDestroy);
+      continue;
+    }
+    const librarySearch = parseLibrarySearchUnknownStep(cleanedStep);
+    if (librarySearch) {
+      expanded.push(librarySearch);
+      continue;
+    }
+    const forEachManaGainLife = parseForEachManaGainLifeUnknownStep(cleanedStep);
+    if (forEachManaGainLife) {
+      expanded.push(forEachManaGainLife);
+      continue;
+    }
+    const forEachGainLife = parseForEachGainLifeUnknownStep(cleanedStep);
+    if (forEachGainLife) {
+      expanded.push(forEachGainLife);
+      continue;
+    }
+    const replacementGainLife = parseDrawReplacementGainLifeUnknownStep(cleanedStep);
+    if (replacementGainLife) {
+      expanded.push(replacementGainLife);
+      continue;
+    }
+    const resultLife = parseResultLifeUnknownStep(cleanedStep);
+    if (resultLife) {
+      expanded.push(resultLife);
+      continue;
+    }
+    const trailingCommaLife = parseTrailingCommaLifeUnknownStep(cleanedStep);
+    if (trailingCommaLife) {
+      expanded.push(trailingCommaLife);
+      continue;
+    }
+    const lifeStep = parseLifeUnknownStep(cleanedStep);
+    if (lifeStep) {
+      expanded.push(lifeStep);
+      continue;
+    }
+    const prefixedTapCounter = parsePrefixedTapCounterUnknownStep(cleanedStep);
+    if (prefixedTapCounter) {
+      expanded.push(...prefixedTapCounter);
+      continue;
+    }
+    const splitMoveLife = splitMoveZoneAndLifeUnknownStep(cleanedStep);
+    if (splitMoveLife) {
+      expanded.push(...splitMoveLife);
+      continue;
+    }
+    const splitDamageLife = splitDamageAndLifeUnknownStep(cleanedStep);
+    if (splitDamageLife) {
+      expanded.push(...splitDamageLife);
+      continue;
+    }
+    const splitDestroyCantBlock = splitDestroyAndCantBlockStep(cleanedStep);
+    if (splitDestroyCantBlock) {
+      expanded.push(...splitDestroyCantBlock);
+      continue;
+    }
+    const splitDestroyNoDamage = splitDestroyAndNoCombatDamageStep(cleanedStep);
+    if (splitDestroyNoDamage) {
+      expanded.push(...splitDestroyNoDamage);
+      continue;
+    }
+    const splitDestroyDamage = splitDestroyUnlessDamageStep(cleanedStep);
+    if (splitDestroyDamage) {
+      expanded.push(...splitDestroyDamage);
+      continue;
+    }
+    const splitMillLife = splitMillAndLifeUnknownStep(cleanedStep);
+    if (splitMillLife) {
+      expanded.push(...splitMillLife);
+      continue;
+    }
+    expanded.push(cleanedStep);
+
+    if (cleanedStep.kind === 'move_zone' && cleanedStep.to === 'battlefield') {
+      const movedText = String((cleanedStep.what as any)?.text || '');
+      const targetText = /\b(?:cards|permanents|creatures)\b/i.test(movedText) ? 'those creatures' : 'that creature';
+      const counterStep = parseDynamicCounterRider(String(cleanedStep.toRaw || cleanedStep.raw || ''), targetText);
+      if (counterStep) expanded.push(counterStep);
+      continue;
+    }
+
+    if (cleanedStep.kind === 'create_token' && !(cleanedStep as any).withCounters) {
+      const amount = (cleanedStep as any).amount;
+      const tokenCount = amount?.kind === 'number' ? Number(amount.value || 0) : 0;
+      const targetText = (cleanedStep as any).who?.kind === 'each_player' || tokenCount > 1 ? 'those tokens' : 'that token';
+      const counterStep = parseDynamicCounterRider(String(cleanedStep.raw || ''), targetText);
+      if (counterStep) expanded.push(counterStep);
+    }
+  }
+
+  return expanded;
+}
+
+export function expandDynamicCounterRiderAbilities(
+  abilities: readonly OracleIRAbility[]
+): OracleIRAbility[] {
+  return abilities.map((ability) => {
+    const expandedSteps = expandDynamicCounterRiderSteps(ability.steps);
+    return expandedSteps.length === ability.steps.length && expandedSteps.every((step, index) => step === ability.steps[index])
+      ? ability
+      : { ...ability, steps: expandedSteps };
+  });
+}
+
 function parseTopLibraryInfoOwner(ownerRaw: string): OraclePlayerSelector | null {
   const normalized = normalizeOracleText(ownerRaw)
     .replace(/[.]+$/g, '')
@@ -1124,10 +2233,9 @@ function mergeStepCounterFollowups(steps: readonly OracleEffectStep[]): OracleEf
 
     if (
       current?.kind === 'move_zone' &&
-      current.to === 'battlefield' &&
-      next?.kind === 'unknown'
+      current.to === 'battlefield'
     ) {
-      const parsed = parseConditionalBattlefieldEntryCounters(next.raw);
+      const parsed = parseBattlefieldEntryCounterFollowupStep(next);
       if (parsed) {
         const existingCounters = current.withCounters || {};
         const combinedCounters: Record<string, number> = { ...existingCounters };
@@ -1138,8 +2246,8 @@ function mergeStepCounterFollowups(steps: readonly OracleEffectStep[]): OracleEf
         merged.push({
           ...current,
           withCounters: combinedCounters,
-          withCountersCondition: parsed.condition,
-          raw: `${String(current.raw || '').trim()}. ${String(next.raw || '').trim()}`.trim(),
+          ...(parsed.condition ? { withCountersCondition: parsed.condition } : {}),
+          raw: `${String(current.raw || '').trim()}. ${parsed.raw}`.trim(),
         });
         i += 1;
         continue;
@@ -1690,12 +2798,11 @@ export function mergeConditionalMoveZoneCounterFollowupAbilities(
       current &&
       next &&
       current.steps.length > 0 &&
-      next.steps.length === 1 &&
-      next.steps[0]?.kind === 'unknown'
+      next.steps.length === 1
     ) {
       const lastStep = current.steps[current.steps.length - 1];
       if (lastStep?.kind === 'move_zone' && lastStep.to === 'battlefield') {
-        const parsed = parseConditionalBattlefieldEntryCounters(next.steps[0].raw);
+          const parsed = parseBattlefieldEntryCounterFollowupStep(next.steps[0]);
         if (parsed) {
           const existingCounters = lastStep.withCounters || {};
           const combinedCounters: Record<string, number> = { ...existingCounters };
@@ -1707,8 +2814,8 @@ export function mergeConditionalMoveZoneCounterFollowupAbilities(
           mergedSteps[mergedSteps.length - 1] = {
             ...lastStep,
             withCounters: combinedCounters,
-            withCountersCondition: parsed.condition,
-            raw: `${String(lastStep.raw || '').trim()}. ${String(next.steps[0].raw || '').trim()}`.trim(),
+            ...(parsed.condition ? { withCountersCondition: parsed.condition } : {}),
+            raw: `${String(lastStep.raw || '').trim()}. ${parsed.raw}`.trim(),
           };
 
           merged.push({
@@ -2294,18 +3401,21 @@ function parseDeterministicUnknownBodySteps(
 function parseSimpleConditionalUnknownStep(step: Extract<OracleEffectStep, { kind: 'unknown' }>): OracleEffectStep | null {
   const normalized = normalizeOracleText(String(step.raw || '')).trim();
   if (!normalized) return null;
+  const conditionSource = normalized.replace(/^[A-Za-z][A-Za-z0-9 ',\-]+\s+-\s+(if|when)\b/i, '$1');
 
   const match =
-    normalized.match(/^if\s+(.+?\bcard),\s*(.+)$/i) ||
-    normalized.match(/^if\s+([^,]+),\s*(.+)$/i) ||
-    normalized.match(/^when\s+(you do),\s*(.+)$/i);
+    conditionSource.match(/^if\s+(.+?\bcard),\s*(.+)$/i) ||
+    conditionSource.match(/^if\s+(.+),\s*(.+)$/i) ||
+    conditionSource.match(/^when\s+(you do),\s*(.+)$/i);
   if (!match) return null;
 
   const conditionRaw = normalizeLeadingConditionalCondition(String(match[1] || '').trim());
   const body = String(match[2] || '').trim();
   if (!conditionRaw || !body) return null;
 
-  const parsedBodySteps = parseDeterministicUnknownBodySteps(step, body);
+  const bodyForParse = body.replace(/^you may reveal it and put\b/i, 'you may put');
+  const rawParsedBodySteps = parseDeterministicUnknownBodySteps(step, bodyForParse);
+  const parsedBodySteps = rawParsedBodySteps ? expandDynamicCounterRiderSteps(rawParsedBodySteps) : null;
 
   if (!parsedBodySteps || parsedBodySteps.length === 0) return null;
 
@@ -3818,7 +4928,7 @@ export function pruneRedundantSpellCantBeCounteredAbilities(
 }
 
 function normalizeFutureSpellUnknownStepText(step: OracleEffectStep | undefined): string {
-  if (!step || step.kind !== 'unknown') return '';
+  if (!step || (step.kind !== 'unknown' && step.kind !== 'add_counter')) return '';
   return normalizeOracleText(String(step.raw || ''))
     .replace(/\s+/g, ' ')
     .replace(/[.;:,]+$/g, '')
@@ -6092,6 +7202,7 @@ function uniqueDrawCandidates(rawText: string | undefined): string[] {
     while ((quotedMatch = quoted.exec(value)) !== null) {
       addCandidate(String(quotedMatch[1] || '').trim(), false);
     }
+
   };
 
   addCandidate(normalized);
@@ -6187,6 +7298,564 @@ function annotateDrawMetadataOnStep(step: OracleEffectStep): OracleEffectStep {
 export function annotateDrawMetadataAbilities(abilities: readonly OracleIRAbility[]): OracleIRAbility[] {
   return abilities.map((ability) => {
     const steps = ability.steps.map(annotateDrawMetadataOnStep);
+    return steps.some((step, index) => step !== ability.steps[index]) ? { ...ability, steps } : ability;
+  });
+}
+
+function uniqueLifeCandidates(rawText: string | undefined): string[] {
+  const normalized = normalizeOracleText(String(rawText || ''));
+  const candidates: string[] = [];
+  const addCandidate = (raw: string | undefined, includeDerived = true): void => {
+    const value = normalizeOracleText(String(raw || ''))
+      .replace(/^[\s(]+/, '')
+      .replace(/[\s.)]+$/g, '')
+      .trim();
+    if (!value || !/\b(?:gains?|loses?)\b[\s\S]*\blife\b/i.test(value)) return;
+    if (!candidates.includes(value)) candidates.push(value);
+    if (!includeDerived) return;
+
+    const quoted = /"([^"]+)"/g;
+    let quotedMatch: RegExpExecArray | null;
+    while ((quotedMatch = quoted.exec(value)) !== null) {
+      addCandidate(String(quotedMatch[1] || '').trim(), false);
+    }
+
+    const activatedBody = value.match(/:\s*([\s\S]*?\b(?:gains?|loses?)\b[\s\S]*\blife\b[\s\S]*)$/i);
+    if (activatedBody) addCandidate(String(activatedBody[1] || '').trim(), false);
+  };
+
+  addCandidate(normalized);
+  return candidates;
+}
+
+function parseLifeMetadataStep(rawText: string | undefined): OracleEffectStep | null {
+  for (const candidate of uniqueLifeCandidates(rawText)) {
+    const normalized = normalizeClauseForParse(candidate);
+    const triggerBody = normalized.clause.match(/^(?:(?:when|whenever)\b.+?|at the beginning of\b.+?),\s+(.+)$/i);
+    const body = triggerBody ? String(triggerBody[1] || '').trim() : normalized.clause;
+    const andLife = body.match(/\band\s+((?:you|each player|each other player|each opponent|target player|target opponent|that player|that opponent)\s+(?:gains?|loses?)\s+.+?\s+life)$/i);
+    for (const lifeBody of [body, andLife ? String(andLife[1] || '').trim() : '']) {
+      if (!lifeBody) continue;
+      const parsed = parseLifeTailStep(lifeBody);
+      if (parsed?.kind === 'gain_life' || parsed?.kind === 'lose_life') return parsed;
+    }
+  }
+
+  return null;
+}
+
+function hasLifeStepInTree(steps: readonly OracleEffectStep[] | undefined): boolean {
+  if (!Array.isArray(steps)) return false;
+  for (const step of steps) {
+    if (step.kind === 'gain_life' || step.kind === 'lose_life') return true;
+    if (hasLifeStepInTree((step as any).steps)) return true;
+    if (Array.isArray((step as any).modes)) {
+      for (const mode of (step as any).modes) {
+        if (hasLifeStepInTree(mode?.steps)) return true;
+      }
+    }
+    if (Array.isArray((step as any).results)) {
+      for (const result of (step as any).results) {
+        if (hasLifeStepInTree(result?.steps)) return true;
+      }
+    }
+  }
+  return false;
+}
+
+function annotateLifeMetadataOnStep(step: OracleEffectStep): OracleEffectStep {
+  if (step.kind === 'choose_mode') {
+    const modes = step.modes.map((mode) => ({
+      ...mode,
+      steps: mode.steps.map(annotateLifeMetadataOnStep),
+    }));
+    return modes.some((mode, index) => mode.steps !== step.modes[index]?.steps) ? { ...step, modes } : step;
+  }
+
+  if (step.kind === 'conditional' || step.kind === 'unless_pays_life' || step.kind === 'unless_pays_mana') {
+    const steps = step.steps.map(annotateLifeMetadataOnStep);
+    return steps !== step.steps ? { ...step, steps } : step;
+  }
+
+  if (step.kind === 'create_token') {
+    const existingSteps = Array.isArray((step as any).steps) ? [...((step as any).steps as OracleEffectStep[])] : [];
+    if (hasLifeStepInTree(existingSteps)) return step;
+    const rawParsed = parseLifeMetadataStep(step.raw);
+    if (!rawParsed) return step;
+    return { ...(step as any), steps: [...existingSteps, rawParsed] } as OracleEffectStep;
+  }
+
+  if (step.kind === 'grant_static_ability' || step.kind === 'grant_temporary_ability') {
+    const existingSteps = Array.isArray((step as any).steps) ? [...((step as any).steps as OracleEffectStep[])] : [];
+    if (hasLifeStepInTree(existingSteps)) return step;
+    const effectTexts = Array.isArray((step as any).effectText) ? ((step as any).effectText as readonly string[]) : [];
+    const metadataSteps = effectTexts
+      .map((effectText) => parseLifeMetadataStep(effectText))
+      .filter((parsed): parsed is OracleEffectStep => Boolean(parsed));
+    const rawParsed = parseLifeMetadataStep(step.raw);
+    if (rawParsed && !metadataSteps.some((parsed) => parsed.kind === rawParsed.kind && String((parsed as any).raw || '') === String((rawParsed as any).raw || ''))) {
+      metadataSteps.push(rawParsed);
+    }
+    if (metadataSteps.length === 0) return step;
+    return { ...(step as any), steps: [...existingSteps, ...metadataSteps] } as OracleEffectStep;
+  }
+
+  return step;
+}
+
+export function annotateLifeMetadataAbilities(abilities: readonly OracleIRAbility[]): OracleIRAbility[] {
+  return abilities.map((ability) => {
+    const steps = ability.steps.map(annotateLifeMetadataOnStep);
+    return steps.some((step, index) => step !== ability.steps[index]) ? { ...ability, steps } : ability;
+  });
+}
+
+function uniqueDestroyCandidates(rawText: string | undefined): string[] {
+  const normalized = normalizeOracleText(String(rawText || ''));
+  const candidates: string[] = [];
+  const addCandidate = (raw: string | undefined, includeDerived = true): void => {
+    const value = normalizeOracleText(String(raw || ''))
+      .replace(/^[\s(]+/, '')
+      .replace(/[\s.)]+$/g, '')
+      .trim();
+    if (!value || !/\bdestroys?\b/i.test(value)) return;
+    if (!candidates.includes(value)) candidates.push(value);
+    if (!includeDerived) return;
+
+    const quoted = /"([^"]+)"/g;
+    let quotedMatch: RegExpExecArray | null;
+    while ((quotedMatch = quoted.exec(value)) !== null) {
+      addCandidate(String(quotedMatch[1] || '').trim(), false);
+    }
+
+    const activatedDestroyBody = value.match(/:\s*([\s\S]*?\bdestroys?\b[\s\S]*)$/i);
+    if (activatedDestroyBody) addCandidate(String(activatedDestroyBody[1] || '').trim(), false);
+  };
+
+  addCandidate(normalized);
+  return candidates;
+}
+
+function parseDestroyMetadataStep(rawText: string | undefined): OracleEffectStep | null {
+  for (const candidate of uniqueDestroyCandidates(rawText)) {
+    const normalized = normalizeClauseForParse(candidate);
+    const triggerBody = normalized.clause.match(/^(?:(?:when|whenever)\b.+?|at the beginning of\b.+?),\s+(.+)$/i);
+    const body = triggerBody ? String(triggerBody[1] || '').trim() : normalized.clause;
+    const parsed = tryParseZoneAndRemovalClause({
+      clause: normalizeClauseForParse(body).clause,
+      rawClause: body,
+      withMeta: <T extends OracleEffectStep>(step: T): T => step,
+    });
+    if (parsed?.kind === 'destroy') return parsed;
+  }
+
+  return null;
+}
+
+function hasDestroyStepInTree(steps: readonly OracleEffectStep[] | undefined): boolean {
+  if (!Array.isArray(steps)) return false;
+  for (const step of steps) {
+    if (step.kind === 'destroy') return true;
+    if (hasDestroyStepInTree((step as any).steps)) return true;
+    if (Array.isArray((step as any).modes)) {
+      for (const mode of (step as any).modes) {
+        if (hasDestroyStepInTree(mode?.steps)) return true;
+      }
+    }
+  }
+  return false;
+}
+
+function annotateDestroyMetadataOnStep(step: OracleEffectStep): OracleEffectStep {
+  if (step.kind === 'choose_mode') {
+    const modes = step.modes.map((mode) => ({
+      ...mode,
+      steps: mode.steps.map(annotateDestroyMetadataOnStep),
+    }));
+    return modes.some((mode, index) => mode.steps !== step.modes[index]?.steps) ? { ...step, modes } : step;
+  }
+
+  if (step.kind === 'conditional' || step.kind === 'unless_pays_life' || step.kind === 'unless_pays_mana') {
+    const steps = step.steps.map(annotateDestroyMetadataOnStep);
+    return steps !== step.steps ? { ...step, steps } : step;
+  }
+
+  if (step.kind === 'grant_static_ability' || step.kind === 'grant_temporary_ability' || step.kind === 'unknown') {
+    const existingSteps = Array.isArray((step as any).steps) ? [...((step as any).steps as OracleEffectStep[])] : [];
+    if (hasDestroyStepInTree(existingSteps)) return step;
+    const effectTexts = Array.isArray((step as any).effectText) ? ((step as any).effectText as readonly string[]) : [];
+    const metadataSteps = effectTexts
+      .map((effectText) => parseDestroyMetadataStep(effectText))
+      .filter((parsed): parsed is OracleEffectStep => Boolean(parsed));
+    const rawParsed = parseDestroyMetadataStep(step.raw);
+    const rawTarget = String(((rawParsed as any)?.target as any)?.text || '').replace(/[\s."”]+$/g, '').trim();
+    if (rawParsed && !metadataSteps.some((parsed) => {
+      const parsedTarget = String(((parsed as any).target as any)?.text || '').replace(/[\s."”]+$/g, '').trim();
+      return parsed.kind === rawParsed.kind && parsedTarget === rawTarget;
+    })) {
+      metadataSteps.push(rawParsed);
+    }
+    if (metadataSteps.length === 0) return step;
+    return { ...(step as any), steps: [...existingSteps, ...metadataSteps] } as OracleEffectStep;
+  }
+
+  return step;
+}
+
+export function annotateDestroyMetadataAbilities(abilities: readonly OracleIRAbility[]): OracleIRAbility[] {
+  return abilities.map((ability) => {
+    const steps = ability.steps.map(annotateDestroyMetadataOnStep);
+    return steps.some((step, index) => step !== ability.steps[index]) ? { ...ability, steps } : ability;
+  });
+}
+
+function uniqueSacrificeCandidates(rawText: string | undefined): string[] {
+  const normalized = normalizeOracleText(String(rawText || ''));
+  const candidates: string[] = [];
+  const addCandidate = (raw: string | undefined, includeDerived = true): void => {
+    const value = normalizeOracleText(String(raw || ''))
+      .replace(/^[\s(]+/, '')
+      .replace(/[\s.)]+$/g, '')
+      .trim();
+    if (!value || !/\bsacrifices?\b/i.test(value)) return;
+    if (!candidates.includes(value)) candidates.push(value);
+    if (!includeDerived) return;
+
+    const quoted = /"([^"]+)"/g;
+    let quotedMatch: RegExpExecArray | null;
+    while ((quotedMatch = quoted.exec(value)) !== null) {
+      addCandidate(String(quotedMatch[1] || '').trim(), false);
+    }
+
+    const unclosedGrantedTrigger = value.match(/\bgains?\b[\s\S]*"([^"]*\bsacrifices?\b[\s\S]*)$/i);
+    if (unclosedGrantedTrigger) addCandidate(String(unclosedGrantedTrigger[1] || '').trim(), false);
+
+    const activatedBody = value.match(/:\s*([\s\S]*?\bsacrifices?\b[\s\S]*)$/i);
+    if (activatedBody) addCandidate(String(activatedBody[1] || '').trim(), false);
+  };
+
+  addCandidate(normalized);
+  return candidates;
+}
+
+function parseSacrificeMetadataStep(rawText: string | undefined): OracleEffectStep | null {
+  for (const candidate of uniqueSacrificeCandidates(rawText)) {
+    const normalized = normalizeClauseForParse(candidate).clause;
+    const candidateBodies = [normalized];
+    const triggerBody = normalized.match(/^(?:(?:when|whenever)\b.+?|at the beginning of\b.+?),\s+(.+)$/i);
+    if (triggerBody) candidateBodies.push(String(triggerBody[1] || '').trim());
+    for (const body of [...candidateBodies]) {
+      const conditionalBody = String(body || '').trim().match(/^if\s+.+?,\s+(.+)$/i);
+      if (conditionalBody) candidateBodies.push(String(conditionalBody[1] || '').trim());
+    }
+
+    for (const body of candidateBodies) {
+      const clause = normalizeClauseForParse(body).clause.replace(/[.)]+$/g, '').trim();
+      if (!clause) continue;
+
+      const scheduledSacrifice = clause.match(
+        /^sacrifice\s+(.+?)\s+at\s+(?:the\s+beginning\s+of\s+)?(?:your\s+)?(?:the\s+)?(?:next\s+)?(?:end\s+step|end\s+of\s+combat|cleanup\s+step)(?:\s+if\s+.+)?$/i
+      );
+      const effectiveClause = scheduledSacrifice ? `sacrifice ${String(scheduledSacrifice[1] || '').trim()}` : clause;
+      const parsed = tryParseZoneAndRemovalClause({
+        clause: effectiveClause,
+        rawClause: effectiveClause,
+        withMeta: <T extends OracleEffectStep>(step: T): T => step,
+      });
+      if (parsed?.kind === 'sacrifice') return expandUnlessSacrificeStep(parsed);
+    }
+  }
+
+  return null;
+}
+
+function uniqueCounterCandidates(rawText: string | undefined): string[] {
+  const normalized = normalizeOracleText(String(rawText || ''))
+    .replace(/^[\s.)]+/, '')
+    .replace(/[\s.)]+$/g, '')
+    .trim();
+  const candidates: string[] = [];
+
+  const addCandidate = (raw: string, includeDerived = true): void => {
+    const value = normalizeOracleText(String(raw || ''))
+      .replace(/^[\s.)]+/, '')
+      .replace(/[\s.)]+$/g, '')
+      .trim();
+    if (!value || !/\+1\/\+1\s+counters?/i.test(value)) return;
+    if (!candidates.includes(value)) candidates.push(value);
+    if (!includeDerived) return;
+
+    const quoted = /"([^"]+)"/g;
+    let quotedMatch: RegExpExecArray | null;
+    while ((quotedMatch = quoted.exec(value)) !== null) {
+      addCandidate(String(quotedMatch[1] || '').trim(), false);
+    }
+
+    const unclosedGrant = value.match(/\b(?:has|have|gains?)\b[\s\S]*"([^"]*\+1\/\+1\s+counters?[\s\S]*)$/i);
+    if (unclosedGrant) addCandidate(String(unclosedGrant[1] || '').trim(), false);
+
+    const activatedBody = value.match(/:\s*([\s\S]*?\+1\/\+1\s+counters?[\s\S]*)$/i);
+    if (activatedBody) addCandidate(String(activatedBody[1] || '').trim(), false);
+  };
+
+  addCandidate(normalized);
+  return candidates;
+}
+
+function parseCounterMetadataStep(rawText: string | undefined): OracleEffectStep | null {
+  for (const candidate of uniqueCounterCandidates(rawText)) {
+    const normalized = normalizeClauseForParse(candidate).clause;
+    const candidateBodies = [normalized];
+    const triggerBody = normalized.match(/^(?:(?:when|whenever)\b.+?|at the beginning of\b.+?),\s+(.+)$/i);
+    if (triggerBody) candidateBodies.push(String(triggerBody[1] || '').trim());
+
+    for (const body of candidateBodies) {
+      const clause = normalizeClauseForParse(body).clause.replace(/[.)]+$/g, '').trim();
+      if (!clause) continue;
+      const tail = clause.match(/\b((?:you|they|that player|each player)?\s*(?:may\s+)?put\s+[\s\S]*\+1\/\+1\s+counters?[\s\S]*)$/i);
+      const parseCandidates = tail ? [clause, String(tail[1] || '').trim()] : [clause];
+
+      for (const parseCandidate of parseCandidates) {
+        const parsed = tryParseSimpleActionClause({
+          clause: normalizeClauseForParse(parseCandidate).clause.replace(/[.)]+$/g, '').trim(),
+          rawClause: parseCandidate,
+          withMeta: <T extends OracleEffectStep>(step: T): T => step,
+        });
+        if (parsed?.kind === 'add_counter') return parsed;
+      }
+    }
+  }
+
+  return null;
+}
+
+function hasCounterStepInTree(steps: readonly OracleEffectStep[] | undefined): boolean {
+  if (!Array.isArray(steps)) return false;
+  for (const step of steps) {
+    if (step.kind === 'add_counter') return true;
+    if ((step as any).withCounters?.['+1/+1'] || (step as any).castedPermanentEntersWithCounters?.['+1/+1']) return true;
+    if (hasCounterStepInTree((step as any).steps)) return true;
+    if (Array.isArray((step as any).modes)) {
+      for (const mode of (step as any).modes) {
+        if (hasCounterStepInTree(mode?.steps)) return true;
+      }
+    }
+    if (Array.isArray((step as any).results)) {
+      for (const result of (step as any).results) {
+        if (hasCounterStepInTree(result?.steps)) return true;
+      }
+    }
+  }
+  return false;
+}
+
+function appendUniqueCounterMetadataSteps(
+  existingSteps: readonly OracleEffectStep[],
+  metadataSteps: readonly OracleEffectStep[]
+): OracleEffectStep[] {
+  const nextSteps = [...existingSteps];
+  const seen = new Set(nextSteps.map((step) => `${step.kind}:${normalizeOracleText(String(step.raw || ''))}`));
+  for (const parsed of metadataSteps) {
+    const key = `${parsed.kind}:${normalizeOracleText(String(parsed.raw || ''))}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    nextSteps.push(parsed);
+  }
+  return nextSteps;
+}
+
+function shouldSkipCounterMetadataUnknown(raw: string): boolean {
+  return /\b(?:monstrous|megamorph|renown|your choice of|spell costs?|can't have|remove x|for each \+1\/\+1 counter|one or more \+1\/\+1 counters would be put|twice that many|that many plus one|choose a creature with the least|turn it face up)\b/i.test(raw);
+}
+
+function annotateCounterMetadataOnStep(step: OracleEffectStep): OracleEffectStep {
+  if (step.kind === 'choose_mode') {
+    const modes = step.modes.map((mode) => ({
+      ...mode,
+      steps: mode.steps.map(annotateCounterMetadataOnStep),
+    }));
+    return modes.some((mode, index) => mode.steps !== step.modes[index]?.steps) ? { ...step, modes } : step;
+  }
+
+  if (step.kind === 'die_roll_results') {
+    const results = step.results.map((result) => ({
+      ...result,
+      steps: result.steps.map(annotateCounterMetadataOnStep),
+    }));
+    return results.some((result, index) => result.steps !== step.results[index]?.steps) ? { ...step, results } : step;
+  }
+
+  if (step.kind === 'conditional' || step.kind === 'unless_pays_life' || step.kind === 'unless_pays_mana') {
+    const steps = step.steps.map(annotateCounterMetadataOnStep);
+    return steps !== step.steps ? { ...step, steps } : step;
+  }
+
+  if (step.kind === 'create_token') {
+    const raw = normalizeOracleText(String(step.raw || ''));
+    if (/\bto incubate\b/i.test(raw)) return step;
+    const existingSteps = Array.isArray((step as any).steps) ? [...((step as any).steps as OracleEffectStep[])] : [];
+    if (hasCounterStepInTree(existingSteps)) return step;
+    const directCounterTail = raw.match(/\b(put\s+(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|x|\d+)\s+.+?\s+counters?\s+on\s+this\s+token)\b/i);
+    const parsed = directCounterTail
+      ? parseSimpleCounterTailStep(String(directCounterTail[1] || '').trim())
+      : parseCounterMetadataStep(raw);
+    if (!parsed) return step;
+    const steps = appendUniqueCounterMetadataSteps(existingSteps, [parsed]);
+    return steps.length === existingSteps.length ? step : ({ ...(step as any), steps } as OracleEffectStep);
+  }
+
+  if (step.kind === 'grant_static_ability' || step.kind === 'grant_temporary_ability' || step.kind === 'create_emblem') {
+    const existingSteps = Array.isArray((step as any).steps) ? [...((step as any).steps as OracleEffectStep[])] : [];
+    if (hasCounterStepInTree(existingSteps)) return step;
+    const metadataSteps: OracleEffectStep[] = [];
+    const effectTexts = Array.isArray((step as any).effectText) ? ((step as any).effectText as readonly string[]) : [];
+    for (const effectText of effectTexts) {
+      const parsed = parseCounterMetadataStep(effectText);
+      if (parsed) metadataSteps.push(parsed);
+    }
+    if (step.kind === 'create_emblem') {
+      for (const emblemAbility of step.abilities) {
+        const parsed = parseCounterMetadataStep(emblemAbility);
+        if (parsed) metadataSteps.push(parsed);
+      }
+    }
+    const rawParsed = parseCounterMetadataStep(step.raw);
+    if (rawParsed) metadataSteps.push(rawParsed);
+    if (metadataSteps.length === 0) return step;
+    const steps = appendUniqueCounterMetadataSteps(existingSteps, metadataSteps);
+    return steps.length === existingSteps.length ? step : { ...step, steps };
+  }
+
+  if (step.kind === 'unknown') {
+    const raw = normalizeOracleText(String(step.raw || ''));
+    if (
+      /\+1\/\+1\s+counters?/i.test(raw) &&
+      !shouldSkipCounterMetadataUnknown(raw) &&
+      (/\b(?:has|have|gains?|with)\b[\s\S]*"[\s\S]*\+1\/\+1\s+counters?/i.test(raw) || /\bput\b[\s\S]*\+1\/\+1\s+counters?/i.test(raw))
+    ) {
+      const existingSteps = Array.isArray((step as any).steps) ? [...((step as any).steps as OracleEffectStep[])] : [];
+      const parsed = parseCounterMetadataStep(raw);
+      if (!parsed) return step;
+      const steps = appendUniqueCounterMetadataSteps(existingSteps, [parsed]);
+      return steps.length === existingSteps.length ? step : ({ ...(step as any), steps } as OracleEffectStep);
+    }
+  }
+
+  return step;
+}
+
+export function annotateCounterMetadataAbilities(abilities: readonly OracleIRAbility[]): OracleIRAbility[] {
+  return abilities.map((ability) => {
+    const steps = ability.steps.map(annotateCounterMetadataOnStep);
+    return steps.some((step, index) => step !== ability.steps[index]) ? { ...ability, steps } : ability;
+  });
+}
+
+function hasSacrificeStepInTree(steps: readonly OracleEffectStep[] | undefined): boolean {
+  if (!Array.isArray(steps)) return false;
+  for (const step of steps) {
+    if (step.kind === 'sacrifice') return true;
+    if (hasSacrificeStepInTree((step as any).steps)) return true;
+    if (Array.isArray((step as any).modes)) {
+      for (const mode of (step as any).modes) {
+        if (hasSacrificeStepInTree(mode?.steps)) return true;
+      }
+    }
+    if (Array.isArray((step as any).results)) {
+      for (const result of (step as any).results) {
+        if (hasSacrificeStepInTree(result?.steps)) return true;
+      }
+    }
+  }
+  return false;
+}
+
+function appendUniqueSacrificeMetadataSteps(
+  existingSteps: readonly OracleEffectStep[],
+  metadataSteps: readonly OracleEffectStep[]
+): OracleEffectStep[] {
+  const nextSteps = [...existingSteps];
+  const seen = new Set(nextSteps.map((step) => `${step.kind}:${normalizeOracleText(String(step.raw || ''))}`));
+  for (const parsed of metadataSteps) {
+    const key = `${parsed.kind}:${normalizeOracleText(String(parsed.raw || ''))}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    nextSteps.push(parsed);
+  }
+  return nextSteps;
+}
+
+function annotateSacrificeMetadataOnStep(step: OracleEffectStep): OracleEffectStep {
+  if (step.kind === 'choose_mode') {
+    const modes = step.modes.map((mode) => ({
+      ...mode,
+      steps: mode.steps.map(annotateSacrificeMetadataOnStep),
+    }));
+    return modes.some((mode, index) => mode.steps !== step.modes[index]?.steps) ? { ...step, modes } : step;
+  }
+
+  if (step.kind === 'die_roll_results') {
+    const results = step.results.map((result) => ({
+      ...result,
+      steps: result.steps.map(annotateSacrificeMetadataOnStep),
+    }));
+    return results.some((result, index) => result.steps !== step.results[index]?.steps) ? { ...step, results } : step;
+  }
+
+  if (step.kind === 'conditional' || step.kind === 'unless_pays_life' || step.kind === 'unless_pays_mana') {
+    const steps = step.steps.map(annotateSacrificeMetadataOnStep);
+    return steps !== step.steps ? { ...step, steps } : step;
+  }
+
+  if (step.kind === 'create_token') {
+    const raw = normalizeOracleText(String(step.raw || ''));
+    if (
+      !step.atNextEndStep &&
+      /at\s+the\s+beginning\s+of\s+(?:the\s+)?(?:next\s+)?end\s+step[,"]?\s*sacrifice\s+(?:this|that|the)?\s*(?:token|permanent|it)\b/i.test(raw)
+    ) {
+      return { ...step, atNextEndStep: 'sacrifice' };
+    }
+  }
+
+  if (step.kind === 'grant_static_ability' || step.kind === 'grant_temporary_ability' || step.kind === 'create_emblem') {
+    const existingSteps = Array.isArray((step as any).steps) ? [...((step as any).steps as OracleEffectStep[])] : [];
+    if (hasSacrificeStepInTree(existingSteps)) return step;
+    const metadataSteps: OracleEffectStep[] = [];
+    const effectTexts = Array.isArray((step as any).effectText) ? ((step as any).effectText as readonly string[]) : [];
+    for (const effectText of effectTexts) {
+      const parsed = parseSacrificeMetadataStep(effectText);
+      if (parsed) metadataSteps.push(parsed);
+    }
+    if (step.kind === 'create_emblem') {
+      for (const emblemAbility of step.abilities) {
+        const parsed = parseSacrificeMetadataStep(emblemAbility);
+        if (parsed) metadataSteps.push(parsed);
+      }
+    }
+    const rawParsed = parseSacrificeMetadataStep(step.raw);
+    if (rawParsed) metadataSteps.push(rawParsed);
+    if (metadataSteps.length === 0) return step;
+    const steps = appendUniqueSacrificeMetadataSteps(existingSteps, metadataSteps);
+    return steps.length === existingSteps.length ? step : { ...step, steps };
+  }
+
+  if (step.kind === 'unknown') {
+    const raw = normalizeOracleText(String(step.raw || ''));
+    if (/\bgains?\b[\s\S]*"[\s\S]*\bwhen\b[\s\S]*\bsacrifices?\b/i.test(raw) && !/\b(?:casualty|devour|echo|vanishing|champion)\b/i.test(raw)) {
+      const existingSteps = Array.isArray((step as any).steps) ? [...((step as any).steps as OracleEffectStep[])] : [];
+      const parsed = parseSacrificeMetadataStep(raw);
+      if (!parsed) return step;
+      const steps = appendUniqueSacrificeMetadataSteps(existingSteps, [parsed]);
+      return steps.length === existingSteps.length ? step : ({ ...(step as any), steps } as OracleEffectStep);
+    }
+  }
+
+  return step;
+}
+
+export function annotateSacrificeMetadataAbilities(abilities: readonly OracleIRAbility[]): OracleIRAbility[] {
+  return abilities.map((ability) => {
+    const steps = ability.steps.map(annotateSacrificeMetadataOnStep);
     return steps.some((step, index) => step !== ability.steps[index]) ? { ...ability, steps } : ability;
   });
 }
@@ -6486,17 +8155,26 @@ export function mergeExilePermissionCastCounterFollowupAbilities(
 
       if (
         current?.kind === 'grant_exile_permission' &&
-        next?.kind === 'unknown'
+        next
       ) {
         const normalizedNext = normalizeOracleText(String(next.raw || '')).trim();
         const castThisWayMatch = normalizedNext.match(
           /^if you cast a spell this way, that creature enters with (?:a|an|\d+|x|[a-z]+)\s+(.+?)\s+counters?\s+on\s+it$/i
         );
-        if (castThisWayMatch) {
+        const conditionalCounter = next.kind === 'conditional' && /^you cast a spell this way$/i.test(String(next.condition.raw || '').trim())
+          ? counterRecordFromAddCounterStep(next.steps[0])
+          : null;
+        if (castThisWayMatch || conditionalCounter) {
+          const counterName = conditionalCounter
+            ? Object.keys(conditionalCounter)[0]
+            : next.kind === 'add_counter'
+              ? normalizeCounterName(String(next.counter || '').trim())
+              : normalizeCounterName(String(castThisWayMatch?.[1] || '').trim());
+          const counterAmount = conditionalCounter ? Number(conditionalCounter[counterName] || 0) : 1;
           merged.push({
             ...current,
             castedPermanentEntersWithCounters: {
-              [normalizeCounterName(String(castThisWayMatch[1] || '').trim())]: 1,
+              [counterName]: counterAmount,
             },
             raw: `${String(current.raw || '').trim()}. ${String(next.raw || '').trim()}`.trim(),
           });
@@ -7857,6 +9535,41 @@ function parsePreventDamageUnknownStep(
       amount: 'all',
       recipientTarget: parseObjectSelector('this creature'),
       duration: 'this_turn',
+      ...(step.sequence ? { sequence: step.sequence } : {}),
+      raw: normalized,
+    };
+  }
+
+  const selfDamageRemoveCounterMatch = normalized.match(
+    /^if damage would be dealt to (.+?) while it has (?:a|an|one or more|\d+|[a-z]+) (.+?) counters? on it, prevent that damage and remove (a|an|one|\d+|[a-z]+) (.+?) counters? from (.+)$/i
+  );
+  if (selfDamageRemoveCounterMatch) {
+    const recipientText = String(selfDamageRemoveCounterMatch[1] || '').trim();
+    const removeAmountText = String(selfDamageRemoveCounterMatch[3] || '').trim();
+    const removeCounterText = String(selfDamageRemoveCounterMatch[4] || '').trim();
+    const removeTargetText = String(selfDamageRemoveCounterMatch[5] || '').trim();
+    return {
+      kind: 'conditional',
+      condition: {
+        kind: 'if',
+        raw: `damage would be dealt to ${recipientText} while it has ${String(selfDamageRemoveCounterMatch[2] || '').trim()} counters on it`,
+      },
+      steps: [
+        {
+          kind: 'prevent_damage',
+          amount: 'all',
+          recipientTarget: parseObjectSelector(recipientText),
+          duration: 'this_turn',
+          raw: 'prevent that damage',
+        },
+        {
+          kind: 'remove_counter',
+          amount: parseQuantity(removeAmountText),
+          counter: normalizeCounterName(removeCounterText),
+          target: parseObjectSelector(removeTargetText),
+          raw: `remove ${removeAmountText} ${removeCounterText} counter from ${removeTargetText}`,
+        },
+      ],
       ...(step.sequence ? { sequence: step.sequence } : {}),
       raw: normalized,
     };
