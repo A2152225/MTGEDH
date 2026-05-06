@@ -862,8 +862,10 @@ function parseManaSpendRestriction(step: OracleEffectStep | undefined): Extract<
     .replace(/[.]+$/g, '')
     .trim();
 
-  if (/^spend this mana only to cast an? creature spell$/i.test(normalized)) return 'creature_spell';
+  if (/^spend this mana only to cast (?:an? )?creature spells?$/i.test(normalized)) return 'creature_spell';
   if (/^spend this mana only to cast an? instant or sorcery spell$/i.test(normalized)) return 'instant_or_sorcery_spell';
+  if (/^spend this mana only to cast artifact spells or activate abilities of artifacts$/i.test(normalized)) return 'artifact_spell_or_ability';
+  if (/^spend this mana only to activate abilities$/i.test(normalized)) return 'activated_ability';
   return null;
 }
 
@@ -2000,6 +2002,17 @@ function expandDynamicCounterRiderSteps(steps: readonly OracleEffectStep[]): Ora
       expanded.push(...splitMillLife);
       continue;
     }
+    if (
+      cleanedStep.kind === 'lose_life' &&
+      (cleanedStep.who as any)?.kind === 'you' &&
+      /^lose\s+/i.test(String(cleanedStep.raw || '').trim())
+    ) {
+      const previousStep = expanded[expanded.length - 1];
+      if (previousStep?.kind === 'mill' && (previousStep.who as any)?.kind === 'any_number_of_target_players') {
+        expanded.push({ ...cleanedStep, who: previousStep.who });
+        continue;
+      }
+    }
     expanded.push(cleanedStep);
 
     if (cleanedStep.kind === 'move_zone' && cleanedStep.to === 'battlefield') {
@@ -2046,6 +2059,7 @@ function parseTopLibraryInfoOwner(ownerRaw: string): OraclePlayerSelector | null
 
 function parseStandaloneTopLibraryInfoUnknownStep(step: Extract<OracleEffectStep, { kind: 'unknown' }>): OracleEffectStep | null {
   const normalized = normalizeOracleText(String(step.raw || ''))
+    .replace(/^[\u2022\u00b7\u25cf\u25e6\u25aa\u25ab\u25ba\u2794\ufffd]+\s*/u, '')
     .replace(/^then\b\s*/i, '')
     .replace(/[.]+$/g, '')
     .trim();
@@ -2066,7 +2080,7 @@ function parseStandaloneTopLibraryInfoUnknownStep(step: Extract<OracleEffectStep
   }
 
   const match = normalized.match(
-    /^(?:you may\s+)?(look at|reveal) the top (?:(a|an|\d+|x|[a-z]+) cards?|card) of (your|target player's|target opponent's|that player's|that opponent's) library(?: any time)?(?:,\s*where\s+.+)?$/i
+    /^(?:you may\s+)?(look at|reveal) (?:the top (?:(a|an|\d+|x|[a-z]+) cards?|card)|that many cards from the top) of (your|target player's|target opponent's|that player's|that opponent's) library(?: any time)?(?:,\s*where\s+.+)?$/i
   );
   if (!match) return null;
 
@@ -2076,7 +2090,7 @@ function parseStandaloneTopLibraryInfoUnknownStep(step: Extract<OracleEffectStep
   return {
     kind: /^reveal/i.test(String(match[1] || '').trim()) ? 'reveal_top' : 'look_top',
     who,
-    amount: match[2] ? parseQuantity(String(match[2] || '').trim()) : { kind: 'number', value: 1 },
+    amount: match[2] ? parseQuantity(String(match[2] || '').trim()) : (/that many cards from the top/i.test(normalized) ? { kind: 'reference_amount', raw: 'that many' } : { kind: 'number', value: 1 }),
     ...(step.optional ? { optional: true } : {}),
     ...(step.sequence ? { sequence: step.sequence } : {}),
     raw: String(step.raw || '').trim(),
@@ -3119,7 +3133,7 @@ function parseBattlefieldMoveHasteFollowupStep(
     .trim();
   if (!normalized) return null;
 
-  const match = normalized.match(/^(it|that card|that creature|that permanent) gains haste$/i);
+  const match = normalized.match(/^(it|that card|that creature|that permanent) (?:gains|has) haste$/i);
   if (!match) return null;
 
   return {
@@ -3738,8 +3752,180 @@ function parseExilePermissionUnknownStep(
 ): OracleEffectStep | null {
   const normalized = normalizeOracleText(String(step.raw || ''))
     .replace(/^then\b\s*/i, '')
+    .replace(/["\s]+$/g, '')
     .trim();
   if (!normalized) return null;
+
+  {
+    const asLongAsExiledPermissionMatch = normalized.match(
+      /^(?:for\s+as\s+long\s+as\s+(?:it|that\s+card|the\s+exiled\s+card|the\s+exiled\s+cards?)\s+remains?\s+exiled,\s+)?(?:(you|they|that player|the player|that opponent|an opponent|its owner|the exiled card's owner)\s+)?may\s+(cast|play)\s+(it|that card|the exiled card|this card|the exiled cards|those cards)(?:\s+from\s+exile)?(?:\s+without\s+paying\s+(?:its|their)\s+mana\s+costs?)?(?:\s+if\s+[^.]+)?(?:\s+for\s+as\s+long\s+as\s+(?:it|that\s+card|the\s+exiled\s+card|they|those\s+cards)\s+remains?\s+exiled)?(?:,\s+and\s+mana\s+of\s+any\s+type\s+can\s+be\s+spent\s+to\s+cast\s+that\s+spell)?\.?$/i
+    );
+    if (asLongAsExiledPermissionMatch && /\bfor\s+as\s+long\s+as\b/i.test(normalized)) {
+      return {
+        kind: 'grant_exile_permission',
+        who: parsePlayerSelector(String(asLongAsExiledPermissionMatch[1] || 'you').trim()),
+        what: parseObjectSelector(String(asLongAsExiledPermissionMatch[3] || '').trim()),
+        duration: 'as_long_as_remains_exiled',
+        permission: String(asLongAsExiledPermissionMatch[2] || '').toLowerCase() === 'play' ? 'play' : 'cast',
+        withoutPayingManaCost: /without\s+paying\s+(?:its|their)\s+mana\s+costs?/i.test(normalized) || undefined,
+        optional: true,
+        ...(step.sequence ? { sequence: step.sequence } : {}),
+        raw: normalized,
+      };
+    }
+
+    const asLongAsControlSourcePermissionMatch = normalized.match(
+      /^(?:(you|they|that player|the player|that opponent|an opponent|its owner|the exiled card's owner)\s+)?may\s+(cast|play)\s+(it|that card|the exiled card|this card)(?:\s+without\s+paying\s+its\s+mana\s+cost)?\s+for\s+as\s+long\s+as\s+this\s+permanent\s+remains\s+on\s+the\s+battlefield\.?$/i
+    );
+    if (asLongAsControlSourcePermissionMatch) {
+      return {
+        kind: 'grant_exile_permission',
+        who: parsePlayerSelector(String(asLongAsControlSourcePermissionMatch[1] || 'you').trim()),
+        what: parseObjectSelector(String(asLongAsControlSourcePermissionMatch[3] || '').trim()),
+        duration: 'as_long_as_control_source',
+        permission: String(asLongAsControlSourcePermissionMatch[2] || '').toLowerCase() === 'play' ? 'play' : 'cast',
+        withoutPayingManaCost: /without\s+paying\s+its\s+mana\s+cost/i.test(normalized) || undefined,
+        optional: true,
+        ...(step.sequence ? { sequence: step.sequence } : {}),
+        raw: normalized,
+      };
+    }
+
+    const directPermissionWithManaSpendMatch = normalized.match(
+      /^(until\s+end\s+of\s+turn,\s+)?(?:(you|they|that player|the player|that opponent|an opponent|each player|each opponent)\s+)?(?:may\s+)?(cast|play)s?\s+(it|that card|the exiled card|this card|that spell|them|those cards|the exiled cards)(?:\s+from\s+exile)?(?:\s+this\s+turn)?(?:\s+until\s+the\s+end\s+of\s+your\s+next\s+turn)?(?:\s+and\s+you\s+may\s+spend\s+mana\s+as\s+though\s+it\s+were\s+mana\b.+|,\s+and\s+you\s+may\s+spend\s+mana\s+as\s+though\s+it\s+were\s+mana\b.+)?\.?$/i
+    );
+    if (directPermissionWithManaSpendMatch) {
+      return {
+        kind: 'grant_exile_permission',
+        who: parsePlayerSelector(String(directPermissionWithManaSpendMatch[2] || 'you').trim()),
+        what: parseObjectSelector(String(directPermissionWithManaSpendMatch[4] || '').trim()),
+        duration: /until\s+the\s+end\s+of\s+your\s+next\s+turn/i.test(normalized)
+          ? 'until_end_of_next_turn'
+          : directPermissionWithManaSpendMatch[1] || /\bthis\s+turn\b/i.test(normalized)
+            ? 'this_turn'
+            : 'during_resolution',
+        permission: String(directPermissionWithManaSpendMatch[3] || '').toLowerCase().startsWith('play') ? 'play' : 'cast',
+        optional: /\bmay\b/i.test(normalized) || undefined,
+        ...(step.sequence ? { sequence: step.sequence } : {}),
+        raw: normalized,
+      };
+    }
+
+    const broadExilePermissionMatch = normalized.match(
+      /^(?:(you|they|that player|the player|that opponent|an opponent|each player|each opponent)\s+)?may\s+(cast|play)\s+((?:a|one)\s+(?:nonland\s+)?card|a\s+spell|one\s+spell|one\s+of\s+those\s+cards)(?:\s+(?:from\s+exile|they\s+exiled|exiled\s+this\s+way|from\s+among\s+the\s+exiled\s+cards))?(?:\s+without\s+paying\s+(?:its|their)\s+mana\s+costs?)?(?:\s+this\s+turn)?\.?$/i
+    );
+    if (broadExilePermissionMatch) {
+      return {
+        kind: 'grant_exile_permission',
+        who: parsePlayerSelector(String(broadExilePermissionMatch[1] || 'you').trim()),
+        what: parseObjectSelector(String(broadExilePermissionMatch[3] || '').trim()),
+        duration: /\bthis\s+turn\b/i.test(normalized) ? 'this_turn' : 'during_resolution',
+        permission: String(broadExilePermissionMatch[2] || '').toLowerCase() === 'play' ? 'play' : 'cast',
+        withoutPayingManaCost: /without\s+paying\s+(?:its|their)\s+mana\s+costs?/i.test(normalized) || undefined,
+        optional: true,
+        ...(step.sequence ? { sequence: step.sequence } : {}),
+        raw: normalized,
+      };
+    }
+
+    const eachPlayerExiledCardFreeCastMatch = normalized.match(
+      /^each\s+player\s+may\s+cast\s+(the\s+nonland\s+card\s+they\s+exiled|the\s+card\s+they\s+exiled|a\s+card\s+they\s+exiled)\s+without\s+paying\s+its\s+mana\s+cost\.?$/i
+    );
+    if (eachPlayerExiledCardFreeCastMatch) {
+      return {
+        kind: 'grant_exile_permission',
+        who: { kind: 'each_player' },
+        what: parseObjectSelector(String(eachPlayerExiledCardFreeCastMatch[1] || '').trim()),
+        duration: 'during_resolution',
+        permission: 'cast',
+        withoutPayingManaCost: true,
+        optional: true,
+        ...(step.sequence ? { sequence: step.sequence } : {}),
+        raw: normalized,
+      };
+    }
+
+    const amongThemFreeCastMatch = normalized.match(
+      /^(until\s+end\s+of\s+turn,\s+)?(?:for\s+each\s+[^,]+,\s+)?you\s+may\s+cast\s+(.+?)\s+from\s+among\s+(?:them|those\s+cards|the\s+exiled\s+cards|(?:the\s+)?other\s+cards\s+exiled\s+this\s+way|cards\s+exiled\s+this\s+way|cards\s+revealed\s+this\s+way)\s+without\s+paying\s+(?:its|their)\s+mana\s+costs?(?:\.\s*then\s+put\s+the\s+rest\b.+)?\.?$/i
+    );
+    if (amongThemFreeCastMatch) {
+      return {
+        kind: 'grant_exile_permission',
+        who: { kind: 'you' },
+        what: parseObjectSelector(String(amongThemFreeCastMatch[2] || '').trim()),
+        duration: amongThemFreeCastMatch[1] ? 'this_turn' : 'during_resolution',
+        permission: 'cast',
+        withoutPayingManaCost: true,
+        optional: true,
+        ...(step.sequence ? { sequence: step.sequence } : {}),
+        raw: normalized,
+      };
+    }
+
+    const simpleFreePermissionMatch = normalized.match(
+      /^(until\s+end\s+of\s+turn,\s+)?you\s+may\s+(cast|play)\s+(.+?)\s+without\s+paying\s+(?:its|their)\s+mana\s+costs?\.?$/i
+    );
+    if (simpleFreePermissionMatch && !/\b(?:from\s+exile|from\s+(?:your|their|that\s+player's|an\s+opponent's|target\s+opponent's)\s+graveyard|from\s+your\s+hand|from\s+your\s+hand\s+or\s+the\s+top\s+of\s+your\s+library|from\s+the\s+top\s+of\s+your\s+library)\b/i.test(normalized)) {
+      return {
+        kind: 'grant_exile_permission',
+        who: { kind: 'you' },
+        what: parseObjectSelector(String(simpleFreePermissionMatch[3] || '').trim()),
+        duration: simpleFreePermissionMatch[1] ? 'this_turn' : 'during_resolution',
+        permission: String(simpleFreePermissionMatch[2] || '').toLowerCase() === 'play' ? 'play' : 'cast',
+        withoutPayingManaCost: true,
+        optional: true,
+        ...(step.sequence ? { sequence: step.sequence } : {}),
+        raw: normalized,
+      };
+    }
+
+    const amongThemPermissionThisTurnMatch = normalized.match(
+      /^(until\s+(?:end\s+of\s+turn|the\s+end\s+of\s+your\s+next\s+turn),\s+)?you\s+may\s+(cast|play)\s+(.+?)\s+from\s+among\s+(?:them|those\s+cards|the\s+exiled\s+cards|cards\s+exiled\s+this\s+way)(?:\s+this\s+turn)?\.?$/i
+    );
+    if (amongThemPermissionThisTurnMatch) {
+      return {
+        kind: 'grant_exile_permission',
+        who: { kind: 'you' },
+        what: parseObjectSelector(String(amongThemPermissionThisTurnMatch[3] || '').trim()),
+        duration: /next\s+turn/i.test(normalized) ? 'until_end_of_next_turn' : 'this_turn',
+        permission: String(amongThemPermissionThisTurnMatch[2] || '').toLowerCase() === 'play' ? 'play' : 'cast',
+        optional: true,
+        ...(step.sequence ? { sequence: step.sequence } : {}),
+        raw: normalized,
+      };
+    }
+
+    const directPermissionMatch = normalized.match(
+      /^(?:(you|they|that player|the player|that opponent|an opponent|each player|each opponent|its owner|the exiled card's owner)\s+)?(?:may\s+)?(cast|play)s?\s+(it|that card|the exiled card|this card|that spell|them|those cards|the exiled cards)(?:\s+from\s+exile)?(?:\s+without\s+paying\s+(?:its|their)\s+mana\s+costs?)?(?:\s+this\s+turn)?(?:\s+if\s+.+)?\.?$/i
+    );
+    if (directPermissionMatch) {
+      return {
+        kind: 'grant_exile_permission',
+        who: parsePlayerSelector(String(directPermissionMatch[1] || 'you').trim()),
+        what: parseObjectSelector(String(directPermissionMatch[3] || '').trim()),
+        duration: /\bthis\s+turn\b/i.test(normalized) ? 'this_turn' : 'during_resolution',
+        permission: String(directPermissionMatch[2] || '').toLowerCase().startsWith('play') ? 'play' : 'cast',
+        withoutPayingManaCost: /without\s+paying\s+(?:its|their)\s+mana\s+costs?/i.test(normalized) || undefined,
+        optional: /\bmay\b/i.test(normalized) || undefined,
+        ...(step.sequence ? { sequence: step.sequence } : {}),
+        raw: normalized,
+      };
+    }
+
+    const mandatoryFreeCastMatch = normalized.match(/^(?:otherwise,?\s*)?(?:the player|that player|they)\s+casts?\s+(it|that card|the exiled card)\s+without\s+paying\s+its\s+mana\s+cost(?:\s+if\s+able)?(?:\s+or\s+put\s+it\s+into\s+their\s+hand)?\.?$/i);
+    if (mandatoryFreeCastMatch) {
+      return {
+        kind: 'grant_exile_permission',
+        who: parsePlayerSelector(/\bthey\b/i.test(normalized) ? 'they' : 'that player'),
+        what: parseObjectSelector(String(mandatoryFreeCastMatch[1] || '').trim()),
+        duration: 'during_resolution',
+        permission: 'cast',
+        withoutPayingManaCost: true,
+        ...(step.sequence ? { sequence: step.sequence } : {}),
+        raw: normalized,
+      };
+    }
+  }
 
   {
     const conditionalModifierMatch = normalized.match(/^if\s+([^,]+),\s*(.+)$/i);
@@ -3800,17 +3986,34 @@ function parseExilePermissionModifierUnknownStep(step: Extract<OracleEffectStep,
     .trim();
   if (!normalized) return null;
 
+  const conditionalAmongThemFreeCastMatch = normalized.match(
+    /^(until\s+end\s+of\s+turn,\s+)?(?:(you|they|that player|the player)\s+)?may\s+cast\s+(.+?)\s+from\s+among\s+(?:them|those\s+cards|the\s+exiled\s+cards|(?:the\s+)?other\s+cards\s+exiled\s+with\s+this\s+(?:artifact|enchantment|permanent|creature|card)|cards\s+exiled\s+this\s+way|cards\s+revealed\s+this\s+way|cards\s+exiled\s+with\s+this\s+(?:artifact|enchantment|permanent|creature|card))\s+without\s+paying\s+(?:its|their)\s+mana\s+costs?\.?$/i
+  );
+  if (conditionalAmongThemFreeCastMatch) {
+    return {
+      kind: 'grant_exile_permission',
+      who: parsePlayerSelector(String(conditionalAmongThemFreeCastMatch[2] || 'you').trim()),
+      what: parseObjectSelector(String(conditionalAmongThemFreeCastMatch[3] || '').trim()),
+      duration: conditionalAmongThemFreeCastMatch[1] ? 'this_turn' : 'during_resolution',
+      permission: 'cast',
+      withoutPayingManaCost: true,
+      optional: true,
+      ...(step.sequence ? { sequence: step.sequence } : {}),
+      raw: normalized,
+    };
+  }
+
   const exiledCardPermissionMatch = normalized.match(
-    /^you may (cast|play) (the exiled card|that card|it)(?: without paying its mana cost)?(?: this turn)?(?: if .+)?$/i
+    /^(you|they|that player|the player|that opponent|an opponent)?\s*may\s+(cast|play)\s+(the exiled card|that card|it|them|those cards)(?:\s+from\s+exile)?(?:\s+without\s+paying\s+(?:its|their)\s+mana\s+costs?)?(?:\s+this\s+turn)?(?:\s+if\s+.+)?$/i
   );
   if (exiledCardPermissionMatch) {
     return {
       kind: 'grant_exile_permission',
-      who: { kind: 'you' },
-      what: parseObjectSelector(String(exiledCardPermissionMatch[2] || '').trim()),
+      who: parsePlayerSelector(String(exiledCardPermissionMatch[1] || 'you').trim()),
+      what: parseObjectSelector(String(exiledCardPermissionMatch[3] || '').trim()),
       duration: /\bthis turn\b/i.test(normalized) ? 'this_turn' : 'during_resolution',
-      permission: String(exiledCardPermissionMatch[1] || '').toLowerCase() === 'play' ? 'play' : 'cast',
-      withoutPayingManaCost: /without paying its mana cost/i.test(normalized) || undefined,
+      permission: String(exiledCardPermissionMatch[2] || '').toLowerCase() === 'play' ? 'play' : 'cast',
+      withoutPayingManaCost: /without\s+paying\s+(?:its|their)\s+mana\s+costs?/i.test(normalized) || undefined,
       optional: true,
       ...(step.sequence ? { sequence: step.sequence } : {}),
       raw: normalized,
@@ -5468,12 +5671,18 @@ export function pruneLateKeywordReminderOnlyAbilities(
 }
 
 function isCurrentBatchReminderOrPlatformOnlyText(raw: string): boolean {
-  const normalizedText = normalizeOracleText(String(raw || ''))
+  const rawNormalizedText = normalizeOracleText(String(raw || ''))
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (/^[a-z0-9][a-z0-9\s'.,/&-]{0,80}\.{2,}\)?$/i.test(rawNormalizedText)) return true;
+  const isParentheticalText = /^\(/.test(rawNormalizedText) || /\)$/.test(rawNormalizedText);
+  const normalizedText = rawNormalizedText
     .replace(/^[()\s]+/, '')
     .replace(/[.)\s]+$/g, '')
     .replace(/\s+/g, ' ')
     .trim();
   if (!normalizedText) return false;
+  const normalizedModalHeader = normalizedText.replace(/\s*-\s*$/g, '').trim();
 
   return (
     /^as this saga enters and after your draw step, add a lore counter$/i.test(normalizedText) ||
@@ -5482,8 +5691,12 @@ function isCurrentBatchReminderOrPlatformOnlyText(raw: string): boolean {
     /^offspring\s+(?:\{[^}]+\})+\s*\(you may pay an additional (?:\{[^}]+\})+ as you cast this spell$/i.test(normalizedText) ||
     /^enchant (?:creature(?: you control)?|land|player)$/i.test(normalizedText) ||
     /^ward\s*(?:\{[^}]+\}|\d+)$/i.test(normalizedText) ||
+    /^ward\s*(?:-|-)\s*(?:discard|sacrifice|pay)\b.+$/i.test(normalizedText) ||
     /^a creature with hexproof can(?:not|'t) be the target of spells or abilities your opponents control$/i.test(normalizedText) ||
     /^you can(?:not|'t) be the target of spells or abilities your opponents control$/i.test(normalizedText) ||
+    /^a permanent with protection can(?:not|'t) be targeted, dealt damage, or enchanted by anything with the stated quality$/i.test(normalizedText) ||
+    /^a permanent with protection from everything can(?:not|'t) be targeted, dealt damage, or enchanted by anything$/i.test(normalizedText) ||
+    /^commander enchantment\s*\(this aura enchants a commander creature, and remains attached to the creature as it moves between any face-up zones$/i.test(normalizedText) ||
     /^a suspected creature has menace and can(?:not|'t) block$/i.test(normalizedText) ||
     /^artifacts, legendaries, and sagas are historic$/i.test(normalizedText) ||
     /^assassins, mercenaries, pirates, rogues, and warlocks are outlaws$/i.test(normalizedText) ||
@@ -5491,12 +5704,89 @@ function isCurrentBatchReminderOrPlatformOnlyText(raw: string): boolean {
     /^equipment, auras you control, and counters are modifications$/i.test(normalizedText) ||
     /^it(?:'|â€™)?s every creature type$/i.test(normalizedText) ||
     /^changeling \(this card is every creature type\)$/i.test(normalizedText) ||
+    /^changeling$/i.test(normalizedText) ||
     /^to mill (?:a|one|two|three|four|five|six|seven|eight|nine|ten|\d+) cards?, put the top (?:a|one|two|three|four|five|six|seven|eight|nine|ten|\d+) cards? of your library into your graveyard$/i.test(normalizedText) ||
     /^you descended if a permanent card was put into your graveyard from anywhere$/i.test(normalizedText) ||
     /^you may put the top (?:a|one|two|three|four|five|six|seven|eight|nine|ten|\d+) cards? of your library into your graveyard$/i.test(normalizedText) ||
+    /^an exerted creature won(?:'|â€™)?t untap during your next untap step$/i.test(normalizedText) ||
+    /^if a permanent with a stun counter would become untapped, remove one from it instead$/i.test(normalizedText) ||
+    /^max speed is \d+$/i.test(normalizedText) ||
+    /^note the mana value of the (?:revealed|noted) card$/i.test(normalizedText) ||
+    /^reveal the card as you exile it$/i.test(normalizedText) ||
+    /^damage causes loss of life$/i.test(normalizedText) ||
+    /^damage dealt to creatures(?: by this creature)? also causes (?:that much )?loss of life$/i.test(normalizedText) ||
+    /^damage dealt by it also causes you to gain that much life$/i.test(normalizedText) ||
+    /^if you cast a spell this way, you still pay its costs$/i.test(normalizedText) ||
+    /^you can play a land this way only if you have an available land play remaining$/i.test(normalizedText) ||
+    /^if you cast this permanent this way, you can(?:'|â€™)?t play the other card$/i.test(normalizedText) ||
+    /^you may discard .+ rather than pay this spell(?:'|â€™)?s mana cost$/i.test(normalizedText) ||
+    /^if you discard a card with madness, discard it into exile$/i.test(normalizedText) ||
+    /^you expend \d+ as you spend your .+ total mana to cast spells during a turn$/i.test(normalizedText) ||
+    /^the next time you would draw a card this turn, .+ instead$/i.test(normalizedText) ||
+    /^(?:that player )?draws? an additional card$/i.test(normalizedText) ||
+    /^spells you cast from exile this turn cost .+ less to cast(?:, where .+)?$/i.test(normalizedText) ||
+    /^spend this mana only to cast spells? .+$/i.test(normalizedText) ||
+    /^you may spend mana as though it were mana of any color to cast .+$/i.test(normalizedText) ||
     /^a deck can have only one card named .+$/i.test(normalizedText) ||
     /^you can(?:'|â€™)?t include this card in your deck if .+$/i.test(normalizedText) ||
-    /^choose one$/i.test(normalizedText) ||
+    /^choose (?:(?:one|two|three|four|five)|one or both|one or more|two or more|up to (?:one|two|three|four|five)|x)(?: that hasn't been chosen)?$/i.test(normalizedModalHeader) ||
+    /^choose (?:a )?player$/i.test(normalizedText) ||
+    /^choose left or right$/i.test(normalizedText) ||
+    /^an opponent chooses? (?:one|two) of (?:them|those cards)$/i.test(normalizedText) ||
+    /^choose one at random$/i.test(normalizedText) ||
+    /^choose one of them$/i.test(normalizedText) ||
+    /^choose one of them at random$/i.test(normalizedText) ||
+    /^then choose one of them$/i.test(normalizedText) ||
+    /^you choose one of those cards$/i.test(normalizedText) ||
+    /^for each (?:opponent|player),?\s+choose\b.+$/i.test(normalizedText) ||
+    /^as this (?:artifact|creature|enchantment|permanent|land) enters, choose\b.+$/i.test(normalizedText) ||
+    /^choose (?:up to )?(?:one|two|three|four|five|six|seven|eight|nine|ten|\d+)\b.+$/i.test(normalizedText) ||
+    /^then choose (?:up to )?(?:one|two|three|four|five|six|seven|eight|nine|ten|\d+)\b.+$/i.test(normalizedText) ||
+    /^tiered\s*\(choose one additional cost\)?$/i.test(normalizedText) ||
+    /^choose one additional cost$/i.test(normalizedText) ||
+    /^as an additional cost to cast this spell, sacrifice a creature or$/i.test(normalizedText) ||
+    /^you may pay \{[^}]+\} and return a basic land you control to its owner(?:'|â€™)?s hand rather than pay this spell(?:'|â€™)?s mana cost$/i.test(normalizedText) ||
+    /^you may choose an additional mode if you control a commander$/i.test(normalizedText) ||
+    /^you may choose the same mode more than once$/i.test(normalizedText) ||
+    (
+      isParentheticalText &&
+      (
+        /^look at the top (?:card|(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+|x) cards?) of your library$/i.test(normalizedText) ||
+        /^look at the top (?:card|(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+|x) cards?) of your library, (?:you may put that card on the bottom|then put any number of them on the bottom(?: of your library)? and the rest on top in any order)$/i.test(normalizedText) ||
+        /^to scry\s+[^,]+, look at the top (?:card|(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+|x) cards?) of your library(?:, (?:you may put that card on the bottom|then put any number of them on the bottom(?: of your library)? and the rest on top in any order))?$/i.test(normalizedText) ||
+        /^to surveil\s+[^,]+, look at the top (?:card|(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+|x) cards?) of your library(?:, then put any number of them into your graveyard and the rest on top of your library in any order)?$/i.test(normalizedText) ||
+        /^to manifest dread, look at the top two cards of your library$/i.test(normalizedText) ||
+        /^put one of them onto the battlefield face down as a 2\/2 creature and the other into your graveyard$/i.test(normalizedText) ||
+        /^(?:then\s+)?put any number of them on the bottom(?: of your library)? and the rest on top in any order$/i.test(normalizedText) ||
+        /^you may put that card on the bottom$/i.test(normalizedText)
+      )
+    ) ||
+    /^storm\s*\(when you cast this spell, copy it for each spell cast before it this turn$/i.test(normalizedText) ||
+    /^conspire\s*\(as you cast this spell, you may tap two untapped creatures you control that share a color with it$/i.test(normalizedText) ||
+    /^entwine\s+\{[^}]+\}\s+\(choose both if you pay the entwine cost\.?\)$/i.test(normalizedText) ||
+    /^when you do, copy it and you may choose\s+(?:a new target|new targets)\s+for\s+the\s+copy$/i.test(normalizedText) ||
+    /^when you cast (?:it|this spell), copy it for each spell cast before it this turn$/i.test(normalizedText) ||
+    /^when you cast that saga, copy it for each time you paid its replicate cost$/i.test(normalizedText) ||
+    /^you may choose\s+(?:a new target|new targets)\s+for\s+(?:the|that)\s+cop(?:y|ies)$/i.test(normalizedText) ||
+    /^countering a copy of that spell won(?:'|â€™)?t counter the original spell$/i.test(normalizedText) ||
+    /^ripple\s+\d+\s*\(when you cast this spell, you may reveal the top \w+ cards? of your library$/i.test(normalizedText) ||
+    /^epic\s*\(for the rest of the game, you can(?:not|'t) cast spells$/i.test(normalizedText) ||
+    /^if you do, add this card(?:'|â€™)?s effects to that spell$/i.test(normalizedText) ||
+    /^(?:(?:a copy of a permanent spell)|(?:copies of .+ spells?)) becomes? (?:a )?tokens?(?: as (?:it|they) resolves?)?$/i.test(normalizedText) ||
+    /^the cop(?:y|ies) become tokens? as (?:it|they) resolve$/i.test(normalizedText) ||
+    /^exile all spells and abilities(?: from the stack)?(?:, including (?:this card|this spell))?$/i.test(normalizedText) ||
+    /^the player whose turn it is discards down to their maximum hand size$/i.test(normalizedText) ||
+    (
+      isParentheticalText &&
+      /^(?:at the beginning of your next upkeep,\s*)?(?:you may\s+)?(?:cast|play) (?:it|this card|the exiled card|that card) (?:from exile\s+)?without paying its mana cost$/i.test(normalizedText)
+    ) ||
+    /^(?:you may\s+)?cast it as a sorcery on a later turn without paying its mana cost$/i.test(normalizedText) ||
+    /^if you control a commander, you may cast this spell without paying its mana cost$/i.test(normalizedText) ||
+    /^if you do, you may cast the copy without paying its mana cost$/i.test(normalizedText) ||
+    (
+      isParentheticalText &&
+      /^(?:until your next turn,\s*)?(?:it|that creature) attacks each combat if able and attacks a player other than you if able$/i.test(normalizedText)
+    ) ||
     /^for mirrodin!?$/i.test(normalizedText) ||
     /^when this equipment enters, create a 2\/2 red rebel creature token, then attach this to it$/i.test(normalizedText) ||
     /^to investigate, create a clue token$/i.test(normalizedText) ||
@@ -5508,6 +5798,16 @@ function isCurrentBatchReminderOrPlatformOnlyText(raw: string): boolean {
     /^flash$/i.test(normalizedText) ||
     /^harmonize\s+(?:\{[^}]+\})+(?:\s*\([^)]*\))?$/i.test(normalizedText) ||
     /^its harmonize cost is equal to its mana cost$/i.test(normalizedText) ||
+    /^affinity for .+?(?:\s*\([^)]*\))?$/i.test(normalizedText) ||
+    /^mentor(?:\s*\([^)]*\))?$/i.test(normalizedText) ||
+    /^megamorph\s+(?:\{[^}]+\})+(?:\s*\([^)]*\))?$/i.test(normalizedText) ||
+    /^plot\s+(?:\{[^}]+\})+(?:\s*\([^)]*\))?$/i.test(normalizedText) ||
+    /^madness\s+(?:\{[^}]+\})+(?:\s*\([^)]*\))?$/i.test(normalizedText) ||
+    /^spectacle\s+(?:\{[^}]+\})+(?:\s*\([^)]*\))?$/i.test(normalizedText) ||
+    /^prowess(?:\s*\([^)]*\))?$/i.test(normalizedText) ||
+    /^rebound\s*\(if you cast this spell from your hand, exile it as it resolves.*$/i.test(normalizedText) ||
+    /^protection from .+\s*\(this (?:creature|permanent) can(?:not|'t) be blocked, targeted, dealt damage, enchanted, or equipped by .+\)?$/i.test(normalizedText) ||
+    /^protection from .+$/i.test(normalizedText) ||
     /^you may tap a creature you control to reduce the cost to harmonize this card by \{\d+\}$/i.test(normalizedText) ||
     /^you may tap a creature you control to reduce that cost by \{x\}, where x is its power$/i.test(normalizedText) ||
     /^you may tap a creature you control to reduce that cost by an amount of generic mana equal to its power$/i.test(normalizedText) ||
@@ -5516,6 +5816,8 @@ function isCurrentBatchReminderOrPlatformOnlyText(raw: string): boolean {
     /^and has the chosen base power and toughness$/i.test(normalizedText) ||
     /^formidable\s*-\s*activate only if creatures you control have total power \d+ or greater$/i.test(normalizedText) ||
     /^activate only if creatures you control have total power \d+ or greater$/i.test(normalizedText) ||
+    /^activate only (?:during|as|if)\b.+$/i.test(normalizedText) ||
+    /^activate only once each turn$/i.test(normalizedText) ||
     /^bestow\s+(?:\{[^}]+\})+(?:\s*\([^)]*\))?$/i.test(normalizedText) ||
     /^if this card was bestowed, this permanent becomes an aura again if it(?:'|â€™)?s attached to a creature$/i.test(normalizedText) ||
     /^you may cast this spell as though it had flash$/i.test(normalizedText) ||
@@ -5528,9 +5830,81 @@ function isCurrentBatchReminderOrPlatformOnlyText(raw: string): boolean {
     /^level\s+\d+\+$/i.test(normalizedText) ||
     /^\d+\/\d+$/i.test(normalizedText) ||
     /^ward\s*-\s*discard a card$/i.test(normalizedText) ||
+    /^(?:once during each of your turns,\s+)?you may cast .+ from your hand(?:\s+or the top of your library)? .+without paying (?:its|their) mana costs?$/i.test(normalizedText) ||
+    /^(?:once during each of your turns,\s+)?you may cast .+ from your hand(?:\s+or the top of your library)? without paying (?:its|their) mana costs?$/i.test(normalizedText) ||
+    /^if .+?,\s+you may cast this spell without paying its mana cost$/i.test(normalizedText) ||
+    /^its owner may cast it as a sorcery on a later turn without paying its mana cost$/i.test(normalizedText) ||
+    /^you may cast the copy without paying its mana cost(?:".*)?$/i.test(normalizedText) ||
+    /^they(?:'|â€™)?re still lands$/i.test(normalizedText) ||
+    /^turn it face up any time for its mana cost if it(?:'|â€™)?s a creature card$/i.test(normalizedText) ||
+    /^damage wears off, and "this turn" and "until end of turn" effects end$/i.test(normalizedText) ||
+    /^each mode must target a different player$/i.test(normalizedText) ||
+    /^haunt\s*\(when this creature dies, exile it haunting target creature\)?$/i.test(normalizedText) ||
+    /^haunt\s*\(when this spell card is put into a graveyard after resolving, exile it haunting target creature\)?$/i.test(normalizedText) ||
+    /^it phases in before you untap during your next untap step$/i.test(normalizedText) ||
+    /^it phases in before its controller untaps during their next untap step\)?$/i.test(normalizedText) ||
+    /^a creature destroyed this way can(?:not|'t) be regenerated$/i.test(normalizedText) ||
+    /^casualty\s+\d+\s*\(as you cast this spell, you may sacrifice a creature with power \d+ or greater$/i.test(normalizedText) ||
+    /^if life was paid, this planeswalker enters with two fewer loyalty counters$/i.test(normalizedText) ||
+    /^if (?:they chose the same creature you chose|you do),\s*claim the prize!?$/i.test(normalizedText) ||
+    /^claim the prize!?$/i.test(normalizedText) ||
+    /^at the beginning of your end step, remove a time counter from it$/i.test(normalizedText) ||
+    /^this ability triggers only once each turn\.?"?$/i.test(normalizedText) ||
+    /^that many$/i.test(normalizedText) ||
+    /^each opponent attacking that player does the same$/i.test(normalizedText) ||
+    /^if it(?:'|â€™)?s a creature, it has haste\.?\)?$/i.test(normalizedText) ||
+    /^if that(?:'|â€™)?s another creature, it gains the following abilities until end of turn\.?\)?$/i.test(normalizedText) ||
+    /^if you do, it becomes plotted$/i.test(normalizedText) ||
+    /^join forces\s+-\s+starting with you, each player may pay any amount of mana$/i.test(normalizedText) ||
+    /^target opponent chooses a creature they control$/i.test(normalizedText) ||
+    /^this effect reduces only the amount of colored mana you pay$/i.test(normalizedText) ||
+    /^this mana can(?:not|'t) be spent to cast a nonartifact spell\.?"?\)?$/i.test(normalizedText) ||
+    /^each artifact you tap after you(?:'|â€™)?re done activating mana abilities pays for \{1\}$/i.test(normalizedText) ||
+    /^each copy targets a different one of those creatures$/i.test(normalizedText) ||
+    /^enchanted creature has this permanent$/i.test(normalizedText) ||
+    /^enchanted creature is 1\/1$/i.test(normalizedText) ||
+    /^if it(?:'|â€™)?s a creature card, it can be turned face up any time for its mana cost\)?$/i.test(normalizedText) ||
+    /^it has "?sacrifice this token:\s*add \{c\}\."?\s*\(\{c\} represents colorless mana\.?\)?$/i.test(normalizedText) ||
+    /^it(?:'|â€™)?s an artifact with "?\{2\}, \{t\}, sacrifice this token: you gain 3 life\."?\)?$/i.test(normalizedText) ||
+    /^put the rest of the cards on the bottom of your library in a random order$/i.test(normalizedText) ||
+    /^put the revealed cards on the bottom of your library in any order$/i.test(normalizedText) ||
+    /^equip only as a sorcery\.?\)?$/i.test(normalizedText) ||
+    /^fading\s+\d+\s*\(this creature enters with \w+ fade counters on it$/i.test(normalizedText) ||
+    /^freerunning\s+\{[^}]+\}(?:\{[^}]+\})*\s*\(you may cast this spell for its freerunning cost if you dealt combat damage to a player this turn with an assassin or commander\.?\)?$/i.test(normalizedText) ||
+    /^reveal this card as you draft it and note how many cards you've drafted this draft round, including this card$/i.test(normalizedText) ||
+    /^tapped unless .+$/i.test(normalizedText) ||
+    /^this vehicle becomes an artifact creature$/i.test(normalizedText) ||
+    /^spell commander\s*\(this card can be your commander$/i.test(normalizedText) ||
+    /^you can cast it on a commander in your command zone\.?\)?$/i.test(normalizedText) ||
+    /^tribute\s+\d+\s*\(as this creature enters, an opponent of your choice may put \w+ \+1\/\+1 counters on it\.?\)?$/i.test(normalizedText) ||
+    /^undaunted\s*\(this spell costs \{1\} less to cast for each opponent\.?\)?$/i.test(normalizedText) ||
+    /^if any creatures with banding a player controls are blocking or being blocked by a creature, that player divides that creature(?:'|â€™)?s combat damage, not its controller, among any of the creatures it(?:'|â€™)?s being blocked by or is blocking$/i.test(normalizedText) ||
+    /^if chaos gets more votes or the vote is tied, chaos ensues$/i.test(normalizedText) ||
+    /^in limited, it can partner like other monocolored legends$/i.test(normalizedText) ||
+    /^it(?:'|â€™)?s an enchantment$/i.test(normalizedText) ||
+    /^mana cost includes color$/i.test(normalizedText) ||
+    /^provoke\s*\(whenever this creature attacks, you may have target creature defending player controls untap and block it if able\)?$/i.test(normalizedText) ||
+    /^put the rest on the bottom of your library$/i.test(normalizedText) ||
+    /^reveal this card as you draft it$/i.test(normalizedText) ||
+    /^soulshift\s+\d+\s*\(when this creature dies, you may return target spirit card with mana value \d+ or less from your graveyard to your hand\)?$/i.test(normalizedText) ||
+    /^tapped unless you control a legendary creature$/i.test(normalizedText) ||
+    /^then ask a person outside the game to choose the creature that best fits the chosen criteria$/i.test(normalizedText) ||
+    /^then those votes are revealed$/i.test(normalizedText) ||
+    /^then you may pay any amount of \{E\}$/i.test(normalizedText) ||
+    /^this ability costs \{1\} less to activate for each legendary creature you control$/i.test(normalizedText) ||
+    /^this creature phases out$/i.test(normalizedText) ||
+    /^this effect can(?:not|'t) reduce the mana in that cost to less than one mana$/i.test(normalizedText) ||
+    /^when it dies or is exiled, return it to the battlefield tapped$/i.test(normalizedText) ||
+    /^when you do$/i.test(normalizedText) ||
+    /^while it(?:'|â€™)?s exiled, its owner may cast it for \{2\} rather than its mana cost$/i.test(normalizedText) ||
+    /^you have ten seconds to (?:name something from the chosen category that starts with the same letter as the milled card|search your library and reveal a card with the chosen item in its art)$/i.test(normalizedText) ||
+    /^\{TK\}\{TK\}\s*[-–—]\s*\d+\/\d+$/i.test(normalizedText) ||
+    /^this vehicle becomes an artifact creature until end of turn$/i.test(normalizedText) ||
+    /^echo\s+(?:\{[^}]+\})+\s*\(at the beginning of your upkeep, if this came under your control since the beginning of your last upkeep, sacrifice it unless you pay its echo cost\)?$/i.test(normalizedText) ||
     /^sneak\s+(?:\{[^}]+\})+(?:\s*\([^)]*\))?$/i.test(normalizedText) ||
     /^sneak\s+(?:\{[^}]+\})+\s*\(you may cast this spell .+$/i.test(normalizedText) ||
     /^he enters tapped and attacking$/i.test(normalizedText) ||
+    (isParentheticalText && /^(?:it|he) has haste$/i.test(normalizedText)) ||
     /^demonstrate\s*\(.*$/i.test(normalizedText) ||
     /^if you do, choose an opponent to also copy it$/i.test(normalizedText) ||
     /^players may choose new targets for their copies$/i.test(normalizedText) ||
@@ -5600,6 +5974,10 @@ export function pruneCurrentBatchReminderUnknownAbilities(
       /^you may reveal this card from your opening hand(?:[.)]*\s*if you do, at the beginning of the first upkeep, .+)?$/i.test(normalizedAbilityText) ||
       /^if you do, at the beginning of the first upkeep,\s+create\b.+$/i.test(normalizedAbilityText)
     ) {
+      return [];
+    }
+
+    if (/^conspire\s*\(as you cast this spell, you may tap two untapped creatures you control that share a color with it\./i.test(normalizedAbilityText)) {
       return [];
     }
 
@@ -8454,14 +8832,14 @@ function isArtifactTokenReminderTailUnknownStep(step: OracleEffectStep): boolean
 function stripInlineCopyRetargetTail(text: string): { readonly body: string; readonly allowNewTargets: boolean } {
   let body = normalizeOracleText(String(text || ''))
     .replace(/^then\b\s*/i, '')
-    .replace(/[.;]\s*$/g, '')
+    .replace(/[.;)\s]+$/g, '')
     .trim();
   if (!body) return { body: '', allowNewTargets: false };
 
   let allowNewTargets = false;
   const nextBody = body
     .replace(
-      /(?:\.\s*|\s+and\s+)(?:you\s+)?may choose\s+(?:a new target|new targets)\s+for\s+the\s+cop(?:y|ies)$/i,
+      /(?:\.\s*|,?\s+and\s+)(?:(?:you|they|that player|the player|its controller|that spell's controller|that spell’s controller)\s+)?may choose\s+(?:a new target|new targets)\s+for\s+(?:the|that|their)\s+cop(?:y|ies)(?:\s+they\s+control)?$/i,
       () => {
         allowNewTargets = true;
         return '';
@@ -8471,7 +8849,7 @@ function stripInlineCopyRetargetTail(text: string): { readonly body: string; rea
 
   body = nextBody || body;
   return {
-    body: body.replace(/[.;]\s*$/g, '').trim(),
+    body: body.replace(/[.;)\s]+$/g, '').trim(),
     allowNewTargets,
   };
 }
@@ -8479,7 +8857,7 @@ function stripInlineCopyRetargetTail(text: string): { readonly body: string; rea
 function parseCopySpellRetargetTail(step: OracleEffectStep | undefined): string | null {
   const normalized = normalizeUnknownStepText(step);
   if (!normalized) return null;
-  return /^you may choose\s+(?:a new target|new targets)\s+for\s+the\s+cop(?:y|ies)$/i.test(normalized)
+  return /^(?:(?:you|they|that player|the player|its controller|that spell's controller|that spell’s controller)\s+)?may choose\s+(?:a new target|new targets)\s+for\s+(?:the|that|their)\s+cop(?:y|ies)(?:\s+they\s+control)?$/i.test(normalized.replace(/[.)\s]+$/g, '').trim())
     ? normalized
     : null;
 }
@@ -8528,6 +8906,13 @@ function parseCopySpellCastTail(step: OracleEffectStep | undefined): CopySpellCa
       raw: String((step as any)?.raw || '').trim() || normalizedTail,
       withoutPayingManaCost: true,
       optional: true,
+    };
+  }
+
+  if (/^cast the copies if able without paying their mana costs$/i.test(normalizedTail)) {
+    return {
+      raw: String((step as any)?.raw || '').trim() || normalizedTail,
+      withoutPayingManaCost: true,
     };
   }
 
@@ -8696,6 +9081,11 @@ function parseCopySpellUnknownStep(
   const optional = Boolean(step.optional) || /^you may\s+/i.test(normalized);
   const abilityWordStripped = normalized.replace(/^spell mastery\s*[^a-z0-9]+\s*/i, '').trim();
 
+  const leadingCopyClause = normalized.match(/^.+?,\s*(copy\s+(?:that\s+spell|the\s+spell|target\s+.+|all\s+other\s+.+|each\s+of\s+those\s+spells?.*))$/i);
+  if (leadingCopyClause && /\b(?:spell|ability|abilities)\b/i.test(String(leadingCopyClause[1] || ''))) {
+    return parseCopySpellUnknownStep({ ...step, raw: String(leadingCopyClause[1] || '').trim() }, nextStep);
+  }
+
   if (abilityWordStripped !== normalized) {
     const conditionalMatch = abilityWordStripped.match(/^if\s+(.+?),\s+(.+)$/i);
     if (conditionalMatch) {
@@ -8709,10 +9099,40 @@ function parseCopySpellUnknownStep(
         nextStep
       );
       if (nestedStep) {
+        const nestedSteps = nestedStep.kind === 'copy_spell' && allowNewTargets
+          ? [{ ...nestedStep, allowNewTargets: true }]
+          : [nestedStep];
         return {
           kind: 'conditional',
           condition: { kind: 'if', raw: String(conditionalMatch[1] || '').trim() },
-          steps: [nestedStep],
+          steps: nestedSteps,
+          ...(step.sequence ? { sequence: step.sequence } : {}),
+          raw: appendFollowupSentence(normalized, rawRetargetTail),
+        };
+      }
+    }
+  }
+
+  {
+    const conditionalMatch = normalized.match(/^if\s+(.+?),\s+(.+)$/i);
+    if (conditionalMatch) {
+      const nestedRaw = String(conditionalMatch[2] || '').trim();
+      const nestedStep = parseCopySpellUnknownStep(
+        {
+          ...step,
+          raw: nestedRaw,
+          optional: Boolean(step.optional) || /\bmay\b/i.test(nestedRaw),
+        },
+        nextStep
+      );
+      if (nestedStep) {
+        const nestedSteps = nestedStep.kind === 'copy_spell' && allowNewTargets
+          ? [{ ...nestedStep, allowNewTargets: true }]
+          : [nestedStep];
+        return {
+          kind: 'conditional',
+          condition: { kind: 'if', raw: String(conditionalMatch[1] || '').trim() },
+          steps: nestedSteps,
           ...(step.sequence ? { sequence: step.sequence } : {}),
           raw: appendFollowupSentence(normalized, rawRetargetTail),
         };
@@ -8744,7 +9164,7 @@ function parseCopySpellUnknownStep(
     };
   }
 
-  if (/^you may copy this spell$/i.test(normalized)) {
+  if (/^(?:you|they|that player|the player)?\s*may\s+copy\s+this\s+spell$/i.test(normalized)) {
     return {
       kind: 'copy_spell',
       subject: 'this_spell',
@@ -8755,10 +9175,16 @@ function parseCopySpellUnknownStep(
     };
   }
 
-  if (/^copy this spell$/i.test(normalized)) {
+  const copyThisSpellMatch = normalized.match(/^copy this spell(?:(?:\s+(twice))|(?:\s+(\d+|x)\s+times))?(?: except for its epic ability)?$/i);
+  if (copyThisSpellMatch) {
     return {
       kind: 'copy_spell',
       subject: 'this_spell',
+      ...(copyThisSpellMatch[1]
+        ? { copies: { kind: 'number', value: 2 } as const }
+        : copyThisSpellMatch[2]
+          ? { copies: /^\d+$/.test(String(copyThisSpellMatch[2] || '')) ? { kind: 'number', value: Number.parseInt(String(copyThisSpellMatch[2] || ''), 10) } as const : { kind: 'reference_amount', raw: 'x' } as const }
+          : {}),
       ...(allowNewTargets ? { allowNewTargets: true } : {}),
       ...(optional ? { optional: true } : {}),
       ...(step.sequence ? { sequence: step.sequence } : {}),
@@ -8766,11 +9192,44 @@ function parseCopySpellUnknownStep(
     };
   }
 
-  if (/^(?:if you do,\s*)?copy that ability$/i.test(normalized)) {
+  const copyItForEachCommanderCastMatch = normalized.match(/^copy\s+it\s+for\s+each\s+time\s+you(?:'|â€™)?ve\s+cast\s+your\s+commander\s+from\s+the\s+command\s+zone\s+this\s+game$/i);
+  if (copyItForEachCommanderCastMatch) {
+    return {
+      kind: 'copy_spell',
+      subject: 'this_spell',
+      copies: { kind: 'reference_amount', raw: "for each time you've cast your commander from the command zone this game" },
+      ...(allowNewTargets ? { allowNewTargets: true } : {}),
+      ...(optional ? { optional: true } : {}),
+      ...(step.sequence ? { sequence: step.sequence } : {}),
+      raw: appendFollowupSentence(normalized, rawRetargetTail),
+    };
+  }
+
+  const copyThatSpellOrAbilityEitherMatch = normalized.match(/^(?:if you do,\s*)?(?:(?:you|they|that player|the player|each opponent|each player|up to one target opponent)\s+may\s+(?:also\s+)?)?copy that spell or ability(?:\s+(twice)|\s+(\d+|x)\s+times)?$/i);
+  if (copyThatSpellOrAbilityEitherMatch) {
     return {
       kind: 'copy_spell',
       subject: 'target_spell',
-      target: { kind: 'raw', text: 'that ability' },
+      target: { kind: 'raw', text: 'that spell or ability' },
+      ...(copyThatSpellOrAbilityEitherMatch[1]
+        ? { copies: { kind: 'number', value: 2 } as const }
+        : copyThatSpellOrAbilityEitherMatch[2]
+          ? { copies: /^\d+$/.test(String(copyThatSpellOrAbilityEitherMatch[2] || '')) ? { kind: 'number', value: Number.parseInt(String(copyThatSpellOrAbilityEitherMatch[2] || ''), 10) } as const : { kind: 'reference_amount', raw: 'x' } as const }
+          : {}),
+      ...(allowNewTargets ? { allowNewTargets: true } : {}),
+      ...(optional ? { optional: true } : {}),
+      ...(step.sequence ? { sequence: step.sequence } : {}),
+      raw: appendFollowupSentence(normalized, rawRetargetTail),
+    };
+  }
+
+  const copyThatSpellOrAbility = normalized.match(/^(?:if you do,\s*)?copy that (spell|ability)(?:\s+(twice))?$/i);
+  if (copyThatSpellOrAbility) {
+    return {
+      kind: 'copy_spell',
+      subject: 'target_spell',
+      target: { kind: 'raw', text: `that ${String(copyThatSpellOrAbility[1] || '').trim()}` },
+      ...(copyThatSpellOrAbility[2] ? { copies: { kind: 'number', value: 2 } as const } : {}),
       ...(allowNewTargets ? { allowNewTargets: true } : {}),
       ...(optional ? { optional: true } : {}),
       ...(step.sequence ? { sequence: step.sequence } : {}),
@@ -8794,10 +9253,110 @@ function parseCopySpellUnknownStep(
     };
   }
 
+  const copyAllAbilitiesMatch = normalized.match(/^copy\s+(all\s+other\s+activated\s+and\s+triggered\s+abilities\s+you\s+control|that\s+ability|target\s+activated\s+or\s+triggered\s+ability.+|that\s+spell,\s+except\s+.+)$/i);
+  if (copyAllAbilitiesMatch) {
+    return {
+      kind: 'copy_spell',
+      subject: 'target_spell',
+      target: { kind: 'raw', text: String(copyAllAbilitiesMatch[1] || '').trim() },
+      ...(allowNewTargets ? { allowNewTargets: true } : {}),
+      ...(optional ? { optional: true } : {}),
+      ...(step.sequence ? { sequence: step.sequence } : {}),
+      raw: appendFollowupSentence(normalized, rawRetargetTail),
+    };
+  }
+
+  const copyEachThoseSpellsMatch = normalized.match(/^(?:if\s+.+?,\s*)?copy each of those spells(?:\s+(twice|\d+|x)\s+times?)?$/i);
+  if (copyEachThoseSpellsMatch) {
+    const rawCount = String(copyEachThoseSpellsMatch[1] || '').trim().toLowerCase();
+    return {
+      kind: 'copy_spell',
+      subject: 'target_spell',
+      target: { kind: 'raw', text: 'each of those spells' },
+      ...(rawCount
+        ? { copies: rawCount === 'twice' ? { kind: 'number', value: 2 } as const : /^\d+$/.test(rawCount) ? { kind: 'number', value: Number.parseInt(rawCount, 10) } as const : { kind: 'reference_amount', raw: rawCount } as const }
+        : {}),
+      ...(allowNewTargets ? { allowNewTargets: true } : {}),
+      ...(optional ? { optional: true } : {}),
+      ...(step.sequence ? { sequence: step.sequence } : {}),
+      raw: appendFollowupSentence(normalized, rawRetargetTail),
+    };
+  }
+
   if (/^for each .+? exiled this way,\s*copy it$/i.test(normalized)) {
     return {
       kind: 'copy_spell',
       subject: 'last_moved_card',
+      ...(allowNewTargets ? { allowNewTargets: true } : {}),
+      ...(optional ? { optional: true } : {}),
+      ...(step.sequence ? { sequence: step.sequence } : {}),
+      raw: appendFollowupSentence(normalized, rawRetargetTail),
+    };
+  }
+
+  if (/^for each card exiled this way,\s*copy it,\s*and you may cast the copy without paying its mana cost$/i.test(normalized)) {
+    return {
+      kind: 'copy_spell',
+      subject: 'last_moved_card',
+      ...(allowNewTargets ? { allowNewTargets: true } : {}),
+      optional: true,
+      ...(step.sequence ? { sequence: step.sequence } : {}),
+      raw: appendFollowupSentence(normalized, rawRetargetTail),
+    };
+  }
+
+  const copyThatSpellTimesMatch = normalized.match(/^copy that spell\s+(twice|\d+|x)\s+times?(?:\s+instead)?$/i);
+  if (copyThatSpellTimesMatch) {
+    const rawCount = String(copyThatSpellTimesMatch[1] || '').trim().toLowerCase();
+    return {
+      kind: 'copy_spell',
+      subject: 'target_spell',
+      target: { kind: 'raw', text: 'that spell' },
+      copies: rawCount === 'twice'
+        ? { kind: 'number', value: 2 }
+        : /^\d+$/.test(rawCount)
+          ? { kind: 'number', value: Number.parseInt(rawCount, 10) }
+          : { kind: 'reference_amount', raw: rawCount },
+      ...(allowNewTargets ? { allowNewTargets: true } : {}),
+      ...(optional ? { optional: true } : {}),
+      ...(step.sequence ? { sequence: step.sequence } : {}),
+      raw: appendFollowupSentence(normalized, rawRetargetTail),
+    };
+  }
+
+  const copyNextSpellMatch = normalized.match(/^(?:until end of turn,\s*)?copy the next ((?:.+?\s+)?spell(?:\s+with\s+mana\s+value\s+[^\s]+\s+or\s+less)?) you cast this turn when you cast it$/i);
+  if (copyNextSpellMatch) {
+    return {
+      kind: 'copy_spell',
+      subject: 'target_spell',
+      target: { kind: 'raw', text: `next ${String(copyNextSpellMatch[1] || '').trim()} you cast this turn` },
+      ...(allowNewTargets ? { allowNewTargets: true } : {}),
+      ...(optional ? { optional: true } : {}),
+      ...(step.sequence ? { sequence: step.sequence } : {}),
+      raw: appendFollowupSentence(normalized, rawRetargetTail),
+    };
+  }
+
+  const copyThatSpellForEachMatch = normalized.match(/^copy (that|the) (spell|ability|spell or ability) for each (.+)$/i);
+  if (copyThatSpellForEachMatch) {
+    return {
+      kind: 'copy_spell',
+      subject: 'target_spell',
+      target: { kind: 'raw', text: `${String(copyThatSpellForEachMatch[1] || '').trim()} ${String(copyThatSpellForEachMatch[2] || '').trim()}` },
+      copies: { kind: 'unknown', raw: `for each ${String(copyThatSpellForEachMatch[3] || '').trim()}` },
+      ...(allowNewTargets ? { allowNewTargets: true } : {}),
+      ...(optional ? { optional: true } : {}),
+      ...(step.sequence ? { sequence: step.sequence } : {}),
+      raw: appendFollowupSentence(normalized, rawRetargetTail),
+    };
+  }
+
+  if (/^copy all spells you control$/i.test(normalized)) {
+    return {
+      kind: 'copy_spell',
+      subject: 'target_spell',
+      target: { kind: 'raw', text: 'all spells you control' },
+      copies: { kind: 'all' },
       ...(allowNewTargets ? { allowNewTargets: true } : {}),
       ...(optional ? { optional: true } : {}),
       ...(step.sequence ? { sequence: step.sequence } : {}),
@@ -8827,8 +9386,8 @@ function parseCopySpellUnknownStep(
     };
   }
 
-  if (/^(?:you may\s+)?copy (?:that spell|it)$/i.test(normalized)) {
-    const targetText = /that spell/i.test(normalized) ? 'that spell' : 'it';
+  if (/^(?:(?:you|they|that player|the player|each opponent|each other player|up to one target opponent)\s+may\s+(?:also\s+)?)?copy (?:that spell|the spell|it)$/i.test(normalized)) {
+    const targetText = /the spell/i.test(normalized) ? 'the spell' : /that spell/i.test(normalized) ? 'that spell' : 'it';
     return {
       kind: 'copy_spell',
       subject: 'target_spell',
@@ -8840,10 +9399,61 @@ function parseCopySpellUnknownStep(
     };
   }
 
+  const copyAnyNumberTargetSpellsMatch = normalized.match(/^(?:you may\s+)?copy\s+any\s+number\s+of\s+(target\s+.+?\s+spells?)$/i);
+  if (copyAnyNumberTargetSpellsMatch) {
+    return {
+      kind: 'copy_spell',
+      subject: 'target_spell',
+      target: parseObjectSelector(String(copyAnyNumberTargetSpellsMatch[1] || '').trim()),
+      copies: { kind: 'any_number' },
+      ...(allowNewTargets ? { allowNewTargets: true } : {}),
+      ...(optional ? { optional: true } : {}),
+      ...(step.sequence ? { sequence: step.sequence } : {}),
+      raw: appendFollowupSentence(normalized, rawRetargetTail),
+    };
+  }
+
   if (/^(?:you may\s+)?copy the exiled card$/i.test(normalized)) {
     return {
       kind: 'copy_spell',
       subject: 'linked_exiled_cards',
+      ...(allowNewTargets ? { allowNewTargets: true } : {}),
+      ...(optional ? { optional: true } : {}),
+      ...(step.sequence ? { sequence: step.sequence } : {}),
+      raw: appendFollowupSentence(normalized, rawRetargetTail),
+    };
+  }
+
+  if (/^(?:the token\s+)?copies\s+that\s+ability$/i.test(normalized)) {
+    return {
+      kind: 'copy_spell',
+      subject: 'target_spell',
+      target: { kind: 'raw', text: 'that ability' },
+      ...(allowNewTargets ? { allowNewTargets: true } : {}),
+      ...(optional ? { optional: true } : {}),
+      ...(step.sequence ? { sequence: step.sequence } : {}),
+      raw: appendFollowupSentence(normalized, rawRetargetTail),
+    };
+  }
+
+  const copyDescribedSpellMatch = normalized.match(/^(?:you may\s+)?copy\s+(the\s+spell\s+that\s+.+)$/i);
+  if (copyDescribedSpellMatch) {
+    return {
+      kind: 'copy_spell',
+      subject: 'target_spell',
+      target: { kind: 'raw', text: String(copyDescribedSpellMatch[1] || '').trim() },
+      ...(allowNewTargets ? { allowNewTargets: true } : {}),
+      ...(optional ? { optional: true } : {}),
+      ...(step.sequence ? { sequence: step.sequence } : {}),
+      raw: appendFollowupSentence(normalized, rawRetargetTail),
+    };
+  }
+
+  if (/^(?:you may\s+)?copy\s+each\s+card\s+exiled\s+with\s+.+$/i.test(normalized)) {
+    return {
+      kind: 'copy_spell',
+      subject: 'linked_exiled_cards',
+      copies: { kind: 'all' },
       ...(allowNewTargets ? { allowNewTargets: true } : {}),
       ...(optional ? { optional: true } : {}),
       ...(step.sequence ? { sequence: step.sequence } : {}),
@@ -8873,7 +9483,7 @@ function parseCopySpellUnknownStep(
     };
   }
 
-  const targetedSpellMatch = normalized.match(/^(?:you may\s+)?copy\s+(target(?:\s+.+?)?\s+spell(?:\s+.+)?)$/i);
+  const targetedSpellMatch = normalized.match(/^(?:you may\s+)?copy\s+(target(?:\s+.+?)?\s+spells?(?:\s+.+)?)$/i);
   if (targetedSpellMatch) {
     const targetText = String(targetedSpellMatch[1] || '').trim();
     return {
@@ -10158,7 +10768,7 @@ function parseGraveyardPermissionUnknownStep(step: Extract<OracleEffectStep, { k
   }
 
   const match = normalized.match(
-    /^(.+?)\s+may\s+(cast|play)\s+(.+?)\s+from\s+(your|their|his or her|its owner's|its controller's)\s+graveyard(?:\s+(.+))?$/i
+    /^(.+?)\s+may\s+(cast|play)\s+(.+?)\s+from\s+(your|their|his or her|its owner's|its controller's|an opponent's|that player's|target opponent's)\s+graveyard(?:\s+(.+))?$/i
   );
   if (!match) return null;
 
@@ -10614,7 +11224,7 @@ function getDiscoverKeywordAmountFromUnknownStep(step: OracleEffectStep): string
 }
 
 function isDiscoverReminderTailUnknownStep(step: OracleEffectStep): boolean {
-  if (!step || step.kind !== 'unknown') return false;
+  if (!step) return false;
 
   const normalized = normalizeOracleText(String(step.raw || ''))
     .replace(/^then\b\s*/i, '')
@@ -10665,7 +11275,7 @@ export function lowerDiscoverKeywordAbilities(
     const normalizedText = normalizeOracleText(String(ability.text || ability.effectText || ''))
       .replace(/\s+/g, ' ')
       .trim();
-    const isUnknownOnlyAbility = ability.steps.length > 0 && ability.steps.every((step) => step.kind === 'unknown');
+    const isUnknownOnlyAbility = ability.steps.length > 0 && ability.steps.every((step) => step.kind === 'unknown' || isDiscoverReminderTailUnknownStep(step));
     const fullReminderMatch = normalizedText.match(/^discover\s+(\d+|x)\s*\(/i);
 
     if (isUnknownOnlyAbility && fullReminderMatch) {
@@ -11477,7 +12087,20 @@ function isRedundantStationChargeCounterReminderUnknownStep(
   step: OracleEffectStep,
   ability: OracleIRAbility
 ): boolean {
-  if (ability.type !== 'activated' || step.kind !== 'unknown') return false;
+  if (ability.type !== 'activated') return false;
+
+  if (step.kind === 'add_counter') {
+    const targetText = String((step.target as any)?.text || '').trim();
+    const amount = step.amount as any;
+    return /^this spacecraft$/i.test(targetText) &&
+      String(step.counter || '').toLowerCase() === 'charge' &&
+      amount?.kind === 'object_stat' &&
+      amount?.subject === 'it' &&
+      amount?.stat === 'power' &&
+      ability.steps.some(candidate => isStationThresholdReminderUnknownStep(candidate));
+  }
+
+  if (step.kind !== 'unknown') return false;
 
   const normalized = normalizeOracleText(String(step.raw || ''))
     .replace(/^then\b\s*/i, '')
@@ -11812,7 +12435,7 @@ function parseStandaloneAttachUnknownStep(rawClause: string): OracleEffectStep |
   if (!normalized) return null;
 
   const match = normalized.match(
-    /^(?:(you)\s+may\s+)?attach\s+((?:this enchantment|this equipment|this permanent|it|target (?:aura|equipment|aura or equipment|equipment or aura)(?:\s+you control)?|any number of (?:(?:auras and equipment)|equipment|auras) you control))\s+to\s+(target (?:creature|land|permanent|player|permanent or player)(?: you control)?|that creature|that land|it)$/i
+    /^(?:(you)\s+may\s+)?attach\s+((?:this aura|this enchantment|this equipment|this permanent|it|them|that equipment|target (?:aura|equipment|aura or equipment|equipment or aura)(?:\s+you control)?(?:\s+with\s+mana\s+value\s+.+?)?|any number of (?:(?:auras and equipment)|equipment|auras) you control))\s+to\s+(target (?:legendary\s+)?(?:creature|land|permanent|player|permanent or player)(?: (?:you control|an opponent controls|you don(?:'|â€™)?t control|you do not control))?|another creature|this creature|this permanent|that creature|that land|it)$/i
   );
   if (!match) return null;
 

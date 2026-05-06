@@ -43,7 +43,7 @@ function parseDamageAmount(raw: string | undefined): Extract<OracleEffectStep, {
     return { kind: 'object_stat', subject: 'that_creature', stat: 'toughness' };
   }
   if (normalized === "that spell's mana value") {
-    return { kind: 'unknown', raw: normalized };
+    return { kind: 'reference_amount', raw: normalized };
   }
   if (normalized === "the sacrificed creature's power") {
     return { kind: 'object_stat', subject: 'the_sacrificed_creature', stat: 'power' };
@@ -190,10 +190,12 @@ export function tryParseLifeAndCombatClause(args: {
 
     const gainForEach = clause.match(new RegExp(`^${PLAYER_SUBJECT_PREFIX}gains?\\s+1\\s+life\\s+for\\s+each\\s+(.+)$`, 'i'));
     if (gainForEach) {
+      const amountText = `1 for each ${String(gainForEach[2] || '').trim()}`;
+      const parsedAmount = parseQuantity(amountText);
       return withMeta({
         kind: 'gain_life',
         who: parsePlayerSelector(gainForEach[1]),
-        amount: { kind: 'unknown', raw: `1 for each ${String(gainForEach[2] || '').trim()}` },
+        amount: parsedAmount.kind === 'reference_amount' ? parsedAmount : { kind: 'unknown', raw: amountText },
         raw: rawClause,
       });
     }
@@ -245,6 +247,16 @@ export function tryParseLifeAndCombatClause(args: {
         kind: 'lose_life',
         who: parsePlayerSelector(lose[1]),
         amount: parseQuantity(lose[2]),
+        raw: rawClause,
+      });
+    }
+
+    const loseHalfLife = clause.match(new RegExp(`^${PLAYER_SUBJECT_PREFIX}loses?\\s+half\\s+(?:your|their|his or her)\\s+life,\\s*rounded\\s+up$`, 'i'));
+    if (loseHalfLife) {
+      return withMeta({
+        kind: 'lose_life',
+        who: parsePlayerSelector(loseHalfLife[1]),
+        amount: { kind: 'reference_amount', raw: 'half their life rounded up' },
         raw: rawClause,
       });
     }
@@ -526,7 +538,7 @@ export function tryParseLifeAndCombatClause(args: {
   }
 
   {
-    const tapOrUntap = clause.match(/^(?:(?:you|its controller)\s+may\s+)?tap\s+or\s+untap\s+(.+)$/i);
+    const tapOrUntap = clause.match(/^(?:or\s+)?(?:(?:you|its controller)\s+may\s+)?tap\s+or\s+untap\s+(.+)$/i);
     if (tapOrUntap) {
       return withMeta({
         kind: 'tap_or_untap',
@@ -537,7 +549,7 @@ export function tryParseLifeAndCombatClause(args: {
     }
 
     const nonTargetTapUntap = clause.match(
-      /^(tap|untap)\s+((?:(?:all|each)\s+|up to\s+(?:one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+)?(?:creatures?|lands?|artifacts?|enchantments?|permanents?)(?:\s+(?:you control|target player controls|an opponent controls|your opponents control|that player controls|that opponent controls))?(?:\s+with\s+.+?)?)$/i
+      /^(?:or\s+)?(?:for\s+each\s+opponent,\s+)?(tap|untap)\s+((?:(?:all|each)\s+|up to\s+(?:one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+)?(?:creatures?|lands?|artifacts?|enchantments?|permanents?)(?:\s+(?:you control|target player controls|an opponent controls|your opponents control|that player controls|that opponent controls))?(?:\s+with\s+.+?)?)$/i
     );
     if (nonTargetTapUntap) {
       return withMeta({
@@ -549,7 +561,7 @@ export function tryParseLifeAndCombatClause(args: {
     }
 
     const broadNonTargetTapUntap = clause.match(
-      /^(?:(?:you|target player)\s+)?(tap|untap)s?\s+((?:(?:all|each(?:\s+other)?|up to\s+(?:one|two|three|four|five|six|seven|eight|nine|ten|\d+|x))\s+).+)$/i
+      /^(?:or\s+)?(?:for\s+each\s+opponent,\s+)?(?:(?:you|target player)\s+)?(tap|untap)s?\s+((?:(?:all|each(?:\s+other)?|up to\s+(?:one|two|three|four|five|six|seven|eight|nine|ten|\d+|x))\s+).+)$/i
     );
     if (broadNonTargetTapUntap && /\b(?:creatures?|lands?|artifacts?|enchantments?|permanents?|you control)\b/i.test(String(broadNonTargetTapUntap[2] || ''))) {
       return withMeta({
@@ -561,7 +573,7 @@ export function tryParseLifeAndCombatClause(args: {
     }
 
     const tapTarget = clause.match(
-      /^tap\s+((?:(?:all|(?:up to\s+(?:one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+)?target|that|those|this|enchanted|equipped)\s+.+|it|them))$/i
+      /^(?:or\s+)?(?:for\s+each\s+opponent,\s+)?tap\s+((?:(?:all|any\s+number\s+of\s+untapped|another\s+target|(?:up\s+to\s+)?x\s+target|(?:(?:up\s+to\s+)?(?:one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+)?target|that|those|this|enchanted|equipped)\s+.+|it|them))$/i
     );
     if (tapTarget) {
       return withMeta({
@@ -573,12 +585,22 @@ export function tryParseLifeAndCombatClause(args: {
     }
 
     const untapTarget = clause.match(
-      /^untap\s+((?:(?:all|(?:up to\s+(?:one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+)?target|that|those|this|enchanted|equipped)\s+.+|it|them))$/i
+      /^untap\s+((?:(?:all|another\s+target|(?:(?:up\s+to\s+)?(?:one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+)?target|that|those|this|enchanted|equipped)\s+.+|it|them))$/i
     );
     if (untapTarget) {
       return withMeta({
         kind: 'tap_or_untap',
         target: parseObjectSelector(untapTarget[1]),
+        mode: 'untap',
+        raw: rawClause,
+      });
+    }
+
+    const untapAndRemoveFromCombat = clause.match(/^untap\s+(it|them|that\s+creature|target\s+creature)\s+and\s+remove\s+it\s+from\s+combat$/i);
+    if (untapAndRemoveFromCombat) {
+      return withMeta({
+        kind: 'tap_or_untap',
+        target: parseObjectSelector(String(untapAndRemoveFromCombat[1] || '').trim()),
         mode: 'untap',
         raw: rawClause,
       });
@@ -607,12 +629,116 @@ export function tryParseLifeAndCombatClause(args: {
       });
     }
 
+    const controllerSkipNextUntap = clause.match(
+      /^(.+?)\s+do(?:es)?(?:n't|\s+not)\s+untap\s+during\s+(?:your|their)\s+next\s+untap\s+step$/i
+    );
+    if (controllerSkipNextUntap) {
+      return withMeta({
+        kind: 'skip_next_untap',
+        target: parseObjectSelector(String(controllerSkipNextUntap[1] || '').trim()),
+        raw: rawClause,
+      });
+    }
+
+    const conditionalUntapRestriction = clause.match(/^(.+?)\s+do(?:es)?(?:n't|\s+not)\s+untap\s+during\s+your\s+untap\s+step\s+if\s+(.+)$/i);
+    if (conditionalUntapRestriction) {
+      return withMeta({
+        kind: 'grant_static_ability',
+        target: parseObjectSelector(String(conditionalUntapRestriction[1] || '').trim()),
+        effectText: [`doesn't untap during your untap step if ${String(conditionalUntapRestriction[2] || '').trim()}`],
+        duration: 'static',
+        raw: rawClause,
+      });
+    }
+
+    const staticUntapRestriction = clause.match(/^(.+?)\s+do(?:es)?(?:n't|\s+not)\s+untap\s+during\s+(?:your|its\s+controller(?:'|â€™)?s)\s+untap\s+step(?:\s+for\s+as\s+long\s+as\s+you\s+control\s+this\s+creature)?$/i);
+    if (staticUntapRestriction) {
+      return withMeta({
+        kind: 'grant_static_ability',
+        target: parseObjectSelector(String(staticUntapRestriction[1] || '').trim()),
+        effectText: [normalizeOracleText(rawClause)],
+        duration: 'static',
+        raw: rawClause,
+      });
+    }
+
     const assignsNoCombatDamage = clause.match(/^(.+?)\s+assigns?\s+no\s+combat\s+damage\s+this\s+turn$/i);
     if (assignsNoCombatDamage) {
       return withMeta({
         kind: 'assign_no_combat_damage',
         target: parseObjectSelector(assignsNoCombatDamage[1]),
         duration: 'this_turn',
+        raw: rawClause,
+      });
+    }
+
+    const preventAllToTarget = clause.match(/^prevent\s+all\s+damage\s+that\s+would\s+be\s+dealt\s+to\s+(.+?)\s+this\s+turn$/i);
+    if (preventAllToTarget) {
+      return withMeta({
+        kind: 'prevent_damage',
+        amount: 'all',
+        recipientTarget: parseObjectSelector(String(preventAllToTarget[1] || '').trim()),
+        duration: 'this_turn',
+        raw: rawClause,
+      });
+    }
+
+    const preventCombatByTarget = clause.match(/^prevent\s+all\s+combat\s+damage(?:\s+that\s+would\s+be\s+dealt)?\s+by\s+(.+?)\s+this\s+turn$/i);
+    if (preventCombatByTarget) {
+      return withMeta({
+        kind: 'prevent_damage',
+        amount: 'all',
+        target: parseObjectSelector(String(preventCombatByTarget[1] || '').trim()),
+        duration: 'this_turn',
+        combatOnly: true,
+        raw: rawClause,
+      });
+    }
+
+    const preventCombatTargetWouldDeal = clause.match(/^prevent\s+all\s+combat\s+damage\s+(.+?)\s+would\s+deal\s+this\s+turn$/i);
+    if (preventCombatTargetWouldDeal) {
+      return withMeta({
+        kind: 'prevent_damage',
+        amount: 'all',
+        target: parseObjectSelector(String(preventCombatTargetWouldDeal[1] || '').trim()),
+        duration: 'this_turn',
+        combatOnly: true,
+        raw: rawClause,
+      });
+    }
+
+    const preventCombatToAndBy = clause.match(/^prevent\s+all\s+combat\s+damage\s+that\s+would\s+be\s+dealt\s+to\s+and\s+dealt\s+by\s+(.+?)(?:\s+this\s+turn)?$/i);
+    if (preventCombatToAndBy) {
+      const target = parseObjectSelector(String(preventCombatToAndBy[1] || '').trim());
+      return withMeta({
+        kind: 'prevent_damage',
+        amount: 'all',
+        target,
+        recipientTarget: target,
+        duration: 'this_turn',
+        combatOnly: true,
+        raw: rawClause,
+      });
+    }
+
+    const staticPreventBy = clause.match(/^prevent\s+all\s+damage\s+that\s+would\s+be\s+dealt\s+by\s+(.+)$/i);
+    if (staticPreventBy) {
+      return withMeta({
+        kind: 'grant_static_ability',
+        target: parseObjectSelector(String(staticPreventBy[1] || '').trim()),
+        effectText: ['prevent all damage that would be dealt by this object'],
+        duration: 'static',
+        raw: rawClause,
+      });
+    }
+
+    const staticPreventTo = clause.match(/^prevent\s+all\s+(combat\s+)?damage\s+that\s+would\s+be\s+dealt\s+to\s+(.+)$/i);
+    if (staticPreventTo) {
+      return withMeta({
+        kind: 'grant_static_ability',
+        target: parseObjectSelector(String(staticPreventTo[2] || '').trim()),
+        effectText: [`prevent all ${staticPreventTo[1] ? 'combat ' : ''}damage that would be dealt to this object`],
+        duration: 'static',
         raw: rawClause,
       });
     }

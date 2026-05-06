@@ -51,7 +51,65 @@ export function parseQuantity(raw: string | undefined): OracleQuantity {
   if (!raw) return { kind: 'unknown' };
   const trimmed = raw.trim();
   if (!trimmed) return { kind: 'unknown' };
+  if (/^that$/i.test(trimmed)) return { kind: 'reference_amount', raw: 'that' };
   if (/^that (much|many)$/i.test(trimmed)) return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
+  if (/^the difference$/i.test(trimmed)) return { kind: 'reference_amount', raw: 'the difference' };
+  if (/^a\s+for\s+each\s+color\s+of\s+mana\s+spent\s+to\s+cast\s+it$/i.test(trimmed)) {
+    return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
+  }
+  if (/^a\s+for\s+each\s+time\s+it\s+was\s+kicked$/i.test(trimmed)) {
+    return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
+  }
+  if (/^1\s+for\s+each\s+creature\s+you\s+control$/i.test(trimmed)) {
+    return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
+  }
+  if (/^1\s+for\s+each\s+card\s+in\s+your\s+hand$/i.test(trimmed)) return { kind: 'reference_amount', raw: '1 for each card in your hand' };
+  if (/^1\s+for\s+each\s+creature\s+on\s+the\s+battlefield$/i.test(trimmed)) return { kind: 'reference_amount', raw: '1 for each creature on the battlefield' };
+  if (/^the number of creatures you control$/i.test(trimmed)) return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
+  if (/^the number of artifacts you control$/i.test(trimmed)) return { kind: 'reference_amount', raw: 'the number of artifacts you control' };
+  if (/^the number of lands you control$/i.test(trimmed)) return { kind: 'reference_amount', raw: 'the number of lands you control' };
+  if (/^the number of cards in (?:your|their) hand$/i.test(trimmed)) return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
+  if (/^the number of [a-z0-9 +/\-]+ counters on it$/i.test(trimmed)) return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
+  if (/^1\s+for\s+each\s+attacking\s+creature$/i.test(trimmed)) return { kind: 'reference_amount', raw: '1 for each attacking creature' };
+  if (/^that spell'?s mana value$/i.test(trimmed)) return { kind: 'reference_amount', raw: "that spell's mana value" };
+  if (/^the damage prevented this way$/i.test(trimmed)) return { kind: 'reference_amount', raw: 'the damage prevented this way' };
+  if (/^the damage dealt this way$/i.test(trimmed)) return { kind: 'reference_amount', raw: 'the damage dealt this way' };
+  if (/^a\s+card\s+for\s+each\s+card\s+exiled\s+from\s+their\s+hand\s+this\s+way$/i.test(trimmed)) {
+    return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
+  }
+  if (/^for\s+each\s+basic\s+land\s+type\s+among\s+lands\s+you\s+control$/i.test(trimmed)) {
+    return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
+  }
+  if (/^until\s+you\s+exile\s+a\s+nonland\s+card$/i.test(trimmed)) {
+    return { kind: 'reference_amount', raw: 'until you exile a nonland card' };
+  }
+  if (/^the\s+number\s+of\s+cards\s+in\s+that\s+player(?:'|â€™)?s\s+hand$/i.test(trimmed)) {
+    return { kind: 'reference_amount', raw: "the number of cards in that player's hand" };
+  }
+  if (/^the\s+number\s+of\s+mountains\s+you\s+control$/i.test(trimmed)) {
+    return { kind: 'reference_amount', raw: 'the number of mountains you control' };
+  }
+  if (/^a\s+card\s+for\s+each\s+\+1\/\+1\s+counter\s+on\s+it$/i.test(trimmed)) {
+    return { kind: 'reference_amount', raw: 'a card for each +1/+1 counter on it' };
+  }
+  if (/^a\s+card\s+for\s+each\s+creature\s+you\s+control\s+with\s+power\s+4\s+or\s+greater$/i.test(trimmed)) {
+    return { kind: 'reference_amount', raw: 'a card for each creature you control with power 4 or greater' };
+  }
+  if (/^a\s+card\s+for\s+each\s+Island\s+you\s+control$/i.test(trimmed)) return { kind: 'reference_amount', raw: 'a card for each Island you control' };
+  if (/^a\s+for\s+each\s+creature\s+card\s+in\s+your\s+graveyard$/i.test(trimmed)) return { kind: 'reference_amount', raw: 'a for each creature card in your graveyard' };
+  if (/^a\s+for\s+each\s+creature\s+that\s+died\s+this\s+turn$/i.test(trimmed)) return { kind: 'reference_amount', raw: 'a for each creature that died this turn' };
+  if (/^a\s+card\s+for\s+each\s+creature\s+you\s+control$/i.test(trimmed)) {
+    return { kind: 'reference_amount', raw: 'a card for each creature you control' };
+  }
+  if (/^a\s+card\s+for\s+each\s+color\s+among\s+permanents\s+you\s+control$/i.test(trimmed)) {
+    return { kind: 'reference_amount', raw: 'a card for each color among permanents you control' };
+  }
+  if (/^a\s+number\s+equal\s+to\s+the\s+amount\s+of\s+mana\s+spent\s+to\s+cast\s+it$/i.test(trimmed)) {
+    return { kind: 'reference_amount', raw: 'the amount of mana spent to cast it' };
+  }
+  if (/^the sacrificed creature'?s toughness$/i.test(trimmed)) {
+    return { kind: 'object_stat', subject: 'the_sacrificed_creature', stat: 'toughness' };
+  }
   if (/^any number$/i.test(trimmed)) return { kind: 'any_number' };
   {
     const nonlandMvMatch = trimmed.match(/^until (?:they|you) exile a nonland card with mana value (\d+) or less$/i);
@@ -117,6 +175,8 @@ export function parsePlayerSelector(raw: string | undefined): OraclePlayerSelect
   if (isThoseOpponentsSelector(s)) return { kind: 'each_of_those_opponents' };
   if (s === 'target player') return { kind: 'target_player' };
   if (s === 'target opponent') return { kind: 'target_opponent' };
+  if (s === 'an opponent' || s === 'the opponent') return { kind: 'target_opponent' };
+  if (s === 'the player') return { kind: 'target_player' };
   if (s === 'that player' || s === 'he or she' || s === 'him or her' || s === 'they') return { kind: 'target_player' };
   if (s === 'that opponent' || s === 'defending player' || s === 'the defending player') return { kind: 'target_opponent' };
   if (/^enchanted\s+[a-z0-9 -]+(?:'s)?\s+controller$/.test(s)) return { kind: 'target_player' };
@@ -163,10 +223,11 @@ export function normalizeClauseForParse(clause: string): {
 
   working = working
     .replace(/^\+\s*\{[^}]+\}\s*[-|]\s*/i, '')
+    .replace(/^\d+\s*(?:\||[-—])\s*/i, '')
     .replace(/^\d+\+\s*\|\s*/i, '')
     .replace(/^-+\s+(?=[a-z])/i, '')
     .replace(
-      /^[a-z0-9][a-z0-9\s'.,/&-]{0,80}\s+-\s+(?=(?:at|when|whenever|if|during|until|you|each|target|return|put|exile|draw|destroy|create|look|choose|search|investigate|populate|proliferate|surveil|scry|mill|discard|tap|untap|gain|lose|deal|counter)\b)/i,
+      /^[a-z0-9][a-z0-9\s'.,/&-]{0,80}\s+-\s+(?=(?:at|when|whenever|if|during|until|you|each|target|return|put|exile|draw|destroy|create|look|choose|search|investigate|populate|proliferate|surveil|scry|mill|discard|tap|untap|gain|lose|deal|counter|copy|cast|play|switch|double|roll|sacrifice)\b)/i,
       ''
     );
 

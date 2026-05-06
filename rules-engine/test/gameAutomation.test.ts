@@ -1211,4 +1211,41 @@ describe('Game Advancement', () => {
     expect(((result.next as any).extraTurns || [])).toHaveLength(0);
     expect(result.log.some(log => log.includes('Taking extra turn for player1'))).toBe(true);
   });
+
+  it('should consume skip-next-turn effects when selecting the next active player', () => {
+    const gameStates = new Map<string, GameState>();
+    const state: GameState = {
+      players: [
+        { id: 'player1', name: 'Player 1', life: 40, battlefield: [], library: [{ id: 'c1' }], hand: [] },
+        { id: 'player2', name: 'Player 2', life: 40, battlefield: [], library: [{ id: 'c2' }], hand: [] },
+        { id: 'player3', name: 'Player 3', life: 40, battlefield: [], library: [{ id: 'c3' }], hand: [] },
+      ],
+      phase: GamePhase.ENDING,
+      step: GameStep.CLEANUP,
+      activePlayerIndex: 0,
+      turnPlayer: 'player1',
+      priorityPlayerIndex: 1,
+      turn: 1,
+      stack: [],
+      battlefield: [],
+      skipNextTurnEffects: [
+        {
+          id: 'skip-player2',
+          playerId: 'player2',
+          sourceName: 'Eater of Days',
+          remainingSkips: 1,
+        },
+      ],
+    } as any;
+    gameStates.set('test-game', state);
+    const context = createMockContext(gameStates);
+
+    const result = advanceGame('test-game', context);
+
+    expect(result.next.step).toBe(GameStep.UNTAP);
+    expect(result.next.activePlayerIndex).toBe(2);
+    expect((result.next as any).turnPlayer).toBe('player3');
+    expect(((result.next as any).skipNextTurnEffects || [])).toHaveLength(0);
+    expect(result.log.some(log => log.includes('player2 skips their turn'))).toBe(true);
+  });
 });

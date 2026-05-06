@@ -2996,13 +2996,15 @@ export function applyGainControlStep(
   ).trim() || currentController;
   const nextControlChangeEffects = existingEffects.filter((_, index) => index !== existingEffectIndex);
 
-  nextControlChangeEffects.push({
-    permanentId: targetPermanentId,
-    originalController: originalController as PlayerID,
-    newController: newController as PlayerID,
-    duration: step.duration,
-    appliedAt: Date.now(),
-  });
+  if (step.duration !== 'indefinite') {
+    nextControlChangeEffects.push({
+      permanentId: targetPermanentId,
+      originalController: originalController as PlayerID,
+      newController: newController as PlayerID,
+      duration: step.duration,
+      appliedAt: Date.now(),
+    });
+  }
 
   battlefield[targetIndex] = {
     ...targetPermanent,
@@ -3017,7 +3019,65 @@ export function applyGainControlStep(
       battlefield,
       controlChangeEffects: nextControlChangeEffects,
     } as GameState,
-    log: [`${targetPermanentId} changes control to ${newController} until end of turn`],
+    log: [
+      `${targetPermanentId} changes control to ${newController}` +
+        (step.duration === 'until_end_of_turn' ? ' until end of turn' : ''),
+    ],
+  };
+}
+
+export function applyExchangeControlStep(
+  state: GameState,
+  step: Extract<OracleEffectStep, { kind: 'exchange_control' }>,
+  ctx: OracleIRExecutionContext
+): BattlefieldStepHandlerResult {
+  const chosenIds = Array.isArray(ctx.selectorContext?.chosenObjectIds)
+    ? ctx.selectorContext.chosenObjectIds.map(id => String(id || '').trim()).filter(Boolean)
+    : [];
+  const firstPermanentId = chosenIds[0] || String(ctx.targetPermanentId || '').trim();
+  const secondPermanentId = chosenIds[1] || '';
+
+  if (!firstPermanentId || !secondPermanentId) {
+    return {
+      applied: false,
+      message: `Skipped exchange-control (needs two deterministic targets): ${step.raw}`,
+      reason: 'no_deterministic_target',
+    };
+  }
+
+  const battlefield = [...((state.battlefield || []) as BattlefieldPermanent[])];
+  const firstIndex = battlefield.findIndex(permanent => String((permanent as any)?.id || '').trim() === firstPermanentId);
+  const secondIndex = battlefield.findIndex(permanent => String((permanent as any)?.id || '').trim() === secondPermanentId);
+  if (firstIndex < 0 || secondIndex < 0 || firstIndex === secondIndex) {
+    return {
+      applied: false,
+      message: `Skipped exchange-control (targets not on battlefield): ${step.raw}`,
+      reason: 'impossible_action',
+    };
+  }
+
+  const firstPermanent = battlefield[firstIndex] as any;
+  const secondPermanent = battlefield[secondIndex] as any;
+  const firstController = String(firstPermanent?.controller || '').trim();
+  const secondController = String(secondPermanent?.controller || '').trim();
+  if (!firstController || !secondController) {
+    return {
+      applied: false,
+      message: `Skipped exchange-control (target missing controller): ${step.raw}`,
+      reason: 'impossible_action',
+    };
+  }
+
+  battlefield[firstIndex] = { ...firstPermanent, controller: secondController, summoningSickness: true } as BattlefieldPermanent;
+  battlefield[secondIndex] = { ...secondPermanent, controller: firstController, summoningSickness: true } as BattlefieldPermanent;
+
+  return {
+    applied: true,
+    state: {
+      ...(state as any),
+      battlefield,
+    } as GameState,
+    log: [`${firstPermanentId} and ${secondPermanentId} exchange control`],
   };
 }
 

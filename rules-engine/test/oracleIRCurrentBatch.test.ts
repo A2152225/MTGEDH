@@ -1296,7 +1296,7 @@ describe('Oracle IR current audit batch support', () => {
 
     expect(swordSteps).toEqual(expect.arrayContaining([
       expect.objectContaining({ kind: 'deal_damage', target: { kind: 'raw', text: 'that player' } }),
-      expect.objectContaining({ kind: 'gain_life', who: { kind: 'you' }, amount: { kind: 'unknown', raw: '1 for each card in your hand' } }),
+      expect.objectContaining({ kind: 'gain_life', who: { kind: 'you' }, amount: { kind: 'reference_amount', raw: '1 for each card in your hand' } }),
     ]));
     expect(angelSteps).toEqual(expect.arrayContaining([
       expect.objectContaining({ kind: 'gain_life', who: { kind: 'you_and_target_player' }, amount: { kind: 'reference_amount', raw: 'that much' } }),

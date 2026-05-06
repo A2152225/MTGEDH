@@ -1,0 +1,3168 @@
+[
+  {
+    "id": "return_to_hand",
+    "ordinal": 1,
+    "title": "Bounce And Return-To-Hand Effects",
+    "total": 200,
+    "unknownItems": 3,
+    "unknownStepCount": 4,
+    "rows": [
+      {
+        "itemIndex": 82,
+        "name": "Ice Magic",
+        "rank": 10211,
+        "clause": "• Blizzard — {0} — Return target creature to its owner's hand.",
+        "unknowns": [
+          "• Blizzard - {0} - Return target creature to its owner's hand"
+        ],
+        "kinds": []
+      },
+      {
+        "itemIndex": 140,
+        "name": "Cauldron Dance",
+        "rank": 12536,
+        "clause": "Cast this spell only during combat. Return target creature card from your graveyard to the battlefield. That creature gains haste. Return it to your hand at the beginning of the next end step. You may put a creature card from your hand onto the battlefield....",
+        "unknowns": [
+          "Cast this spell only during combat"
+        ],
+        "kinds": [
+          "move_zone",
+          "raw",
+          "grant_temporary_ability",
+          "schedule_delayed_trigger"
+        ]
+      },
+      {
+        "itemIndex": 176,
+        "name": "Diabolic Servitude",
+        "rank": 14596,
+        "clause": "When this enchantment enters, return target creature card from your graveyard to the battlefield. When the creature put onto the battlefield with this enchantment dies, exile it and return this enchantment to its owner's hand. When this enchantment leaves t...",
+        "unknowns": [
+          "When the creature put onto the battlefield with this enchantment dies, exile it and return this enchantment to its owner's hand",
+          "When this enchantment leaves t.."
+        ],
+        "kinds": [
+          "move_zone",
+          "raw"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "discard",
+    "ordinal": 2,
+    "title": "Discard Effects",
+    "total": 200,
+    "unknownItems": 10,
+    "unknownStepCount": 10,
+    "rows": [
+      {
+        "itemIndex": 54,
+        "name": "Moonsnare Prototype",
+        "rank": 7658,
+        "clause": "Channel — {4}{U}, Discard this card: The owner of target nonland permanent puts it on their choice of the top or bottom of their library.",
+        "unknowns": [
+          "The owner of target nonland permanent puts it on their choice of the top or bottom of their library"
+        ],
+        "kinds": []
+      },
+      {
+        "itemIndex": 58,
+        "name": "Fraying Omnipotence",
+        "rank": 8227,
+        "clause": "Each player loses half their life, then discards half the cards in their hand, then sacrifices half the creatures they control of their choice.",
+        "unknowns": [
+          "Each player loses half their life"
+        ],
+        "kinds": [
+          "discard",
+          "each_player",
+          "reference_amount",
+          "sacrifice",
+          "you",
+          "raw"
+        ]
+      },
+      {
+        "itemIndex": 64,
+        "name": "Khorvath's Fury",
+        "rank": 9129,
+        "clause": "Each friend discards all cards from their hand, then draws that many cards plus one.",
+        "unknowns": [
+          "Each friend"
+        ],
+        "kinds": [
+          "discard",
+          "all",
+          "draw",
+          "you",
+          "reference_amount"
+        ]
+      },
+      {
+        "itemIndex": 73,
+        "name": "Nephalia Academy",
+        "rank": 9490,
+        "clause": "If a spell or ability an opponent controls causes you to discard a card, you may reveal that card and put it on top of your library instead of putting it anywhere else.",
+        "unknowns": [
+          "If a spell or ability an opponent controls causes you to discard a card, you may reveal that card and put it on top of your library instead of putting it anywhere else"
+        ],
+        "kinds": []
+      },
+      {
+        "itemIndex": 79,
+        "name": "Sycorax Commander",
+        "rank": 10075,
+        "clause": "Sanctified Rules of Combat — When this creature enters, each opponent faces a villainous choice — That opponent discards all the cards in their hand, then draws that many cards minus one, or this creature deals damage to that player equal to the number of cards in their hand.",
+        "unknowns": [
+          "the number of cards in their hand"
+        ],
+        "kinds": [
+          "choose_mode",
+          "discard",
+          "target_opponent",
+          "number",
+          "draw",
+          "you",
+          "reference_amount",
+          "deal_damage",
+          "raw"
+        ]
+      },
+      {
+        "itemIndex": 114,
+        "name": "Narset, Jeskai Waymaster",
+        "rank": 12037,
+        "clause": "At the beginning of your end step, you may discard your hand. If you do, draw cards equal to the number of spells you've cast this turn.",
+        "unknowns": [
+          "the number of spells you've cast this turn"
+        ],
+        "kinds": [
+          "discard",
+          "you",
+          "number",
+          "conditional",
+          "if",
+          "draw"
+        ]
+      },
+      {
+        "itemIndex": 115,
+        "name": "Oblivion Crown",
+        "rank": 12039,
+        "clause": "Enchanted creature has \"Discard a card: This creature gets +1/+1 until end of turn.\"",
+        "unknowns": [
+          "Enchanted creature has \"Discard a card: This creature gets +1/+1 until end of turn.\""
+        ],
+        "kinds": []
+      },
+      {
+        "itemIndex": 166,
+        "name": "Ill-Gotten Gains",
+        "rank": 13538,
+        "clause": "Each player discards their hand, then returns up to three cards from their graveyard to their hand.",
+        "unknowns": [
+          "then returns up to three cards from their graveyard to their hand"
+        ],
+        "kinds": [
+          "discard",
+          "each_player",
+          "number"
+        ]
+      },
+      {
+        "itemIndex": 175,
+        "name": "Wild Mongrel",
+        "rank": 13835,
+        "clause": "Discard a card: This creature gets +1/+1 and becomes the color of your choice until end of turn.",
+        "unknowns": [
+          "This creature gets +1/+1 and becomes the color of your choice until end of turn"
+        ],
+        "kinds": []
+      },
+      {
+        "itemIndex": 178,
+        "name": "Curse of Chaos",
+        "rank": 13900,
+        "clause": "Whenever a player attacks enchanted player with one or more creatures, that attacking player may discard a card.",
+        "unknowns": [
+          "that attacking player"
+        ],
+        "kinds": [
+          "discard",
+          "number"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "scry_surveil",
+    "ordinal": 3,
+    "title": "Scry / Surveil / Topdeck Manipulation",
+    "total": 200,
+    "unknownItems": 10,
+    "unknownStepCount": 16,
+    "rows": [
+      {
+        "itemIndex": 12,
+        "name": "Mystic Forge",
+        "rank": 426,
+        "clause": "You may look at the top card of your library any time. You may cast artifact spells and colorless spells from the top of your library. {T}, Pay 1 life: Exile the top card of your library.",
+        "unknowns": [
+          "You may cast artifact spells and colorless spells from the top of your library"
+        ],
+        "kinds": [
+          "look_top",
+          "you",
+          "number",
+          "exile_top"
+        ]
+      },
+      {
+        "itemIndex": 49,
+        "name": "Eladamri, Korvecdal",
+        "rank": 2088,
+        "clause": "You may look at the top card of your library any time. You may cast creature spells from the top of your library. {G}, {T}, Tap two untapped creatures you control: Reveal a card from your hand or the top card of your library. If you reveal a creature card t...",
+        "unknowns": [
+          "You may cast creature spells from the top of your library",
+          "Reveal a card from your hand or the top card of your library",
+          "If you reveal a creature card t.."
+        ],
+        "kinds": [
+          "look_top",
+          "you",
+          "number"
+        ]
+      },
+      {
+        "itemIndex": 83,
+        "name": "Fblthp, Lost on the Range",
+        "rank": 4392,
+        "clause": "Ward {2} You may look at the top card of your library any time. The top card of your library has plot. The plot cost is equal to its mana cost. You may plot nonland cards from the top of your library.",
+        "unknowns": [
+          "Ward {2} You may look at the top card of your library any time",
+          "The top card of your library has plot",
+          "The plot cost is equal to its mana cost",
+          "You may plot nonland cards from the top of your library"
+        ],
+        "kinds": []
+      },
+      {
+        "itemIndex": 87,
+        "name": "Mission Briefing",
+        "rank": 4630,
+        "clause": "Surveil 2, then choose an instant or sorcery card in your graveyard.",
+        "unknowns": [
+          "then choose an instant or sorcery card in your graveyard"
+        ],
+        "kinds": [
+          "surveil",
+          "you",
+          "number"
+        ]
+      },
+      {
+        "itemIndex": 94,
+        "name": "Sauron's Ransom",
+        "rank": 4923,
+        "clause": "They look at the top four cards of your library and separate them into a face-down pile and a face-up pile.",
+        "unknowns": [
+          "They look at the top four cards of your library and separate them into a face-down pile and a face-up pile"
+        ],
+        "kinds": []
+      },
+      {
+        "itemIndex": 98,
+        "name": "Valley Questcaller",
+        "rank": 5053,
+        "clause": "Whenever one or more other Rabbits, Bats, Birds, and/or Mice you control enter, scry 1.",
+        "unknowns": [
+          "Bats, Birds, and/or Mice you control enter, scry 1"
+        ],
+        "kinds": []
+      },
+      {
+        "itemIndex": 117,
+        "name": "Evercoat Ursine",
+        "rank": 5888,
+        "clause": "Hideaway 3, hideaway 3 (When this creature enters, look at the top three cards of your library, exile one face down, then put the rest on the bottom in a random order.",
+        "unknowns": [
+          "Hideaway 3, hideaway 3 (When this creature enters, look at the top three cards of your library, exile one face down",
+          "then put the rest on the bottom in a random order"
+        ],
+        "kinds": []
+      },
+      {
+        "itemIndex": 170,
+        "name": "Devourer of Destiny",
+        "rank": 7806,
+        "clause": "If you do, at the beginning of your first upkeep, look at the top four cards of your library.",
+        "unknowns": [
+          "If you do, at the beginning of your first upkeep, look at the top four cards of your library"
+        ],
+        "kinds": []
+      },
+      {
+        "itemIndex": 187,
+        "name": "Kiora, Sovereign of the Deep",
+        "rank": 8367,
+        "clause": "Whenever you cast a Kraken, Leviathan, Octopus, or Serpent spell from your hand, look at the top X cards of your library, where X is that spell's mana value.",
+        "unknowns": [
+          "Leviathan, Octopus, or Serpent spell from your hand, look at the top X cards of your library, where X is that spell's mana value"
+        ],
+        "kinds": []
+      },
+      {
+        "itemIndex": 190,
+        "name": "Model of Unity",
+        "rank": 8444,
+        "clause": "Whenever players finish voting, you and each opponent who voted for a choice you voted for may scry 2.",
+        "unknowns": [
+          "you and each opponent who voted for a choice you voted for may scry 2"
+        ],
+        "kinds": []
+      }
+    ]
+  },
+  {
+    "id": "tap_untap",
+    "ordinal": 4,
+    "title": "Tap / Untap Effects",
+    "total": 200,
+    "unknownItems": 2,
+    "unknownStepCount": 2,
+    "rows": [
+      {
+        "itemIndex": 94,
+        "name": "Icingdeath, Frost Tyrant",
+        "rank": 10415,
+        "clause": "When Icingdeath, Frost Tyrant dies, create Icingdeath, Frost Tongue, a legendary white Equipment artifact token with \"Equipped creature gets +2/+0,\" \"Whenever equipped creature attacks, tap target creature defending player controls,\" and equip {2}.",
+        "unknowns": [
+          "this"
+        ],
+        "kinds": [
+          "create_token",
+          "you"
+        ]
+      },
+      {
+        "itemIndex": 144,
+        "name": "Curse of Inertia",
+        "rank": 14646,
+        "clause": "Whenever a player attacks enchanted player with one or more creatures, that attacking player may tap or untap target permanent of their choice.",
+        "unknowns": [
+          "that attacking player may tap or untap target permanent of their choice"
+        ],
+        "kinds": []
+      }
+    ]
+  },
+  {
+    "id": "counterspell",
+    "ordinal": 5,
+    "title": "Counterspell And Stack Interaction",
+    "total": 200,
+    "unknownItems": 0,
+    "unknownStepCount": 0,
+    "rows": []
+  },
+  {
+    "id": "mill",
+    "ordinal": 6,
+    "title": "Mill Effects",
+    "total": 200,
+    "unknownItems": 11,
+    "unknownStepCount": 12,
+    "rows": [
+      {
+        "itemIndex": 3,
+        "name": "Tibalt's Trickery",
+        "rank": 581,
+        "clause": "Its controller mills that many cards, then exiles cards from the top of their library until they exile a nonland card with a different name than that spell.",
+        "unknowns": [
+          "until they exile a nonland card with a different name than that spell"
+        ],
+        "kinds": [
+          "mill",
+          "target_player",
+          "reference_amount",
+          "exile_top"
+        ]
+      },
+      {
+        "itemIndex": 22,
+        "name": "Bruvac the Grandiloquent",
+        "rank": 2118,
+        "clause": "If an opponent would mill one or more cards, they mill twice that many cards instead.",
+        "unknowns": [
+          "they mill twice that many cards"
+        ],
+        "kinds": []
+      },
+      {
+        "itemIndex": 25,
+        "name": "The Mindskinner",
+        "rank": 2341,
+        "clause": "If a source you control would deal damage to an opponent, prevent that damage and each opponent mills that many cards.",
+        "unknowns": [
+          "If a source you control would deal damage to an opponent, prevent that damage and each opponent mills that many cards"
+        ],
+        "kinds": []
+      },
+      {
+        "itemIndex": 29,
+        "name": "Fraying Sanity",
+        "rank": 2849,
+        "clause": "At the beginning of each end step, enchanted player mills X cards, where X is the number of cards put into their graveyard from anywhere this turn.",
+        "unknowns": [
+          "enchanted player mills X cards, where X is the number of cards put into their graveyard from anywhere this turn"
+        ],
+        "kinds": []
+      },
+      {
+        "itemIndex": 45,
+        "name": "Angel of Suffering",
+        "rank": 4492,
+        "clause": "If damage would be dealt to you, prevent that damage and mill twice that many cards.",
+        "unknowns": [
+          "If damage would be dealt to you, prevent that damage and mill twice that many cards"
+        ],
+        "kinds": []
+      },
+      {
+        "itemIndex": 56,
+        "name": "Sauron, Lord of the Rings",
+        "rank": 5275,
+        "clause": "When you cast this spell, amass Orcs 5, mill five cards, then return a creature card from your graveyard to the battlefield.",
+        "unknowns": [
+          "amass Orcs 5, mill five cards"
+        ],
+        "kinds": [
+          "move_zone",
+          "raw"
+        ]
+      },
+      {
+        "itemIndex": 133,
+        "name": "Avatar Destiny",
+        "rank": 12403,
+        "clause": "Enchant creature you control Enchanted creature gets +1/+1 for each creature card in your graveyard and is an Avatar in addition to its other types. When enchanted creature dies, mill cards equal to its power. Return this card to its owner's hand and up to ...",
+        "unknowns": [
+          "mill cards equal to its power"
+        ],
+        "kinds": [
+          "grant_static_ability",
+          "raw",
+          "move_zone"
+        ]
+      },
+      {
+        "itemIndex": 139,
+        "name": "Iceberg Cancrix",
+        "rank": 13227,
+        "clause": "Whenever another snow permanent you control enters, you may have target player mill two cards.",
+        "unknowns": [
+          "you may have target player mill two cards"
+        ],
+        "kinds": []
+      },
+      {
+        "itemIndex": 143,
+        "name": "Urborg Lhurgoyf",
+        "rank": 13476,
+        "clause": "As this creature enters, mill three cards for each time it was kicked.",
+        "unknowns": [
+          "As this creature enters, mill three cards for each time it was kicked"
+        ],
+        "kinds": []
+      },
+      {
+        "itemIndex": 163,
+        "name": "Veteran Ice Climber",
+        "rank": 14619,
+        "clause": "Vigilance This creature can't be blocked. Whenever this creature attacks, up to one target player mills cards equal to this creature's power. (They put that many cards from the top of their library into their graveyard.)",
+        "unknowns": [
+          "up to one target player mills cards equal to this creature's power",
+          "(They put that many cards from the top of their library into their graveyard.)"
+        ],
+        "kinds": [
+          "grant_temporary_ability",
+          "raw"
+        ]
+      },
+      {
+        "itemIndex": 166,
+        "name": "Drown in Filth",
+        "rank": 14856,
+        "clause": "Mill four cards, then that creature gets -1/-1 until end of turn for each land card in your graveyard.",
+        "unknowns": [
+          "for each land card in your graveyard"
+        ],
+        "kinds": [
+          "mill",
+          "you",
+          "number",
+          "modify_pt",
+          "raw"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "impulse_exile_permission",
+    "ordinal": 7,
+    "title": "Impulse Exile Permission Windows",
+    "total": 160,
+    "unknownItems": 59,
+    "unknownStepCount": 98,
+    "rows": [
+      {
+        "itemIndex": 7,
+        "name": "Light Up the Stage",
+        "rank": 1196,
+        "clause": "Spectacle {R} (You may cast this spell for its spectacle cost rather than its mana cost if an opponent lost life this turn.) Exile the top two cards of your library. Until the end of your next turn, you may play those cards.",
+        "unknowns": [
+          "Spectacle {R} (You may cast this spell for its spectacle cost rather than its mana cost if an opponent lost life this turn.)"
+        ],
+        "kinds": [
+          "impulse_exile_top",
+          "you",
+          "number"
+        ]
+      },
+      {
+        "itemIndex": 9,
+        "name": "Sword of Forge and Frontier",
+        "rank": 1809,
+        "clause": "Equipped creature gets +2/+2 and has protection from red and from green. Whenever equipped creature deals combat damage to a player, exile the top two cards of your library. You may play those cards this turn. You may play an additional land this turn. Equi...",
+        "unknowns": [
+          "Equi.."
+        ],
+        "kinds": [
+          "grant_static_ability",
+          "raw",
+          "impulse_exile_top",
+          "you",
+          "number"
+        ]
+      },
+      {
+        "itemIndex": 13,
+        "name": "Party Thrasher",
+        "rank": 2149,
+        "clause": "Noncreature spells you cast from exile have convoke. (Each creature you tap while casting a noncreature spell from exile pays for {1} or one mana of that creature's color.) At the beginning of your first main phase, you may discard a card. If you do, exile ...",
+        "unknowns": [
+          "(Each creature you tap while casting a noncreature spell from exile pays for {1} or one mana of that creature's color.)",
+          "At the beginning of your first main phase, you may discard a card"
+        ],
+        "kinds": [
+          "grant_static_ability",
+          "raw",
+          "conditional",
+          "if",
+          "exile"
+        ]
+      },
+      {
+        "itemIndex": 18,
+        "name": "Court of Locthwain",
+        "rank": 3025,
+        "clause": "When this enchantment enters, you become the monarch. At the beginning of your upkeep, exile the top card of target opponent's library. You may play that card for as long as it remains exiled, and mana of any type can be spent to cast it. If you're the mona...",
+        "unknowns": [
+          "If you're the mona.."
+        ],
+        "kinds": [
+          "become_monarch",
+          "you",
+          "impulse_exile_top",
+          "target_opponent",
+          "number"
+        ]
+      },
+      {
+        "itemIndex": 21,
+        "name": "Laughing Jasper Flint",
+        "rank": 3347,
+        "clause": "Creatures you control but don't own are Mercenaries in addition to their other types. At the beginning of your upkeep, exile the top X cards of target opponent's library, where X is the number of outlaws you control. Until end of turn, you may cast spells f...",
+        "unknowns": [
+          "Creatures you control but don't own are Mercenaries in addition to their other types",
+          "Until end of turn, you may cast spells f.."
+        ],
+        "kinds": [
+          "exile",
+          "raw"
+        ]
+      },
+      {
+        "itemIndex": 25,
+        "name": "Cori Mountain Monastery",
+        "rank": 4038,
+        "clause": "This land enters tapped unless you control a Plains or an Island. {T}: Add {R}. {3}{R}, {T}: Exile the top card of your library. Until the end of your next turn, you may play that card.",
+        "unknowns": [
+          "tapped unless you control a Plains or an Island"
+        ],
+        "kinds": [
+          "add_mana",
+          "you",
+          "impulse_exile_top",
+          "number"
+        ]
+      },
+      {
+        "itemIndex": 30,
+        "name": "Tavern Brawler",
+        "rank": 4134,
+        "clause": "Commander creatures you own have \"At the beginning of your upkeep, exile the top card of your library. This creature gets +X/+0 until end of turn, where X is that card's mana value. You may play that card this turn.\"",
+        "unknowns": [
+          "Commander creatures you own have \"At the beginning of your upkeep, exile the top card of your library"
+        ],
+        "kinds": [
+          "modify_pt",
+          "raw",
+          "where",
+          "grant_exile_permission",
+          "you"
+        ]
+      },
+      {
+        "itemIndex": 31,
+        "name": "Breeches, Brazen Plunderer",
+        "rank": 4186,
+        "clause": "Menace Whenever one or more Pirates you control deal damage to your opponents, exile the top card of each of those opponents' libraries. You may play those cards this turn, and you may spend mana as though it were mana of any color to cast those spells. Par...",
+        "unknowns": [
+          "Par.."
+        ],
+        "kinds": [
+          "impulse_exile_top",
+          "each_of_those_opponents",
+          "number"
+        ]
+      },
+      {
+        "itemIndex": 34,
+        "name": "Hugs, Grisly Guardian",
+        "rank": 4797,
+        "clause": "Trample When Hugs enters, exile the top X cards of your library. Until the end of your next turn, you may play those cards. You may play an additional land on each of your turns.",
+        "unknowns": [
+          "You may play an additional land on each of your turns"
+        ],
+        "kinds": [
+          "impulse_exile_top",
+          "you",
+          "x"
+        ]
+      },
+      {
+        "itemIndex": 38,
+        "name": "Nahiri, Forged in Fury",
+        "rank": 4987,
+        "clause": "Affinity for Equipment (This spell costs {1} less to cast for each Equipment you control.) Whenever an equipped creature you control attacks, exile the top card of your library. You may play that card this turn. You may cast Equipment spells this way withou...",
+        "unknowns": [
+          "You may cast Equipment spells this way withou.."
+        ],
+        "kinds": [
+          "impulse_exile_top",
+          "you",
+          "number"
+        ]
+      },
+      {
+        "itemIndex": 40,
+        "name": "Rogue Class",
+        "rank": 5038,
+        "clause": "(Gain the next level as a sorcery to add its ability.) Whenever a creature you control deals combat damage to a player, exile the top card of that player's library face down. You may look at it for as long as it remains exiled. {1}{U}{B}: Level 2 Creatures ...",
+        "unknowns": [
+          "Whenever a creature you control deals combat damage to a player, exile the top card of that player's library face down",
+          "You may look at it for as long as it remains exiled",
+          "Level 2 Creatures .."
+        ],
+        "kinds": []
+      },
+      {
+        "itemIndex": 42,
+        "name": "Dance with Calamity",
+        "rank": 5418,
+        "clause": "Shuffle your library. As many times as you choose, you may exile the top card of your library. If the total mana value of the cards exiled this way is 13 or less, you may cast any number of spells from among those cards without paying their mana costs.",
+        "unknowns": [
+          "As many times as you choose, you may exile the top card of your library"
+        ],
+        "kinds": [
+          "shuffle_library",
+          "you",
+          "conditional",
+          "if",
+          "grant_exile_permission",
+          "raw"
+        ]
+      },
+      {
+        "itemIndex": 48,
+        "name": "Chaos Channeler",
+        "rank": 6213,
+        "clause": "Wild Magic Surge — Whenever this creature attacks, roll a d20. 1—9 | Exile the top card of your library. You may play it this turn. 10—19 | Exile the top two cards of your library. You may play them this turn. 20 | Exile the top three cards of your library....",
+        "unknowns": [
+          "1-9 | Exile the top card of your library",
+          "10-19 | Exile the top two cards of your library",
+          "20 | Exile the top three cards of your library..."
+        ],
+        "kinds": [
+          "roll_die",
+          "you",
+          "grant_exile_permission",
+          "raw"
+        ]
+      },
+      {
+        "itemIndex": 49,
+        "name": "Opera Love Song",
+        "rank": 6455,
+        "clause": "Choose one — • Exile the top two cards of your library. You may play those cards until your next end step. • One or two target creatures each get +2/+0 until end of turn.",
+        "unknowns": [
+          "One or two target creatures each get +2/+0 until end of turn"
+        ],
+        "kinds": [
+          "choose_mode",
+          "impulse_exile_top",
+          "you",
+          "number"
+        ]
+      },
+      {
+        "itemIndex": 52,
+        "name": "Riveteers Charm",
+        "rank": 6597,
+        "clause": "Choose one — • Target opponent sacrifices a creature or planeswalker they control with the greatest mana value among creatures and planeswalkers they control. • Exile the top three cards of your library. Until your next end step, you may play those cards. •...",
+        "unknowns": [
+          "•.."
+        ],
+        "kinds": [
+          "choose_mode",
+          "sacrifice",
+          "target_opponent",
+          "raw",
+          "impulse_exile_top",
+          "you",
+          "number"
+        ]
+      },
+      {
+        "itemIndex": 53,
+        "name": "Caves of Chaos Adventurer",
+        "rank": 6934,
+        "clause": "Trample When this creature enters, you take the initiative. Whenever this creature attacks, exile the top card of your library. If you've completed a dungeon, you may play that card this turn without paying its mana cost. Otherwise, you may play that card t...",
+        "unknowns": [
+          "Whenever this creature attacks, exile the top card of your library",
+          "If you've completed a dungeon, you may play that card this turn without paying its mana cost",
+          "Otherwise, you may play that card t.."
+        ],
+        "kinds": [
+          "take_initiative",
+          "you"
+        ]
+      },
+      {
+        "itemIndex": 54,
+        "name": "Chiss-Goria, Forge Tyrant",
+        "rank": 7083,
+        "clause": "Affinity for artifacts (This spell costs {1} less to cast for each artifact you control.) Flying, haste Whenever Chiss-Goria attacks, exile the top five cards of your library. You may cast an artifact spell from among them this turn. If you do, it has affin...",
+        "unknowns": [
+          "Flying, haste Whenever this permanent attacks, exile the top five cards of your library",
+          "If you do, it has affin.."
+        ],
+        "kinds": [
+          "grant_exile_permission",
+          "you",
+          "raw"
+        ]
+      },
+      {
+        "itemIndex": 55,
+        "name": "March of Reckless Joy",
+        "rank": 7341,
+        "clause": "As an additional cost to cast this spell, you may exile any number of red cards from your hand. This spell costs {2} less to cast for each card exiled this way. Exile the top X cards of your library. You may play up to two of those cards until the end of yo...",
+        "unknowns": [
+          "This spell costs {2} less to cast for each card exiled this way",
+          "You may play up to two of those cards until the end of yo.."
+        ],
+        "kinds": [
+          "exile_top",
+          "you",
+          "x"
+        ]
+      },
+      {
+        "itemIndex": 56,
+        "name": "Etrata, Deadly Fugitive",
+        "rank": 7527,
+        "clause": "If you can't, exile it, then you may cast the exiled card without paying its mana cost.\"",
+        "unknowns": [
+          "then you may cast the exiled card without paying its mana cost.\""
+        ],
+        "kinds": [
+          "conditional",
+          "if",
+          "exile",
+          "raw"
+        ]
+      },
+      {
+        "itemIndex": 58,
+        "name": "Maralen, Fae Ascendant",
+        "rank": 7548,
+        "clause": "Flying Whenever Maralen or another Elf or Faerie you control enters, exile the top two cards of target opponent's library. Once each turn, you may cast a spell with mana value less than or equal to the number of Elves and Faeries you control from among card...",
+        "unknowns": [
+          "Once each turn, you may cast a spell with mana value less than or equal to the number of Elves and Faeries you control from among card.."
+        ],
+        "kinds": [
+          "exile_top",
+          "target_opponent",
+          "number"
+        ]
+      },
+      {
+        "itemIndex": 64,
+        "name": "Gale's Redirection",
+        "rank": 8594,
+        "clause": "1—14 | You may cast the exiled card for as long as it remains exiled, and you may spend mana as though it were mana of any color to cast that spell.",
+        "unknowns": [
+          "1-14 | You may cast the exiled card for as long as it remains exiled, and you may spend mana as though it were mana of any color to cast that spell"
+        ],
+        "kinds": []
+      },
+      {
+        "itemIndex": 65,
+        "name": "Emberheart Challenger",
+        "rank": 8827,
+        "clause": "Haste Prowess (Whenever you cast a noncreature spell, this creature gets +1/+1 until end of turn.) Valiant — Whenever this creature becomes the target of a spell or ability you control for the first time each turn, exile the top card of your library. Until ...",
+        "unknowns": [
+          "Haste Prowess (Whenever you cast a noncreature spell, this creature gets +1/+1 until end of turn.)",
+          "Valiant - Whenever this creature becomes the target of a spell or ability you control for the first time each turn, exile the top card of your library",
+          "Until .."
+        ],
+        "kinds": []
+      },
+      {
+        "itemIndex": 71,
+        "name": "Loot, the Key to Everything",
+        "rank": 9584,
+        "clause": "Ward {1} At the beginning of your upkeep, exile the top X cards of your library, where X is the number of card types among other nonland permanents you control. You may play those cards this turn.",
+        "unknowns": [
+          "Ward {1} At the beginning of your upkeep, exile the top X cards of your library, where X is the number of card types among other nonland permanents you control"
+        ],
+        "kinds": [
+          "grant_exile_permission",
+          "you",
+          "raw"
+        ]
+      },
+      {
+        "itemIndex": 73,
+        "name": "Robber of the Rich",
+        "rank": 9853,
+        "clause": "Reach, haste Whenever this creature attacks, if defending player has more cards in hand than you, exile the top card of their library. During any turn you attacked with a Rogue, you may cast that card and you may spend mana as though it were mana of any col...",
+        "unknowns": [
+          "Reach, haste Whenever this creature attacks, if defending player has more cards in hand than you, exile the top card of their library",
+          "During any turn you attacked with a Rogue, you may cast that card and you may spend mana as though it were mana of any col.."
+        ],
+        "kinds": []
+      },
+      {
+        "itemIndex": 74,
+        "name": "Sanwell, Avenger Ace",
+        "rank": 9929,
+        "clause": "As long as an artifact creature you control is attacking, prevent all damage that would be dealt to Sanwell. Whenever Sanwell becomes tapped, exile the top six cards of your library. You may cast a Vehicle or artifact creature spell from among them. Then pu...",
+        "unknowns": [
+          "As long as an artifact creature you control is attacking, prevent all damage that would be dealt to this permanent",
+          "Whenever this permanent becomes tapped, exile the top six cards of your library",
+          "Then pu.."
+        ],
+        "kinds": [
+          "grant_exile_permission",
+          "you",
+          "raw"
+        ]
+      },
+      {
+        "itemIndex": 75,
+        "name": "Primeval Spawn",
+        "rank": 10027,
+        "clause": "If this creature would enter and it wasn't cast or no mana was spent to cast it, exile it instead. Vigilance, trample, lifelink When this creature leaves the battlefield, exile the top ten cards of your library. You may cast any number of spells with total ...",
+        "unknowns": [
+          "Vigilance, trample, lifelink When this creature leaves the battlefield, exile the top ten cards of your library",
+          "You may cast any number of spells with total .."
+        ],
+        "kinds": [
+          "exile",
+          "raw"
+        ]
+      },
+      {
+        "itemIndex": 79,
+        "name": "Intet, the Dreamer",
+        "rank": 10459,
+        "clause": "Flying Whenever Intet deals combat damage to a player, you may pay {2}{U}. If you do, exile the top card of your library face down. You may look at that card for as long as it remains exiled. You may play that card without paying its mana cost for as long a...",
+        "unknowns": [
+          "You may look at that card for as long as it remains exiled",
+          "You may play that card without paying its mana cost for as long a.."
+        ],
+        "kinds": [
+          "pay_mana",
+          "you",
+          "conditional",
+          "if",
+          "exile",
+          "raw"
+        ]
+      },
+      {
+        "itemIndex": 84,
+        "name": "Brilliant Ultimatum",
+        "rank": 11828,
+        "clause": "Exile the top five cards of your library. An opponent separates those cards into two piles. You may play lands and cast spells from one of those piles. If you cast a spell this way, you cast it without paying its mana cost.",
+        "unknowns": [
+          "An opponent separates those cards into two piles",
+          "You may play lands and cast spells from one of those piles",
+          "If you cast a spell this way, you cast it without paying its mana cost"
+        ],
+        "kinds": [
+          "exile_top",
+          "you",
+          "number"
+        ]
+      },
+      {
+        "itemIndex": 86,
+        "name": "Seize Opportunity",
+        "rank": 12166,
+        "clause": "Choose one — • Exile the top two cards of your library. Until the end of your next turn, you may play those cards. • Up to two target creatures each get +2/+1 until end of turn.",
+        "unknowns": [
+          "Up to two target creatures each get +2/+1 until end of turn"
+        ],
+        "kinds": [
+          "choose_mode",
+          "impulse_exile_top",
+          "you",
+          "number"
+        ]
+      },
+      {
+        "itemIndex": 87,
+        "name": "Kellan, Planar Trailblazer",
+        "rank": 12320,
+        "clause": "{1}{R}: If Kellan is a Scout, it becomes a Human Faerie Detective and gains \"Whenever Kellan deals combat damage to a player, exile the top card of your library. You may play that card this turn.\" {2}{R}: If Kellan is a Detective, it becomes a 3/2 Human Fae...",
+        "unknowns": [
+          "You may play that card this turn.\" {2}{R}: If this permanent is a Detective, it becomes a 3/2 Human Fae.."
+        ],
+        "kinds": [
+          "conditional",
+          "if",
+          "exile",
+          "raw"
+        ]
+      },
+      {
+        "itemIndex": 88,
+        "name": "Spark of Creativity",
+        "rank": 12411,
+        "clause": "Choose target creature. Exile the top card of your library. You may have Spark of Creativity deal damage to that creature equal to the exiled card's mana value. If you don't, you may play that card until end of turn.",
+        "unknowns": [
+          "the exiled card's mana value"
+        ],
+        "kinds": [
+          "choose_target_creature",
+          "raw",
+          "impulse_exile_top",
+          "you",
+          "number",
+          "deal_damage"
+        ]
+      },
+      {
+        "itemIndex": 89,
+        "name": "Capricious Sliver",
+        "rank": 12467,
+        "clause": "Sliver creatures you control have \"Whenever this creature deals combat damage to a player, exile the top card of your library. You may play that card this turn.\"",
+        "unknowns": [
+          "Sliver creatures you control have \"Whenever this creature deals combat damage to a player, exile the top card of your library"
+        ],
+        "kinds": [
+          "grant_exile_permission",
+          "you",
+          "raw"
+        ]
+      },
+      {
+        "itemIndex": 92,
+        "name": "Evelyn, the Covetous",
+        "rank": 13953,
+        "clause": "Flash Whenever Evelyn or another Vampire you control enters, exile the top card of each player's library with a collection counter on it. Once each turn, you may play a card from exile with a collection counter on it if it was exiled by an ability you contr...",
+        "unknowns": [
+          "Once each turn, you may play a card from exile with a collection counter on it if it was exiled by an ability you contr.."
+        ],
+        "kinds": [
+          "exile",
+          "raw"
+        ]
+      },
+      {
+        "itemIndex": 94,
+        "name": "Bruse Tarl, Roving Rancher",
+        "rank": 14360,
+        "clause": "Oxen you control have double strike. Whenever Bruse Tarl enters or attacks, exile the top card of your library. If it's a land card, create a 2/2 white Ox creature token. Otherwise, you may cast it until the end of your next turn.",
+        "unknowns": [
+          "Otherwise, you may cast it until the end of your next turn"
+        ],
+        "kinds": [
+          "grant_static_ability",
+          "raw",
+          "impulse_exile_top",
+          "you",
+          "number",
+          "conditional",
+          "if",
+          "create_token"
+        ]
+      },
+      {
+        "itemIndex": 98,
+        "name": "Anep, Vizier of Hazoret",
+        "rank": 15070,
+        "clause": "Trample You may exert Anep as it attacks. When you do, exile the top two cards of your library. Until the end of your next turn, you may play those cards. (An exerted creature won't untap during your next untap step.)",
+        "unknowns": [
+          "Trample You may exert this permanent as it attacks"
+        ],
+        "kinds": [
+          "impulse_exile_top",
+          "you",
+          "number"
+        ]
+      },
+      {
+        "itemIndex": 100,
+        "name": "Gila Courser",
+        "rank": 15261,
+        "clause": "Whenever this creature attacks while saddled, exile the top card of your library. Until the end of your next turn, you may play that card. Saddle 1 (Tap any number of other creatures you control with total power 1 or more: This Mount becomes saddled until e...",
+        "unknowns": [
+          "This Mount becomes saddled until e.."
+        ],
+        "kinds": [
+          "impulse_exile_top",
+          "you",
+          "number"
+        ]
+      },
+      {
+        "itemIndex": 101,
+        "name": "Nathan Drake, Treasure Hunter",
+        "rank": 15493,
+        "clause": "First strike You may spend mana as though it were mana of any color to cast spells you don't own or to activate abilities of permanents you control but don't own. Whenever Nathan Drake attacks, exile the top card of each player's library. You may cast a spe...",
+        "unknowns": [
+          "First strike You may spend mana as though it were mana of any color to cast spells you don't own or to activate abilities of permanents you control but don't own",
+          "You may cast a spe.."
+        ],
+        "kinds": [
+          "exile_top",
+          "each_player",
+          "number"
+        ]
+      },
+      {
+        "itemIndex": 103,
+        "name": "Bell Borca, Spectral Sergeant",
+        "rank": 15805,
+        "clause": "Note the mana value of each card as it's put into exile. Bell Borca's power is equal to the greatest number noted for it this turn. At the beginning of your upkeep, exile the top card of your library. You may play that card this turn.",
+        "unknowns": [
+          "Note the mana value of each card as it's put into exile",
+          "this permanent's power is equal to the greatest number noted for it this turn"
+        ],
+        "kinds": [
+          "impulse_exile_top",
+          "you",
+          "number"
+        ]
+      },
+      {
+        "itemIndex": 104,
+        "name": "Annie Flash, the Veteran",
+        "rank": 16015,
+        "clause": "Flash When Annie Flash enters, if you cast it, return target permanent card with mana value 3 or less from your graveyard to the battlefield tapped. Whenever Annie Flash becomes tapped, exile the top two cards of your library. You may play those cards this ...",
+        "unknowns": [
+          "Whenever this permanent becomes tapped, exile the top two cards of your library",
+          "You may play those cards this .."
+        ],
+        "kinds": [
+          "conditional",
+          "if",
+          "move_zone",
+          "raw"
+        ]
+      },
+      {
+        "itemIndex": 105,
+        "name": "Abbot of Keral Keep",
+        "rank": 16180,
+        "clause": "Prowess (Whenever you cast a noncreature spell, this creature gets +1/+1 until end of turn.) When this creature enters, exile the top card of your library. Until end of turn, you may play that card.",
+        "unknowns": [
+          "Prowess (Whenever you cast a noncreature spell, this creature gets +1/+1 until end of turn.)"
+        ],
+        "kinds": [
+          "impulse_exile_top",
+          "you",
+          "number"
+        ]
+      },
+      {
+        "itemIndex": 110,
+        "name": "Hama, the Bloodbender",
+        "rank": 17501,
+        "clause": "For as long as you control Hama, you may cast the exiled card during your turn by waterbending {X} rather than paying its mana cost, where X is its mana value.",
+        "unknowns": [
+          "For as long as you control this permanent, you may cast the exiled card during your turn by waterbending {X} rather than paying its mana cost, where X is its mana value"
+        ],
+        "kinds": []
+      },
+      {
+        "itemIndex": 115,
+        "name": "Sizzling Changeling",
+        "rank": 17958,
+        "clause": "Changeling (This card is every creature type.) When this creature dies, exile the top card of your library. Until the end of your next turn, you may play that card.",
+        "unknowns": [
+          "Changeling (This card is every creature type.)"
+        ],
+        "kinds": [
+          "impulse_exile_top",
+          "you",
+          "number"
+        ]
+      },
+      {
+        "itemIndex": 117,
+        "name": "Colfenor's Plans",
+        "rank": 18413,
+        "clause": "When this enchantment enters, exile the top seven cards of your library face down. You may look at the cards exiled with this enchantment, and you may play lands and cast spells from among those cards. Skip your draw step. You can't cast more than one spell...",
+        "unknowns": [
+          "You may look at the cards exiled with this enchantment, and you may play lands and cast spells from among those cards",
+          "You can't cast more than one spell.."
+        ],
+        "kinds": [
+          "exile_top",
+          "you",
+          "number",
+          "skip_next_draw_step"
+        ]
+      },
+      {
+        "itemIndex": 118,
+        "name": "Endrider Spikespitter",
+        "rank": 18456,
+        "clause": "Reach Start your engines! (If you have no speed, it starts at 1. It increases once on each of your turns when an opponent loses life. Max speed is 4.) Max speed — At the beginning of your upkeep, exile the top card of your library. You may play that card th...",
+        "unknowns": [
+          "Reach Start your engines! (If you have no speed, it starts at 1",
+          "It increases once on each of your turns when an opponent loses life",
+          "Max speed - At the beginning of your upkeep, exile the top card of your library",
+          "You may play that card th.."
+        ],
+        "kinds": []
+      },
+      {
+        "itemIndex": 124,
+        "name": "Herald of Amity",
+        "rank": 19281,
+        "clause": "Flying When this creature enters, exile the top eight cards of your library. You may cast an Aura spell from among them without paying its mana cost. Then put the rest on the bottom of your library in a random order. Whenever this creature attacks, it gets ...",
+        "unknowns": [
+          "Whenever this creature attacks, it gets .."
+        ],
+        "kinds": [
+          "exile_top",
+          "you",
+          "number",
+          "grant_exile_permission",
+          "raw"
+        ]
+      },
+      {
+        "itemIndex": 125,
+        "name": "Charforger",
+        "rank": 19465,
+        "clause": "When this creature enters, create a 1/1 red Phyrexian Goblin creature token. Whenever another creature or artifact you control is put into a graveyard from the battlefield, put an oil counter on this creature. Remove three oil counters from this creature: E...",
+        "unknowns": [
+          "Whenever another creature or artifact you control is put into a graveyard from the battlefield, put an oil counter on this creature",
+          "E.."
+        ],
+        "kinds": [
+          "create_token",
+          "you",
+          "number"
+        ]
+      },
+      {
+        "itemIndex": 128,
+        "name": "Raphael, Most Attitude",
+        "rank": 20168,
+        "clause": "Menace (This creature can't be blocked except by two or more creatures.) Alliance — Whenever another creature you control enters, you may exile the top card of your library. Whenever Raphael attacks, until end of turn, you may play a card exiled with Raphael.",
+        "unknowns": [
+          "Alliance - Whenever another creature you control enters, you may exile the top card of your library",
+          "Whenever this permanent attacks, until end of turn, you may play a card exiled with this permanent"
+        ],
+        "kinds": [
+          "grant_static_ability",
+          "raw"
+        ]
+      },
+      {
+        "itemIndex": 131,
+        "name": "Flameskull",
+        "rank": 20327,
+        "clause": "Flying This creature can't block. Rejuvenation — When this creature dies, exile it. If you do, exile the top card of your library. Until the end of your next turn, you may play one of those cards. (If you cast Flameskull this way, you can't play the other c...",
+        "unknowns": [
+          "(If you cast this permanent this way, you can't play the other c.."
+        ],
+        "kinds": [
+          "cant_block",
+          "raw",
+          "exile",
+          "impulse_exile_top",
+          "you",
+          "number"
+        ]
+      },
+      {
+        "itemIndex": 134,
+        "name": "Irascible Wolverine",
+        "rank": 20599,
+        "clause": "When this creature enters, exile the top card of your library. Until end of turn, you may play that card. Plot {2}{R} (You may pay {2}{R} and exile this card from your hand. Cast it as a sorcery on a later turn without paying its mana cost. Plot only as a s...",
+        "unknowns": [
+          "Plot {2}{R} (You may pay {2}{R} and exile this card from your hand",
+          "Plot only as a s.."
+        ],
+        "kinds": [
+          "impulse_exile_top",
+          "you",
+          "number"
+        ]
+      },
+      {
+        "itemIndex": 138,
+        "name": "Abstract Performance",
+        "rank": 21435,
+        "clause": "Exile the top four cards of your library in a face-down pile, then exile the top four cards of your library in a face-up pile. An opponent chooses one of those piles. Put that pile into your graveyard. Look at the cards in the other pile. You may cast a spe...",
+        "unknowns": [
+          "Look at the cards in the other pile",
+          "You may cast a spe.."
+        ],
+        "kinds": [
+          "exile",
+          "raw",
+          "choose_pile",
+          "target_opponent",
+          "move_zone"
+        ]
+      },
+      {
+        "itemIndex": 139,
+        "name": "Ire Shaman",
+        "rank": 21540,
+        "clause": "Menace (This creature can't be blocked except by two or more creatures.) Megamorph {R} (You may cast this card face down as a 2/2 creature for {3}. Turn it face up any time for its megamorph cost and put a +1/+1 counter on it.) When this creature is turned ...",
+        "unknowns": [
+          "Megamorph {R} (You may cast this card face down as a 2/2 creature for {3}",
+          "Turn it face up any time for its megamorph cost and put a +1/+1 counter on it.)",
+          "When this creature is turned .."
+        ],
+        "kinds": [
+          "grant_static_ability",
+          "raw"
+        ]
+      },
+      {
+        "itemIndex": 141,
+        "name": "Magus of the Mind",
+        "rank": 22414,
+        "clause": "{U}, {T}, Sacrifice this creature: Shuffle your library, then exile the top X cards, where X is one plus the number of spells cast this turn. Until end of turn, you may play lands and cast spells from among cards exiled this way without paying their mana co...",
+        "unknowns": [
+          "Until end of turn, you may play lands and cast spells from among cards exiled this way without paying their mana co.."
+        ],
+        "kinds": [
+          "shuffle_library",
+          "you",
+          "exile",
+          "raw"
+        ]
+      },
+      {
+        "itemIndex": 143,
+        "name": "Fateful Tempest",
+        "rank": 22789,
+        "clause": "Until the end of your next turn, you may play the exiled cards.",
+        "unknowns": [
+          "Until the end of your next turn, you may play the exiled cards"
+        ],
+        "kinds": []
+      },
+      {
+        "itemIndex": 144,
+        "name": "Hazoret's Undying Fury",
+        "rank": 23134,
+        "clause": "Shuffle your library, then exile the top four cards. You may cast any number of spells with mana value 5 or less from among them without paying their mana costs. Lands you control don't untap during your next untap step.",
+        "unknowns": [
+          "Lands you control don't untap during your next untap step"
+        ],
+        "kinds": [
+          "shuffle_library",
+          "you",
+          "exile",
+          "raw",
+          "grant_exile_permission"
+        ]
+      },
+      {
+        "itemIndex": 156,
+        "name": "Planeswalkerificate",
+        "rank": null,
+        "clause": "Enchant creature you control Enchanted creature is a planeswalker in addition to its other types. Its toughness becomes its loyalty. (You change its toughness to activate loyalty abilities. Damage lowers toughness. Toughness doesn't heal at end of turn.) It...",
+        "unknowns": [
+          "Enchant creature you control Enchanted creature is a planeswalker in addition to its other types",
+          "Its toughness becomes its loyalty",
+          "(You change its toughness to activate loyalty abilities",
+          "Damage lowers toughness",
+          "Toughness doesn't heal at end of turn.)",
+          "It.."
+        ],
+        "kinds": []
+      },
+      {
+        "itemIndex": 157,
+        "name": "The Great Juggernaut",
+        "rank": null,
+        "clause": "At the beginning of your upkeep, sacrifice The Great Juggernaut unless you discard a card. Whenever The Great Juggernaut attacks, shuffle your library then exile the top card of your library. You may play that card without paying its mana cost this turn.",
+        "unknowns": [
+          "Whenever this permanent attacks, shuffle your library"
+        ],
+        "kinds": [
+          "conditional",
+          "if",
+          "sacrifice",
+          "you",
+          "raw",
+          "impulse_exile_top",
+          "number"
+        ]
+      },
+      {
+        "itemIndex": 158,
+        "name": "The Magic Bandit",
+        "rank": null,
+        "clause": "When The Magic Bandit deals combat damage to an opponent, exile the top card of that player's library. You may cast that card for as long as it remains exiled, and mana of any type can be spent to cast that spell. Whenever you cast a spell or play a land yo...",
+        "unknowns": [
+          "Whenever you cast a spell or play a land yo.."
+        ],
+        "kinds": [
+          "impulse_exile_top",
+          "target_player",
+          "number"
+        ]
+      },
+      {
+        "itemIndex": 159,
+        "name": "The Mysterious Sphere",
+        "rank": null,
+        "clause": "Advertising — {T}: Exile the top card of your library. You gain 1 life. Show — At the beginning of combat on your turn, if there are three or more cards exiled with The Mysterious Sphere, you may put them into your graveyard. If you do, create copies of eac...",
+        "unknowns": [
+          "If you do, create copies of eac.."
+        ],
+        "kinds": [
+          "exile_top",
+          "you",
+          "number",
+          "gain_life",
+          "conditional",
+          "if",
+          "move_zone",
+          "raw"
+        ]
+      },
+      {
+        "itemIndex": 160,
+        "name": "The Powerful Dragon",
+        "rank": null,
+        "clause": "Flying Mentor (Whenever this creature attacks, put a +1/+1 counter on target attacking creature with lesser power.) Whenever one or more +1/+1 counters are put on a creature you control, exile the top card of your library. Until end of turn, you may play th...",
+        "unknowns": [
+          "Flying Mentor (Whenever this creature attacks, put a +1/+1 counter on target attacking creature with lesser power.)",
+          "Whenever one or more +1/+1 counters are put on a creature you control, exile the top card of your library",
+          "Until end of turn, you may play th.."
+        ],
+        "kinds": [
+          "add_counter",
+          "number",
+          "raw"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "fight_and_similar",
+    "ordinal": 8,
+    "title": "Fight And Bite-Style Combat Resolution",
+    "total": 30,
+    "unknownItems": 0,
+    "unknownStepCount": 0,
+    "rows": []
+  },
+  {
+    "id": "goad_and_attacking_pressure",
+    "ordinal": 9,
+    "title": "Goad And Attack-Pressure Effects",
+    "total": 119,
+    "unknownItems": 4,
+    "unknownStepCount": 4,
+    "rows": [
+      {
+        "itemIndex": 54,
+        "name": "Skeletal Swarming",
+        "rank": 15747,
+        "clause": "Each Skeleton you control has trample, attacks each combat if able, and gets +X/+0, where X is the number of other Skeletons you control.",
+        "unknowns": [
+          "Each Skeleton you control has trample, attacks each combat if able, and gets +X/+0, where X is the number of other Skeletons you control"
+        ],
+        "kinds": []
+      },
+      {
+        "itemIndex": 104,
+        "name": "Reckless Cohort",
+        "rank": 28694,
+        "clause": "This creature attacks each combat if able unless you control another Ally.",
+        "unknowns": [
+          "This creature attacks each combat if able unless you control another Ally"
+        ],
+        "kinds": []
+      },
+      {
+        "itemIndex": 113,
+        "name": "Marauding Maulhorn",
+        "rank": 29994,
+        "clause": "This creature attacks each combat if able unless you control a creature named Advocate of the Beast.",
+        "unknowns": [
+          "This creature attacks each combat if able unless you control a creature named Advocate of the Beast"
+        ],
+        "kinds": []
+      },
+      {
+        "itemIndex": 119,
+        "name": "Catch of the Day",
+        "rank": null,
+        "clause": "Whenever this creature attacks → Scry 2; goad target creature an opponent controls; or tap target creature an opponent controls.",
+        "unknowns": [
+          "Whenever this creature attacks → Scry 2"
+        ],
+        "kinds": [
+          "goad",
+          "raw",
+          "tap_or_untap"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "non_graveyard_exile",
+    "ordinal": 10,
+    "title": "Non-Graveyard Exile Effects",
+    "total": 200,
+    "unknownItems": 13,
+    "unknownStepCount": 13,
+    "rows": [
+      {
+        "itemIndex": 8,
+        "name": "Opposition Agent",
+        "rank": 515,
+        "clause": "While an opponent is searching their library, they exile each card they find.",
+        "unknowns": [
+          "While an opponent is searching their library, they exile each card they find"
+        ],
+        "kinds": []
+      },
+      {
+        "itemIndex": 14,
+        "name": "Grasp of Fate",
+        "rank": 1104,
+        "clause": "When this enchantment enters, for each opponent, exile up to one target nonland permanent that player controls until this enchantment leaves the battlefield.",
+        "unknowns": [
+          "for each opponent, exile up to one target nonland permanent that player controls until this enchantment leaves the battlefield"
+        ],
+        "kinds": []
+      },
+      {
+        "itemIndex": 22,
+        "name": "Wild-Magic Sorcerer",
+        "rank": 1594,
+        "clause": "The first spell you cast from exile each turn has cascade.",
+        "unknowns": [
+          "The first spell you cast from exile each turn has cascade"
+        ],
+        "kinds": []
+      },
+      {
+        "itemIndex": 56,
+        "name": "Far Traveler",
+        "rank": 4484,
+        "clause": "Commander creatures you own have \"At the beginning of your end step, exile up to one target tapped creature you control, then return it to the battlefield under its owner's control.\"",
+        "unknowns": [
+          "Commander creatures you own have \"At the beginning of your end step, exile up to one target tapped creature you control"
+        ],
+        "kinds": [
+          "move_zone",
+          "raw",
+          "owner_of_moved_cards"
+        ]
+      },
+      {
+        "itemIndex": 79,
+        "name": "Unexplained Absence",
+        "rank": 6367,
+        "clause": "For each player, exile up to one target nonland permanent that player controls.",
+        "unknowns": [
+          "For each player, exile up to one target nonland permanent that player controls"
+        ],
+        "kinds": []
+      },
+      {
+        "itemIndex": 96,
+        "name": "Hive of the Eye Tyrant",
+        "rank": 7485,
+        "clause": "{3}{B}: Until end of turn, this land becomes a 3/3 black Beholder creature with menace and \"Whenever this creature attacks, exile target card from defending player's graveyard.\" It's still a land.",
+        "unknowns": [
+          "Until end of turn, this land becomes a 3/3 black Beholder creature with menace and \"Whenever this creature attacks, exile target card from defending player's graveyard.\" It's still a land"
+        ],
+        "kinds": []
+      },
+      {
+        "itemIndex": 109,
+        "name": "Blue Mage's Cane",
+        "rank": 8217,
+        "clause": "Equipped creature gets +0/+2, is a Wizard in addition to its other types, and has \"Whenever this creature attacks, exile up to one target instant or sorcery card from defending player's graveyard.",
+        "unknowns": [
+          "Equipped creature gets +0/+2, is a Wizard in addition to its other types, and has \"Whenever this creature attacks, exile up to one target instant or sorcery card from defending player's graveyard"
+        ],
+        "kinds": []
+      },
+      {
+        "itemIndex": 116,
+        "name": "Haytham Kenway",
+        "rank": 8532,
+        "clause": "When Haytham Kenway enters, for each opponent, exile up to one target creature that player controls until Haytham Kenway leaves the battlefield.",
+        "unknowns": [
+          "for each opponent, exile up to one target creature that player controls until this permanent leaves the battlefield"
+        ],
+        "kinds": []
+      },
+      {
+        "itemIndex": 118,
+        "name": "Gale's Redirection",
+        "rank": 8594,
+        "clause": "Exile target spell, then roll a d20 and add that spell's mana value.",
+        "unknowns": [
+          "then roll a d20 and add that spell's mana value"
+        ],
+        "kinds": [
+          "exile",
+          "raw"
+        ]
+      },
+      {
+        "itemIndex": 122,
+        "name": "Mysterious Stranger",
+        "rank": 8854,
+        "clause": "When this creature enters, for each graveyard with an instant or sorcery card in it, exile target instant or sorcery card from that graveyard.",
+        "unknowns": [
+          "for each graveyard with an instant or sorcery card in it, exile target instant or sorcery card from that graveyard"
+        ],
+        "kinds": []
+      },
+      {
+        "itemIndex": 131,
+        "name": "Become Anonymous",
+        "rank": 9290,
+        "clause": "Exile target nontoken creature you own and the top two cards of your library in a face-down pile, shuffle that pile, then cloak those cards.",
+        "unknowns": [
+          "then cloak those cards"
+        ],
+        "kinds": [
+          "exile",
+          "raw"
+        ]
+      },
+      {
+        "itemIndex": 159,
+        "name": "Aether Snap",
+        "rank": 11079,
+        "clause": "Remove all counters from all permanents and exile all tokens.",
+        "unknowns": [
+          "Remove all counters from all permanents and exile all tokens"
+        ],
+        "kinds": []
+      },
+      {
+        "itemIndex": 196,
+        "name": "Mass Polymorph",
+        "rank": 14092,
+        "clause": "Exile all creatures you control, then reveal cards from the top of your library until you reveal that many creature cards.",
+        "unknowns": [
+          "then reveal cards from the top of your library until you reveal that many creature cards"
+        ],
+        "kinds": [
+          "exile",
+          "raw"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "modify_power_toughness",
+    "ordinal": 11,
+    "title": "Power/Toughness Modification",
+    "total": 200,
+    "unknownItems": 16,
+    "unknownStepCount": 16,
+    "rows": [
+      {
+        "itemIndex": 17,
+        "name": "Shared Animosity",
+        "rank": 665,
+        "clause": "Whenever a creature you control attacks, it gets +1/+0 until end of turn for each other attacking creature that shares a creature type with it.",
+        "unknowns": [
+          "for each other attacking creature that shares a creature type with it"
+        ],
+        "kinds": [
+          "modify_pt",
+          "raw"
+        ]
+      },
+      {
+        "itemIndex": 38,
+        "name": "Coat of Arms",
+        "rank": 928,
+        "clause": "Each creature gets +1/+1 for each other creature on the battlefield that shares at least one creature type with it.",
+        "unknowns": [
+          "Each creature gets +1/+1 for each other creature on the battlefield that shares at least one creature type with it"
+        ],
+        "kinds": []
+      },
+      {
+        "itemIndex": 39,
+        "name": "Defile",
+        "rank": 955,
+        "clause": "Target creature gets -1/-1 until end of turn for each Swamp you control.",
+        "unknowns": [
+          "for each Swamp you control"
+        ],
+        "kinds": [
+          "modify_pt",
+          "raw"
+        ]
+      },
+      {
+        "itemIndex": 75,
+        "name": "Multani, Yavimaya's Avatar",
+        "rank": 1783,
+        "clause": "Multani gets +1/+1 for each land you control and each land card in your graveyard.",
+        "unknowns": [
+          "this permanent gets +1/+1 for each land you control and each land card in your graveyard"
+        ],
+        "kinds": []
+      },
+      {
+        "itemIndex": 89,
+        "name": "Sudden Spoiling",
+        "rank": 1994,
+        "clause": "Until end of turn, creatures target player controls lose all abilities and have base power and toughness 0/2.",
+        "unknowns": [
+          "Until end of turn, creatures target player controls lose all abilities and have base power and toughness 0/2"
+        ],
+        "kinds": []
+      },
+      {
+        "itemIndex": 99,
+        "name": "Mutilate",
+        "rank": 2206,
+        "clause": "All creatures get -1/-1 until end of turn for each Swamp you control.",
+        "unknowns": [
+          "for each Swamp you control"
+        ],
+        "kinds": [
+          "modify_pt",
+          "raw"
+        ]
+      },
+      {
+        "itemIndex": 104,
+        "name": "Umbral Mantle",
+        "rank": 2381,
+        "clause": "Equipped creature has \"{3}, {Q}: This creature gets +2/+2 until end of turn.\" ({Q} is the untap symbol.)",
+        "unknowns": [
+          "Equipped creature has \"{3}, {Q}: This creature gets +2/+2 until end of turn.\" ({Q} is the untap symbol.)"
+        ],
+        "kinds": []
+      },
+      {
+        "itemIndex": 126,
+        "name": "Pemmin's Aura",
+        "rank": 2717,
+        "clause": "{1}: Enchanted creature gets +1/-1 or -1/+1 until end of turn.",
+        "unknowns": [
+          "Enchanted creature gets +1/-1 or -1/+1 until end of turn"
+        ],
+        "kinds": []
+      },
+      {
+        "itemIndex": 130,
+        "name": "Jodah, the Unifier",
+        "rank": 2783,
+        "clause": "Legendary creatures you control get +X/+X, where X is the number of legendary creatures you control.",
+        "unknowns": [
+          "Legendary creatures you control get +X/+X, where X is the number of legendary creatures you control"
+        ],
+        "kinds": []
+      },
+      {
+        "itemIndex": 162,
+        "name": "Idolized",
+        "rank": 3293,
+        "clause": "Enchanted creature has \"Whenever this creature attacks alone, it gets +X/+X until end of turn, where X is the number of nonland permanents you control.\"",
+        "unknowns": [
+          "Enchanted creature has \"Whenever this creature attacks alone, it gets +X/+X until end of turn, where X is the number of nonland permanents you control.\""
+        ],
+        "kinds": []
+      },
+      {
+        "itemIndex": 177,
+        "name": "Omnath, Locus of Mana",
+        "rank": 3499,
+        "clause": "Omnath gets +1/+1 for each unspent green mana you have.",
+        "unknowns": [
+          "this permanent gets +1/+1 for each unspent green mana you have"
+        ],
+        "kinds": []
+      },
+      {
+        "itemIndex": 179,
+        "name": "Phyresis Outbreak",
+        "rank": 3525,
+        "clause": "Then each creature your opponents control gets -1/-1 until end of turn for each poison counter its controller has.",
+        "unknowns": [
+          "for each poison counter its controller has"
+        ],
+        "kinds": [
+          "modify_pt",
+          "raw"
+        ]
+      },
+      {
+        "itemIndex": 181,
+        "name": "Eidolon of Countless Battles",
+        "rank": 3576,
+        "clause": "This creature and enchanted creature each get +1/+1 for each creature you control and +1/+1 for each Aura you control.",
+        "unknowns": [
+          "This creature and enchanted creature each get +1/+1 for each creature you control and +1/+1 for each Aura you control"
+        ],
+        "kinds": []
+      },
+      {
+        "itemIndex": 190,
+        "name": "Aettir and Priwen",
+        "rank": 3722,
+        "clause": "Equipped creature has base power and toughness X/X, where X is your life total.",
+        "unknowns": [
+          "Equipped creature has base power and toughness X/X, where X is your life total"
+        ],
+        "kinds": []
+      },
+      {
+        "itemIndex": 191,
+        "name": "Rampaging Brontodon",
+        "rank": 3730,
+        "clause": "Whenever this creature attacks, it gets +1/+1 until end of turn for each land you control.",
+        "unknowns": [
+          "for each land you control"
+        ],
+        "kinds": [
+          "modify_pt",
+          "raw"
+        ]
+      },
+      {
+        "itemIndex": 192,
+        "name": "Jumbo Cactuar",
+        "rank": 3734,
+        "clause": "10,000 Needles — Whenever this creature attacks, it gets +9999/+0 until end of turn.",
+        "unknowns": [
+          "10,000 Needles - Whenever this creature attacks, it gets +9999/+0 until end of turn"
+        ],
+        "kinds": []
+      }
+    ]
+  },
+  {
+    "id": "keyword_grants_and_losses",
+    "ordinal": 12,
+    "title": "Keyword Grants And Losses",
+    "total": 200,
+    "unknownItems": 21,
+    "unknownStepCount": 21,
+    "rows": [
+      {
+        "itemIndex": 11,
+        "name": "Cursed Mirror",
+        "rank": 447,
+        "clause": "As this artifact enters, you may have it become a copy of any creature on the battlefield until end of turn, except it has haste.",
+        "unknowns": [
+          "As this artifact enters, you may have it become a copy of any creature on the battlefield until end of turn, except it has haste"
+        ],
+        "kinds": []
+      },
+      {
+        "itemIndex": 33,
+        "name": "Arcane Lighthouse",
+        "rank": 1143,
+        "clause": "{1}, {T}: Until end of turn, creatures your opponents control lose hexproof and shroud and can't have hexproof or shroud.",
+        "unknowns": [
+          "Until end of turn, creatures your opponents control lose hexproof and shroud and can't have hexproof or shroud"
+        ],
+        "kinds": []
+      },
+      {
+        "itemIndex": 68,
+        "name": "Delay",
+        "rank": 1912,
+        "clause": "If it's a creature, it has haste.)",
+        "unknowns": [
+          "If it's a creature, it has haste.)"
+        ],
+        "kinds": []
+      },
+      {
+        "itemIndex": 74,
+        "name": "Sudden Spoiling",
+        "rank": 1994,
+        "clause": "Until end of turn, creatures target player controls lose all abilities and have base power and toughness 0/2.",
+        "unknowns": [
+          "Until end of turn, creatures target player controls lose all abilities and have base power and toughness 0/2"
+        ],
+        "kinds": []
+      },
+      {
+        "itemIndex": 78,
+        "name": "Final Showdown",
+        "rank": 2043,
+        "clause": "+ {1} — All creatures lose all abilities until end of turn.",
+        "unknowns": [
+          "+ {1} - All creatures lose all abilities until end of turn"
+        ],
+        "kinds": []
+      },
+      {
+        "itemIndex": 93,
+        "name": "Tishana's Tidebinder",
+        "rank": 2572,
+        "clause": "If an ability of an artifact, creature, or planeswalker is countered this way, that permanent loses all abilities for as long as this creature remains on the battlefield.",
+        "unknowns": [
+          "If an ability of an artifact, creature, or planeswalker is countered this way, that permanent loses all abilities for as long as this creature remains on the battlefield"
+        ],
+        "kinds": []
+      },
+      {
+        "itemIndex": 112,
+        "name": "Alpha Authority",
+        "rank": 2980,
+        "clause": "Enchanted creature has hexproof and can't be blocked by more than one creature.",
+        "unknowns": [
+          "Enchanted creature has hexproof and can't be blocked by more than one creature"
+        ],
+        "kinds": []
+      },
+      {
+        "itemIndex": 129,
+        "name": "Coercive Recruiter",
+        "rank": 3318,
+        "clause": "Until end of turn, it gains haste and becomes a Pirate in addition to its other types.",
+        "unknowns": [
+          "Until end of turn, it gains haste and becomes a Pirate in addition to its other types"
+        ],
+        "kinds": []
+      },
+      {
+        "itemIndex": 150,
+        "name": "Azure Beastbinder",
+        "rank": 3976,
+        "clause": "Whenever this creature attacks, up to one target artifact, creature, or planeswalker an opponent controls loses all abilities until your next turn.",
+        "unknowns": [
+          "up to one target artifact, creature, or planeswalker an opponent controls loses all abilities until your next turn"
+        ],
+        "kinds": []
+      },
+      {
+        "itemIndex": 155,
+        "name": "Redemption Arc",
+        "rank": 4144,
+        "clause": "Enchanted creature has indestructible and is goaded.",
+        "unknowns": [
+          "Enchanted creature has indestructible and is goaded"
+        ],
+        "kinds": []
+      },
+      {
+        "itemIndex": 160,
+        "name": "The Masamune",
+        "rank": 4228,
+        "clause": "As long as equipped creature is attacking, it has first strike and must be blocked if able.",
+        "unknowns": [
+          "As long as equipped creature is attacking, it has first strike and must be blocked if able"
+        ],
+        "kinds": []
+      },
+      {
+        "itemIndex": 167,
+        "name": "Paladin Class",
+        "rank": 4300,
+        "clause": "Whenever you attack, until end of turn, target attacking creature gets +1/+1 for each other attacking creature and gains double strike.",
+        "unknowns": [
+          "until end of turn, target attacking creature gets +1/+1 for each other attacking creature and gains double strike"
+        ],
+        "kinds": []
+      },
+      {
+        "itemIndex": 176,
+        "name": "Walking Bulwark",
+        "rank": 4535,
+        "clause": "{2}: Until end of turn, target creature with defender gains haste, can attack as though it didn't have defender, and assigns combat damage equal to its toughness rather than its power.",
+        "unknowns": [
+          "Until end of turn, target creature with defender gains haste, can attack as though it didn't have defender, and assigns combat damage equal to its toughness rather than its power"
+        ],
+        "kinds": []
+      },
+      {
+        "itemIndex": 182,
+        "name": "Eye of Nidhogg",
+        "rank": 4713,
+        "clause": "Enchanted creature is a black Dragon with base power and toughness 4/2, has flying and deathtouch, and is goaded.",
+        "unknowns": [
+          "Enchanted creature is a black Dragon with base power and toughness 4/2, has flying and deathtouch, and is goaded"
+        ],
+        "kinds": []
+      },
+      {
+        "itemIndex": 184,
+        "name": "Tromokratis",
+        "rank": 4739,
+        "clause": "Tromokratis has hexproof unless it's attacking or blocking.",
+        "unknowns": [
+          "this permanent has hexproof unless it's attacking or blocking"
+        ],
+        "kinds": []
+      },
+      {
+        "itemIndex": 185,
+        "name": "Flaming Fist",
+        "rank": 4760,
+        "clause": "Commander creatures you own have \"Whenever this creature attacks, it gains double strike until end of turn.\"",
+        "unknowns": [
+          "Commander creatures you own have \"Whenever this creature attacks, it gains double strike until end of turn.\""
+        ],
+        "kinds": []
+      },
+      {
+        "itemIndex": 192,
+        "name": "Restless Spire",
+        "rank": 4947,
+        "clause": "{U}{R}: Until end of turn, this land becomes a 2/1 blue and red Elemental creature with \"During your turn, this creature has first strike.\" It's still a land.",
+        "unknowns": [
+          "Until end of turn, this land becomes a 2/1 blue and red Elemental creature with \"During your turn, this creature has first strike.\" It's still a land"
+        ],
+        "kinds": []
+      },
+      {
+        "itemIndex": 194,
+        "name": "Akroma, Vision of Ixidor",
+        "rank": 4968,
+        "clause": "At the beginning of each combat, until end of turn, each other creature you control gets +1/+1 if it has flying, +1/+1 if it has first strike, and so on for double strike, deathtouch, haste, hexproof, indestructible, lifelink, menace, protection, reach, trample, vigilance, and partner.",
+        "unknowns": [
+          "until end of turn, each other creature you control gets +1/+1 if it has flying, +1/+1 if it has first strike, and so on for double strike, deathtouch, haste, hexproof, indestructible, lifelink, menace, protection, reach, trample, vigilance, and partner"
+        ],
+        "kinds": []
+      },
+      {
+        "itemIndex": 195,
+        "name": "Djeru and Hazoret",
+        "rank": 4977,
+        "clause": "As long as you have one or fewer cards in hand, Djeru and Hazoret has vigilance and haste.",
+        "unknowns": [
+          "As long as you have one or fewer cards in hand, this permanent has vigilance and haste"
+        ],
+        "kinds": []
+      },
+      {
+        "itemIndex": 196,
+        "name": "Nogi, Draco-Zealot",
+        "rank": 4984,
+        "clause": "Whenever Nogi attacks, if you control three or more Dragons, until end of turn, Nogi becomes a Dragon with base power and toughness 5/5 and gains flying.",
+        "unknowns": [
+          "until end of turn, this permanent becomes a Dragon with base power and toughness 5/5 and gains flying"
+        ],
+        "kinds": [
+          "conditional",
+          "if"
+        ]
+      },
+      {
+        "itemIndex": 197,
+        "name": "Deep-Sea Kraken",
+        "rank": 5012,
+        "clause": "It has haste.)",
+        "unknowns": [
+          "It has haste.)"
+        ],
+        "kinds": []
+      }
+    ]
+  },
+  {
+    "id": "combat_restrictions",
+    "ordinal": 13,
+    "title": "Combat Restrictions And Evasion Rules",
+    "total": 200,
+    "unknownItems": 19,
+    "unknownStepCount": 21,
+    "rows": [
+      {
+        "itemIndex": 45,
+        "name": "Anzrag, the Quake-Mole",
+        "rank": 2689,
+        "clause": "{3}{R}{R}{G}{G}: Anzrag must be blocked each combat this turn if able.",
+        "unknowns": [
+          "this permanent must be blocked each combat this turn if able"
+        ],
+        "kinds": []
+      },
+      {
+        "itemIndex": 51,
+        "name": "Alpha Authority",
+        "rank": 2980,
+        "clause": "Enchanted creature has hexproof and can't be blocked by more than one creature.",
+        "unknowns": [
+          "Enchanted creature has hexproof and can't be blocked by more than one creature"
+        ],
+        "kinds": []
+      },
+      {
+        "itemIndex": 55,
+        "name": "Pippin, Guard of the Citadel",
+        "rank": 3033,
+        "clause": "(It can't be blocked, targeted, dealt damage, enchanted, or equipped by anything of that type.)",
+        "unknowns": [
+          "(It can't be blocked, targeted, dealt damage, enchanted, or equipped by anything of that type.)"
+        ],
+        "kinds": []
+      },
+      {
+        "itemIndex": 62,
+        "name": "Gods Willing",
+        "rank": 3444,
+        "clause": "(It can't be blocked, targeted, dealt damage, enchanted, or equipped by anything of that color.)",
+        "unknowns": [
+          "(It can't be blocked, targeted, dealt damage, enchanted, or equipped by anything of that color.)"
+        ],
+        "kinds": []
+      },
+      {
+        "itemIndex": 74,
+        "name": "The Masamune",
+        "rank": 4228,
+        "clause": "As long as equipped creature is attacking, it has first strike and must be blocked if able.",
+        "unknowns": [
+          "As long as equipped creature is attacking, it has first strike and must be blocked if able"
+        ],
+        "kinds": []
+      },
+      {
+        "itemIndex": 85,
+        "name": "Tromokratis",
+        "rank": 4739,
+        "clause": "Tromokratis can't be blocked unless all creatures defending player controls block it.",
+        "unknowns": [
+          "this permanent can't be blocked unless all creatures defending player controls block it"
+        ],
+        "kinds": []
+      },
+      {
+        "itemIndex": 101,
+        "name": "Sidar Kondo of Jamuraa",
+        "rank": 5253,
+        "clause": "Creatures your opponents control without flying or reach can't block creatures with power 2 or less.",
+        "unknowns": [
+          "Creatures your opponents control without flying or reach can't block creatures with power 2 or less"
+        ],
+        "kinds": []
+      },
+      {
+        "itemIndex": 104,
+        "name": "Abomination of Llanowar",
+        "rank": 5374,
+        "clause": "Vigilance; menace (This creature can't be blocked except by two or more creatures.)",
+        "unknowns": [
+          "Vigilance"
+        ],
+        "kinds": [
+          "grant_static_ability",
+          "raw"
+        ]
+      },
+      {
+        "itemIndex": 107,
+        "name": "Vorrac Battlehorns",
+        "rank": 5622,
+        "clause": "Equipped creature has trample and can't be blocked by more than one creature.",
+        "unknowns": [
+          "Equipped creature has trample and can't be blocked by more than one creature"
+        ],
+        "kinds": []
+      },
+      {
+        "itemIndex": 122,
+        "name": "Gornog, the Red Reaper",
+        "rank": 6278,
+        "clause": "Cowards can't block Warriors.",
+        "unknowns": [
+          "Cowards can't block Warriors"
+        ],
+        "kinds": []
+      },
+      {
+        "itemIndex": 135,
+        "name": "Spectra Ward",
+        "rank": 6708,
+        "clause": "(It can't be blocked, targeted, or dealt damage by anything that's white, blue, black, red, or green.)",
+        "unknowns": [
+          "(It can't be blocked, targeted, or dealt damage by anything that's white, blue, black, red, or green.)"
+        ],
+        "kinds": []
+      },
+      {
+        "itemIndex": 136,
+        "name": "Fumiko the Lowblood",
+        "rank": 6738,
+        "clause": "Fumiko has bushido X, where X is the number of attacking creatures. (Whenever this creature blocks or becomes blocked, it gets +X/+X until end of turn.) Creatures your opponents control attack each combat if able.",
+        "unknowns": [
+          "Fumiko has bushido X, where X is the number of attacking creatures",
+          "(Whenever this creature blocks or becomes blocked, it gets +X/+X until end of turn.)",
+          "Creatures your opponents control attack each combat if able"
+        ],
+        "kinds": []
+      },
+      {
+        "itemIndex": 167,
+        "name": "Bower Passage",
+        "rank": 8161,
+        "clause": "Creatures with flying can't block creatures you control.",
+        "unknowns": [
+          "Creatures with flying can't block creatures you control"
+        ],
+        "kinds": []
+      },
+      {
+        "itemIndex": 173,
+        "name": "Frodo Baggins",
+        "rank": 8414,
+        "clause": "As long as Frodo Baggins is your Ring-bearer, it must be blocked if able.",
+        "unknowns": [
+          "As long as this permanent is your Ring-bearer, it must be blocked if able"
+        ],
+        "kinds": []
+      },
+      {
+        "itemIndex": 176,
+        "name": "Tax Collector",
+        "rank": 8578,
+        "clause": "(Until your next turn, that creature can't attack or block and its activated abilities can't be activated.)",
+        "unknowns": [
+          "(Until your next turn, that creature can't attack or block and its activated abilities can't be activated.)"
+        ],
+        "kinds": []
+      },
+      {
+        "itemIndex": 190,
+        "name": "Tolsimir, Midnight's Light",
+        "rank": 9445,
+        "clause": "Whenever a Wolf you control attacks, if Tolsimir attacked this combat, target creature an opponent controls blocks that Wolf this combat if able.",
+        "unknowns": [
+          "target creature an opponent controls blocks that Wolf this combat if able"
+        ],
+        "kinds": [
+          "conditional",
+          "if"
+        ]
+      },
+      {
+        "itemIndex": 193,
+        "name": "The Foretold Soldier",
+        "rank": 9557,
+        "clause": "This creature must be blocked if able.",
+        "unknowns": [
+          "This creature must be blocked if able"
+        ],
+        "kinds": []
+      },
+      {
+        "itemIndex": 197,
+        "name": "Lavinia of the Tenth",
+        "rank": 9654,
+        "clause": "(Until your next turn, those permanents can't attack or block and their activated abilities can't be activated.)",
+        "unknowns": [
+          "(Until your next turn, those permanents can't attack or block and their activated abilities can't be activated.)"
+        ],
+        "kinds": []
+      },
+      {
+        "itemIndex": 198,
+        "name": "Grappling Hook",
+        "rank": 9663,
+        "clause": "Whenever equipped creature attacks, you may have target creature block it this turn if able.",
+        "unknowns": [
+          "you may have target creature block it this turn if able"
+        ],
+        "kinds": []
+      }
+    ]
+  },
+  {
+    "id": "control_change_exchange",
+    "ordinal": 14,
+    "title": "Control Change And Exchange Effects",
+    "total": 200,
+    "unknownItems": 6,
+    "unknownStepCount": 6,
+    "rows": [
+      {
+        "itemIndex": 61,
+        "name": "Crown of Doom",
+        "rank": 8949,
+        "clause": "{2}: Target player other than this artifact's owner gains control of it.",
+        "unknowns": [
+          "Target player other than this artifact's owner"
+        ],
+        "kinds": [
+          "gain_control",
+          "raw"
+        ]
+      },
+      {
+        "itemIndex": 109,
+        "name": "Power of Persuasion",
+        "rank": 14108,
+        "clause": "20 | Gain control of it until the end of your next turn.",
+        "unknowns": [
+          "20 | Gain control of it until the end of your next turn"
+        ],
+        "kinds": []
+      },
+      {
+        "itemIndex": 113,
+        "name": "Chamber of Manipulation",
+        "rank": 14675,
+        "clause": "Enchanted land has \"{T}, Discard a card: Gain control of target creature until end of turn.\"",
+        "unknowns": [
+          "Enchanted land has \"{T}, Discard a card: Gain control of target creature until end of turn.\""
+        ],
+        "kinds": []
+      },
+      {
+        "itemIndex": 119,
+        "name": "Tahngarth, First Mate",
+        "rank": 15103,
+        "clause": "Whenever an opponent attacks with one or more creatures, if Tahngarth is tapped, you may have that opponent gain control of Tahngarth until end of combat.",
+        "unknowns": [
+          "you may have that opponent gain control of this permanent until end of combat"
+        ],
+        "kinds": [
+          "conditional",
+          "if"
+        ]
+      },
+      {
+        "itemIndex": 168,
+        "name": "Loxodon Peacekeeper",
+        "rank": 21161,
+        "clause": "At the beginning of your upkeep, the player with the lowest life total gains control of this creature.",
+        "unknowns": [
+          "the player with the lowest life total"
+        ],
+        "kinds": [
+          "gain_control",
+          "raw"
+        ]
+      },
+      {
+        "itemIndex": 194,
+        "name": "Wild Dogs",
+        "rank": 24444,
+        "clause": "At the beginning of your upkeep, if a player has more life than each other player, the player with the most life gains control of this creature.",
+        "unknowns": [
+          "the player with the most life"
+        ],
+        "kinds": [
+          "conditional",
+          "if",
+          "gain_control",
+          "raw"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "copy_spells_abilities",
+    "ordinal": 15,
+    "title": "Copy Spells And Abilities",
+    "total": 200,
+    "unknownItems": 29,
+    "unknownStepCount": 33,
+    "rows": [
+      {
+        "itemIndex": 7,
+        "name": "Mizzix's Mastery",
+        "rank": 824,
+        "clause": "Exile target card that's an instant or sorcery from your graveyard. For each card exiled this way, copy it, and you may cast the copy without paying its mana cost. Exile Mizzix's Mastery. Overload {5}{R}{R}{R} (You may cast this spell for its overload cost....",
+        "unknowns": [
+          "Overload {5}{R}{R}{R} (You may cast this spell for its overload cost..."
+        ],
+        "kinds": [
+          "move_zone",
+          "raw",
+          "copy_spell",
+          "exile"
+        ]
+      },
+      {
+        "itemIndex": 17,
+        "name": "Twinning Staff",
+        "rank": 1737,
+        "clause": "If you would copy a spell one or more times, instead copy it that many times plus an additional time.",
+        "unknowns": [
+          "If you would copy a spell one or more times, instead copy it that many times plus an additional time"
+        ],
+        "kinds": []
+      },
+      {
+        "itemIndex": 32,
+        "name": "Zada, Hedron Grinder",
+        "rank": 3566,
+        "clause": "Whenever you cast an instant or sorcery spell that targets only Zada, copy that spell for each other creature you control that the spell could target.",
+        "unknowns": [
+          "for each other creature you control that the spell could target"
+        ],
+        "kinds": [
+          "copy_spell",
+          "raw"
+        ]
+      },
+      {
+        "itemIndex": 42,
+        "name": "Stolen Identity",
+        "rank": 4514,
+        "clause": "Create a token that's a copy of target artifact or creature. Cipher (Then you may exile this spell card encoded on a creature you control. Whenever that creature deals combat damage to a player, its controller may cast a copy of the encoded card without pay...",
+        "unknowns": [
+          "its controller may cast a copy of the encoded card without pay.."
+        ],
+        "kinds": [
+          "create_token",
+          "you",
+          "number"
+        ]
+      },
+      {
+        "itemIndex": 45,
+        "name": "March of Progress",
+        "rank": 4616,
+        "clause": "Choose target artifact creature you control. For each creature chosen this way, create a token that's a copy of it. Overload {6}{U} (You may cast this spell for its overload cost. If you do, change its text by replacing all instances of \"target\" with \"each.\")",
+        "unknowns": [
+          "Choose target artifact creature you control",
+          "For each creature chosen this way, create a token that's a copy of it"
+        ],
+        "kinds": [
+          "create_token",
+          "you",
+          "number"
+        ]
+      },
+      {
+        "itemIndex": 47,
+        "name": "Bonus Round",
+        "rank": 4992,
+        "clause": "Until end of turn, whenever a player casts an instant or sorcery spell, that player copies it and may choose new targets for the copy.",
+        "unknowns": [
+          "Until end of turn, whenever a player casts an instant or sorcery spell, that player copies it and may choose new targets for the copy"
+        ],
+        "kinds": []
+      },
+      {
+        "itemIndex": 48,
+        "name": "Finale of Promise",
+        "rank": 5004,
+        "clause": "If X is 10 or more, copy each of those spells twice.",
+        "unknowns": [
+          "If X is 10 or more, copy each of those spells twice"
+        ],
+        "kinds": []
+      },
+      {
+        "itemIndex": 51,
+        "name": "Chef's Kiss",
+        "rank": 5226,
+        "clause": "Copy it, then reselect the targets at random for the spell and the copy.",
+        "unknowns": [
+          "then reselect the targets at random for the spell and the copy"
+        ],
+        "kinds": [
+          "copy_spell",
+          "raw"
+        ]
+      },
+      {
+        "itemIndex": 59,
+        "name": "Tomb of Horrors Adventurer",
+        "rank": 5724,
+        "clause": "If you've completed a dungeon, copy that spell twice instead.",
+        "unknowns": [
+          "If you've completed a dungeon, copy that spell twice instead"
+        ],
+        "kinds": []
+      },
+      {
+        "itemIndex": 77,
+        "name": "Spelltwine",
+        "rank": 7628,
+        "clause": "Exile target instant or sorcery card from your graveyard and target instant or sorcery card from an opponent's graveyard. Copy those cards. Cast the copies if able without paying their mana costs. Exile Spelltwine.",
+        "unknowns": [
+          "Copy those cards",
+          "Cast the copies if able without paying their mana costs"
+        ],
+        "kinds": [
+          "move_zone",
+          "raw",
+          "exile"
+        ]
+      },
+      {
+        "itemIndex": 78,
+        "name": "Repeated Reverberation",
+        "rank": 7671,
+        "clause": "When you next cast an instant spell, cast a sorcery spell, or activate a loyalty ability this turn, copy that spell or ability twice.",
+        "unknowns": [
+          "cast a sorcery spell, or activate a loyalty ability this turn, copy that spell or ability twice"
+        ],
+        "kinds": []
+      },
+      {
+        "itemIndex": 79,
+        "name": "Crackling Spellslinger",
+        "rank": 7686,
+        "clause": "(When you cast that spell, copy it for each spell cast before it this turn.",
+        "unknowns": [
+          "(When you cast that spell, copy it for each spell cast before it this turn"
+        ],
+        "kinds": []
+      },
+      {
+        "itemIndex": 88,
+        "name": "Spider-Verse",
+        "rank": 9240,
+        "clause": "If you do, you may choose new targets for the copy.",
+        "unknowns": [
+          "If you do, you may choose new targets for the copy"
+        ],
+        "kinds": []
+      },
+      {
+        "itemIndex": 100,
+        "name": "Radiant Performer",
+        "rank": 11076,
+        "clause": "Copy that spell or ability for each other permanent or player the spell or ability could target.",
+        "unknowns": [
+          "for each other permanent or player the spell or ability could target"
+        ],
+        "kinds": [
+          "copy_spell",
+          "raw"
+        ]
+      },
+      {
+        "itemIndex": 101,
+        "name": "Leori, Sparktouched Hunter",
+        "rank": 11082,
+        "clause": "Until end of turn, whenever you activate an ability of a planeswalker of that type, copy that ability.",
+        "unknowns": [
+          "Until end of turn, whenever you activate an ability of a planeswalker of that type, copy that ability"
+        ],
+        "kinds": []
+      },
+      {
+        "itemIndex": 107,
+        "name": "Agrus Kos, Eternal Soldier",
+        "rank": 11659,
+        "clause": "If you do, copy that ability for each other creature you control that ability could target.",
+        "unknowns": [
+          "for each other creature you control that ability could target"
+        ],
+        "kinds": [
+          "conditional",
+          "if",
+          "copy_spell",
+          "raw"
+        ]
+      },
+      {
+        "itemIndex": 108,
+        "name": "Will Kenrith",
+        "rank": 11763,
+        "clause": "You may choose new targets for the copy.\"",
+        "unknowns": [
+          "You may choose new targets for the copy.\""
+        ],
+        "kinds": []
+      },
+      {
+        "itemIndex": 111,
+        "name": "Ian Chesterton",
+        "rank": 12060,
+        "clause": "Science Teacher — Each Saga spell you cast has replicate. The replicate cost is equal to its mana cost. (When you cast that Saga, copy it for each time you paid its replicate cost. Copies of Saga spells become tokens.) Doctor's companion (You can have two c...",
+        "unknowns": [
+          "Science Teacher - Each Saga spell you cast has replicate",
+          "The replicate cost is equal to its mana cost",
+          "Doctor's companion (You can have two c.."
+        ],
+        "kinds": []
+      },
+      {
+        "itemIndex": 112,
+        "name": "Zevlor, Elturel Exile",
+        "rank": 12167,
+        "clause": "{2}, {T}: When you next cast an instant or sorcery spell that targets only a single opponent or a single permanent an opponent controls this turn, for each other opponent, choose that player or a permanent they control, copy that spell, and the copy targets the chosen player or permanent.",
+        "unknowns": [
+          "When you next cast an instant or sorcery spell that targets only a single opponent or a single permanent an opponent controls this turn, for each other opponent, choose that player or a permanent they control, copy that spell, and the copy targets the chosen player or permanent"
+        ],
+        "kinds": []
+      },
+      {
+        "itemIndex": 121,
+        "name": "Mathise, Surge Channeler",
+        "rank": 12732,
+        "clause": "20 | Copy that spell.",
+        "unknowns": [
+          "20 | Copy that spell"
+        ],
+        "kinds": []
+      },
+      {
+        "itemIndex": 123,
+        "name": "Dynaheir, Invoker Adept",
+        "rank": 12870,
+        "clause": "{T}: When you next activate an ability that isn't a mana ability this turn by spending four or more mana to activate it, copy that ability.",
+        "unknowns": [
+          "When you next activate an ability that isn't a mana ability this turn by spending four or more mana to activate it, copy that ability"
+        ],
+        "kinds": []
+      },
+      {
+        "itemIndex": 130,
+        "name": "Prismari, the Inspiration",
+        "rank": 13754,
+        "clause": "(Whenever you cast an instant or sorcery spell, copy it for each spell cast before it this turn.",
+        "unknowns": [
+          "(Whenever you cast an instant or sorcery spell, copy it for each spell cast before it this turn"
+        ],
+        "kinds": []
+      },
+      {
+        "itemIndex": 132,
+        "name": "Radiate",
+        "rank": 13773,
+        "clause": "Copy that spell for each other permanent or player the spell could target.",
+        "unknowns": [
+          "for each other permanent or player the spell could target"
+        ],
+        "kinds": [
+          "copy_spell",
+          "raw"
+        ]
+      },
+      {
+        "itemIndex": 148,
+        "name": "Ertai's Meddling",
+        "rank": 15708,
+        "clause": "If the card has no delay counters on it, the player puts it onto the stack as a copy of the original spell.",
+        "unknowns": [
+          "If the card has no delay counters on it, the player puts it onto the stack as a copy of the original spell"
+        ],
+        "kinds": []
+      },
+      {
+        "itemIndex": 174,
+        "name": "Meletis Charlatan",
+        "rank": 20285,
+        "clause": "That player may choose new targets for the copy.",
+        "unknowns": [
+          "That player may choose new targets for the copy"
+        ],
+        "kinds": []
+      },
+      {
+        "itemIndex": 175,
+        "name": "Ink-Treader Nephilim",
+        "rank": 20564,
+        "clause": "Whenever a player casts an instant or sorcery spell, if that spell targets only this creature, copy the spell for each other creature that spell could target.",
+        "unknowns": [
+          "for each other creature that spell could target"
+        ],
+        "kinds": [
+          "conditional",
+          "if",
+          "copy_spell",
+          "raw"
+        ]
+      },
+      {
+        "itemIndex": 193,
+        "name": "Symmetry Sage",
+        "rank": 24747,
+        "clause": "Magecraft — Whenever you cast or copy an instant or sorcery spell, target creature you control has base power 2 until end of turn.",
+        "unknowns": [
+          "target creature you control has base power 2 until end of turn"
+        ],
+        "kinds": []
+      },
+      {
+        "itemIndex": 198,
+        "name": "Silverquill Pledgemage",
+        "rank": 25637,
+        "clause": "Magecraft — Whenever you cast or copy an instant or sorcery spell, this creature gains your choice of flying or lifelink until end of turn.",
+        "unknowns": [
+          "this creature gains your choice of flying or lifelink until end of turn"
+        ],
+        "kinds": []
+      },
+      {
+        "itemIndex": 199,
+        "name": "Imperial Mask",
+        "rank": 26027,
+        "clause": "When this enchantment enters, if it's not a token, each of your teammates creates a token that's a copy of this enchantment. You have hexproof. (You can't be the target of spells or abilities your opponents control.)",
+        "unknowns": [
+          "each of your teammates creates a token that's a copy of this enchantment"
+        ],
+        "kinds": [
+          "conditional",
+          "if",
+          "create_token",
+          "you",
+          "number",
+          "grant_static_ability",
+          "raw"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "mana_generation",
+    "ordinal": 16,
+    "title": "Mana Generation And Mana Riders",
+    "total": 200,
+    "unknownItems": 0,
+    "unknownStepCount": 0,
+    "rows": []
+  },
+  {
+    "id": "cast_without_paying",
+    "ordinal": 17,
+    "title": "Cast Without Paying Mana Cost",
+    "total": 200,
+    "unknownItems": 11,
+    "unknownStepCount": 11,
+    "rows": [
+      {
+        "itemIndex": 52,
+        "name": "Diluvian Primordial",
+        "rank": 3413,
+        "clause": "When this creature enters, for each opponent, you may cast up to one target instant or sorcery card from that player's graveyard without paying its mana cost.",
+        "unknowns": [
+          "for each opponent, you"
+        ],
+        "kinds": [
+          "grant_graveyard_permission",
+          "raw",
+          "modify_graveyard_permissions"
+        ]
+      },
+      {
+        "itemIndex": 119,
+        "name": "Caves of Chaos Adventurer",
+        "rank": 6934,
+        "clause": "If you've completed a dungeon, you may play that card this turn without paying its mana cost.",
+        "unknowns": [
+          "If you've completed a dungeon, you may play that card this turn without paying its mana cost"
+        ],
+        "kinds": []
+      },
+      {
+        "itemIndex": 126,
+        "name": "Etrata, Deadly Fugitive",
+        "rank": 7527,
+        "clause": "If you can't, exile it, then you may cast the exiled card without paying its mana cost.\"",
+        "unknowns": [
+          "then you may cast the exiled card without paying its mana cost.\""
+        ],
+        "kinds": [
+          "conditional",
+          "if",
+          "exile",
+          "raw"
+        ]
+      },
+      {
+        "itemIndex": 127,
+        "name": "Maralen, Fae Ascendant",
+        "rank": 7548,
+        "clause": "Once each turn, you may cast a spell with mana value less than or equal to the number of Elves and Faeries you control from among cards exiled with Maralen this turn without paying its mana cost.",
+        "unknowns": [
+          "Once each turn, you may cast a spell with mana value less than or equal to the number of Elves and Faeries you control from among cards exiled with this permanent this turn without paying its mana cost"
+        ],
+        "kinds": []
+      },
+      {
+        "itemIndex": 129,
+        "name": "Spelltwine",
+        "rank": 7628,
+        "clause": "Cast the copies if able without paying their mana costs.",
+        "unknowns": [
+          "Cast the copies if able without paying their mana costs"
+        ],
+        "kinds": []
+      },
+      {
+        "itemIndex": 130,
+        "name": "Transcendent Dragon",
+        "rank": 7660,
+        "clause": "If that spell is countered this way, exile it instead of putting it into its owner's graveyard, then you may cast it without paying its mana cost.",
+        "unknowns": [
+          "then you may cast it without paying its mana cost"
+        ],
+        "kinds": [
+          "conditional",
+          "if",
+          "exile",
+          "raw"
+        ]
+      },
+      {
+        "itemIndex": 170,
+        "name": "Portent of Calamity",
+        "rank": 9628,
+        "clause": "You may cast a spell from among the exiled cards without paying its mana cost if you exiled four or more cards this way.",
+        "unknowns": [
+          "You may cast a spell from among the exiled cards without paying its mana cost if you exiled four or more cards this way"
+        ],
+        "kinds": []
+      },
+      {
+        "itemIndex": 182,
+        "name": "Spell Queller",
+        "rank": 10194,
+        "clause": "When this creature leaves the battlefield, the exiled card's owner may cast that card without paying its mana cost.",
+        "unknowns": [
+          "the exiled card's owner"
+        ],
+        "kinds": [
+          "grant_exile_permission",
+          "raw"
+        ]
+      },
+      {
+        "itemIndex": 188,
+        "name": "Ziatora's Envoy",
+        "rank": 10893,
+        "clause": "You may play a land from the top of your library or cast a spell with mana value less than or equal to the damage dealt from the top of your library without paying its mana cost.",
+        "unknowns": [
+          "You may play a land from the top of your library or cast a spell with mana value less than or equal to the damage dealt from the top of your library without paying its mana cost"
+        ],
+        "kinds": []
+      },
+      {
+        "itemIndex": 191,
+        "name": "Master of Predicaments",
+        "rank": 11026,
+        "clause": "If the player guessed wrong, you may cast the card without paying its mana cost.",
+        "unknowns": [
+          "If the player guessed wrong, you may cast the card without paying its mana cost"
+        ],
+        "kinds": []
+      },
+      {
+        "itemIndex": 199,
+        "name": "Eye of the Storm",
+        "rank": 11371,
+        "clause": "For each copy, the player may cast the copy without paying its mana cost.",
+        "unknowns": [
+          "For each copy, the player may cast the copy without paying its mana cost"
+        ],
+        "kinds": []
+      }
+    ]
+  },
+  {
+    "id": "modal_choices",
+    "ordinal": 18,
+    "title": "Modal Choices",
+    "total": 200,
+    "unknownItems": 8,
+    "unknownStepCount": 8,
+    "rows": [
+      {
+        "itemIndex": 5,
+        "name": "Sylvan Library",
+        "rank": 256,
+        "clause": "If you do, choose two cards in your hand drawn this turn.",
+        "unknowns": [
+          "If you do, choose two cards in your hand drawn this turn"
+        ],
+        "kinds": []
+      },
+      {
+        "itemIndex": 20,
+        "name": "Party Thrasher",
+        "rank": 2149,
+        "clause": "If you do, exile the top two cards of your library, then choose one of them.",
+        "unknowns": [
+          "then choose one of them"
+        ],
+        "kinds": [
+          "conditional",
+          "if",
+          "exile",
+          "raw"
+        ]
+      },
+      {
+        "itemIndex": 22,
+        "name": "Avatar's Wrath",
+        "rank": 2371,
+        "clause": "Choose up to one target creature, then airbend all other creatures.",
+        "unknowns": [
+          "then airbend all other creatures"
+        ],
+        "kinds": [
+          "choose_target_creature",
+          "raw"
+        ]
+      },
+      {
+        "itemIndex": 46,
+        "name": "Make an Example",
+        "rank": 5213,
+        "clause": "For each opponent, you choose one of their piles.",
+        "unknowns": [
+          "For each opponent, you choose one of their piles"
+        ],
+        "kinds": []
+      },
+      {
+        "itemIndex": 78,
+        "name": "Stick Together",
+        "rank": 8525,
+        "clause": "(To choose a party, choose up to one each of Cleric, Rogue, Warrior, and Wizard.)",
+        "unknowns": [
+          "(To choose a party, choose up to one each of Cleric, Rogue, Warrior, and Wizard.)"
+        ],
+        "kinds": []
+      },
+      {
+        "itemIndex": 82,
+        "name": "Mysterious Stranger",
+        "rank": 8854,
+        "clause": "If two or more cards are exiled this way, choose one of them at random and copy it.",
+        "unknowns": [
+          "If two or more cards are exiled this way, choose one of them at random and copy it"
+        ],
+        "kinds": []
+      },
+      {
+        "itemIndex": 126,
+        "name": "Wail of the Forgotten",
+        "rank": 12909,
+        "clause": "Descend 8 — Choose one.",
+        "unknowns": [
+          "Descend 8 - Choose one"
+        ],
+        "kinds": []
+      },
+      {
+        "itemIndex": 148,
+        "name": "Bamboozling Beeble",
+        "rank": 14313,
+        "clause": "{1}, {T}: The next time target player would roll one or more dice this turn, instead they roll that many dice plus one and you choose one of those rolls to ignore.",
+        "unknowns": [
+          "The next time target player would roll one or more dice this turn, instead they roll that many dice plus one and you choose one of those rolls to ignore"
+        ],
+        "kinds": []
+      }
+    ]
+  },
+  {
+    "id": "reveal_look_top_library",
+    "ordinal": 19,
+    "title": "Reveal / Look At Top Library Cards",
+    "total": 200,
+    "unknownItems": 15,
+    "unknownStepCount": 19,
+    "rows": [
+      {
+        "itemIndex": 39,
+        "name": "Case of the Locked Hothouse",
+        "rank": 1285,
+        "clause": "Solved — You may look at the top card of your library any time, and you may play lands and cast creature and enchantment spells from the top of your library.",
+        "unknowns": [
+          "Solved - You may look at the top card of your library any time, and you may play lands and cast creature and enchantment spells from the top of your library"
+        ],
+        "kinds": []
+      },
+      {
+        "itemIndex": 43,
+        "name": "Scroll Rack",
+        "rank": 1391,
+        "clause": "Then look at the exiled cards and put them on top of your library in any order.",
+        "unknowns": [
+          "Then look at the exiled cards and put them on top of your library in any order"
+        ],
+        "kinds": []
+      },
+      {
+        "itemIndex": 56,
+        "name": "Gonti, Lord of Luxury",
+        "rank": 1853,
+        "clause": "When Gonti enters, look at the top four cards of target opponent's library, exile one of them face down, then put the rest on the bottom of that library in a random order.",
+        "unknowns": [
+          "look at the top four cards of target opponent's library, exile one of them face down",
+          "then put the rest on the bottom of that library in a random order"
+        ],
+        "kinds": []
+      },
+      {
+        "itemIndex": 60,
+        "name": "The Key to the Vault",
+        "rank": 2055,
+        "clause": "Whenever equipped creature deals combat damage to a player, look at that many cards from the top of your library.",
+        "unknowns": [
+          "look at that many cards from the top of your library"
+        ],
+        "kinds": []
+      },
+      {
+        "itemIndex": 67,
+        "name": "Thrumming Stone",
+        "rank": 2287,
+        "clause": "(Whenever you cast a spell, you may reveal the top four cards of your library.",
+        "unknowns": [
+          "(Whenever you cast a spell, you may reveal the top four cards of your library"
+        ],
+        "kinds": []
+      },
+      {
+        "itemIndex": 80,
+        "name": "Thief of Sanity",
+        "rank": 2957,
+        "clause": "Whenever this creature deals combat damage to a player, look at the top three cards of that player's library, exile one of them face down, then put the rest into their graveyard.",
+        "unknowns": [
+          "look at the top three cards of that player's library, exile one of them face down"
+        ],
+        "kinds": [
+          "move_zone",
+          "raw"
+        ]
+      },
+      {
+        "itemIndex": 116,
+        "name": "Sauron's Ransom",
+        "rank": 4923,
+        "clause": "They look at the top four cards of your library and separate them into a face-down pile and a face-up pile.",
+        "unknowns": [
+          "They look at the top four cards of your library and separate them into a face-down pile and a face-up pile"
+        ],
+        "kinds": []
+      },
+      {
+        "itemIndex": 121,
+        "name": "Green Sun's Twilight",
+        "rank": 5160,
+        "clause": "Reveal the top X plus one cards of your library.",
+        "unknowns": [
+          "Reveal the top X plus one cards of your library"
+        ],
+        "kinds": []
+      },
+      {
+        "itemIndex": 132,
+        "name": "Artificer's Assistant",
+        "rank": 5632,
+        "clause": "To scry 1, look at the top card of your library, then you may put that card on the bottom.)",
+        "unknowns": [
+          "To scry 1, look at the top card of your library"
+        ],
+        "kinds": []
+      },
+      {
+        "itemIndex": 133,
+        "name": "Stargaze",
+        "rank": 5664,
+        "clause": "Look at twice X cards from the top of your library.",
+        "unknowns": [
+          "Look at twice X cards from the top of your library"
+        ],
+        "kinds": []
+      },
+      {
+        "itemIndex": 145,
+        "name": "Evercoat Ursine",
+        "rank": 5888,
+        "clause": "Hideaway 3, hideaway 3 (When this creature enters, look at the top three cards of your library, exile one face down, then put the rest on the bottom in a random order.",
+        "unknowns": [
+          "Hideaway 3, hideaway 3 (When this creature enters, look at the top three cards of your library, exile one face down",
+          "then put the rest on the bottom in a random order"
+        ],
+        "kinds": []
+      },
+      {
+        "itemIndex": 159,
+        "name": "Xanathar, Guild Kingpin",
+        "rank": 6223,
+        "clause": "Until end of turn, that player can't cast spells, you may look at the top card of their library any time, you may play the top card of their library, and you may spend mana as though it were mana of any color to cast spells this way.",
+        "unknowns": [
+          "Until end of turn, that player can't cast spells, you may look at the top card of their library any time, you may play the top card of their library, and you may spend mana as though it were mana of any color to cast spells this way"
+        ],
+        "kinds": []
+      },
+      {
+        "itemIndex": 169,
+        "name": "Choco, Seeker of Paradise",
+        "rank": 6658,
+        "clause": "Whenever one or more Birds you control attack, look at that many cards from the top of your library.",
+        "unknowns": [
+          "look at that many cards from the top of your library"
+        ],
+        "kinds": []
+      },
+      {
+        "itemIndex": 179,
+        "name": "Vendilion Clique",
+        "rank": 6868,
+        "clause": "Flash Flying When Vendilion Clique enters, look at target player's hand. You may choose a nonland card from it. If you do, that player reveals the chosen card, puts it on the bottom of their library, then draws a card.",
+        "unknowns": [
+          "Flash Flying When this permanent enters, look at target player's hand",
+          "You may choose a nonland card from it",
+          "that player reveals the chosen card, puts it on the bottom of their library"
+        ],
+        "kinds": [
+          "conditional",
+          "if",
+          "draw",
+          "you",
+          "number"
+        ]
+      },
+      {
+        "itemIndex": 191,
+        "name": "Radha, Heart of Keld",
+        "rank": 7323,
+        "clause": "You may look at the top card of your library any time, and you may play lands from the top of your library.",
+        "unknowns": [
+          "You may look at the top card of your library any time, and you may play lands from the top of your library"
+        ],
+        "kinds": []
+      }
+    ]
+  },
+  {
+    "id": "attach_equip_aura",
+    "ordinal": 20,
+    "title": "Attach / Equip / Aura Movement",
+    "total": 200,
+    "unknownItems": 7,
+    "unknownStepCount": 7,
+    "rows": [
+      {
+        "itemIndex": 68,
+        "name": "Astor, Bearer of Blades",
+        "rank": 4536,
+        "clause": "Equipment you control have equip {1}.",
+        "unknowns": [
+          "Equipment you control have equip {1}"
+        ],
+        "kinds": []
+      },
+      {
+        "itemIndex": 84,
+        "name": "Psychic Paper",
+        "rank": 6161,
+        "clause": "As this Equipment becomes attached to a creature, choose a creature card name and a creature type.",
+        "unknowns": [
+          "As this Equipment becomes attached to a creature, choose a creature card name and a creature type"
+        ],
+        "kinds": []
+      },
+      {
+        "itemIndex": 108,
+        "name": "Blue Mage's Cane",
+        "rank": 8217,
+        "clause": "Spirit of the Whalaqee — Equip {2}",
+        "unknowns": [
+          "Spirit of the Whalaqee - Equip {2}"
+        ],
+        "kinds": []
+      },
+      {
+        "itemIndex": 111,
+        "name": "Summoner's Grimoire",
+        "rank": 8364,
+        "clause": "Abraxas — Equip {3}",
+        "unknowns": [
+          "Abraxas - Equip {3}"
+        ],
+        "kinds": []
+      },
+      {
+        "itemIndex": 127,
+        "name": "Assimilation Aegis",
+        "rank": 9577,
+        "clause": "Whenever this Equipment becomes attached to a creature, for as long as this Equipment remains attached to it, that creature becomes a copy of a creature card exiled with this Equipment.",
+        "unknowns": [
+          "for as long as this Equipment remains attached to it, that creature becomes a copy of a creature card exiled with this Equipment"
+        ],
+        "kinds": []
+      },
+      {
+        "itemIndex": 138,
+        "name": "Icingdeath, Frost Tyrant",
+        "rank": 10415,
+        "clause": "When Icingdeath, Frost Tyrant dies, create Icingdeath, Frost Tongue, a legendary white Equipment artifact token with \"Equipped creature gets +2/+0,\" \"Whenever equipped creature attacks, tap target creature defending player controls,\" and equip {2}.",
+        "unknowns": [
+          "this"
+        ],
+        "kinds": [
+          "create_token",
+          "you"
+        ]
+      },
+      {
+        "itemIndex": 184,
+        "name": "Sanctuary Blade",
+        "rank": 13626,
+        "clause": "As this Equipment becomes attached to a creature, choose a color.",
+        "unknowns": [
+          "As this Equipment becomes attached to a creature, choose a color"
+        ],
+        "kinds": []
+      }
+    ]
+  }
+]

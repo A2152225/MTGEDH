@@ -39,6 +39,7 @@ import {
   applyEarthbendStep,
   applyExertStep,
   applyExileStep,
+  applyExchangeControlStep,
   applyGainClassLevelStep,
   applyGainControlStep,
   applyGrantStaticAbilityStep,
@@ -143,7 +144,7 @@ import {
   applyVoteStep,
 } from './oracleIRExecutorPlayerStepHandlers';
 import { applyCreateTokenStep } from './oracleIRExecutorTokenStepHandlers';
-import { applyAddExtraCombat, applySkipNextDrawStep, applyTakeExtraTurn } from './oracleIRExecutorTurnStepHandlers';
+import { applyAddExtraCombat, applyEndTurnStep, applySkipNextDrawStep, applySkipNextTurnStep, applyTakeExtraTurn } from './oracleIRExecutorTurnStepHandlers';
 import { stampCardsPutIntoGraveyardThisTurn } from './oracleIRExecutorPlayerUtils';
 import { getColorsFromObject } from './oracleIRExecutorManaUtils';
 import type {
@@ -793,15 +794,26 @@ export function applyOracleIRStepsToGameStateImpl(
         }
 
         const call = step.call || 'heads';
-        const result =
-          typeof currentCtx.wonCoinFlip === 'boolean'
-            ? currentCtx.wonCoinFlip
-              ? call
-              : call === 'heads'
-                ? 'tails'
-                : 'heads'
-            : generateCoinFlipResult();
-        const won = result === call;
+        const results: Array<'heads' | 'tails'> = [];
+        const wins: boolean[] = [];
+        const firstResult = typeof currentCtx.wonCoinFlip === 'boolean'
+          ? currentCtx.wonCoinFlip
+            ? call
+            : call === 'heads'
+              ? 'tails'
+              : 'heads'
+          : generateCoinFlipResult();
+        results.push(firstResult);
+        wins.push(firstResult === call);
+        if (step.repeatUntil === 'lose_flip') {
+          while (wins[wins.length - 1] && results.length < 100) {
+            const nextFlip = generateCoinFlipResult();
+            results.push(nextFlip);
+            wins.push(nextFlip === call);
+          }
+        }
+        const result = results[results.length - 1];
+        const won = wins[wins.length - 1] === true;
         const timestamp = Date.now();
         const flipRecord = {
           playerId: players[0],
@@ -809,6 +821,7 @@ export function applyOracleIRStepsToGameStateImpl(
           result,
           won,
           timestamp,
+          ...(step.repeatUntil === 'lose_flip' ? { repeatUntil: 'lose_flip', results, wins } : {}),
         };
         const stateAny: any = nextState as any;
         stateAny.lastCoinFlip = flipRecord;
@@ -821,7 +834,7 @@ export function applyOracleIRStepsToGameStateImpl(
         nextState = stateAny as GameState;
         currentCtx = { ...currentCtx, wonCoinFlip: won };
         setLastStepOutcome(step, 'applied');
-        log.push(`[oracle-ir] ${players[0]} flipped a coin: ${result}${won ? ' (won)' : ' (lost)'}`);
+        log.push(`[oracle-ir] ${players[0]} flipped ${results.length} coin(s): ${result}${won ? ' (won)' : ' (lost)'}`);
         appliedSteps.push(step);
         break;
       }
@@ -1247,8 +1260,23 @@ export function applyOracleIRStepsToGameStateImpl(
         applyHandledStepResult(step, result);
         break;
       }
+      case 'skip_next_turn': {
+        const result = applySkipNextTurnStep(nextState, step, currentCtx);
+        applyHandledStepResult(step, result);
+        break;
+      }
+      case 'end_turn': {
+        const result = applyEndTurnStep(nextState, step);
+        applyHandledStepResult(step, result);
+        break;
+      }
       case 'gain_control': {
         const result = applyGainControlStep(nextState, step, currentCtx);
+        applyHandledStepResult(step, result);
+        break;
+      }
+      case 'exchange_control': {
+        const result = applyExchangeControlStep(nextState, step, currentCtx);
         applyHandledStepResult(step, result);
         break;
       }
@@ -1260,6 +1288,23 @@ export function applyOracleIRStepsToGameStateImpl(
       case 'add_extra_combat': {
         const result = applyAddExtraCombat(nextState, step, currentCtx);
         applyHandledStepResult(step, result);
+        break;
+      }
+      case 'change_target': {
+        const stackItems = Array.isArray((nextState as any).stack) ? [ ...((nextState as any).stack as any[]) ] : [];
+        const stackSpellIds = stackItems
+          .filter(item => String((item as any)?.type || '').trim() === 'spell')
+          .map(item => String((item as any)?.id || '').trim())
+          .filter(Boolean);
+        recordSkippedStep(
+          step,
+          `Skipped change-target step (requires target choice): ${step.raw}`,
+          'player_choice_required',
+          {
+            classification: 'player_choice',
+            metadata: { stackSpellCount: stackSpellIds.length, candidateSpellIds: stackSpellIds },
+          }
+        );
         break;
       }
       case 'grant_graveyard_permission': {
@@ -1518,6 +1563,21 @@ export function applyOracleIRStepsToGameStateImpl(
         setLastStepOutcome(step, 'applied');
         log.push(`Chose card name ${chosenCardName}`);
         appliedSteps.push(step);
+        break;
+      }
+      case 'player_choice': {
+        recordSkippedStep(
+          step,
+          `Skipped player choice (${step.choice}): ${step.raw}`,
+          'player_choice_required',
+          {
+            classification: 'player_choice',
+            metadata: {
+              choice: step.choice,
+              options: Array.isArray(step.options) ? [...step.options] : undefined,
+            },
+          }
+        );
         break;
       }
       case 'choose_target_creature': {

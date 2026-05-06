@@ -371,6 +371,14 @@ export interface ExtraTurnEffect {
   createdAt?: number;
 }
 
+export interface SkipNextTurnEffect {
+  id: string;
+  playerId: PlayerID;
+  sourceId?: string;
+  sourceName?: string;
+  remainingSkips: number;
+}
+
 export interface FutureSpellEffect {
   id: string;
   controllerId: PlayerID;
@@ -731,6 +739,8 @@ export interface GameState {
   damagePreventionEffects?: readonly DamagePreventionEffect[];
   /** Queued extra turns waiting to be taken. Most recently created turns are consumed first. */
   extraTurns?: readonly ExtraTurnEffect[];
+  /** One-shot "skip your next turn" effects waiting to be consumed. */
+  skipNextTurnEffects?: readonly SkipNextTurnEffect[];
   /** One-shot "skip your next draw step" effects waiting to be consumed. */
   skipNextDrawStepEffects?: readonly SkipNextDrawStepEffect[];
 }

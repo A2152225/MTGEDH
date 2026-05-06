@@ -2126,7 +2126,7 @@ function resolveVariableAmount(
   }
   if (amount.kind === 'object_stat') {
     const sacrificed = Array.isArray(runtime?.lastSacrificedPermanents) ? runtime.lastSacrificedPermanents : [];
-    if (sacrificed.length === 1 && amount.subject === 'that_creature') {
+    if (sacrificed.length === 1 && (amount.subject === 'that_creature' || amount.subject === 'the_sacrificed_creature')) {
       const sacrificedAmount = readObjectStat(sacrificed[0], amount.stat);
       if (sacrificedAmount !== null) return sacrificedAmount;
     }

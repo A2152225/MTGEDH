@@ -4,7 +4,7 @@ import { normalizeOracleText, parseObjectSelector, parsePlayerSelector, parseQua
 type WithMeta = <T extends OracleEffectStep>(step: T) => T;
 
 const PLAYER_SUBJECT_PREFIX =
-  "(?:(you|each player|each opponent|each of those opponents|any number of target opponents|any number of target players other than that player|any number of target players|each of that player's opponents|target player|target opponent|that player|that opponent|defending player|the defending player|the attacking player|the controller of those creatures|he or she|they|its controller|its owner|that [a-z0-9][a-z0-9 ,.'’-]*?(?:'s|’s)? (?:controller|owner))\\s+)?";
+  "(?:(you|each player|each opponent|each friend|each of those opponents|any number of target opponents|any number of target players other than that player|any number of target players|each of that player's opponents|target player|target opponent|that player|that opponent|that attacking player|an opponent|the opponent|the player|attacking player|defending player|the defending player|the attacking player|the controller of those creatures|he or she|they|its controller|its owner|that [a-z0-9][a-z0-9 ,.'’-]*?(?:'s|’s)? (?:controller|owner))\\s+)?";
 
 const DRAW_AMOUNT_WORD_PATTERN = '(?:that many|that much|a|an|\\d+|x|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)';
 
@@ -62,6 +62,12 @@ function parseCounterQuantity(raw: string | undefined): ReturnType<typeof parseQ
   return parseQuantity(normalized);
 }
 
+function parseScaledCounterQuantity(amountText: string, scalingText: string): ReturnType<typeof parseQuantity> {
+  const combined = `${amountText} ${scalingText}`.trim();
+  const parsed = parseQuantity(combined);
+  return parsed.kind === 'unknown' ? { kind: 'unknown', raw: combined } : parsed;
+}
+
 function parseDrawAmount(raw: string | undefined): Extract<OracleEffectStep, { kind: 'draw' }>['amount'] {
   const normalized = String(raw || '')
     .replace(/[\u2019]/g, "'")
@@ -72,6 +78,9 @@ function parseDrawAmount(raw: string | undefined): Extract<OracleEffectStep, { k
   if (normalized === 'its power') return { kind: 'source_power' };
   if (normalized === "the sacrificed creature's power") {
     return { kind: 'object_stat', subject: 'the_sacrificed_creature', stat: 'power' };
+  }
+  if (/^the greatest number of cards a player discarded this way$/i.test(normalized)) {
+    return { kind: 'reference_amount', raw: 'greatest_number_discarded_this_way' };
   }
 
   const greatestPower = normalized.match(/^the greatest power among (non[- ]?([a-z][a-z-]*) )?creatures you control$/i);
@@ -171,6 +180,57 @@ export function tryParseSimpleActionClause(args: {
   const { clause, rawClause, withMeta } = args;
 
   {
+    if (/^end the turn$/i.test(clause)) {
+      return withMeta({
+        kind: 'end_turn',
+        raw: rawClause,
+      });
+    }
+
+    const skipNextTurn = clause.match(new RegExp(`^${PLAYER_SUBJECT_PREFIX}skip(?:s)?\\s+(?:your|their|his or her)\\s+next\\s+turn$`, 'i'));
+    if (skipNextTurn) {
+      return withMeta({
+        kind: 'skip_next_turn',
+        who: parsePlayerSelector(skipNextTurn[1]),
+        raw: rawClause,
+      });
+    }
+    const skipThatTurn = clause.match(new RegExp(`^${PLAYER_SUBJECT_PREFIX}skip(?:s)?\\s+that\\s+turn$`, 'i'));
+    if (skipThatTurn) {
+      return withMeta({
+        kind: 'skip_next_turn',
+        who: parsePlayerSelector(skipThatTurn[1]),
+        raw: rawClause,
+      });
+    }
+
+    const changeTarget = clause.match(/^(?:you\s+may\s+)?change\s+the\s+targets?\s+of\s+(.+?)(?:\s+to\s+(.+))?$/i);
+    if (changeTarget && /\b(?:spell|ability|abilities)\b/i.test(String(changeTarget[1] || ''))) {
+      return withMeta({
+        kind: 'change_target',
+        target: parseObjectSelector(String(changeTarget[1] || '').trim()),
+        ...(changeTarget[2] ? { newTarget: parseObjectSelector(String(changeTarget[2] || '').trim()) } : {}),
+        optional: /^you\s+may\s+/i.test(clause) || undefined,
+        raw: rawClause,
+      });
+    }
+
+    const changeText = clause.match(/^change\s+the\s+text\s+of\s+(.+?)\s+by\s+replacing\s+all\s+instances\s+of\s+one\s+color\s+word\s+with\s+another$/i);
+    if (changeText) {
+      return withMeta({
+        kind: 'player_choice',
+        choice: 'text_change',
+        target: parseObjectSelector(String(changeText[1] || '').trim()),
+        raw: rawClause,
+      });
+    }
+
+    if (/^if\s+you\s+do,\s*proliferate$/i.test(clause)) {
+      return withMeta({ kind: 'proliferate', raw: rawClause });
+    }
+  }
+
+  {
     const putSticker = clause.match(/^(?:you\s+may\s+)?put\s+(?:a|an)\s+((?:(?:name|art|ability|power\s+and\s+toughness|power\/toughness)\s+)?sticker)\s+on\s+(.+)$/i);
     if (putSticker) {
       return withMeta({
@@ -238,6 +298,17 @@ export function tryParseSimpleActionClause(args: {
         raw: rawClause,
       });
     }
+
+    const contextualBecomeAura = clause.match(/^(it|this\s+permanent|this\s+enchantment)\s+becomes\s+an?\s+aura\s+with\s+enchant\s+(.+)$/i);
+    if (contextualBecomeAura) {
+      return withMeta({
+        kind: 'become_aura',
+        target: parseObjectSelector(contextualBecomeAura[1]),
+        enchant: parseObjectSelector(contextualBecomeAura[2]),
+        duration: 'until_effect_ends',
+        raw: rawClause,
+      });
+    }
   }
 
   {
@@ -270,7 +341,28 @@ export function tryParseSimpleActionClause(args: {
         });
     }
 
+    const flipUntilLoss = clause.match(/^flip\s+a\s+coin\s+until\s+you\s+lose\s+a\s+flip$/i);
+    if (flipUntilLoss) {
+      return withMeta({
+        kind: 'flip_coin',
+        who: { kind: 'you' },
+        repeatUntil: 'lose_flip',
+        raw: rawClause,
+      });
+    }
+
   }
+
+    const putCountersEqualToPower = clause.match(/^put\s+(?:a\s+number\s+of\s+)?(.+?)\s+counters?\s+equal\s+to\s+(?:its|this\s+permanent's)\s+power\s+on\s+(.+)$/i);
+    if (putCountersEqualToPower) {
+      return withMeta({
+        kind: 'add_counter',
+        amount: { kind: 'object_stat', subject: 'it', stat: 'power' },
+        counter: normalizeCounterName(String(putCountersEqualToPower[1] || '').trim()),
+        target: parseObjectSelector(String(putCountersEqualToPower[2] || '').trim()),
+        raw: rawClause,
+      });
+    }
 
   {
     const rollDie = clause.match(/^roll\s+a\s+d(\d+)$/i);
@@ -393,7 +485,7 @@ export function tryParseSimpleActionClause(args: {
       });
     }
 
-    const addAnyColorMana = clause.match(new RegExp(`^${PLAYER_SUBJECT_PREFIX}adds?\\s+one\\s+mana\\s+of\\s+any\\s+(?:one\\s+)?color\\s*$`, 'i'));
+    const addAnyColorMana = clause.match(new RegExp(`^${PLAYER_SUBJECT_PREFIX}adds?\\s+(?:an\\s+additional\\s+)?one\\s+mana\\s+of\\s+any\\s+(?:one\\s+)?color\\s*$`, 'i'));
     if (addAnyColorMana) {
       return withMeta({
         kind: 'add_mana',
@@ -420,6 +512,64 @@ export function tryParseSimpleActionClause(args: {
   }
 
   {
+    const addVariableColorMana = clause.match(new RegExp(`^${PLAYER_SUBJECT_PREFIX}adds?\\s+x\\s+mana\\s+in\\s+any\\s+combination\\s+of\\s+colors\\s*$`, 'i'));
+    if (addVariableColorMana) {
+      return withMeta({
+        kind: 'add_mana',
+        who: parsePlayerSelector(addVariableColorMana[1]),
+        mana: '{X}',
+        manaOptions: ['{W}', '{U}', '{B}', '{R}', '{G}'],
+        requiresChosenMana: true,
+        raw: rawClause,
+      });
+    }
+
+    const addAmountEqualToPower = clause.match(new RegExp(`^${PLAYER_SUBJECT_PREFIX}adds?\\s+an\\s+amount\\s+of\\s+(\\{[^}]+\\})\\s+equal\\s+to\\s+(.+?)(?:'|â€™)?s\\s+power\\s*$`, 'i'));
+    if (addAmountEqualToPower) {
+      return withMeta({
+        kind: 'add_mana',
+        who: parsePlayerSelector(addAmountEqualToPower[1]),
+        mana: '{X}',
+        manaOptions: [String(addAmountEqualToPower[2] || '').trim()],
+        requiresChosenMana: true,
+        raw: rawClause,
+      });
+    }
+
+    const addTwoDifferentColors = clause.match(new RegExp(`^${PLAYER_SUBJECT_PREFIX}adds?\\s+two\\s+mana\\s+of\\s+different\\s+colors\\s*$`, 'i'));
+    if (addTwoDifferentColors) {
+      return withMeta({
+        kind: 'add_mana',
+        who: parsePlayerSelector(addTwoDifferentColors[1]),
+        mana: '{W}{U}',
+        manaOptions: ['{W}', '{U}', '{B}', '{R}', '{G}'],
+        requiresChosenMana: true,
+        raw: rawClause,
+      });
+    }
+
+    const addAmountEqualToManaValue = clause.match(new RegExp(`^${PLAYER_SUBJECT_PREFIX}adds?\\s+an\\s+amount\\s+of\\s+(\\{[^}]+\\})\\s+equal\\s+to\\s+(.+?)(?:'|â€™)?s\\s+mana\\s+value\\s*$`, 'i'));
+    if (addAmountEqualToManaValue) {
+      return withMeta({
+        kind: 'add_mana',
+        who: parsePlayerSelector(addAmountEqualToManaValue[1]),
+        mana: '{X}',
+        manaOptions: [String(addAmountEqualToManaValue[2] || '').trim()],
+        requiresChosenMana: true,
+        raw: rawClause,
+      });
+    }
+
+    const addAdditionalManaNoSubject = clause.match(/^add\s+an\s+additional\s+(\{[^}]+\})$/i);
+    if (addAdditionalManaNoSubject) {
+      return withMeta({
+        kind: 'add_mana',
+        who: { kind: 'you' },
+        mana: String(addAdditionalManaNoSubject[1] || '').trim(),
+        raw: rawClause,
+      });
+    }
+
     const addManaForEach = clause.match(new RegExp(`^${PLAYER_SUBJECT_PREFIX}adds?\\s+(\\{[^}]+\\})\\s+for\\s+each\\s+(.+)$`, 'i'));
     if (addManaForEach) {
       return withMeta({
@@ -525,15 +675,30 @@ export function tryParseSimpleActionClause(args: {
 
   {
     const chooseTargetCreature = clause.match(
-      /^choose\s+target\s+creature(?:\s+(you control|an opponent controls|your opponents control))?\s*$/i
+      /^choose\s+(up to one\s+)?target\s+creature(?:\s+(you control|an opponent controls|your opponents control))?\s*$/i
     );
     if (chooseTargetCreature) {
-      const targetText = chooseTargetCreature[1]
-        ? `target creature ${chooseTargetCreature[1].toLowerCase()}`
+      const targetText = chooseTargetCreature[2]
+        ? `target creature ${chooseTargetCreature[2].toLowerCase()}`
         : 'target creature';
       return withMeta({
         kind: 'choose_target_creature',
         target: { kind: 'raw', text: targetText },
+        ...(chooseTargetCreature[1] ? { optional: true } : {}),
+        raw: rawClause,
+        });
+    }
+
+    const chooseTargetObject = clause.match(/^choose\s+(up to one\s+)?(target\s+.+)$/i);
+    if (
+      chooseTargetObject &&
+      /\b(?:spell|permanent|card|artifact|enchantment|land|planeswalker|battle)\b/i.test(String(chooseTargetObject[2] || '')) &&
+      !/^target\s+(?:opponent|player)\b/i.test(String(chooseTargetObject[2] || ''))
+    ) {
+      return withMeta({
+        kind: 'choose_target_creature',
+        target: parseObjectSelector(String(chooseTargetObject[2] || '').trim()),
+        ...(chooseTargetObject[1] ? { optional: true } : {}),
         raw: rawClause,
         });
     }
@@ -553,6 +718,15 @@ export function tryParseSimpleActionClause(args: {
         mana: '{W}',
         manaOptions: ['{W}', '{U}', '{B}', '{R}', '{G}'],
         requiresChosenMana: true,
+        raw: rawClause,
+        });
+    }
+
+    const voterExtraTurn = clause.match(/^each\s+player\s+who\s+voted\s+for\s+.+?\s+takes?\s+an?\s+extra\s+turn\s+after\s+this\s+one\b/i);
+    if (voterExtraTurn) {
+      return withMeta({
+        kind: 'take_extra_turn',
+        who: { kind: 'each_player' },
         raw: rawClause,
         });
     }
@@ -641,12 +815,16 @@ export function tryParseSimpleActionClause(args: {
     const drawForEach = drawClause.match(new RegExp(`^${PLAYER_SUBJECT_PREFIX}(?:may\\s+)?draws?\\s+a\\s+card\\s+for\\s+each\\s+(.+)$`, 'i'));
     if (drawForEach) {
       const forEachText = String(drawForEach[2] || '').trim();
+      const amountText = `a card for each ${forEachText}`;
+      const parsedAmount = parseQuantity(amountText);
       return withMeta({
         kind: 'draw',
         who: parsePlayerSelector(drawForEach[1]),
         amount: /\b(?:land\s+)?cards?\s+discarded\s+this\s+way\b/i.test(forEachText)
-          ? { kind: 'reference_amount', raw: `a card for each ${forEachText}` }
-          : { kind: 'unknown', raw: `a card for each ${forEachText}` },
+          ? { kind: 'reference_amount', raw: amountText }
+          : parsedAmount.kind === 'reference_amount'
+            ? parsedAmount
+            : { kind: 'unknown', raw: amountText },
         raw: rawClause,
         });
     }
@@ -738,6 +916,51 @@ export function tryParseSimpleActionClause(args: {
   }
 
   {
+    if (/^choose\s+a\s+card\s+type\s*$/i.test(clause)) {
+      return withMeta({
+        kind: 'player_choice',
+        choice: 'card_type',
+        raw: rawClause,
+      });
+    }
+
+    if (/^choose\s+a\s+letter\s*$/i.test(clause)) {
+      return withMeta({
+        kind: 'player_choice',
+        choice: 'letter',
+        raw: rawClause,
+      });
+    }
+
+    if (/^choose\s+odd\s+or\s+even\s*$/i.test(clause)) {
+      return withMeta({
+        kind: 'player_choice',
+        choice: 'odd_even',
+        options: ['odd', 'even'],
+        raw: rawClause,
+      });
+    }
+  }
+
+    const chooseTwoTargetCreatures = clause.match(/^choose\s+(target\s+creature\s+you\s+control\s+and\s+target\s+creature\s+(?:an\s+opponent\s+controls|you\s+don(?:'|â€™)?t\s+control))$/i);
+    if (chooseTwoTargetCreatures) {
+      return withMeta({
+        kind: 'choose_target_creature',
+        target: parseObjectSelector(String(chooseTwoTargetCreatures[1] || '').trim()),
+        raw: rawClause,
+      });
+    }
+
+    const chooseActivePlayerCreature = clause.match(/^choose\s+(target\s+non-wall\s+creature\s+the\s+active\s+player\s+has\s+controlled\s+continuously\s+since\s+the\s+beginning\s+of\s+the\s+turn)$/i);
+    if (chooseActivePlayerCreature) {
+      return withMeta({
+        kind: 'choose_target_creature',
+        target: parseObjectSelector(String(chooseActivePlayerCreature[1] || '').trim()),
+        raw: rawClause,
+      });
+    }
+
+  {
     const gainClassLevel = clause.match(/^level\s+(\d+)\.?$/i);
     if (gainClassLevel) {
       return withMeta({
@@ -749,15 +972,31 @@ export function tryParseSimpleActionClause(args: {
   }
 
   {
-    const exiledCardPermission = clause.match(/^(cast|play)\s+(the exiled card|that card|it)(?:\s+without\s+paying\s+its\s+mana\s+cost)?(?:\s+this\s+turn)?(?:\s+if\s+.+)?$/i);
+    const exiledCardPermission = clause.match(
+      new RegExp(`^${PLAYER_SUBJECT_PREFIX}(?:may\s+)?(cast|play)s?\s+(the exiled card|that card|this card|it)(?:\s+from\s+exile)?(?:\s+without\s+paying\s+its\s+mana\s+cost)?(?:\s+this\s+turn)?(?:\s+if\s+.+)?$`, 'i')
+    );
     if (exiledCardPermission) {
       return withMeta({
         kind: 'grant_exile_permission',
-        who: { kind: 'you' },
-        what: parseObjectSelector(String(exiledCardPermission[2] || '').trim()),
+        who: parsePlayerSelector(exiledCardPermission[1]),
+        what: parseObjectSelector(String(exiledCardPermission[3] || '').trim()),
         duration: /\bthis\s+turn\b/i.test(clause) ? 'this_turn' : 'during_resolution',
-        permission: String(exiledCardPermission[1] || '').toLowerCase() === 'play' ? 'play' : 'cast',
+        permission: String(exiledCardPermission[2] || '').toLowerCase().startsWith('play') ? 'play' : 'cast',
         withoutPayingManaCost: /without\s+paying\s+its\s+mana\s+cost/i.test(clause) || undefined,
+        optional: true,
+        raw: rawClause,
+      });
+    }
+
+    const castOrHandPermission = clause.match(/^(?:you\s+may\s+)?cast\s+(it|that card|the exiled card)\s+without\s+paying\s+its\s+mana\s+cost\s+or\s+put\s+it\s+into\s+your\s+hand$/i);
+    if (castOrHandPermission) {
+      return withMeta({
+        kind: 'grant_exile_permission',
+        who: { kind: 'you' },
+        what: parseObjectSelector(String(castOrHandPermission[1] || '').trim()),
+        duration: 'during_resolution',
+        permission: 'cast',
+        withoutPayingManaCost: true,
         optional: true,
         raw: rawClause,
       });
@@ -767,6 +1006,7 @@ export function tryParseSimpleActionClause(args: {
   {
     const copyStackObject = clause.match(/^copy\s+(target\s+.+)$/i);
     if (copyStackObject && /\b(?:spell|spells|ability|abilities)\b/i.test(String(copyStackObject[1] || ''))) {
+      if (/^\s*\d+\s*\|/i.test(rawClause)) return null;
       return withMeta({
         kind: 'copy_spell',
         subject: 'target_spell',
@@ -777,6 +1017,7 @@ export function tryParseSimpleActionClause(args: {
 
     const copyThatStackObject = clause.match(/^copy\s+(that\s+(?:spell|ability))$/i);
     if (copyThatStackObject) {
+      if (/^\s*\d+\s*\|/i.test(rawClause)) return null;
       return withMeta({
         kind: 'copy_spell',
         subject: 'target_spell',
@@ -787,17 +1028,145 @@ export function tryParseSimpleActionClause(args: {
   }
 
   {
-    const gainControlUntilEndOfTurn = clause.match(
-      new RegExp(`^${PLAYER_SUBJECT_PREFIX}gain(?:s)?\\s+control\\s+of\\s+(.+?)\\s+until\\s+end\\s+of\\s+turn\\b`, 'i')
-    );
-    if (gainControlUntilEndOfTurn) {
+    const voteGainControl = clause.match(/^for\s+each\s+.+?\s+vote,\s+choose\s+(.+?)\s+and\s+gain\s+control\s+of\s+it$/i);
+    if (voteGainControl) {
       return withMeta({
         kind: 'gain_control',
-        what: parseObjectSelector(gainControlUntilEndOfTurn[2]),
-        newController: parsePlayerSelector(gainControlUntilEndOfTurn[1]),
+        what: parseObjectSelector(String(voteGainControl[1] || 'it').trim()),
+        newController: { kind: 'you' },
+        duration: 'indefinite',
+        raw: rawClause,
+        });
+    }
+
+    const reciprocalControl = clause.match(/^you\s+and\s+(?:that|target)\s+opponent\s+each\s+gain\s+control\s+of\s+all\s+creatures\s+the\s+other\s+controls\s+until\s+end\s+of\s+turn$/i);
+    if (reciprocalControl) {
+      return withMeta({
+        kind: 'exchange_control',
+        first: parseObjectSelector('all creatures you control'),
+        second: parseObjectSelector('all creatures that opponent controls'),
+        raw: rawClause,
+      });
+    }
+
+    const leadingUntilGainControl = clause.match(/^until\s+end\s+of\s+turn,\s+gain\s+control\s+of\s+(.+)$/i);
+    if (leadingUntilGainControl) {
+      return withMeta({
+        kind: 'gain_control',
+        what: parseObjectSelector(String(leadingUntilGainControl[1] || '').trim()),
+        newController: { kind: 'you' },
         duration: 'until_end_of_turn',
         raw: rawClause,
         });
+    }
+
+    const havePlayerGainControl = clause.match(/^(?:you\s+may\s+)?have\s+(.+?)\s+gain\s+control\s+of\s+(.+?)\s+until\s+end\s+of\s+turn$/i);
+    if (havePlayerGainControl) {
+      return withMeta({
+        kind: 'gain_control',
+        what: parseObjectSelector(String(havePlayerGainControl[2] || '').trim()),
+        newController: parsePlayerSelector(String(havePlayerGainControl[1] || '').trim()),
+        duration: 'until_end_of_turn',
+        optional: true,
+        raw: rawClause,
+        });
+    }
+
+    const untapThenGainControl = clause.match(/^(that\s+player|target\s+player|they)\s+untaps?\s+(.+?)\s+and\s+gains?\s+control\s+of\s+it$/i);
+    if (untapThenGainControl) {
+      return withMeta({
+        kind: 'gain_control',
+        what: parseObjectSelector(String(untapThenGainControl[2] || 'it').trim()),
+        newController: parsePlayerSelector(String(untapThenGainControl[1] || '').trim()),
+        duration: 'indefinite',
+        raw: rawClause,
+        });
+    }
+
+    const targetPlayerGainsControl = clause.match(/^(target\s+player(?:\s+other\s+than\s+.+?)?)\s+gains?\s+control\s+of\s+(.+)$/i);
+    if (targetPlayerGainsControl) {
+      return withMeta({
+        kind: 'gain_control',
+        what: parseObjectSelector(String(targetPlayerGainsControl[2] || '').trim()),
+        newController: parsePlayerSelector(String(targetPlayerGainsControl[1] || '').trim()),
+        duration: 'indefinite',
+        raw: rawClause,
+        });
+    }
+
+    const lifeTotalPlayerGainsControl = clause.match(/^(the\s+player\s+with\s+the\s+(?:lowest|most)\s+life\s+total?|the\s+player\s+with\s+the\s+most\s+life)\s+gains?\s+control\s+of\s+(.+)$/i);
+    if (lifeTotalPlayerGainsControl) {
+      return withMeta({
+        kind: 'gain_control',
+        what: parseObjectSelector(String(lifeTotalPlayerGainsControl[2] || '').trim()),
+        newController: parsePlayerSelector(String(lifeTotalPlayerGainsControl[1] || '').trim()),
+        duration: 'indefinite',
+        raw: rawClause,
+        });
+    }
+
+    const gainControl = clause.match(
+      new RegExp(`^(?:for\\s+each\\s+opponent,\\s+)?${PLAYER_SUBJECT_PREFIX}gain(?:s)?\\s+control\\s+of\\s+(.+?)(?:\\s+(until\\s+end\\s+of\\s+turn|for\\s+as\\s+long\\s+as\\s+that\\s+aura\\s+is\\s+attached\\s+to\\s+it|for\\s+as\\s+long\\s+as\\s+you\\s+control\\s+[^.]+))?$`, 'i')
+    );
+    if (gainControl) {
+      const durationRaw = String(gainControl[3] || '').trim().toLowerCase();
+      const duration = /until\s+end\s+of\s+turn/i.test(durationRaw)
+        ? 'until_end_of_turn'
+        : /aura\s+is\s+attached/i.test(durationRaw)
+          ? 'as_long_as_attached'
+          : /as\s+long\s+as\s+you\s+control/i.test(durationRaw)
+            ? 'as_long_as_control_source'
+            : 'indefinite';
+      return withMeta({
+        kind: 'gain_control',
+        what: parseObjectSelector(gainControl[2]),
+        newController: parsePlayerSelector(gainControl[1]),
+        duration,
+        raw: rawClause,
+        });
+    }
+  }
+
+  {
+    const exchangeControl = clause.match(/^(?:you\s+may\s+)?exchange\s+control\s+of\s+(.+?)\s+and\s+(.+)$/i);
+    if (exchangeControl) {
+      return withMeta({
+        kind: 'exchange_control',
+        first: parseObjectSelector(String(exchangeControl[1] || '').trim()),
+        second: parseObjectSelector(String(exchangeControl[2] || '').trim()),
+        raw: rawClause,
+      });
+    }
+
+    const exchangeTwoTargets = clause.match(/^(?:you\s+may\s+)?exchange\s+control\s+of\s+two\s+(?:other\s+)?target\s+(.+)$/i);
+    if (exchangeTwoTargets) {
+      const targetText = String(exchangeTwoTargets[1] || '').trim().replace(/s\b/i, '');
+      return withMeta({
+        kind: 'exchange_control',
+        first: parseObjectSelector(`first target ${targetText}`),
+        second: parseObjectSelector(`second target ${targetText}`),
+        raw: rawClause,
+      });
+    }
+
+    const exchangeThose = clause.match(/^exchange\s+control\s+of\s+those\s+permanents$/i);
+    if (exchangeThose) {
+      return withMeta({
+        kind: 'exchange_control',
+        first: parseObjectSelector('first of those permanents'),
+        second: parseObjectSelector('second of those permanents'),
+        raw: rawClause,
+      });
+    }
+
+    const playersExchangeThose = clause.match(/^those\s+players\s+exchange\s+control\s+of\s+those\s+creatures$/i);
+    if (playersExchangeThose) {
+      return withMeta({
+        kind: 'exchange_control',
+        first: parseObjectSelector('first of those creatures'),
+        second: parseObjectSelector('second of those creatures'),
+        raw: rawClause,
+      });
     }
   }
 
@@ -823,7 +1192,7 @@ export function tryParseSimpleActionClause(args: {
       const scalingText = [withCounters[3], withCounters[4]].filter(Boolean).join(' ').trim();
       return withMeta({
         kind: 'add_counter',
-        amount: scalingText ? { kind: 'unknown', raw: `${amountText} ${scalingText}`.trim() } : parseCounterQuantity(amountText),
+        amount: scalingText ? parseScaledCounterQuantity(amountText, scalingText) : parseCounterQuantity(amountText),
         counter: normalizeCounterName(String(withCounters[2] || '')),
         target: parseObjectSelector('this permanent'),
         raw: rawClause,
@@ -843,7 +1212,7 @@ export function tryParseSimpleActionClause(args: {
       const targetText = /^(?:it|he|she|this(?: creature| permanent)?)$/i.test(subjectText) ? 'this permanent' : subjectText;
       return withMeta({
         kind: 'add_counter',
-        amount: scalingText ? { kind: 'unknown', raw: `${amountText} ${scalingText}`.trim() } : parseCounterQuantity(amountText),
+        amount: scalingText ? parseScaledCounterQuantity(amountText, scalingText) : parseCounterQuantity(amountText),
         counter: normalizeCounterName(String(entersWithCounters[3] || '')),
         target: parseObjectSelector(targetText || 'it'),
         raw: rawClause,
@@ -981,13 +1350,15 @@ export function tryParseSimpleActionClause(args: {
   }
 
   {
-    const removeCounters = clause.match(/^remove\s+(a|an|\d+|x|[a-z]+)\s+(.+?)\s+counters?\s+from\s+(.+)$/i);
+    const removeCounters = clause.match(/^remove\s+((?:up\s+to\s+)?(?:a|an|\d+|x|one|two|three|four|five|six|seven|eight|nine|ten|[a-z]+))\s+(.+?)\s+counters?\s+from\s+(.+)$/i);
     if (removeCounters) {
+      const amountRaw = String(removeCounters[1] || '').replace(/^up\s+to\s+/i, '').trim();
       return withMeta({
         kind: 'remove_counter',
-        amount: parseQuantity(removeCounters[1]),
+        amount: parseQuantity(amountRaw),
         counter: normalizeCounterName(String(removeCounters[2] || '')),
         target: parseObjectSelector(removeCounters[3]),
+        optional: /^up\s+to\s+/i.test(String(removeCounters[1] || '')) || undefined,
         raw: rawClause,
         });
     }
@@ -1077,6 +1448,27 @@ export function tryParseSimpleActionClause(args: {
         raw: rawClause,
         });
     }
+
+    const revealTopToHand = clause.match(/^reveal\s+the\s+top\s+card\s+of\s+your\s+library\s+and\s+put\s+that\s+card\s+into\s+your\s+hand$/i);
+    if (revealTopToHand) {
+      return withMeta({
+        kind: 'move_zone',
+        what: parseObjectSelector('the top card of your library'),
+        to: 'hand',
+        toRaw: 'your hand',
+        raw: rawClause,
+        });
+    }
+
+    const revealUntilTop = clause.match(/^reveal\s+cards?\s+from\s+the\s+top\s+of\s+your\s+library\s+until\s+you\s+reveal\s+(.+)$/i);
+    if (revealUntilTop) {
+      return withMeta({
+        kind: 'reveal_top',
+        who: { kind: 'you' },
+        amount: { kind: 'reference_amount', raw: `until you reveal ${String(revealUntilTop[1] || '').trim()}` },
+        raw: rawClause,
+        });
+    }
   }
 
   {
@@ -1088,6 +1480,58 @@ export function tryParseSimpleActionClause(args: {
         source: 'last_split_piles',
         chosenDestination: 'hand',
         otherDestination: 'graveyard',
+        raw: rawClause,
+        });
+    }
+
+    const opponentSeparatesPiles = clause.match(/^an\s+opponent\s+separates\s+those\s+cards\s+into\s+two\s+piles$/i);
+    if (opponentSeparatesPiles) {
+      return withMeta({
+        kind: 'choose_pile',
+        chooser: { kind: 'target_opponent' },
+        source: 'top_library',
+        raw: rawClause,
+        });
+    }
+
+    if (/^(?:you\s+)?choose\s+(?:a\s+|an\s+)?(?:nonland\s+)?card\s+from\s+it$/i.test(clause)) {
+      return withMeta({
+        kind: 'choose_card_name',
+        raw: rawClause,
+        });
+    }
+
+    if (/^choose\s+an\s+opponent\s+at\s+random$/i.test(clause)) {
+      return withMeta({
+        kind: 'choose_opponent',
+        raw: rawClause,
+        });
+    }
+
+    if (/^choose\s+any\s+target$/i.test(clause)) {
+      return withMeta({
+        kind: 'choose_target_creature',
+        target: parseObjectSelector('any target'),
+        raw: rawClause,
+        });
+    }
+
+    const shuffleGraveyard = clause.match(
+      new RegExp(`^${PLAYER_SUBJECT_PREFIX}shuffles?\\s+(?:your|their|his or her)\\s+graveyard\\s+into\\s+(?:your|their|his or her)\\s+library$`, 'i')
+    );
+    if (shuffleGraveyard) {
+      return withMeta({
+        kind: 'shuffle_zones_into_library',
+        who: parsePlayerSelector(shuffleGraveyard[1]),
+        zones: ['graveyard'],
+        raw: rawClause,
+        });
+    }
+
+    if (/^each\s+player\s+who\s+searched\s+their\s+library\s+this\s+way\s+shuffles$/i.test(clause)) {
+      return withMeta({
+        kind: 'shuffle_library',
+        who: { kind: 'each_player' },
         raw: rawClause,
         });
     }
@@ -1121,14 +1565,27 @@ export function tryParseSimpleActionClause(args: {
   }
 
   {
-    const discardAnyNumber = clause.match(new RegExp(`^${PLAYER_SUBJECT_PREFIX}discards?\\s+any\\s+number\\s+of\\s+cards$`, 'i'));
+    const discardAnyNumber = clause.match(new RegExp(`^${PLAYER_SUBJECT_PREFIX}(?:may\\s+)?discards?\\s+any\\s+number\\s+of\\s+cards$`, 'i'));
     if (discardAnyNumber) {
       return withMeta({
         kind: 'discard',
         who: parsePlayerSelector(discardAnyNumber[1]),
         amount: { kind: 'any_number' },
+        optional: /\\bmay\\b/i.test(clause) || undefined,
         raw: rawClause,
         });
+    }
+
+    const discardOneOrMore = clause.match(/^(?:you\s+may\s+)?discard\s+one\s+or\s+more\s+(.+?\s+cards?)\b/i);
+    if (discardOneOrMore) {
+      return withMeta({
+        kind: 'discard',
+        who: { kind: 'you' },
+        amount: { kind: 'any_number' },
+        target: parseObjectSelector(String(discardOneOrMore[1] || '').trim()),
+        optional: /\bmay\b/i.test(clause) || undefined,
+        raw: rawClause,
+      });
     }
   }
 
@@ -1187,6 +1644,50 @@ export function tryParseSimpleActionClause(args: {
         raw: rawClause,
         });
     }
+
+    const forceBlockThisTurn = clause.match(/^(they|it|target creature|those creatures)\s+blocks?\s+this\s+turn\s+if\s+able$/i);
+    if (forceBlockThisTurn) {
+      return withMeta({
+        kind: 'force_block',
+        blocker: parseObjectSelector(String(forceBlockThisTurn[1] || '').trim()),
+        attacker: parseObjectSelector('a creature attacking its controller'),
+        duration: 'end_of_turn',
+        raw: rawClause,
+        });
+    }
+
+    const mustBeBlockedThisTurn = clause.match(/^(.+?)\s+must\s+be\s+blocked\s+this\s+turn\s+if\s+able$/i);
+    if (mustBeBlockedThisTurn) {
+      return withMeta({
+        kind: 'grant_temporary_ability',
+        target: parseObjectSelector(String(mustBeBlockedThisTurn[1] || '').trim()),
+        duration: 'this_turn',
+        effectText: ['must be blocked if able'],
+        raw: rawClause,
+      });
+    }
+
+    const attacksPlayerThisCombat = clause.match(/^(this\s+creature|that\s+creature|it)\s+attacks\s+that\s+player\s+this\s+combat\s+if\s+able$/i);
+    if (attacksPlayerThisCombat) {
+      return withMeta({
+        kind: 'grant_temporary_ability',
+        target: parseObjectSelector(String(attacksPlayerThisCombat[1] || '').trim()),
+        duration: 'this_turn',
+        effectText: ['attacks that player this combat if able'],
+        raw: rawClause,
+      });
+    }
+
+    const attacksEachCombat = clause.match(/^(.+?)\s+attack\s+each\s+combat\s+if\s+able$/i);
+    if (attacksEachCombat) {
+      return withMeta({
+        kind: 'grant_static_ability',
+        target: parseObjectSelector(String(attacksEachCombat[1] || '').trim()),
+        effectText: ['attack each combat if able'],
+        duration: 'static',
+        raw: rawClause,
+      });
+    }
   }
 
   {
@@ -1197,6 +1698,13 @@ export function tryParseSimpleActionClause(args: {
         duration: 'this_turn',
         raw: rawClause,
         });
+    }
+    if (/^the\s+damage\s+can't\s+be\s+prevented$/i.test(clause)) {
+      return withMeta({
+        kind: 'damage_cant_be_prevented',
+        duration: 'this_turn',
+        raw: rawClause,
+      });
     }
   }
 
@@ -1248,6 +1756,29 @@ export function tryParseSimpleActionClause(args: {
   }
 
   {
+    const addVariableAnyColorMana = clause.match(new RegExp(`^${PLAYER_SUBJECT_PREFIX}adds?\\s+x\\s+mana\\s+of\\s+any\\s+one\\s+color(?:,\\s*where\\s+x\\s+is\\s+.+)?$`, 'i'));
+    if (addVariableAnyColorMana) {
+      return withMeta({
+        kind: 'add_mana',
+        who: parsePlayerSelector(addVariableAnyColorMana[1]),
+        mana: '{X}',
+        manaOptions: ['{W}', '{U}', '{B}', '{R}', '{G}'],
+        requiresChosenMana: true,
+        raw: rawClause,
+      });
+    }
+
+    const addProducedTypeMana = clause.match(new RegExp(`^${PLAYER_SUBJECT_PREFIX}adds?\\s+one\\s+mana\\s+of\\s+any\\s+type\\s+that\\s+.+?\\s+produced$`, 'i'));
+    if (addProducedTypeMana) {
+      return withMeta({
+        kind: 'add_mana',
+        who: parsePlayerSelector(addProducedTypeMana[1]),
+        mana: '{C}',
+        requiresChosenMana: true,
+        raw: rawClause,
+      });
+    }
+
     const addManaChoice = clause.match(
       new RegExp(`^${PLAYER_SUBJECT_PREFIX}adds?\\s+(\\{[^}]+\\}(?:(?:\\s*,\\s*|\\s+or\\s+|\\s*,\\s*or\\s*)\\{[^}]+\\})+)\\s*$`, 'i')
     );
@@ -1460,6 +1991,23 @@ export function tryParseSimpleActionClause(args: {
   }
 
   {
+    const willVote = clause.match(/^will\s+of\s+the\s+planeswalkers\s+-\s+starting\s+with\s+(.+?),\s*(each player)\s+votes?\s+for\s+(.+)$/i);
+    if (willVote) {
+      const choices = String(willVote[3] || '')
+        .split(/\s*,\s*|\s+or\s+/i)
+        .map(choice => choice.trim().replace(/^(?:an?|the)\s+/i, '').trim())
+        .filter(Boolean);
+      if (choices.length >= 2) {
+        return withMeta({
+          kind: 'vote',
+          voters: parsePlayerSelector(willVote[2]),
+          startingWith: parsePlayerSelector(willVote[1]),
+          choices,
+          raw: rawClause,
+        });
+      }
+    }
+
     const vote = clause.match(
       /^starting with\s+(.+?),\s*(each player)\s+votes?\s+for\s+(.+)$/i
     );
@@ -1481,7 +2029,7 @@ export function tryParseSimpleActionClause(args: {
   }
 
   {
-    const investigate = clause.match(new RegExp(`^${PLAYER_SUBJECT_PREFIX}(?:investigate|investigates)(?:\\s+(twice|that many|that much|\\d+|x|[a-z]+))?\\b$`, 'i'));
+    const investigate = clause.match(new RegExp(`^${PLAYER_SUBJECT_PREFIX}(?:investigate|investigates)(?:\\s+(twice|that many|that much|\\d+|x|[a-z]+)(?:\\s+times)?)?\\b$`, 'i'));
     if (investigate) {
       return withMeta({
         kind: 'investigate',
@@ -1562,6 +2110,60 @@ export function tryParseSimpleActionClause(args: {
   }
 
   {
+    const creatureTypeChoiceMatch = clause.match(/^(.+?)\s+becomes\s+the\s+creature\s+type\s+of\s+your\s+choice\s+until\s+end\s+of\s+turn$/i);
+    if (creatureTypeChoiceMatch) {
+      return withMeta({
+        kind: 'grant_temporary_ability',
+        target: parseObjectSelector(String(creatureTypeChoiceMatch[1] || '').trim()),
+        duration: 'end_of_turn',
+        effectText: ['becomes the creature type of your choice'],
+        raw: rawClause,
+        });
+    }
+
+    const colorChoiceMatch = clause.match(/^(.+?)\s+becomes\s+the\s+color\s+of\s+your\s+choice\s+until\s+end\s+of\s+turn$/i);
+    if (colorChoiceMatch) {
+      return withMeta({
+        kind: 'grant_temporary_ability',
+        target: parseObjectSelector(String(colorChoiceMatch[1] || '').trim()),
+        duration: 'end_of_turn',
+        effectText: ['becomes the color of your choice'],
+        raw: rawClause,
+      });
+    }
+
+    const chosenTypeAdditionMatch = clause.match(/^(this\s+creature|this\s+permanent|it)\s+is\s+the\s+chosen\s+type\s+in\s+addition\s+to\s+its\s+other\s+types$/i);
+    if (chosenTypeAdditionMatch) {
+      return withMeta({
+        kind: 'add_types',
+        target: parseObjectSelector(String(chosenTypeAdditionMatch[1] || '').trim()),
+        addTypes: ['chosen type'],
+        raw: rawClause,
+      });
+    }
+
+    const tokensGainHasteMatch = clause.match(/^(those\s+tokens|these\s+tokens|the\s+tokens|tokens\s+created\s+this\s+way)\s+gain\s+haste$/i);
+    if (tokensGainHasteMatch) {
+      return withMeta({
+        kind: 'grant_static_ability',
+        target: parseObjectSelector(String(tokensGainHasteMatch[1] || '').trim()),
+        abilities: ['haste'],
+        raw: rawClause,
+      });
+    }
+
+    const partyClassAdditionMatch = clause.match(/^(this\s+permanent|this\s+creature|it)\s+is\s+also\s+a\s+Cleric,\s+Rogue,\s+Warrior,\s+and\s+Wizard$/i);
+    if (partyClassAdditionMatch) {
+      return withMeta({
+        kind: 'add_types',
+        target: parseObjectSelector(String(partyClassAdditionMatch[1] || '').trim()),
+        addTypes: ['Cleric', 'Rogue', 'Warrior', 'Wizard'],
+        raw: rawClause,
+      });
+    }
+  }
+
+  {
     const basicLandTypeChoice = clause.match(
       /^(.+?)\s+becomes\s+the\s+basic\s+land\s+type\s+of\s+your\s+choice(?:\s+until\s+end\s+of\s+turn)?$/i
     );
@@ -1573,6 +2175,19 @@ export function tryParseSimpleActionClause(args: {
         duration: /\buntil\s+end\s+of\s+turn\b/i.test(clause) ? 'end_of_turn' : 'static',
         raw: rawClause,
         });
+    }
+
+    const specificBasicLandType = clause.match(/^(.+?)\s+becomes\s+(?:an?\s+)?(plains|island|swamp|mountain|forest)\s+until\s+end\s+of\s+turn$/i);
+    if (specificBasicLandType) {
+      const landType = String(specificBasicLandType[2] || '').trim().toLowerCase();
+      const normalizedLandType = (landType.charAt(0).toUpperCase() + landType.slice(1)) as 'Plains' | 'Island' | 'Swamp' | 'Mountain' | 'Forest';
+      return withMeta({
+        kind: 'set_basic_land_type',
+        target: parseObjectSelector(String(specificBasicLandType[1] || '').trim()),
+        landType: normalizedLandType,
+        duration: 'end_of_turn',
+        raw: rawClause,
+      });
     }
   }
 
@@ -1643,25 +2258,27 @@ export function tryParseSimpleActionClause(args: {
 
   {
     const discardHand = clause.match(
-      new RegExp(`^${PLAYER_SUBJECT_PREFIX}discards?\\s+(?:your|their)\\s+hand\\b`, 'i')
+      new RegExp(`^${PLAYER_SUBJECT_PREFIX}(?:may\\s+)?discards?\\s+(?:your|their)\\s+hand\\b`, 'i')
     );
     if (discardHand) {
       return withMeta({
         kind: 'discard',
         who: parsePlayerSelector(discardHand[1]),
         amount: { kind: 'number', value: 9999 },
+        optional: /\\bmay\\b/i.test(clause) || undefined,
         raw: rawClause,
         });
     }
 
     const discardAllInHand = clause.match(
-      new RegExp(`^${PLAYER_SUBJECT_PREFIX}discards?\\s+all\\s+(?:the\\s+)?cards?\\s+in\\s+(?:your|their)\\s+hand\\b`, 'i')
+      new RegExp(`^${PLAYER_SUBJECT_PREFIX}(?:may\\s+)?discards?\\s+all\\s+(?:the\\s+)?cards?\\s+in\\s+(?:your|their)\\s+hand\\b`, 'i')
     );
     if (discardAllInHand) {
       return withMeta({
         kind: 'discard',
         who: parsePlayerSelector(discardAllInHand[1]),
         amount: { kind: 'number', value: 9999 },
+        optional: /\\bmay\\b/i.test(clause) || undefined,
         raw: rawClause,
         });
     }
@@ -1677,7 +2294,7 @@ export function tryParseSimpleActionClause(args: {
     }
 
     const discardTargeted = clause.match(
-      new RegExp(`^${PLAYER_SUBJECT_PREFIX}discards?\\s+(that\\s+card|those\\s+cards|it)\\b`, 'i')
+      new RegExp(`^${PLAYER_SUBJECT_PREFIX}(?:may\\s+)?discards?\\s+(that\\s+card|those\\s+cards|it)\\b`, 'i')
     );
     if (discardTargeted) {
       return withMeta({
@@ -1685,20 +2302,66 @@ export function tryParseSimpleActionClause(args: {
         who: parsePlayerSelector(discardTargeted[1]),
         amount: { kind: 'number', value: 1 },
         target: parseObjectSelector(discardTargeted[2]),
+        optional: /\\bmay\\b/i.test(clause) || undefined,
         raw: rawClause,
         });
     }
 
+    const discardHalf = clause.match(
+      new RegExp(`^${PLAYER_SUBJECT_PREFIX}(?:may\\s+)?discards?\\s+half\\s+the\\s+cards\\s+in\\s+(?:their|your)\\s+hand,\\s+rounded\\s+(up|down)$`, 'i')
+    );
+    if (discardHalf) {
+      return withMeta({
+        kind: 'discard',
+        who: parsePlayerSelector(discardHalf[1]),
+        amount: { kind: 'reference_amount', raw: `half_hand_rounded_${String(discardHalf[2] || '').trim().toLowerCase()}` },
+        optional: /\\bmay\\b/i.test(clause) || undefined,
+        raw: rawClause,
+        });
+    }
+
+    const subjectlessDiscardHalf = clause.match(/^(?:then\s+)?discards?\s+half\s+the\s+cards\s+in\s+(?:their|your)\s+hand(?:,\s+rounded\s+(up|down))?$/i);
+    if (subjectlessDiscardHalf) {
+      return withMeta({
+        kind: 'discard',
+        who: { kind: 'each_player' },
+        amount: { kind: 'reference_amount', raw: `half_hand_rounded_${String(subjectlessDiscardHalf[1] || 'up').trim().toLowerCase()}` },
+        raw: rawClause,
+      });
+    }
+
     const discard = clause.match(
-      new RegExp(`^${PLAYER_SUBJECT_PREFIX}discards?\\s+(a|an|\\d+|x|[a-z]+)\\s+cards?\\b`, 'i')
+      new RegExp(`^${PLAYER_SUBJECT_PREFIX}(?:also\\s+)?(?:may\\s+)?discards?\\s+(that\\s+many|a|an|\\d+|x|[a-z]+)\\s+cards?\\b`, 'i')
     );
     if (discard) {
       return withMeta({
         kind: 'discard',
         who: parsePlayerSelector(discard[1]),
         amount: parseQuantity(discard[2]),
+        optional: /\\bmay\\b/i.test(clause) || undefined,
         raw: rawClause,
         });
+    }
+
+    const eachPlayerWhoCantDiscard = clause.match(/^each\s+player\s+who\s+can't\s+discards?\s+(a|an|\d+|x|[a-z]+)\s+cards?\b/i);
+    if (eachPlayerWhoCantDiscard) {
+      return withMeta({
+        kind: 'discard',
+        who: { kind: 'each_player' },
+        amount: parseQuantity(eachPlayerWhoCantDiscard[1]),
+        raw: rawClause,
+      });
+    }
+
+    const mayHaveDiscard = clause.match(/^(?:you\s+may\s+)?have\s+(target\s+opponent|target\s+player|that\s+opponent|that\s+player|an\s+opponent)\s+discard\s+(a|an|\d+|x|[a-z]+)\s+cards?\b/i);
+    if (mayHaveDiscard) {
+      return withMeta({
+        kind: 'discard',
+        who: parsePlayerSelector(mayHaveDiscard[1]),
+        amount: parseQuantity(mayHaveDiscard[2]),
+        optional: true,
+        raw: rawClause,
+      });
     }
 
     const discardTargetedDefault = clause.match(/^discard\s+(that\s+card|it)\b/i);
@@ -1747,6 +2410,15 @@ export function tryParseSimpleActionClause(args: {
         raw: rawClause,
         });
     }
+
+    const revealRandomCard = clause.match(new RegExp(`^${PLAYER_SUBJECT_PREFIX}reveals?\\s+a\\s+card\\s+at\\s+random\\s+from\\s+(?:your|their|his or her)\\s+hand$`, 'i'));
+    if (revealRandomCard) {
+      return withMeta({
+        kind: 'reveal_hand',
+        who: parsePlayerSelector(revealRandomCard[1]),
+        raw: rawClause,
+        });
+    }
   }
 
   {
@@ -1761,6 +2433,18 @@ export function tryParseSimpleActionClause(args: {
         kind: 'mill',
         who: parsePlayerSelector(millUntilLand[1]),
         amount: { kind: 'reveal_until_land' },
+        raw: rawClause,
+        });
+    }
+
+    const anyTargetsMill = clause.match(
+      /^any\s+number\s+of\s+target\s+players\s+each\s+mills?\s+(that many|that much|a|an|\d+|x|[a-z]+)\s+cards?$/i
+    );
+    if (anyTargetsMill) {
+      return withMeta({
+        kind: 'mill',
+        who: { kind: 'any_number_of_target_players' },
+        amount: parseQuantity(anyTargetsMill[1]),
         raw: rawClause,
         });
     }
@@ -1787,7 +2471,7 @@ export function tryParseSimpleActionClause(args: {
   }
 
   {
-    const goad = clause.match(/^goad\s+(.+)$/i);
+    const goad = clause.match(/^(?:for\s+each\s+opponent,\s+)?goad\s+(.+)$/i);
     if (goad) {
       return withMeta({
         kind: 'goad',
@@ -1839,6 +2523,610 @@ export function tryParseSimpleActionClause(args: {
         kind: 'cant_activate_abilities',
         target: parseObjectSelector(normalizePossessiveObjectReference(cantActivateAbilities[1])),
         duration: /\bthis\s+turn$/i.test(clause) ? 'end_of_turn' : 'static',
+        raw: rawClause,
+        });
+    }
+  }
+
+  {
+    const mustBeBlocked = clause.match(/^(.+?)\s+must\s+be\s+blocked\s+if\s+able$/i);
+    if (mustBeBlocked) {
+      return withMeta({
+        kind: 'grant_static_ability',
+        target: parseObjectSelector(String(mustBeBlocked[1] || '').trim()),
+        effectText: ['must be blocked if able'],
+        duration: 'static',
+        raw: rawClause,
+        });
+    }
+
+    const attacksIfAble = clause.match(/^(.+?)\s+attacks\s+this\s+turn\s+if\s+able$/i);
+    if (attacksIfAble) {
+      return withMeta({
+        kind: 'grant_temporary_ability',
+        target: parseObjectSelector(String(attacksIfAble[1] || '').trim()),
+        duration: 'this_turn',
+        effectText: ['attacks this turn if able'],
+        raw: rawClause,
+        });
+    }
+
+    const cantBlockThis = clause.match(/^(.+?)\s+can(?:not|'t)\s+block\s+(.+?)\s+this\s+turn$/i);
+    if (cantBlockThis) {
+      return withMeta({
+        kind: 'grant_temporary_ability',
+        target: parseObjectSelector(String(cantBlockThis[1] || '').trim()),
+        duration: 'this_turn',
+        effectText: [`can't block ${String(cantBlockThis[2] || '').trim()}`],
+        raw: rawClause,
+        });
+    }
+
+    const assignsToughnessDamage = clause.match(/^each\s+creature\s+you\s+control\s+assigns\s+combat\s+damage\s+equal\s+to\s+its\s+toughness\s+rather\s+than\s+its\s+power$/i);
+    if (assignsToughnessDamage) {
+      return withMeta({
+        kind: 'grant_static_ability',
+        target: parseObjectSelector('each creature you control'),
+        effectText: ['assigns combat damage equal to its toughness rather than its power'],
+        duration: 'static',
+        raw: rawClause,
+        });
+    }
+
+    const toughnessGreaterDamage = clause.match(/^each\s+creature\s+you\s+control\s+with\s+toughness\s+greater\s+than\s+its\s+power\s+assigns\s+combat\s+damage\s+equal\s+to\s+its\s+toughness\s+rather\s+than\s+its\s+power$/i);
+    if (toughnessGreaterDamage) {
+      return withMeta({
+        kind: 'grant_static_ability',
+        target: parseObjectSelector('each creature you control with toughness greater than its power'),
+        effectText: ['assigns combat damage equal to its toughness rather than its power'],
+        duration: 'static',
+        raw: rawClause,
+      });
+    }
+
+    const enchantedNoUntap = clause.match(/^(enchanted\s+(?:permanent|creature|artifact|land))\s+does(?:n't|\s+not)\s+untap\s+during\s+its\s+controller(?:'|â€™)?s\s+untap\s+step$/i);
+    if (enchantedNoUntap) {
+      return withMeta({
+        kind: 'grant_static_ability',
+        target: parseObjectSelector(String(enchantedNoUntap[1] || '').trim()),
+        effectText: ["doesn't untap during its controller's untap step"],
+        duration: 'while_attached',
+        raw: rawClause,
+        });
+    }
+
+    const gainsSuspend = clause.match(/^if\s+it\s+does(?:n't|\s+not)\s+have\s+suspend,\s*it\s+gains\s+suspend$/i);
+    if (gainsSuspend) {
+      return withMeta({
+        kind: 'grant_static_ability',
+        target: parseObjectSelector('it'),
+        abilities: ['suspend'],
+        effectText: ['if it does not have suspend, it gains suspend'],
+        duration: 'static',
+        raw: rawClause,
+        });
+    }
+
+    const doubleDamage = clause.match(/^it\s+deals\s+double\s+that\s+damage$/i);
+    if (doubleDamage) {
+      return withMeta({
+        kind: 'modify_damage',
+        mode: 'add',
+        amount: { kind: 'reference_amount', raw: 'that damage' },
+        damageFilter: 'any',
+        raw: rawClause,
+        });
+    }
+
+    const doubleDamageToTarget = clause.match(/^it\s+deals\s+double\s+that\s+damage\s+to\s+(.+)$/i);
+    if (doubleDamageToTarget) {
+      return withMeta({
+        kind: 'modify_damage',
+        mode: 'add',
+        amount: { kind: 'reference_amount', raw: 'that damage' },
+        damageFilter: 'any',
+        targetFilter: String(doubleDamageToTarget[1] || '').trim(),
+        raw: rawClause,
+      });
+    }
+
+    if (/^the\s+same\s+is\s+true\s+for\s+creature\s+spells\s+you\s+control\s+and\s+creature\s+cards\s+you\s+own\s+that\s+aren't\s+on\s+the\s+battlefield$/i.test(clause)) {
+      return withMeta({
+        kind: 'grant_static_ability',
+        target: parseObjectSelector('creature spells you control and creature cards you own that are not on the battlefield'),
+        effectText: ['the same is true'],
+        duration: 'static',
+        raw: rawClause,
+        });
+    }
+  }
+
+  {
+    const activateLimit = clause.match(/^activate\s+no\s+more\s+than\s+(.+?)\s+each\s+turn$/i);
+    if (activateLimit) {
+      return withMeta({
+        kind: 'grant_static_ability',
+        target: parseObjectSelector('this ability'),
+        effectText: [`activate no more than ${String(activateLimit[1] || '').trim()} each turn`],
+        duration: 'static',
+        raw: rawClause,
+      });
+    }
+
+    const activatedAbilitiesCantBeActivated = clause.match(/^activated\s+abilities\s+of\s+(.+?)\s+can(?:'|â€™)?t\s+be\s+activated\s+unless\s+they(?:'|â€™)?re\s+mana\s+abilities$/i);
+    if (activatedAbilitiesCantBeActivated) {
+      return withMeta({
+        kind: 'cant_activate_abilities',
+        target: parseObjectSelector(String(activatedAbilitiesCantBeActivated[1] || '').trim()),
+        duration: 'static',
+        raw: rawClause,
+      });
+    }
+
+    const tokenReplacement = clause.match(/^twice\s+that\s+many\s+of\s+those\s+tokens\s+are\s+created$/i);
+    if (tokenReplacement) {
+      return withMeta({
+        kind: 'modify_token_creation',
+        who: { kind: 'you' },
+        tokenTypes: ['token'],
+        mode: 'add_additional_token',
+        additionalAmount: { kind: 'reference_amount', raw: 'that many' },
+        raw: rawClause,
+      });
+    }
+
+    const createChosenNameCopy = clause.match(/^create\s+a\s+copy\s+of\s+the\s+card\s+with\s+the\s+chosen\s+name$/i);
+    if (createChosenNameCopy) {
+      return withMeta({
+        kind: 'create_token',
+        who: { kind: 'you' },
+        amount: { kind: 'number', value: 1 },
+        token: 'copy of the card with the chosen name',
+        raw: rawClause,
+      });
+    }
+
+    const spellCostChange = clause.match(/^(.+?\s+spells?\s+(?:you\s+cast|you\s+control)?)\s+cost\s+(\{[^}]+\})\s+(less|more)\s+to\s+cast$/i);
+    if (spellCostChange) {
+      return withMeta({
+        kind: 'grant_static_ability',
+        target: parseObjectSelector(String(spellCostChange[1] || '').trim()),
+        effectText: [`cost ${String(spellCostChange[2] || '').trim()} ${String(spellCostChange[3] || '').trim()} to cast`],
+        duration: 'static',
+        raw: rawClause,
+      });
+    }
+
+    const domainCostReduction = clause.match(/^(?:domain\s+-\s+)?this\s+spell\s+costs?\s+(\{[^}]+\})\s+less\s+to\s+cast\s+for\s+each\s+basic\s+land\s+type\s+among\s+lands\s+you\s+control$/i);
+    if (domainCostReduction) {
+      return withMeta({
+        kind: 'grant_static_ability',
+        target: parseObjectSelector('this spell'),
+        effectText: [`costs ${String(domainCostReduction[1] || '').trim()} less to cast for each basic land type among lands you control`],
+        duration: 'static',
+        raw: rawClause,
+      });
+    }
+
+    const spellsCantBeCountered = clause.match(/^(.+?\s+spells?\s+you\s+control)\s+can(?:'|â€™)?t\s+be\s+countered$/i);
+    if (spellsCantBeCountered) {
+      return withMeta({
+        kind: 'grant_static_ability',
+        target: parseObjectSelector(String(spellsCantBeCountered[1] || '').trim()),
+        effectText: ["can't be countered"],
+        duration: 'static',
+        raw: rawClause,
+      });
+    }
+
+    const chosenTypeCostLess = clause.match(/^spells\s+you\s+cast\s+of\s+the\s+chosen\s+type\s+cost\s+(\{[^}]+\})\s+less\s+to\s+cast$/i);
+    if (chosenTypeCostLess) {
+      return withMeta({
+        kind: 'grant_static_ability',
+        target: parseObjectSelector('spells you cast of the chosen type'),
+        effectText: [`cost ${String(chosenTypeCostLess[1] || '').trim()} less to cast`],
+        duration: 'static',
+        raw: rawClause,
+      });
+    }
+
+    const permanentsEnterTapped = clause.match(/^(.+?)\s+enter\s+tapped$/i);
+    if (permanentsEnterTapped && /\b(?:creatures?|artifacts?|lands?|permanents?)\b/i.test(String(permanentsEnterTapped[1] || ''))) {
+      return withMeta({
+        kind: 'grant_static_ability',
+        target: parseObjectSelector(String(permanentsEnterTapped[1] || '').trim()),
+        effectText: ['enter tapped'],
+        duration: 'static',
+        raw: rawClause,
+      });
+    }
+
+    const allAbleBlockTarget = clause.match(/^all\s+creatures\s+able\s+to\s+block\s+(.+?)\s+this\s+turn\s+do\s+so$/i);
+    if (allAbleBlockTarget) {
+      return withMeta({
+        kind: 'force_block',
+        blocker: parseObjectSelector('all creatures able to block'),
+        attacker: parseObjectSelector(String(allAbleBlockTarget[1] || '').trim()),
+        duration: 'end_of_turn',
+        raw: rawClause,
+      });
+    }
+
+    const doublePowerUntilEot = clause.match(/^double\s+(.+?)(?:'|â€™)?s\s+power\s+until\s+end\s+of\s+turn$/i);
+    if (doublePowerUntilEot) {
+      return withMeta({
+        kind: 'grant_temporary_ability',
+        target: parseObjectSelector(String(doublePowerUntilEot[1] || '').trim()),
+        duration: 'end_of_turn',
+        effectText: ['double power'],
+        raw: rawClause,
+      });
+    }
+
+    const excessDamageToController = clause.match(/^excess\s+damage\s+is\s+dealt\s+to\s+(.+?)(?:'|â€™)?s\s+controller\s+instead$/i);
+    if (excessDamageToController) {
+      return withMeta({
+        kind: 'grant_static_ability',
+        target: parseObjectSelector(String(excessDamageToController[1] || '').trim()),
+        effectText: ['excess damage is dealt to its controller instead'],
+        duration: 'static',
+        raw: rawClause,
+      });
+    }
+
+    const ifPlayerDoesCounter = clause.match(/^if\s+a\s+player\s+does,\s*counter\s+this\s+permanent$/i);
+    if (ifPlayerDoesCounter) {
+      return withMeta({
+        kind: 'counter_spell',
+        target: parseObjectSelector('this permanent'),
+        raw: rawClause,
+      });
+    }
+
+    const becomesArtifactCreatureEot = clause.match(/^(it|this\s+permanent)\s+becomes\s+an\s+artifact\s+creature\s+until\s+end\s+of\s+turn$/i);
+    if (becomesArtifactCreatureEot) {
+      return withMeta({
+        kind: 'grant_temporary_ability',
+        target: parseObjectSelector(String(becomesArtifactCreatureEot[1] || '').trim()),
+        duration: 'end_of_turn',
+        effectText: ['becomes an artifact creature'],
+        raw: rawClause,
+      });
+    }
+
+    const remainsTappedUntapRestriction = clause.match(/^(.+?)\s+do(?:es)?(?:n't|\s+not)\s+untap\s+during\s+its\s+controller(?:'|â€™)?s\s+untap\s+step\s+for\s+as\s+long\s+as\s+(.+?)\s+remains\s+tapped$/i);
+    if (remainsTappedUntapRestriction) {
+      return withMeta({
+        kind: 'grant_static_ability',
+        target: parseObjectSelector(String(remainsTappedUntapRestriction[1] || '').trim()),
+        effectText: [`doesn't untap while ${String(remainsTappedUntapRestriction[2] || '').trim()} remains tapped`],
+        duration: 'static',
+        raw: rawClause,
+      });
+    }
+
+    const noMaxHandSize = clause.match(/^players\s+have\s+no\s+maximum\s+hand\s+size$/i);
+    if (noMaxHandSize) {
+      return withMeta({
+        kind: 'grant_static_ability',
+        target: parseObjectSelector('players'),
+        effectText: ['have no maximum hand size'],
+        duration: 'static',
+        raw: rawClause,
+      });
+    }
+
+    if (/^you\s+do(?:n't|\s+not)\s+lose\s+the\s+game\s+for\s+having\s+0\s+or\s+less\s+life$/i.test(clause)) {
+      return withMeta({
+        kind: 'grant_static_ability',
+        target: parseObjectSelector('you'),
+        effectText: ["don't lose the game for having 0 or less life"],
+        duration: 'static',
+        raw: rawClause,
+      });
+    }
+
+    const castAsThoughFlash = clause.match(/^(?:you\s+may\s+)?cast\s+(.+?)\s+spells\s+as\s+though\s+they\s+had\s+flash$/i);
+    if (castAsThoughFlash) {
+      return withMeta({
+        kind: 'grant_static_ability',
+        target: parseObjectSelector(`you casting ${String(castAsThoughFlash[1] || '').trim()} spells`),
+        effectText: ['may cast as though they had flash'],
+        duration: 'static',
+        raw: rawClause,
+      });
+    }
+
+    if (/^(?:your\s+opponents|each\s+opponent)\s+can't\s+cast\s+spells\s+during\s+your\s+turn$/i.test(clause)) {
+      return withMeta({
+        kind: 'grant_static_ability',
+        target: parseObjectSelector('your opponents'),
+        effectText: ["can't cast spells during your turn"],
+        duration: 'static',
+        raw: rawClause,
+      });
+    }
+
+    if (/^each\s+opponent\s+can\s+cast\s+spells\s+only\s+any\s+time\s+they\s+could\s+cast\s+a\s+sorcery$/i.test(clause)) {
+      return withMeta({
+        kind: 'grant_static_ability',
+        target: parseObjectSelector('each opponent'),
+        effectText: ['can cast spells only any time they could cast a sorcery'],
+        duration: 'static',
+        raw: rawClause,
+      });
+    }
+
+    const chooseCreatureTypeOtherThan = clause.match(/^choose\s+a\s+creature\s+type\s+other\s+than\s+.+$/i);
+    if (chooseCreatureTypeOtherThan) {
+      return withMeta({ kind: 'choose_creature_type', raw: rawClause });
+    }
+
+    const chooseAnyNumberTargetCreatures = clause.match(/^choose\s+any\s+number\s+of\s+target\s+creatures$/i);
+    if (chooseAnyNumberTargetCreatures) {
+      return withMeta({
+        kind: 'choose_target_creature',
+        target: parseObjectSelector('any number of target creatures'),
+        optional: true,
+        raw: rawClause,
+      });
+    }
+
+    const noncreatureCostIncrease = clause.match(/^(.+?)\s+costs?\s+(\{[^}]+\})\s+more\s+to\s+cast$/i);
+    if (noncreatureCostIncrease) {
+      return withMeta({
+        kind: 'grant_static_ability',
+        target: parseObjectSelector(String(noncreatureCostIncrease[1] || '').trim()),
+        effectText: [`costs ${String(noncreatureCostIncrease[2] || '').trim()} more to cast`],
+        duration: 'static',
+        raw: rawClause,
+      });
+    }
+
+    const losesDefender = clause.match(/^(this\s+creature|it|target\s+creature)\s+loses\s+defender\s+until\s+end\s+of\s+turn$/i);
+    if (losesDefender) {
+      return withMeta({
+        kind: 'grant_temporary_ability',
+        target: parseObjectSelector(String(losesDefender[1] || '').trim()),
+        duration: 'end_of_turn',
+        effectText: ['loses defender'],
+        raw: rawClause,
+      });
+    }
+
+    const temporaryLoseKeywords = clause.match(/^(.+?)\s+lose\s+([a-z, ]+)\s+until\s+end\s+of\s+turn$/i);
+    if (temporaryLoseKeywords) {
+      return withMeta({
+        kind: 'grant_temporary_ability',
+        target: parseObjectSelector(String(temporaryLoseKeywords[1] || '').trim()),
+        duration: 'end_of_turn',
+        effectText: [`lose ${String(temporaryLoseKeywords[2] || '').trim()}`],
+        raw: rawClause,
+      });
+    }
+
+    if (/^if\s+you\s+cast\s+a\s+spell\s+this\s+way,\s+pay\s+life\s+equal\s+to\s+its\s+mana\s+value\s+rather\s+than\s+pay\s+its\s+mana\s+cost$/i.test(clause)) {
+      return withMeta({
+        kind: 'grant_static_ability',
+        target: parseObjectSelector('spell cast this way'),
+        effectText: ['pay life equal to its mana value rather than pay its mana cost'],
+        duration: 'static',
+        raw: rawClause,
+      });
+    }
+
+    if (/^it\s+creates\s+twice\s+that\s+many\s+of\s+those\s+tokens$/i.test(clause)) {
+      return withMeta({
+        kind: 'grant_static_ability',
+        target: parseObjectSelector('it'),
+        effectText: ['doubles token creation'],
+        duration: 'static',
+        raw: rawClause,
+      });
+    }
+
+    const additionalMana = clause.match(/^its\s+controller\s+adds\s+an\s+additional\s+((?:\{[^}]+\})+)$/i);
+    if (additionalMana) {
+      return withMeta({
+        kind: 'add_mana',
+        who: { kind: 'target_player' },
+        mana: String(additionalMana[1] || '').trim(),
+        raw: rawClause,
+      });
+    }
+
+    if (/^only\s+your\s+opponents\s+may\s+activate\s+this\s+ability$/i.test(clause)) {
+      return withMeta({
+        kind: 'grant_static_ability',
+        target: parseObjectSelector('this ability'),
+        effectText: ['only your opponents may activate this ability'],
+        duration: 'static',
+        raw: rawClause,
+      });
+    }
+
+    const gainTwiceThatMuchLife = clause.match(/^(.+?)\s+gain(?:s)?\s+twice\s+that\s+much\s+life$/i);
+    if (gainTwiceThatMuchLife) {
+      return withMeta({
+        kind: 'gain_life',
+        who: parsePlayerSelector(String(gainTwiceThatMuchLife[1] || '').trim()),
+        amount: { kind: 'reference_amount', raw: 'twice that much' },
+        raw: rawClause,
+      });
+    }
+
+    const alternateLandReturnCost = clause.match(/^you\s+may\s+pay\s+(\{[^}]+\})\s+and\s+return\s+(.+?)\s+to\s+its\s+owner(?:'|â€™)?s\s+hand\s+rather\s+than\s+pay\s+this\s+spell(?:'|â€™)?s\s+mana\s+cost$/i);
+    if (alternateLandReturnCost) {
+      return withMeta({
+        kind: 'grant_static_ability',
+        target: parseObjectSelector('you'),
+        effectText: [`may pay ${String(alternateLandReturnCost[1] || '').trim()} and return ${String(alternateLandReturnCost[2] || '').trim()} to its owner's hand rather than pay this spell's mana cost`],
+        duration: 'static',
+        raw: rawClause,
+      });
+    }
+
+    const alternateTapCost = clause.match(/^if\s+you\s+control\s+a\s+(plains|island|swamp|mountain|forest),\s+you\s+may\s+tap\s+an\s+untapped\s+creature\s+you\s+control\s+rather\s+than\s+pay\s+this\s+spell(?:'|â€™)?s\s+mana\s+cost$/i);
+    if (alternateTapCost) {
+      return withMeta({
+        kind: 'grant_static_ability',
+        target: parseObjectSelector('you'),
+        effectText: [`may tap an untapped creature you control rather than pay this spell's mana cost if you control a ${String(alternateTapCost[1] || '').trim().toLowerCase()}`],
+        duration: 'static',
+        raw: rawClause,
+      });
+    }
+
+    const flashSurcharge = clause.match(/^(?:you\s+may\s+)?cast\s+this\s+spell\s+as\s+though\s+it\s+had\s+flash\s+if\s+you\s+pay\s+(.+?)\s+more\s+to\s+cast\s+it$/i);
+    if (flashSurcharge) {
+      return withMeta({
+        kind: 'grant_static_ability',
+        target: parseObjectSelector('you'),
+        effectText: [`may cast this spell as though it had flash if you pay ${String(flashSurcharge[1] || '').trim()} more to cast it`],
+        duration: 'static',
+        raw: rawClause,
+        });
+    }
+
+    if (/^(?:you\s+may\s+)?have\s+this\s+creature\s+assign\s+its\s+combat\s+damage\s+as\s+though\s+it\s+weren(?:'|â€™)?t\s+blocked$/i.test(clause)) {
+      return withMeta({
+        kind: 'grant_temporary_ability',
+        target: parseObjectSelector('this creature'),
+        duration: 'this_turn',
+        effectText: ['assign combat damage as though it were not blocked'],
+        raw: rawClause,
+        });
+    }
+
+    const attachToTarget = clause.match(/^attach\s+to\s+(.+)$/i);
+    if (attachToTarget) {
+      return withMeta({
+        kind: 'attach',
+        attachment: parseObjectSelector('this permanent'),
+        to: parseObjectSelector(String(attachToTarget[1] || '').trim()),
+        raw: rawClause,
+        });
+    }
+
+    const chooseTwoCreatures = clause.match(/^choose\s+(target\s+creature\s+you\s+control\s+and\s+target\s+creature\s+you\s+don(?:'|â€™)?t\s+control)$/i);
+    if (chooseTwoCreatures) {
+      return withMeta({
+        kind: 'choose_target_creature',
+        target: parseObjectSelector(String(chooseTwoCreatures[1] || '').trim()),
+        raw: rawClause,
+        });
+    }
+
+    if (/^damage\s+can(?:not|'t)\s+be\s+prevented$/i.test(clause)) {
+      return withMeta({
+        kind: 'grant_static_ability',
+        target: parseObjectSelector('damage'),
+        effectText: ["can't be prevented"],
+        duration: 'static',
+        raw: rawClause,
+        });
+    }
+
+    const castOnlyRestriction = clause.match(/^cast\s+this\s+spell\s+only\s+during\s+(.+)$/i);
+    if (castOnlyRestriction) {
+      return withMeta({
+        kind: 'grant_static_ability',
+        target: parseObjectSelector('this spell'),
+        effectText: [`cast only during ${String(castOnlyRestriction[1] || '').trim()}`],
+        duration: 'static',
+        raw: rawClause,
+        });
+    }
+
+    if (/^each\s+player\s+can(?:not|'t)\s+cast\s+more\s+than\s+one\s+spell\s+each\s+turn$/i.test(clause)) {
+      return withMeta({
+        kind: 'grant_static_ability',
+        target: parseObjectSelector('each player'),
+        effectText: ["can't cast more than one spell each turn"],
+        duration: 'static',
+        raw: rawClause,
+        });
+    }
+
+    const alternateCost = clause.match(/^(?:you\s+may\s+)?pay\s+(\{[^}]+\}(?:\s*\{[^}]+\})*)\s+rather\s+than\s+pay\s+this\s+spell(?:'|â€™)?s\s+mana\s+cost$/i);
+    if (alternateCost) {
+      return withMeta({
+        kind: 'grant_static_ability',
+        target: parseObjectSelector('you'),
+        effectText: [`may pay ${String(alternateCost[1] || '').replace(/\s+/g, '')} rather than pay this spell's mana cost`],
+        duration: 'static',
+        raw: rawClause,
+        });
+    }
+
+    const eachPlayerChooseLands = clause.match(/^each\s+player\s+chooses\s+a\s+number\s+of\s+lands\s+they\s+control\s+equal\s+to\s+the\s+number\s+of\s+lands\s+controlled\s+by\s+the\s+player\s+who\s+controls\s+the\s+fewest$/i);
+    if (eachPlayerChooseLands) {
+      return withMeta({
+        kind: 'player_choice',
+        choice: 'number_of_lands',
+        raw: rawClause,
+      });
+    }
+
+    const enchantedLandType = clause.match(/^(enchanted\s+land)\s+is\s+an?\s+(plains|island|swamp|mountain|forest)$/i);
+    if (enchantedLandType) {
+      const landType = String(enchantedLandType[2] || '').trim().toLowerCase();
+      const normalizedLandType = (landType.charAt(0).toUpperCase() + landType.slice(1)) as 'Plains' | 'Island' | 'Swamp' | 'Mountain' | 'Forest';
+      return withMeta({
+        kind: 'set_basic_land_type',
+        target: parseObjectSelector(String(enchantedLandType[1] || '').trim()),
+        landType: normalizedLandType,
+        duration: 'static',
+        raw: rawClause,
+      });
+    }
+
+    const payLife = clause.match(/^(?:you\s+may\s+)?pay\s+(\d+)\s+life$/i);
+    if (payLife) {
+      return withMeta({
+        kind: 'lose_life',
+        who: { kind: 'you' },
+        amount: { kind: 'number', value: Number.parseInt(String(payLife[1] || '0'), 10) || 0 },
+        optional: true,
+        raw: rawClause,
+        });
+    }
+
+    const discardUpTo = clause.match(/^discard\s+up\s+to\s+(one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+cards?$/i);
+    if (discardUpTo) {
+      return withMeta({
+        kind: 'discard',
+        who: { kind: 'you' },
+        amount: parseQuantity(String(discardUpTo[1] || '').trim()),
+        optional: true,
+        raw: rawClause,
+        });
+    }
+
+    if (/^(?:your\s+opponents|each\s+opponent)\s+can(?:not|'t)\s+gain\s+life$/i.test(clause)) {
+      return withMeta({
+        kind: 'grant_static_ability',
+        target: parseObjectSelector('your opponents'),
+        effectText: ["can't gain life"],
+        duration: 'static',
+        raw: rawClause,
+        });
+    }
+
+    const chosenColorProtection = clause.match(/^(enchanted\s+creature)\s+has\s+protection\s+from\s+the\s+chosen\s+color$/i);
+    if (chosenColorProtection) {
+      return withMeta({
+        kind: 'grant_static_ability',
+        target: parseObjectSelector(String(chosenColorProtection[1] || '').trim()),
+        effectText: ['protection from the chosen color'],
+        duration: 'while_attached',
+        raw: rawClause,
+        });
+    }
+
+    if (/^if\s+you\s+(?:don(?:'|â€™)?t|can(?:'|â€™)?t),\s*you\s+lose\s+the\s+game$/i.test(clause)) {
+      return withMeta({
+        kind: 'lose_game',
         raw: rawClause,
         });
     }

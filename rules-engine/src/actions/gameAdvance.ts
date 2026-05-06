@@ -5,7 +5,7 @@
  * Orchestrates turn-based actions, triggers, and state-based actions.
  */
 
-import type { ExtraTurnEffect, GameState, BattlefieldPermanent, StackItem } from '../../../shared/src';
+import type { ExtraTurnEffect, GameState, BattlefieldPermanent, StackItem, SkipNextTurnEffect } from '../../../shared/src';
 import type { EngineResult, ActionContext } from '../core/types';
 import { RulesEngineEvent } from '../core/events';
 import { GamePhase, GameStep, getNextGameStep, doesStepReceivePriority } from './gamePhases';
@@ -39,7 +39,9 @@ function resolveNextTurnStart(state: GameState): {
   activePlayerIndex: number;
   activePlayerId: string;
   extraTurns?: readonly ExtraTurnEffect[];
+  skipNextTurnEffects?: readonly SkipNextTurnEffect[];
   takenExtraTurn?: ExtraTurnEffect;
+  skippedTurnPlayerIds: readonly string[];
   skippedExtraTurnPlayerIds: readonly string[];
 } {
   const players = Array.isArray(state.players) ? state.players : [];
@@ -50,7 +52,27 @@ function resolveNextTurnStart(state: GameState): {
   const pendingExtraTurns = hadExtraTurnQueue
     ? ([...((state as any).extraTurns as readonly ExtraTurnEffect[])] as ExtraTurnEffect[])
     : [];
+  const hadSkipNextTurnQueue = Array.isArray((state as any).skipNextTurnEffects);
+  let pendingSkipNextTurns = hadSkipNextTurnQueue
+    ? ([...((state as any).skipNextTurnEffects as readonly SkipNextTurnEffect[])] as SkipNextTurnEffect[])
+    : [];
   const skippedExtraTurnPlayerIds: string[] = [];
+  const skippedTurnPlayerIds: string[] = [];
+
+  const consumeSkipNextTurn = (playerId: string): boolean => {
+    const effectIndex = pendingSkipNextTurns.findIndex(effect =>
+      String((effect as any)?.playerId || '').trim() === playerId && Number((effect as any)?.remainingSkips || 0) > 0
+    );
+    if (effectIndex < 0) return false;
+
+    const effect = pendingSkipNextTurns[effectIndex] as SkipNextTurnEffect;
+    const remainingSkips = Math.max(0, Number(effect.remainingSkips || 0) - 1);
+    pendingSkipNextTurns = remainingSkips > 0
+      ? pendingSkipNextTurns.map((entry, index) => index === effectIndex ? { ...entry, remainingSkips } : entry)
+      : pendingSkipNextTurns.filter((_, index) => index !== effectIndex);
+    skippedTurnPlayerIds.push(playerId);
+    return true;
+  };
 
   while (pendingExtraTurns.length > 0) {
     const nextExtraTurn = pendingExtraTurns.shift() as ExtraTurnEffect;
@@ -58,11 +80,15 @@ function resolveNextTurnStart(state: GameState): {
     const playerIndex = players.findIndex(player => String((player as any)?.id || '').trim() === playerId);
 
     if (playerIndex >= 0) {
+      if (consumeSkipNextTurn(playerId)) continue;
+
       return {
         activePlayerIndex: playerIndex,
         activePlayerId: playerId,
         extraTurns: pendingExtraTurns,
+        ...(hadSkipNextTurnQueue ? { skipNextTurnEffects: pendingSkipNextTurns } : {}),
         takenExtraTurn: nextExtraTurn,
+        skippedTurnPlayerIds,
         skippedExtraTurnPlayerIds,
       };
     }
@@ -72,10 +98,30 @@ function resolveNextTurnStart(state: GameState): {
     }
   }
 
+  for (let offset = 0; offset < Math.max(players.length, 1); offset += 1) {
+    const playerIndex = players.length > 0
+      ? ((state.activePlayerIndex || 0) + 1 + offset) % players.length
+      : 0;
+    const playerId = String(players[playerIndex]?.id || '').trim();
+    if (!playerId) break;
+    if (consumeSkipNextTurn(playerId)) continue;
+
+    return {
+      activePlayerIndex: playerIndex,
+      activePlayerId: playerId,
+      ...(hadExtraTurnQueue ? { extraTurns: pendingExtraTurns } : {}),
+      ...(hadSkipNextTurnQueue ? { skipNextTurnEffects: pendingSkipNextTurns } : {}),
+      skippedTurnPlayerIds,
+      skippedExtraTurnPlayerIds,
+    };
+  }
+
   return {
     activePlayerIndex: fallbackActivePlayerIndex,
     activePlayerId: String(players[fallbackActivePlayerIndex]?.id || '').trim(),
     ...(hadExtraTurnQueue ? { extraTurns: pendingExtraTurns } : {}),
+    ...(hadSkipNextTurnQueue ? { skipNextTurnEffects: pendingSkipNextTurns } : {}),
+    skippedTurnPlayerIds,
     skippedExtraTurnPlayerIds,
   };
 }
@@ -171,8 +217,12 @@ export function advanceGame(
       turnStartBattlefieldSnapshot: turnStartBattlefieldSnapshot as any,
       turnStartHandSnapshot: turnStartHandSnapshot as any,
       ...(nextTurnStart?.extraTurns ? { extraTurns: nextTurnStart.extraTurns } : {}),
+      ...(nextTurnStart?.skipNextTurnEffects ? { skipNextTurnEffects: nextTurnStart.skipNextTurnEffects } : {}),
     };
 
+    for (const skippedPlayerId of nextTurnStart?.skippedTurnPlayerIds || []) {
+      logs.push(`${skippedPlayerId} skips their turn`);
+    }
     for (const skippedPlayerId of nextTurnStart?.skippedExtraTurnPlayerIds || []) {
       logs.push(`Skipped invalid extra turn for ${skippedPlayerId}`);
     }

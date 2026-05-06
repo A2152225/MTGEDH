@@ -519,15 +519,18 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
     expect(steps[1].amount).toEqual({ kind: 'number', value: 3 });
   });
 
-  it('preserves unsupported sacrifice follow-ups as explicit unknown steps after splitting', () => {
+  it('parses contextual counter follow-ups after splitting sacrifice conjunctions', () => {
     const text = 'Sacrifice this enchantment and counter that spell.';
     const ir = parseOracleTextToIR(text, 'Hesitation');
     const steps = ir.abilities[0].steps as any[];
 
     expect(steps).toHaveLength(2);
     expect(steps[0].kind).toBe('sacrifice');
-    expect(steps[1].kind).toBe('unknown');
-    expect(steps[1].raw).toBe('counter that spell');
+    expect(steps[1]).toMatchObject({
+      kind: 'counter_spell',
+      target: { kind: 'raw', text: 'that spell' },
+      raw: 'counter that spell',
+    });
   });
 
   it('splits named-self sacrifice conjunctions while preserving then-sequence metadata', () => {
@@ -629,8 +632,12 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
     expect(steps[0].steps[1].kind).toBe('add_counter');
     expect(steps[0].steps[1].counter).toBe('+1/+1');
     expect(steps[0].steps[1].target).toEqual({ kind: 'raw', text: 'enchanted creature' });
-    expect(steps[0].steps[2].kind).toBe('unknown');
-    expect(steps[0].steps[2].raw).toBe('that creature gains flying');
+    expect(steps[0].steps[2]).toEqual(expect.objectContaining({
+      kind: 'grant_temporary_ability',
+      target: { kind: 'raw', text: 'that creature' },
+      abilities: ['flying'],
+      raw: 'that creature gains flying',
+    }));
   });
 
   it('parses conditional sacrifice wrappers that were split by top-level then handling', () => {
@@ -6875,8 +6882,10 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
         amount: { kind: 'number', value: 2 },
       }),
       expect.objectContaining({
-        kind: 'unknown',
-        raw: 'Target opponent gains control of this permanent',
+        kind: 'gain_control',
+        what: { kind: 'raw', text: 'this permanent' },
+        newController: { kind: 'target_opponent' },
+        duration: 'indefinite',
       }),
     ]);
   });
@@ -11195,7 +11204,7 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
     );
   });
 
-  it('merges retarget tails onto unmodeled spell-or-ability copy clauses', () => {
+  it('merges retarget tails onto spell-or-ability copy clauses', () => {
     const ir = parseOracleTextToIR(
       'Whenever you cast an instant or sorcery spell that targets only Bill Potts or activate an ability that targets only Bill Potts, copy that spell or ability. You may choose new targets for the copy. This ability triggers only once each turn.',
       'Bill Potts'
@@ -11205,7 +11214,9 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
     expect(copyAbility?.steps.some((step: any) => String(step?.raw || '').trim() === 'You may choose new targets for the copy')).toBe(false);
     expect(copyAbility?.steps[0]).toEqual(
       expect.objectContaining({
-        kind: 'unknown',
+        kind: 'copy_spell',
+        allowNewTargets: true,
+        target: { kind: 'raw', text: 'that spell or ability' },
         raw: expect.stringContaining('You may choose new targets for the copy'),
       })
     );
@@ -11221,7 +11232,9 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
     expect(copyAbility?.steps.some((step: any) => String(step?.raw || '').trim() === 'You may choose new targets for the copy')).toBe(false);
     expect(copyAbility?.steps[0]).toEqual(
       expect.objectContaining({
-        kind: 'unknown',
+        kind: 'copy_spell',
+        allowNewTargets: true,
+        target: { kind: 'raw', text: 'next instant or sorcery spell you cast this turn' },
         raw: expect.stringContaining('You may choose new targets for the copy'),
       })
     );
@@ -11237,7 +11250,9 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
     expect(copyAbility?.steps.some((step: any) => String(step?.raw || '').trim() === 'You may choose new targets for the copy')).toBe(false);
     expect(copyAbility?.steps[0]).toEqual(
       expect.objectContaining({
-        kind: 'unknown',
+        kind: 'copy_spell',
+        allowNewTargets: true,
+        target: { kind: 'raw', text: 'that spell' },
         raw: expect.stringContaining('You may choose new targets for the copy'),
       })
     );

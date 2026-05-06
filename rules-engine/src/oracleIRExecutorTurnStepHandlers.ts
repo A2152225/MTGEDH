@@ -1,7 +1,8 @@
-import type { ExtraTurnEffect, GameState, PlayerID, SkipNextDrawStepEffect } from '../../shared/src';
+import { GamePhase, GameStep, type ExtraTurnEffect, type GameState, type PlayerID, type SkipNextDrawStepEffect, type SkipNextTurnEffect } from '../../shared/src';
 import type { OracleEffectStep } from './oracleIR';
 import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
 import { resolvePlayers } from './oracleIRExecutorPlayerUtils';
+import { endTheTurn } from './specialGameMechanics';
 
 type ExtraCombatEffect = {
   readonly source?: string;
@@ -23,6 +24,65 @@ type StepSkipResult = {
 };
 
 export type TurnStepHandlerResult = StepApplyResult | StepSkipResult;
+
+export function applyEndTurnStep(
+  state: GameState,
+  step: Extract<OracleEffectStep, { kind: 'end_turn' }>
+): TurnStepHandlerResult {
+  const effect = endTheTurn();
+
+  return {
+    applied: true,
+    state: {
+      ...(state as any),
+      stack: [],
+      phase: GamePhase.ENDING,
+      step: GameStep.CLEANUP,
+      priorityPasses: 0,
+      turnEndingEffect: effect,
+    } as GameState,
+    log: [`Ended the turn: ${step.raw}`],
+  };
+}
+
+export function applySkipNextTurnStep(
+  state: GameState,
+  step: Extract<OracleEffectStep, { kind: 'skip_next_turn' }>,
+  ctx: OracleIRExecutionContext
+): TurnStepHandlerResult {
+  const players = resolvePlayers(state, step.who, ctx);
+  if (players.length === 0) {
+    return {
+      applied: false,
+      message: `Skipped skip-next-turn (unsupported player selector): ${step.raw}`,
+      reason: 'unsupported_player_selector',
+    };
+  }
+
+  const existingEffects = Array.isArray((state as any).skipNextTurnEffects)
+    ? ([...(state as any).skipNextTurnEffects] as SkipNextTurnEffect[])
+    : [];
+  const nextEffects = [...existingEffects];
+
+  for (const playerId of players) {
+    nextEffects.push({
+      id: `skip-turn-${String(ctx.sourceId || ctx.sourceName || playerId)}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      playerId: playerId as PlayerID,
+      ...(ctx.sourceId ? { sourceId: ctx.sourceId } : {}),
+      ...(ctx.sourceName ? { sourceName: ctx.sourceName } : {}),
+      remainingSkips: 1,
+    });
+  }
+
+  return {
+    applied: true,
+    state: {
+      ...(state as any),
+      skipNextTurnEffects: nextEffects,
+    } as GameState,
+    log: players.map((playerId: string) => `${playerId} skips their next turn`),
+  };
+}
 
 export function applySkipNextDrawStep(
   state: GameState,

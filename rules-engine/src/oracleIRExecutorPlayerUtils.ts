@@ -1252,7 +1252,7 @@ export function addManaToPoolForPlayer(
   state: GameState,
   playerId: PlayerID,
   mana: string,
-  spendRestriction?: 'creature_spell' | 'instant_or_sorcery_spell',
+  spendRestriction?: 'creature_spell' | 'instant_or_sorcery_spell' | 'artifact_spell_or_ability' | 'activated_ability',
   sourceId?: string,
   sourceName?: string
 ): { state: GameState; log: string[]; applied: boolean } {
@@ -1268,7 +1268,11 @@ export function addManaToPoolForPlayer(
     ? 'creatures'
     : spendRestriction === 'instant_or_sorcery_spell'
       ? 'instant_sorcery'
-      : undefined;
+      : spendRestriction === 'artifact_spell_or_ability'
+        ? 'artifacts'
+        : spendRestriction === 'activated_ability'
+          ? 'activated_abilities'
+        : undefined;
 
   const symbolToManaType = (symbol: string): ManaType => {
     switch (String(symbol).toUpperCase()) {

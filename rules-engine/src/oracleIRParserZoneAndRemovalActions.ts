@@ -127,7 +127,6 @@ function parseMoveZoneStep(args: {
     withCounters,
     raw: rawClause,
   });
-
   if (trailingConditionRaw) {
     moveStep = withMeta({
       kind: 'conditional',
@@ -155,6 +154,16 @@ export function tryParseZoneAndRemovalClause(args: {
 }): OracleEffectStep | null {
   const { clause, rawClause, withMeta } = args;
 
+  const forEachOpponentReturnMatch = clause.match(/^for\s+each\s+opponent,\s+return\s+(.+?)\s+to\s+(.+)$/i);
+  if (forEachOpponentReturnMatch) {
+    return parseMoveZoneStep({
+      whatRaw: String(forEachOpponentReturnMatch[1] || '').trim(),
+      toRaw: String(forEachOpponentReturnMatch[2] || '').trim(),
+      rawClause,
+      withMeta,
+    });
+  }
+
   const destroyMatch = clause.match(/^destroy\s+(.+)$/i);
   if (destroyMatch) {
     return withMeta({ kind: 'destroy', target: parseObjectSelector(destroyMatch[1]), raw: rawClause });
@@ -173,11 +182,29 @@ export function tryParseZoneAndRemovalClause(args: {
     });
   }
 
+  const counterUnlessDiscardMatch = clause.match(/^counter\s+(.+?)\s+unless\s+its\s+controller\s+discards?\s+(?:a|an|one|\d+|[a-z]+)\s+cards?$/i);
+  if (counterUnlessDiscardMatch && /\b(?:spell|ability|abilities)\b/i.test(String(counterUnlessDiscardMatch[1] || ''))) {
+    return withMeta({
+      kind: 'counter_spell',
+      target: parseObjectSelector(String(counterUnlessDiscardMatch[1] || '').trim()),
+      raw: rawClause,
+    });
+  }
+
   const counterUnlessVariablePaysMatch = clause.match(/^counter\s+(target\s+.+?)\s+unless\s+its\s+controller\s+pays\s+(.+)$/i);
   if (counterUnlessVariablePaysMatch && /\b(?:spell|spells|ability|abilities)\b/i.test(String(counterUnlessVariablePaysMatch[1] || ''))) {
     return withMeta({
       kind: 'counter_spell',
       target: parseObjectSelector(String(counterUnlessVariablePaysMatch[1] || '').trim()),
+      raw: rawClause,
+    });
+  }
+
+  const counterContextualUnlessPaysMatch = clause.match(/^counter\s+(that\s+spell\s+or\s+ability|that\s+spell|that\s+ability)\s+unless\s+its\s+controller\s+pays\s+(.+)$/i);
+  if (counterContextualUnlessPaysMatch) {
+    return withMeta({
+      kind: 'counter_spell',
+      target: parseObjectSelector(String(counterContextualUnlessPaysMatch[1] || '').trim()),
       raw: rawClause,
     });
   }
@@ -202,10 +229,74 @@ export function tryParseZoneAndRemovalClause(args: {
     });
   }
 
+  const counterContextualStackObjectMatch = clause.match(/^counter\s+(that\s+(?:spell\s+or\s+ability|spell|ability)|it)$/i);
+  if (counterContextualStackObjectMatch) {
+    return withMeta({
+      kind: 'counter_spell',
+      target: parseObjectSelector(String(counterContextualStackObjectMatch[1] || '').trim()),
+      raw: rawClause,
+    });
+  }
+
   const exileFromMatch = clause.match(/^exile\s+(.+?)\s+from\s+(.+)$/i);
   if (exileFromMatch) {
     const whatRaw = `${String(exileFromMatch[1] || '').trim()} from ${String(exileFromMatch[2] || '').trim()}`.trim();
     return withMeta({ kind: 'move_zone', what: parseObjectSelector(whatRaw), to: 'exile', toRaw: 'exile', raw: rawClause });
+  }
+
+  const subjectExilesFromHandMatch = clause.match(
+    /^(target player|target opponent|that player|that opponent|an opponent|each player|each opponent)\s+exiles?\s+(.+?)\s+from\s+(?:their|his or her|your)\s+hand$/i
+  );
+  if (subjectExilesFromHandMatch) {
+    const subject = String(subjectExilesFromHandMatch[1] || '').trim().toLowerCase();
+    const ownerText = /opponent/i.test(subject)
+      ? "target opponent's"
+      : /^each player$/i.test(subject)
+        ? "each player's"
+        : /^each opponent$/i.test(subject)
+          ? "each opponent's"
+          : "target player's";
+    return withMeta({
+      kind: 'move_zone',
+      what: parseObjectSelector(`${String(subjectExilesFromHandMatch[2] || '').trim()} from ${ownerText} hand`),
+      to: 'exile',
+      toRaw: 'exile',
+      raw: rawClause,
+    });
+  }
+
+  const subjectExilesFromGraveyardMatch = clause.match(
+    /^(target player|target opponent|that player|that opponent|an opponent|each player|each opponent)\s+exiles?\s+(.+?)\s+from\s+(?:their|his or her|your)\s+graveyard$/i
+  );
+  if (subjectExilesFromGraveyardMatch) {
+    const subject = String(subjectExilesFromGraveyardMatch[1] || '').trim().toLowerCase();
+    const ownerText = /opponent/i.test(subject)
+      ? "target opponent's"
+      : /^each player$/i.test(subject)
+        ? "each player's"
+        : /^each opponent$/i.test(subject)
+          ? "each opponent's"
+          : "target player's";
+    return withMeta({
+      kind: 'move_zone',
+      what: parseObjectSelector(`${String(subjectExilesFromGraveyardMatch[2] || '').trim()} from ${ownerText} graveyard`),
+      to: 'exile',
+      toRaw: 'exile',
+      raw: rawClause,
+    });
+  }
+
+  const chooseFromGraveyardOrHandAndExileMatch = clause.match(
+    /^you\s+choose\s+(.+?)\s+from\s+that\s+player(?:'|â€™)?s\s+graveyard\s+or\s+hand\s+and\s+exile\s+it$/i
+  );
+  if (chooseFromGraveyardOrHandAndExileMatch) {
+    return withMeta({
+      kind: 'move_zone',
+      what: parseObjectSelector(`${String(chooseFromGraveyardOrHandAndExileMatch[1] || '').trim()} from that player's graveyard or hand`),
+      to: 'exile',
+      toRaw: 'exile',
+      raw: rawClause,
+    });
   }
 
   const insteadExileMatch = clause.match(/^instead\s+exile\s+(.+)$/i);
@@ -213,7 +304,7 @@ export function tryParseZoneAndRemovalClause(args: {
     return withMeta({ kind: 'exile', target: parseObjectSelector(insteadExileMatch[1]), raw: rawClause });
   }
 
-  const exileMatch = clause.match(/^exile\s+(.+)$/i);
+  const exileMatch = clause.match(/^(?:otherwise,\s*)?exile\s+(.+)$/i);
   if (exileMatch) {
     return withMeta({ kind: 'exile', target: parseObjectSelector(exileMatch[1]), raw: rawClause });
   }
@@ -284,7 +375,52 @@ export function tryParseZoneAndRemovalClause(args: {
     }
   }
 
-  const putIntoMatch = clause.match(/^put\s+(.+?)\s+into\s+(.+)$/i);
+  {
+    const subjectPutsIntoHandMatch = clause.match(
+      /^(that player|that opponent|target player|target opponent|they|its owner|its controller)\s+puts?\s+(it|that card|the exiled card|them|those cards)\s+into\s+(?:their|his or her|your)\s+hand$/i
+    );
+    if (subjectPutsIntoHandMatch) {
+      const subject = String(subjectPutsIntoHandMatch[1] || '').trim();
+      const destination = /opponent/i.test(subject) ? "target opponent's hand" : "target player's hand";
+      return parseMoveZoneStep({
+        whatRaw: String(subjectPutsIntoHandMatch[2] || '').trim(),
+        toRaw: destination,
+        rawClause,
+        withMeta,
+      });
+    }
+  }
+
+  {
+    const targetOwnerPutsOnLibraryMatch = clause.match(
+      /^(.+?)'?s\s+owner\s+puts?\s+it\s+on\s+their\s+choice\s+of\s+the\s+top\s+or\s+bottom\s+of\s+their\s+library$/i
+    );
+    if (targetOwnerPutsOnLibraryMatch) {
+      return parseMoveZoneStep({
+        whatRaw: String(targetOwnerPutsOnLibraryMatch[1] || 'it').trim(),
+        toRaw: "top or bottom of its owner's library",
+        rawClause,
+        withMeta,
+      });
+    }
+
+    const ownerPutsOnLibraryMatch = clause.match(
+      /^(?:(?:the\s+)?owner\s+of\s+)?(?:target\s+spell,\s+nonland\s+permanent,\s+or\s+card\s+in\s+a\s+graveyard|that card|it|its owner)\s+puts?\s+(it|that card|the exiled card)?\s*(?:on|onto)\s+the\s+(top|bottom)(?:\s+or\s+(bottom|top))?\s+of\s+(?:their|his or her|its owner's|that player's|your)\s+library$/i
+    );
+    if (ownerPutsOnLibraryMatch) {
+      const placement = ownerPutsOnLibraryMatch[3]
+        ? `${String(ownerPutsOnLibraryMatch[2] || '').trim()} or ${String(ownerPutsOnLibraryMatch[3] || '').trim()}`
+        : String(ownerPutsOnLibraryMatch[2] || '').trim();
+      return parseMoveZoneStep({
+        whatRaw: String(ownerPutsOnLibraryMatch[1] || 'it').trim(),
+        toRaw: `${placement} of its owner's library`,
+        rawClause,
+        withMeta,
+      });
+    }
+  }
+
+  const putIntoMatch = clause.match(/^(?:otherwise,\s*)?put\s+(.+?)\s+into\s+(.+)$/i);
   if (putIntoMatch) {
     return parseMoveZoneStep({
       whatRaw: String(putIntoMatch[1] || '').trim(),
@@ -299,6 +435,68 @@ export function tryParseZoneAndRemovalClause(args: {
     return parseMoveZoneStep({
       whatRaw: String(putOnLibraryMatch[1] || '').trim(),
       toRaw: String(putOnLibraryMatch[2] || '').trim(),
+      rawClause,
+      withMeta,
+    });
+  }
+
+  const putCardsFromHandOnLibraryMatch = clause.match(/^put\s+(.+?\s+cards?\s+from\s+your\s+hand)\s+on\s+(top\s+of\s+your\s+library)\s+in\s+any\s+order$/i);
+  if (putCardsFromHandOnLibraryMatch) {
+    return parseMoveZoneStep({
+      whatRaw: String(putCardsFromHandOnLibraryMatch[1] || '').trim(),
+      toRaw: String(putCardsFromHandOnLibraryMatch[2] || '').trim(),
+      rawClause,
+      withMeta,
+    });
+  }
+
+  const shuffleTargetCardsFromGraveyardMatch = clause.match(
+    /^(target\s+player)\s+shuffles?\s+(up\s+to\s+(?:one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+target\s+cards?)\s+from\s+their\s+graveyard\s+into\s+their\s+library$/i
+  );
+  if (shuffleTargetCardsFromGraveyardMatch) {
+    return parseMoveZoneStep({
+      whatRaw: `${String(shuffleTargetCardsFromGraveyardMatch[2] || '').trim()} from target player's graveyard`,
+      toRaw: "target player's library",
+      rawClause,
+      withMeta,
+    });
+  }
+
+  const ownerShufflesIntoLibraryMatch = clause.match(/^(?:its|their|his or her)\s+owner\s+shuffles?\s+(it|them|that card|those cards)\s+into\s+(?:their|his or her)\s+library$/i);
+  if (ownerShufflesIntoLibraryMatch) {
+    return parseMoveZoneStep({
+      whatRaw: String(ownerShufflesIntoLibraryMatch[1] || 'it').trim(),
+      toRaw: "its owner's library",
+      rawClause,
+      withMeta,
+    });
+  }
+
+  const subjectOwnerShufflesIntoLibraryMatch = clause.match(/^(this\s+creature|this\s+permanent|that\s+creature|it)(?:'|â€™)?s\s+owner\s+shuffles?\s+it\s+into\s+their\s+library$/i);
+  if (subjectOwnerShufflesIntoLibraryMatch) {
+    return parseMoveZoneStep({
+      whatRaw: String(subjectOwnerShufflesIntoLibraryMatch[1] || 'it').trim(),
+      toRaw: "its owner's library",
+      rawClause,
+      withMeta,
+    });
+  }
+
+  const revealAndShuffleIntoOwnerLibraryMatch = clause.match(/^reveal\s+(.+?)\s+and\s+shuffle\s+(it|them|that card|this permanent)\s+into\s+its\s+owner(?:'|â€™)?s\s+library$/i);
+  if (revealAndShuffleIntoOwnerLibraryMatch) {
+    return parseMoveZoneStep({
+      whatRaw: String(revealAndShuffleIntoOwnerLibraryMatch[2] || revealAndShuffleIntoOwnerLibraryMatch[1] || 'it').trim(),
+      toRaw: "its owner's library",
+      rawClause,
+      withMeta,
+    });
+  }
+
+  const putThoseIntoGraveyardMatch = clause.match(/^(?:then\s+)?puts?\s+(those\s+cards|them)\s+into\s+(?:their|your)\s+graveyard$/i);
+  if (putThoseIntoGraveyardMatch) {
+    return parseMoveZoneStep({
+      whatRaw: String(putThoseIntoGraveyardMatch[1] || 'those cards').trim(),
+      toRaw: 'graveyard',
       rawClause,
       withMeta,
     });

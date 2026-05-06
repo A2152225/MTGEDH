@@ -46,6 +46,10 @@ export type OracleObjectSelector =
 export type OracleScaler =
   | { readonly kind: 'per_revealed_this_way' }
   | { readonly kind: 'per_creature_blocking_it' }
+  | { readonly kind: 'per_basic_land_type_among_lands_you_control' }
+  | { readonly kind: 'per_artifact_you_control' }
+  | { readonly kind: 'per_creature_tapped_this_way' }
+  | { readonly kind: 'per_other_attacking_aurochs' }
   | { readonly kind: 'unknown'; readonly raw: string };
 
 export type OracleClauseCondition =
@@ -109,6 +113,7 @@ export type OracleEffectStep =
       readonly kind: 'flip_coin';
       readonly who: OraclePlayerSelector;
       readonly call?: 'heads' | 'tails';
+      readonly repeatUntil?: 'lose_flip';
       readonly optional?: boolean;
       readonly sequence?: 'then';
       readonly raw: string;
@@ -148,7 +153,15 @@ export type OracleEffectStep =
         readonly kind: 'gain_control';
         readonly what: OracleObjectSelector;
         readonly newController: OraclePlayerSelector;
-        readonly duration: 'until_end_of_turn';
+        readonly duration: 'until_end_of_turn' | 'indefinite' | 'as_long_as_attached' | 'as_long_as_control_source';
+        readonly optional?: boolean;
+        readonly sequence?: 'then';
+        readonly raw: string;
+      }
+    | {
+        readonly kind: 'exchange_control';
+        readonly first: OracleObjectSelector;
+        readonly second: OracleObjectSelector;
         readonly optional?: boolean;
         readonly sequence?: 'then';
         readonly raw: string;
@@ -237,6 +250,19 @@ export type OracleEffectStep =
       readonly who: OraclePlayerSelector;
       readonly source?: OracleObjectSelector;
       readonly duration?: 'static' | 'this_turn';
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
+      readonly kind: 'end_turn';
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
+      readonly kind: 'skip_next_turn';
+      readonly who: OraclePlayerSelector;
       readonly optional?: boolean;
       readonly sequence?: 'then';
       readonly raw: string;
@@ -417,7 +443,7 @@ export type OracleEffectStep =
       /** Requires an explicit chosen color/mana binding instead of defaulting to the first option. */
       readonly requiresChosenMana?: boolean;
       /** Restricts how the produced mana can be spent. */
-      readonly spendRestriction?: 'creature_spell' | 'instant_or_sorcery_spell';
+      readonly spendRestriction?: 'creature_spell' | 'instant_or_sorcery_spell' | 'artifact_spell_or_ability' | 'activated_ability';
       readonly optional?: boolean;
       readonly sequence?: 'then';
       readonly raw: string;
@@ -467,6 +493,15 @@ export type OracleEffectStep =
     }
   | {
       readonly kind: 'choose_card_name';
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
+      readonly kind: 'player_choice';
+      readonly choice: 'card_type' | 'letter' | 'odd_even' | 'text_change' | 'number_of_lands' | 'generic';
+      readonly target?: OracleObjectSelector;
+      readonly options?: readonly string[];
       readonly optional?: boolean;
       readonly sequence?: 'then';
       readonly raw: string;
@@ -1083,6 +1118,14 @@ export type OracleEffectStep =
   | {
       readonly kind: 'counter_spell';
       readonly target: OracleObjectSelector;
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
+      readonly kind: 'change_target';
+      readonly target: OracleObjectSelector;
+      readonly newTarget?: OracleObjectSelector;
       readonly optional?: boolean;
       readonly sequence?: 'then';
       readonly raw: string;

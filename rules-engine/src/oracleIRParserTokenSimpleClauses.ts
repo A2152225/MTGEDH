@@ -83,6 +83,16 @@ export function tryParseSimpleCreateTokenClause(args: {
     .replace(/[.]+$/g, '')
     .trim();
 
+  if (/^it\s+creates\s+twice\s+that\s+many\s+of\s+those\s+tokens$/i.test(clause)) {
+    return withMeta({
+      kind: 'grant_static_ability',
+      target: parseObjectSelector('it'),
+      effectText: ['doubles token creation'],
+      duration: 'static',
+      raw: rawClause,
+    });
+  }
+
   const perOpponentAttackingCreate = clause.match(
     new RegExp(
       `^for each opponent,\\s+create\\s+(${TOKEN_AMOUNT_PATTERN})\\s+(tapped\\s+)?(.+?)\\s+(?:creature\\s+)?token(?:s)?(?:\\s+that(?:'s| is| are)\\s+tapped\\s+and\\s+attacking\\s+that\\s+player(?:\\s+or\\s+a\\s+planeswalker\\s+they\\s+control)?)?$`,
@@ -96,6 +106,17 @@ export function tryParseSimpleCreateTokenClause(args: {
       amount: parseTokenQuantity(perOpponentAttackingCreate[1]),
       token: String(perOpponentAttackingCreate[3] || '').trim(),
       entersTapped: Boolean(perOpponentAttackingCreate[2]) || /\btapped\s+and\s+attacking\b/i.test(clause) || undefined,
+      attacking: 'each_opponent',
+      raw: rawClause,
+    });
+  }
+
+  if (/^for each opponent,\s+create\s+a\s+token\s+copy\s+that\s+attacks\s+that\s+opponent\s+this\s+turn\s+if\s+able$/i.test(clause)) {
+    return withMeta({
+      kind: 'create_token',
+      who: { kind: 'you' },
+      amount: { kind: 'number', value: 1 },
+      token: 'copy',
       attacking: 'each_opponent',
       raw: rawClause,
     });

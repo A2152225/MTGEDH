@@ -71,6 +71,48 @@ function countCreaturesBlockingTarget(state: GameState, targetCreatureId: string
   return 0;
 }
 
+function countBasicLandTypesAmongLandsYouControl(state: GameState, controllerId: PlayerID): number {
+  const basicLandTypes = new Set(['plains', 'island', 'swamp', 'mountain', 'forest']);
+  const found = new Set<string>();
+  const battlefield = Array.isArray((state as any).battlefield) ? (state as any).battlefield : [];
+  for (const permanent of battlefield) {
+    if (String(permanent?.controllerId || permanent?.controller || '').trim() !== String(controllerId || '').trim()) continue;
+    const typeLine = String(permanent?.card?.type_line || permanent?.card?.typeLine || permanent?.type_line || permanent?.typeLine || '').toLowerCase();
+    if (!/\bland\b/i.test(typeLine)) continue;
+    for (const basicType of basicLandTypes) {
+      if (new RegExp(`\\b${basicType}\\b`, 'i').test(typeLine)) found.add(basicType);
+    }
+  }
+  return found.size;
+}
+
+function countArtifactsYouControl(state: GameState, controllerId: PlayerID): number {
+  const battlefield = Array.isArray((state as any).battlefield) ? (state as any).battlefield : [];
+  return battlefield.filter((permanent: any) => {
+    if (String(permanent?.controllerId || permanent?.controller || '').trim() !== String(controllerId || '').trim()) return false;
+    const typeLine = String(permanent?.card?.type_line || permanent?.card?.typeLine || permanent?.type_line || permanent?.typeLine || '').toLowerCase();
+    return /\bartifact\b/i.test(typeLine);
+  }).length;
+}
+
+function countOtherAttackingAurochs(state: GameState, targetCreatureId: string): number {
+  const targetId = String(targetCreatureId || '').trim();
+  const combat: any = (state as any).combat || {};
+  const attackingIds = Array.isArray(combat.attackers)
+    ? combat.attackers.map((entry: any) => String(entry?.permanentId || entry?.id || '').trim()).filter(Boolean)
+    : [];
+  if (attackingIds.length === 0) return 0;
+
+  const battlefield = Array.isArray((state as any).battlefield) ? (state as any).battlefield : [];
+  return battlefield.filter((permanent: any) => {
+    const permanentId = String(permanent?.id || permanent?.permanentId || '').trim();
+    if (!permanentId || permanentId === targetId || !attackingIds.includes(permanentId)) return false;
+    const typeLine = String(permanent?.card?.type_line || permanent?.card?.typeLine || permanent?.type_line || permanent?.typeLine || '').toLowerCase();
+    const name = String(permanent?.card?.name || permanent?.name || '').toLowerCase();
+    return /\baurochs\b/i.test(typeLine) || /\baurochs\b/i.test(name);
+  }).length;
+}
+
 export function applyModifyPtStep(
   state: GameState,
   step: Extract<OracleEffectStep, { kind: 'modify_pt' }>,
@@ -150,7 +192,15 @@ export function applyModifyPtStep(
     ? Math.max(0, runtime.lastRevealedCardCount | 0)
     : step.scaler?.kind === 'per_creature_blocking_it'
       ? Math.max(0, countCreaturesBlockingTarget(state, targetCreatureIds[0]))
-      : 1;
+      : step.scaler?.kind === 'per_basic_land_type_among_lands_you_control'
+        ? Math.max(0, countBasicLandTypesAmongLandsYouControl(state, controllerId))
+        : step.scaler?.kind === 'per_artifact_you_control'
+          ? Math.max(0, countArtifactsYouControl(state, controllerId))
+          : step.scaler?.kind === 'per_creature_tapped_this_way'
+            ? Math.max(0, runtime.lastTappedMatchingPermanentCount | 0)
+            : step.scaler?.kind === 'per_other_attacking_aurochs'
+              ? Math.max(0, countOtherAttackingAurochs(state, targetCreatureIds[0]))
+              : 1;
 
   if ((step.powerUsesX || step.toughnessUsesX) && whereXValue === null) {
     return {

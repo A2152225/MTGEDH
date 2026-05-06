@@ -21055,7 +21055,7 @@ describe('Oracle IR Executor', () => {
     expect(remainingIds).toEqual(['safe-permanent-after-name']);
   });
 
-  it('applies the sacrifice half of a split conjunction and records a gap for the unsupported follow-up', () => {
+  it('applies the sacrifice half of a split conjunction and skips contextual countering without a stack target', () => {
     const ir = parseOracleTextToIR('Sacrifice this enchantment and counter that spell.', 'Hesitation');
     const steps = ir.abilities[0]?.steps ?? [];
 
@@ -21084,8 +21084,8 @@ describe('Oracle IR Executor', () => {
     const remainingIds = (result.state.battlefield as any[]).map(perm => perm.id);
 
     expect(result.appliedSteps.some(s => s.kind === 'sacrifice')).toBe(true);
-    expect(result.skippedSteps.some(s => s.kind === 'unknown')).toBe(true);
-    expect(result.automationGaps.some(gap => String(gap.raw || '').toLowerCase().includes('counter that spell'))).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'counter_spell')).toBe(true);
+    expect(result.automationGaps.some(gap => String(gap.raw || '').toLowerCase().includes('counter that spell'))).toBe(false);
     expect(remainingIds).toEqual(['safe-artifact-after-split']);
   });
 
@@ -44987,6 +44987,56 @@ This creature has protection from each of the exiled card's card types. (Artifac
     });
   });
 
+  it('queues a skipped next turn when resolving Eater of Days-style text', () => {
+    const ir = parseOracleTextToIR('You skip your next turn.', 'Eater of Days');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const result = applyOracleIRStepsToGameState(
+      makeState({}),
+      steps,
+      {
+        controllerId: 'p1',
+        sourceId: 'eater-of-days',
+        sourceName: 'Eater of Days',
+      }
+    );
+
+    const skipTurns = (((result.state as any).skipNextTurnEffects || []) as any[]).filter(
+      effect => String(effect?.playerId || '') === 'p1'
+    );
+
+    expect(skipTurns).toHaveLength(1);
+    expect(skipTurns[0]).toMatchObject({
+      playerId: 'p1',
+      sourceId: 'eater-of-days',
+      sourceName: 'Eater of Days',
+      remainingSkips: 1,
+    });
+  });
+
+  it('ends the turn by clearing the stack and moving to cleanup', () => {
+    const ir = parseOracleTextToIR('End the turn.', 'Sundial of the Infinite');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const result = applyOracleIRStepsToGameState(
+      makeState({
+        phase: 'main' as any,
+        step: 'main1' as any,
+        stack: [{ id: 'spell-on-stack', type: 'spell' }] as any,
+      }),
+      steps,
+      {
+        controllerId: 'p1',
+        sourceId: 'sundial',
+        sourceName: 'Sundial of the Infinite',
+      }
+    );
+
+    expect((result.state as any).stack).toEqual([]);
+    expect((result.state as any).step).toBe('CLEANUP');
+    expect((result.state as any).turnEndingEffect).toBeTruthy();
+  });
+
   it('queues an additional combat phase when resolving World at War-style text', () => {
     const ir = parseOracleTextToIR(
       'Untap all creatures that attacked this turn. After this main phase, there is an additional combat phase followed by an additional main phase.',
@@ -45078,6 +45128,83 @@ This creature has protection from each of the exiled card's card types. (Artifac
       newController: 'p1',
       duration: 'until_end_of_turn',
     });
+  });
+
+  it('changes control indefinitely without scheduling end-step reversion', () => {
+    const ir = parseOracleTextToIR('Gain control of target artifact.', 'Memnarch');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const result = applyOracleIRStepsToGameState(
+      makeState({
+        players: [
+          { id: 'p1', name: 'P1', seat: 0, life: 40, library: [], hand: [], graveyard: [] } as any,
+          { id: 'p2', name: 'P2', seat: 1, life: 40, library: [], hand: [], graveyard: [] } as any,
+        ],
+        battlefield: [
+          {
+            id: 'target-artifact',
+            controller: 'p2',
+            ownerId: 'p2',
+            summoningSickness: false,
+            card: { id: 'artifact-card', name: 'Sol Ring', type_line: 'Artifact' },
+          } as any,
+        ],
+      }),
+      steps,
+      {
+        controllerId: 'p1',
+        sourceId: 'memnarch',
+        sourceName: 'Memnarch',
+        targetPermanentId: 'target-artifact',
+      }
+    );
+
+    const targetArtifact = (result.state.battlefield || []).find((perm: any) => perm.id === 'target-artifact') as any;
+    expect(targetArtifact?.controller).toBe('p1');
+    expect((result.state as any).controlChangeEffects || []).toEqual([]);
+  });
+
+  it('exchanges control of two deterministic target permanents', () => {
+    const ir = parseOracleTextToIR(
+      'Exchange control of target land you control and target land an opponent controls.',
+      'Political Trickery'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const result = applyOracleIRStepsToGameState(
+      makeState({
+        players: [
+          { id: 'p1', name: 'P1', seat: 0, life: 40, library: [], hand: [], graveyard: [] } as any,
+          { id: 'p2', name: 'P2', seat: 1, life: 40, library: [], hand: [], graveyard: [] } as any,
+        ],
+        battlefield: [
+          {
+            id: 'your-land',
+            controller: 'p1',
+            ownerId: 'p1',
+            card: { id: 'your-land-card', name: 'Island', type_line: 'Land' },
+          } as any,
+          {
+            id: 'opponent-land',
+            controller: 'p2',
+            ownerId: 'p2',
+            card: { id: 'opponent-land-card', name: 'Swamp', type_line: 'Land' },
+          } as any,
+        ],
+      }),
+      steps,
+      {
+        controllerId: 'p1',
+        sourceId: 'political-trickery',
+        sourceName: 'Political Trickery',
+        selectorContext: { chosenObjectIds: ['your-land', 'opponent-land'] },
+      }
+    );
+
+    const yourLand = (result.state.battlefield || []).find((perm: any) => perm.id === 'your-land') as any;
+    const opponentLand = (result.state.battlefield || []).find((perm: any) => perm.id === 'opponent-land') as any;
+    expect(yourLand?.controller).toBe('p2');
+    expect(opponentLand?.controller).toBe('p1');
   });
 
   it("schedules and resolves Rienne, Angel of Rebirth by returning the dead multicolored creature to its owner's hand", () => {
