@@ -67,6 +67,7 @@ import { parseOracleTextToIR } from "../../../../rules-engine/src/oracleIRParser
 import type { OracleEffectStep, OraclePlayerSelector, OracleQuantity } from "../../../../rules-engine/src/oracleIR.js";
 import { parseTriggeredAbilitiesFromText, TriggerEvent as ParsedTriggerEvent } from "../../../../rules-engine/src/triggeredAbilities.js";
 import { updateLandPlayPermissions, updateAllLandPlayPermissions } from "./land-permissions.js";
+import { getPlayableLandCandidates } from "./can-respond.js";
 import { applyDayNightTransforms, ensureInitialDayNightDesignationFromBattlefield, setDayNightState, transformPermanentToFace } from "./day-night.js";
 import { cardEntersPrepared, clearPreparedPermanent, setPermanentPrepared, syncPreparedPermanentAfterControlChange } from "./prepared.js";
 import { parseCreateTokenDescriptor } from "../planeswalker/templates/utils.js";
@@ -113,6 +114,25 @@ type ReplayZoneRepairSummary = {
   graveyard: number;
   library: number;
 };
+
+function getPermanentSpellTypeWords(card: any): string[] {
+  const typeLine = String(card?.type_line || card?.typeLine || '').toLowerCase();
+  return ['artifact', 'creature', 'enchantment', 'planeswalker', 'battle']
+    .filter((typeWord) => new RegExp(`\\b${typeWord}\\b`, 'i').test(typeLine));
+}
+
+function recordGraveyardPermanentTypesCastThisTurn(state: any, playerId: PlayerID, card: any): void {
+  const permanentTypes = getPermanentSpellTypeWords(card);
+  if (permanentTypes.length === 0) return;
+
+  state.graveyardPermanentTypesCastThisTurn = state.graveyardPermanentTypesCastThisTurn || {};
+  const playerEntry = state.graveyardPermanentTypesCastThisTurn[String(playerId)] =
+    state.graveyardPermanentTypesCastThisTurn[String(playerId)] || {};
+
+  for (const typeWord of permanentTypes) {
+    playerEntry[typeWord] = true;
+  }
+}
 
 function repairReplayCardSourceZones(ctxOrState: any, playerId: PlayerID, cardId: string): ReplayZoneRepairSummary {
   const state = ctxOrState?.state || ctxOrState;
@@ -19184,13 +19204,15 @@ export function playLand(ctx: GameContext, playerId: PlayerID, cardOrId: any) {
         playedFromExile = true;
       } else {
         // Fallback: allow playing lands from graveyard when an effect permits it (e.g., Crucible of Worlds).
-        // Socket layer validates permission; we double-check as a sanity guard.
-        const hasGraveyardLandPermission = Array.isArray((state as any).landPlayPermissions?.[playerId])
-          ? (state as any).landPlayPermissions[playerId].includes('graveyard')
-          : false;
         const gyCards = Array.isArray((z as any).graveyard) ? ((z as any).graveyard as any[]) : null;
         const gyIdx = gyCards ? gyCards.findIndex((c: any) => c && c.id === cardOrId) : -1;
-        if (hasGraveyardLandPermission && gyCards && gyIdx !== -1) {
+        const canPlayRequestedLandFromGraveyard = getPlayableLandCandidates({
+          state,
+          libraries: (ctx as any).libraries,
+        } as any, playerId).some((candidate) =>
+          candidate.sourceZone === 'graveyard' && String(candidate.card?.id || '') === String(cardOrId)
+        );
+        if (canPlayRequestedLandFromGraveyard && gyCards && gyIdx !== -1) {
           card = gyCards.splice(gyIdx, 1)[0];
           (z as any).graveyardCount = gyCards.length;
           playedFromGraveyard = true;
@@ -19922,6 +19944,7 @@ export function castSpell(
       const stateAny = state as any;
       stateAny.castFromGraveyardThisTurn = stateAny.castFromGraveyardThisTurn || {};
       stateAny.castFromGraveyardThisTurn[String(playerId)] = true;
+      recordGraveyardPermanentTypesCastThisTurn(stateAny, playerId, card);
     } catch {
       // best-effort only
     }

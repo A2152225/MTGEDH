@@ -1057,6 +1057,12 @@ function detectAdditionalLandPlayFromOracle(oracleText: string): { lands: number
                      lowerText.includes("each player can play") ||
                      lowerText.includes("player may play an additional land") ||
                      lowerText.includes("players may play an additional land");
+
+  // "You may play any number of lands" / "Each player may play any number of lands"
+  if (lowerText.includes('play any number of lands')) {
+    debug(2, `[detectAdditionalLandPlayFromOracle] Found "play any number of lands" pattern (affectsAll: ${affectsAll})`);
+    return { lands: Number.POSITIVE_INFINITY, affectsAll };
+  }
   
   // Check for additional land patterns
   // "play an additional land" / "play one additional land"
@@ -1168,6 +1174,22 @@ export function calculateMaxLandsPerTurn(ctx: GameContext, playerId: string): nu
           debug(2, `[calculateMaxLandsPerTurn] Detected +${dynamicResult.lands} lands from ${perm.card?.name} via oracle text (controller: ${perm.controller}, affectsAll: ${dynamicResult.affectsAll})`);
         }
       }
+    }
+  }
+
+  const activePlane = (ctx.state as any)?.activePlane || (ctx.state as any)?.currentPlane;
+  if (activePlane) {
+    const planeText = String(activePlane.text || activePlane.oracle_text || activePlane.effect || '');
+    const planeName = String(activePlane.name || 'Active plane');
+    const planeController = String(activePlane.controller || '').trim();
+    const dynamicResult = detectAdditionalLandPlayFromOracle(planeText);
+    const planeAppliesToPlayer = dynamicResult.affectsAll || !planeController || planeController === playerId;
+
+    if (dynamicResult.lands > 0 && planeAppliesToPlayer) {
+      maxLands = Number.isFinite(dynamicResult.lands)
+        ? maxLands + dynamicResult.lands
+        : Number.POSITIVE_INFINITY;
+      debug(2, `[calculateMaxLandsPerTurn] ${planeName} grants ${Number.isFinite(dynamicResult.lands) ? `+${dynamicResult.lands}` : 'unlimited'} lands to ${playerId}`);
     }
   }
   

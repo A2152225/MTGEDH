@@ -398,13 +398,45 @@ function findGrantedKeywordInfo(
     const temporaryGrant = findTemporaryGrantedKeywordInfo(state, playerId, card, keyword);
     if (temporaryGrant.hasIt) return temporaryGrant;
 
-    const battlefield = Array.isArray(state.battlefield) ? state.battlefield : [];
-    const keywordPattern = escapeRegExp(keyword);
-    for (const permanent of battlefield) {
-      if (!permanent || permanent.phasedOut) continue;
-      if (String(permanent.controller || '') !== String(playerId || '')) continue;
+    const keywordSources: Array<{
+      controller: string;
+      oracleText: string;
+      sourceId: string;
+      sourceName: string;
+      phasedOut?: boolean;
+    }> = [];
 
-      const oracleText = String(permanent.card?.oracle_text || permanent.card?.oracleText || '');
+    const battlefield = Array.isArray(state.battlefield) ? state.battlefield : [];
+    for (const permanent of battlefield) {
+      if (!permanent) continue;
+
+      keywordSources.push({
+        controller: String(permanent.controller || ''),
+        oracleText: String(permanent.card?.oracle_text || permanent.card?.oracleText || ''),
+        sourceId: String(permanent.id || permanent.card?.id || ''),
+        sourceName: String(permanent.card?.name || permanent.name || `${keyword} grant`),
+        phasedOut: Boolean(permanent.phasedOut),
+      });
+    }
+
+    const emblems = Array.isArray((state as any)?.emblems) ? (state as any).emblems : [];
+    for (const emblem of emblems) {
+      if (!emblem) continue;
+
+      keywordSources.push({
+        controller: String(emblem.controller || ''),
+        oracleText: String(emblem.effect || emblem.text || emblem.oracle_text || ''),
+        sourceId: String(emblem.id || 'emblem'),
+        sourceName: String(emblem.sourceName || emblem.name || `${keyword} grant`),
+      });
+    }
+
+    const keywordPattern = escapeRegExp(keyword);
+    for (const source of keywordSources) {
+      if (source.phasedOut) continue;
+      if (source.controller !== String(playerId || '')) continue;
+
+      const oracleText = source.oracleText;
       if (!new RegExp(keywordPattern, 'i').test(oracleText) || !/graveyard/i.test(oracleText)) continue;
       if (/\bduring your turn\b/i.test(oracleText) && !isPlayersTurn(state, playerId)) continue;
 
@@ -431,8 +463,8 @@ function findGrantedKeywordInfo(
           hasIt: true,
           cost,
           ...(keyword === 'escape' ? { additionalExileCount: extractAdditionalEscapeExileCount(oracleText) } : {}),
-          sourceId: String(permanent.id || permanent.card?.id || ''),
-          sourceName: String(permanent.card?.name || permanent.name || `${keyword} grant`),
+          sourceId: source.sourceId,
+          sourceName: source.sourceName,
         };
       }
     }

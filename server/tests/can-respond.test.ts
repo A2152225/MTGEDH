@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { canCastAnySpell, canActivateAnyAbility, canRespond, canAct, canPlayLand, getCastableCommanderCandidates, getCastableSpellCandidates } from '../src/state/modules/can-respond';
+import { canCastAnySpell, canActivateAnyAbility, canRespond, canAct, canPlayLand, getCastableCommanderCandidates, getCastableSpellCandidates, getPlayableLandCandidates } from '../src/state/modules/can-respond';
 import { applyTemporaryGraveyardKeywordGrantFromText, clearTemporaryGraveyardKeywordGrants } from '../src/state/modules/graveyard-permissions';
 import type { GameContext } from '../src/state/context';
 import type { PlayerID } from '../../shared/src';
@@ -1028,6 +1028,94 @@ describe('canPlayLand', () => {
     expect(canPlayLand(ctx, 'p1' as PlayerID)).toBe(true);
   });
 
+  it('allows another land play when the active plane grants any-number-of-lands permission', () => {
+    const ctx = createTestContext({
+      activePlane: {
+        id: 'naya_plane',
+        name: 'Naya',
+        oracle_text: 'You may play any number of lands on each of your turns.',
+      },
+      landsPlayedThisTurn: { p1: 1 },
+      zones: {
+        p1: {
+          hand: [
+            {
+              id: 'forest_1',
+              name: 'Forest',
+              type_line: 'Basic Land — Forest',
+              oracle_text: '{T}: Add {G}.',
+            },
+          ],
+          handCount: 1,
+          graveyard: [],
+          graveyardCount: 0,
+          exile: [],
+          exileCount: 0,
+          libraryCount: 0,
+        },
+      },
+    });
+
+    expect(canPlayLand(ctx, 'p1' as PlayerID)).toBe(true);
+  });
+
+  it('only surfaces graveyard lands matching subtype-limited replay permissions', () => {
+    const ctx = createTestContext({
+      landsPlayedThisTurn: { p1: 0 },
+      battlefield: [
+        {
+          id: 'titania_1',
+          controller: 'p1',
+          tapped: false,
+          card: {
+            name: "Titania, Nature's Force",
+            type_line: 'Legendary Creature — Elemental',
+            oracle_text: 'You may play Forests from your graveyard.',
+          },
+        },
+      ],
+      zones: {
+        p1: {
+          hand: [],
+          handCount: 0,
+          graveyard: [
+            {
+              id: 'forest_1',
+              name: 'Forest',
+              type_line: 'Basic Land — Forest',
+              oracle_text: '{T}: Add {G}.',
+            },
+            {
+              id: 'wasteland_1',
+              name: 'Wasteland',
+              type_line: 'Land',
+              oracle_text: '{T}: Add {C}.',
+            },
+          ],
+          graveyardCount: 2,
+          exile: [],
+          exileCount: 0,
+          libraryCount: 0,
+        },
+      },
+      step: 'MAIN1',
+      stack: [],
+      turnPlayer: 'p1',
+      priority: 'p1',
+      manaPool: {
+        p1: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+      },
+    });
+
+    const candidates = getPlayableLandCandidates(ctx, 'p1' as PlayerID);
+
+    expect(candidates).toEqual([
+      expect.objectContaining({ card: expect.objectContaining({ id: 'forest_1' }), sourceZone: 'graveyard' }),
+    ]);
+    expect(candidates.some((candidate) => candidate.card?.id === 'wasteland_1')).toBe(false);
+    expect(canPlayLand(ctx, 'p1' as PlayerID)).toBe(true);
+  });
+
   it('treats a land in exile as playable only when that specific card is marked playableFromExile', () => {
     const ctx = createTestContext({
       landsPlayedThisTurn: { p1: 0 },
@@ -1759,6 +1847,46 @@ describe('canRespond', () => {
     expect(canRespond(ctx, 'p1' as PlayerID)).toBe(true);
   });
 
+  it('treats emblem-granted instant-speed loyalty activations as a response', () => {
+    const ctx = createTestContext({
+      zones: {
+        p1: {
+          hand: [],
+          graveyard: [],
+          exile: [],
+        },
+      },
+      battlefield: [
+        {
+          id: 'teferi_1',
+          controller: 'p1',
+          tapped: false,
+          loyaltyCounters: 4,
+          card: {
+            name: 'Teferi, Hero of Dominaria',
+            type_line: 'Legendary Planeswalker — Teferi',
+            loyalty: '4',
+            oracle_text: '+1: Draw a card. At the beginning of the next end step, untap two lands.\n-3: Put target nonland permanent into its owner\'s library third from the top.',
+          },
+        },
+      ],
+      emblems: [
+        {
+          id: 'teferi_talent_emblem_1',
+          controller: 'p1',
+          effect: 'You may activate loyalty abilities of planeswalkers you control on any player\'s turn any time you could cast an instant.',
+        },
+      ],
+      phase: 'upkeep',
+      step: 'UPKEEP',
+      priority: 'p1',
+      turnPlayer: 'p2',
+      stack: [],
+    });
+
+    expect(canRespond(ctx, 'p1' as PlayerID)).toBe(true);
+  });
+
   it('should return false when Split Second is on the stack, even if player has an instant', () => {
     const ctx = createTestContext({
       zones: {
@@ -1856,6 +1984,39 @@ describe('canRespond', () => {
     expect(canRespond(ctx, 'p1' as PlayerID)).toBe(true);
   });
 
+  it('treats emblem-granted WUBRG alternate costs as a response', () => {
+    const ctx = createTestContext({
+      zones: {
+        p1: {
+          hand: [
+            {
+              id: 'opportunity_1',
+              name: 'Opportunity',
+              type_line: 'Instant',
+              mana_cost: '{4}{U}{U}',
+              oracle_text: 'Target player draws four cards.',
+            },
+          ],
+        },
+      },
+      battlefield: [],
+      emblems: [
+        {
+          id: 'jodah_emblem_1',
+          controller: 'p1',
+          effect: 'You may pay {W}{U}{B}{R}{G} rather than pay the mana cost for spells you cast.',
+        },
+      ],
+      manaPool: {
+        p1: { white: 1, blue: 1, black: 1, red: 1, green: 1, colorless: 0 },
+      },
+      step: 'UPKEEP',
+      stack: [],
+    });
+
+    expect(canRespond(ctx, 'p1' as PlayerID)).toBe(true);
+  });
+
   it('should return true when player has flashback instant in graveyard with mana', () => {
     const ctx = createTestContext({
       zones: {
@@ -1878,6 +2039,38 @@ describe('canRespond', () => {
       },
     });
     
+    expect(canRespond(ctx, 'p1' as PlayerID)).toBe(true);
+  });
+
+  it('surfaces graveyard instants that an emblem grants flashback', () => {
+    const ctx = createTestContext({
+      zones: {
+        p1: {
+          hand: [],
+          graveyard: [
+            {
+              id: 'lightning_strike_1',
+              name: 'Lightning Strike',
+              type_line: 'Instant',
+              mana_cost: '{1}{R}',
+              oracle_text: 'Lightning Strike deals 3 damage to any target.',
+            },
+          ],
+        },
+      },
+      battlefield: [],
+      emblems: [
+        {
+          id: 'flashback_emblem_1',
+          controller: 'p1',
+          effect: 'Each instant and sorcery card in your graveyard has flashback. The flashback cost is equal to its mana cost.',
+        },
+      ],
+      manaPool: {
+        p1: { white: 0, blue: 0, black: 0, red: 1, green: 0, colorless: 1 },
+      },
+    });
+
     expect(canRespond(ctx, 'p1' as PlayerID)).toBe(true);
   });
 
@@ -2480,6 +2673,67 @@ describe('canAct', () => {
     expect(canAct(ctx, 'p1' as PlayerID)).toBe(true);
   });
 
+  it('should return true when an emblem is the only source of a shared command-zone cost adjustment', () => {
+    const ctx = createTestContext({
+      zones: {
+        p1: {
+          hand: [],
+          graveyard: [],
+          exile: [],
+          handCount: 0,
+          graveyardCount: 0,
+          exileCount: 0,
+        },
+      },
+      battlefield: [
+        {
+          id: 'mountain_1',
+          controller: 'p1',
+          tapped: false,
+          card: {
+            name: 'Mountain',
+            type_line: 'Basic Land — Mountain',
+            oracle_text: '{T}: Add {R}.',
+          },
+        },
+      ],
+      emblems: [
+        {
+          id: 'ruby_emblem_1',
+          controller: 'p1',
+          effect: 'Red spells you cast cost {1} less to cast.',
+        },
+      ],
+      commandZone: {
+        p1: {
+          commanderIds: ['cmd_red'],
+          commanderCards: [
+            {
+              id: 'cmd_red',
+              name: 'Red Commander',
+              type_line: 'Legendary Creature — Warrior',
+              mana_cost: '{1}{R}',
+              oracle_text: '',
+            },
+          ],
+          inCommandZone: ['cmd_red'],
+          taxById: {
+            cmd_red: 0,
+          },
+        },
+      },
+      manaPool: {
+        p1: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+      },
+      step: 'MAIN1',
+      turnPlayer: 'p1',
+      priority: 'p1',
+      stack: [],
+    });
+
+    expect(canAct(ctx, 'p1' as PlayerID)).toBe(true);
+  });
+
   it('should return true when player can cast sorcery from hand in main phase', () => {
     const ctx = createTestContext({
       zones: {
@@ -2887,6 +3141,330 @@ describe('canAct', () => {
       expect.objectContaining({ castMethod: 'escape' }),
     ]));
     expect(canAct(ctx, 'p1' as PlayerID)).toBe(true);
+  });
+
+  it('surfaces Kess-style once-per-turn graveyard instant and sorcery permissions', () => {
+    const ctx = createTestContext({
+      zones: {
+        p1: {
+          hand: [],
+          graveyard: [
+            {
+              id: 'consider_1',
+              name: 'Consider',
+              type_line: 'Instant',
+              mana_cost: '{U}',
+              oracle_text: 'Surveil 1, then draw a card.',
+            },
+            {
+              id: 'runeclaw_1',
+              name: 'Runeclaw Bear',
+              type_line: 'Creature — Bear',
+              mana_cost: '{1}{G}',
+              oracle_text: '',
+            },
+          ],
+        },
+      },
+      battlefield: [
+        {
+          id: 'kess_1',
+          controller: 'p1',
+          tapped: false,
+          card: {
+            name: 'Kess, Dissident Mage',
+            type_line: 'Legendary Creature — Human Wizard',
+            oracle_text: 'Flying\nOnce during each of your turns, you may cast an instant or sorcery spell from your graveyard.',
+          },
+        },
+      ],
+      manaPool: {
+        p1: { white: 0, blue: 1, black: 0, red: 0, green: 0, colorless: 0 },
+      },
+      players: [{ id: 'p1' }, { id: 'p2' }],
+      step: 'MAIN1',
+      turnPlayer: 'p1',
+      priority: 'p1',
+      stack: [],
+    });
+
+    const candidates = getCastableSpellCandidates(ctx, 'p1' as PlayerID, { mode: 'main' });
+
+    expect(candidates).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        card: expect.objectContaining({ id: 'consider_1' }),
+        sourceZone: 'graveyard',
+      }),
+    ]));
+    expect(candidates.some((candidate) => candidate.card?.id === 'runeclaw_1')).toBe(false);
+    expect(canAct(ctx, 'p1' as PlayerID)).toBe(true);
+  });
+
+  it('filters Muldrotha-style graveyard permanent casts by unused permanent types', () => {
+    const ctx = createTestContext({
+      zones: {
+        p1: {
+          hand: [],
+          graveyard: [
+            {
+              id: 'mind_stone_1',
+              name: 'Mind Stone',
+              type_line: 'Artifact',
+              mana_cost: '{2}',
+              oracle_text: '{T}: Add {C}.',
+            },
+            {
+              id: 'runeclaw_1',
+              name: 'Runeclaw Bear',
+              type_line: 'Creature — Bear',
+              mana_cost: '{1}{G}',
+              oracle_text: '',
+            },
+          ],
+        },
+      },
+      battlefield: [
+        {
+          id: 'muldrotha_1',
+          controller: 'p1',
+          tapped: false,
+          card: {
+            name: 'Muldrotha, the Gravetide',
+            type_line: 'Legendary Creature — Elemental Avatar',
+            oracle_text: 'During each of your turns, you may play up to one permanent card of each permanent type from your graveyard.',
+          },
+        },
+      ],
+      manaPool: {
+        p1: { white: 0, blue: 0, black: 0, red: 0, green: 1, colorless: 2 },
+      },
+      players: [{ id: 'p1' }, { id: 'p2' }],
+      step: 'MAIN1',
+      turnPlayer: 'p1',
+      priority: 'p1',
+      stack: [],
+      graveyardPermanentTypesCastThisTurn: {
+        p1: { artifact: true },
+      },
+    });
+
+    const candidates = getCastableSpellCandidates(ctx, 'p1' as PlayerID, { mode: 'main' });
+
+    expect(candidates.some((candidate) => candidate.card?.id === 'mind_stone_1')).toBe(false);
+    expect(candidates).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        card: expect.objectContaining({ id: 'runeclaw_1' }),
+        sourceZone: 'graveyard',
+      }),
+    ]));
+  });
+
+  it('allows a Muldrotha-style graveyard land play until the land type has been used', () => {
+    const ctx = createTestContext({
+      zones: {
+        p1: {
+          hand: [],
+          graveyard: [
+            {
+              id: 'forest_1',
+              name: 'Forest',
+              type_line: 'Basic Land — Forest',
+              oracle_text: '{T}: Add {G}.',
+            },
+          ],
+        },
+      },
+      battlefield: [
+        {
+          id: 'muldrotha_1',
+          controller: 'p1',
+          tapped: false,
+          card: {
+            name: 'Muldrotha, the Gravetide',
+            type_line: 'Legendary Creature — Elemental Avatar',
+            oracle_text: 'During each of your turns, you may play up to one permanent card of each permanent type from your graveyard.',
+          },
+        },
+      ],
+      manaPool: {
+        p1: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+      },
+      landsPlayedThisTurn: { p1: 0 },
+      players: [{ id: 'p1' }, { id: 'p2' }],
+      step: 'MAIN1',
+      turnPlayer: 'p1',
+      priority: 'p1',
+      stack: [],
+    });
+
+    expect(getPlayableLandCandidates(ctx, 'p1' as PlayerID)).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        card: expect.objectContaining({ id: 'forest_1' }),
+        sourceZone: 'graveyard',
+      }),
+    ]));
+
+    (ctx.state as any).playedLandFromGraveyardThisTurn = { p1: true };
+
+    expect(getPlayableLandCandidates(ctx, 'p1' as PlayerID).some((candidate) => candidate.card?.id === 'forest_1')).toBe(false);
+  });
+
+  it('surfaces graveyard cards marked playable by effect-program permissions', () => {
+    const ctx = createTestContext({
+      turnNumber: 4,
+      zones: {
+        p1: {
+          hand: [],
+          graveyard: [
+            {
+              id: 'consider_1',
+              name: 'Consider',
+              type_line: 'Instant',
+              mana_cost: '{U}',
+              oracle_text: 'Draw a card.',
+              canBePlayedBy: 'p1',
+              playableUntilTurn: 4,
+            },
+            {
+              id: 'forest_1',
+              name: 'Forest',
+              type_line: 'Basic Land — Forest',
+              oracle_text: '{T}: Add {G}.',
+              canBePlayedBy: 'p1',
+              playableUntilTurn: 4,
+            },
+          ],
+        },
+      },
+      battlefield: [],
+      manaPool: {
+        p1: { white: 0, blue: 1, black: 0, red: 0, green: 0, colorless: 0 },
+      },
+      playableFromGraveyard: {
+        p1: {
+          consider_1: 4,
+          forest_1: 4,
+        },
+      },
+      landsPlayedThisTurn: { p1: 0 },
+      players: [{ id: 'p1' }, { id: 'p2' }],
+      step: 'MAIN1',
+      turnPlayer: 'p1',
+      priority: 'p1',
+      stack: [],
+    });
+
+    expect(getCastableSpellCandidates(ctx, 'p1' as PlayerID, { mode: 'main' })).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        card: expect.objectContaining({ id: 'consider_1' }),
+        sourceZone: 'graveyard',
+      }),
+    ]));
+
+    expect(getPlayableLandCandidates(ctx, 'p1' as PlayerID)).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        card: expect.objectContaining({ id: 'forest_1' }),
+        sourceZone: 'graveyard',
+      }),
+    ]));
+  });
+
+  it('surfaces graveyard land and spell permissions granted by an emblem', () => {
+    const ctx = createTestContext({
+      zones: {
+        p1: {
+          hand: [],
+          graveyard: [
+            {
+              id: 'forest_1',
+              name: 'Forest',
+              type_line: 'Basic Land — Forest',
+              oracle_text: '{T}: Add {G}.',
+            },
+            {
+              id: 'consider_1',
+              name: 'Consider',
+              type_line: 'Instant',
+              mana_cost: '{U}',
+              oracle_text: 'Draw a card.',
+            },
+          ],
+        },
+      },
+      emblems: [
+        {
+          id: 'wrenn_emblem_1',
+          controller: 'p1',
+          effect: 'You may play lands and cast spells from your graveyard.',
+        },
+      ],
+      battlefield: [],
+      manaPool: {
+        p1: { white: 0, blue: 1, black: 0, red: 0, green: 0, colorless: 0 },
+      },
+      landsPlayedThisTurn: { p1: 0 },
+      players: [{ id: 'p1' }, { id: 'p2' }],
+      step: 'MAIN1',
+      turnPlayer: 'p1',
+      priority: 'p1',
+      stack: [],
+    });
+
+    expect(getPlayableLandCandidates(ctx, 'p1' as PlayerID)).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        card: expect.objectContaining({ id: 'forest_1' }),
+        sourceZone: 'graveyard',
+      }),
+    ]));
+
+    expect(getCastableSpellCandidates(ctx, 'p1' as PlayerID, { mode: 'main' })).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        card: expect.objectContaining({ id: 'consider_1' }),
+        sourceZone: 'graveyard',
+      }),
+    ]));
+  });
+
+  it('surfaces hand spells that an emblem lets you cast for free', () => {
+    const ctx = createTestContext({
+      zones: {
+        p1: {
+          hand: [
+            {
+              id: 'divination_1',
+              name: 'Divination',
+              type_line: 'Sorcery',
+              mana_cost: '{2}{U}',
+              oracle_text: 'Draw two cards.',
+            },
+          ],
+        },
+      },
+      emblems: [
+        {
+          id: 'omniscience_emblem_1',
+          controller: 'p1',
+          effect: 'You may cast nonland cards from your hand without paying their mana costs.',
+        },
+      ],
+      battlefield: [],
+      manaPool: {
+        p1: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+      },
+      players: [{ id: 'p1' }, { id: 'p2' }],
+      step: 'MAIN1',
+      turnPlayer: 'p1',
+      priority: 'p1',
+      stack: [],
+    });
+
+    expect(getCastableSpellCandidates(ctx, 'p1' as PlayerID, { mode: 'main' })).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        card: expect.objectContaining({ id: 'divination_1' }),
+        sourceZone: 'hand',
+        payability: 'alternate',
+      }),
+    ]));
   });
 
   it('should return true when player has foretell creature in exile with mana in main phase', () => {

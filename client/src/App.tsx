@@ -243,6 +243,7 @@ export function App() {
     cardId: string; 
     cardName: string; 
     manaCost?: string;
+    fromZone?: 'hand' | 'graveyard' | 'exile' | 'library' | 'command';
     oracleText?: string;  // Oracle text for parsing alternate costs (Overload, Flashback, Surge, etc.)
     forcedAlternateCostId?: string;
     title?: string;
@@ -272,9 +273,48 @@ export function App() {
   } | null>(null);
     const battlefieldAlternateCosts = useMemo(() => {
       if (!safeView || !you || !spellToCast) return [] as AlternateCost[];
+      if (spellToCast.fromZone && spellToCast.fromZone !== 'hand') return [] as AlternateCost[];
 
       const battlefield = Array.isArray(safeView.battlefield) ? safeView.battlefield : [];
+      const emblems = Array.isArray((safeView as any).emblems) ? (safeView as any).emblems : [];
       const extraCosts: AlternateCost[] = [];
+
+      const grantsFreeHandCasts = (text: string): boolean => {
+        const oracleText = String(text || '').toLowerCase();
+        if (!oracleText.includes('without paying')) return false;
+        if (!oracleText.includes('from your hand')) return false;
+        if (!oracleText.includes('you may cast')) return false;
+        return oracleText.includes('cast spells from your hand')
+          || oracleText.includes('cast nonland cards from your hand')
+          || oracleText.includes('cast cards from your hand');
+      };
+
+      const grantsExternalWubrgAlternateCost = (text: string): boolean => {
+        const oracleText = String(text || '').toLowerCase();
+        return oracleText.includes('{w}{u}{b}{r}{g}')
+          && oracleText.includes('rather than pay')
+          && !oracleText.includes('this spell');
+      };
+
+      const addExternalWubrgOption = (sourceName: string) => {
+        if (extraCosts.some((cost) => cost.id === 'wubrg_external')) return;
+        extraCosts.push({
+          id: 'wubrg_external',
+          label: `WUBRG Alternative (${sourceName})`,
+          description: `Pay {W}{U}{B}{R}{G} via ${sourceName}`,
+          manaCost: '{W}{U}{B}{R}{G}',
+        });
+      };
+
+      const addFreeCastOption = (sourceName: string) => {
+        if (extraCosts.some((cost) => cost.id === 'free')) return;
+        extraCosts.push({
+          id: 'free',
+          label: `Free Cast (${sourceName})`,
+          description: `Cast from hand without paying mana costs via ${sourceName}`,
+          manaCost: '',
+        });
+      };
 
       for (const permanent of battlefield) {
         if (!permanent || permanent.controller !== you) continue;
@@ -283,19 +323,29 @@ export function App() {
         const oracleText = String((permanent as any).card?.oracle_text || '').toLowerCase();
         if (!sourceName || !oracleText) continue;
 
-        const isExternalWubrgSource =
-          oracleText.includes('{w}{u}{b}{r}{g}') &&
-          oracleText.includes('rather than pay') &&
-          !oracleText.includes('this spell');
-
-        if (isExternalWubrgSource) {
-          extraCosts.push({
-            id: 'wubrg_external',
-            label: `WUBRG Alternative (${sourceName})`,
-            description: `Pay {W}{U}{B}{R}{G} via ${sourceName}`,
-            manaCost: '{W}{U}{B}{R}{G}',
-          });
+        if (grantsExternalWubrgAlternateCost(oracleText)) {
+          addExternalWubrgOption(sourceName);
         }
+
+        if (grantsFreeHandCasts(oracleText)) {
+          addFreeCastOption(sourceName);
+        }
+      }
+
+      for (const emblem of emblems) {
+        if (!emblem || String((emblem as any).controller || '') !== String(you)) continue;
+
+        const sourceName = String((emblem as any).sourceName || (emblem as any).name || 'Emblem').trim();
+        const emblemText = String((emblem as any).effect || (emblem as any).text || (emblem as any).oracle_text || '');
+        if (!sourceName) continue;
+
+        if (grantsExternalWubrgAlternateCost(emblemText)) {
+          addExternalWubrgOption(sourceName);
+        }
+
+        if (!grantsFreeHandCasts(emblemText)) continue;
+
+        addFreeCastOption(sourceName);
       }
 
       return extraCosts;
@@ -2621,6 +2671,7 @@ export function App() {
             ? String((step as any).wardPermanentName || (step as any).cardName || step.sourceName || 'Ward')
             : String((step as any).cardName || step.sourceName || 'Spell'),
           manaCost: String((step as any).wardCost || (step as any).manaCost || ''),
+          fromZone: isWardPayment ? undefined : (((step as any).fromZone != null ? String((step as any).fromZone) : undefined) as any),
           oracleText: isWardPayment ? String(step.description || '') : undefined,
           targets: Array.isArray((step as any).targets) ? (step as any).targets : undefined,
           effectId: isWardPayment ? undefined : String((step as any).effectId || ''),
@@ -6434,6 +6485,7 @@ export function App() {
         open={castSpellModalOpen}
         cardName={spellToCast?.cardName || ''}
         manaCost={spellToCast?.manaCost}
+        castFromZone={spellToCast?.fromZone}
         oracleText={spellToCast?.oracleText}
         forcedAlternateCostId={spellToCast?.forcedAlternateCostId}
         extraAlternateCosts={spellToCast?.extraAlternateCosts || battlefieldAlternateCosts}

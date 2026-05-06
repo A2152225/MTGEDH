@@ -24,8 +24,10 @@ import { getGrantedCastFromGraveyardKeywordInfo, getGrantedEmbalmInfo, getGrante
 import { detectActivatedAbilityConditionRequirement } from "./activated-ability-conditions";
 import { creatureHasHaste } from "../../socket/game-actions.js";
 import { debug, debugWarn, debugError } from "../../utils/debug.js";
+import { cardManaValue } from "../utils";
 import { getCurrentGoaders } from "./goad-effects.js";
 import { isAbilityActivationProhibitedByChosenName, isSpellCastingProhibitedByChosenName } from "./chosen-name-restrictions.js";
+import { canActivateLoyaltyAtInstantSpeed } from "./triggered-abilities.js";
 
 function cardHasSplitSecond(card: any): boolean {
   if (!card) return false;
@@ -319,6 +321,329 @@ function isSorcerySpeedSpellCard(card: any): boolean {
   );
 }
 
+function normalizeRuleText(value: unknown): string {
+  return String(value || '').toLowerCase().replace(/[\u2018\u2019]/g, "'");
+}
+
+function escapeRegExp(value: string): string {
+  return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function singularizeQualifierWord(value: string): string {
+  const normalized = normalizeRuleText(value).trim();
+  if (normalized.endsWith('ies') && normalized.length > 3) {
+    return `${normalized.slice(0, -3)}y`;
+  }
+  if (normalized.endsWith('s') && !normalized.endsWith('ss') && normalized.length > 3) {
+    return normalized.slice(0, -1);
+  }
+  return normalized;
+}
+
+function getNormalizedTypeLine(card: any): string {
+  return normalizeRuleText(card?.type_line || card?.typeLine);
+}
+
+function hasMarkedGraveyardPermission(state: any, playerId: PlayerID, card: any): boolean {
+  const cardId = String(card?.id || '').trim();
+  if (!cardId) return false;
+
+  const currentTurn = Number((state as any)?.turnNumber ?? (state as any)?.turn ?? 0) || 0;
+  const playableFromGraveyard = (state as any)?.playableFromGraveyard?.[playerId];
+  const marker = playableFromGraveyard && typeof playableFromGraveyard === 'object'
+    ? playableFromGraveyard[cardId]
+    : undefined;
+  const stateAllows = typeof marker === 'number'
+    ? marker >= currentTurn
+    : Boolean(marker);
+
+  const cardAllows = String(card?.canBePlayedBy || '').trim() === String(playerId || '')
+    && (
+      typeof card?.playableUntilTurn === 'number'
+        ? card.playableUntilTurn >= currentTurn
+        : Boolean(card?.playableUntilTurn)
+    );
+
+  return stateAllows || cardAllows;
+}
+
+function isPlayersTurnForPermission(state: any, playerId: PlayerID): boolean {
+  return String(state?.turnPlayer || state?.activePlayer || '') === String(playerId || '');
+}
+
+function getGraveyardPermissionTextSources(state: any, playerId: PlayerID): Array<{ oracleText: string; typeLine: string; counters?: any }> {
+  const sources: Array<{ oracleText: string; typeLine: string; counters?: any }> = [];
+  const battlefield = Array.isArray(state?.battlefield) ? state.battlefield : [];
+  for (const permanent of battlefield) {
+    if (!permanent || permanent.controller !== playerId) continue;
+    sources.push({
+      oracleText: String(permanent.card?.oracle_text || permanent.card?.oracleText || ''),
+      typeLine: normalizeRuleText(permanent.card?.type_line || permanent.card?.typeLine || ''),
+      counters: (permanent as any)?.counters,
+    });
+  }
+
+  const emblems = Array.isArray(state?.emblems) ? state.emblems : [];
+  for (const emblem of emblems) {
+    if (!emblem || String(emblem.controller || '') !== String(playerId || '')) continue;
+    sources.push({
+      oracleText: String(emblem.effect || emblem.text || emblem.oracle_text || ''),
+      typeLine: '',
+    });
+  }
+
+  return sources;
+}
+
+function isHistoricCard(card: any): boolean {
+  const typeLine = getNormalizedTypeLine(card);
+  return /\blegendary\b/.test(typeLine) || /\bartifact\b/.test(typeLine) || /\bsaga\b/.test(typeLine);
+}
+
+function typeLineHasWord(card: any, word: string): boolean {
+  const normalizedWord = singularizeQualifierWord(word);
+  if (!normalizedWord) return false;
+  return new RegExp(`\\b${escapeRegExp(normalizedWord)}\\b`, 'i').test(getNormalizedTypeLine(card));
+}
+
+function getPermanentSpellTypes(card: any): string[] {
+  const typeLine = getNormalizedTypeLine(card);
+  return ['artifact', 'creature', 'enchantment', 'planeswalker', 'battle']
+    .filter((typeWord) => new RegExp(`\\b${typeWord}\\b`, 'i').test(typeLine));
+}
+
+function getGraveyardPermanentTypesCastThisTurn(state: any, playerId: PlayerID): Set<string> {
+  const entry = (state as any)?.graveyardPermanentTypesCastThisTurn?.[playerId];
+  if (Array.isArray(entry)) {
+    return new Set(entry.map((typeWord: unknown) => String(typeWord || '').toLowerCase()).filter(Boolean));
+  }
+
+  if (entry && typeof entry === 'object') {
+    return new Set(
+      Object.entries(entry)
+        .filter(([, used]) => Boolean(used))
+        .map(([typeWord]) => String(typeWord || '').toLowerCase())
+        .filter(Boolean),
+    );
+  }
+
+  return new Set<string>();
+}
+
+function isStaticGraveyardPermissionLine(line: string): boolean {
+  const normalized = normalizeRuleText(line);
+  if (!normalized.includes('graveyard')) return false;
+  if (!normalized.includes('you may play') && !normalized.includes('you may cast') && !normalized.includes(' cast ')) return false;
+  if (normalized.includes(':')) return false;
+  if (/^\s*(when|whenever|at the beginning)\b/.test(normalized)) return false;
+  return true;
+}
+
+function landQualifierMatchesCard(card: any, qualifier: string): boolean {
+  if (!isLandTypeLine(getNormalizedTypeLine(card))) return false;
+
+  const normalized = normalizeRuleText(qualifier)
+    .split(/\s+(?:and|or)\s+cast\b/i)[0]
+    .trim();
+
+  if (/\bpermanent cards? of each permanent type\b/.test(normalized)) {
+    return true;
+  }
+
+  if (/\bhistoric\b/.test(normalized) && !isHistoricCard(card)) {
+    return false;
+  }
+
+  const remainder = normalized
+    .replace(/\bhistoric\b/g, ' ')
+    .replace(/\bland cards?\b/g, ' ')
+    .replace(/\blands?\b/g, ' ')
+    .replace(/\b(?:a|an|the|this|that)\b/g, ' ')
+    .replace(/[^a-z0-9' -]+/g, ' ')
+    .trim();
+
+  if (!remainder) {
+    return true;
+  }
+
+  return remainder
+    .split(/\s+/)
+    .map((word) => singularizeQualifierWord(word))
+    .filter(Boolean)
+    .every((word) => typeLineHasWord(card, word));
+}
+
+function spellQualifierMatchesCard(card: any, qualifier: string, usedPermanentTypes: Set<string>): boolean {
+  const typeLine = getNormalizedTypeLine(card);
+  if (isLandTypeLine(typeLine)) return false;
+
+  let normalized = normalizeRuleText(qualifier).trim();
+
+  if (/\bhistoric\b/.test(normalized) && !isHistoricCard(card)) {
+    return false;
+  }
+
+  const manaValueLimitMatch = normalized.match(/\bmana value\s+(\d+)\s+or less\b/);
+  if (manaValueLimitMatch && cardManaValue(card) > Number(manaValueLimitMatch[1])) {
+    return false;
+  }
+
+  if (/\bpermanent (?:spell|card) of each permanent type\b/.test(normalized)
+    || /\bpermanent (?:spells|cards) of each permanent type\b/.test(normalized)) {
+    if (!isPermanentSpellType(typeLine)) return false;
+    const cardTypes = getPermanentSpellTypes(card);
+    return cardTypes.length > 0 && cardTypes.every((typeWord) => !usedPermanentTypes.has(typeWord));
+  }
+
+  if (/\binstant\s+or\s+sorcery\s+spell\b/.test(normalized) || /\binstant\s+or\s+sorcery\s+spells\b/.test(normalized)) {
+    if (!(typeLine.includes('instant') || typeLine.includes('sorcery'))) {
+      return false;
+    }
+    normalized = normalized.replace(/\binstant\b/g, ' ').replace(/\bsorcery\b/g, ' ');
+  } else {
+    const typeRestrictions: Array<{ marker: RegExp; allowed: boolean; strip: RegExp }> = [
+      { marker: /\bpermanent\s+spell\b|\bpermanent\s+spells\b/, allowed: isPermanentSpellType(typeLine), strip: /\bpermanent\b/g },
+      { marker: /\bcreature\s+spell\b|\bcreature\s+spells\b/, allowed: typeLine.includes('creature'), strip: /\bcreature\b/g },
+      { marker: /\bartifact\s+spell\b|\bartifact\s+spells\b/, allowed: typeLine.includes('artifact'), strip: /\bartifact\b/g },
+      { marker: /\benchantment\s+spell\b|\benchantment\s+spells\b/, allowed: typeLine.includes('enchantment'), strip: /\benchantment\b/g },
+      { marker: /\bplaneswalker\s+spell\b|\bplaneswalker\s+spells\b/, allowed: typeLine.includes('planeswalker'), strip: /\bplaneswalker\b/g },
+      { marker: /\bbattle\s+spell\b|\bbattle\s+spells\b/, allowed: typeLine.includes('battle'), strip: /\bbattle\b/g },
+      { marker: /\binstant\s+spell\b|\binstant\s+spells\b/, allowed: typeLine.includes('instant'), strip: /\binstant\b/g },
+      { marker: /\bsorcery\s+spell\b|\bsorcery\s+spells\b/, allowed: typeLine.includes('sorcery'), strip: /\bsorcery\b/g },
+    ];
+
+    for (const restriction of typeRestrictions) {
+      if (!restriction.marker.test(normalized)) continue;
+      if (!restriction.allowed) return false;
+      normalized = normalized.replace(restriction.strip, ' ');
+    }
+  }
+
+  const remainder = normalized
+    .replace(/\bhistoric\b/g, ' ')
+    .replace(/\bmana value\s+\d+\s+or less\b/g, ' ')
+    .replace(/\b(?:a|an|the|this|that|spell|spells|card|cards|permanent|permanents|once|during|each|of|your|turn|turns|with|mana|value|or|less)\b/g, ' ')
+    .replace(/[^a-z0-9' -]+/g, ' ')
+    .trim();
+
+  if (!remainder) {
+    return true;
+  }
+
+  return remainder
+    .split(/\s+/)
+    .map((word) => singularizeQualifierWord(word))
+    .filter(Boolean)
+    .every((word) => typeLineHasWord(card, word));
+}
+
+function canPlaySpecificLandFromGraveyard(ctx: GameContext, playerId: PlayerID, card: any): boolean {
+  try {
+    const state = ctx?.state as any;
+    if (!state || !card || typeof card === 'string') return false;
+
+    if (hasMarkedGraveyardPermission(state, playerId, card)) {
+      return true;
+    }
+
+    if (Array.isArray(state?.landPlayPermissions?.[playerId]) && state.landPlayPermissions[playerId].includes('graveyard')) {
+      return true;
+    }
+
+    const alreadyPlayedLandFromGraveyard = Boolean((state as any)?.playedLandFromGraveyardThisTurn?.[playerId]);
+
+    for (const source of getGraveyardPermissionTextSources(state, playerId)) {
+      const oracleText = source.oracleText;
+      const lines = oracleText.split(/\r?\n/);
+      for (const rawLine of lines) {
+        const line = normalizeRuleText(rawLine);
+        if (!isStaticGraveyardPermissionLine(line)) continue;
+        if (/\bduring your turn\b/.test(line) && !isPlayersTurnForPermission(state, playerId)) continue;
+
+        for (const match of line.matchAll(/you may play ([^.]+?) from your graveyard/gi)) {
+          const qualifier = String(match[1] || '').trim();
+          if (!qualifier) continue;
+
+          const oncePerTurn = /\bonce during each of your turns\b/.test(line) || /^\s*(?:a|an)\b/i.test(qualifier);
+          const eachPermanentTypePermission = /\bpermanent cards? of each permanent type\b/.test(qualifier);
+          if (oncePerTurn && alreadyPlayedLandFromGraveyard) continue;
+          if (eachPermanentTypePermission && alreadyPlayedLandFromGraveyard) continue;
+          if (landQualifierMatchesCard(card, qualifier)) {
+            return true;
+          }
+        }
+      }
+    }
+
+    return false;
+  } catch (err) {
+    debugWarn(1, '[canPlaySpecificLandFromGraveyard] Error:', err);
+    return false;
+  }
+}
+
+function canCastSpecificSpellFromGraveyard(ctx: GameContext, playerId: PlayerID, card: any): boolean {
+  try {
+    const state = ctx?.state as any;
+    if (!state || !card || typeof card === 'string') return false;
+
+    if (hasMarkedGraveyardPermission(state, playerId, card)) {
+      return true;
+    }
+
+    const alreadyCastFromGraveyard = Boolean((state as any)?.castFromGraveyardThisTurn?.[playerId]);
+    const usedPermanentTypes = getGraveyardPermanentTypesCastThisTurn(state, playerId);
+
+    for (const source of getGraveyardPermissionTextSources(state, playerId)) {
+      const permanentTypeLine = source.typeLine;
+      const oracleText = source.oracleText;
+      const lines = oracleText.split(/\r?\n/);
+
+      for (const rawLine of lines) {
+        const line = normalizeRuleText(rawLine);
+        if (!isStaticGraveyardPermissionLine(line)) continue;
+        if (/\bduring your turn\b/.test(line) && !isPlayersTurnForPermission(state, playerId)) continue;
+
+        const combinedPlayCastMatch = line.match(/you may play ([^.]+?) and cast ([^.]+?) from your graveyard/i);
+        if (combinedPlayCastMatch) {
+          const qualifier = String(combinedPlayCastMatch[2] || '').trim();
+          const oncePerTurn = /\bonce during each of your turns\b/.test(line);
+          if (!(oncePerTurn && alreadyCastFromGraveyard) && qualifier && spellQualifierMatchesCard(card, qualifier, usedPermanentTypes)) {
+            return true;
+          }
+        }
+
+        if (permanentTypeLine.includes('spacecraft') && line.includes('permanent spell') && line.includes('from your graveyard')) {
+          const creatureMatch = line.match(/it's an? (?:artifact )?creature at (\d+)\+/i);
+          if (creatureMatch) {
+            const threshold = Number.parseInt(creatureMatch[1], 10);
+            const chargeCounters = Number(source.counters?.charge || 0);
+            if (!Number.isFinite(threshold) || chargeCounters < threshold) {
+              continue;
+            }
+          }
+        }
+
+        for (const match of line.matchAll(/\b(?:cast|play) ([^.]+?) from your graveyard/gi)) {
+          const qualifier = String(match[1] || '').trim();
+          if (!qualifier) continue;
+
+          const oncePerTurn = /\bonce during each of your turns\b/.test(line);
+          if (oncePerTurn && alreadyCastFromGraveyard) continue;
+          if (spellQualifierMatchesCard(card, qualifier, usedPermanentTypes)) {
+            return true;
+          }
+        }
+      }
+    }
+
+    return false;
+  } catch (err) {
+    debugWarn(1, '[canCastSpecificSpellFromGraveyard] Error:', err);
+    return false;
+  }
+}
+
 function spellMatchesCandidateMode(card: any, mode: SharedSpellCandidateMode, grantsFlash: boolean): boolean {
   if (mode === 'main') {
     return true;
@@ -451,7 +776,6 @@ export function getCastableSpellCandidates(
     const stateAny = state as any;
     const currentTurn = Number(stateAny?.turnNumber ?? 0);
     const exilePermissions = stateAny?.playableFromExile?.[playerId];
-    const canCastPermanentFromGraveyard = hasPlayFromZoneEffect(ctx, playerId, 'graveyard');
     const candidates: SharedSpellCastCandidate[] = [];
 
     const considerSourceCard = (card: any, sourceZone: SharedSpellSourceZone) => {
@@ -516,7 +840,7 @@ export function getCastableSpellCandidates(
               } else {
                 unknownCostFallback = true;
               }
-            } else if (canCastPermanentFromGraveyard && isPermanentSpellType(typeLine)) {
+            } else if (canCastSpecificSpellFromGraveyard(ctx, playerId, castCard)) {
               castMethod = 'graveyard_permanent';
             } else {
               continue;
@@ -799,8 +1123,36 @@ export function isCardPlayableFromExile(playableCards: any, cardId: string, curr
  * Currently handles common red cost reducers (Fire Crystal, Hazoret's Monument,
  * Ruby Medallion) and Aura of Silence style taxes.
  */
+function getCostAdjustmentSources(state: any): Array<{ name: string; oracleText: string; controller: string }> {
+  const sources: Array<{ name: string; oracleText: string; controller: string }> = [];
+
+  const battlefield = Array.isArray(state?.battlefield) ? state.battlefield : [];
+  for (const perm of battlefield) {
+    if (!perm?.card) continue;
+
+    sources.push({
+      name: String(perm.card.name || 'Unknown'),
+      oracleText: String(perm.card.oracle_text || ''),
+      controller: String(perm.controller || ''),
+    });
+  }
+
+  const emblems = Array.isArray((state as any)?.emblems) ? (state as any).emblems : [];
+  for (const emblem of emblems) {
+    if (!emblem) continue;
+
+    sources.push({
+      name: String(emblem.sourceName || emblem.name || 'Emblem'),
+      oracleText: String(emblem.effect || emblem.text || emblem.oracle_text || ''),
+      controller: String(emblem.controller || ''),
+    });
+  }
+
+  return sources;
+}
+
 export function getCostAdjustmentForCard(state: any, playerId: PlayerID, card: any): number {
-  if (!state?.battlefield || !card) return 0;
+  if (!card) return 0;
   
   const typeLine = (card.type_line || "").toLowerCase();
   const oracleText = (card.oracle_text || "").toLowerCase();
@@ -833,12 +1185,12 @@ export function getCostAdjustmentForCard(state: any, playerId: PlayerID, card: a
   ];
   
   let adjustment = 0; // negative = reduction, positive = increase
+  const costSources = getCostAdjustmentSources(state);
   
-  for (const perm of state.battlefield) {
-    if (!perm?.card) continue;
-    const permName = (perm.card.name || "").toLowerCase();
-    const permOracle = (perm.card.oracle_text || "").toLowerCase();
-    const sameController = perm.controller === playerId;
+  for (const source of costSources) {
+    const permName = source.name.toLowerCase();
+    const permOracle = source.oracleText.toLowerCase();
+    const sameController = source.controller === String(playerId);
     
     // DYNAMIC COST REDUCTION PARSING
     // Pattern: "[TYPE] spells you cast cost {N} less" or "spells you cast cost {N} less"
@@ -978,7 +1330,7 @@ export interface CostAdjustmentInfo {
  * This is used for UI display to show what's affecting the cost
  */
 export function getCostAdjustmentInfo(state: any, playerId: string, card: any): CostAdjustmentInfo | null {
-  if (!state?.battlefield || !card) return null;
+  if (!card) return null;
   
   const typeLine = (card.type_line || "").toLowerCase();
   const manaCostRaw = card.mana_cost || "";
@@ -1022,12 +1374,13 @@ export function getCostAdjustmentInfo(state: any, playerId: string, card: any): 
     { nameMatch: "vryn wingmare", displayName: "Vryn Wingmare", textMatch: "noncreature spells cost {1} more to cast", applies: () => !isCreatureSpell, amount: 1 },
     { nameMatch: "lodestone golem", displayName: "Lodestone Golem", textMatch: "nonartifact spells cost {1} more to cast", applies: () => !typeLine.includes("artifact"), amount: 1 },
   ];
+
+  const costSources = getCostAdjustmentSources(state);
   
-  for (const perm of state.battlefield) {
-    if (!perm?.card) continue;
-    const permName = (perm.card.name || "").toLowerCase();
-    const permOracle = (perm.card.oracle_text || "").toLowerCase();
-    const sameController = perm.controller === playerId;
+  for (const source of costSources) {
+    const permName = source.name.toLowerCase();
+    const permOracle = source.oracleText.toLowerCase();
+    const sameController = source.controller === String(playerId);
     
     // DYNAMIC COST REDUCTION PARSING (for your permanents)
     if (sameController && permOracle.includes("spells you cast cost") && permOracle.includes("less")) {
@@ -1060,7 +1413,7 @@ export function getCostAdjustmentInfo(state: any, playerId: string, card: any): 
         }
         
         if (applies) {
-          const cardDisplayName = perm.card.name || 'Unknown';
+          const cardDisplayName = source.name || 'Unknown';
           sources.push({ name: cardDisplayName, amount: -reductionAmount });
           totalAdjustment -= reductionAmount;
         }
@@ -1086,7 +1439,7 @@ export function getCostAdjustmentInfo(state: any, playerId: string, card: any): 
         if (permOracle.includes('artifact and enchantment') && !isArtifactOrEnchantment) applies = false;
         
         if (applies) {
-          const cardDisplayName = perm.card.name || 'Unknown';
+          const cardDisplayName = source.name || 'Unknown';
           sources.push({ name: cardDisplayName, amount: taxAmount });
           totalAdjustment += taxAmount;
         }
@@ -1213,6 +1566,71 @@ function hasStationActivationWindow(ctx: GameContext, playerId: PlayerID, perman
     if (String(candidate.controller || '') !== String(playerId)) return false;
     return candidate.tapped !== true;
   });
+}
+
+function hasActivatableLoyaltyAbility(
+  state: any,
+  battlefield: any[],
+  playerId: PlayerID,
+  permanent: any,
+): boolean {
+  if (!permanent?.card) return false;
+  if (String(permanent.controller || '') !== String(playerId)) return false;
+
+  const typeLine = String(permanent.card.type_line || '').toLowerCase();
+  if (!typeLine.includes('planeswalker')) return false;
+
+  const activationsThisTurn = (permanent as any).loyaltyActivationsThisTurn || 0;
+  let maxActivations = 1;
+
+  for (const otherPerm of battlefield) {
+    if (String(otherPerm?.controller || '') !== String(playerId)) continue;
+
+    const otherName = String(otherPerm?.card?.name || '').toLowerCase();
+    const otherOracle = String(otherPerm?.card?.oracle_text || '').toLowerCase();
+
+    if (
+      otherName.includes('chain veil') ||
+      (otherOracle.includes('activate') &&
+        otherOracle.includes('loyalty abilities') &&
+        otherOracle.includes('additional'))
+    ) {
+      maxActivations = 2;
+      break;
+    }
+  }
+
+  if (activationsThisTurn >= maxActivations) return false;
+
+  const loyaltyString = (permanent.card as any)?.loyalty;
+  const currentLoyalty =
+    (permanent as any).loyaltyCounters ??
+    (permanent as any).loyalty ??
+    (loyaltyString ? parseInt(String(loyaltyString), 10) : 0);
+  const oracleText = String(permanent.card.oracle_text || '');
+
+  // Scryfall loyalty abilities use +N:, -N:, or 0: prefixes without brackets.
+  const loyaltyPattern = /^([+−–—-]?)(\d+|X):\s*/gim;
+  let match;
+
+  while ((match = loyaltyPattern.exec(oracleText)) !== null) {
+    const rawSign = match[1];
+    const sign = rawSign.replace(/[−–—]/g, '-');
+    const cost = match[2];
+
+    if (sign === '+' || sign === '' || cost === '0') {
+      return true;
+    }
+
+    if (sign === '-') {
+      const numericCost = cost === 'X' ? 0 : parseInt(cost, 10);
+      if (currentLoyalty >= numericCost) {
+        return true;
+      }
+    }
+  }
+
+  return false;
 }
 
 /**
@@ -1540,6 +1958,7 @@ export function canActivateAnyAbility(ctx: GameContext, playerId: PlayerID): boo
     if (isSplitSecondLockActive(state)) return false;
     
     const battlefield = state.battlefield || [];
+    const loyaltyAtInstantSpeed = canActivateLoyaltyAtInstantSpeed(state, playerId);
     
     // Get mana pool (floating + potential from untapped sources)
     const pool = getAvailableMana(state, playerId);
@@ -1553,6 +1972,10 @@ export function canActivateAnyAbility(ctx: GameContext, playerId: PlayerID): boo
       if (ignoredCards[permanent.id]) {
         debug(2, `[canActivateAnyAbility] Skipping ignored card: ${permanent.card?.name || permanent.id}`);
         continue;
+      }
+
+      if (loyaltyAtInstantSpeed && hasActivatableLoyaltyAbility(state, battlefield, playerId, permanent)) {
+        return true;
       }
       
       if (hasActivatableAbility(ctx, playerId, permanent)) {
@@ -1766,8 +2189,9 @@ function hasRemainingLandPlay(ctx: GameContext, playerId: PlayerID): boolean {
 }
 
 function canPlayLandFromGraveyard(ctx: GameContext, playerId: PlayerID): boolean {
-  return Array.isArray((ctx.state as any)?.landPlayPermissions?.[playerId])
-    ? (ctx.state as any).landPlayPermissions[playerId].includes('graveyard')
+  const graveyard = ctx?.state?.zones?.[playerId]?.graveyard;
+  return Array.isArray(graveyard)
+    ? graveyard.some((card: any) => canPlaySpecificLandFromGraveyard(ctx, playerId, card))
     : false;
 }
 
@@ -1826,8 +2250,11 @@ export function getPlayableLandCandidates(
       pushCandidate(topCard, 'library');
     }
 
-    if (canPlayLandFromGraveyard(ctx, playerId) && Array.isArray(zones.graveyard)) {
+    if (Array.isArray(zones.graveyard)) {
       for (const card of zones.graveyard as any[]) {
+        if (!canPlaySpecificLandFromGraveyard(ctx, playerId, card)) {
+          continue;
+        }
         pushCandidate(card, 'graveyard');
       }
     }
@@ -2562,59 +2989,9 @@ function canActivateSorcerySpeedAbility(ctx: GameContext, playerId: PlayerID): b
         }
       }
       
-      // Check for planeswalker loyalty abilities (sorcery-speed by default)
-      // Loyalty abilities use [+N]:, [-N]:, or [0]: format
-      const typeLine = (permanent.card?.type_line || "").toLowerCase();
-      if (typeLine.includes("planeswalker")) {
-        // Check if the planeswalker has already activated a loyalty ability this turn
-        const activationsThisTurn = (permanent as any).loyaltyActivationsThisTurn || 0;
-        
-        // Check for Chain Veil or similar effects that allow more activations
-        let maxActivations = 1;
-        for (const otherPerm of battlefield) {
-          if (otherPerm.controller !== playerId) continue;
-          const otherName = (otherPerm.card?.name || "").toLowerCase();
-          const otherOracle = (otherPerm.card?.oracle_text || "").toLowerCase();
-          
-          // The Chain Veil: "For each planeswalker you control, you may activate one of its loyalty abilities once"
-          if (otherName.includes("chain veil") || 
-              (otherOracle.includes("activate") && otherOracle.includes("loyalty abilities") && otherOracle.includes("additional"))) {
-            maxActivations = 2;
-            break;
-          }
-        }
-        
-        if (activationsThisTurn < maxActivations) {
-          // Get current loyalty
-          const loyaltyString = (permanent.card as any)?.loyalty;
-          const currentLoyalty = (permanent as any).loyaltyCounters ?? (permanent as any).loyalty ?? 
-                                  (loyaltyString ? parseInt(String(loyaltyString), 10) : 0);
-          
-          // Check if any loyalty ability can be activated
-          // Pattern: +N:, -N:, 0: (Scryfall format WITHOUT brackets)
-          // Also handles Unicode minus/dash characters: − (U+2212), – (en dash), — (em dash)
-          const loyaltyPattern = /^([+−–—-]?)(\d+|X):\s*/gim;
-          let match;
-          while ((match = loyaltyPattern.exec(oracleText)) !== null) {
-            // Normalize sign: Unicode minus signs to standard minus
-            const rawSign = match[1];
-            const sign = rawSign.replace(/[−–—]/g, '-');
-            const cost = match[2];
-            
-            if (sign === '+' || sign === '' || cost === '0') {
-              // Plus ability or zero ability - always usable (adds or doesn't change loyalty)
-              return true;
-            } else if (sign === '-') {
-              // Minus ability - check if we have enough loyalty
-              // For -X abilities, the player chooses X, so X can be 0 or any value up to current loyalty
-              // This means -X abilities are always activatable (player can choose X=0)
-              const numericCost = cost === 'X' ? 0 : parseInt(cost, 10);
-              if (currentLoyalty >= numericCost) {
-                return true;
-              }
-            }
-          }
-        }
+      // Check for planeswalker loyalty abilities (sorcery-speed by default).
+      if (hasActivatableLoyaltyAbility(state, battlefield, playerId, permanent)) {
+        return true;
       }
     }
     

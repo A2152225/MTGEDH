@@ -3521,6 +3521,7 @@ export function nextTurn(ctx: GameContext) {
       const stateAny = (ctx as any).state as any;
       stateAny.castFromExileThisTurn = {};
       stateAny.castFromGraveyardThisTurn = {};
+      stateAny.graveyardPermanentTypesCastThisTurn = {};
       stateAny.playedLandFromGraveyardThisTurn = {};
       stateAny.playedLandFromExileThisTurn = {};
       stateAny.playedFromExileThisTurn = {};

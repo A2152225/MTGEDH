@@ -78,4 +78,28 @@ describe('Intervening-if: cast from graveyard provenance', () => {
     // This clause should deterministically fail when we know the spell came from exile.
     expect(evaluateInterveningIfClause(g as any, 'p1', 'if it was cast from your graveyard', top.card as any)).toBe(false);
   });
+
+  it('replay castSpell(fromZone=graveyard) tracks permanent spell types for Muldrotha-style limits', () => {
+    const g: any = {
+      state: {
+        players: [{ id: 'p1', name: 'P1' }],
+        zones: { p1: { hand: [], graveyard: [], exile: [] } },
+        battlefield: [],
+        stack: [],
+      },
+      bumpSeq: () => {},
+    };
+
+    applyEvent(g as any, {
+      type: 'castSpell',
+      playerId: 'p1',
+      card: { id: 'c3', name: 'Myr Retriever', oracle_text: '', type_line: 'Artifact Creature — Myr', mana_cost: '{2}' },
+      fromZone: 'graveyard',
+      targets: [],
+    } as any);
+
+    expect((g.state as any).graveyardPermanentTypesCastThisTurn?.p1).toEqual(
+      expect.objectContaining({ artifact: true, creature: true }),
+    );
+  });
 });

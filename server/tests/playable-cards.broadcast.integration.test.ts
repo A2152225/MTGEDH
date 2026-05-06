@@ -474,6 +474,226 @@ describe('broadcastGame playable card refresh', () => {
     expect(stateEvent?.payload?.view?.playableCards).toContain('library-p1');
   });
 
+  it('highlights only subtype-limited graveyard lands that are actually playable', () => {
+    const gameId = 'playable_cards_titania_graveyard_land';
+    const ctx = createContext(gameId);
+
+    Object.assign(ctx.state as any, {
+      active: true,
+      phase: 'precombatMain',
+      step: 'MAIN1',
+      turnDirection: 1,
+      turnPlayer: 'p1',
+      priority: 'p1',
+      players: [
+        { id: 'p1', seat: 1, name: 'Player 1' },
+        { id: 'p2', seat: 2, name: 'Player 2' },
+      ],
+      stack: [],
+      battlefield: [
+        {
+          id: 'titania_1',
+          controller: 'p1',
+          tapped: false,
+          card: {
+            name: "Titania, Nature's Force",
+            type_line: 'Legendary Creature — Elemental',
+            oracle_text: 'You may play Forests from your graveyard.',
+          },
+        },
+      ],
+      zones: {
+        p1: {
+          hand: [],
+          graveyard: [
+            {
+              id: 'forest_1',
+              name: 'Forest',
+              type_line: 'Basic Land — Forest',
+              oracle_text: '{T}: Add {G}.',
+            },
+            {
+              id: 'wasteland_1',
+              name: 'Wasteland',
+              type_line: 'Land',
+              oracle_text: '{T}: Add {C}.',
+            },
+          ],
+          library: [],
+          exile: [],
+          handCount: 0,
+          graveyardCount: 2,
+          exileCount: 0,
+        },
+        p2: {
+          hand: [],
+          graveyard: [],
+          library: [],
+          exile: [],
+          handCount: 0,
+          graveyardCount: 0,
+          exileCount: 0,
+        },
+      },
+      life: { p1: 40, p2: 40 },
+      manaPool: {
+        p1: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+        p2: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+      },
+      landsPlayedThisTurn: { p1: 0, p2: 0 },
+      playableCards: [],
+      canAct: true,
+      canRespond: false,
+    });
+
+    const game: any = {
+      gameId,
+      state: ctx.state,
+      inactive: ctx.inactive,
+      passesInRow: ctx.passesInRow,
+      libraries: ctx.libraries,
+      life: ctx.life,
+      commandZone: ctx.commandZone,
+      manaPool: ctx.manaPool,
+      get seq() {
+        return ctx.seq.value;
+      },
+      set seq(value: number) {
+        ctx.seq.value = value;
+      },
+      bumpSeq: ctx.bumpSeq,
+      participants: () => [{ socketId: 'sock_1', playerId: 'p1', spectator: false }],
+      viewFor: () => ({
+        ...ctx.state,
+        viewer: 'p1',
+        playableCards: [],
+        canAct: true,
+        canRespond: false,
+      }),
+    };
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const io = createMockIo(emitted);
+
+    broadcastGame(io, game, gameId);
+
+    const stateEvent = emitted.find((entry) => entry.room === 'sock_1' && entry.event === 'state');
+    expect(stateEvent).toBeDefined();
+    expect(stateEvent?.payload?.view?.playableCards).toContain('forest_1');
+    expect(stateEvent?.payload?.view?.playableCards).not.toContain('wasteland_1');
+  });
+
+  it('highlights Kess-style graveyard spell permissions through the broadcast surface', () => {
+    const gameId = 'playable_cards_kess_graveyard_spell';
+    const ctx = createContext(gameId);
+
+    Object.assign(ctx.state as any, {
+      active: true,
+      phase: 'precombatMain',
+      step: 'MAIN1',
+      turnDirection: 1,
+      turnPlayer: 'p1',
+      priority: 'p1',
+      players: [
+        { id: 'p1', seat: 1, name: 'Player 1' },
+        { id: 'p2', seat: 2, name: 'Player 2' },
+      ],
+      stack: [],
+      battlefield: [
+        {
+          id: 'kess_1',
+          controller: 'p1',
+          tapped: false,
+          card: {
+            name: 'Kess, Dissident Mage',
+            type_line: 'Legendary Creature — Human Wizard',
+            oracle_text: 'Flying\nOnce during each of your turns, you may cast an instant or sorcery spell from your graveyard.',
+          },
+        },
+      ],
+      zones: {
+        p1: {
+          hand: [],
+          graveyard: [
+            {
+              id: 'consider_1',
+              name: 'Consider',
+              type_line: 'Instant',
+              mana_cost: '{U}',
+              oracle_text: 'Surveil 1, then draw a card.',
+            },
+            {
+              id: 'runeclaw_1',
+              name: 'Runeclaw Bear',
+              type_line: 'Creature — Bear',
+              mana_cost: '{1}{G}',
+              oracle_text: '',
+            },
+          ],
+          library: [],
+          exile: [],
+          handCount: 0,
+          graveyardCount: 2,
+          exileCount: 0,
+        },
+        p2: {
+          hand: [],
+          graveyard: [],
+          library: [],
+          exile: [],
+          handCount: 0,
+          graveyardCount: 0,
+          exileCount: 0,
+        },
+      },
+      life: { p1: 40, p2: 40 },
+      manaPool: {
+        p1: { white: 0, blue: 1, black: 0, red: 0, green: 0, colorless: 0 },
+        p2: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+      },
+      landsPlayedThisTurn: { p1: 0, p2: 0 },
+      playableCards: [],
+      canAct: true,
+      canRespond: true,
+    });
+
+    const game: any = {
+      gameId,
+      state: ctx.state,
+      inactive: ctx.inactive,
+      passesInRow: ctx.passesInRow,
+      libraries: ctx.libraries,
+      life: ctx.life,
+      commandZone: ctx.commandZone,
+      manaPool: ctx.manaPool,
+      get seq() {
+        return ctx.seq.value;
+      },
+      set seq(value: number) {
+        ctx.seq.value = value;
+      },
+      bumpSeq: ctx.bumpSeq,
+      participants: () => [{ socketId: 'sock_1', playerId: 'p1', spectator: false }],
+      viewFor: () => ({
+        ...ctx.state,
+        viewer: 'p1',
+        playableCards: [],
+        canAct: true,
+        canRespond: true,
+      }),
+    };
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const io = createMockIo(emitted);
+
+    broadcastGame(io, game, gameId);
+
+    const stateEvent = emitted.find((entry) => entry.room === 'sock_1' && entry.event === 'state');
+    expect(stateEvent).toBeDefined();
+    expect(stateEvent?.payload?.view?.playableCards).toContain('consider_1');
+    expect(stateEvent?.payload?.view?.playableCards).not.toContain('runeclaw_1');
+  });
+
   it('highlights a reduced-cost commander from the shared commander surface', () => {
     const gameId = 'playable_cards_commander_shared_surface';
     const ctx = createContext(gameId);

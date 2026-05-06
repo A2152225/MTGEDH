@@ -463,6 +463,25 @@ function normalizeRecordedManaMap(raw: unknown): Record<string, number> {
   return normalized;
 }
 
+function getPermanentSpellTypeWords(card: any): string[] {
+  const typeLine = String(card?.type_line || card?.typeLine || '').toLowerCase();
+  return ['artifact', 'creature', 'enchantment', 'planeswalker', 'battle']
+    .filter((typeWord) => new RegExp(`\\b${typeWord}\\b`, 'i').test(typeLine));
+}
+
+function recordGraveyardPermanentTypesCastThisTurn(state: any, playerId: string, card: any): void {
+  const permanentTypes = getPermanentSpellTypeWords(card);
+  if (permanentTypes.length === 0) return;
+
+  state.graveyardPermanentTypesCastThisTurn = state.graveyardPermanentTypesCastThisTurn || {};
+  const playerEntry = state.graveyardPermanentTypesCastThisTurn[String(playerId)] =
+    state.graveyardPermanentTypesCastThisTurn[String(playerId)] || {};
+
+  for (const typeWord of permanentTypes) {
+    playerEntry[typeWord] = true;
+  }
+}
+
 function inferLegacyManaReplay(rawState: any, permanent: any, playerId: string, manaColor: unknown, abilityId?: unknown): Record<string, number> {
   const chosenColor = normalizeManaColorCode(manaColor);
   const manaProduction = calculateManaProduction(rawState, permanent, playerId, chosenColor, abilityId != null ? String(abilityId) : undefined);
@@ -2347,6 +2366,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
             const stateAny = (ctx.state as any) as any;
             stateAny.castFromGraveyardThisTurn = stateAny.castFromGraveyardThisTurn || {};
             stateAny.castFromGraveyardThisTurn[pid] = true;
+            recordGraveyardPermanentTypesCastThisTurn(stateAny, pid, (e as any).card);
           }
           if (pid && fromZone === 'exile') {
             const stateAny = (ctx.state as any) as any;
@@ -7680,6 +7700,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
                 const stateAny = ctx.state as any;
                 stateAny.castFromGraveyardThisTurn = stateAny.castFromGraveyardThisTurn || {};
                 stateAny.castFromGraveyardThisTurn[String(pid)] = true;
+                recordGraveyardPermanentTypesCastThisTurn(stateAny, String(pid), card);
                 stateAny.spellsCastThisTurn = Array.isArray(stateAny.spellsCastThisTurn) ? stateAny.spellsCastThisTurn : [];
                 stateAny.spellsCastThisTurn.push({
                   id: card?.id || cardId,
@@ -7814,6 +7835,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
                 stateAny.castFromGraveyardThisTurn = stateAny.castFromGraveyardThisTurn || {};
                 stateAny.castFromGraveyardThisTurn[String(pid)] = true;
                 const disturbSpellCard = buildDisturbCastCard(card);
+                recordGraveyardPermanentTypesCastThisTurn(stateAny, String(pid), disturbSpellCard);
                 stateAny.spellsCastThisTurn = Array.isArray(stateAny.spellsCastThisTurn) ? stateAny.spellsCastThisTurn : [];
                 stateAny.spellsCastThisTurn.push({
                   id: disturbSpellCard?.id || cardId,

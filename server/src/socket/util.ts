@@ -18,7 +18,7 @@ import { GameManager } from "../GameManager.js";
 import type { GameID, PlayerID, ManaPool, RestrictedManaEntry, ManaRestrictionType } from "../../../shared/src/index.js";
 import { getActualPowerToughness, uid, cardManaValue } from "../state/utils.js";
 import { getDevotionManaAmount, getCreatureCountManaAmount, getManaAbilitiesForPermanent, getMoxAmberAvailableColors, isMoxAmberConditionalManaSource } from "../state/modules/mana-abilities.js";
-import { canRespond, canAct, getCastableCommanderCandidates, getCostAdjustmentInfo, getHandCastEvaluationCards, getPlayableLandCandidates, isTransformBackFace } from "../state/modules/can-respond.js";
+import { canRespond, canAct, getCastableCommanderCandidates, getCastableSpellCandidates, getCostAdjustmentInfo, getHandCastEvaluationCards, getPlayableLandCandidates, isTransformBackFace } from "../state/modules/can-respond.js";
 import { getGrantedCastFromGraveyardKeywordInfo, getGrantedEmbalmInfo, getGrantedFlashbackInfo, getGrantedUnearthInfo, getPrintedUnearthInfo } from "../state/modules/graveyard-permissions.js";
 import { parseManaCost as parseManaFromString, canPayManaCostWithAvailableSources, getManaPoolFromState, getAvailableMana, getTotalManaFromPool } from "../state/modules/mana-check.js";
 import { hasPayableAlternateCost } from "../state/modules/alternate-costs.js";
@@ -478,116 +478,28 @@ function getPlayableCardIds(game: InMemoryGame, playerId: PlayerID): string[] {
       return playableIds;
     }
     
-    // Create a minimal context object for functions that need GameContext
-    // This provides the required state property for calculating game effects
-    const ctx = { state } as { state: typeof state };
-    
-    const pool = getManaPoolFromState(state, playerId);
-    // Also calculate available mana (including potential from untapped sources)
-    // This is used to highlight cards that COULD be cast if mana sources are tapped
-    const availableMana = getAvailableMana(state, playerId);
     const isMainPhase = isInMainPhase(state);
     const stackIsEmpty = !state.stack || state.stack.length === 0;
     const turnPlayer = state.turnPlayer;
     const isMyTurn = turnPlayer === playerId;
-    
-    // Check hand for castable spells
-    if (Array.isArray(zones.hand)) {
-      for (const card of zones.hand) {
-        if (!card || typeof card === "string") continue;
-        
-        // For transform cards, check if this represents the back face
-        // Transform cards from Scryfall have layout="transform" and card_faces array
-        // The back face has "(Transforms from [Name])" in its oracle text
-        const layout = (card as any).layout;
-        const cardFaces = (card as any).card_faces;
-        
-        if (layout === 'transform' && cardFaces && cardFaces.length >= 2) {
-          // Check if the card's oracle_text matches the back face
-          // or if the card's name contains " // " indicating it's the combined card
-          const cardOracleText = (card.oracle_text || "").toLowerCase();
-          const backFaceOracle = (cardFaces[1]?.oracle_text || "").toLowerCase();
-          
-          // If the card's oracle text is from the back face, skip it
-          if (cardOracleText && backFaceOracle && cardOracleText.includes("(transforms from")) {
-            continue;
-          }
-          
-          // For transform cards in hand, Scryfall returns the combined name
-          // but NO top-level oracle_text or mana_cost - these are in card_faces
-          // We should NOT skip these - they are castable front faces
-          // Continue to use card_faces[0] data below for cost checking
-        }
-        
-        // For modal DFCs and other DFC types, check similarly
-        if ((layout === 'modal_dfc' || layout === 'double_faced_token') && cardFaces && cardFaces.length >= 2) {
-          // Modal DFCs can be cast as either face - don't skip them here
-          // The player will be prompted to choose which face to cast
-        }
 
-        for (const castCard of getHandCastEvaluationCards(card)) {
-          if (isSpellCastingProhibitedByChosenName(state, playerId, (castCard as any).name || '').prohibited) {
-            continue;
-          }
+    const spellCandidateMode = isMainPhase && stackIsEmpty && isMyTurn ? 'main' : 'response';
+    const sharedSpellCandidates = getCastableSpellCandidates({
+      state,
+      libraries: (game as any).libraries,
+    } as any, playerId, {
+      mode: spellCandidateMode,
+      allowUnknownCostFallback: false,
+    });
 
-          const typeLine = (castCard.type_line || "").toLowerCase();
-          const oracleText = (castCard.oracle_text || "").toLowerCase();
-
-          if (/\bland\b/i.test(typeLine)) continue;
-
-          const turnPlayer = state.turnPlayer;
-          const timingRestriction = checkSpellTimingRestriction(
-            castCard.oracle_text || "",
-            playerId,
-            turnPlayer,
-            state as any
-          );
-
-          if (!timingRestriction.canCast) {
-            continue;
-          }
-
-          const hasTargets = hasValidTargetsForSpell(state as any, playerId, castCard, { conservative: false });
-          if (!hasTargets) {
-            continue;
-          }
-
-          const isInstantSpeed = typeLine.includes("instant") || oracleText.includes("flash");
-          const isSorcerySpeed = 
-            typeLine.includes("creature") ||
-            typeLine.includes("sorcery") ||
-            typeLine.includes("artifact") ||
-            typeLine.includes("enchantment") ||
-            typeLine.includes("planeswalker") ||
-            typeLine.includes("battle");
-
-          const canCastNow = isInstantSpeed || (isSorcerySpeed && isMainPhase && stackIsEmpty && isMyTurn);
-
-          if (!canCastNow) {
-            continue;
-          }
-
-          const reduction = calculateCostReduction(game as any, playerId, castCard, false);
-
-          let manaCost = castCard.mana_cost || "";
-          if (!manaCost && cardFaces && cardFaces.length > 0) {
-            manaCost = cardFaces[0].mana_cost || "";
-          }
-
-          const parsedCost = parseManaFromString(manaCost);
-          const reducedCost = applyCostReduction(parsedCost, reduction);
-          const actualCost = { ...reducedCost, hasX: (reducedCost as any).hasX ?? (parsedCost as any).hasX ?? false };
-          const exactManaOptions = card?.id ? { excludedHandCardIds: [String(card.id)] } : undefined;
-
-          if (
-            canPayManaCostWithAvailableSources(state, playerId, actualCost, Infinity, exactManaOptions)
-            || hasPayableAlternateCost(game as any, playerId, castCard, exactManaOptions?.excludedHandCardIds)
-          ) {
-            playableIds.push(card.id);
-            break;
-          }
-        }
-      }
+    const highlightedSpellIds = new Set<string>();
+    for (const candidate of sharedSpellCandidates) {
+      const playableId = candidate.sourceZone === 'library'
+        ? `library-${playerId}`
+        : String(candidate.card?.id || candidate.castCard?.id || '').trim();
+      if (!playableId || highlightedSpellIds.has(playableId)) continue;
+      highlightedSpellIds.add(playableId);
+      playableIds.push(playableId);
     }
     
     // Check for playable lands from any supported zone (during main phase with empty stack)
@@ -621,135 +533,8 @@ function getPlayableCardIds(game: InMemoryGame, playerId: PlayerID): string[] {
       playableIds.push(commanderId);
     }
     
-    // Check exile zone for foretell cards and other playable cards
-    const exileZone = (zones as any)?.exile ?? (state as any).exile?.[playerId];
-    if (Array.isArray(exileZone)) {
-      for (const card of exileZone) {
-        if (!card || typeof card === "string") continue;
-        
-        const oracleText = (card.oracle_text || "").toLowerCase();
-        const typeLine = (card.type_line || "").toLowerCase();
-        
-        // Check for foretell cards - can cast from exile for foretell cost
-        if (oracleText.includes("foretell")) {
-          const foretellMatch = oracleText.match(/foretell\s+(\{[^}]+\}(?:\s*\{[^}]+\})*)/i);
-          if (foretellMatch) {
-            const foretellCost = foretellMatch[1];
-            const parsedCost = parseManaFromString(foretellCost);
-            
-            // Check timing for foretell
-            const isInstantSpeed = typeLine.includes("instant");
-            const canCastNow = isInstantSpeed || (isMainPhase && stackIsEmpty && isMyTurn);
-            
-            if (canCastNow && canPayManaCostWithAvailableSources(state, playerId, parsedCost)) {
-              playableIds.push(card.id);
-            }
-          }
-        }
-        
-        // Check if marked as playable from exile (impulse draw effects, etc.)
-        const playableFromExile = (state as any).playableFromExile?.[playerId];
-        if (playableFromExile) {
-          const entry = Array.isArray(playableFromExile)
-            ? (playableFromExile.includes(card.id) ? true : undefined)
-            : playableFromExile[card.id];
-
-          const turnNumber = Number((state as any).turnNumber ?? 0);
-          const isPlayable = typeof entry === 'number'
-            ? entry >= turnNumber
-            : Boolean(entry);
-          
-          if (isPlayable) {
-            // Land highlighting from exile is handled by the shared land helper above.
-            if (typeLine.includes('land')) {
-              continue;
-            }
-
-            const manaCost = card.mana_cost || "";
-            const parsedCost = parseManaFromString(manaCost);
-            
-            // Check timing
-            const isInstantSpeed = typeLine.includes("instant") || oracleText.includes("flash");
-            const canCastNow = isInstantSpeed || (isMainPhase && stackIsEmpty && isMyTurn);
-            
-            // Check if player can pay the cost (normal or alternate)
-            if (canCastNow && (canPayManaCostWithAvailableSources(state, playerId, parsedCost) || hasPayableAlternateCost(game as any, playerId, card))) {
-              playableIds.push(card.id);
-            }
-          }
-        }
-      }
-    }
-    
-    // Check graveyard for cards that can be played from graveyard
     if (Array.isArray(zones.graveyard)) {
       const battlefield = state.battlefield || [];
-      const hasPlayFromGraveyardEffect = battlefield.some((perm: any) => {
-        if (perm.controller !== playerId) return false;
-        const oracle = (perm.card?.oracle_text || "").toLowerCase();
-        return (oracle.includes("you may play") || oracle.includes("you may cast")) && 
-               oracle.includes("graveyard");
-      });
-      
-      if (hasPlayFromGraveyardEffect) {
-        for (const card of zones.graveyard) {
-          if (!card || typeof card === "string") continue;
-          
-          const typeLine = (card.type_line || "").toLowerCase();
-          const oracleText = (card.oracle_text || "").toLowerCase();
-          const manaCost = card.mana_cost || "";
-          const parsedCost = parseManaFromString(manaCost);
-          
-          // Check timing
-          const isInstantSpeed = typeLine.includes("instant") || oracleText.includes("flash");
-          const canCastNow = isInstantSpeed || (isMainPhase && stackIsEmpty);
-          
-          // Check if player can pay the cost (normal or alternate)
-          if (canCastNow && (canPayManaCostWithAvailableSources(state, playerId, parsedCost) || hasPayableAlternateCost(game as any, playerId, card))) {
-            if (!playableIds.includes(card.id)) playableIds.push(card.id);
-          }
-        }
-      }
-
-      for (const card of zones.graveyard) {
-        if (!card || typeof card === "string") continue;
-
-        const grantedFlashbackInfo = getGrantedFlashbackInfo({ state } as any, playerId, card);
-        if (!grantedFlashbackInfo.hasIt || !grantedFlashbackInfo.cost) continue;
-
-        const typeLine = (card.type_line || "").toLowerCase();
-        const oracleText = (card.oracle_text || "").toLowerCase();
-        const isInstantSpeed = typeLine.includes("instant") || oracleText.includes("flash");
-        const canCastNow = isInstantSpeed || (isMainPhase && stackIsEmpty && isMyTurn);
-        if (!canCastNow) continue;
-        if (!hasValidTargetsForSpell(state as any, playerId, card, { conservative: false })) continue;
-
-        const parsedCost = parseManaFromString(grantedFlashbackInfo.cost);
-        if (canPayManaCostWithAvailableSources(state, playerId, parsedCost)) {
-          if (!playableIds.includes(card.id)) playableIds.push(card.id);
-        }
-      }
-
-      for (const card of zones.graveyard) {
-        if (!card || typeof card === "string") continue;
-
-        const grantedCastKeywordInfo = getGrantedPlayableGraveyardCastKeywordInfo(state, playerId, card);
-        if (!grantedCastKeywordInfo) continue;
-
-        const typeLine = String(card.type_line || '').toLowerCase();
-        const oracleText = String(card.oracle_text || '').toLowerCase();
-        const isInstantSpeed = typeLine.includes('instant') || oracleText.includes('flash');
-        const canCastNow = isInstantSpeed || (isMainPhase && stackIsEmpty && isMyTurn);
-        if (!canCastNow) continue;
-        if (!hasValidTargetsForSpell(state as any, playerId, card, { conservative: false })) continue;
-        if (!canPayGrantedGraveyardCastKeywordAdditionalCost(state, playerId, card, grantedCastKeywordInfo)) continue;
-
-        const parsedCost = parseManaFromString(grantedCastKeywordInfo.cost || '');
-        if (canPayManaCostWithAvailableSources(state, playerId, parsedCost)) {
-          if (!playableIds.includes(card.id)) playableIds.push(card.id);
-        }
-      }
-
       for (const card of zones.graveyard) {
         if (!card || typeof card === "string") continue;
         if (!isMyTurn || !isMainPhase || !stackIsEmpty) continue;
@@ -829,51 +614,6 @@ function getPlayableCardIds(game: InMemoryGame, playerId: PlayerID): string[] {
         
         if (hasGraveyardAbility) {
           playableIds.push(card.id);
-        }
-      }
-    }
-    
-    // Check top of library if player can cast spells from top
-    const libraries = (game as any).libraries;
-    if (libraries && typeof libraries.get === 'function') {
-      const library = libraries.get(playerId);
-      if (Array.isArray(library) && library.length > 0) {
-        const topCard = library[0];
-        if (topCard && typeof topCard !== "string") {
-          const typeLine = (topCard.type_line || "").toLowerCase();
-          const topCtx = { state } as any;
-          
-          if (!typeLine.includes("land")) {
-            const hasCastableTopFace = getHandCastEvaluationCards(topCard).some((castCard: any) => {
-              if (!castCard || typeof castCard === 'string') return false;
-
-              const castTypeLine = String(castCard.type_line || castCard.typeLine || '').toLowerCase();
-              if (castTypeLine.includes('land')) return false;
-
-              const topSpellPermission = canCastFromTop(topCtx, playerId, castCard);
-              if (!topSpellPermission.canCast) return false;
-
-              const castOracleText = String(castCard.oracle_text || castCard.oracleText || '').toLowerCase();
-              const manaCost = castCard.mana_cost || castCard.manaCost || "";
-              const parsedCost = parseManaFromString(manaCost);
-              const isInstantSpeed = castTypeLine.includes("instant") || castOracleText.includes("flash") || topSpellPermission.grantsFlash;
-              const canCastNow = isInstantSpeed || (isMainPhase && stackIsEmpty && isMyTurn);
-
-              if (!canCastNow) return false;
-              if (!hasValidTargetsForSpell(state as any, playerId, castCard)) return false;
-
-              return canPayManaCostWithAvailableSources(state, playerId, parsedCost)
-                || hasPayableAlternateCost(game as any, playerId, castCard);
-            });
-
-            if (hasCastableTopFace) {
-              // Highlight the library zone instead of the individual card
-              const libraryPlayableId = `library-${playerId}`;
-              if (!playableIds.includes(libraryPlayableId)) {
-                playableIds.push(libraryPlayableId);
-              }
-            }
-          }
         }
       }
     }

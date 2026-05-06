@@ -448,6 +448,13 @@ export function hasSelfWUBRGAlternateCost(card: any): boolean {
  * Check for external WUBRG sources (Jodah, Fist of Suns)
  * Returns the source permanent if found
  */
+function grantsExternalWUBRGAlternateCost(text: string): boolean {
+  const oracleText = String(text || '').toLowerCase();
+  return oracleText.includes('{w}{u}{b}{r}{g}')
+    && oracleText.includes('rather than pay')
+    && !oracleText.includes('this spell');
+}
+
 export function getExternalWUBRGSource(
   ctx: GameContext,
   playerId: PlayerID
@@ -458,20 +465,27 @@ export function getExternalWUBRGSource(
   for (const perm of battlefield) {
     if (!perm || perm.controller !== playerId) continue;
     
-    const cardName = (perm.card?.name || "").toLowerCase();
-    const oracleText = (perm.card?.oracle_text || "").toLowerCase();
-    
-    // Jodah, Archmage Eternal or Fist of Suns
-    // "You may pay {W}{U}{B}{R}{G} rather than pay the mana cost for spells you cast."
-    if ((cardName.includes("jodah") || cardName.includes("fist of suns")) &&
-        oracleText.includes("{w}{u}{b}{r}{g}") && 
-        oracleText.includes("rather than pay") &&
-        !oracleText.includes("this spell")) {
+    const oracleText = String(perm.card?.oracle_text || '');
+
+    if (grantsExternalWUBRGAlternateCost(oracleText)) {
       return {
         sourceId: perm.id,
-        sourceName: perm.card?.name || "Unknown",
+        sourceName: perm.card?.name || 'WUBRG alternate cost',
       };
     }
+  }
+
+  const emblems = Array.isArray((state as any)?.emblems) ? (state as any).emblems : [];
+  for (const emblem of emblems) {
+    if (!emblem || String(emblem.controller || '') !== String(playerId || '')) continue;
+
+    const emblemText = String(emblem.effect || emblem.text || emblem.oracle_text || '');
+    if (!grantsExternalWUBRGAlternateCost(emblemText)) continue;
+
+    return {
+      sourceId: String(emblem.id || 'emblem'),
+      sourceName: String(emblem.sourceName || emblem.name || 'Emblem'),
+    };
   }
   
   return null;
@@ -487,6 +501,16 @@ export function getOmniscienceSource(
 ): { sourceId: string; sourceName: string } | null {
   const { state } = ctx;
   const battlefield = state.battlefield || [];
+
+  const grantsFreeHandCasts = (text: string): boolean => {
+    const oracleText = String(text || '').toLowerCase();
+    if (!oracleText.includes('without paying')) return false;
+    if (!oracleText.includes('from your hand')) return false;
+    if (!oracleText.includes('you may cast')) return false;
+    return oracleText.includes('cast spells from your hand')
+      || oracleText.includes('cast nonland cards from your hand')
+      || oracleText.includes('cast cards from your hand');
+  };
   
   for (const perm of battlefield) {
     if (!perm || perm.controller !== playerId) continue;
@@ -496,13 +520,25 @@ export function getOmniscienceSource(
     
     // Omniscience: "You may cast spells from your hand without paying their mana costs."
     if (cardName.includes("omniscience") || 
-        (oracleText.includes("cast spells from your hand") && 
-         oracleText.includes("without paying"))) {
+        grantsFreeHandCasts(oracleText)) {
       return {
         sourceId: perm.id,
         sourceName: perm.card?.name || "Omniscience",
       };
     }
+  }
+
+  const emblems = Array.isArray((state as any)?.emblems) ? (state as any).emblems : [];
+  for (const emblem of emblems) {
+    if (!emblem || String(emblem.controller || '') !== String(playerId || '')) continue;
+
+    const emblemText = String(emblem.effect || emblem.text || emblem.oracle_text || '');
+    if (!grantsFreeHandCasts(emblemText)) continue;
+
+    return {
+      sourceId: String(emblem.id || 'emblem'),
+      sourceName: String(emblem.sourceName || emblem.name || 'Emblem'),
+    };
   }
   
   return null;

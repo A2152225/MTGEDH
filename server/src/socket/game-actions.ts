@@ -35,7 +35,7 @@ import { filterLibraryCardsForSearch } from "./library-search.js";
 import { queueShockLandPaymentStep } from "./optional-payment-prompts.js";
 import { shouldSuppressMandatoryTriggeredAbilityPrompt } from "./trigger-shortcuts.js";
 import { hasMutateAlternateCost, parseMadnessCost, parseMutateCost, getValidMutateTargets } from "../state/modules/alternate-costs.js";
-import { getCommandZoneCommanderCandidates, type SharedCommanderAvailabilityCandidate } from "../state/modules/can-respond.js";
+import { getCastableSpellCandidates, getCommandZoneCommanderCandidates, getPlayableLandCandidates, type SharedCommanderAvailabilityCandidate } from "../state/modules/can-respond.js";
 import { cleanupCardLeavingExile } from "../state/modules/playable-from-exile.js";
 import { isPreparedCopyActive, syncPreparedPermanentAfterControlChange } from "../state/modules/prepared.js";
 import { getEffectiveBasicLandTypes } from "../state/modules/mana-abilities.js";
@@ -128,6 +128,48 @@ function buildManaCostStringFromParsedCost(parsedCost?: {
   }
 
   return manaCost || '{0}';
+}
+
+function isMainPhaseForSharedSpellGate(state: any): boolean {
+  const step = String(state?.step || '').toUpperCase();
+  return step === 'MAIN1' || step === 'MAIN2' || step === 'MAIN' || step === 'MAIN_1' || step === 'MAIN_2' || step.includes('MAIN');
+}
+
+function canCastRequestedSpellFromGraveyard(
+  game: any,
+  playerId: string,
+  cardId: string,
+  selectedSpellCard: any,
+  selectedFaceIndex?: number,
+): boolean {
+  const state = game?.state;
+  if (!state || !playerId || !cardId) return false;
+
+  const candidateMode = isMainPhaseForSharedSpellGate(state)
+    && (!Array.isArray(state.stack) || state.stack.length === 0)
+    && String(state.turnPlayer || '') === String(playerId)
+      ? 'main'
+      : 'response';
+
+  const sharedCandidates = getCastableSpellCandidates({
+    state,
+    libraries: game?.libraries,
+  } as any, playerId as any, {
+    mode: candidateMode,
+    allowUnknownCostFallback: false,
+  });
+
+  return sharedCandidates.some((candidate) => {
+    if (candidate.sourceZone !== 'graveyard') return false;
+    if (String(candidate.card?.id || '') !== String(cardId)) return false;
+    if (selectedFaceIndex !== undefined && Number(candidate.castCard?.faceIndex ?? -1) !== Number(selectedFaceIndex)) {
+      return false;
+    }
+    if (selectedSpellCard?.name && candidate.castCard?.name) {
+      return String(candidate.castCard.name) === String(selectedSpellCard.name);
+    }
+    return true;
+  });
 }
 
 function createEmptyCostReduction(): { generic: number; colors: Record<string, number>; messages: string[] } {
@@ -4174,6 +4216,23 @@ export async function requestCastSpellForSocket(
     const selectedFaceIndex = selectedSpell.faceIndex;
     const effectiveTypeLine = String(cardForCast?.type_line || typeLine || '').toLowerCase();
 
+    if (castSourceZone === 'graveyard' && !ignoreTimingRestrictions && !isFreeCast) {
+      const hasSharedGraveyardPermission = canCastRequestedSpellFromGraveyard(
+        game,
+        String(playerId),
+        String(cardId),
+        cardForCast,
+        selectedFaceIndex,
+      );
+      if (!hasSharedGraveyardPermission) {
+        socket.emit('error', {
+          code: 'NO_PERMISSION',
+          message: "You don't have permission to cast that card from your graveyard.",
+        });
+        return;
+      }
+    }
+
     if (effectiveTypeLine.includes("land")) {
       socket.emit("error", { code: "CANNOT_CAST_LAND", message: "Lands cannot be cast as spells." });
       return;
@@ -5959,8 +6018,15 @@ export function handlePlayLandRequest(io: Server, socket: Socket, payload?: Play
     const sourceZone = (fromZone as 'hand' | 'graveyard' | 'exile' | 'library' | undefined) || 'hand';
 
     if (sourceZone === 'graveyard') {
-      const hasConduitPermission = (game.state as any).landPlayPermissions?.[playerId]?.includes('graveyard');
-      if (!hasConduitPermission) {
+      const graveyardLandCandidates = getPlayableLandCandidates({
+        state: game.state,
+        libraries: (game as any).libraries,
+      } as any, String(playerId));
+      const canPlayRequestedGraveyardLand = graveyardLandCandidates.some((candidate) =>
+        candidate.sourceZone === 'graveyard' && String(candidate.card?.id || '') === String(cardId)
+      );
+
+      if (!canPlayRequestedGraveyardLand) {
         socket.emit("error", {
           code: "NO_PERMISSION",
           message: "You don't have permission to play lands from your graveyard",
@@ -6181,7 +6247,7 @@ export function handlePlayLandRequest(io: Server, socket: Socket, payload?: Play
 
     try {
       if (typeof game.playLand === 'function') {
-        game.playLand(playerId, cardId);
+        game.playLand(playerId, cardInZone);
       }
     } catch (e) {
       debugWarn(1, 'Legacy playLand failed:', e);
@@ -6515,6 +6581,26 @@ export function registerGameActions(io: Server, socket: Socket) {
       const selectedFaceIndex = selectedSpell.faceIndex;
       const castAsAdventure = selectedSpell.castAsAdventure;
       cardInHand = selectedSpell.card;
+      const skipsSharedGraveyardPermissionCheck = alternateCostId === 'free'
+        || (cardInHand as any).castWithoutPayingManaCost === true;
+
+      if (castSourceZone === 'graveyard' && !ignoreTimingRestrictions && !skipsSharedGraveyardPermissionCheck) {
+        const hasSharedGraveyardPermission = canCastRequestedSpellFromGraveyard(
+          game,
+          String(playerId),
+          String(cardId),
+          cardInHand,
+          selectedFaceIndex,
+        );
+        if (!hasSharedGraveyardPermission) {
+          socket.emit('error', {
+            code: 'NO_PERMISSION',
+            message: "You don't have permission to cast that card from your graveyard.",
+          });
+          return;
+        }
+      }
+
       const commandZoneManaCost = castSourceZone === 'command'
         ? buildCommandZoneCastManaCost(cardInHand, commandZoneCandidate)
         : undefined;

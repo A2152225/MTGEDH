@@ -1394,12 +1394,24 @@ function normalizePermissionSelectorText(value: string): string {
 }
 
 function buildGraveyardPermissionCriteria(text: string): MoveZoneSingleTargetCriteria | null {
-  const normalized = normalizePermissionSelectorText(text)
+  const baseNormalized = normalizePermissionSelectorText(text)
     .replace(/^(?:up to one|one|a|an)\s+/i, '')
     .replace(/\s+from\s+(?:your|their|his or her|its owner's|its controller's)\s+graveyard$/i, '')
-    .replace(/\s+(?:spells?|cards?)$/i, '')
     .replace(/\binstant and sorcery\b/g, 'instant or sorcery')
     .trim();
+
+  if (!baseNormalized) return null;
+
+  if (baseNormalized === 'spell' || baseNormalized === 'spells' || baseNormalized === 'card' || baseNormalized === 'cards') {
+    return { cardType: 'any' };
+  }
+
+  if (baseNormalized === 'land' || baseNormalized === 'lands') return { cardType: 'land' };
+
+  const normalized = baseNormalized
+    .replace(/\s+(?:spells?|cards?)$/i, '')
+    .trim();
+
   if (!normalized) return null;
 
   const manaValueMatch = normalized.match(/^(.+?)\s+with mana value (\d+) or less$/i);
@@ -1439,7 +1451,6 @@ function buildGraveyardPermissionCriteria(text: string): MoveZoneSingleTargetCri
   const baseType = parseSimpleCardTypeFromText(normalized);
   if (baseType) return { cardType: baseType };
 
-  if (normalized === 'land' || normalized === 'lands') return { cardType: 'land' };
   if (normalized === 'card' || normalized === 'cards') return { cardType: 'any' };
   if (normalized === 'permanent spell' || normalized === 'permanent') return { cardType: 'permanent' };
 
