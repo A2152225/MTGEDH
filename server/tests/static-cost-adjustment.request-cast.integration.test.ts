@@ -136,10 +136,13 @@ describe('Static cost-adjustment request-cast flow (integration)', () => {
     expect(paymentStep.type).toBe('mana_payment_choice');
     expect(paymentStep.cardName).toBe('Raging Goblin');
     expect(paymentStep.manaCost).toBe('{0}');
-    expect(paymentStep.costReduction).toMatchObject({
-      colors: { red: 1 },
+    expect(paymentStep.costAdjustment).toMatchObject({
+      originalManaCost: '{R}',
+      adjustedManaCost: '{0}',
+      coloredReductions: { red: 1 },
+      kind: 'reduction',
     });
-    expect(paymentStep.costReduction?.messages).toContain('Feeding Grounds: -{R}');
+    expect(paymentStep.costAdjustment?.reductionMessages).toContain('Feeding Grounds: -{R}');
   });
 
   it('adds an ongoing scheme tax to the queued mana payment step', async () => {
@@ -173,7 +176,13 @@ describe('Static cost-adjustment request-cast flow (integration)', () => {
     expect(paymentStep.type).toBe('mana_payment_choice');
     expect(paymentStep.cardName).toBe('Raging Goblin');
     expect(paymentStep.manaCost).toBe('{1}{R}');
-    expect(paymentStep.costReduction).toBeUndefined();
+    expect(paymentStep.costAdjustment).toMatchObject({
+      originalManaCost: '{R}',
+      adjustedManaCost: '{1}{R}',
+      genericTax: 1,
+      kind: 'increase',
+    });
+    expect(paymentStep.costAdjustment?.taxMessages).toContain('The Very Soil Shall Shake: +{1}');
   });
 
   it('preserves non-battlefield cost adjustments on targeted pending casts before payment is queued', async () => {

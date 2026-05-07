@@ -8,6 +8,7 @@ import {
   type PaymentItem,
   type TriggerShortcut,
   type PlayerID,
+  type PaymentCostAdjustment,
   parseSacrificeCost,
   SHORTCUT_ELIGIBLE_TRIGGERS,
   isTriggerShortcutType,
@@ -181,17 +182,7 @@ function createEmptyCostReduction(): { generic: number; colors: Record<string, n
   };
 }
 
-export interface PaymentStepCostAdjustment {
-  originalManaCost: string;
-  adjustedManaCost: string;
-  genericReduction: number;
-  coloredReductions: Record<string, number>;
-  genericTax: number;
-  reductionMessages: string[];
-  taxMessages: string[];
-  sources: Array<{ kind: 'increase' | 'reduction'; message: string }>;
-  kind: 'increase' | 'reduction' | 'mixed';
-}
+export type PaymentStepCostAdjustment = PaymentCostAdjustment;
 
 export function buildPaymentStepCostAdjustment(
   originalManaCost: string,
@@ -340,6 +331,44 @@ function buildCommandZonePaymentCostAdjustment(
     staticAdjustment.genericTax + commanderTax,
     taxMessages,
   );
+}
+
+interface PendingCastPaymentMetadata {
+  costReduction: { generic: number; colors: Record<string, number>; messages: string[] };
+  staticCostTax: { generic: number; messages: string[] };
+  genericCostTax: number;
+}
+
+function buildPendingCastPaymentMetadata(
+  game: any,
+  playerId: string,
+  card: any,
+  castSourceZone: SpellCastSourceZone,
+): PendingCastPaymentMetadata {
+  const costReduction = castSourceZone === 'command'
+    ? createEmptyCostReduction()
+    : calculateCostReduction(game, playerId, card);
+  const staticCostTax = castSourceZone === 'command'
+    ? { generic: 0, messages: [] }
+    : calculateStaticSourceGenericTax(game, playerId, card);
+
+  return {
+    costReduction,
+    staticCostTax,
+    genericCostTax: staticCostTax.generic,
+  };
+}
+
+function getPendingCastPaymentFields(
+  metadata: PendingCastPaymentMetadata,
+  paymentCostAdjustment?: PaymentStepCostAdjustment,
+): Record<string, any> {
+  return {
+    ...(metadata.genericCostTax > 0 ? { externalCostTax: metadata.genericCostTax } : {}),
+    ...(metadata.staticCostTax.messages.length > 0 ? { externalCostTaxMessages: metadata.staticCostTax.messages } : {}),
+    ...(paymentCostAdjustment ? { paymentCostAdjustment } : {}),
+    costReduction: metadata.costReduction.messages.length > 0 ? metadata.costReduction : undefined,
+  };
 }
 
 function validateTopOfLibraryLandAccess(
@@ -4861,13 +4890,7 @@ export async function requestCastSpellForSocket(
         return;
       }
 
-      const costReduction = castSourceZone === 'command'
-        ? createEmptyCostReduction()
-        : calculateCostReduction(game, playerId, cardForCast);
-      const staticCostTax = castSourceZone === 'command'
-        ? { generic: 0, messages: [] }
-        : calculateStaticSourceGenericTax(game, playerId, cardForCast);
-      const genericCostTax = staticCostTax.generic;
+      const paymentMetadata = buildPendingCastPaymentMetadata(game, playerId, cardForCast, castSourceZone);
       const paymentCostAdjustment = castSourceZone === 'command'
         ? buildCommandZonePaymentCostAdjustment(game, playerId, cardForCast, commanderCandidate, resolvedManaCost)
         : undefined;
@@ -4887,10 +4910,7 @@ export async function requestCastSpellForSocket(
         card: { ...cardForCast },
         forcedAlternateCostId: 'mutate',
         mutateCost: manaCost,
-        ...(genericCostTax > 0 ? { externalCostTax: genericCostTax } : {}),
-        ...(staticCostTax.messages.length > 0 ? { externalCostTaxMessages: staticCostTax.messages } : {}),
-        ...(paymentCostAdjustment ? { paymentCostAdjustment } : {}),
-        costReduction: costReduction.messages.length > 0 ? costReduction : undefined,
+        ...getPendingCastPaymentFields(paymentMetadata, paymentCostAdjustment),
         convokeOptions: convokeOptions.availableCreatures.length > 0 ? convokeOptions : undefined,
         ignoreTimingRestrictions,
         ...(giftInfo.hasGift
@@ -5027,13 +5047,7 @@ export async function requestCastSpellForSocket(
         const requestCastAdditionalCostMethod = typeof (cardInHand as any).additionalCostMethod === 'string'
           ? String((cardInHand as any).additionalCostMethod)
           : undefined;
-        const costReduction = castSourceZone === 'command'
-          ? createEmptyCostReduction()
-          : calculateCostReduction(game, playerId, cardForCast);
-        const staticCostTax = castSourceZone === 'command'
-          ? { generic: 0, messages: [] }
-          : calculateStaticSourceGenericTax(game, playerId, cardForCast);
-        const genericCostTax = staticCostTax.generic;
+        const paymentMetadata = buildPendingCastPaymentMetadata(game, playerId, cardForCast, castSourceZone);
         const paymentCostAdjustment = castSourceZone === 'command'
           ? buildCommandZonePaymentCostAdjustment(game, playerId, cardForCast, commanderCandidate, resolvedManaCost)
           : undefined;
@@ -5058,10 +5072,7 @@ export async function requestCastSpellForSocket(
           castWithEntwine: (cardForCast as any).castWithEntwine === true,
           validTargetIds: validTargetList.map((t: any) => t.id),
           card: { ...cardForCast },
-          ...(genericCostTax > 0 ? { externalCostTax: genericCostTax } : {}),
-          ...(staticCostTax.messages.length > 0 ? { externalCostTaxMessages: staticCostTax.messages } : {}),
-          ...(paymentCostAdjustment ? { paymentCostAdjustment } : {}),
-          costReduction: costReduction.messages.length > 0 ? costReduction : undefined,
+          ...getPendingCastPaymentFields(paymentMetadata, paymentCostAdjustment),
           forcedAlternateCostId: options?.forcedAlternateCostId,
           castWithoutPayingManaCost: isFreeCast,
           bypassExilePermissionCheck,
@@ -5489,16 +5500,10 @@ export async function requestCastSpellForSocket(
     }
 
     // No targets needed — still need to handle additional costs before payment.
-    const costReduction = castSourceZone === 'command'
-      ? createEmptyCostReduction()
-      : calculateCostReduction(game, playerId, cardForCast);
-    const staticCostTax = castSourceZone === 'command'
-      ? { generic: 0, messages: [] }
-      : calculateStaticSourceGenericTax(game, playerId, cardForCast);
-    const genericCostTax = staticCostTax.generic;
+    const paymentMetadata = buildPendingCastPaymentMetadata(game, playerId, cardForCast, castSourceZone);
     const convokeOptions = calculateConvokeOptions(game, playerId, cardForCast);
     const paymentManaCost = appendManaCost(
-      formatManaCostWithReduction(resolvedManaCost, costReduction, chosenXValue, genericCostTax),
+      formatManaCostWithReduction(resolvedManaCost, paymentMetadata.costReduction, chosenXValue, paymentMetadata.genericCostTax),
       spellModeAdditionalCost,
     );
     const paymentCostAdjustment = castSourceZone === 'command'
@@ -5534,10 +5539,7 @@ export async function requestCastSpellForSocket(
       card: { ...cardForCast },
       noTargets: true,
       pendingPaymentAfterAdditionalCost: false,
-      ...(genericCostTax > 0 ? { externalCostTax: genericCostTax } : {}),
-      ...(staticCostTax.messages.length > 0 ? { externalCostTaxMessages: staticCostTax.messages } : {}),
-      ...(paymentCostAdjustment ? { paymentCostAdjustment } : {}),
-      costReduction: costReduction.messages.length > 0 ? costReduction : undefined,
+      ...getPendingCastPaymentFields(paymentMetadata, paymentCostAdjustment),
       convokeOptions: convokeOptions.availableCreatures.length > 0 ? convokeOptions : undefined,
       forcedAlternateCostId: options?.forcedAlternateCostId,
       castWithoutPayingManaCost: isFreeCast,
@@ -5872,8 +5874,8 @@ export async function requestCastSpellForSocket(
         effectId,
         targets: undefined,
         imageUrl: cardForCast.image_uris?.small || cardForCast.image_uris?.normal || cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
-        costAdjustment: paymentCostAdjustment || buildPaymentStepCostAdjustment(resolvedManaCost, paymentManaCost, costReduction, genericCostTax, staticCostTax.messages),
-        costReduction: costReduction.messages.length > 0 ? costReduction : undefined,
+        costAdjustment: paymentCostAdjustment || buildPaymentStepCostAdjustment(resolvedManaCost, paymentManaCost, paymentMetadata.costReduction, paymentMetadata.genericCostTax, paymentMetadata.staticCostTax.messages),
+        costReduction: paymentMetadata.costReduction.messages.length > 0 ? paymentMetadata.costReduction : undefined,
         convokeOptions: convokeOptions.availableCreatures.length > 0 ? convokeOptions : undefined,
         forcedAlternateCostId: options?.forcedAlternateCostId,
       } as any);
@@ -5892,8 +5894,8 @@ export async function requestCastSpellForSocket(
     }
 
     debug(2, `[requestCastSpell] No targets needed, queued spell payment step for ${cardName}`);
-    if (costReduction.messages.length > 0) {
-      debug(1, `[requestCastSpell] Cost reductions: ${costReduction.messages.join(', ')}`);
+    if (paymentMetadata.costReduction.messages.length > 0) {
+      debug(1, `[requestCastSpell] Cost reductions: ${paymentMetadata.costReduction.messages.join(', ')}`);
     }
     if (convokeOptions.availableCreatures.length > 0) {
       debug(2, `[requestCastSpell] Convoke available: ${convokeOptions.availableCreatures.length} creatures`);
@@ -7922,9 +7924,7 @@ export function registerGameActions(io: Server, socket: Socket) {
         // IMPORTANT: Copy the full card object to prevent issues where card info is deleted
         // before it can be read during the target > pay workflow (fixes loop issue)
         (game.state as any).pendingSpellCasts = (game.state as any).pendingSpellCasts || {};
-        const costReduction = calculateCostReduction(game, playerId, cardInHand, false);
-        const staticCostTax = calculateStaticSourceGenericTax(game, playerId, cardInHand);
-        const genericCostTax = staticCostTax.generic;
+        const paymentMetadata = buildPendingCastPaymentMetadata(game, playerId, cardInHand, 'hand');
         (game.state as any).pendingSpellCasts[effectId] = {
           cardId,
           cardName: cardInHand.name,
@@ -7932,9 +7932,7 @@ export function registerGameActions(io: Server, socket: Socket) {
           playerId,
           validTargetIds: validTargets.map((t: any) => t.id),
           card: { ...cardInHand }, // Copy full card object to preserve oracle text, type line, etc.
-          ...(genericCostTax > 0 ? { externalCostTax: genericCostTax } : {}),
-          ...(staticCostTax.messages.length > 0 ? { externalCostTaxMessages: staticCostTax.messages } : {}),
-          costReduction: costReduction.messages.length > 0 ? costReduction : undefined,
+          ...getPendingCastPaymentFields(paymentMetadata),
         };
         
         // Use Resolution Queue for Aura target selection
@@ -8084,13 +8082,7 @@ export function registerGameActions(io: Server, socket: Socket) {
           // IMPORTANT: Copy the full card object to prevent issues where card info is deleted
           // before it can be read during the target > pay workflow (fixes loop issue)
           (game.state as any).pendingSpellCasts = (game.state as any).pendingSpellCasts || {};
-          const costReduction = castSourceZone === 'command'
-            ? createEmptyCostReduction()
-            : calculateCostReduction(game, playerId, cardInHand, false);
-          const staticCostTax = castSourceZone === 'command'
-            ? { generic: 0, messages: [] }
-            : calculateStaticSourceGenericTax(game, playerId, cardInHand);
-          const genericCostTax = staticCostTax.generic;
+          const paymentMetadata = buildPendingCastPaymentMetadata(game, playerId, cardInHand, castSourceZone);
           (game.state as any).pendingSpellCasts[effectId] = {
             cardId,
             cardName: cardInHand.name,
@@ -8109,9 +8101,7 @@ export function registerGameActions(io: Server, socket: Socket) {
             entwineCost,
             validTargetIds: validTargetList.map((t: any) => t.id),
             card: { ...cardInHand }, // Copy full card object to preserve oracle text, type line, etc.
-            ...(genericCostTax > 0 ? { externalCostTax: genericCostTax } : {}),
-            ...(staticCostTax.messages.length > 0 ? { externalCostTaxMessages: staticCostTax.messages } : {}),
-            costReduction: costReduction.messages.length > 0 ? costReduction : undefined,
+            ...getPendingCastPaymentFields(paymentMetadata),
             forcedAlternateCostId: alternateCostId,
             castWithoutPayingManaCost: alternateCostId === 'free' || (cardInHand as any).castWithoutPayingManaCost === true,
             bypassExilePermissionCheck,
@@ -8388,12 +8378,9 @@ export function registerGameActions(io: Server, socket: Socket) {
       const parsedCost = parseManaCost(manaCost);
       
       // Calculate cost reduction from battlefield effects
-      const costReduction = castSourceZone === 'command'
-        ? createEmptyCostReduction()
-        : calculateCostReduction(game, playerId, cardInHand, false);
-      const genericCostTax = castSourceZone === 'command'
-        ? 0
-        : calculateStaticSourceGenericTax(game, playerId, cardInHand).generic;
+      const paymentMetadata = buildPendingCastPaymentMetadata(game, playerId, cardInHand, castSourceZone);
+      const costReduction = paymentMetadata.costReduction;
+      const genericCostTax = paymentMetadata.genericCostTax;
       
       // Apply cost reduction
       const reducedCost = applyCostReduction(parsedCost, costReduction, genericCostTax);
@@ -14059,12 +14046,6 @@ export function registerGameActions(io: Server, socket: Socket) {
 
   // Legacy MDFC face selection confirm handler removed - now handled via Resolution Queue (resolutionStepPrompt).
 
-  /**
-   * Get cost reduction information for cards in hand.
-   * This allows the UI to display modified casting costs when Banneret-type effects are active.
-   * 
-   * Emits: costReductionInfo with { cardId: { reducedManaCost: string, reduction: number, sources: string[] } }
-   */
   // Handle equip ability - prompts player to select creature to attach equipment to
   // Flow: selectTarget -> promptManaPayment -> confirmPayment -> attach
   socket.on("equipAbility", (payload?: {

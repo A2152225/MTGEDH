@@ -136,10 +136,13 @@ describe('Banneret request-cast flow (integration)', () => {
     expect(paymentStep.type).toBe('mana_payment_choice');
     expect(paymentStep.cardName).toBe('Judge of Currents');
     expect(paymentStep.manaCost).toBe('{W}');
-    expect(paymentStep.costReduction).toMatchObject({
-      generic: 1,
+    expect(paymentStep.costAdjustment).toMatchObject({
+      originalManaCost: '{1}{W}',
+      adjustedManaCost: '{W}',
+      genericReduction: 1,
+      kind: 'reduction',
     });
-    expect(paymentStep.costReduction?.messages).toContain('Stonybrook Banneret: -{1}');
+    expect(paymentStep.costAdjustment?.reductionMessages).toContain('Stonybrook Banneret: -{1}');
   });
 
   it('reduces other Banneret subtype pairs without hardcoded Stonybrook logic', async () => {
@@ -172,9 +175,12 @@ describe('Banneret request-cast flow (integration)', () => {
     expect(paymentStep.type).toBe('mana_payment_choice');
     expect(paymentStep.cardName).toBe("Cenn's Heir");
     expect(paymentStep.manaCost).toBe('{W}');
-    expect(paymentStep.costReduction).toMatchObject({
-      generic: 1,
+    expect(paymentStep.costAdjustment).toMatchObject({
+      originalManaCost: '{1}{W}',
+      adjustedManaCost: '{W}',
+      genericReduction: 1,
+      kind: 'reduction',
     });
-    expect(paymentStep.costReduction?.messages).toContain('Ballyrush Banneret: -{1}');
+    expect(paymentStep.costAdjustment?.reductionMessages).toContain('Ballyrush Banneret: -{1}');
   });
 });

@@ -21,6 +21,22 @@ const artifactSpell = {
   colors: [],
 };
 
+const blueSpell = {
+  id: 'blue_spell',
+  name: 'Opt',
+  type_line: 'Instant',
+  mana_cost: '{1}{U}',
+  colors: ['U'],
+};
+
+const creatureSpell = {
+  id: 'creature_spell',
+  name: 'Grizzly Bears',
+  type_line: 'Creature - Bear',
+  mana_cost: '{1}{G}',
+  colors: ['G'],
+};
+
 function permanent(options: {
   id: string;
   controller: string;
@@ -119,6 +135,72 @@ describe('cost adjustment engine', () => {
     expect(plan.totalAdjustment).toBe(-1);
     expect(live.coloredReductions.red).toBe(1);
     expect(live.taxMessages).toEqual([]);
+  });
+
+  it('applies noncreature taxes only to noncreature spells', () => {
+    const state = {
+      battlefield: [permanent({
+        id: 'thorn',
+        controller: 'p1',
+        name: 'Thorn of Amethyst',
+        oracleText: 'Noncreature spells cost {1} more to cast.',
+      })],
+    };
+
+    expect(buildCostAdjustmentPlan(state, 'p1', blueSpell).genericAdjustment).toBe(1);
+    expect(buildCostAdjustmentPlan(state, 'p1', creatureSpell).genericAdjustment).toBe(0);
+  });
+
+  it('applies nonartifact taxes only to nonartifact spells', () => {
+    const state = {
+      battlefield: [permanent({
+        id: 'lodestone',
+        controller: 'p1',
+        name: 'Lodestone Golem',
+        oracleText: 'Nonartifact spells cost {1} more to cast.',
+      })],
+    };
+
+    expect(buildCostAdjustmentPlan(state, 'p1', creatureSpell).genericAdjustment).toBe(1);
+    expect(buildCostAdjustmentPlan(state, 'p1', artifactSpell).genericAdjustment).toBe(0);
+  });
+
+  it('treats no-controller affects-all opponent-scoped sources as global effects', () => {
+    const state = {
+      activeSchemes: [{
+        id: 'scheme_opponent_tax',
+        name: 'Every Hope Shall Vanish',
+        oracle_text: 'Spells your opponents cast cost {1} more to cast.',
+      }],
+    };
+
+    expect(buildCostAdjustmentPlan(state, 'p1', blueSpell).genericAdjustment).toBe(1);
+    expect(buildCostAdjustmentPlan(state, 'p2', blueSpell).genericAdjustment).toBe(1);
+  });
+
+  it('keeps mixed colored reductions and generic taxes structured separately', () => {
+    const state = {
+      battlefield: [permanent({
+        id: 'sphere',
+        controller: 'p1',
+        name: 'Sphere of Resistance',
+        oracleText: 'Spells cost {1} more to cast.',
+      })],
+      activePlane: {
+        id: 'blue_discount',
+        name: 'Blue Discount',
+        oracle_text: 'Blue spells cost {U} less to cast.',
+      },
+    };
+
+    const plan = buildCostAdjustmentPlan(state, 'p1', blueSpell);
+    const live = buildLiveSpellCostAdjustment(plan);
+    const adjusted = applyCostAdjustmentToParsedCost({ generic: 1, colors: { U: 1 }, hasX: false }, plan);
+
+    expect(plan.totalAdjustment).toBe(0);
+    expect(live.genericTax).toBe(1);
+    expect(live.coloredReductions.blue).toBe(1);
+    expect(adjusted).toMatchObject({ generic: 2, colors: { U: 0 }, hasX: false });
   });
 
   it('preserves parseManaCost-compatible shape when applying structured adjustments', () => {

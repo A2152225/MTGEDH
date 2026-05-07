@@ -11,7 +11,7 @@
  */
 
 import React, { useEffect, useRef, useState } from 'react';
-import type { KnownCardRef } from '../../../shared/src';
+import type { CardCostAdjustment, KnownCardRef } from '../../../shared/src';
 
 export interface HandCardContextMenuProps {
   card: KnownCardRef;
@@ -33,13 +33,7 @@ export interface HandCardContextMenuProps {
   reasonCannotCast?: string | null;
   reasonCannotPlayLand?: string | null;
   reasonCannotCycle?: string | null;
-  costAdjustment?: {
-    originalCost: string;
-    adjustedCost: string;
-    adjustment: number;
-    sources: string[];
-    isIncrease?: boolean;
-  };
+  costAdjustment?: CardCostAdjustment;
 }
 
 export function HandCardContextMenu({

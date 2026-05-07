@@ -10,6 +10,7 @@ This document provides a comprehensive guide to the enhanced casting cost framew
 4. **Enhanced Affinity** - Support for artifacts, creatures, equipment, and basic lands
 5. **Convoke Mechanic** - Full support with creature tapping and mana contribution
 6. **Cost Reducers** - Urza's Incubator with chosen type tracking
+7. **Shared Static Cost Adjustments** - Battlefield, plane, and scheme reductions/taxes shared across server, client, and AI castability checks
 
 ## Architecture
 
@@ -124,6 +125,47 @@ Example output:
   ]
 }
 ```
+
+#### Shared Static Cost Adjustments
+
+Static spell-cost changes are normalized by `server/src/state/modules/cost-adjustments.ts`. The plan builder scans shared static sources through `server/src/state/modules/static-effect-sources.ts`, including battlefield permanents, the active plane, and active schemes. It preserves source metadata so the caller can decide whether to include only battlefield sources or also shared plane/scheme sources.
+
+The shared plan stores generic taxes/reductions separately from colored reductions:
+
+```typescript
+const plan = buildCostAdjustmentPlan(game.state, playerId, card);
+const live = buildLiveSpellCostAdjustment(plan);
+const adjustedCost = applyCostAdjustmentToParsedCost(parsedCost, plan);
+```
+
+This lets effects such as "Blue spells cost {U} less to cast" coexist with global taxes such as "Spells cost {1} more to cast" without collapsing everything into a single generic delta. AI castability uses the same adjusted-cost helpers as the socket cast flow, so a spell made free by a plane is considered castable, and a spell made unaffordable by a scheme tax is not.
+
+For command-zone cards, commander tax is folded into display/payment metadata while the internal non-command pending-cast fields remain separate. The shared external payloads are exported from `shared/src/types.ts`:
+
+```typescript
+interface PaymentCostAdjustment {
+  originalManaCost: string;
+  adjustedManaCost: string;
+  genericReduction: number;
+  coloredReductions: Record<string, number>;
+  genericTax: number;
+  reductionMessages: string[];
+  taxMessages: string[];
+  sources: Array<{ kind: 'increase' | 'reduction'; message: string }>;
+  kind: 'increase' | 'reduction' | 'mixed';
+}
+
+interface CardCostAdjustment {
+  originalCost: string;
+  adjustedCost: string;
+  adjustment: number;
+  genericAdjustment?: number;
+  sources: string[];
+  isIncrease?: boolean;
+}
+```
+
+`PaymentCostAdjustment` is the client-facing payment prompt contract. Legacy `costReduction`, `externalCostTax`, and `externalCostTaxMessages` still exist inside pending spell casts so older target/payment paths can resolve correctly, but new prompt assertions should prefer `costAdjustment`.
 
 #### Convoke Options Calculation
 

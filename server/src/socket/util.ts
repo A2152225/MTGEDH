@@ -15,7 +15,7 @@ import { appendEvent, createGameIfNotExists, getEvents, gameExistsInDb } from ".
 import { createInitialGameState } from "../state/index.js";
 import type { InMemoryGame } from "../state/types.js";
 import { GameManager } from "../GameManager.js";
-import type { GameID, PlayerID, ManaPool, RestrictedManaEntry, ManaRestrictionType } from "../../../shared/src/index.js";
+import type { CardCostAdjustment, GameID, PlayerID, ManaPool, RestrictedManaEntry, ManaRestrictionType } from "../../../shared/src/index.js";
 import { getActualPowerToughness, uid, cardManaValue } from "../state/utils.js";
 import { getDevotionManaAmount, getCreatureCountManaAmount, getManaAbilitiesForPermanent, getMoxAmberAvailableColors, isMoxAmberConditionalManaSource } from "../state/modules/mana-abilities.js";
 import { canRespond, canAct, getCastableCommanderCandidates, getCastableSpellCandidates, getCostAdjustmentInfo, getHandCastEvaluationCards, getPlayableLandCandidates, isTransformBackFace } from "../state/modules/can-respond.js";
@@ -1200,7 +1200,7 @@ function normalizeViewForEmit(rawView: any, game: any) {
         const zones = game.state.zones?.[viewerId];
 
         if (zones?.hand && Array.isArray(zones.hand)) {
-          const costAdjustments: Record<string, any> = {};
+          const costAdjustments: Record<string, CardCostAdjustment> = {};
 
           for (const card of zones.hand) {
             if (!card || typeof card === 'string' || !card.id) continue;

@@ -9,6 +9,7 @@ import type {
   BattlefieldPermanent,
   CardRef,
   ManaPool,
+  PaymentCostAdjustment,
 } from "../../shared/src";
 import { TableLayout } from "./components/TableLayout";
 import { CardPreviewLayer, PreviewSizeControl } from "./components/CardPreviewLayer";
@@ -20,7 +21,7 @@ import { ScrySurveilModal } from "./components/ScrySurveilModal";
 import { FatesealModal } from "./components/FatesealModal";
 import { ClashModal } from "./components/ClashModal";
 import { VoteModal } from "./components/VoteModal";
-import { CastSpellModal, type AlternateCost, type DisplayedCostAdjustment } from "./components/CastSpellModal";
+import { CastSpellModal, type AlternateCost } from "./components/CastSpellModal";
 import { CombatSelectionModal, type AttackerSelection, type BlockerSelection } from "./components/CombatSelectionModal";
 import { CombatControlModal, type CombatControlDeclarations } from "./components/CombatControlModal";
 import { ReturnControlledPermanentChoiceModal } from "./components/ReturnControlledPermanentChoiceModal";
@@ -255,7 +256,7 @@ export function App() {
     effectId?: string;   // Effect ID for MTG-compliant flow
     paymentStepId?: string;
     xValue?: number;
-    costAdjustment?: DisplayedCostAdjustment;
+    costAdjustment?: PaymentCostAdjustment;
     convokeOptions?: {
       availableCreatures: Array<{
         id: string;
@@ -2657,7 +2658,7 @@ export function App() {
 
       // Phyrexian mana payment choice via Resolution Queue
       else if (step.type === 'mana_payment_choice' && (step.spellPaymentRequired === true || (step as any).wardPayment === true)) {
-        const ca = (step as any).costAdjustment as DisplayedCostAdjustment | undefined;
+        const ca = (step as any).costAdjustment as PaymentCostAdjustment | undefined;
         const co = (step as any).convokeOptions;
         const isWardPayment = (step as any).wardPayment === true;
 

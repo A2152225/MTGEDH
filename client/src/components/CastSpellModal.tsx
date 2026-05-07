@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { PaymentPicker } from './PaymentPicker';
 import { FloatingManaPool } from './FloatingManaPool';
-import type { BattlefieldPermanent, PaymentItem, ManaColor } from '../../../shared/src';
+import type { BattlefieldPermanent, PaymentCostAdjustment, PaymentItem, ManaColor } from '../../../shared/src';
 import {
   Color,
   parseManaCost,
@@ -27,17 +27,7 @@ export interface AlternateCost {
   isDefault?: boolean;
 }
 
-export interface DisplayedCostAdjustment {
-  originalManaCost: string;
-  adjustedManaCost: string;
-  genericReduction: number;
-  coloredReductions: Record<string, number>;
-  genericTax: number;
-  reductionMessages: string[];
-  taxMessages: string[];
-  sources: Array<{ kind: 'increase' | 'reduction'; message: string }>;
-  kind: 'increase' | 'reduction' | 'mixed';
-}
+export type DisplayedCostAdjustment = PaymentCostAdjustment;
 
 /**
  * Parse alternate costs from card oracle text

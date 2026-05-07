@@ -774,6 +774,7 @@ export type ClientGameView = Omit<GameState, 'battlefield' | 'stack' | 'players'
   pendingCommanderZoneChoice?: PendingCommanderZoneChoice[];
   /** The player ID viewing this game state (used by server to calculate playable card highlighting) */
   viewer?: PlayerID;
+  costAdjustments?: Record<string, CardCostAdjustment>;
 };
 
 /** Pending commander zone choice (Rule 903.9a/903.9b) */
@@ -954,6 +955,34 @@ export interface ManaPool {
 
 /* Payment item for mana payment during spell casting */
 export type ManaColor = 'W' | 'U' | 'B' | 'R' | 'G' | 'C';
+
+export type CostAdjustmentKind = 'increase' | 'reduction' | 'mixed';
+
+export interface CostAdjustmentMessageSource {
+  kind: 'increase' | 'reduction';
+  message: string;
+}
+
+export interface PaymentCostAdjustment {
+  originalManaCost: string;
+  adjustedManaCost: string;
+  genericReduction: number;
+  coloredReductions: Record<string, number>;
+  genericTax: number;
+  reductionMessages: string[];
+  taxMessages: string[];
+  sources: CostAdjustmentMessageSource[];
+  kind: CostAdjustmentKind;
+}
+
+export interface CardCostAdjustment {
+  originalCost: string;
+  adjustedCost: string;
+  adjustment: number;
+  genericAdjustment?: number;
+  sources: string[];
+  isIncrease?: boolean;
+}
 
 export interface PaymentItem {
   permanentId: string;

@@ -15,6 +15,7 @@ import type {
   CardRef,
   ClientGameView,
   ChatMsg,
+  CardCostAdjustment,
   ManaPool,
 } from '../../../shared/src';
 import type { ImagePref } from './BattlefieldGrid';
@@ -306,14 +307,7 @@ export function TableLayout(props: {
   // Playable cards highlighting (for current priority player)
   playableCards?: string[];
   // Cost adjustments for cards in hand (Aura of Silence, medallions, etc.)
-  costAdjustments?: Record<string, {
-    originalCost: string;
-    adjustedCost: string;
-    adjustment: number;
-    genericAdjustment: number;
-    sources: string[];
-    isIncrease?: boolean;
-  }>;
+  costAdjustments?: Record<string, CardCostAdjustment>;
   // Ignored cards for playability checks (auto-pass)
   ignoredCardIds?: Set<string>;
   // Callbacks for ignoring/unignoring cards for auto-pass from battlefield

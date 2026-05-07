@@ -12,7 +12,7 @@
  */
 
 import React, { useEffect, useRef, useState } from 'react';
-import type { KnownCardRef } from '../../../shared/src';
+import type { CardCostAdjustment, KnownCardRef } from '../../../shared/src';
 import { parseActivatedAbilities } from '../utils/activatedAbilityParser';
 
 export type ZoneType = 'hand' | 'graveyard' | 'exile' | 'commander' | 'library' | 'battlefield';
@@ -41,13 +41,7 @@ export interface ZoneCardContextMenuProps {
   reasonCannotCast?: string | null;
   reasonCannotPlayLand?: string | null;
   reasonCannotCycle?: string | null;
-  costAdjustment?: {
-    originalCost: string;
-    adjustedCost: string;
-    adjustment: number;
-    sources: string[];
-    isIncrease?: boolean;
-  };
+  costAdjustment?: CardCostAdjustment;
 }
 
 /**

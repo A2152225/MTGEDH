@@ -1,22 +1,10 @@
 import React, { useState, useRef } from 'react';
 import { useIsTouch } from '../hooks/useIsTouch';
-import type { CardRef, KnownCardRef } from '../../../shared/src';
+import type { CardCostAdjustment, CardRef, KnownCardRef } from '../../../shared/src';
 import { showCardPreview, hideCardPreview } from './CardPreviewLayer';
 import type { AppearanceSettings } from '../utils/appearanceSettings';
 import { getPlayableCardHighlight } from '../utils/appearanceSettings';
 import { getPrimaryCardImageUrl } from '../utils/cardImages';
-
-/**
- * Cost adjustment info for a card (includes both reductions and increases)
- */
-export interface CardCostAdjustment {
-  originalCost: string;
-  adjustedCost: string;
-  adjustment: number;          // positive = increase, negative = reduction
-  genericAdjustment: number;
-  sources: string[];
-  isIncrease?: boolean;        // true if cost is increased (e.g., by Aura of Silence)
-}
 
 export interface HandGalleryProps {
   cards: CardRef[];

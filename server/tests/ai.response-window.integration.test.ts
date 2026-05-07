@@ -159,6 +159,188 @@ describe('AI response-window integration', () => {
     );
   });
 
+  it('casts an instant made free by a shared static cost reduction', async () => {
+    const gameId = createTestGameId('hand_instant_plane_free');
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [
+      { id: playerId, name: 'AI', spectator: false, isAI: true, life: 40 },
+      { id: 'opp1', name: 'Opponent', spectator: false, life: 40 },
+    ];
+    (game.state as any).turnPlayer = 'opp1';
+    (game.state as any).activePlayer = 'opp1';
+    (game.state as any).priority = playerId;
+    (game.state as any).phase = 'main';
+    (game.state as any).step = 'precombat_main';
+    (game.state as any).stack = [];
+    (game.state as any).activePlane = {
+      id: 'blue_discount_plane',
+      name: 'Blue Discount Plane',
+      oracle_text: 'Blue spells cost {U} less to cast.',
+    };
+    (game.state as any).manaPool = {
+      [playerId]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+      opp1: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+    };
+    (game.state as any).battlefield = [];
+    (game.state as any).zones = {
+      [playerId]: {
+        hand: [
+          {
+            id: 'opt_free_hand',
+            name: 'Opt',
+            type_line: 'Instant',
+            oracle_text: 'Scry 1. Draw a card.',
+            mana_cost: '{U}',
+            colors: ['U'],
+            cmc: 1,
+            zone: 'hand',
+          },
+        ],
+        handCount: 1,
+        library: [],
+        libraryCount: 0,
+        graveyard: [],
+        graveyardCount: 0,
+        exile: [],
+        exileCount: 0,
+      },
+      opp1: {
+        hand: [],
+        handCount: 0,
+        library: [],
+        libraryCount: 0,
+        graveyard: [],
+        graveyardCount: 0,
+        exile: [],
+        exileCount: 0,
+      },
+    };
+
+    registerAIPlayer(gameId, playerId as any);
+
+    vi.spyOn(AIEngine.prototype, 'makeDecision').mockResolvedValue({
+      type: AIDecisionType.ACTIVATE_ABILITY,
+      playerId,
+      action: {},
+      reasoning: 'No activated ability available',
+      confidence: 1,
+    } as any);
+
+    requestCastSpellForSocket.mockImplementationOnce(async (_io: any, _socket: any, payload: any) => {
+      const liveGame = ensureGame(String(payload?.gameId || ''));
+      if (!liveGame) throw new Error('game missing during mocked cast');
+      (liveGame.state as any).priority = null;
+    });
+
+    await handleAIPriority(createNoopIo(), gameId, playerId as any);
+
+    expect(requestCastSpellForSocket).toHaveBeenCalledTimes(1);
+    expect(requestCastSpellForSocket).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({
+        gameId,
+        cardId: 'opt_free_hand',
+        fromZone: 'hand',
+      }),
+    );
+  });
+
+  it('does not cast an instant made unaffordable by a shared static tax', async () => {
+    const gameId = createTestGameId('hand_instant_scheme_taxed');
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [
+      { id: playerId, name: 'AI', spectator: false, isAI: true, life: 40 },
+      { id: 'opp1', name: 'Opponent', spectator: false, life: 40 },
+    ];
+    (game.state as any).turnPlayer = 'opp1';
+    (game.state as any).activePlayer = 'opp1';
+    (game.state as any).priority = playerId;
+    (game.state as any).phase = 'main';
+    (game.state as any).step = 'precombat_main';
+    (game.state as any).stack = [];
+    (game.state as any).activeSchemes = [
+      {
+        id: 'scheme_tax',
+        name: 'The Very Soil Shall Shake',
+        oracle_text: "(An ongoing scheme remains face up until it's abandoned.)\nSpells cost {1} more to cast.",
+      },
+    ];
+    (game.state as any).manaPool = {
+      [playerId]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+      opp1: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+    };
+    (game.state as any).battlefield = [
+      {
+        id: 'island_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        summoningSickness: false,
+        counters: {},
+        card: {
+          id: 'island_card_1',
+          name: 'Island',
+          type_line: 'Basic Land — Island',
+          oracle_text: '{T}: Add {U}.',
+        },
+      },
+    ];
+    (game.state as any).zones = {
+      [playerId]: {
+        hand: [
+          {
+            id: 'opt_taxed_hand',
+            name: 'Opt',
+            type_line: 'Instant',
+            oracle_text: 'Scry 1. Draw a card.',
+            mana_cost: '{U}',
+            colors: ['U'],
+            cmc: 1,
+            zone: 'hand',
+          },
+        ],
+        handCount: 1,
+        library: [],
+        libraryCount: 0,
+        graveyard: [],
+        graveyardCount: 0,
+        exile: [],
+        exileCount: 0,
+      },
+      opp1: {
+        hand: [],
+        handCount: 0,
+        library: [],
+        libraryCount: 0,
+        graveyard: [],
+        graveyardCount: 0,
+        exile: [],
+        exileCount: 0,
+      },
+    };
+
+    registerAIPlayer(gameId, playerId as any);
+
+    vi.spyOn(AIEngine.prototype, 'makeDecision').mockResolvedValue({
+      type: AIDecisionType.ACTIVATE_ABILITY,
+      playerId,
+      action: {},
+      reasoning: 'No activated ability available',
+      confidence: 1,
+    } as any);
+
+    await handleAIPriority(createNoopIo(), gameId, playerId as any);
+
+    expect(requestCastSpellForSocket).not.toHaveBeenCalled();
+  });
+
   it('still attempts a cast when the only workable payment path is a non-tap mana activation first', async () => {
     const gameId = createTestGameId('hand_instant_non_tap_payment');
     createGameIfNotExists(gameId, 'commander', 40);
