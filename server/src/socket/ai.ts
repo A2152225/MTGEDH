@@ -34,6 +34,7 @@ import {
   parseReturnToHandCostFromManaAbilityCost,
 } from "../state/modules/mana-check.js";
 import { canAct, canPlayLand, canRespond, getCastableCommanderCandidates, getCastableSpellCandidates, getPlayableLandCandidates, isCardPlayableAsLandFromHand, type SharedCommanderCastCandidate, type SharedPlayableLandCandidate, type SharedSpellSourceZone } from "../state/modules/can-respond.js";
+import { applyCostAdjustmentToParsedCost, buildCostAdjustmentPlan } from "../state/modules/cost-adjustments.js";
 import { canCastFromTop, canPlayLandsFromTop } from "../state/modules/game-state-effects.js";
 import { ResolutionQueueManager } from "../state/resolution/ResolutionQueueManager.js";
 import { getPendingInteractions } from "../state/modules/turn.js";
@@ -3508,8 +3509,13 @@ function getAISourceCards(game: any, playerId: PlayerID, sourceZone: AISupported
   return Array.isArray(hand) ? hand : [];
 }
 
-function calculateResponseSpellPriority(card: any, game: any, playerId: PlayerID): number {
-  let priority = calculateSpellPriority(card, game, playerId);
+function calculateResponseSpellPriority(
+  card: any,
+  game: any,
+  playerId: PlayerID,
+  adjustedCost?: { generic: number; colors: Record<string, number> },
+): number {
+  let priority = calculateSpellPriority(card, game, playerId, adjustedCost);
   const oracleText = String(card?.oracle_text || '').toLowerCase();
   const typeLine = String(card?.type_line || '').toLowerCase();
   const stack = Array.isArray(game?.state?.stack) ? game.state.stack : [];
@@ -3531,6 +3537,28 @@ function calculateResponseSpellPriority(card: any, game: any, playerId: PlayerID
   }
 
   return priority;
+}
+
+function getSpellCmc(cost: { generic: number; colors: Record<string, number> }): number {
+  return Number(cost?.generic || 0) + Object.values(cost?.colors || {}).reduce((sum, value) => sum + Number(value || 0), 0);
+}
+
+function getAIAdjustedSpellCost(game: any, playerId: PlayerID, card: any): { generic: number; colors: Record<string, number>; hasX: boolean; hybrid?: Array<string[]> } {
+  const manaCost = String(card?.mana_cost || card?.manaCost || '').trim();
+  const parsedCost = parseManaCost(manaCost);
+
+  if (!manaCost) {
+    return {
+      generic: Number(parsedCost.generic || 0),
+      colors: { ...(parsedCost.colors || {}) },
+      hasX: Boolean(parsedCost.hasX),
+      ...(Array.isArray(parsedCost.hybrid)
+        ? { hybrid: parsedCost.hybrid.map((entry) => [...entry]) }
+        : {}),
+    };
+  }
+
+  return applyCostAdjustmentToParsedCost(parsedCost, buildCostAdjustmentPlan(game?.state, String(playerId), card));
 }
 
 async function getAIActivatedAbilityCandidate(
@@ -3609,7 +3637,7 @@ async function enumerateAIActionCandidates(
     if (commanderCandidate) {
       candidates.push({
         kind: 'cast_commander',
-        priority: 650 + Math.max(0, calculateSpellPriority(commanderCandidate.card, game, playerId)),
+        priority: 650 + Math.max(0, calculateSpellPriority(commanderCandidate.card, game, playerId, commanderCandidate.cost)),
         commander: commanderCandidate,
       });
     }
@@ -4264,8 +4292,8 @@ function findCastableSpells(
         cmc,
         typeLine,
         priority: responseOnly
-          ? calculateResponseSpellPriority(candidate.castCard, game, playerId)
-          : calculateSpellPriority(candidate.castCard, game, playerId),
+          ? calculateResponseSpellPriority(candidate.castCard, game, playerId, candidate.cost)
+          : calculateSpellPriority(candidate.castCard, game, playerId, candidate.cost),
       } satisfies AICastableSpellCandidate;
     });
 
@@ -5694,7 +5722,12 @@ async function requestAISharedBattlefieldAbilityActivation(
  * - Ramp spells: +15 (acceleration)
  * - CMC curve bonus: 0-10 (prefer cheaper spells)
  */
-function calculateSpellPriority(card: any, game: any, playerId: PlayerID): number {
+function calculateSpellPriority(
+  card: any,
+  game: any,
+  playerId: PlayerID,
+  adjustedCost?: { generic: number; colors: Record<string, number> },
+): number {
   let priority = 50; // Base priority
   const typeLine = (card?.type_line || '').toLowerCase();
   const oracleText = (card?.oracle_text || '').toLowerCase();
@@ -5705,8 +5738,8 @@ function calculateSpellPriority(card: any, game: any, playerId: PlayerID): numbe
   const battlefield = (game.state?.battlefield || []).filter((perm: any) => perm?.controller === playerId);
   
   // Calculate CMC first - needed for early-game mana rock priority
-  const parsedCost = parseManaCost(card?.mana_cost || '');
-  const cmc = parsedCost.generic + Object.values(parsedCost.colors).reduce((a, b) => a + b, 0);
+  const parsedCost = adjustedCost || parseManaCost(card?.mana_cost || '');
+  const cmc = getSpellCmc(parsedCost);
   
   // MANA ROCKS: Extremely high priority in early game
   // Cards that produce mana are crucial for acceleration
@@ -6569,7 +6602,6 @@ function chooseCardsToDiscard(game: any, playerId: PlayerID, discardCount: numbe
   const scoredCards = hand.map((card: any) => {
     let score = 50; // Base score
     const typeLine = (card?.type_line || '').toLowerCase();
-    const manaCost = card?.mana_cost || '';
     const oracleText = (card?.oracle_text || '').toLowerCase();
     
     // Keep lands (highest priority)
@@ -6579,8 +6611,8 @@ function chooseCardsToDiscard(game: any, playerId: PlayerID, discardCount: numbe
     }
     
     // Calculate CMC
-    const parsedCost = parseManaCost(manaCost);
-    const cmc = parsedCost.generic + Object.values(parsedCost.colors).reduce((a, b) => a + b, 0);
+    const adjustedCost = getAIAdjustedSpellCost(game, playerId, card);
+    const cmc = getSpellCmc(adjustedCost);
     
     // CASTABILITY CHECK: Strongly prefer keeping castable spells
     // A spell is "castable" if the AI can afford it with current/potential mana
@@ -6589,7 +6621,7 @@ function chooseCardsToDiscard(game: any, playerId: PlayerID, discardCount: numbe
     const canCastNow = canPayManaCostWithAvailableSources(
       game.state,
       playerId,
-      parsedCost,
+      adjustedCost,
       Infinity,
       card?.id ? { excludedHandCardIds: [String(card.id)] } : undefined,
     );

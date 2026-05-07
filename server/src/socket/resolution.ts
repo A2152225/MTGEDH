@@ -82,7 +82,7 @@ import {
   triggerETBEffectsForPermanent,
   triggerETBEffectsForToken,
 } from "../state/modules/stack.js";
-import { creatureHasHaste, formatManaCostWithReduction, getSpellModeAdditionalCost, handlePlayLandRequest, registerGameActions, requestCastSpellForSocket } from "./game-actions.js";
+import { buildPaymentStepCostAdjustment, creatureHasHaste, formatManaCostWithReduction, getSpellModeAdditionalCost, handlePlayLandRequest, registerGameActions, requestCastSpellForSocket } from "./game-actions.js";
 import { buildOraclePromptContext, getOracleTextFromResolutionStep } from "../utils/oraclePromptContext.js";
 import { cleanupCardLeavingExile } from "../state/modules/playable-from-exile.js";
 import { movePermanentToExile } from "../state/modules/counters_tokens.js";
@@ -471,6 +471,7 @@ function buildPendingCastPaymentManaCost(pendingCast: any): string {
     String(pendingCast?.manaCost || ''),
     pendingCast?.costReduction,
     pendingCast?.xValue,
+    Number(pendingCast?.externalCostTax || 0),
   );
   const spellModeAdditionalCost = getSpellModeAdditionalCost(
     String(pendingCast?.card?.oracle_text || ''),
@@ -8034,6 +8035,7 @@ function getTypeSpecificFields(step: ResolutionStep): Record<string, any> {
       if ('phyrexianChoices' in step) fields.phyrexianChoices = (step as any).phyrexianChoices;
       if ('playerLife' in step) fields.playerLife = (step as any).playerLife;
       if ('imageUrl' in step) fields.imageUrl = (step as any).imageUrl;
+      if ('costAdjustment' in step) fields.costAdjustment = (step as any).costAdjustment;
       if ('costReduction' in step) fields.costReduction = (step as any).costReduction;
       if ('convokeOptions' in step) fields.convokeOptions = (step as any).convokeOptions;
       if ('forcedAlternateCostId' in step) fields.forcedAlternateCostId = (step as any).forcedAlternateCostId;
@@ -15347,6 +15349,15 @@ async function handleTargetSelectionResponse(
         effectId,
         targets: pendingCast.targets,
         imageUrl: pendingCast.card?.image_uris?.small || pendingCast.card?.image_uris?.normal,
+        costAdjustment: pendingCast.paymentCostAdjustment
+          ? { ...pendingCast.paymentCostAdjustment, adjustedManaCost: finalManaCost }
+          : buildPaymentStepCostAdjustment(
+              String(pendingCast.manaCost || ''),
+              finalManaCost,
+              pendingCast.costReduction,
+              Number(pendingCast.externalCostTax || 0),
+              Array.isArray(pendingCast.externalCostTaxMessages) ? pendingCast.externalCostTaxMessages : [],
+            ),
         costReduction: pendingCast.costReduction,
         convokeOptions: pendingCast.convokeOptions,
         forcedAlternateCostId: pendingCast.forcedAlternateCostId,
@@ -18927,6 +18938,15 @@ async function handleTargetSelectionResponse(
           effectId,
           targets: finalTargets,
           imageUrl,
+          costAdjustment: pendingCast.paymentCostAdjustment
+            ? { ...pendingCast.paymentCostAdjustment, adjustedManaCost: finalManaCost }
+            : buildPaymentStepCostAdjustment(
+                String(pendingCast.manaCost || ''),
+                finalManaCost,
+                pendingCast.costReduction,
+                Number(pendingCast.externalCostTax || 0),
+                Array.isArray(pendingCast.externalCostTaxMessages) ? pendingCast.externalCostTaxMessages : [],
+              ),
           costReduction: pendingCast.costReduction,
           convokeOptions: pendingCast.convokeOptions,
           forcedAlternateCostId: pendingCast.forcedAlternateCostId,
@@ -26232,6 +26252,15 @@ async function handleOptionChoiceResponse(
           effectId,
           targets: pendingCast.targets,
           imageUrl: pendingCast.card?.image_uris?.small || pendingCast.card?.image_uris?.normal,
+          costAdjustment: pendingCast.paymentCostAdjustment
+            ? { ...pendingCast.paymentCostAdjustment, adjustedManaCost: finalManaCost }
+            : buildPaymentStepCostAdjustment(
+                String(pendingCast.manaCost || ''),
+                finalManaCost,
+                pendingCast.costReduction,
+                Number(pendingCast.externalCostTax || 0),
+                Array.isArray(pendingCast.externalCostTaxMessages) ? pendingCast.externalCostTaxMessages : [],
+              ),
           costReduction: pendingCast.costReduction,
           convokeOptions: pendingCast.convokeOptions,
           forcedAlternateCostId: pendingCast.forcedAlternateCostId,
@@ -28988,10 +29017,31 @@ async function handleMutateTargetSelectionResponse(
       manaCost: formatManaCostWithReduction(
         String(pendingCast.mutateCost || pendingCast.manaCost || ''),
         pendingCast.costReduction,
+        undefined,
+        Number(pendingCast.externalCostTax || 0),
       ),
       effectId,
       targets: [targetPermanentId],
       imageUrl: stepData.imageUrl || step.sourceImage,
+      costAdjustment: pendingCast.paymentCostAdjustment
+        ? { ...pendingCast.paymentCostAdjustment, adjustedManaCost: formatManaCostWithReduction(
+          String(pendingCast.mutateCost || pendingCast.manaCost || ''),
+          pendingCast.costReduction,
+          undefined,
+          Number(pendingCast.externalCostTax || 0),
+        ) }
+        : buildPaymentStepCostAdjustment(
+            String(pendingCast.mutateCost || pendingCast.manaCost || ''),
+            formatManaCostWithReduction(
+              String(pendingCast.mutateCost || pendingCast.manaCost || ''),
+              pendingCast.costReduction,
+              undefined,
+              Number(pendingCast.externalCostTax || 0),
+            ),
+            pendingCast.costReduction,
+            Number(pendingCast.externalCostTax || 0),
+            Array.isArray(pendingCast.externalCostTaxMessages) ? pendingCast.externalCostTaxMessages : [],
+          ),
       costReduction: pendingCast.costReduction,
       convokeOptions: pendingCast.convokeOptions,
       forcedAlternateCostId: 'mutate',

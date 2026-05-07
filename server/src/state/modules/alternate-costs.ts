@@ -20,6 +20,7 @@
 import type { GameContext } from "../context";
 import type { PlayerID } from "../../../../shared/src";
 import { parseManaCost, canPayManaCostWithAvailableSources } from "./mana-check";
+import { collectStaticEffectSources } from "./static-effect-sources";
 
 /**
  * Alternate cost types
@@ -460,31 +461,13 @@ export function getExternalWUBRGSource(
   playerId: PlayerID
 ): { sourceId: string; sourceName: string } | null {
   const { state } = ctx;
-  const battlefield = state.battlefield || [];
-  
-  for (const perm of battlefield) {
-    if (!perm || perm.controller !== playerId) continue;
-    
-    const oracleText = String(perm.card?.oracle_text || '');
-
-    if (grantsExternalWUBRGAlternateCost(oracleText)) {
-      return {
-        sourceId: perm.id,
-        sourceName: perm.card?.name || 'WUBRG alternate cost',
-      };
-    }
-  }
-
-  const emblems = Array.isArray((state as any)?.emblems) ? (state as any).emblems : [];
-  for (const emblem of emblems) {
-    if (!emblem || String(emblem.controller || '') !== String(playerId || '')) continue;
-
-    const emblemText = String(emblem.effect || emblem.text || emblem.oracle_text || '');
-    if (!grantsExternalWUBRGAlternateCost(emblemText)) continue;
+  for (const source of collectStaticEffectSources(state)) {
+    if (!source.affectsAllPlayers && source.controller !== String(playerId || '')) continue;
+    if (!grantsExternalWUBRGAlternateCost(source.oracleText)) continue;
 
     return {
-      sourceId: String(emblem.id || 'emblem'),
-      sourceName: String(emblem.sourceName || emblem.name || 'Emblem'),
+      sourceId: source.sourceId,
+      sourceName: source.sourceName,
     };
   }
   
@@ -500,7 +483,6 @@ export function getOmniscienceSource(
   playerId: PlayerID
 ): { sourceId: string; sourceName: string } | null {
   const { state } = ctx;
-  const battlefield = state.battlefield || [];
 
   const grantsFreeHandCasts = (text: string): boolean => {
     const oracleText = String(text || '').toLowerCase();
@@ -511,34 +493,19 @@ export function getOmniscienceSource(
       || oracleText.includes('cast nonland cards from your hand')
       || oracleText.includes('cast cards from your hand');
   };
-  
-  for (const perm of battlefield) {
-    if (!perm || perm.controller !== playerId) continue;
-    
-    const cardName = (perm.card?.name || "").toLowerCase();
-    const oracleText = (perm.card?.oracle_text || "").toLowerCase();
-    
-    // Omniscience: "You may cast spells from your hand without paying their mana costs."
-    if (cardName.includes("omniscience") || 
-        grantsFreeHandCasts(oracleText)) {
+
+  for (const source of collectStaticEffectSources(state)) {
+    if (!source.affectsAllPlayers && source.controller !== String(playerId || '')) continue;
+
+    const cardName = source.sourceName.toLowerCase();
+    const oracleText = source.oracleText.toLowerCase();
+
+    if (cardName.includes("omniscience") || grantsFreeHandCasts(oracleText)) {
       return {
-        sourceId: perm.id,
-        sourceName: perm.card?.name || "Omniscience",
+        sourceId: source.sourceId,
+        sourceName: source.sourceName || "Omniscience",
       };
     }
-  }
-
-  const emblems = Array.isArray((state as any)?.emblems) ? (state as any).emblems : [];
-  for (const emblem of emblems) {
-    if (!emblem || String(emblem.controller || '') !== String(playerId || '')) continue;
-
-    const emblemText = String(emblem.effect || emblem.text || emblem.oracle_text || '');
-    if (!grantsFreeHandCasts(emblemText)) continue;
-
-    return {
-      sourceId: String(emblem.id || 'emblem'),
-      sourceName: String(emblem.sourceName || emblem.name || 'Emblem'),
-    };
   }
   
   return null;

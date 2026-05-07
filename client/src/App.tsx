@@ -20,7 +20,7 @@ import { ScrySurveilModal } from "./components/ScrySurveilModal";
 import { FatesealModal } from "./components/FatesealModal";
 import { ClashModal } from "./components/ClashModal";
 import { VoteModal } from "./components/VoteModal";
-import { CastSpellModal, type AlternateCost } from "./components/CastSpellModal";
+import { CastSpellModal, type AlternateCost, type DisplayedCostAdjustment } from "./components/CastSpellModal";
 import { CombatSelectionModal, type AttackerSelection, type BlockerSelection } from "./components/CombatSelectionModal";
 import { CombatControlModal, type CombatControlDeclarations } from "./components/CombatControlModal";
 import { ReturnControlledPermanentChoiceModal } from "./components/ReturnControlledPermanentChoiceModal";
@@ -255,11 +255,7 @@ export function App() {
     effectId?: string;   // Effect ID for MTG-compliant flow
     paymentStepId?: string;
     xValue?: number;
-    costReduction?: {
-      generic: number;
-      colors: Record<string, number>;
-      messages: string[];
-    };
+    costAdjustment?: DisplayedCostAdjustment;
     convokeOptions?: {
       availableCreatures: Array<{
         id: string;
@@ -2661,7 +2657,7 @@ export function App() {
 
       // Phyrexian mana payment choice via Resolution Queue
       else if (step.type === 'mana_payment_choice' && (step.spellPaymentRequired === true || (step as any).wardPayment === true)) {
-        const cr = (step as any).costReduction;
+        const ca = (step as any).costAdjustment as DisplayedCostAdjustment | undefined;
         const co = (step as any).convokeOptions;
         const isWardPayment = (step as any).wardPayment === true;
 
@@ -2676,7 +2672,7 @@ export function App() {
           targets: Array.isArray((step as any).targets) ? (step as any).targets : undefined,
           effectId: isWardPayment ? undefined : String((step as any).effectId || ''),
           xValue: isWardPayment ? undefined : (Number.isFinite((step as any).xValue) ? Math.max(0, Number((step as any).xValue)) : undefined),
-          costReduction: isWardPayment ? undefined : cr,
+          costAdjustment: isWardPayment ? undefined : ca,
           convokeOptions: isWardPayment ? undefined : co,
           forcedAlternateCostId: isWardPayment ? undefined : ((step as any).forcedAlternateCostId != null ? String((step as any).forcedAlternateCostId) : undefined),
           // Track the resolution step id so confirm/cancel responds via the queue.
@@ -6509,7 +6505,7 @@ export function App() {
         confirmLabel={spellToCast?.confirmLabel}
         manualFloatingManaSelection={spellToCast?.manualFloatingManaSelection === true}
         initialXValue={spellToCast?.xValue}
-        costReduction={spellToCast?.costReduction}
+        costAdjustment={spellToCast?.costAdjustment}
         convokeOptions={spellToCast?.convokeOptions}
         onConfirm={handleCastSpellConfirm}
         onCancel={handleCastSpellCancel}

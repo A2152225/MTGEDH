@@ -18,17 +18,6 @@ export interface CardCostAdjustment {
   isIncrease?: boolean;        // true if cost is increased (e.g., by Aura of Silence)
 }
 
-/**
- * @deprecated Use CardCostAdjustment instead
- */
-export interface CardCostReduction {
-  originalCost: string;
-  reducedCost: string;
-  genericReduction: number;
-  colorReduction: Record<string, number>;
-  sources: string[];
-}
-
 export interface HandGalleryProps {
   cards: CardRef[];
   handCount?: number;               // total count (for hidden hands)
@@ -48,8 +37,6 @@ export interface HandGalleryProps {
   hidden?: boolean;                 // if true, render facedown placeholders (no leak)
   // Cost adjustment info for displaying modified costs (increases and reductions)
   costAdjustments?: Record<string, CardCostAdjustment>;
-  // @deprecated - use costAdjustments instead
-  costReductions?: Record<string, CardCostReduction>;
   // NEW: IDs of cards that are currently playable (for highlighting)
   playableCards?: string[];
   // Appearance settings for custom highlight color
@@ -113,7 +100,6 @@ export function HandGallery(props: HandGalleryProps) {
     onReorder,
     hidden = false,
     costAdjustments = {},
-    costReductions = {},
     playableCards = [],
     appearanceSettings,
     onContextMenu,
@@ -350,35 +336,6 @@ export function HandGallery(props: HandGalleryProps) {
                 </span>
                 <span aria-hidden="true">{costAdjustments[kc.id].isIncrease ? '⬆' : '→'}</span>
                 <span>{costAdjustments[kc.id].adjustedCost}</span>
-              </div>
-            )}
-            
-            {/* Legacy cost reduction badge - for backwards compatibility */}
-            {kc && !isLand(tl) && !costAdjustments[kc.id] && costReductions[kc.id] && (
-              <div 
-                style={{
-                  position: 'absolute', 
-                  bottom: 4, 
-                  left: 4,
-                  background: 'rgba(34, 197, 94, 0.9)', 
-                  color: '#fff',
-                  fontSize: 10, 
-                  padding: '2px 6px', 
-                  borderRadius: 4,
-                  fontWeight: 'bold',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 4,
-                }}
-                title={`Cost reduced by ${costReductions[kc.id].sources.join(', ')}`}
-                role="status"
-                aria-label={`Mana cost reduced from ${costReductions[kc.id].originalCost} to ${costReductions[kc.id].reducedCost} by ${costReductions[kc.id].sources.join(', ')}`}
-              >
-                <span style={{ textDecoration: 'line-through', opacity: 0.7 }} aria-hidden="true">
-                  {costReductions[kc.id].originalCost}
-                </span>
-                <span aria-hidden="true">→</span>
-                <span>{costReductions[kc.id].reducedCost}</span>
               </div>
             )}
 

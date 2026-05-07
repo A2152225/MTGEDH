@@ -1,5 +1,6 @@
 import type { GameContext } from "../context";
 import type { PlayerID } from "../../../../shared/src";
+import { collectStaticEffectSources } from "./static-effect-sources";
 
 export interface GrantedFlashbackInfo {
   hasIt: boolean;
@@ -398,43 +399,10 @@ function findGrantedKeywordInfo(
     const temporaryGrant = findTemporaryGrantedKeywordInfo(state, playerId, card, keyword);
     if (temporaryGrant.hasIt) return temporaryGrant;
 
-    const keywordSources: Array<{
-      controller: string;
-      oracleText: string;
-      sourceId: string;
-      sourceName: string;
-      phasedOut?: boolean;
-    }> = [];
-
-    const battlefield = Array.isArray(state.battlefield) ? state.battlefield : [];
-    for (const permanent of battlefield) {
-      if (!permanent) continue;
-
-      keywordSources.push({
-        controller: String(permanent.controller || ''),
-        oracleText: String(permanent.card?.oracle_text || permanent.card?.oracleText || ''),
-        sourceId: String(permanent.id || permanent.card?.id || ''),
-        sourceName: String(permanent.card?.name || permanent.name || `${keyword} grant`),
-        phasedOut: Boolean(permanent.phasedOut),
-      });
-    }
-
-    const emblems = Array.isArray((state as any)?.emblems) ? (state as any).emblems : [];
-    for (const emblem of emblems) {
-      if (!emblem) continue;
-
-      keywordSources.push({
-        controller: String(emblem.controller || ''),
-        oracleText: String(emblem.effect || emblem.text || emblem.oracle_text || ''),
-        sourceId: String(emblem.id || 'emblem'),
-        sourceName: String(emblem.sourceName || emblem.name || `${keyword} grant`),
-      });
-    }
-
     const keywordPattern = escapeRegExp(keyword);
-    for (const source of keywordSources) {
+    for (const source of collectStaticEffectSources(state)) {
       if (source.phasedOut) continue;
-      if (source.controller !== String(playerId || '')) continue;
+      if (!source.affectsAllPlayers && source.controller !== String(playerId || '')) continue;
 
       const oracleText = source.oracleText;
       if (!new RegExp(keywordPattern, 'i').test(oracleText) || !/graveyard/i.test(oracleText)) continue;
@@ -445,8 +413,8 @@ function findGrantedKeywordInfo(
         if (/\bgains?\b/i.test(line)) continue;
 
         const grantPatterns = [
-          new RegExp(`\\beach\\s+(.+?)\\s+cards?\\s+in\\s+your\\s+graveyard(?:\\s+that(?:'s| is)\\s+(.+?))?\\s+ha(?:s|ve)\\s+${keywordPattern}\\b([^.]*)`, 'i'),
-          new RegExp(`^\\s*(.+?)\\s+cards?\\s+in\\s+your\\s+graveyard(?:\\s+that(?:'s| is)\\s+(.+?))?\\s+ha(?:s|ve)\\s+${keywordPattern}\\b([^.]*)`, 'i'),
+          new RegExp(`\\beach\\s+(.+?)\\s+cards?\\s+in\\s+(?:your\\s+)?graveyards?(?:\\s+that(?:'s| is)\\s+(.+?))?\\s+ha(?:s|ve)\\s+${keywordPattern}\\b([^.]*)`, 'i'),
+          new RegExp(`^\\s*(.+?)\\s+cards?\\s+in\\s+(?:your\\s+)?graveyards?(?:\\s+that(?:'s| is)\\s+(.+?))?\\s+ha(?:s|ve)\\s+${keywordPattern}\\b([^.]*)`, 'i'),
         ];
         const grantMatch = grantPatterns.map((pattern) => line.match(pattern)).find(Boolean);
         if (!grantMatch) continue;
@@ -464,7 +432,7 @@ function findGrantedKeywordInfo(
           cost,
           ...(keyword === 'escape' ? { additionalExileCount: extractAdditionalEscapeExileCount(oracleText) } : {}),
           sourceId: source.sourceId,
-          sourceName: source.sourceName,
+            sourceName: source.sourceName || `${keyword} grant`,
         };
       }
     }

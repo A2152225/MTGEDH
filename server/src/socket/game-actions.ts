@@ -39,6 +39,7 @@ import { getCastableSpellCandidates, getCommandZoneCommanderCandidates, getPlaya
 import { cleanupCardLeavingExile } from "../state/modules/playable-from-exile.js";
 import { isPreparedCopyActive, syncPreparedPermanentAfterControlChange } from "../state/modules/prepared.js";
 import { getEffectiveBasicLandTypes } from "../state/modules/mana-abilities.js";
+import { buildCostAdjustmentPlan, buildLiveSpellCostAdjustment } from "../state/modules/cost-adjustments.js";
 import { parseOracleTextToIR } from '../../../rules-engine/src/oracleIRParser.js';
 import { applyOracleIRStepsToGameState } from '../../../rules-engine/src/oracleIRExecutor.js';
 import { extractGiftInfo, resolveGiftAwareOracleText } from '../utils/gift.js';
@@ -180,6 +181,80 @@ function createEmptyCostReduction(): { generic: number; colors: Record<string, n
   };
 }
 
+export interface PaymentStepCostAdjustment {
+  originalManaCost: string;
+  adjustedManaCost: string;
+  genericReduction: number;
+  coloredReductions: Record<string, number>;
+  genericTax: number;
+  reductionMessages: string[];
+  taxMessages: string[];
+  sources: Array<{ kind: 'increase' | 'reduction'; message: string }>;
+  kind: 'increase' | 'reduction' | 'mixed';
+}
+
+export function buildPaymentStepCostAdjustment(
+  originalManaCost: string,
+  adjustedManaCost: string,
+  costReduction?: { generic: number; colors: Record<string, number>; messages: string[] },
+  genericTax = 0,
+  taxMessages: string[] = [],
+): PaymentStepCostAdjustment | undefined {
+  const reduction = costReduction || createEmptyCostReduction();
+  const reductionMessages = Array.isArray(reduction.messages) ? [...reduction.messages] : [];
+  const safeTaxMessages = Array.isArray(taxMessages) ? [...taxMessages] : [];
+  const hasReduction = reduction.generic > 0
+    || Object.values(reduction.colors || {}).some((amount) => Number(amount) > 0)
+    || reductionMessages.length > 0;
+  const hasIncrease = Number(genericTax || 0) > 0 || safeTaxMessages.length > 0;
+
+  if (!hasReduction && !hasIncrease && String(originalManaCost || '') === String(adjustedManaCost || '')) {
+    return undefined;
+  }
+
+  return {
+    originalManaCost: String(originalManaCost || ''),
+    adjustedManaCost: String(adjustedManaCost || ''),
+    genericReduction: Math.max(0, Number(reduction.generic || 0)),
+    coloredReductions: { ...(reduction.colors || {}) },
+    genericTax: Math.max(0, Number(genericTax || 0)),
+    reductionMessages,
+    taxMessages: safeTaxMessages,
+    sources: [
+      ...reductionMessages.map((message) => ({ kind: 'reduction' as const, message })),
+      ...safeTaxMessages.map((message) => ({ kind: 'increase' as const, message })),
+    ],
+    kind: hasReduction && hasIncrease ? 'mixed' : hasIncrease ? 'increase' : 'reduction',
+  };
+}
+
+function getSharedStaticCostAdjustments(
+  game: any,
+  playerId: string,
+  card: any,
+): {
+  reduction: { generic: number; colors: Record<string, number>; messages: string[] };
+  genericTax: number;
+  taxMessages: string[];
+} {
+  const nonBattlefieldAdjustment = buildLiveSpellCostAdjustment(
+    buildCostAdjustmentPlan(game?.state, playerId, card, { sourceTypes: ['emblem', 'plane', 'scheme'] }),
+  );
+  const battlefieldTaxAdjustment = buildLiveSpellCostAdjustment(
+    buildCostAdjustmentPlan(game?.state, playerId, card, { sourceTypes: ['battlefield'] }),
+  );
+
+  return {
+    reduction: {
+      generic: nonBattlefieldAdjustment.genericReduction,
+      colors: { ...nonBattlefieldAdjustment.coloredReductions },
+      messages: [...nonBattlefieldAdjustment.reductionMessages],
+    },
+    genericTax: battlefieldTaxAdjustment.genericTax + nonBattlefieldAdjustment.genericTax,
+    taxMessages: [...battlefieldTaxAdjustment.taxMessages, ...nonBattlefieldAdjustment.taxMessages],
+  };
+}
+
 function getPlayerCommandZoneCards(game: any, playerId: string): any[] {
   const commandZone = game?.state?.commandZone?.[playerId];
   return Array.isArray(commandZone?.commanderCards) ? commandZone.commanderCards : [];
@@ -222,6 +297,10 @@ function buildCommandZoneCastManaCost(card: any, candidate?: SharedCommanderAvai
     return String(card?.mana_cost || '').trim();
   }
 
+  if (candidate.cost) {
+    return buildManaCostStringFromParsedCost(candidate.cost);
+  }
+
   const baseManaCost = String(card?.mana_cost || candidate.manaCost || '').trim();
   if (!baseManaCost) return '';
 
@@ -230,6 +309,37 @@ function buildCommandZoneCastManaCost(card: any, candidate?: SharedCommanderAvai
     ...parsedCost,
     generic: parsedCost.generic + candidate.commanderTax + candidate.costAdjustment,
   });
+}
+
+function buildCommandZonePaymentCostAdjustment(
+  game: any,
+  playerId: string,
+  card: any,
+  candidate: SharedCommanderAvailabilityCandidate | undefined,
+  adjustedManaCost: string,
+): PaymentStepCostAdjustment | undefined {
+  if (!candidate) return undefined;
+
+  const originalManaCost = String(card?.mana_cost || candidate.manaCost || '').trim();
+  const commanderTax = Math.max(0, Number(candidate.commanderTax || 0));
+  const staticAdjustment = buildLiveSpellCostAdjustment(buildCostAdjustmentPlan(game?.state, playerId, card));
+  const taxMessages = [
+    ...staticAdjustment.taxMessages,
+    ...(commanderTax > 0 ? [`Commander tax: +{${commanderTax}}`] : []),
+  ];
+  const reduction = {
+    generic: staticAdjustment.genericReduction,
+    colors: { ...staticAdjustment.coloredReductions },
+    messages: [...staticAdjustment.reductionMessages],
+  };
+
+  return buildPaymentStepCostAdjustment(
+    originalManaCost,
+    adjustedManaCost,
+    reduction,
+    staticAdjustment.genericTax + commanderTax,
+    taxMessages,
+  );
 }
 
 function validateTopOfLibraryLandAccess(
@@ -2372,8 +2482,27 @@ export function calculateCostReduction(
   } catch (err) {
     debugWarn(1, "[costReduction] Error calculating cost reduction:", err);
   }
+
+  const sharedStaticAdjustment = getSharedStaticCostAdjustments(game, playerId, card);
+  reduction.generic += sharedStaticAdjustment.reduction.generic;
+  for (const [color, amount] of Object.entries(sharedStaticAdjustment.reduction.colors)) {
+    reduction.colors[color] = (reduction.colors[color] || 0) + (Number(amount) || 0);
+  }
+  reduction.messages.push(...sharedStaticAdjustment.reduction.messages);
   
   return reduction;
+}
+
+function calculateStaticSourceGenericTax(
+  game: any,
+  playerId: string,
+  card: any,
+): { generic: number; messages: string[] } {
+  const sharedStaticAdjustment = getSharedStaticCostAdjustments(game, playerId, card);
+  return {
+    generic: sharedStaticAdjustment.genericTax,
+    messages: sharedStaticAdjustment.taxMessages,
+  };
 }
 
 /**
@@ -3388,7 +3517,8 @@ export function processHeroicTriggersForTargets(
  */
 export function applyCostReduction(
   parsedCost: { generic: number; colors: Record<string, number> },
-  reduction: { generic: number; colors: Record<string, number>; messages?: string[] }
+  reduction: { generic: number; colors: Record<string, number>; messages?: string[] },
+  genericTax = 0,
 ): { generic: number; colors: Record<string, number> } {
   const colorNameToSymbol: Record<string, string> = {
     white: 'W',
@@ -3406,7 +3536,7 @@ export function applyCostReduction(
   };
 
   const result = {
-    generic: Math.max(0, parsedCost.generic - reduction.generic),
+    generic: Math.max(0, parsedCost.generic + Math.max(0, Number(genericTax || 0)) - reduction.generic),
     colors: { ...parsedCost.colors },
   };
   
@@ -3456,6 +3586,7 @@ export function formatManaCostWithReduction(
   manaCost: string,
   reduction?: { generic?: number; colors?: Record<string, number> },
   xValue?: number,
+  genericTax = 0,
 ): string {
   if (!manaCost) return '';
 
@@ -3464,7 +3595,7 @@ export function formatManaCostWithReduction(
   const reducedCost = applyCostReduction(parsedCost, {
     generic: Math.max(0, Number(reduction?.generic || 0)),
     colors: { ...(reduction?.colors || {}) },
-  });
+  }, genericTax);
 
   let reducedCostStr = '';
 
@@ -4733,6 +4864,13 @@ export async function requestCastSpellForSocket(
       const costReduction = castSourceZone === 'command'
         ? createEmptyCostReduction()
         : calculateCostReduction(game, playerId, cardForCast);
+      const staticCostTax = castSourceZone === 'command'
+        ? { generic: 0, messages: [] }
+        : calculateStaticSourceGenericTax(game, playerId, cardForCast);
+      const genericCostTax = staticCostTax.generic;
+      const paymentCostAdjustment = castSourceZone === 'command'
+        ? buildCommandZonePaymentCostAdjustment(game, playerId, cardForCast, commanderCandidate, resolvedManaCost)
+        : undefined;
       const convokeOptions = calculateConvokeOptions(game, playerId, cardForCast);
 
       (game.state as any).pendingSpellCasts = (game.state as any).pendingSpellCasts || {};
@@ -4749,6 +4887,9 @@ export async function requestCastSpellForSocket(
         card: { ...cardForCast },
         forcedAlternateCostId: 'mutate',
         mutateCost: manaCost,
+        ...(genericCostTax > 0 ? { externalCostTax: genericCostTax } : {}),
+        ...(staticCostTax.messages.length > 0 ? { externalCostTaxMessages: staticCostTax.messages } : {}),
+        ...(paymentCostAdjustment ? { paymentCostAdjustment } : {}),
         costReduction: costReduction.messages.length > 0 ? costReduction : undefined,
         convokeOptions: convokeOptions.availableCreatures.length > 0 ? convokeOptions : undefined,
         ignoreTimingRestrictions,
@@ -4886,6 +5027,16 @@ export async function requestCastSpellForSocket(
         const requestCastAdditionalCostMethod = typeof (cardInHand as any).additionalCostMethod === 'string'
           ? String((cardInHand as any).additionalCostMethod)
           : undefined;
+        const costReduction = castSourceZone === 'command'
+          ? createEmptyCostReduction()
+          : calculateCostReduction(game, playerId, cardForCast);
+        const staticCostTax = castSourceZone === 'command'
+          ? { generic: 0, messages: [] }
+          : calculateStaticSourceGenericTax(game, playerId, cardForCast);
+        const genericCostTax = staticCostTax.generic;
+        const paymentCostAdjustment = castSourceZone === 'command'
+          ? buildCommandZonePaymentCostAdjustment(game, playerId, cardForCast, commanderCandidate, resolvedManaCost)
+          : undefined;
 
         (game.state as any).pendingSpellCasts[effectId] = {
           cardId,
@@ -4907,6 +5058,10 @@ export async function requestCastSpellForSocket(
           castWithEntwine: (cardForCast as any).castWithEntwine === true,
           validTargetIds: validTargetList.map((t: any) => t.id),
           card: { ...cardForCast },
+          ...(genericCostTax > 0 ? { externalCostTax: genericCostTax } : {}),
+          ...(staticCostTax.messages.length > 0 ? { externalCostTaxMessages: staticCostTax.messages } : {}),
+          ...(paymentCostAdjustment ? { paymentCostAdjustment } : {}),
+          costReduction: costReduction.messages.length > 0 ? costReduction : undefined,
           forcedAlternateCostId: options?.forcedAlternateCostId,
           castWithoutPayingManaCost: isFreeCast,
           bypassExilePermissionCheck,
@@ -5337,11 +5492,18 @@ export async function requestCastSpellForSocket(
     const costReduction = castSourceZone === 'command'
       ? createEmptyCostReduction()
       : calculateCostReduction(game, playerId, cardForCast);
+    const staticCostTax = castSourceZone === 'command'
+      ? { generic: 0, messages: [] }
+      : calculateStaticSourceGenericTax(game, playerId, cardForCast);
+    const genericCostTax = staticCostTax.generic;
     const convokeOptions = calculateConvokeOptions(game, playerId, cardForCast);
     const paymentManaCost = appendManaCost(
-      formatManaCostWithReduction(resolvedManaCost, costReduction, chosenXValue),
+      formatManaCostWithReduction(resolvedManaCost, costReduction, chosenXValue, genericCostTax),
       spellModeAdditionalCost,
     );
+    const paymentCostAdjustment = castSourceZone === 'command'
+      ? buildCommandZonePaymentCostAdjustment(game, playerId, cardForCast, commanderCandidate, paymentManaCost)
+      : undefined;
 
     (game.state as any).pendingSpellCasts = (game.state as any).pendingSpellCasts || {};
     const requestCastAdditionalCostPaid = (cardInHand as any).additionalCostPaid === true;
@@ -5372,6 +5534,9 @@ export async function requestCastSpellForSocket(
       card: { ...cardForCast },
       noTargets: true,
       pendingPaymentAfterAdditionalCost: false,
+      ...(genericCostTax > 0 ? { externalCostTax: genericCostTax } : {}),
+      ...(staticCostTax.messages.length > 0 ? { externalCostTaxMessages: staticCostTax.messages } : {}),
+      ...(paymentCostAdjustment ? { paymentCostAdjustment } : {}),
       costReduction: costReduction.messages.length > 0 ? costReduction : undefined,
       convokeOptions: convokeOptions.availableCreatures.length > 0 ? convokeOptions : undefined,
       forcedAlternateCostId: options?.forcedAlternateCostId,
@@ -5707,6 +5872,7 @@ export async function requestCastSpellForSocket(
         effectId,
         targets: undefined,
         imageUrl: cardForCast.image_uris?.small || cardForCast.image_uris?.normal || cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
+        costAdjustment: paymentCostAdjustment || buildPaymentStepCostAdjustment(resolvedManaCost, paymentManaCost, costReduction, genericCostTax, staticCostTax.messages),
         costReduction: costReduction.messages.length > 0 ? costReduction : undefined,
         convokeOptions: convokeOptions.availableCreatures.length > 0 ? convokeOptions : undefined,
         forcedAlternateCostId: options?.forcedAlternateCostId,
@@ -7756,6 +7922,9 @@ export function registerGameActions(io: Server, socket: Socket) {
         // IMPORTANT: Copy the full card object to prevent issues where card info is deleted
         // before it can be read during the target > pay workflow (fixes loop issue)
         (game.state as any).pendingSpellCasts = (game.state as any).pendingSpellCasts || {};
+        const costReduction = calculateCostReduction(game, playerId, cardInHand, false);
+        const staticCostTax = calculateStaticSourceGenericTax(game, playerId, cardInHand);
+        const genericCostTax = staticCostTax.generic;
         (game.state as any).pendingSpellCasts[effectId] = {
           cardId,
           cardName: cardInHand.name,
@@ -7763,6 +7932,9 @@ export function registerGameActions(io: Server, socket: Socket) {
           playerId,
           validTargetIds: validTargets.map((t: any) => t.id),
           card: { ...cardInHand }, // Copy full card object to preserve oracle text, type line, etc.
+          ...(genericCostTax > 0 ? { externalCostTax: genericCostTax } : {}),
+          ...(staticCostTax.messages.length > 0 ? { externalCostTaxMessages: staticCostTax.messages } : {}),
+          costReduction: costReduction.messages.length > 0 ? costReduction : undefined,
         };
         
         // Use Resolution Queue for Aura target selection
@@ -7912,6 +8084,13 @@ export function registerGameActions(io: Server, socket: Socket) {
           // IMPORTANT: Copy the full card object to prevent issues where card info is deleted
           // before it can be read during the target > pay workflow (fixes loop issue)
           (game.state as any).pendingSpellCasts = (game.state as any).pendingSpellCasts || {};
+          const costReduction = castSourceZone === 'command'
+            ? createEmptyCostReduction()
+            : calculateCostReduction(game, playerId, cardInHand, false);
+          const staticCostTax = castSourceZone === 'command'
+            ? { generic: 0, messages: [] }
+            : calculateStaticSourceGenericTax(game, playerId, cardInHand);
+          const genericCostTax = staticCostTax.generic;
           (game.state as any).pendingSpellCasts[effectId] = {
             cardId,
             cardName: cardInHand.name,
@@ -7930,6 +8109,9 @@ export function registerGameActions(io: Server, socket: Socket) {
             entwineCost,
             validTargetIds: validTargetList.map((t: any) => t.id),
             card: { ...cardInHand }, // Copy full card object to preserve oracle text, type line, etc.
+            ...(genericCostTax > 0 ? { externalCostTax: genericCostTax } : {}),
+            ...(staticCostTax.messages.length > 0 ? { externalCostTaxMessages: staticCostTax.messages } : {}),
+            costReduction: costReduction.messages.length > 0 ? costReduction : undefined,
             forcedAlternateCostId: alternateCostId,
             castWithoutPayingManaCost: alternateCostId === 'free' || (cardInHand as any).castWithoutPayingManaCost === true,
             bypassExilePermissionCheck,
@@ -8209,9 +8391,12 @@ export function registerGameActions(io: Server, socket: Socket) {
       const costReduction = castSourceZone === 'command'
         ? createEmptyCostReduction()
         : calculateCostReduction(game, playerId, cardInHand, false);
+      const genericCostTax = castSourceZone === 'command'
+        ? 0
+        : calculateStaticSourceGenericTax(game, playerId, cardInHand).generic;
       
       // Apply cost reduction
-      const reducedCost = applyCostReduction(parsedCost, costReduction);
+      const reducedCost = applyCostReduction(parsedCost, costReduction, genericCostTax);
       
       // Log cost reduction if any
       if (costReduction.messages.length > 0) {

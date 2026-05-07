@@ -96,6 +96,35 @@ describe('canCastAnySpell', () => {
     expect(canCastAnySpell(ctx, 'p1' as PlayerID)).toBe(true);
   });
 
+  it('should return true when the active plane reduces a red hand spell by a colored mana symbol', () => {
+    const ctx = createTestContext({
+      activePlane: {
+        id: 'feeding_grounds_plane',
+        name: 'Feeding Grounds',
+        oracle_text: 'Red spells cost {R} less to cast. Green spells cost {G} less to cast.',
+      },
+      zones: {
+        p1: {
+          hand: [
+            {
+              id: 'lightning_bolt',
+              name: 'Lightning Bolt',
+              type_line: 'Instant',
+              mana_cost: '{R}',
+              oracle_text: 'Lightning Bolt deals 3 damage to any target.',
+            },
+          ],
+        },
+      },
+      manaPool: {
+        p1: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+      },
+      stack: [],
+    });
+
+    expect(canCastAnySpell(ctx, 'p1' as PlayerID)).toBe(true);
+  });
+
   it('should return true when hand has flash creature with available mana', () => {
     const ctx = createTestContext({
       zones: {
@@ -1951,6 +1980,39 @@ describe('canRespond', () => {
     expect(canRespond(ctx, 'p1' as PlayerID)).toBe(false);
   });
 
+  it('should return false when an ongoing scheme taxes the only castable instant', () => {
+    const ctx = createTestContext({
+      zones: {
+        p1: {
+          hand: [
+            {
+              id: 'opt_1',
+              name: 'Opt',
+              type_line: 'Instant',
+              mana_cost: '{U}',
+              oracle_text: 'Scry 1. Draw a card.',
+            },
+          ],
+        },
+      },
+      activeSchemes: [
+        {
+          id: 'my_genius_scheme',
+          controller: 'p2',
+          name: 'My Genius Knows No Bounds',
+          oracle_text: "(An ongoing scheme remains face up until it's abandoned.)\nSpells cost {1} more to cast.\nAt the beginning of each end step, if four or more spells were cast this turn, abandon this scheme.",
+        },
+      ],
+      battlefield: [],
+      manaPool: {
+        p1: { white: 0, blue: 1, black: 0, red: 0, green: 0, colorless: 0 },
+      },
+      stack: [],
+    });
+
+    expect(canRespond(ctx, 'p1' as PlayerID)).toBe(false);
+  });
+
   it('should return true when player has free spell via alternate cost', () => {
     const ctx = createTestContext({
       zones: {
@@ -2039,6 +2101,36 @@ describe('canRespond', () => {
       },
     });
     
+    expect(canRespond(ctx, 'p1' as PlayerID)).toBe(true);
+  });
+
+  it('surfaces graveyard instants that the active plane grants flashback', () => {
+    const ctx = createTestContext({
+      activePlane: {
+        id: 'otaria_plane',
+        name: 'Otaria',
+        oracle_text: "Instant and sorcery cards in graveyards have flashback. The flashback cost is equal to the card's mana cost.",
+      },
+      zones: {
+        p1: {
+          hand: [],
+          graveyard: [
+            {
+              id: 'opt_1',
+              name: 'Opt',
+              type_line: 'Instant',
+              mana_cost: '{U}',
+              oracle_text: 'Scry 1. Draw a card.',
+            },
+          ],
+        },
+      },
+      battlefield: [],
+      manaPool: {
+        p1: { white: 0, blue: 1, black: 0, red: 0, green: 0, colorless: 0 },
+      },
+    });
+
     expect(canRespond(ctx, 'p1' as PlayerID)).toBe(true);
   });
 
@@ -2719,6 +2811,113 @@ describe('canAct', () => {
           inCommandZone: ['cmd_red'],
           taxById: {
             cmd_red: 0,
+          },
+        },
+      },
+      manaPool: {
+        p1: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+      },
+      step: 'MAIN1',
+      turnPlayer: 'p1',
+      priority: 'p1',
+      stack: [],
+    });
+
+    expect(canAct(ctx, 'p1' as PlayerID)).toBe(true);
+  });
+
+  it('should return true when the active plane is the only source of a shared command-zone cost adjustment', () => {
+    const ctx = createTestContext({
+      activePlane: {
+        id: 'turri_island_plane',
+        name: 'Turri Island',
+        oracle_text: 'Creature spells cost {2} less to cast.',
+      },
+      zones: {
+        p1: {
+          hand: [],
+          graveyard: [],
+          exile: [],
+          handCount: 0,
+          graveyardCount: 0,
+          exileCount: 0,
+        },
+      },
+      battlefield: [
+        {
+          id: 'mountain_1',
+          controller: 'p1',
+          tapped: false,
+          card: {
+            name: 'Mountain',
+            type_line: 'Basic Land — Mountain',
+            oracle_text: '{T}: Add {R}.',
+          },
+        },
+      ],
+      commandZone: {
+        p1: {
+          commanderIds: ['cmd_red_creature'],
+          commanderCards: [
+            {
+              id: 'cmd_red_creature',
+              name: 'Plane Discount Commander',
+              type_line: 'Legendary Creature — Warrior',
+              mana_cost: '{2}{R}',
+              oracle_text: '',
+            },
+          ],
+          inCommandZone: ['cmd_red_creature'],
+          taxById: {
+            cmd_red_creature: 0,
+          },
+        },
+      },
+      manaPool: {
+        p1: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+      },
+      step: 'MAIN1',
+      turnPlayer: 'p1',
+      priority: 'p1',
+      stack: [],
+    });
+
+    expect(canAct(ctx, 'p1' as PlayerID)).toBe(true);
+  });
+
+  it('should return true when the active plane reduces a red commander by a colored mana symbol', () => {
+    const ctx = createTestContext({
+      activePlane: {
+        id: 'feeding_grounds_plane',
+        name: 'Feeding Grounds',
+        oracle_text: 'Red spells cost {R} less to cast. Green spells cost {G} less to cast.',
+      },
+      zones: {
+        p1: {
+          hand: [],
+          graveyard: [],
+          exile: [],
+          handCount: 0,
+          graveyardCount: 0,
+          exileCount: 0,
+        },
+      },
+      battlefield: [],
+      commandZone: {
+        p1: {
+          commanderIds: ['cmd_red_one_drop'],
+          commanderCards: [
+            {
+              id: 'cmd_red_one_drop',
+              name: 'One-Drop Commander',
+              type_line: 'Legendary Creature — Goblin',
+              mana_cost: '{R}',
+              oracle_text: '',
+            },
+          ],
+          inCommandZone: ['cmd_red_one_drop'],
+          taxById: {
+            cmd_red_one_drop: 0,
           },
         },
       },

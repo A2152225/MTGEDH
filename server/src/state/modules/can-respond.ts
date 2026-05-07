@@ -22,6 +22,8 @@ import { hasValidTargetsForSpell } from "../../rules-engine/target-availability.
 import { calculateMaxLandsPerTurn, canCastFromTop, canPlayLandsFromTop, getActiveAbilityConditions } from "./game-state-effects";
 import { getGrantedCastFromGraveyardKeywordInfo, getGrantedEmbalmInfo, getGrantedFlashbackInfo, getGrantedUnearthInfo, getPrintedUnearthInfo } from "./graveyard-permissions";
 import { detectActivatedAbilityConditionRequirement } from "./activated-ability-conditions";
+import { applyCostAdjustmentToParsedCost, buildCostAdjustmentPlan, getCostAdjustmentForCard as getSharedCostAdjustmentForCard, type CostAdjustmentPlan } from "./cost-adjustments";
+import { collectStaticEffectSources } from "./static-effect-sources";
 import { creatureHasHaste } from "../../socket/game-actions.js";
 import { debug, debugWarn, debugError } from "../../utils/debug.js";
 import { cardManaValue } from "../utils";
@@ -243,11 +245,9 @@ export function getCommandZoneCommanderCandidates(
 
       const parsedCost = parseManaCost(manaCost);
       const commanderTax = Number((commandZone as any).taxById?.[commanderId] ?? (commandZone as any).taxById?.[commanderKey] ?? 0) || 0;
-      const costAdjustment = getCostAdjustmentForCard(state, playerId, commander);
-      const adjustedCost = {
-        ...parsedCost,
-        generic: parsedCost.generic + commanderTax + costAdjustment,
-      };
+      const costAdjustmentPlan = buildCostAdjustmentPlan(state, playerId, commander);
+      const costAdjustment = costAdjustmentPlan.totalAdjustment;
+      const adjustedCost = applyCostAdjustmentToParsedCost(parsedCost, costAdjustmentPlan, commanderTax);
       const canPayCost = canPayManaCostWithAvailableSources(state, playerId, adjustedCost);
 
       const typeLine = String(commander?.type_line || commander?.typeLine || '').toLowerCase();
@@ -372,27 +372,13 @@ function isPlayersTurnForPermission(state: any, playerId: PlayerID): boolean {
 }
 
 function getGraveyardPermissionTextSources(state: any, playerId: PlayerID): Array<{ oracleText: string; typeLine: string; counters?: any }> {
-  const sources: Array<{ oracleText: string; typeLine: string; counters?: any }> = [];
-  const battlefield = Array.isArray(state?.battlefield) ? state.battlefield : [];
-  for (const permanent of battlefield) {
-    if (!permanent || permanent.controller !== playerId) continue;
-    sources.push({
-      oracleText: String(permanent.card?.oracle_text || permanent.card?.oracleText || ''),
-      typeLine: normalizeRuleText(permanent.card?.type_line || permanent.card?.typeLine || ''),
-      counters: (permanent as any)?.counters,
-    });
-  }
-
-  const emblems = Array.isArray(state?.emblems) ? state.emblems : [];
-  for (const emblem of emblems) {
-    if (!emblem || String(emblem.controller || '') !== String(playerId || '')) continue;
-    sources.push({
-      oracleText: String(emblem.effect || emblem.text || emblem.oracle_text || ''),
-      typeLine: '',
-    });
-  }
-
-  return sources;
+  return collectStaticEffectSources(state)
+    .filter((source) => !source.phasedOut && (source.affectsAllPlayers || source.controller === String(playerId || '')))
+    .map((source) => ({
+      oracleText: String(source.oracleText || ''),
+      typeLine: normalizeRuleText(source.typeLine || ''),
+      ...(source.counters ? { counters: source.counters } : {}),
+    }));
 }
 
 function isHistoricCard(card: any): boolean {
@@ -891,8 +877,8 @@ export function getCastableSpellCandidates(
         }
 
         const parsedCost = parseManaCost(manaCost);
-        const costAdjustment = getCostAdjustmentForCard(state, playerId, castCard);
-        const adjustedCost = applyCostAdjustment(parsedCost, costAdjustment);
+        const costAdjustmentPlan = buildCostAdjustmentPlan(state, playerId, castCard);
+        const adjustedCost = applyCostAdjustmentToParsedCost(parsedCost, costAdjustmentPlan);
 
         if (canPayManaCostWithAvailableSources(state, playerId, adjustedCost, Infinity, manaPaymentOptions)) {
           candidates.push({
@@ -1119,199 +1105,8 @@ export function isCardPlayableFromExile(playableCards: any, cardId: string, curr
 // Target checks are centralized in server/rules-engine/target-availability.ts
 
 /**
- * Determine total cost adjustment (reductions/taxes) that apply to a spell.
- * Currently handles common red cost reducers (Fire Crystal, Hazoret's Monument,
- * Ruby Medallion) and Aura of Silence style taxes.
- */
-function getCostAdjustmentSources(state: any): Array<{ name: string; oracleText: string; controller: string }> {
-  const sources: Array<{ name: string; oracleText: string; controller: string }> = [];
-
-  const battlefield = Array.isArray(state?.battlefield) ? state.battlefield : [];
-  for (const perm of battlefield) {
-    if (!perm?.card) continue;
-
-    sources.push({
-      name: String(perm.card.name || 'Unknown'),
-      oracleText: String(perm.card.oracle_text || ''),
-      controller: String(perm.controller || ''),
-    });
-  }
-
-  const emblems = Array.isArray((state as any)?.emblems) ? (state as any).emblems : [];
-  for (const emblem of emblems) {
-    if (!emblem) continue;
-
-    sources.push({
-      name: String(emblem.sourceName || emblem.name || 'Emblem'),
-      oracleText: String(emblem.effect || emblem.text || emblem.oracle_text || ''),
-      controller: String(emblem.controller || ''),
-    });
-  }
-
-  return sources;
-}
-
 export function getCostAdjustmentForCard(state: any, playerId: PlayerID, card: any): number {
-  if (!card) return 0;
-  
-  const typeLine = (card.type_line || "").toLowerCase();
-  const oracleText = (card.oracle_text || "").toLowerCase();
-  const manaCostRaw = card.mana_cost || "";
-  const colors = (card.colors || card.color_identity || []).map((c: string) => c.toUpperCase());
-  const isWhiteSpell = /{W}/i.test(manaCostRaw) || colors.includes("W");
-  const isBlueSpell = /{U}/i.test(manaCostRaw) || colors.includes("U");
-  const isBlackSpell = /{B}/i.test(manaCostRaw) || colors.includes("B");
-  const isRedSpell = /{R}/i.test(manaCostRaw) || colors.includes("R");
-  const isGreenSpell = /{G}/i.test(manaCostRaw) || colors.includes("G");
-  const isCreatureSpell = typeLine.includes("creature");
-  const isArtifactOrEnchantment = typeLine.includes("artifact") || typeLine.includes("enchantment");
-  
-  const redCostReducers = [
-    { nameMatch: "fire crystal", textMatch: "red spells you cast cost {1} less", applies: (creature: boolean) => true },
-    { nameMatch: "ruby medallion", textMatch: "red spells you cast cost {1} less", applies: (creature: boolean) => true },
-    { nameMatch: "hazoret's monument", textMatch: "red creature spells you cast cost {1} less", applies: (creature: boolean) => creature },
-  ];
-  
-  const monumentCostReducers = [
-    { nameMatch: "oketra's monument", textMatch: "white creature spells you cast cost {1} less", colorCheck: isWhiteSpell },
-    { nameMatch: "bontu's monument", textMatch: "black creature spells you cast cost {1} less", colorCheck: isBlackSpell },
-    { nameMatch: "hazoret's monument", textMatch: "red creature spells you cast cost {1} less", colorCheck: isRedSpell },
-    { nameMatch: "kefnet's monument", textMatch: "blue creature spells you cast cost {1} less", colorCheck: isBlueSpell },
-    { nameMatch: "rhonas's monument", textMatch: "green creature spells you cast cost {1} less", colorCheck: isGreenSpell },
-  ];
-  
-  const taxEffects = [
-    { nameMatch: "aura of silence", textMatch: "artifact and enchantment spells your opponents cast cost {2} more", applies: (isAE: boolean) => isAE, amount: 2 },
-  ];
-  
-  let adjustment = 0; // negative = reduction, positive = increase
-  const costSources = getCostAdjustmentSources(state);
-  
-  for (const source of costSources) {
-    const permName = source.name.toLowerCase();
-    const permOracle = source.oracleText.toLowerCase();
-    const sameController = source.controller === String(playerId);
-    
-    // DYNAMIC COST REDUCTION PARSING
-    // Pattern: "[TYPE] spells you cast cost {N} less" or "spells you cast cost {N} less"
-    if (sameController && permOracle.includes("spells you cast cost") && permOracle.includes("less")) {
-      const costReductionMatch = permOracle.match(/(?:(white|blue|black|red|green|colorless|artifact|enchantment|noncreature|creature|instant|sorcery)\s+)?(?:(creature|artifact|enchantment)\s+)?spells you cast cost \{(\d+)\} less/i);
-      
-      if (costReductionMatch) {
-        const colorOrType1 = costReductionMatch[1]?.toLowerCase();
-        const type2 = costReductionMatch[2]?.toLowerCase();
-        const reductionAmount = parseInt(costReductionMatch[3], 10) || 1;
-        
-        // Determine if this reduction applies to the current spell
-        let applies = true;
-        
-        // Check color restrictions
-        if (colorOrType1 === 'white' && !isWhiteSpell) applies = false;
-        if (colorOrType1 === 'blue' && !isBlueSpell) applies = false;
-        if (colorOrType1 === 'black' && !isBlackSpell) applies = false;
-        if (colorOrType1 === 'red' && !isRedSpell) applies = false;
-        if (colorOrType1 === 'green' && !isGreenSpell) applies = false;
-        
-        // Check type restrictions
-        if (colorOrType1 === 'creature' || type2 === 'creature') {
-          if (!isCreatureSpell) applies = false;
-        }
-        if (colorOrType1 === 'noncreature') {
-          if (isCreatureSpell) applies = false;
-        }
-        if (colorOrType1 === 'artifact' || type2 === 'artifact') {
-          if (!typeLine.includes('artifact')) applies = false;
-        }
-        if (colorOrType1 === 'enchantment' || type2 === 'enchantment') {
-          if (!typeLine.includes('enchantment')) applies = false;
-        }
-        if (colorOrType1 === 'instant' || colorOrType1 === 'sorcery') {
-          if (!typeLine.includes('instant') && !typeLine.includes('sorcery')) applies = false;
-        }
-        
-        if (applies) {
-          adjustment -= reductionAmount;
-        }
-      }
-    }
-    
-    // LEGACY TABLE-BASED CHECKING (for backwards compatibility, will be removed in future refactor)
-    // Cost reducers for red spells
-    if (sameController && isRedSpell) {
-      for (const reducer of redCostReducers) {
-        if ((reducer.applies(isCreatureSpell)) &&
-            permName.includes(reducer.nameMatch)) {
-          // Skip if already handled by dynamic parsing
-          if (!permOracle.includes("spells you cast cost") || !permOracle.includes("less")) {
-            adjustment -= 1;
-          }
-        }
-      }
-    }
-    
-    // Monument cost reducers - DEPRECATED, now handled by dynamic parsing above
-    // Kept for backwards compatibility
-    if (sameController && isCreatureSpell) {
-      for (const monument of monumentCostReducers) {
-        if (monument.colorCheck && permName.includes(monument.nameMatch)) {
-          // Skip if already handled by dynamic parsing
-          if (!permOracle.includes("spells you cast cost") || !permOracle.includes("less")) {
-            adjustment -= 1;
-          }
-        }
-      }
-    }
-    
-    // Taxes from opponents (Aura of Silence)
-    if (!sameController && isArtifactOrEnchantment) {
-      for (const tax of taxEffects) {
-        if (tax.applies(isArtifactOrEnchantment) &&
-            (permName.includes(tax.nameMatch) || permOracle.includes(tax.textMatch))) {
-          adjustment += tax.amount;
-        }
-      }
-    }
-  }
-  
-  return adjustment;
-}
-
-/**
- * Apply a generic cost adjustment (positive = tax, negative = reduction) to a parsed cost.
- * Reductions lower generic first, then try to reduce red requirements to handle medallion-style effects.
- */
-function applyCostAdjustment(
-  parsedCost: { colors: Record<string, number>; generic: number; hasX: boolean },
-  adjustment: number
-): { colors: Record<string, number>; generic: number; hasX: boolean } {
-  if (!adjustment) return parsedCost;
-  
-  const result = {
-    colors: { ...parsedCost.colors },
-    generic: parsedCost.generic,
-    hasX: parsedCost.hasX,
-  };
-  
-  if (adjustment > 0) {
-    // Taxes add to generic
-    result.generic += adjustment;
-    return result;
-  }
-  
-  // Reductions: consume generic first, then red pips if any
-  let remainingReduction = Math.abs(adjustment);
-  
-  const genericReduction = Math.min(result.generic, remainingReduction);
-  result.generic -= genericReduction;
-  remainingReduction -= genericReduction;
-  
-  if (remainingReduction > 0) {
-    const redAvailable = result.colors.R || 0;
-    const redReduction = Math.min(redAvailable, remainingReduction);
-    result.colors.R = redAvailable - redReduction;
-  }
-  
-  return result;
+  return getSharedCostAdjustmentForCard(state, playerId, card);
 }
 
 /**
@@ -1334,136 +1129,28 @@ export function getCostAdjustmentInfo(state: any, playerId: string, card: any): 
   
   const typeLine = (card.type_line || "").toLowerCase();
   const manaCostRaw = card.mana_cost || "";
-  const colors = (card.colors || card.color_identity || []).map((c: string) => c.toUpperCase());
-  const isWhiteSpell = /{W}/i.test(manaCostRaw) || colors.includes("W");
-  const isBlueSpell = /{U}/i.test(manaCostRaw) || colors.includes("U");
-  const isBlackSpell = /{B}/i.test(manaCostRaw) || colors.includes("B");
-  const isRedSpell = /{R}/i.test(manaCostRaw) || colors.includes("R");
-  const isGreenSpell = /{G}/i.test(manaCostRaw) || colors.includes("G");
-  const isCreatureSpell = typeLine.includes("creature");
-  const isArtifactOrEnchantment = typeLine.includes("artifact") || typeLine.includes("enchantment");
   
   // Skip lands - they don't have mana costs
   if (typeLine.includes("land")) return null;
-  
-  const sources: Array<{ name: string; amount: number }> = [];
-  let totalAdjustment = 0;
-  
-  // Cost reducers table
-  const redCostReducers = [
-    { nameMatch: "fire crystal", displayName: "Fire Crystal", textMatch: "red spells you cast cost {1} less", applies: () => true, amount: -1 },
-    { nameMatch: "ruby medallion", displayName: "Ruby Medallion", textMatch: "red spells you cast cost {1} less", applies: () => true, amount: -1 },
-    { nameMatch: "hazoret's monument", displayName: "Hazoret's Monument", textMatch: "red creature spells you cast cost {1} less", applies: () => isCreatureSpell, amount: -1 },
-  ];
-  
-  // Monument cost reducers (one for each color)
-  const monumentCostReducers = [
-    { nameMatch: "oketra's monument", displayName: "Oketra's Monument", textMatch: "white creature spells you cast cost {1} less", applies: () => isCreatureSpell && isWhiteSpell, amount: -1 },
-    { nameMatch: "bontu's monument", displayName: "Bontu's Monument", textMatch: "black creature spells you cast cost {1} less", applies: () => isCreatureSpell && isBlackSpell, amount: -1 },
-    { nameMatch: "hazoret's monument", displayName: "Hazoret's Monument", textMatch: "red creature spells you cast cost {1} less", applies: () => isCreatureSpell && isRedSpell, amount: -1 },
-    { nameMatch: "kefnet's monument", displayName: "Kefnet's Monument", textMatch: "blue creature spells you cast cost {1} less", applies: () => isCreatureSpell && isBlueSpell, amount: -1 },
-    { nameMatch: "rhonas's monument", displayName: "Rhonas's Monument", textMatch: "green creature spells you cast cost {1} less", applies: () => isCreatureSpell && isGreenSpell, amount: -1 },
-  ];
-  
-  // Tax effects table - DEPRECATED, will be replaced by dynamic parsing
-  const taxEffects = [
-    { nameMatch: "aura of silence", displayName: "Aura of Silence", textMatch: "artifact and enchantment spells your opponents cast cost {2} more", applies: () => isArtifactOrEnchantment, amount: 2 },
-    { nameMatch: "sphere of resistance", displayName: "Sphere of Resistance", textMatch: "spells cost {1} more to cast", applies: () => true, amount: 1 },
-    { nameMatch: "thorn of amethyst", displayName: "Thorn of Amethyst", textMatch: "noncreature spells cost {1} more to cast", applies: () => !isCreatureSpell, amount: 1 },
-    { nameMatch: "thalia, guardian of thraben", displayName: "Thalia, Guardian of Thraben", textMatch: "noncreature spells cost {1} more to cast", applies: () => !isCreatureSpell, amount: 1 },
-    { nameMatch: "vryn wingmare", displayName: "Vryn Wingmare", textMatch: "noncreature spells cost {1} more to cast", applies: () => !isCreatureSpell, amount: 1 },
-    { nameMatch: "lodestone golem", displayName: "Lodestone Golem", textMatch: "nonartifact spells cost {1} more to cast", applies: () => !typeLine.includes("artifact"), amount: 1 },
-  ];
-
-  const costSources = getCostAdjustmentSources(state);
-  
-  for (const source of costSources) {
-    const permName = source.name.toLowerCase();
-    const permOracle = source.oracleText.toLowerCase();
-    const sameController = source.controller === String(playerId);
-    
-    // DYNAMIC COST REDUCTION PARSING (for your permanents)
-    if (sameController && permOracle.includes("spells you cast cost") && permOracle.includes("less")) {
-      const costReductionMatch = permOracle.match(/(?:(white|blue|black|red|green|colorless|artifact|enchantment|noncreature|creature|instant|sorcery)\s+)?(?:(creature|artifact|enchantment)\s+)?spells you cast cost \{(\d+)\} less/i);
-      
-      if (costReductionMatch) {
-        const colorOrType1 = costReductionMatch[1]?.toLowerCase();
-        const type2 = costReductionMatch[2]?.toLowerCase();
-        const reductionAmount = parseInt(costReductionMatch[3], 10) || 1;
-        
-        // Determine if this reduction applies
-        let applies = true;
-        
-        if (colorOrType1 === 'white' && !isWhiteSpell) applies = false;
-        if (colorOrType1 === 'blue' && !isBlueSpell) applies = false;
-        if (colorOrType1 === 'black' && !isBlackSpell) applies = false;
-        if (colorOrType1 === 'red' && !isRedSpell) applies = false;
-        if (colorOrType1 === 'green' && !isGreenSpell) applies = false;
-        if (colorOrType1 === 'creature' || type2 === 'creature') {
-          if (!isCreatureSpell) applies = false;
-        }
-        if (colorOrType1 === 'noncreature') {
-          if (isCreatureSpell) applies = false;
-        }
-        if (colorOrType1 === 'artifact' || type2 === 'artifact') {
-          if (!typeLine.includes('artifact')) applies = false;
-        }
-        if (colorOrType1 === 'enchantment' || type2 === 'enchantment') {
-          if (!typeLine.includes('enchantment')) applies = false;
-        }
-        
-        if (applies) {
-          const cardDisplayName = source.name || 'Unknown';
-          sources.push({ name: cardDisplayName, amount: -reductionAmount });
-          totalAdjustment -= reductionAmount;
-        }
-      }
-    }
-    
-    // DYNAMIC TAX PARSING (for opponent permanents)
-    if (!sameController && permOracle.includes("spells") && permOracle.includes("cost") && permOracle.includes("more")) {
-      // Pattern: "spells cost {N} more" or "[TYPE] spells...cost {N} more"
-      const taxMatch = permOracle.match(/(?:(artifact|enchantment|noncreature|nonartifact)\s+(?:and\s+\w+\s+)?)?spells(?: your opponents cast| opponents cast)? cost \{(\d+)\} more/i);
-      
-      if (taxMatch) {
-        const typeRestriction = taxMatch[1]?.toLowerCase();
-        const taxAmount = parseInt(taxMatch[2], 10) || 1;
-        
-        let applies = true;
-        
-        if (typeRestriction === 'artifact' && !typeLine.includes('artifact')) applies = false;
-        if (typeRestriction === 'enchantment' && !typeLine.includes('enchantment')) applies = false;
-        if (typeRestriction === 'noncreature' && isCreatureSpell) applies = false;
-        if (typeRestriction === 'nonartifact' && typeLine.includes('artifact')) applies = false;
-        // "artifact and enchantment" case
-        if (permOracle.includes('artifact and enchantment') && !isArtifactOrEnchantment) applies = false;
-        
-        if (applies) {
-          const cardDisplayName = source.name || 'Unknown';
-          sources.push({ name: cardDisplayName, amount: taxAmount });
-          totalAdjustment += taxAmount;
-        }
-      }
-    }
-  }
+  const adjustmentPlan = buildCostAdjustmentPlan(state, playerId, card);
   
   // Only return info if there's an adjustment
-  if (sources.length === 0) return null;
+  if (adjustmentPlan.sources.length === 0) return null;
   
   // Calculate adjusted mana cost string
   const parsed = parseManaCost(manaCostRaw);
-  const adjustedGeneric = Math.max(0, parsed.generic + totalAdjustment);
+  const adjusted = applyCostAdjustmentToParsedCost(parsed, adjustmentPlan);
   
   // Reconstruct adjusted cost string
   let adjustedCostParts: string[] = [];
   // Only add generic mana component if:
   // 1. The original cost had generic mana (parsed.generic > 0), OR
   // 2. There's an adjustment that would add generic mana (adjusted > 0)
-  if (adjustedGeneric > 0 || parsed.generic > 0) {
-    adjustedCostParts.push(`{${adjustedGeneric}}`);
+  if (adjusted.generic > 0 || parsed.generic > 0) {
+    adjustedCostParts.push(`{${adjusted.generic}}`);
   }
   // Add color requirements
-  for (const [color, count] of Object.entries(parsed.colors)) {
+  for (const [color, count] of Object.entries(adjusted.colors)) {
     for (let i = 0; i < (count as number); i++) {
       adjustedCostParts.push(`{${color}}`);
     }
@@ -1476,9 +1163,9 @@ export function getCostAdjustmentInfo(state: any, playerId: string, card: any): 
   return {
     originalCost: manaCostRaw,
     adjustedCost: adjustedCost || manaCostRaw,
-    adjustment: totalAdjustment,
-    genericAdjustment: totalAdjustment,
-    sources,
+    adjustment: adjustmentPlan.totalAdjustment,
+    genericAdjustment: adjustmentPlan.genericAdjustment,
+    sources: adjustmentPlan.sources,
   };
 }
 

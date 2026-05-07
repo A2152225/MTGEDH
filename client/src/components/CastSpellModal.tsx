@@ -27,6 +27,18 @@ export interface AlternateCost {
   isDefault?: boolean;
 }
 
+export interface DisplayedCostAdjustment {
+  originalManaCost: string;
+  adjustedManaCost: string;
+  genericReduction: number;
+  coloredReductions: Record<string, number>;
+  genericTax: number;
+  reductionMessages: string[];
+  taxMessages: string[];
+  sources: Array<{ kind: 'increase' | 'reduction'; message: string }>;
+  kind: 'increase' | 'reduction' | 'mixed';
+}
+
 /**
  * Parse alternate costs from card oracle text
  */
@@ -422,6 +434,78 @@ function parseAlternateCosts(oracleText: string, cardManaCost: string, cardName:
   return costs;
 }
 
+function applyDisplayedCostAdjustment(
+  manaCost: string,
+  costAdjustment?: DisplayedCostAdjustment,
+): string {
+  if (!costAdjustment || !manaCost) return manaCost;
+
+  const parsed = parseManaCost(manaCost);
+  let newGeneric = Math.max(
+    0,
+    parsed.generic
+      + Math.max(0, Number(costAdjustment.genericTax || 0))
+      - Math.max(0, Number(costAdjustment.genericReduction || 0)),
+  );
+  const newColors = { ...parsed.colors };
+
+  const colorNameToSymbol: Record<string, Color> = {
+    white: 'W',
+    blue: 'U',
+    black: 'B',
+    red: 'R',
+    green: 'G',
+    colorless: 'C',
+    W: 'W',
+    U: 'U',
+    B: 'B',
+    R: 'R',
+    G: 'G',
+    C: 'C',
+  };
+
+  for (const colorKey of Object.keys(costAdjustment.coloredReductions || {})) {
+    const color = colorNameToSymbol[colorKey];
+    if (!color) continue;
+    if (!newColors[color]) continue;
+
+    const reduction = costAdjustment.coloredReductions[colorKey];
+    newColors[color] = Math.max(0, newColors[color] - reduction);
+  }
+
+  const parts: string[] = [];
+  if (newGeneric > 0) parts.push(`{${newGeneric}}`);
+  if (newColors.W) parts.push('{W}'.repeat(newColors.W));
+  if (newColors.U) parts.push('{U}'.repeat(newColors.U));
+  if (newColors.B) parts.push('{B}'.repeat(newColors.B));
+  if (newColors.R) parts.push('{R}'.repeat(newColors.R));
+  if (newColors.G) parts.push('{G}'.repeat(newColors.G));
+  if (newColors.C) parts.push('{C}'.repeat(newColors.C));
+
+  return parts.length > 0 ? parts.join('') : '{0}';
+}
+
+export function resolveEffectiveManaCostForCastStep(options: {
+  selectedManaCost?: string;
+  queuedManaCost?: string;
+  selectedCostId: string;
+  forcedAlternateCostId?: string;
+  costAdjustment?: DisplayedCostAdjustment;
+}): string {
+  const selectedManaCost = options.selectedManaCost || options.queuedManaCost || options.costAdjustment?.adjustedManaCost || '';
+  if (!selectedManaCost) return selectedManaCost;
+
+  const usesServerResolvedPaymentLine =
+    options.selectedCostId === 'normal'
+    || (Boolean(options.forcedAlternateCostId) && options.selectedCostId === options.forcedAlternateCostId);
+
+  if (usesServerResolvedPaymentLine) {
+    return options.queuedManaCost || options.costAdjustment?.adjustedManaCost || selectedManaCost;
+  }
+
+  return applyDisplayedCostAdjustment(selectedManaCost, options.costAdjustment);
+}
+
 interface CastSpellModalProps {
   open: boolean;
   cardName: string;
@@ -438,11 +522,7 @@ interface CastSpellModalProps {
   confirmLabel?: string;
   manualFloatingManaSelection?: boolean;
   initialXValue?: number;
-  costReduction?: {
-    generic: number;
-    colors: Record<string, number>;
-    messages: string[];
-  };
+  costAdjustment?: DisplayedCostAdjustment;
   convokeOptions?: {
     availableCreatures: Array<{
       id: string;
@@ -472,7 +552,7 @@ export function CastSpellModal({
   confirmLabel,
   manualFloatingManaSelection = false,
   initialXValue,
-  costReduction,
+  costAdjustment,
   convokeOptions,
   onConfirm,
   onCancel,
@@ -533,44 +613,14 @@ export function CastSpellModal({
   // Calculate the reduced mana cost for the currently selected casting cost.
   const effectiveManaCost = useMemo(() => {
     const selectedManaCost = currentCost?.manaCost || manaCost;
-    if (!costReduction || !selectedManaCost) return selectedManaCost;
-    
-    // Parse the selected cost
-    const parsed = parseManaCost(selectedManaCost);
-    
-    // Apply reductions
-    let newGeneric = Math.max(0, parsed.generic - costReduction.generic);
-    const newColors = { ...parsed.colors };
-    
-    // Map from full color names to single-letter symbols (identity mappings handle already-normalized input)
-    const colorNameToSymbol: Record<string, Color> = {
-      'white': 'W', 'blue': 'U', 'black': 'B', 'red': 'R', 'green': 'G', 'colorless': 'C',
-      'W': 'W', 'U': 'U', 'B': 'B', 'R': 'R', 'G': 'G', 'C': 'C'
-    };
-    
-    for (const colorKey of Object.keys(costReduction.colors)) {
-      // Convert to standard symbol (handles both 'white' and 'W' style keys)
-      const color = colorNameToSymbol[colorKey];
-      if (!color) continue;
-      
-      if (newColors[color]) {
-        const reduction = costReduction.colors[colorKey];
-        newColors[color] = Math.max(0, newColors[color] - reduction);
-      }
-    }
-    
-    // Reconstruct mana cost string
-    const parts: string[] = [];
-    if (newGeneric > 0) parts.push(`{${newGeneric}}`);
-    if (newColors.W) parts.push('{W}'.repeat(newColors.W));
-    if (newColors.U) parts.push('{U}'.repeat(newColors.U));
-    if (newColors.B) parts.push('{B}'.repeat(newColors.B));
-    if (newColors.R) parts.push('{R}'.repeat(newColors.R));
-    if (newColors.G) parts.push('{G}'.repeat(newColors.G));
-    if (newColors.C) parts.push('{C}'.repeat(newColors.C));
-    
-    return parts.length > 0 ? parts.join('') : '{0}';
-  }, [currentCost, manaCost, costReduction]);
+    return resolveEffectiveManaCostForCastStep({
+      selectedManaCost,
+      queuedManaCost: manaCost,
+      selectedCostId,
+      forcedAlternateCostId,
+      costAdjustment,
+    });
+  }, [currentCost, manaCost, selectedCostId, forcedAlternateCostId, costAdjustment]);
 
   const floatingPaymentSources = useMemo(() => {
     if (!manualFloatingManaSelection || !floatingMana) return [] as ManaPaymentSource[];
@@ -790,31 +840,73 @@ export function CastSpellModal({
           </div>
         )}
 
-        {/* Cost Reduction Display */}
-        {costReduction && costReduction.messages.length > 0 && (
+        {/* Cost Adjustment Display */}
+        {costAdjustment && costAdjustment.sources.length > 0 && (
           <div style={{
             marginBottom: 12,
             padding: 10,
-            backgroundColor: 'rgba(16, 185, 129, 0.1)',
+            backgroundColor: costAdjustment.kind === 'increase'
+              ? 'rgba(245, 158, 11, 0.1)'
+              : costAdjustment.kind === 'mixed'
+                ? 'rgba(59, 130, 246, 0.1)'
+                : 'rgba(16, 185, 129, 0.1)',
             borderRadius: 8,
-            border: '1px solid rgba(16, 185, 129, 0.3)',
+            border: costAdjustment.kind === 'increase'
+              ? '1px solid rgba(245, 158, 11, 0.3)'
+              : costAdjustment.kind === 'mixed'
+                ? '1px solid rgba(59, 130, 246, 0.3)'
+                : '1px solid rgba(16, 185, 129, 0.3)',
           }}>
-            <div style={{ fontSize: 12, fontWeight: 600, color: '#10b981', marginBottom: 4 }}>
-              💰 Cost Reductions:
+            <div style={{
+              fontSize: 12,
+              fontWeight: 600,
+              color: costAdjustment.kind === 'increase'
+                ? '#f59e0b'
+                : costAdjustment.kind === 'mixed'
+                  ? '#60a5fa'
+                  : '#10b981',
+              marginBottom: 4,
+            }}>
+              {costAdjustment.kind === 'increase'
+                ? 'Cost Increases:'
+                : costAdjustment.kind === 'mixed'
+                  ? 'Cost Adjustments:'
+                  : 'Cost Reductions:'}
             </div>
             {(() => {
-              const selectedManaCost = currentCost?.manaCost || manaCost;
+              const usesServerResolvedPaymentLine = selectedCostId === 'normal'
+                || (Boolean(forcedAlternateCostId) && selectedCostId === forcedAlternateCostId);
+              const selectedManaCost = usesServerResolvedPaymentLine
+                ? (costAdjustment.originalManaCost || currentCost?.manaCost || manaCost)
+                : (currentCost?.manaCost || manaCost);
               return selectedManaCost && effectiveManaCost !== selectedManaCost;
             })() && (
               <div style={{ fontSize: 13, marginBottom: 6 }}>
-                <span style={{ textDecoration: 'line-through', opacity: 0.5 }}>{currentCost?.manaCost || manaCost}</span>
+                <span style={{ textDecoration: 'line-through', opacity: 0.5 }}>
+                  {(() => {
+                    const usesServerResolvedPaymentLine = selectedCostId === 'normal'
+                      || (Boolean(forcedAlternateCostId) && selectedCostId === forcedAlternateCostId);
+                    return usesServerResolvedPaymentLine
+                      ? (costAdjustment.originalManaCost || currentCost?.manaCost || manaCost)
+                      : (currentCost?.manaCost || manaCost);
+                  })()}
+                </span>
                 {' → '}
-                <span style={{ fontWeight: 600, color: '#10b981' }}>{effectiveManaCost}</span>
+                <span style={{
+                  fontWeight: 600,
+                  color: costAdjustment.kind === 'increase'
+                    ? '#f59e0b'
+                    : costAdjustment.kind === 'mixed'
+                      ? '#60a5fa'
+                      : '#10b981',
+                }}>
+                  {effectiveManaCost}
+                </span>
               </div>
             )}
             <div style={{ fontSize: 11, color: '#888' }}>
-              {costReduction.messages.map((msg, i) => (
-                <div key={i}>• {msg}</div>
+              {costAdjustment.sources.map((source, i) => (
+                <div key={i}>• {source.message}</div>
               ))}
             </div>
           </div>
