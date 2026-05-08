@@ -6414,6 +6414,49 @@ export function pruneRedundantProliferateReminderUnknownAbilities(
   });
 }
 
+function parseRepeatedProliferateUnknownSteps(step: OracleEffectStep): readonly OracleEffectStep[] | null {
+  const normalized = normalizeUnknownStepText(step);
+  if (!normalized) return null;
+
+  const clause = normalized.replace(/^then\b\s*/i, '').trim();
+  const match = clause.match(/^proliferate\s+(twice|two\s+times|2\s+times)$/i);
+  if (!match) return null;
+
+  return [
+    {
+      kind: 'proliferate',
+      ...(step.sequence ? { sequence: step.sequence } : {}),
+      raw: normalized,
+    },
+    {
+      kind: 'proliferate',
+      ...(step.sequence ? { sequence: step.sequence } : {}),
+      raw: normalized,
+    },
+  ];
+}
+
+export function expandRepeatedProliferateUnknownAbilities(
+  abilities: readonly OracleIRAbility[]
+): OracleIRAbility[] {
+  return abilities.map((ability) => {
+    if (ability.type === AbilityType.STATIC || ability.type === AbilityType.REPLACEMENT) {
+      return ability;
+    }
+
+    let changed = false;
+    const steps = ability.steps.flatMap((step) => {
+      if (step.kind !== 'unknown') return [step];
+      const expanded = parseRepeatedProliferateUnknownSteps(step);
+      if (!expanded) return [step];
+      changed = true;
+      return [...expanded];
+    });
+
+    return changed ? { ...ability, steps } : ability;
+  });
+}
+
 function isRedundantClashReminderUnknownStep(step: OracleEffectStep): boolean {
     if (!step || step.kind !== 'unknown') return false;
 

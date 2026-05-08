@@ -144,6 +144,7 @@ import {
   lowerSelfEntryCounterReplacementAbilities,
   pruneRedundantSpellCantBeCounteredAbilities,
   pruneRedundantProliferateReminderUnknownAbilities,
+  expandRepeatedProliferateUnknownAbilities,
   pruneRedundantPhasingReminderUnknownAbilities,
   pruneRedundantClashReminderUnknownAbilities,
   expandFutureSpellEffectUnknownAbilities,
@@ -1527,6 +1528,7 @@ export function parseOracleTextToIR(oracleText: string, cardName?: string): Orac
   abilities = pruneRedundantTriggerRestrictionUnknownAbilities(abilities);
   abilities = pruneRedundantStillLandUnknownAbilities(abilities);
   abilities = pruneRedundantPhasingReminderUnknownAbilities(abilities);
+  abilities = expandRepeatedProliferateUnknownAbilities(abilities);
   abilities = pruneRedundantProliferateReminderUnknownAbilities(abilities);
   abilities = pruneRedundantLookTopReorderUnknownAbilities(abilities);
   abilities = mergeAddManaRestrictionFollowupAbilities(abilities);
@@ -1595,6 +1597,7 @@ export function parseOracleTextToIR(oracleText: string, cardName?: string): Orac
   abilities = annotateCounterMetadataAbilities(abilities);
   abilities = annotateSacrificeMetadataAbilities(abilities);
   abilities = pruneRedundantFaceDownReminderUnknownAbilities(abilities);
+  abilities = expandRepeatedProliferateUnknownAbilities(abilities);
   abilities = pruneRedundantProliferateReminderUnknownAbilities(abilities);
   abilities = pruneExternallyHandledStaticUnknownAbilities(abilities);
   abilities = repairSubjectlessDrawAfterZoneShuffleAbilities(abilities);

@@ -1457,6 +1457,27 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
     expect((ir.abilities[0].steps[1] as any).sequence).toBe('then');
   });
 
+  it('expands executable proliferate twice clauses into two proliferate steps', () => {
+    const ir = parseOracleTextToIR(
+      'Whenever Agent Frank Horrigan enters or attacks, proliferate twice. (To proliferate, choose any number of permanents and/or players, then give each another counter of each kind already there.)',
+      'Agent Frank Horrigan'
+    );
+
+    expect(ir.abilities).toHaveLength(1);
+    expect(ir.abilities[0].steps.map((step) => step.kind)).toEqual(['proliferate', 'proliferate']);
+    expect(ir.abilities[0].steps.some((step) => step.kind === 'unknown')).toBe(false);
+  });
+
+  it('does not execute replacement-effect proliferate twice text as immediate proliferate steps', () => {
+    const ir = parseOracleTextToIR(
+      'Flying\nIf you would proliferate, proliferate twice instead.',
+      'Tekuthal, Inquiry Dominus'
+    );
+    const replacementAbility = ir.abilities.find((ability) => /would proliferate/i.test(ability.text));
+
+    expect(replacementAbility?.steps.map((step) => step.kind)).not.toEqual(['proliferate', 'proliferate']);
+  });
+
   it('parses bare investigate keyword clauses into executable steps', () => {
     const ir = parseOracleTextToIR('Investigate.', 'Thraben Cluekeeper');
 

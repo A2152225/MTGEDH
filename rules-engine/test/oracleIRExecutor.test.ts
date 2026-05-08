@@ -19502,6 +19502,47 @@ describe('Oracle IR Executor', () => {
     expect(proliferated?.counters?.['+1/+1']).toBe(2);
   });
 
+  it('applies executable proliferate twice as two proliferate passes', () => {
+    const ir = parseOracleTextToIR(
+      'Whenever Agent Frank Horrigan enters or attacks, proliferate twice.',
+      'Agent Frank Horrigan'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+      battlefield: [
+        {
+          id: 'countered-permanent',
+          controller: 'p1',
+          owner: 'p1',
+          counters: { charge: 1 },
+          card: { id: 'countered-card', name: 'Everflowing Chalice', type_line: 'Artifact' },
+        } as any,
+      ],
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceName: 'Agent Frank Horrigan',
+    });
+    const permanent = (result.state.battlefield as any[]).find((entry) => entry?.id === 'countered-permanent') as any;
+
+    expect(result.appliedSteps.map((step) => step.kind)).toEqual(['proliferate', 'proliferate']);
+    expect(permanent?.counters?.charge).toBe(3);
+  });
+
   it("applies Sam's Desperate Rescue when Ring-bearer choice is deterministic", () => {
     const ir = parseOracleTextToIR(
       'Return target creature card from your graveyard to your hand. The Ring tempts you.',
