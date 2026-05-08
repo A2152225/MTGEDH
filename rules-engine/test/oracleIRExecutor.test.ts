@@ -19075,6 +19075,81 @@ describe('Oracle IR Executor', () => {
     expect(p1.hand.map((entry: any) => entry.id)).toContain(card.id);
   });
 
+  it("applies Builder's Talent noncreature nonland permanent graveyard return to the battlefield", () => {
+    const ir = parseOracleTextToIR(
+      'Return target noncreature, nonland permanent card from your graveyard to the battlefield.',
+      "Builder's Talent"
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [
+            { id: 'builder-target', name: 'Wedding Announcement', type_line: 'Enchantment' },
+            { id: 'builder-creature', name: 'Grizzly Bears', type_line: 'Creature - Bear' },
+            { id: 'builder-land', name: 'Forest', type_line: 'Basic Land - Forest' },
+          ],
+          exile: [],
+        } as any,
+      ],
+      battlefield: [],
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceName: "Builder's Talent",
+      targetPermanentId: 'builder-target',
+    });
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    const battlefieldIds = ((result.state as any).battlefield || []).map((perm: any) => String(perm?.card?.id || perm?.id || ''));
+
+    expect(result.appliedSteps.some(s => s.kind === 'move_zone')).toBe(true);
+    expect(p1.graveyard.map((entry: any) => entry.id)).toEqual(['builder-creature', 'builder-land']);
+    expect(battlefieldIds).toContain('builder-target');
+  });
+
+  it("rejects creature cards for Builder's Talent noncreature nonland permanent selector", () => {
+    const ir = parseOracleTextToIR(
+      'Return target noncreature, nonland permanent card from your graveyard to the battlefield.',
+      "Builder's Talent"
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [{ id: 'builder-creature', name: 'Grizzly Bears', type_line: 'Creature - Bear' }],
+          exile: [],
+        } as any,
+      ],
+      battlefield: [],
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceName: "Builder's Talent",
+      targetPermanentId: 'builder-creature',
+    });
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+
+    expect(result.appliedSteps.some(s => s.kind === 'move_zone')).toBe(false);
+    expect(p1.graveyard.map((entry: any) => entry.id)).toEqual(['builder-creature']);
+    expect((result.state as any).battlefield || []).toHaveLength(0);
+  });
+
   it('rejects Assassin historic targets for Elena, Turk Recruit', () => {
     const ir = parseOracleTextToIR(
       'Return target non-Assassin historic card from your graveyard to your hand.',

@@ -238,16 +238,14 @@ describe('Static cost-adjustment request-cast flow (integration)', () => {
     const pendingCast = (game?.state as any)?.pendingSpellCasts?.[effectId];
 
     expect(pendingCast).toBeTruthy();
-    expect(pendingCast.externalCostTax).toBe(1);
     expect(pendingCast.costMetadata).toMatchObject({
       genericCostTax: 1,
       staticCostTax: { generic: 1 },
       costReduction: { colors: { red: 1 } },
     });
-    expect(pendingCast.costReduction).toMatchObject({
-      colors: { red: 1 },
-    });
-    expect(pendingCast.costReduction?.messages).toContain('Feeding Grounds: -{R}');
+    expect(pendingCast.costMetadata.costReduction?.messages).toContain('Feeding Grounds: -{R}');
+    expect(pendingCast.externalCostTax).toBeUndefined();
+    expect(pendingCast.costReduction).toBeUndefined();
   });
 
   it('queues the final mana payment step with mixed cost-adjustment metadata after target selection', async () => {
@@ -372,16 +370,14 @@ describe('Static cost-adjustment request-cast flow (integration)', () => {
     const pendingCast = (game?.state as any)?.pendingSpellCasts?.[effectId];
 
     expect(pendingCast).toBeTruthy();
-    expect(pendingCast.externalCostTax).toBe(1);
     expect(pendingCast.costMetadata).toMatchObject({
       genericCostTax: 1,
       staticCostTax: { generic: 1 },
       costReduction: { colors: { red: 1 } },
     });
-    expect(pendingCast.costReduction).toMatchObject({
-      colors: { red: 1 },
-    });
-    expect(pendingCast.costReduction?.messages).toContain('Feeding Grounds: -{R}');
+    expect(pendingCast.costMetadata.costReduction?.messages).toContain('Feeding Grounds: -{R}');
+    expect(pendingCast.externalCostTax).toBeUndefined();
+    expect(pendingCast.costReduction).toBeUndefined();
   });
 
   it('queues the final mana payment step with mixed cost-adjustment metadata after Aura target selection', async () => {

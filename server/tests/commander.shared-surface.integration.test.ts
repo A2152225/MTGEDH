@@ -292,7 +292,8 @@ describe('commander shared-surface integration', () => {
     const [effectId, pendingCast] = pendingCasts[0] as [string, any];
     expect(pendingCast?.fromZone).toBe('command');
     expect(pendingCast?.manaCost).toBe('{2}');
-    expect(pendingCast?.paymentCostAdjustment).toMatchObject({
+    expect(pendingCast?.paymentCostAdjustment).toBeUndefined();
+    expect(pendingCast?.costMetadata?.paymentCostAdjustment).toMatchObject({
       originalManaCost: '{1}{R}',
       adjustedManaCost: '{2}',
       genericTax: 1,
@@ -424,7 +425,8 @@ describe('commander shared-surface integration', () => {
     const pendingCasts = Object.entries((game.state as any).pendingSpellCasts || {});
     expect(pendingCasts).toHaveLength(1);
     const [, pendingCast] = pendingCasts[0] as [string, any];
-    expect(pendingCast?.paymentCostAdjustment).toMatchObject({
+    expect(pendingCast?.paymentCostAdjustment).toBeUndefined();
+    expect(pendingCast?.costMetadata?.paymentCostAdjustment).toMatchObject({
       originalManaCost: '{1}{R}',
       adjustedManaCost: '{4}',
       genericTax: 3,

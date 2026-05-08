@@ -24,6 +24,7 @@ export type SimpleCardType =
   | 'saga'
   | 'aura'
   | 'nonland'
+  | 'noncreature_nonland_permanent'
   | 'instant_or_sorcery'
   | 'artifact_or_creature'
   | 'artifact_or_enchantment'
@@ -221,6 +222,9 @@ export function parseSimpleCardTypeFromText(text: string): SimpleCardType | null
 
   if (!lower) return null;
   if (lower === 'nonland permanent') return 'nonland';
+  if (lower === 'noncreature, nonland permanent' || lower === 'noncreature nonland permanent') {
+    return 'noncreature_nonland_permanent';
+  }
   if (lower === 'artifact or creature') return 'artifact_or_creature';
   if (lower === 'artifact or enchantment') return 'artifact_or_enchantment';
   if (lower === 'creature or land') return 'creature_or_land';
@@ -263,6 +267,9 @@ export function cardMatchesType(card: any, type: SimpleCardType): boolean {
     return cardRepresentsPermanent(card);
   }
   if (type === 'nonland') return !typeLine.includes('land');
+  if (type === 'noncreature_nonland_permanent') {
+    return cardRepresentsPermanent(card) && !typeLine.includes('creature') && !typeLine.includes('land');
+  }
   if (type === 'aura') return typeLine.includes('aura');
   if (type === 'instant_or_sorcery') return typeLine.includes('instant') || typeLine.includes('sorcery');
   if (type === 'artifact_or_creature') return typeLine.includes('artifact') || typeLine.includes('creature');

@@ -165,7 +165,7 @@ interface CardCostAdjustment {
 }
 ```
 
-`PaymentCostAdjustment` is the client-facing payment prompt contract. Legacy `costReduction`, `externalCostTax`, and `externalCostTaxMessages` still exist inside pending spell casts so older target/payment paths can resolve correctly, but new prompt assertions should prefer `costAdjustment`.
+`PaymentCostAdjustment` is the client-facing payment prompt contract. New pending spell casts store adjustment internals under `costMetadata`; resolution still normalizes older pending casts that contain legacy `costReduction`, `externalCostTax`, `externalCostTaxMessages`, or `paymentCostAdjustment` fields.
 
 #### Convoke Options Calculation
 
@@ -226,7 +226,7 @@ Cost Adjustments:
 - Affinity for artifacts: -{5} (5 artifacts)
 ```
 
-Older pending-cast internals may still carry `costReduction`, but client prompt rendering should read `costAdjustment`.
+Older pending-cast records may still be normalized from `costReduction`, but client prompt rendering should read `costAdjustment`.
 
 #### Convoke UI
 

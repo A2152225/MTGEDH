@@ -10184,6 +10184,25 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
     });
   });
 
+  it('parses Builder\'s Talent noncreature nonland graveyard return as a move-zone selector', () => {
+    const oracleText =
+      'When this Class becomes level 3, return target noncreature, nonland permanent card from your graveyard to the battlefield.';
+
+    const ir = parseOracleTextToIR(oracleText, "Builder's Talent");
+    const steps = ir.abilities.flatMap(ability => ability.steps);
+
+    expect(steps).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'move_zone',
+          what: { kind: 'raw', text: 'target noncreature, nonland permanent card from your graveyard' },
+          to: 'battlefield',
+        }),
+      ])
+    );
+    expect(steps.some(step => step.kind === 'unknown')).toBe(false);
+  });
+
   it('parses Not Dead After All as a temporary dies trigger grant', () => {
     const oracleText =
       'Until end of turn, target creature you control gains "When this creature dies, return it to the battlefield tapped under its owner\'s control, then create a Wicked Role token attached to it." (Enchanted creature gets +1/+1. When this token is put into a graveyard, each opponent loses 1 life.)';

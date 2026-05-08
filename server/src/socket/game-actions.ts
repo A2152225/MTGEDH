@@ -383,16 +383,6 @@ export function buildPendingCastCostMetadata(
   };
 }
 
-function buildPendingCastPaymentMetadata(
-  game: any,
-  playerId: string,
-  card: any,
-  castSourceZone: SpellCastSourceZone,
-  paymentCostAdjustment?: PaymentStepCostAdjustment,
-): PendingCastCostMetadata {
-  return buildPendingCastCostMetadata(game, playerId, card, castSourceZone, paymentCostAdjustment);
-}
-
 function getPendingCastPaymentFields(
   metadata: PendingCastCostMetadata,
   paymentCostAdjustment?: PaymentStepCostAdjustment,
@@ -402,13 +392,7 @@ function getPendingCastPaymentFields(
     ...(paymentCostAdjustment ? { paymentCostAdjustment } : {}),
   };
 
-  return {
-    costMetadata,
-    ...(costMetadata.genericCostTax > 0 ? { externalCostTax: costMetadata.genericCostTax } : {}),
-    ...(costMetadata.staticCostTax.messages.length > 0 ? { externalCostTaxMessages: costMetadata.staticCostTax.messages } : {}),
-    ...(costMetadata.paymentCostAdjustment ? { paymentCostAdjustment: costMetadata.paymentCostAdjustment } : {}),
-    costReduction: costMetadata.costReduction.messages.length > 0 ? costMetadata.costReduction : undefined,
-  };
+  return { costMetadata };
 }
 
 function validateTopOfLibraryLandAccess(
