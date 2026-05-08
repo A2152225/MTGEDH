@@ -178,6 +178,49 @@ describe('cost adjustment engine', () => {
     expect(buildCostAdjustmentPlan(state, 'p2', blueSpell).genericAdjustment).toBe(1);
   });
 
+  it('applies controlled opponent-scoped generic taxes only to opponents', () => {
+    const state = {
+      battlefield: [permanent({
+        id: 'opponent_tax_source',
+        controller: 'p1',
+        name: 'Opponent Tax Source',
+        oracleText: 'Spells your opponents cast cost {1} more to cast.',
+      })],
+    };
+
+    expect(buildCostAdjustmentPlan(state, 'p1', blueSpell).genericAdjustment).toBe(0);
+    expect(buildCostAdjustmentPlan(state, 'p2', blueSpell).genericAdjustment).toBe(1);
+  });
+
+  it('combines opponent scope with type restrictions on controlled taxes', () => {
+    const state = {
+      battlefield: [permanent({
+        id: 'opponent_noncreature_tax_source',
+        controller: 'p1',
+        name: 'Opponent Noncreature Tax Source',
+        oracleText: 'Noncreature spells your opponents cast cost {1} more to cast.',
+      })],
+    };
+
+    expect(buildCostAdjustmentPlan(state, 'p1', blueSpell).genericAdjustment).toBe(0);
+    expect(buildCostAdjustmentPlan(state, 'p2', blueSpell).genericAdjustment).toBe(1);
+    expect(buildCostAdjustmentPlan(state, 'p2', creatureSpell).genericAdjustment).toBe(0);
+  });
+
+  it('keeps controlled you-cast taxes on the source controller', () => {
+    const state = {
+      battlefield: [permanent({
+        id: 'self_tax_source',
+        controller: 'p1',
+        name: 'Self Tax Source',
+        oracleText: 'Spells you cast cost {1} more to cast.',
+      })],
+    };
+
+    expect(buildCostAdjustmentPlan(state, 'p1', blueSpell).genericAdjustment).toBe(1);
+    expect(buildCostAdjustmentPlan(state, 'p2', blueSpell).genericAdjustment).toBe(0);
+  });
+
   it('keeps mixed colored reductions and generic taxes structured separately', () => {
     const state = {
       battlefield: [permanent({

@@ -121,6 +121,180 @@ describe('AI shared spell-payment integration', () => {
     expect(getEvents(gameId)).toEqual([]);
   });
 
+  it('pays only the adjusted mana cost after a shared static reduction', async () => {
+    const gameId = createTestGameId('adjusted_reduction_payment');
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [
+      { id: playerId, name: 'AI', spectator: false, isAI: true, life: 40 },
+    ];
+    (game.state as any).startingLife = 40;
+    (game.state as any).life = { [playerId]: 40 };
+    (game.state as any).lifeLostThisTurn = { [playerId]: 0 };
+    (game.state as any).damageTakenThisTurnByPlayer = { [playerId]: 0 };
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).activePlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).phase = 'main';
+    (game.state as any).step = 'precombat_main';
+    (game.state as any).stack = [];
+    (game.state as any).manaPool = {
+      [playerId]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+    };
+    (game.state as any).zones = {
+      [playerId]: {
+        hand: [],
+        handCount: 0,
+        graveyard: [],
+        graveyardCount: 0,
+        library: [],
+        libraryCount: 0,
+        exile: [],
+        exileCount: 0,
+      },
+    };
+    (game.state as any).battlefield = [
+      {
+        id: 'island_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        summoningSickness: false,
+        counters: {},
+        card: {
+          id: 'island_card_1',
+          name: 'Island',
+          type_line: 'Basic Land - Island',
+          oracle_text: '{T}: Add {U}.',
+        },
+      },
+      {
+        id: 'wastes_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        summoningSickness: false,
+        counters: {},
+        card: {
+          id: 'wastes_card_1',
+          name: 'Wastes',
+          type_line: 'Basic Land',
+          oracle_text: '{T}: Add {C}.',
+        },
+      },
+    ];
+
+    const plan = await chooseAISpellPaymentSelections(createNoopIo(), gameId, game, playerId as any, {
+      cardId: 'opt_hand',
+      manaCost: '{U}',
+      totalManaCost: '{U}',
+      costAdjustment: {
+        originalManaCost: '{1}{U}',
+        adjustedManaCost: '{U}',
+        genericReduction: 1,
+        coloredReductions: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+        genericTax: 0,
+        reductionMessages: ['Sapphire Medallion: -{1}'],
+        taxMessages: [],
+        sources: [{ kind: 'reduction', message: 'Sapphire Medallion: -{1}' }],
+        kind: 'reduction',
+      },
+    });
+
+    expect(plan?.payment).toHaveLength(1);
+    expect(plan?.payment).toContainEqual(expect.objectContaining({ permanentId: 'island_1', mana: 'U' }));
+    expect(plan?.payment).not.toContainEqual(expect.objectContaining({ permanentId: 'wastes_1' }));
+  });
+
+  it('includes extra generic payment required by a shared static tax', async () => {
+    const gameId = createTestGameId('adjusted_tax_payment');
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [
+      { id: playerId, name: 'AI', spectator: false, isAI: true, life: 40 },
+    ];
+    (game.state as any).startingLife = 40;
+    (game.state as any).life = { [playerId]: 40 };
+    (game.state as any).lifeLostThisTurn = { [playerId]: 0 };
+    (game.state as any).damageTakenThisTurnByPlayer = { [playerId]: 0 };
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).activePlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).phase = 'main';
+    (game.state as any).step = 'precombat_main';
+    (game.state as any).stack = [];
+    (game.state as any).manaPool = {
+      [playerId]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+    };
+    (game.state as any).zones = {
+      [playerId]: {
+        hand: [],
+        handCount: 0,
+        graveyard: [],
+        graveyardCount: 0,
+        library: [],
+        libraryCount: 0,
+        exile: [],
+        exileCount: 0,
+      },
+    };
+    (game.state as any).battlefield = [
+      {
+        id: 'island_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        summoningSickness: false,
+        counters: {},
+        card: {
+          id: 'island_card_1',
+          name: 'Island',
+          type_line: 'Basic Land - Island',
+          oracle_text: '{T}: Add {U}.',
+        },
+      },
+      {
+        id: 'wastes_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        summoningSickness: false,
+        counters: {},
+        card: {
+          id: 'wastes_card_1',
+          name: 'Wastes',
+          type_line: 'Basic Land',
+          oracle_text: '{T}: Add {C}.',
+        },
+      },
+    ];
+
+    const plan = await chooseAISpellPaymentSelections(createNoopIo(), gameId, game, playerId as any, {
+      cardId: 'opt_hand',
+      manaCost: '{1}{U}',
+      totalManaCost: '{1}{U}',
+      costAdjustment: {
+        originalManaCost: '{U}',
+        adjustedManaCost: '{1}{U}',
+        genericReduction: 0,
+        coloredReductions: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+        genericTax: 1,
+        reductionMessages: [],
+        taxMessages: ['Sphere of Resistance: +{1}'],
+        sources: [{ kind: 'increase', message: 'Sphere of Resistance: +{1}' }],
+        kind: 'increase',
+      },
+    });
+
+    expect(plan?.payment).toHaveLength(2);
+    expect(plan?.payment).toContainEqual(expect.objectContaining({ permanentId: 'island_1', mana: 'U' }));
+    expect(plan?.payment).toContainEqual(expect.objectContaining({ permanentId: 'wastes_1', mana: 'C' }));
+  });
+
   it('uses the selected exact mana line amount and preserves excess with count for spell payment plans', async () => {
     const gameId = createTestGameId('exact_amount_count');
     createGameIfNotExists(gameId, 'commander', 40);

@@ -92,6 +92,24 @@ function getTopLibraryCard(game: any, playerId: string): any | null {
 
 export type SpellCastSourceZone = 'hand' | 'exile' | 'graveyard' | 'library' | 'command';
 
+export interface CostReductionMetadata {
+  generic: number;
+  colors: Record<string, number>;
+  messages: string[];
+}
+
+export interface StaticCostTaxMetadata {
+  generic: number;
+  messages: string[];
+}
+
+export interface PendingCastCostMetadata {
+  costReduction: CostReductionMetadata;
+  staticCostTax: StaticCostTaxMetadata;
+  genericCostTax: number;
+  paymentCostAdjustment?: PaymentStepCostAdjustment;
+}
+
 function normalizeSpellCastSourceZone(value: unknown): SpellCastSourceZone | undefined {
   return value === 'hand' || value === 'exile' || value === 'graveyard' || value === 'library' || value === 'command'
     ? value
@@ -174,7 +192,7 @@ function canCastRequestedSpellFromGraveyard(
   });
 }
 
-function createEmptyCostReduction(): { generic: number; colors: Record<string, number>; messages: string[] } {
+function createEmptyCostReduction(): CostReductionMetadata {
   return {
     generic: 0,
     colors: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
@@ -184,10 +202,10 @@ function createEmptyCostReduction(): { generic: number; colors: Record<string, n
 
 export type PaymentStepCostAdjustment = PaymentCostAdjustment;
 
-export function buildPaymentStepCostAdjustment(
+export function buildPaymentCostAdjustmentPayload(
   originalManaCost: string,
   adjustedManaCost: string,
-  costReduction?: { generic: number; colors: Record<string, number>; messages: string[] },
+  costReduction?: CostReductionMetadata,
   genericTax = 0,
   taxMessages: string[] = [],
 ): PaymentStepCostAdjustment | undefined {
@@ -219,12 +237,22 @@ export function buildPaymentStepCostAdjustment(
   };
 }
 
+export function buildPaymentStepCostAdjustment(
+  originalManaCost: string,
+  adjustedManaCost: string,
+  costReduction?: CostReductionMetadata,
+  genericTax = 0,
+  taxMessages: string[] = [],
+): PaymentStepCostAdjustment | undefined {
+  return buildPaymentCostAdjustmentPayload(originalManaCost, adjustedManaCost, costReduction, genericTax, taxMessages);
+}
+
 function getSharedStaticCostAdjustments(
   game: any,
   playerId: string,
   card: any,
 ): {
-  reduction: { generic: number; colors: Record<string, number>; messages: string[] };
+  reduction: CostReductionMetadata;
   genericTax: number;
   taxMessages: string[];
 } {
@@ -324,7 +352,7 @@ function buildCommandZonePaymentCostAdjustment(
     messages: [...staticAdjustment.reductionMessages],
   };
 
-  return buildPaymentStepCostAdjustment(
+  return buildPaymentCostAdjustmentPayload(
     originalManaCost,
     adjustedManaCost,
     reduction,
@@ -333,18 +361,13 @@ function buildCommandZonePaymentCostAdjustment(
   );
 }
 
-interface PendingCastPaymentMetadata {
-  costReduction: { generic: number; colors: Record<string, number>; messages: string[] };
-  staticCostTax: { generic: number; messages: string[] };
-  genericCostTax: number;
-}
-
-function buildPendingCastPaymentMetadata(
+export function buildPendingCastCostMetadata(
   game: any,
   playerId: string,
   card: any,
   castSourceZone: SpellCastSourceZone,
-): PendingCastPaymentMetadata {
+  paymentCostAdjustment?: PaymentStepCostAdjustment,
+): PendingCastCostMetadata {
   const costReduction = castSourceZone === 'command'
     ? createEmptyCostReduction()
     : calculateCostReduction(game, playerId, card);
@@ -356,18 +379,35 @@ function buildPendingCastPaymentMetadata(
     costReduction,
     staticCostTax,
     genericCostTax: staticCostTax.generic,
+    ...(paymentCostAdjustment ? { paymentCostAdjustment } : {}),
   };
 }
 
+function buildPendingCastPaymentMetadata(
+  game: any,
+  playerId: string,
+  card: any,
+  castSourceZone: SpellCastSourceZone,
+  paymentCostAdjustment?: PaymentStepCostAdjustment,
+): PendingCastCostMetadata {
+  return buildPendingCastCostMetadata(game, playerId, card, castSourceZone, paymentCostAdjustment);
+}
+
 function getPendingCastPaymentFields(
-  metadata: PendingCastPaymentMetadata,
+  metadata: PendingCastCostMetadata,
   paymentCostAdjustment?: PaymentStepCostAdjustment,
 ): Record<string, any> {
-  return {
-    ...(metadata.genericCostTax > 0 ? { externalCostTax: metadata.genericCostTax } : {}),
-    ...(metadata.staticCostTax.messages.length > 0 ? { externalCostTaxMessages: metadata.staticCostTax.messages } : {}),
+  const costMetadata: PendingCastCostMetadata = {
+    ...metadata,
     ...(paymentCostAdjustment ? { paymentCostAdjustment } : {}),
-    costReduction: metadata.costReduction.messages.length > 0 ? metadata.costReduction : undefined,
+  };
+
+  return {
+    costMetadata,
+    ...(costMetadata.genericCostTax > 0 ? { externalCostTax: costMetadata.genericCostTax } : {}),
+    ...(costMetadata.staticCostTax.messages.length > 0 ? { externalCostTaxMessages: costMetadata.staticCostTax.messages } : {}),
+    ...(costMetadata.paymentCostAdjustment ? { paymentCostAdjustment: costMetadata.paymentCostAdjustment } : {}),
+    costReduction: costMetadata.costReduction.messages.length > 0 ? costMetadata.costReduction : undefined,
   };
 }
 
@@ -3541,10 +3581,7 @@ export function processHeroicTriggersForTargets(
   }
 }
 
-/**
- * Apply cost reduction to a parsed mana cost
- */
-export function applyCostReduction(
+export function applyCostAdjustment(
   parsedCost: { generic: number; colors: Record<string, number> },
   reduction: { generic: number; colors: Record<string, number>; messages?: string[] },
   genericTax = 0,
@@ -3581,6 +3618,15 @@ export function applyCostReduction(
   return result;
 }
 
+/** @deprecated Use applyCostAdjustment; this also supports generic taxes. */
+export function applyCostReduction(
+  parsedCost: { generic: number; colors: Record<string, number> },
+  reduction: { generic: number; colors: Record<string, number>; messages?: string[] },
+  genericTax = 0,
+): { generic: number; colors: Record<string, number> } {
+  return applyCostAdjustment(parsedCost, reduction, genericTax);
+}
+
 function countXManaSymbols(manaCost?: string): number {
   if (!manaCost) return 0;
   const matches = String(manaCost).match(/\{X\}/gi);
@@ -3611,7 +3657,7 @@ function resolveTargetCount(baseCount: number | undefined, countIsX: boolean | u
   return Math.max(0, Number(baseCount ?? 0));
 }
 
-export function formatManaCostWithReduction(
+export function formatManaCostWithCostAdjustment(
   manaCost: string,
   reduction?: { generic?: number; colors?: Record<string, number> },
   xValue?: number,
@@ -3621,7 +3667,7 @@ export function formatManaCostWithReduction(
 
   const concreteManaCost = expandManaCostWithChosenX(manaCost, xValue);
   const parsedCost = parseManaCost(concreteManaCost);
-  const reducedCost = applyCostReduction(parsedCost, {
+  const reducedCost = applyCostAdjustment(parsedCost, {
     generic: Math.max(0, Number(reduction?.generic || 0)),
     colors: { ...(reduction?.colors || {}) },
   }, genericTax);
@@ -3644,6 +3690,16 @@ export function formatManaCostWithReduction(
   }
 
   return reducedCostStr || '{0}';
+}
+
+/** @deprecated Use formatManaCostWithCostAdjustment; this also supports generic taxes. */
+export function formatManaCostWithReduction(
+  manaCost: string,
+  reduction?: { generic?: number; colors?: Record<string, number> },
+  xValue?: number,
+  genericTax = 0,
+): string {
+  return formatManaCostWithCostAdjustment(manaCost, reduction, xValue, genericTax);
 }
 
 function detectBanneretTypeReduction(oracleText: string): { types: string[]; reduction: number } | null {
@@ -4890,7 +4946,7 @@ export async function requestCastSpellForSocket(
         return;
       }
 
-      const paymentMetadata = buildPendingCastPaymentMetadata(game, playerId, cardForCast, castSourceZone);
+      const paymentMetadata = buildPendingCastCostMetadata(game, playerId, cardForCast, castSourceZone);
       const paymentCostAdjustment = castSourceZone === 'command'
         ? buildCommandZonePaymentCostAdjustment(game, playerId, cardForCast, commanderCandidate, resolvedManaCost)
         : undefined;
@@ -5047,7 +5103,7 @@ export async function requestCastSpellForSocket(
         const requestCastAdditionalCostMethod = typeof (cardInHand as any).additionalCostMethod === 'string'
           ? String((cardInHand as any).additionalCostMethod)
           : undefined;
-        const paymentMetadata = buildPendingCastPaymentMetadata(game, playerId, cardForCast, castSourceZone);
+        const paymentMetadata = buildPendingCastCostMetadata(game, playerId, cardForCast, castSourceZone);
         const paymentCostAdjustment = castSourceZone === 'command'
           ? buildCommandZonePaymentCostAdjustment(game, playerId, cardForCast, commanderCandidate, resolvedManaCost)
           : undefined;
@@ -5500,10 +5556,10 @@ export async function requestCastSpellForSocket(
     }
 
     // No targets needed — still need to handle additional costs before payment.
-    const paymentMetadata = buildPendingCastPaymentMetadata(game, playerId, cardForCast, castSourceZone);
+    const paymentMetadata = buildPendingCastCostMetadata(game, playerId, cardForCast, castSourceZone);
     const convokeOptions = calculateConvokeOptions(game, playerId, cardForCast);
     const paymentManaCost = appendManaCost(
-      formatManaCostWithReduction(resolvedManaCost, paymentMetadata.costReduction, chosenXValue, paymentMetadata.genericCostTax),
+      formatManaCostWithCostAdjustment(resolvedManaCost, paymentMetadata.costReduction, chosenXValue, paymentMetadata.genericCostTax),
       spellModeAdditionalCost,
     );
     const paymentCostAdjustment = castSourceZone === 'command'
@@ -5874,7 +5930,7 @@ export async function requestCastSpellForSocket(
         effectId,
         targets: undefined,
         imageUrl: cardForCast.image_uris?.small || cardForCast.image_uris?.normal || cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
-        costAdjustment: paymentCostAdjustment || buildPaymentStepCostAdjustment(resolvedManaCost, paymentManaCost, paymentMetadata.costReduction, paymentMetadata.genericCostTax, paymentMetadata.staticCostTax.messages),
+        costAdjustment: paymentCostAdjustment || buildPaymentCostAdjustmentPayload(resolvedManaCost, paymentManaCost, paymentMetadata.costReduction, paymentMetadata.genericCostTax, paymentMetadata.staticCostTax.messages),
         costReduction: paymentMetadata.costReduction.messages.length > 0 ? paymentMetadata.costReduction : undefined,
         convokeOptions: convokeOptions.availableCreatures.length > 0 ? convokeOptions : undefined,
         forcedAlternateCostId: options?.forcedAlternateCostId,
@@ -7924,7 +7980,7 @@ export function registerGameActions(io: Server, socket: Socket) {
         // IMPORTANT: Copy the full card object to prevent issues where card info is deleted
         // before it can be read during the target > pay workflow (fixes loop issue)
         (game.state as any).pendingSpellCasts = (game.state as any).pendingSpellCasts || {};
-        const paymentMetadata = buildPendingCastPaymentMetadata(game, playerId, cardInHand, 'hand');
+        const paymentMetadata = buildPendingCastCostMetadata(game, playerId, cardInHand, 'hand');
         (game.state as any).pendingSpellCasts[effectId] = {
           cardId,
           cardName: cardInHand.name,
@@ -8082,7 +8138,7 @@ export function registerGameActions(io: Server, socket: Socket) {
           // IMPORTANT: Copy the full card object to prevent issues where card info is deleted
           // before it can be read during the target > pay workflow (fixes loop issue)
           (game.state as any).pendingSpellCasts = (game.state as any).pendingSpellCasts || {};
-          const paymentMetadata = buildPendingCastPaymentMetadata(game, playerId, cardInHand, castSourceZone);
+          const paymentMetadata = buildPendingCastCostMetadata(game, playerId, cardInHand, castSourceZone);
           (game.state as any).pendingSpellCasts[effectId] = {
             cardId,
             cardName: cardInHand.name,
@@ -8378,12 +8434,12 @@ export function registerGameActions(io: Server, socket: Socket) {
       const parsedCost = parseManaCost(manaCost);
       
       // Calculate cost reduction from battlefield effects
-      const paymentMetadata = buildPendingCastPaymentMetadata(game, playerId, cardInHand, castSourceZone);
+      const paymentMetadata = buildPendingCastCostMetadata(game, playerId, cardInHand, castSourceZone);
       const costReduction = paymentMetadata.costReduction;
       const genericCostTax = paymentMetadata.genericCostTax;
       
       // Apply cost reduction
-      const reducedCost = applyCostReduction(parsedCost, costReduction, genericCostTax);
+      const reducedCost = applyCostAdjustment(parsedCost, costReduction, genericCostTax);
       
       // Log cost reduction if any
       if (costReduction.messages.length > 0) {

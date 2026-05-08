@@ -22,7 +22,7 @@ import { canRespond, canAct, getCastableCommanderCandidates, getCastableSpellCan
 import { getGrantedCastFromGraveyardKeywordInfo, getGrantedEmbalmInfo, getGrantedFlashbackInfo, getGrantedUnearthInfo, getPrintedUnearthInfo } from "../state/modules/graveyard-permissions.js";
 import { parseManaCost as parseManaFromString, canPayManaCostWithAvailableSources, getManaPoolFromState, getAvailableMana, getTotalManaFromPool } from "../state/modules/mana-check.js";
 import { hasPayableAlternateCost } from "../state/modules/alternate-costs.js";
-import { calculateCostReduction, applyCostReduction, runPostResolutionPermanentPromptChecks } from "./game-actions.js";
+import { calculateCostReduction, runPostResolutionPermanentPromptChecks } from "./game-actions.js";
 import { checkSpellTimingRestriction } from "../../../rules-engine/src/castingRestrictions.js";
 import { hasValidTargetsForSpell } from "../rules-engine/target-availability.js";
 import { applyStaticAbilitiesToBattlefield } from "../../../rules-engine/src/staticAbilities.js";

@@ -197,11 +197,7 @@ The `calculateConvokeOptions` function returns:
 ```typescript
 interface CastSpellModalProps {
   // Existing props...
-  costReduction?: {
-    generic: number;
-    colors: Record<string, number>;
-    messages: string[];
-  };
+  costAdjustment?: PaymentCostAdjustment;
   convokeOptions?: {
     availableCreatures: Array<{
       id: string;
@@ -220,15 +216,17 @@ interface CastSpellModalProps {
 }
 ```
 
-#### Cost Reduction Display
+#### Cost Adjustment Display
 
-Shows original cost → reduced cost with reduction sources:
+Shows original cost, adjusted cost, and the source list for reductions, increases, or mixed adjustments:
 
 ```
-💰 Cost Reductions:
-{5}{R}{R} → {R}
-• Affinity for artifacts: -{5} (5 artifacts)
+Cost Adjustments:
+{5}{R}{R} -> {R}
+- Affinity for artifacts: -{5} (5 artifacts)
 ```
+
+Older pending-cast internals may still carry `costReduction`, but client prompt rendering should read `costAdjustment`.
 
 #### Convoke UI
 

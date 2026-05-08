@@ -82,7 +82,17 @@ import {
   triggerETBEffectsForPermanent,
   triggerETBEffectsForToken,
 } from "../state/modules/stack.js";
-import { buildPaymentStepCostAdjustment, creatureHasHaste, formatManaCostWithReduction, getSpellModeAdditionalCost, handlePlayLandRequest, registerGameActions, requestCastSpellForSocket } from "./game-actions.js";
+import {
+  buildPaymentCostAdjustmentPayload,
+  creatureHasHaste,
+  formatManaCostWithCostAdjustment,
+  getSpellModeAdditionalCost,
+  handlePlayLandRequest,
+  registerGameActions,
+  requestCastSpellForSocket,
+  type CostReductionMetadata,
+  type PendingCastCostMetadata,
+} from "./game-actions.js";
 import { buildOraclePromptContext, getOracleTextFromResolutionStep } from "../utils/oraclePromptContext.js";
 import { cleanupCardLeavingExile } from "../state/modules/playable-from-exile.js";
 import { movePermanentToExile } from "../state/modules/counters_tokens.js";
@@ -466,12 +476,94 @@ function canonicalizeCardNameChoiceSelection(selection: string, candidateNames: 
   return undefined;
 }
 
+function createEmptyPendingCostReduction(): CostReductionMetadata {
+  return {
+    generic: 0,
+    colors: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+    messages: [],
+  };
+}
+
+function normalizePendingCastCostMetadata(pendingCast: any): PendingCastCostMetadata {
+  const existing = pendingCast?.costMetadata && typeof pendingCast.costMetadata === 'object'
+    ? pendingCast.costMetadata
+    : {};
+  const legacyReduction = pendingCast?.costReduction && typeof pendingCast.costReduction === 'object'
+    ? pendingCast.costReduction
+    : undefined;
+  const reductionSource = existing.costReduction && typeof existing.costReduction === 'object'
+    ? existing.costReduction
+    : legacyReduction;
+  const staticTaxSource = existing.staticCostTax && typeof existing.staticCostTax === 'object'
+    ? existing.staticCostTax
+    : {};
+  const genericCostTax = Math.max(0, Number(
+    Number.isFinite(Number(existing.genericCostTax))
+      ? existing.genericCostTax
+      : (Number.isFinite(Number(staticTaxSource.generic)) ? staticTaxSource.generic : pendingCast?.externalCostTax)
+  ) || 0);
+  const taxMessages = Array.isArray(staticTaxSource.messages)
+    ? [...staticTaxSource.messages]
+    : (Array.isArray(pendingCast?.externalCostTaxMessages) ? [...pendingCast.externalCostTaxMessages] : []);
+  const emptyReduction = createEmptyPendingCostReduction();
+  const costReduction: CostReductionMetadata = {
+    generic: Math.max(0, Number(reductionSource?.generic || 0)),
+    colors: { ...emptyReduction.colors, ...(reductionSource?.colors || {}) },
+    messages: Array.isArray(reductionSource?.messages) ? [...reductionSource.messages] : [],
+  };
+  const paymentCostAdjustment = existing.paymentCostAdjustment || pendingCast?.paymentCostAdjustment;
+
+  return {
+    costReduction,
+    staticCostTax: { generic: genericCostTax, messages: taxMessages },
+    genericCostTax,
+    ...(paymentCostAdjustment ? { paymentCostAdjustment } : {}),
+  };
+}
+
+function ensurePendingCastCostMetadata(pendingCast: any): PendingCastCostMetadata {
+  const costMetadata = normalizePendingCastCostMetadata(pendingCast);
+  if (pendingCast && typeof pendingCast === 'object') {
+    pendingCast.costMetadata = costMetadata;
+  }
+  return costMetadata;
+}
+
+function hasVisibleCostReduction(reduction: CostReductionMetadata): boolean {
+  return Number(reduction.generic || 0) > 0
+    || Object.values(reduction.colors || {}).some((amount) => Number(amount) > 0)
+    || reduction.messages.length > 0;
+}
+
+function buildPendingCastPaymentStepCostFields(
+  pendingCast: any,
+  originalManaCost: string,
+  adjustedManaCost: string,
+): { manaCost: string; costAdjustment: any; costReduction?: CostReductionMetadata } {
+  const costMetadata = ensurePendingCastCostMetadata(pendingCast);
+
+  return {
+    manaCost: adjustedManaCost,
+    costAdjustment: costMetadata.paymentCostAdjustment
+      ? { ...costMetadata.paymentCostAdjustment, adjustedManaCost }
+      : buildPaymentCostAdjustmentPayload(
+          originalManaCost,
+          adjustedManaCost,
+          costMetadata.costReduction,
+          costMetadata.genericCostTax,
+          costMetadata.staticCostTax.messages,
+        ),
+    costReduction: hasVisibleCostReduction(costMetadata.costReduction) ? costMetadata.costReduction : undefined,
+  };
+}
+
 function buildPendingCastPaymentManaCost(pendingCast: any): string {
-  const baseManaCost = formatManaCostWithReduction(
+  const costMetadata = ensurePendingCastCostMetadata(pendingCast);
+  const baseManaCost = formatManaCostWithCostAdjustment(
     String(pendingCast?.manaCost || ''),
-    pendingCast?.costReduction,
+    costMetadata.costReduction,
     pendingCast?.xValue,
-    Number(pendingCast?.externalCostTax || 0),
+    costMetadata.genericCostTax,
   );
   const spellModeAdditionalCost = getSpellModeAdditionalCost(
     String(pendingCast?.card?.oracle_text || ''),
@@ -15332,6 +15424,11 @@ async function handleTargetSelectionResponse(
       );
 
     if (!existingPaymentStep) {
+      const paymentCostFields = buildPendingCastPaymentStepCostFields(
+        pendingCast,
+        String(pendingCast.manaCost || ''),
+        finalManaCost,
+      );
       const paymentStep = ResolutionQueueManager.addStep(gameId, {
         type: ResolutionStepType.MANA_PAYMENT_CHOICE,
         playerId: payerId as any,
@@ -15344,21 +15441,13 @@ async function handleTargetSelectionResponse(
         spellPaymentRequired: true,
         cardId: pendingCast.cardId,
         cardName: pendingCast.cardName,
-        manaCost: finalManaCost,
+        manaCost: paymentCostFields.manaCost,
         xValue: pendingCast.xValue,
         effectId,
         targets: pendingCast.targets,
         imageUrl: pendingCast.card?.image_uris?.small || pendingCast.card?.image_uris?.normal,
-        costAdjustment: pendingCast.paymentCostAdjustment
-          ? { ...pendingCast.paymentCostAdjustment, adjustedManaCost: finalManaCost }
-          : buildPaymentStepCostAdjustment(
-              String(pendingCast.manaCost || ''),
-              finalManaCost,
-              pendingCast.costReduction,
-              Number(pendingCast.externalCostTax || 0),
-              Array.isArray(pendingCast.externalCostTaxMessages) ? pendingCast.externalCostTaxMessages : [],
-            ),
-        costReduction: pendingCast.costReduction,
+        costAdjustment: paymentCostFields.costAdjustment,
+        costReduction: paymentCostFields.costReduction,
         convokeOptions: pendingCast.convokeOptions,
         forcedAlternateCostId: pendingCast.forcedAlternateCostId,
       } as any);
@@ -18921,6 +19010,11 @@ async function handleTargetSelectionResponse(
         );
 
       if (!existingPaymentStep) {
+        const paymentCostFields = buildPendingCastPaymentStepCostFields(
+          pendingCast,
+          String(pendingCast.manaCost || manaCost || ''),
+          finalManaCost,
+        );
         const paymentStep = ResolutionQueueManager.addStep(gameId, {
           type: ResolutionStepType.MANA_PAYMENT_CHOICE,
           playerId: pid as any,
@@ -18933,21 +19027,13 @@ async function handleTargetSelectionResponse(
           spellPaymentRequired: true,
           cardId,
           cardName: cardName + striveCostMessage,
-          manaCost: finalManaCost,
+          manaCost: paymentCostFields.manaCost,
           xValue: pendingCast.xValue,
           effectId,
           targets: finalTargets,
           imageUrl,
-          costAdjustment: pendingCast.paymentCostAdjustment
-            ? { ...pendingCast.paymentCostAdjustment, adjustedManaCost: finalManaCost }
-            : buildPaymentStepCostAdjustment(
-                String(pendingCast.manaCost || ''),
-                finalManaCost,
-                pendingCast.costReduction,
-                Number(pendingCast.externalCostTax || 0),
-                Array.isArray(pendingCast.externalCostTaxMessages) ? pendingCast.externalCostTaxMessages : [],
-              ),
-          costReduction: pendingCast.costReduction,
+          costAdjustment: paymentCostFields.costAdjustment,
+          costReduction: paymentCostFields.costReduction,
           convokeOptions: pendingCast.convokeOptions,
           forcedAlternateCostId: pendingCast.forcedAlternateCostId,
         } as any);
@@ -26235,6 +26321,11 @@ async function handleOptionChoiceResponse(
         );
 
       if (!existingPaymentStep) {
+        const paymentCostFields = buildPendingCastPaymentStepCostFields(
+          pendingCast,
+          String(pendingCast.manaCost || ''),
+          finalManaCost,
+        );
         const paymentStep = ResolutionQueueManager.addStep(gameId, {
           type: ResolutionStepType.MANA_PAYMENT_CHOICE,
           playerId: playerId as any,
@@ -26247,21 +26338,13 @@ async function handleOptionChoiceResponse(
           spellPaymentRequired: true,
           cardId: pendingCast.cardId,
           cardName: pendingCast.cardName,
-          manaCost: finalManaCost,
+          manaCost: paymentCostFields.manaCost,
           xValue: pendingCast.xValue,
           effectId,
           targets: pendingCast.targets,
           imageUrl: pendingCast.card?.image_uris?.small || pendingCast.card?.image_uris?.normal,
-          costAdjustment: pendingCast.paymentCostAdjustment
-            ? { ...pendingCast.paymentCostAdjustment, adjustedManaCost: finalManaCost }
-            : buildPaymentStepCostAdjustment(
-                String(pendingCast.manaCost || ''),
-                finalManaCost,
-                pendingCast.costReduction,
-                Number(pendingCast.externalCostTax || 0),
-                Array.isArray(pendingCast.externalCostTaxMessages) ? pendingCast.externalCostTaxMessages : [],
-              ),
-          costReduction: pendingCast.costReduction,
+          costAdjustment: paymentCostFields.costAdjustment,
+          costReduction: paymentCostFields.costReduction,
           convokeOptions: pendingCast.convokeOptions,
           forcedAlternateCostId: pendingCast.forcedAlternateCostId,
         } as any);
@@ -29002,6 +29085,15 @@ async function handleMutateTargetSelectionResponse(
     );
 
   if (!existingPaymentStep) {
+    const mutateManaCost = String(pendingCast.mutateCost || pendingCast.manaCost || '');
+    const costMetadata = ensurePendingCastCostMetadata(pendingCast);
+    const adjustedMutateManaCost = formatManaCostWithCostAdjustment(
+      mutateManaCost,
+      costMetadata.costReduction,
+      undefined,
+      costMetadata.genericCostTax,
+    );
+    const paymentCostFields = buildPendingCastPaymentStepCostFields(pendingCast, mutateManaCost, adjustedMutateManaCost);
     const paymentStep = ResolutionQueueManager.addStep(gameId, {
       type: ResolutionStepType.MANA_PAYMENT_CHOICE,
       playerId: pid as any,
@@ -29014,35 +29106,12 @@ async function handleMutateTargetSelectionResponse(
       spellPaymentRequired: true,
       cardId,
       cardName,
-      manaCost: formatManaCostWithReduction(
-        String(pendingCast.mutateCost || pendingCast.manaCost || ''),
-        pendingCast.costReduction,
-        undefined,
-        Number(pendingCast.externalCostTax || 0),
-      ),
+      manaCost: paymentCostFields.manaCost,
       effectId,
       targets: [targetPermanentId],
       imageUrl: stepData.imageUrl || step.sourceImage,
-      costAdjustment: pendingCast.paymentCostAdjustment
-        ? { ...pendingCast.paymentCostAdjustment, adjustedManaCost: formatManaCostWithReduction(
-          String(pendingCast.mutateCost || pendingCast.manaCost || ''),
-          pendingCast.costReduction,
-          undefined,
-          Number(pendingCast.externalCostTax || 0),
-        ) }
-        : buildPaymentStepCostAdjustment(
-            String(pendingCast.mutateCost || pendingCast.manaCost || ''),
-            formatManaCostWithReduction(
-              String(pendingCast.mutateCost || pendingCast.manaCost || ''),
-              pendingCast.costReduction,
-              undefined,
-              Number(pendingCast.externalCostTax || 0),
-            ),
-            pendingCast.costReduction,
-            Number(pendingCast.externalCostTax || 0),
-            Array.isArray(pendingCast.externalCostTaxMessages) ? pendingCast.externalCostTaxMessages : [],
-          ),
-      costReduction: pendingCast.costReduction,
+      costAdjustment: paymentCostFields.costAdjustment,
+      costReduction: paymentCostFields.costReduction,
       convokeOptions: pendingCast.convokeOptions,
       forcedAlternateCostId: 'mutate',
     } as any);

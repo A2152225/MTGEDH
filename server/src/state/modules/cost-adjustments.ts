@@ -196,7 +196,7 @@ export function buildCostAdjustmentPlan(
     }
 
     if (sourceAppliesTaxToPlayer && permOracle.includes('spells') && permOracle.includes('cost') && permOracle.includes('more')) {
-      const taxMatch = permOracle.match(/(?:(artifact|enchantment|noncreature|nonartifact)\s+(?:and\s+\w+\s+)?)?spells(?: your opponents cast| opponents cast)? cost \{(\d+)\} more/i);
+      const taxMatch = permOracle.match(/(?:(artifact|enchantment|noncreature|nonartifact)\s+(?:and\s+\w+\s+)?)?spells(?: you cast| your opponents cast| opponents cast)? cost \{(\d+)\} more/i);
       if (taxMatch) {
         const typeRestriction = String(taxMatch[1] || '').toLowerCase();
         const taxAmount = parseInt(taxMatch[2], 10) || 1;

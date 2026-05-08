@@ -239,6 +239,11 @@ describe('Static cost-adjustment request-cast flow (integration)', () => {
 
     expect(pendingCast).toBeTruthy();
     expect(pendingCast.externalCostTax).toBe(1);
+    expect(pendingCast.costMetadata).toMatchObject({
+      genericCostTax: 1,
+      staticCostTax: { generic: 1 },
+      costReduction: { colors: { red: 1 } },
+    });
     expect(pendingCast.costReduction).toMatchObject({
       colors: { red: 1 },
     });
@@ -368,6 +373,11 @@ describe('Static cost-adjustment request-cast flow (integration)', () => {
 
     expect(pendingCast).toBeTruthy();
     expect(pendingCast.externalCostTax).toBe(1);
+    expect(pendingCast.costMetadata).toMatchObject({
+      genericCostTax: 1,
+      staticCostTax: { generic: 1 },
+      costReduction: { colors: { red: 1 } },
+    });
     expect(pendingCast.costReduction).toMatchObject({
       colors: { red: 1 },
     });
