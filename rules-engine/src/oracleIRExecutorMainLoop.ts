@@ -37,6 +37,7 @@ import {
   applyDestroyStep,
   applyDetainStep,
   applyEarthbendStep,
+  applyAnimatePermanentStep,
   applyExertStep,
   applyExileStep,
   applyExchangeControlStep,
@@ -52,6 +53,7 @@ import {
   applyMonstrosityStep,
   applyBecomeRenownedStep,
   applyOptionalUntapChoiceStep,
+  applyPhaseOutStep,
   applyCopyPermanentStep,
   applyPutStickerStep,
   applyRemoveCounterStep,
@@ -134,6 +136,7 @@ import {
   applyRevealHandStep,
   applyRollVisitAttractionsStep,
   applyScryStep,
+  applyExileNamedCardsFromZonesStep,
   applySearchLibraryStep,
   applyShuffleZonesIntoLibraryStep,
   applyShuffleLibraryStep,
@@ -766,6 +769,11 @@ export function applyOracleIRStepsToGameStateImpl(
         applyHandledStepResult(step, result);
         break;
       }
+      case 'animate_permanent': {
+        const result = applyAnimatePermanentStep(nextState, step, currentCtx);
+        applyHandledStepResult(step, result);
+        break;
+      }
       case 'skip_next_untap': {
         const result = applySkipNextUntapStep(nextState, step, currentCtx, {
           lastMovedBattlefieldPermanentIds,
@@ -1242,6 +1250,11 @@ export function applyOracleIRStepsToGameStateImpl(
       }
       case 'search_library': {
         const result = applySearchLibraryStep(nextState, step, currentCtx);
+        applyHandledStepResult(step, result);
+        break;
+      }
+      case 'exile_named_cards_from_zones': {
+        const result = applyExileNamedCardsFromZonesStep(nextState, step, currentCtx);
         applyHandledStepResult(step, result);
         break;
       }
@@ -1975,6 +1988,11 @@ export function applyOracleIRStepsToGameStateImpl(
       }
       case 'tap_or_untap': {
         const result = applyTapOrUntapStep(nextState, step, currentCtx);
+        applyHandledStepResult(step, result);
+        break;
+      }
+      case 'phase_out': {
+        const result = applyPhaseOutStep(nextState, step, currentCtx);
         applyHandledStepResult(step, result);
         break;
       }

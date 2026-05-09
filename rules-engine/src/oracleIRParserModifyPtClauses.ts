@@ -88,7 +88,7 @@ export function tryParseTemporaryModifyPtClause(params: {
                   ? { kind: 'per_creature_tapped_this_way' }
                   : /^for\s+each\s+other\s+attacking\s+aurochs$/i.test(eachRaw)
                     ? { kind: 'per_other_attacking_aurochs' }
-                    : { kind: 'unknown', raw: eachRaw };
+                    : { kind: 'reference_scaler', raw: eachRaw };
     } else {
       const ifMatch = tail.match(/^if\s+(.+)$/i);
       if (ifMatch) {

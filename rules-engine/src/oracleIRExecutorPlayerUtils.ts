@@ -439,7 +439,7 @@ export function resolveUnknownExileUntilAmountForPlayer(
   qty: OracleQuantity,
   ctx?: OracleIRExecutionContext
 ): number | null {
-  if (qty.kind !== 'unknown') return null;
+  if (qty.kind !== 'unknown' && qty.kind !== 'reference_amount') return null;
 
   const raw = normalizeOracleText(String((qty as any).raw || ''));
   if (!raw.startsWith('until ')) return null;
@@ -893,7 +893,7 @@ export function shouldReturnUncastExiledToBottom(step: any): boolean {
     step?.kind === 'impulse_exile_top' &&
     step?.duration === 'during_resolution' &&
     step?.permission === 'cast' &&
-    step?.amount?.kind === 'unknown' &&
+    (step?.amount?.kind === 'unknown' || step?.amount?.kind === 'reference_amount') &&
     (
       ((who === 'target_opponent' || who === 'target_player') &&
         (amountRaw === 'until they exile an instant or sorcery card' ||
@@ -930,7 +930,7 @@ export function shouldShuffleRestIntoLibrary(step: any): boolean {
     step?.kind === 'impulse_exile_top' &&
     step?.duration === 'during_resolution' &&
     step?.permission === 'cast' &&
-    step?.amount?.kind === 'unknown' &&
+    (step?.amount?.kind === 'unknown' || step?.amount?.kind === 'reference_amount') &&
     (
       (who === 'each_opponent' &&
         (amountRaw === 'until they exile an instant or sorcery card' ||

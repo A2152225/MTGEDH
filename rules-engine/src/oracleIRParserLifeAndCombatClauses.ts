@@ -7,7 +7,8 @@ function parseDamageAmount(raw: string | undefined): Extract<OracleEffectStep, {
   const normalized = String(raw || '')
     .replace(/[\u2019]/g, "'")
     .trim()
-    .toLowerCase();
+    .toLowerCase()
+    .replace(/[."]+$/g, '');
 
   if (normalized === 'that much' || normalized === 'that many') {
     return { kind: 'reference_amount', raw: normalized };
@@ -55,9 +56,9 @@ function parseDamageAmount(raw: string | undefined): Extract<OracleEffectStep, {
     return { kind: 'object_stat', subject: 'the_sacrificed_creature', stat: 'mana_value' };
   }
   if (normalized === "the sacrificed artifact's mana value") {
-    return { kind: 'unknown', raw: normalized };
+    return { kind: 'reference_amount', raw: normalized };
   }
-  if (normalized === 'its power' || normalized === 'their power') {
+  if (normalized === 'its power' || normalized === 'their power' || normalized === "the creature's power") {
     return { kind: 'object_stat', subject: 'source', stat: 'power' };
   }
 
@@ -76,7 +77,8 @@ function parseLifeChangeAmount(
   const normalized = String(raw || '')
     .replace(/[\u2019]/g, "'")
     .trim()
-    .toLowerCase();
+    .toLowerCase()
+    .replace(/[."]+$/g, '');
 
   if (normalized === 'its power') {
     return { kind: 'object_stat', subject: 'it', stat: 'power' };
@@ -101,6 +103,15 @@ function parseLifeChangeAmount(
   }
   if (normalized === "that creature's toughness") {
     return { kind: 'object_stat', subject: 'that_creature', stat: 'toughness' };
+  }
+  if (normalized === "the sacrificed creature's power") {
+    return { kind: 'object_stat', subject: 'the_sacrificed_creature', stat: 'power' };
+  }
+  if (normalized === "the sacrificed creature's toughness") {
+    return { kind: 'object_stat', subject: 'the_sacrificed_creature', stat: 'toughness' };
+  }
+  if (normalized === "the sacrificed creature's mana value") {
+    return { kind: 'object_stat', subject: 'the_sacrificed_creature', stat: 'mana_value' };
   }
   if (normalized === 'the life lost this way') {
     return { kind: 'reference_amount', raw: normalized };
@@ -175,7 +186,14 @@ export function tryParseLifeAndCombatClause(args: {
   rawClause: string;
   withMeta: WithMeta;
 }): OracleEffectStep | null {
-  const { clause, rawClause, withMeta } = args;
+  let { clause, rawClause, withMeta } = args;
+  clause = normalizeOracleText(clause)
+    .replace(/^enchanted\s+\w+\s+has\s+"(?:\{[^}]+\}(?:,\s*)?)+(?:,\s*[^:]+)?:\s*/i, '')
+    .replace(/^(?:\{[^}]+\}(?:,\s*)?)+(?:,\s*[^:]+)?:\s*/i, '')
+    .replace(/^(?:\{TK\})+\s*-\s*/i, '')
+    .replace(/^\d+(?:\s*-\s*\d+)?\s*\|\s*/i, '')
+    .replace(/^whenever\s+.+?,\s*/i, '')
+    .trim();
 
   {
     const gainEach = clause.match(/^(you and (?:that|target) (?:player|opponent))\s+each\s+gain\s+(that much|that many|\d+|x|[a-z]+)\s+life\b/i);
@@ -294,7 +312,7 @@ export function tryParseLifeAndCombatClause(args: {
 
     const loseEqual = clause.match(/^(.*?)(?:loses?\s+life\s+equal\s+to)\s+(.+)$/i);
     if (loseEqual) {
-      const whoRaw = String(loseEqual[1] || '').trim().replace(/\s+$/, '');
+      const whoRaw = String(loseEqual[1] || '').trim().replace(/^you\s+may\s+have\s+/i, '').replace(/^have\s+/i, '').replace(/\s+$/, '');
           return withMeta({
         kind: 'lose_life',
         who: parsePlayerSelector(whoRaw || 'you'),

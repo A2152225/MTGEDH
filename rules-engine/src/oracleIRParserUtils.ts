@@ -57,6 +57,9 @@ export function parseQuantity(raw: string | undefined): OracleQuantity {
   if (/^a\s+for\s+each\s+color\s+of\s+mana\s+spent\s+to\s+cast\s+it$/i.test(trimmed)) {
     return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
   }
+  if (/^(?:\d+|a|a\s+card)\s+for\s+each\s+.+$/i.test(trimmed)) {
+    return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
+  }
   if (/^a\s+for\s+each\s+time\s+it\s+was\s+kicked$/i.test(trimmed)) {
     return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
   }
@@ -66,6 +69,24 @@ export function parseQuantity(raw: string | undefined): OracleQuantity {
   if (/^1\s+for\s+each\s+card\s+in\s+your\s+hand$/i.test(trimmed)) return { kind: 'reference_amount', raw: '1 for each card in your hand' };
   if (/^1\s+for\s+each\s+creature\s+on\s+the\s+battlefield$/i.test(trimmed)) return { kind: 'reference_amount', raw: '1 for each creature on the battlefield' };
   if (/^the number of creatures you control$/i.test(trimmed)) return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
+  if (/^the number of [a-z0-9 +/'\-]+s you control$/i.test(trimmed)) return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
+  if (/^the number of attacking creatures$/i.test(trimmed)) return { kind: 'reference_amount', raw: 'the number of attacking creatures' };
+  if (/^the greatest power among creatures you control$/i.test(trimmed)) return { kind: 'greatest_power_among_creatures_you_control' };
+  if (/^the greatest toughness among (?:other )?creatures you control$/i.test(trimmed)) return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
+  if (/^the\s+high\s+bid$/i.test(trimmed)) return { kind: 'reference_amount', raw: 'the high bid' };
+  if (/^that\s+spell'?s\s+mana\s+value$/i.test(trimmed)) return { kind: 'object_stat', subject: 'that_card', stat: 'mana_value' };
+  if (/^that\s+card'?s\s+power$/i.test(trimmed)) return { kind: 'object_stat', subject: 'that_card', stat: 'power' };
+  if (/^that\s+card'?s\s+toughness$/i.test(trimmed)) return { kind: 'object_stat', subject: 'that_card', stat: 'toughness' };
+  if (/^target\s+creature'?s\s+power$/i.test(trimmed)) return { kind: 'object_stat', subject: 'that_creature', stat: 'power' };
+  if (/^target\s+creature'?s\s+toughness$/i.test(trimmed)) return { kind: 'object_stat', subject: 'that_creature', stat: 'toughness' };
+  if (/^that\s+creature'?s\s+power$/i.test(trimmed)) return { kind: 'object_stat', subject: 'that_creature', stat: 'power' };
+  if (/^that\s+creature'?s\s+toughness$/i.test(trimmed)) return { kind: 'object_stat', subject: 'that_creature', stat: 'toughness' };
+  if (/^its\s+base\s+power$/i.test(trimmed)) return { kind: 'object_stat', subject: 'it', stat: 'power' };
+  if (/^its\s+base\s+toughness$/i.test(trimmed)) return { kind: 'object_stat', subject: 'it', stat: 'toughness' };
+  if (/^the\s+creature'?s\s+power$/i.test(trimmed)) return { kind: 'object_stat', subject: 'source', stat: 'power' };
+  if (/^the\s+sacrificed\s+creature'?s\s+power$/i.test(trimmed)) {
+    return { kind: 'object_stat', subject: 'the_sacrificed_creature', stat: 'power' };
+  }
   if (/^the number of artifacts you control$/i.test(trimmed)) return { kind: 'reference_amount', raw: 'the number of artifacts you control' };
   if (/^the number of lands you control$/i.test(trimmed)) return { kind: 'reference_amount', raw: 'the number of lands you control' };
   if (/^the number of cards in (?:your|their) hand$/i.test(trimmed)) return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
@@ -83,12 +104,25 @@ export function parseQuantity(raw: string | undefined): OracleQuantity {
   if (/^until\s+you\s+exile\s+a\s+nonland\s+card$/i.test(trimmed)) {
     return { kind: 'reference_amount', raw: 'until you exile a nonland card' };
   }
+  if (/^until\s+you\s+exile\s+a\s+nonland\s+card\s+whose\s+mana\s+value\s+is\s+less\s+than\s+this\s+spell(?:'|’)?s\s+mana\s+value$/i.test(trimmed)) {
+    return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
+  }
   if (/^the\s+number\s+of\s+cards\s+in\s+that\s+player(?:'|â€™)?s\s+hand$/i.test(trimmed)) {
     return { kind: 'reference_amount', raw: "the number of cards in that player's hand" };
   }
   if (/^the\s+number\s+of\s+mountains\s+you\s+control$/i.test(trimmed)) {
     return { kind: 'reference_amount', raw: 'the number of mountains you control' };
   }
+  if (/^the\s+number\s+of\s+.+$/i.test(trimmed)) return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
+  if (/^your\s+devotion\s+to\s+[a-z]+$/i.test(trimmed)) return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
+  if (/^the\s+difference\s+between\s+those\s+results$/i.test(trimmed)) return { kind: 'reference_amount', raw: 'the difference between those results' };
+  if (/^the\s+(?:discarded|exiled|revealed|sacrificed)\s+(?:card|artifact)(?:'|’)?s\s+(?:mana\s+value|power|toughness)$/i.test(trimmed)) return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
+  if (/^the\s+sacrificed\s+artifact(?:'|’)?s\s+mana\s+value$/i.test(trimmed)) return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
+  if (/^cards?\s+equal\s+to\s+.+?\s+mana\s+value(?:\s+from\s+.+)?$/i.test(trimmed)) return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
+  if (/^the\s+mana\s+value\s+of\s+the\s+card\s+revealed\s+by\s+the\s+other\s+player$/i.test(trimmed)) return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
+  if (/^the\s+total\s+number\s+of\s+instant\s+and\s+sorcery\s+cards\s+you\s+own\s+in\s+exile\s+and\s+in\s+your\s+graveyard$/i.test(trimmed)) return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
+  if (/^the\s+life\s+they\s+lost\s+this\s+turn$/i.test(trimmed)) return { kind: 'reference_amount', raw: 'the life they lost this turn' };
+  if (/^twice\s+x$/i.test(trimmed)) return { kind: 'reference_amount', raw: 'twice X' };
   if (/^a\s+card\s+for\s+each\s+\+1\/\+1\s+counter\s+on\s+it$/i.test(trimmed)) {
     return { kind: 'reference_amount', raw: 'a card for each +1/+1 counter on it' };
   }
@@ -107,6 +141,15 @@ export function parseQuantity(raw: string | undefined): OracleQuantity {
   if (/^a\s+number\s+equal\s+to\s+the\s+amount\s+of\s+mana\s+spent\s+to\s+cast\s+it$/i.test(trimmed)) {
     return { kind: 'reference_amount', raw: 'the amount of mana spent to cast it' };
   }
+  if (/^(?:a\s+)?number\s+equal\s+to\s+.+$/i.test(trimmed) || /^a\s+equal\s+to\s+.+$/i.test(trimmed)) {
+    return { kind: 'reference_amount', raw: trimmed.toLowerCase().replace(/^a\s+equal\s+to\s+/i, 'equal to ') };
+  }
+  if (/^a\s+number\s+of$/i.test(trimmed)) return { kind: 'reference_amount', raw: 'a number of' };
+  if (/^equal\s+to\s+that\s+card'?s\s+power$/i.test(trimmed)) return { kind: 'object_stat', subject: 'that_card', stat: 'power' };
+  if (/^equal\s+to\s+that\s+card'?s\s+toughness$/i.test(trimmed)) return { kind: 'object_stat', subject: 'that_card', stat: 'toughness' };
+  if (/^equal\s+to\s+target\s+creature'?s\s+power$/i.test(trimmed)) return { kind: 'object_stat', subject: 'that_creature', stat: 'power' };
+  if (/^equal\s+to\s+target\s+creature'?s\s+toughness$/i.test(trimmed)) return { kind: 'object_stat', subject: 'that_creature', stat: 'toughness' };
+  if (/^equal\s+to\s+.+$/i.test(trimmed)) return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
   if (/^the sacrificed creature'?s toughness$/i.test(trimmed)) {
     return { kind: 'object_stat', subject: 'the_sacrificed_creature', stat: 'toughness' };
   }
@@ -117,6 +160,9 @@ export function parseQuantity(raw: string | undefined): OracleQuantity {
       const value = Number.parseInt(String(nonlandMvMatch[1] || '0'), 10);
       if (Number.isFinite(value)) return { kind: 'until_nonland_mana_value_lte', value };
     }
+  }
+  if (/^until (?:they|you) exile a nonland card with (?:that mana value|mana value x|mana value that spell'?s mana value) or less$/i.test(trimmed)) {
+    return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
   }
   if (/^x$/i.test(trimmed)) return { kind: 'x' };
   if (/^all$/i.test(trimmed)) return { kind: 'all' };

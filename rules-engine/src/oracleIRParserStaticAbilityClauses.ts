@@ -190,6 +190,16 @@ export function tryParseStaticAbilityGrantClause(args: {
     });
   }
 
+  if (/^you\s+may\s+have\s+this\s+creature\s+enter\s+as\s+a\s+copy\s+of\s+any\s+creature\s+on\s+the\s+battlefield$/i.test(normalized)) {
+    return withMeta({
+      kind: 'grant_static_ability',
+      target: parseObjectSelector('this creature'),
+      effectText: ['may enter as a copy of any creature on the battlefield'],
+      duration: 'static',
+      raw: rawClause,
+    });
+  }
+
   if (/^each\s+opponent\s+can\s+cast\s+spells\s+only\s+any\s+time\s+they\s+could\s+cast\s+a\s+sorcery$/i.test(normalized)) {
     return withMeta({
       kind: 'grant_static_ability',

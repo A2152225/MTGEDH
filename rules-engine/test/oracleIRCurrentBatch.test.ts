@@ -95,6 +95,70 @@ function makeState(overrides: Partial<GameState> = {}): GameState {
 }
 
 describe('Oracle IR current audit batch support', () => {
+  it('covers after9 executable amass, discover, and named-reference residuals', () => {
+    const samples = [
+      [
+        'Assault on Osgiliath',
+        "Amass Orcs X, then Goblins and Orcs you control gain double strike and haste until end of turn. (To amass Orcs X, put X +1/+1 counters on an Army you control. It's also an Orc. If you don't control an Army, create a 0/0 black Orc Army creature token first.)",
+      ],
+      [
+        'Foray of Orcs',
+        'Foray of Orcs deals 2 damage to any target. Amass Orcs 2.',
+      ],
+      [
+        'Hurl into History',
+        "Counter target artifact or creature spell. Discover X, where X is that spell's mana value. (Exile cards from the top of your library until you exile a nonland card with that mana value or less. Cast it without paying its mana cost or put it into your hand. Put the rest on the bottom in a random order.)",
+      ],
+      [
+        'Bosh, Iron Golem',
+        "{3}{R}, Sacrifice an artifact: Bosh deals damage equal to the sacrificed artifact's mana value to any target.",
+      ],
+    ] as const;
+
+    for (const [cardName, oracleText] of samples) {
+      const ir = parseOracleTextToIR(oracleText, cardName);
+      expect(collectUnknowns(ir.abilities), cardName).toEqual([]);
+    }
+  });
+
+  it('covers after9 choice and follow-up residuals without unknowns', () => {
+    const samples = [
+      [
+        'Sorcerous Spyglass',
+        "As this artifact enters, look at an opponent's hand, then choose any card name.\nActivated abilities of sources with the chosen name can't be activated unless they're mana abilities.",
+      ],
+      [
+        'Anointed Peacekeeper',
+        "As this creature enters, look at an opponent's hand, then choose any card name.\nSpells your opponents cast with the chosen name cost {2} more to cast.\nActivated abilities of sources with the chosen name cost {2} more to activate unless they're mana abilities.",
+      ],
+      ['Soldevi Sage', '{T}, Sacrifice two lands: Draw three cards, then discard one of them.'],
+      [
+        'Kynaios and Tiro of Meletis',
+        "At the beginning of your end step, draw a card. Each player may put a land card from their hand onto the battlefield, then each opponent who didn't draws a card.",
+      ],
+      [
+        'Fear of Impostors',
+        "When this creature enters, counter target spell. Its controller manifests dread. (That player looks at the top two cards of their library, then puts one onto the battlefield face down as a 2/2 creature and the other into their graveyard. If it's a creature card, it can be turned face up any time for its mana cost.)",
+      ],
+      [
+        'Glimpse of Tomorrow',
+        'Shuffle all permanents you own into your library, then reveal that many cards from the top of your library. Put all non-Aura permanent cards revealed this way onto the battlefield, then do the same for Aura cards, then put the rest on the bottom of your library in a random order.',
+      ],
+      ['Reveal follow-up', 'Then reveal the card.'],
+      ['Top-card follow-up', 'Then reveal the top card.'],
+      ['Target-player top-card follow-up', 'Then reveals the top card of their library.'],
+      ['Exiled-card cleanup follow-up', "Then that player puts the exiled cards that weren't cast this way on the bottom of their library in a random order."],
+      ['Graveyard reanimate follow-up', 'Then you put a creature card from a graveyard onto the battlefield under your control.'],
+      ['Shadow of the Second Sun', 'There is an additional beginning phase after this phase.'],
+      ['Next untap restriction', "They don't untap during their controller's next untap step."],
+    ] as const;
+
+    for (const [cardName, oracleText] of samples) {
+      const ir = parseOracleTextToIR(oracleText, cardName);
+      expect(collectUnknowns(ir.abilities), cardName).toEqual([]);
+    }
+  });
+
   it('parses Prime Speaker Zegana counters and draw without unknowns', () => {
     const ir = parseOracleTextToIR(
       'Prime Speaker Zegana enters with X +1/+1 counters on it, where X is the greatest power among other creatures you control.\nWhen Prime Speaker Zegana enters, draw cards equal to its power.',
@@ -851,7 +915,7 @@ describe('Oracle IR current audit batch support', () => {
       expect.objectContaining({
         kind: 'draw',
         who: { kind: 'any_number_of_target_players' },
-        amount: { kind: 'unknown', raw: 'the number of Curses attached to that player' },
+        amount: { kind: 'reference_amount', raw: 'the number of curses attached to that player' },
       }),
     ]));
   });
@@ -931,7 +995,7 @@ describe('Oracle IR current audit batch support', () => {
       expect.objectContaining({ kind: 'add_counter', amount: { kind: 'number', value: 1 }, target: { kind: 'raw', text: 'Legendary creatures you control' } }),
     ]));
     expect(opalSteps).toEqual(expect.arrayContaining([
-      expect.objectContaining({ kind: 'add_counter', amount: { kind: 'unknown', raw: "a number equal to the number of times it's been cast from the command zone this game" } }),
+      expect.objectContaining({ kind: 'add_counter', amount: { kind: 'reference_amount', raw: "a number equal to the number of times it's been cast from the command zone this game" } }),
     ]));
   });
 
@@ -988,7 +1052,7 @@ describe('Oracle IR current audit batch support', () => {
       expect.objectContaining({
         kind: 'add_counter',
         counter: '+1/+1',
-        amount: { kind: 'unknown', raw: 'a number equal to that result' },
+        amount: { kind: 'reference_amount', raw: 'a number equal to that result' },
         target: { kind: 'raw', text: 'that creature' },
       }),
     ]));
@@ -998,7 +1062,7 @@ describe('Oracle IR current audit batch support', () => {
       expect.objectContaining({
         kind: 'add_counter',
         counter: '+1/+1',
-        amount: { kind: 'unknown', raw: 'a number equal to the total power of creatures they controlled that were exiled this way' },
+        amount: { kind: 'reference_amount', raw: 'a number equal to the total power of creatures they controlled that were exiled this way' },
         target: { kind: 'raw', text: 'those tokens' },
       }),
     ]));
@@ -1112,7 +1176,7 @@ describe('Oracle IR current audit batch support', () => {
       expect.objectContaining({
         kind: 'add_counter',
         counter: '+1/+1',
-        amount: { kind: 'unknown', raw: "equal to that creature's power" },
+        amount: { kind: 'reference_amount', raw: "equal to that creature's power" },
         target: { kind: 'raw', text: 'this creature' },
       }),
     ]));
@@ -1385,15 +1449,15 @@ describe('Oracle IR current audit batch support', () => {
       expect.objectContaining({ kind: 'lose_life', who: { kind: 'target_player' }, amount: { kind: 'number', value: 1 } }),
     ]));
     expect(sufferSteps).toEqual(expect.arrayContaining([
-      expect.objectContaining({ kind: 'lose_life', who: { kind: 'target_player' }, amount: { kind: 'unknown', raw: '1 for each card exiled this way' } }),
-      expect.objectContaining({ kind: 'gain_life', who: { kind: 'you' }, amount: { kind: 'unknown', raw: '1 for each card exiled this way' } }),
+      expect.objectContaining({ kind: 'lose_life', who: { kind: 'target_player' }, amount: { kind: 'reference_amount', raw: '1 for each card exiled this way' } }),
+      expect.objectContaining({ kind: 'gain_life', who: { kind: 'you' }, amount: { kind: 'reference_amount', raw: '1 for each card exiled this way' } }),
     ]));
     expect(azorSteps).toEqual(expect.arrayContaining([
       expect.objectContaining({ kind: 'gain_life', who: { kind: 'you' }, amount: { kind: 'x' } }),
       expect.objectContaining({ kind: 'draw', who: { kind: 'you' }, amount: { kind: 'x' } }),
     ]));
     expect(rewardSteps).toEqual(expect.arrayContaining([
-      expect.objectContaining({ kind: 'lose_life', amount: { kind: 'unknown', raw: 'the high bid' } }),
+      expect.objectContaining({ kind: 'lose_life', amount: { kind: 'reference_amount', raw: 'the high bid' } }),
       expect.objectContaining({ kind: 'draw', amount: { kind: 'number', value: 4 } }),
     ]));
   });
@@ -1455,7 +1519,7 @@ describe('Oracle IR current audit batch support', () => {
       expect.objectContaining({ kind: 'lose_life', who: { kind: 'target_opponent' }, amount: { kind: 'number', value: 2 } }),
     ]));
     expect(falseCureSteps).toEqual(expect.arrayContaining([
-      expect.objectContaining({ kind: 'lose_life', who: { kind: 'target_player' }, amount: { kind: 'unknown', raw: '2 for each 1 life they gained' }, duration: 'end_of_turn' }),
+      expect.objectContaining({ kind: 'lose_life', who: { kind: 'target_player' }, amount: { kind: 'reference_amount', raw: '2 for each 1 life they gained' }, duration: 'end_of_turn' }),
     ]));
     expect(broodSteps).toEqual(expect.arrayContaining([
       expect.objectContaining({ kind: 'schedule_delayed_trigger', timing: 'next_end_step' }),
@@ -1492,13 +1556,13 @@ describe('Oracle IR current audit batch support', () => {
     ).abilities);
 
     expect(grimnarchSteps).toEqual(expect.arrayContaining([
-      expect.objectContaining({ kind: 'gain_life', who: { kind: 'you' }, amount: { kind: 'unknown', raw: "4 for each opponent who can't" } }),
+      expect.objectContaining({ kind: 'gain_life', who: { kind: 'you' }, amount: { kind: 'reference_amount', raw: "4 for each opponent who can't" } }),
     ]));
     expect(wordsSteps).toEqual(expect.arrayContaining([
       expect.objectContaining({ kind: 'gain_life', who: { kind: 'you' }, amount: { kind: 'number', value: 5 }, replacementOf: 'draw_card', duration: 'end_of_turn' }),
     ]));
     expect(spoilsSteps).toEqual(expect.arrayContaining([
-      expect.objectContaining({ kind: 'gain_life', who: { kind: 'you' }, amount: { kind: 'unknown', raw: "1 for each artifact or creature card in target opponent's graveyard" } }),
+      expect.objectContaining({ kind: 'gain_life', who: { kind: 'you' }, amount: { kind: 'reference_amount', raw: "1 for each artifact or creature card in target opponent's graveyard" } }),
     ]));
     expect(shepherdSteps).toEqual(expect.arrayContaining([
       expect.objectContaining({ kind: 'gain_life', who: { kind: 'you' }, amount: { kind: 'number', value: 1 } }),
@@ -1752,6 +1816,678 @@ describe('Oracle IR current audit batch support', () => {
         }),
         expect.objectContaining({ kind: 'shuffle_library', who: { kind: 'you' } }),
       ]));
+    }
+  });
+
+  it('lowers next-250 conditional look/reveal top-library selections', () => {
+    const ir = parseOracleTextToIR(
+      'Whenever you sacrifice a Food, you may pay {1}. If you do, look at the top two cards of your library. You may reveal a permanent card from among them and put it into your hand. Put the rest on the bottom of your library in any order.',
+      'Trail of Crumbs'
+    );
+    const steps = collectSteps(ir.abilities);
+
+    expect(collectUnknowns(ir.abilities)).toEqual([]);
+    expect(steps).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'pay_mana', mana: '{1}', optional: true }),
+      expect.objectContaining({ kind: 'conditional', condition: { kind: 'if', raw: 'you do' } }),
+      expect.objectContaining({
+        kind: 'look_choose_from_top',
+        amount: { kind: 'number', value: 2 },
+        selectorText: 'permanent',
+        destination: 'hand',
+        reveal: true,
+        restOrder: 'any',
+        optional: true,
+      }),
+    ]));
+  });
+
+  it('lowers next-250 haste followups and static land animation', () => {
+    const bondSteps = collectSteps(parseOracleTextToIR(
+      'Return target creature card from your graveyard to the battlefield. It gains haste until your next turn.',
+      'Bond of Revival'
+    ).abilities);
+    const noyanIr = parseOracleTextToIR(
+      "Whenever you cast an instant or sorcery spell, you may put three +1/+1 counters on target land you control. If you do, that land becomes a 0/0 Elemental creature with haste that's still a land.",
+      'Noyan Dar, Roil Shaper'
+    );
+    const noyanSteps = collectSteps(noyanIr.abilities);
+
+    expect(bondSteps).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'grant_temporary_ability', abilities: ['haste'], duration: 'until_next_turn' }),
+    ]));
+    expect(collectUnknowns(noyanIr.abilities)).toEqual([]);
+    expect(noyanSteps).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'animate_permanent', power: 0, toughness: 0, abilities: ['haste'], duration: 'static' }),
+    ]));
+
+    const state = makeState({
+      battlefield: [
+        { id: 'land-1', name: 'Island', controller: 'p1', type_line: 'Basic Land - Island', card: { type_line: 'Basic Land - Island' }, counters: {} },
+      ],
+      turnOrder: ['p1'],
+    } as any);
+    const result = applyOracleIRStepsToGameState(state, noyanIr.abilities[0]?.steps ?? [], {
+      controllerId: 'p1',
+      targetPermanentId: 'land-1',
+      sourceName: 'Noyan Dar, Roil Shaper',
+    }, { allowOptional: true });
+    const land = ((result.state as any).battlefield as any[]).find((perm) => perm.id === 'land-1');
+    expect(land.counters['+1/+1']).toBe(3);
+    expect(land.basePower).toBe(0);
+    expect(land.baseToughness).toBe(0);
+    expect(land.grantedAbilities).toContain('haste');
+  });
+
+  it('executes next-250 named graveyard-hand-library exile searches', () => {
+    const ir = parseOracleTextToIR(
+      "Choose a creature card name. Search target opponent's graveyard, hand, and library for any number of cards with that name and exile them. Then that player shuffles.",
+      'Infinite Obliteration'
+    );
+    const steps = collectSteps(ir.abilities);
+
+    expect(collectUnknowns(ir.abilities)).toEqual([]);
+    expect(steps).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'choose_card_name' }),
+      expect.objectContaining({ kind: 'exile_named_cards_from_zones', zones: ['graveyard', 'hand', 'library'], maxResults: 'any_number' }),
+      expect.objectContaining({ kind: 'shuffle_library', who: { kind: 'target_player' } }),
+    ]));
+
+    const namedCard = (id: string) => ({ id, name: 'Goblin Guide', type_line: 'Creature - Goblin Scout' });
+    const state = makeState({
+      players: [
+        { ...(makeState().players[0] as any), id: 'p1' },
+        {
+          ...(makeState().players[1] as any),
+          id: 'p2',
+          hand: [namedCard('hand-1'), { id: 'hand-2', name: 'Lightning Bolt' }],
+          graveyard: [namedCard('grave-1')],
+          library: [namedCard('library-1'), { id: 'library-2', name: 'Island' }],
+          exile: [],
+        },
+      ],
+    } as any);
+    const result = applyOracleIRStepsToGameState(state, steps, {
+      controllerId: 'p1',
+      selectorContext: { chosenCardName: 'Goblin Guide', targetOpponentId: 'p2', targetPlayerId: 'p2' },
+    } as any);
+    const opponent = (result.state.players as any[]).find((player) => player.id === 'p2');
+    expect(opponent.exile.map((card: any) => card.name)).toEqual(['Goblin Guide', 'Goblin Guide', 'Goblin Guide']);
+    expect(opponent.hand.map((card: any) => card.name)).toEqual(['Lightning Bolt']);
+    expect(opponent.graveyard).toEqual([]);
+    expect(opponent.library.map((card: any) => card.name)).toEqual(['Island']);
+  });
+
+  it('prunes next-250 standalone cost metadata rows', () => {
+    const samples = [
+      ['Kicker {3}', 'Tajuru Paragon'],
+      ['Kicker-Sacrifice a land', 'Mold Shambler'],
+      ['Kicker-Sacrifice an artifact or creature', 'Phyrexian Tribute'],
+      ['Strive - This spell costs {2}{R} more to cast for each target beyond the first.', 'Twinflame'],
+      ['Surge {1}{U} (You may cast this spell for its surge cost if you or a teammate has cast another spell this turn.)', 'Comparative Analysis'],
+      ['Buyback-Sacrifice a land', 'Constant Mists'],
+      ['Echo-Discard a card', 'Deepcavern Imp'],
+      ['Emerge {6}{U} (You may cast this spell by sacrificing a creature and paying the emerge cost reduced by that creature\'s mana value.)', 'Vexing Scuttler'],
+      ['Escalate {1} (Pay this cost for each mode chosen beyond the first.)', 'Collective Defiance'],
+      ['Equip-Discard a card', 'Neurok Stealthsuit'],
+      ['Equip-Sacrifice a creature', 'Demonmail Hauberk'],
+      ['As an additional cost to cast this spell, discard a card or', 'Lightning Axe'],
+    ];
+
+    for (const [oracleText, cardName] of samples) {
+      expect(collectUnknowns(parseOracleTextToIR(oracleText, cardName).abilities)).toEqual([]);
+    }
+  });
+
+  it('resolves next-250 reference damage amounts from battlefield state', () => {
+    const ir = parseOracleTextToIR(
+      'Goblin War Strike deals damage to target player equal to the number of Goblins you control.',
+      'Goblin War Strike'
+    );
+    const steps = collectSteps(ir.abilities);
+    expect(steps).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'deal_damage', amount: { kind: 'reference_amount', raw: 'the number of goblins you control' } }),
+    ]));
+
+    const state = makeState({
+      battlefield: [
+        { id: 'goblin-1', name: 'Goblin Token', controller: 'p1', type_line: 'Creature - Goblin', power: 1, toughness: 1 },
+        { id: 'goblin-2', name: 'Goblin Token', controller: 'p1', type_line: 'Creature - Goblin', power: 1, toughness: 1 },
+        { id: 'elf-1', name: 'Elf Token', controller: 'p1', type_line: 'Creature - Elf', power: 1, toughness: 1 },
+      ],
+    } as any);
+    const result = applyOracleIRStepsToGameState(state, steps, {
+      controllerId: 'p1',
+      selectorContext: { targetPlayerId: 'p2' },
+      sourceName: 'Goblin War Strike',
+    } as any);
+    const opponent = (result.state.players as any[]).find((player) => player.id === 'p2');
+    expect(opponent.life).toBe(18);
+  });
+
+  it('parses next-250 spelled-number chosen-name zone exile searches', () => {
+    const ir = parseOracleTextToIR(
+      "Choose a card name. Search target opponent's graveyard, hand, and library for up to four cards with that name and exile them. Then that player shuffles.",
+      'Unmoored Ego'
+    );
+    const steps = collectSteps(ir.abilities);
+
+    expect(collectUnknowns(ir.abilities)).toEqual([]);
+    expect(steps).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'choose_card_name' }),
+      expect.objectContaining({ kind: 'exile_named_cards_from_zones', maxResults: 4 }),
+      expect.objectContaining({ kind: 'shuffle_library', who: { kind: 'target_player' } }),
+    ]));
+  });
+
+  it('surfaces next-250 static restriction and mana-use metadata', () => {
+    const cases = [
+      ['Nevermore', "As this enchantment enters, choose a card name.\nSpells with the chosen name can't be cast."],
+      ['Sage of the Beyond', 'Spells you cast from anywhere other than your hand cost {2} less to cast.'],
+      ['Consume Spirit', 'Spend only black mana on X.'],
+      ['Elementalist\'s Palette', 'Spend this mana only on costs that contain {X}.'],
+      ['Fabrication Foundry', 'Spend this mana only to cast an artifact spell or activate an ability of an artifact source.'],
+      ['Vedalken Orrery', 'You may cast spells as though they had flash.'],
+      ['Narset, Parter of Veils', "Each opponent can't draw more than one card each turn."],
+      ['Stony Silence', "Activated abilities of artifacts can't be activated."],
+      ['Training Grounds', 'Activated abilities of creatures you control cost {2} less to activate.'],
+      ['Gaea\'s Herald', "Creature spells can't be countered."],
+      ['Grand Abolisher', "During your turn, your opponents can't cast spells or activate abilities of artifacts, creatures, or enchantments."],
+    ] as const;
+
+    for (const [cardName, oracleText] of cases) {
+      const ir = parseOracleTextToIR(oracleText, cardName);
+      expect(collectUnknowns(ir.abilities), cardName).toEqual([]);
+      expect(collectSteps(ir.abilities).some((step) => step.kind === 'grant_static_ability'), cardName).toBe(true);
+    }
+  });
+
+  it('surfaces next-250 characteristic-change metadata and executes phase out', () => {
+    const cases = [
+      ['Cerulean Wisps', 'Target creature becomes blue until end of turn. Draw a card.'],
+      ['Govern the Guildless', 'Target creature becomes the color or colors of your choice until end of turn.'],
+      ['Unnatural Selection', 'Target creature becomes that type until end of turn.'],
+      ['Hurr Jackal', "Target creature can't be regenerated this turn."],
+      ['Canopy Claws', 'Target creature loses flying until end of turn.'],
+      ['Karn\'s Touch', 'Target noncreature artifact becomes an artifact creature with power and toughness each equal to its mana value until end of turn.'],
+      ['Start Your Engines', 'Vehicles you control become artifact creatures until end of turn.'],
+      ['Transguild Courier', 'This permanent is all colors.'],
+      ['Erebos, God of the Dead', "As long as your devotion to black is less than five, this permanent isn't a creature."],
+      ['Ensoul Artifact', 'Enchanted artifact is a creature with base power and toughness 5/5 in addition to its other types.'],
+      ['Clone', 'You may have this creature enter as a copy of any creature on the battlefield.'],
+      ['High Alert', "Creatures you control can attack as though they didn't have defender."],
+    ] as const;
+
+    for (const [cardName, oracleText] of cases) {
+      const ir = parseOracleTextToIR(oracleText, cardName);
+      expect(collectUnknowns(ir.abilities), cardName).toEqual([]);
+    }
+
+    const phaseIr = parseOracleTextToIR('Target creature phases out.', 'Galadriel\'s Dismissal');
+    const phaseSteps = collectSteps(phaseIr.abilities);
+    expect(phaseSteps).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'phase_out', target: { kind: 'raw', text: 'Target creature' } }),
+    ]));
+
+    const state = makeState({
+      battlefield: [
+        { id: 'creature-1', name: 'Target Creature', controller: 'p1', type_line: 'Creature - Soldier' },
+      ],
+    } as any);
+    const result = applyOracleIRStepsToGameState(state, phaseSteps, {
+      controllerId: 'p1',
+      targetPermanentId: 'creature-1',
+      sourceName: 'Galadriel\'s Dismissal',
+    } as any);
+    const creature = ((result.state as any).battlefield as any[]).find((perm) => perm.id === 'creature-1');
+    expect(creature.phasedOut).toBe(true);
+    expect(creature.phasedOutBy).toBe('effect');
+  });
+
+  it('recognizes next-250 broad reference amount fragments', () => {
+    const sufferSteps = collectSteps(parseOracleTextToIR(
+      'Exile X target cards from target player\'s graveyard. For each card exiled this way, that player loses 1 life and you gain 1 life.',
+      'Suffer the Past'
+    ).abilities);
+    const jaradSteps = collectSteps(parseOracleTextToIR(
+      "Sacrifice another creature: Each opponent loses life equal to the sacrificed creature's power.",
+      'Jarad, Golgari Lich Lord'
+    ).abilities);
+
+    expect(sufferSteps).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'lose_life', amount: { kind: 'reference_amount', raw: '1 for each card exiled this way' } }),
+    ]));
+    expect(jaradSteps).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'lose_life', amount: { kind: 'object_stat', subject: 'the_sacrificed_creature', stat: 'power' } }),
+    ]));
+  });
+
+  it('lowers post-audit residual manifest and pronoun metadata rows', () => {
+    const cases = [
+      ['Lightform', 'Manifest the top card of your library and attach this enchantment to it.'],
+      ['Rofellos\'s Gift', 'Reveal any number of green cards in your hand.'],
+      ['Chittering Rats', 'When Chittering Rats enters, target opponent puts a card from their hand on top of their library.'],
+      ['Curtain of Light', 'Target unblocked attacking creature becomes blocked.'],
+      ['Paroxysm', 'that player reveals the top card of their library.'],
+      ['Djinn Illuminatus', 'The replicate cost is equal to its mana cost.'],
+      ['Ghastly Conscription', 'then manifest those cards.'],
+      ['Living End', 'then puts all cards they exiled this way onto the battlefield.'],
+      ['Conduit of Ruin', 'then shuffle and put that card on top.'],
+      ['Mana Conference', 'then those choices are revealed.'],
+      ['Synchronized Strike', 'They each get +2/+2 until end of turn.'],
+      ['Blight Herder', 'They have "Sacrifice this token: Add {C}."'],
+      ['Death in Heaven', "They're 2/2 Cyberman artifact creatures."],
+      ['Watchdog', 'This creature blocks each combat if able.'],
+      ['Luminous Guardian', 'This creature can block an additional creature this turn.'],
+      ['Deathless Pilot', 'This creature saddles Mounts and crews Vehicles as though its power were 2 greater.'],
+      ['Sudden Storm', "Those creatures don't untap during their controllers' next untap steps."],
+      ['Branching Evolution', 'twice that many +1/+1 counters are put on that creature.'],
+      ['Sedris, the Traitor King', 'Unearth only as a sorcery.)'],
+      ['When We Were Young', 'Up to two target creatures each get +2/+2 until end of turn.'],
+      ['Delay', 'When the last is removed, they may play it without paying its mana cost.'],
+      ['Coalition Flag', 'While an opponent is choosing targets as part of casting a spell they control or activating an ability they control, that player must choose at least one Flagbearer on the battlefield if able.'],
+      ['Tivit, Seller of Secrets', 'While voting, you may vote an additional time.'],
+      ['Prototype Portal', 'X is the mana value of that card.'],
+      ['Duress', 'You choose a noncreature, nonland card from it.'],
+      ['Mindslaver', "You control target player during that player's next turn."],
+      ['Leyline Tyrant', "You don't lose unspent red mana as steps and phases end."],
+      ['Empyreal Voyager', 'you get that many {E} (energy counters).'],
+      ['Borne Upon a Wind', 'You may cast spells this turn as though they had flash.'],
+      ['Covetous Urge', 'You may cast that card for as long as it remains exiled, and you may spend mana as though it were mana of any color to cast that spell.'],
+      ['Dual Casting', 'You may choose new targets for the copy."'],
+      ['Evidence Examiner', 'you may collect evidence 4.'],
+      ['Fist of Suns', 'You may pay {W}{U}{B}{R}{G} rather than pay the mana cost for spells you cast.'],
+    ] as const;
+
+    for (const [cardName, oracleText] of cases) {
+      const ir = parseOracleTextToIR(oracleText, cardName);
+      expect(collectUnknowns(ir.abilities), cardName).toEqual([]);
+    }
+
+    const lightformSteps = collectSteps(parseOracleTextToIR(
+      'Manifest the top card of your library and attach this enchantment to it.',
+      'Lightform'
+    ).abilities);
+    expect(lightformSteps).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'move_zone', to: 'battlefield', entersFaceDown: true }),
+      expect.objectContaining({ kind: 'attach' }),
+    ]));
+
+    const synchronizedSteps = collectSteps(parseOracleTextToIR(
+      'They each get +2/+2 until end of turn.',
+      'Synchronized Strike'
+    ).abilities);
+    expect(synchronizedSteps).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'modify_pt', power: 2, toughness: 2, duration: 'end_of_turn' }),
+    ]));
+
+    const energySteps = collectSteps(parseOracleTextToIR(
+      'you get that many {E} (energy counters).',
+      'Empyreal Voyager'
+    ).abilities);
+    expect(energySteps).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'add_player_counter', counter: 'energy', amount: { kind: 'reference_amount', raw: 'that many' } }),
+    ]));
+
+    const graveyardPermission = collectSteps(parseOracleTextToIR(
+      'Until end of turn, you may cast target instant or sorcery card from your graveyard without paying its mana cost.',
+      'Sins of the Past'
+    ).abilities);
+    expect(graveyardPermission).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'grant_graveyard_permission', who: { kind: 'you' }, duration: 'this_turn' }),
+    ]));
+
+    const removeCounterSteps = collectSteps(parseOracleTextToIR(
+      'Remove up to five counters from target permanent.',
+      'Render Inert'
+    ).abilities);
+    expect(removeCounterSteps).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'remove_counter', amount: { kind: 'number', value: 5 }, optional: true }),
+    ]));
+  });
+
+  it('lowers after4 top residual mana, combat, and static metadata rows', () => {
+    const cases = [
+      ['Compassionate Healer', 'You may put it on the bottom.)'],
+      ['Militia Bugler', 'You may reveal a creature card with power 2 or less from among them and put it into your hand. Put the rest on the bottom of your library in a random order.'],
+      ['Contact Other Plane', '10-19 | Scry 2'],
+      ['Thriving Moor', 'Add {B} or one mana of the chosen color.'],
+      ['Metalworker', 'Add {C}{C} for each card revealed this way.'],
+      ['Nykthos, Shrine to Nyx', 'Add an amount of mana of that color equal to your devotion to that color.'],
+      ['Chandra, Heart of Fire', 'Add six {R}.'],
+      ['Stormtide Leviathan', 'All lands are Islands in addition to their other types.'],
+      ['Demon of Dark Schemes', 'all other creatures get -2/-2 until end of turn.'],
+      ['Ral Zarek, Guest Lecturer', 'Any number of target players each discard a card.'],
+      ['Rites of Flourishing', 'Each player may play an additional land on each of their turns.'],
+      ['Canopy Cover', "Enchanted creature can't be the target of spells or abilities your opponents control."],
+      ['Silent Arbiter', 'No more than one creature can attack each combat.'],
+      ['Vivify', 'Target land becomes a 3/3 creature until end of turn.'],
+      ['Liquimetal Coating', 'Target permanent becomes an artifact in addition to its other types until end of turn.'],
+      ['Induced Amnesia', 'Target player exiles all cards from their hand face down.'],
+      ['Cut Your Losses', 'Target player mills half their library, rounded down.'],
+      ['Fertilid', 'Target player searches their library for a basic land card, puts it onto the battlefield tapped.'],
+      ['Doomfall', 'Target opponent exiles a creature they control.'],
+      ['Hokori, Dust Drinker', 'that player untaps a land they control.'],
+    ] as const;
+
+    for (const [cardName, oracle] of cases) {
+      const ir = parseOracleTextToIR(oracle, cardName);
+      expect(collectUnknowns(ir.abilities), cardName).toEqual([]);
+    }
+
+    const manaChoiceSteps = collectSteps(parseOracleTextToIR('Add {B} or one mana of the chosen color.', 'Thriving Moor').abilities);
+    expect(manaChoiceSteps).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'add_mana', mana: '{B}', requiresChosenMana: true }),
+    ]));
+
+    const scrySteps = collectSteps(parseOracleTextToIR('10-19 | Scry 2', 'Contact Other Plane').abilities);
+    expect(scrySteps).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'scry', amount: { kind: 'number', value: 2 } }),
+    ]));
+
+    const animateSteps = collectSteps(parseOracleTextToIR('Target land becomes a 3/3 creature until end of turn.', 'Vivify').abilities);
+    expect(animateSteps).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'animate_permanent', power: 3, toughness: 3, duration: 'end_of_turn' }),
+    ]));
+
+    const graveyardTurnPermission = collectSteps(parseOracleTextToIR(
+      'During your turn, you may cast instant and sorcery spells from your graveyard by paying 1 life in addition to their other costs.',
+      'Festival of Embers'
+    ).abilities);
+    expect(graveyardTurnPermission).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'conditional' }),
+      expect.objectContaining({ kind: 'grant_graveyard_permission', who: { kind: 'you' }, duration: 'this_turn' }),
+    ]));
+  });
+
+  it('lowers after5 residual attachments, references, and static metadata rows', () => {
+    const cases = [
+      ['Dragon Broodmother', 'Devour 3 (As this creature enters, you may sacrifice any number of creatures.)'],
+      ['Killing Wave', 'Any player may sacrifice a land of their choice.'],
+      ['Loxodon Punisher', 'Attach it to up to one target creature you control.'],
+      ['Magical Hack', 'Change the text of target permanent by replacing all instances of one color word with another or one basic land type with another until end of turn.'],
+      ['Matca Rioters', 'Domain - Look at the top X cards of your library, where X is the number of basic land types among lands you control.'],
+      ['Urborg, Tomb of Yawgmoth', 'Each land is a Swamp in addition to its other land types.'],
+      ['Shared Triumph', 'Each player chooses a creature type.'],
+      ['Shade Form', 'Enchanted creature has "{B}: This creature gets +1/+1 until end of turn."'],
+      ['Pride of Lions', 'Target creature gets +1/+1 until end of turn for each creature you control.'],
+      ['Soul Separator', "Put a number of +1/+1 counters equal to that card's power on target creature."],
+      ['Impulse Exile', 'Exile a number of cards from the top of your library.'],
+      ['Selvala, Explorer Returned', 'Parley - Each player reveals the top card of their library.'],
+      ['Memory Jar Tail', 'Put the cards in your hand on the bottom of your library in any order.'],
+    ] as const;
+
+    for (const [cardName, oracle] of cases) {
+      const ir = parseOracleTextToIR(oracle, cardName);
+      expect(collectUnknowns(ir.abilities), cardName).toEqual([]);
+    }
+
+    const attachSteps = collectSteps(parseOracleTextToIR('Attach it to up to one target creature you control.', 'Loxodon Punisher').abilities);
+    expect(attachSteps).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'attach', optional: true }),
+    ]));
+
+    const landTypeSteps = collectSteps(parseOracleTextToIR('Each land is a Swamp in addition to its other land types.', 'Urborg, Tomb of Yawgmoth').abilities);
+    expect(landTypeSteps).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'set_basic_land_type', landType: 'Swamp' }),
+    ]));
+
+    const scalerSteps = collectSteps(parseOracleTextToIR('Target creature gets +1/+1 until end of turn for each creature you control.', 'Pride of Lions').abilities);
+    expect(scalerSteps).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'modify_pt', scaler: { kind: 'reference_scaler', raw: 'for each creature you control' } }),
+    ]));
+
+    const counterSteps = collectSteps(parseOracleTextToIR("Put a number of +1/+1 counters equal to that card's power on target creature.", 'Soul Separator').abilities);
+    expect(counterSteps).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'add_counter', amount: { kind: 'object_stat', subject: 'that_card', stat: 'power' } }),
+    ]));
+  });
+
+  it('lowers after6 entry, reveal-search, and damage-prevention residual rows', () => {
+    const cases = [
+      ['Steam Vents', 'As this land enters, you may pay 2 life.'],
+      ['Devour Tail', 'It enters with that many +1/+1 counters on it.)'],
+      ['Devour Double Tail', 'It enters with twice that many +1/+1 counters on it.)'],
+      ['Fear of Death', 'Enchanted creature gets -X/-0, where X is the number of cards in your graveyard.'],
+      ['The Deck of Many Things', 'Roll X six-sided dice.'],
+      ['Bribery', "Search target opponent's library for a creature card and put that card onto the battlefield under your control."],
+      ['Counterbore', "Search its controller's graveyard, hand, and library for all cards with the same name as that spell and exile them."],
+      ['Fact or Fiction Tail', 'Target opponent chooses two of those cards.'],
+      ['Fractured Identity Tail', 'Target opponent exiles an enchantment they control.'],
+      ['Lurking Predators', 'Target opponent reveals cards from the top of their library until they reveal a creature card.'],
+      ['Moonlace', 'Target permanent becomes white until end of turn.'],
+      ['Alhammarret Tail', 'That player draws two additional cards.'],
+      ['Mirror Box', 'The "legend rule" doesn\'t apply to permanents you control.'],
+      ['Deflection Tail', 'The new target must be a player.'],
+      ['Shielding Plax Tail', 'The next 1 damage that would be dealt to this creature this turn is dealt to target creature you control instead.'],
+      ['Black Ward Tail', 'The next time a black source of your choice would deal damage to you this turn, prevent that damage.'],
+    ] as const;
+
+    for (const [cardName, oracle] of cases) {
+      const ir = parseOracleTextToIR(oracle, cardName);
+      expect(collectUnknowns(ir.abilities), cardName).toEqual([]);
+    }
+
+    const searchSteps = collectSteps(parseOracleTextToIR(
+      "Search target opponent's library for a creature card and put that card onto the battlefield under your control.",
+      'Bribery'
+    ).abilities);
+    expect(searchSteps).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'search_library', who: { kind: 'target_opponent' }, destination: 'battlefield' }),
+    ]));
+
+    const revealSteps = collectSteps(parseOracleTextToIR(
+      'Target opponent reveals cards from the top of their library until they reveal a creature card.',
+      'Lurking Predators'
+    ).abilities);
+    expect(revealSteps).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'reveal_top', who: { kind: 'target_opponent' }, amount: { kind: 'reference_amount', raw: 'until they reveal a creature card' } }),
+    ]));
+
+    const drawSteps = collectSteps(parseOracleTextToIR('That player draws two additional cards.', 'Alhammarret Tail').abilities);
+    expect(drawSteps).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'draw', who: { kind: 'target_player' }, amount: { kind: 'number', value: 2 } }),
+    ]));
+
+    const whiteSteps = collectSteps(parseOracleTextToIR('Target permanent becomes white until end of turn.', 'Moonlace').abilities);
+    expect(whiteSteps).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'grant_temporary_ability', effectText: ['becomes white'] }),
+    ]));
+  });
+
+  it('lowers after10 top residual combat, cost, and permission rows', () => {
+    const cases = [
+      ['Breathkeeper Seraph', 'They remain paired for as long as you control both of them.)'],
+      ['Radha\'s Firebrand', 'This ability costs {1} less to activate for each basic land type among lands you control.'],
+      ['Tempest Efreet', 'This change in ownership is permanent.'],
+      ['Iron Golem', 'This creature attacks or blocks each combat if able.'],
+      ['Canal Courier', 'This creature can\'t be blocked this combat.'],
+      ['Gingerbrute', 'This creature can\'t be blocked this turn except by creatures with haste.'],
+      ['Sunweb', 'This creature can\'t block creatures with power 2 or less.'],
+      ['Tatterkite', 'This creature can\'t have counters put on it.'],
+      ['Dark Impostor', 'This creature has all activated abilities of all creature cards exiled with it.'],
+      ['Voice of All', 'This creature has protection from the chosen color.'],
+      ['Teferi Tail', 'Those permanents phase out.'],
+      ['Incubator Tail', 'Transform target Incubator token you control.'],
+      ['Soulbright Flamekin', 'Until end of combat, you don\'t lose this mana as steps end.'],
+      ['Platinum Angel', 'You can\'t lose the game and your opponents can\'t win the game.'],
+      ['Carnival Barker', 'You get {TK} (a ticket counter).'],
+      ['Surge Engine', 'You may pay {1} and discard a card.'],
+      ['Tromokratis Tail', 'You may have target creature block it this turn if able.'],
+      ['Oath of Lieges Tail', 'Your life total becomes that number.'],
+    ] as const;
+
+    for (const [cardName, oracle] of cases) {
+      const ir = parseOracleTextToIR(oracle, cardName);
+      expect(collectUnknowns(ir.abilities), cardName).toEqual([]);
+    }
+
+    const pumpAndDamage = collectSteps(parseOracleTextToIR(
+      'This creature gets +2/+0 until end of turn and deals 1 damage to you.',
+      'Electric Eel'
+    ).abilities);
+    expect(pumpAndDamage).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'modify_pt', target: { kind: 'raw', text: 'this creature' }, power: 2, toughness: 0 }),
+      expect.objectContaining({ kind: 'deal_damage', amount: { kind: 'number', value: 1 } }),
+    ]));
+
+    const landAnimation = collectSteps(parseOracleTextToIR(
+      'This land becomes a 2/2 Assembly-Worker artifact creature until end of turn.',
+      'Mishra\'s Factory'
+    ).abilities);
+    expect(landAnimation).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'animate_permanent', power: 2, toughness: 2, duration: 'end_of_turn' }),
+    ]));
+
+    const temporaryPt = collectSteps(parseOracleTextToIR(
+      'Two target creatures each get +2/+2 until end of turn.',
+      'Team Pump'
+    ).abilities);
+    expect(temporaryPt).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'modify_pt', power: 2, toughness: 2, duration: 'end_of_turn' }),
+    ]));
+
+    const leadingPump = collectSteps(parseOracleTextToIR(
+      'Until end of turn, target creature gets +1/+1 for each creature you control and gains trample.',
+      'Overrun Tail'
+    ).abilities);
+    expect(leadingPump).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'modify_pt', scaler: { kind: 'reference_scaler', raw: 'for each creature you control' } }),
+      expect.objectContaining({ kind: 'grant_temporary_ability', abilities: ['trample'] }),
+    ]));
+
+    const leadingAnimate = collectSteps(parseOracleTextToIR(
+      'Until end of turn, target noncreature artifact you control becomes a 4/4 artifact creature.',
+      'Tezzeret Tail'
+    ).abilities);
+    expect(leadingAnimate).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'animate_permanent', power: 4, toughness: 4, duration: 'end_of_turn' }),
+    ]));
+
+    const revealAmong = collectSteps(parseOracleTextToIR(
+      'You may reveal a creature or land card from among them and put it into your hand. Put the rest on the bottom of your library in a random order.',
+      'Explore Tail'
+    ).abilities);
+    expect(revealAmong).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'look_choose_from_top', selectorText: 'creature or land card', destination: 'hand', reveal: true }),
+    ]));
+
+    const ticket = collectSteps(parseOracleTextToIR('You get {TK} (a ticket counter).', 'Carnival Barker').abilities);
+    expect(ticket).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'add_player_counter', counter: 'ticket', amount: { kind: 'number', value: 1 } }),
+    ]));
+  });
+
+  it('cleans after11 reminder, commander, web-slinging, and supplemental menu rows', () => {
+    const cases = [
+      ['Vaporous Djinn', 'At the beginning of your upkeep, this creature phases out unless you pay {U}{U}.'],
+      ['The Magical City, New', 'this permanent can be your Commander.'],
+      ['Silk, Web Weaver', 'Web-slinging {1}{G}{W} (You may cast this spell for {1}{G}{W} if you also return a tapped creature you control to its owner\'s hand.)'],
+      ['Gisa, Glorious Resurrector', 'They gain decayed. (A creature with decayed can\'t block. When it attacks, sacrifice it at end of combat.)'],
+      ['Ranger-Captain of Eos', 'Your opponents can\'t cast noncreature spells this turn.'],
+      ['Yet Another Night in Vegas', '- All modes reset and can be chosen again'],
+      ['Convention Maro', '- As you create your deck, choose an [A] and a [B] -'],
+      ['Sorin, Vampire Lord', '-8: Until end of turn, each Vampire you control gains "{T}: Gain control of target creature."'],
+      ['Dungeon Room', '[1] Put a +1/+1 counter on target creature'],
+      ['Triskelion Tail', '{1}, Remove a +1/+1 counter from this creature: Create a 1/1 colorless Triskelavite artifact creature token with flying'],
+      ['Ticket Sticker', '{TK}{TK} - Deathtouch'],
+      ['Phyrexian Reminder', '{W/P} can be paid with either {W} or 2 life.)'],
+      ['Bullet Menu', '• 2/2 white Fox with vigilance'],
+      ['Animal Boneyard', 'Enchanted land has "{T}, Sacrifice a creature: You gain life equal to the sacrificed creature\'s toughness."'],
+      ['Elemental Time Flamingo', '{TK}{TK}{TK}{TK} - Whenever a creature you control dies, each opponent loses 1 life'],
+      ['Hollowmurk Siege', '• Abzan - Whenever you attack, put a +1/+1 counter on target attacking creature'],
+      ['Final Showdown', '+ {1} - Choose a creature you control'],
+      ['The Soul Stone', '∞ - At the beginning of your upkeep, return target creature card from your graveyard to the battlefield'],
+      ['Bucket List', '☐ artifact ☐ creature ☐ enchantment ☐ instant ☐ sorcery'],
+      ['Treasure Chest', '1 | Trapped! - You lose 3 life'],
+    ] as const;
+
+    for (const [cardName, oracle] of cases) {
+      const ir = parseOracleTextToIR(oracle, cardName);
+      expect(collectUnknowns(ir.abilities), cardName).toEqual([]);
+    }
+
+    const revealTwo = collectSteps(parseOracleTextToIR(
+      'You may reveal up to two creature cards from among them and put them into your hand. Put the rest on the bottom of your library in a random order.',
+      'Domri, Chaos Bringer'
+    ).abilities);
+    expect(revealTwo).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'look_choose_from_top', selectorText: 'up to two creature cards', destination: 'hand' }),
+    ]));
+  });
+
+  it('cleans after13 bullet menu and reference amount residual rows', () => {
+    const cases = [
+      ['Elemental Time Flamingo', '{TK}{TK}{TK}{TK} - Whenever a creature you control dies, each opponent loses 1 life'],
+      ['Your Favorite Missing Character', '• At the beginning of your upkeep, surveil 1'],
+      ['Item Crate', '• Banana with "{T}, Sacrifice this token: Add {R} or {G}'],
+      ["Who's That Praetor?", '• Elesh Norn, Mother of Machines'],
+      ["Seek Bolas's Counsel", '• For each opponent, exile cards from the top of their library until you exile a nonland card'],
+      ['Kharis & The Beholder', "• If the result is a natural 20, for each nonlegendary creature you control, create a token that's a copy of that creature"],
+      ['Kargan Intimidator', '• Target creature becomes a Coward until end of turn'],
+      ['Mikey & Mona, Mutant Sitters', '• Target player chooses a creature they control and puts two +1/+1 counters on it'],
+      ['Shadrix Silverquill', '• Target player puts a +1/+1 counter on each creature they control'],
+      ['Mikey & Mona, Mutant Sitters', '• Target player returns a creature or land card from their graveyard to their hand'],
+      ['Donnie & April, Adorkable Duo', '• Target player returns an artifact, instant, or sorcery card from their graveyard to their hand'],
+      ['Common Black Removal', "• That creature's controller mills cards equal to its power"],
+      ['Skinshifter', '• Until end of turn, this creature becomes a Bird with base power and toughness 2/2 and gains flying'],
+      ['Skinshifter', '• Until end of turn, this creature becomes a Plant with base power and toughness 0/8'],
+      ['Skinshifter', '• Until end of turn, this creature becomes a Rhino with base power and toughness 4/4 and gains trample'],
+      ['Your Favorite Missing Character', '• When this creature enters, put a +1/+1 counter on target creature or a lore counter on target Saga you control'],
+      ["Seek Bolas's Counsel", '• You get an emblem with "You can cast nonland cards from your sideboard."'],
+      ['Jumbo Cactuar', '10,000 Needles - Whenever this creature attacks, it gets +9999/+0 until end of turn'],
+      ['False Cure', 'Until end of turn, whenever a player gains life, that player loses 2 life for each 1 life they gained'],
+      ['The Spike Cactus', 'with +1/+1 counters on it equal to the amount of mana spent to cast it'],
+      ["Boss's Chauffeur", 'with a number of +1/+1 counters on it equal to one plus the number of other creatures you control'],
+    ] as const;
+
+    for (const [cardName, oracle] of cases) {
+      const ir = parseOracleTextToIR(oracle, cardName);
+      expect(collectUnknowns(ir.abilities), cardName).toEqual([]);
+    }
+  });
+
+  it('cleans after14 result-table, reminder, and static residual rows', () => {
+    const cases = [
+      ['Mathise, Surge Channeler', '20 | Copy that spell. You may choose new targets for the copy'],
+      ['Built Bear', '3 points each → +1/+1'],
+      ['Need for Speed (Not the Odyssey One)', '4 and higher?)'],
+      ["Kozilek's Unsealing", '5, or 6, create two 0/1 colorless Eldrazi Spawn creature tokens with "Sacrifice this token: Add {C}."'],
+      ['Druid of the Emerald Grove', '9 or less | Put those cards into your hand'],
+      ['Ashad, the Lone Cyberman', 'A copy of an artifact spell becomes a token.)'],
+      ['Stolen Vitality', 'A creature with first strike deals combat damage before creatures without first strike.)'],
+      ['Pestilent Souleater', 'A creature with infect deals damage to creatures in the form of -1/-1 counters and to players in the form of poison counters.)'],
+      ['Frost Raptor', "A creature with shroud can't be the target of spells or abilities.)"],
+      ['Nazgûl', 'A deck can have up to nine cards named this permanent'],
+      ['Seven Dwarves', 'A deck can have up to seven cards named this permanent'],
+      ['Cache Grab', 'A Food token is an artifact with "{2}, {T}, Sacrifice this token: You gain 3 life.")'],
+      ['Grave Endeavor', 'the battlefield with a number of +1/+1 counters on it equal to that result'],
+      ['Oversimplify', 'Each player creates a 0/0 green and blue Fractal creature token and puts a number of +1/+1 counters on it equal to the total power of creatures they controlled that were exiled this way'],
+      ['Done for the Day', 'If you control an Employee, a Performer, or a Robot, you may get {TK} or create a Treasure token. If you control all three, you may put a sticker on a nonland permanent you own.'],
+      ['Yurlok of Scorch Thrash', 'A player losing unspent mana causes that player to lose that much life'],
+      ['Victory Chimes', 'A player of your choice adds {C}'],
+      ['Damping Engine', "A player who controls more permanents than each other player can't play lands or cast artifact, creature, or enchantment spells"],
+      ['Marvo, Deep Operative', 'A player wins if their card had a greater mana value.)'],
+      ['Immersturm Battlefield', 'A Realm can host any number of creatures'],
+    ] as const;
+
+    for (const [cardName, oracle] of cases) {
+      const ir = parseOracleTextToIR(oracle, cardName);
+      expect(collectUnknowns(ir.abilities), cardName).toEqual([]);
+    }
+  });
+
+  it('cleans after15 activation limitation residual rows', () => {
+    const noUnknownCases = [
+      ['Magitek Scythe', 'A Test of Your Reflexes!'],
+      ['Zirda, the Dawnwaker', "Abilities you activate that aren't mana abilities cost {2} less to activate."],
+      ['Urza\'s Fun House', "Activate only once and only if you control an Urza's Mine, an Urza's Power-Plant, and an Urza's Tower."],
+      ['Suppression Field', "Activated abilities cost {2} more to activate unless they're mana abilities."],
+    ] as const;
+
+    for (const [cardName, oracle] of noUnknownCases) {
+      const ir = parseOracleTextToIR(oracle, cardName);
+      expect(collectUnknowns(ir.abilities), cardName).toEqual([]);
     }
   });
 });

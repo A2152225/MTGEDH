@@ -2677,7 +2677,7 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
     ]);
   });
 
-  it('prunes discover reminder tails while keeping dynamic discover leads visible', () => {
+  it('lowers dynamic discover leads while pruning reminder tails', () => {
     const ir = parseOracleTextToIR(
       "Discover X, where X is that spell's mana value. (Exile cards from the top of your library until you exile a nonland card with that mana value or less. Cast it without paying its mana cost or put it into your hand. Put the rest on the bottom in a random order.)",
       'Hurl into History'
@@ -2685,8 +2685,23 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
 
     expect(ir.abilities[0]?.steps).toEqual([
       {
-        kind: 'unknown',
-        raw: "Discover X, where X is that spell's mana value",
+        kind: 'impulse_exile_top',
+        who: { kind: 'you' },
+        amount: {
+          kind: 'reference_amount',
+          raw: "until you exile a nonland card with mana value that spell's mana value or less",
+        },
+        duration: 'during_resolution',
+        permission: 'cast',
+        raw:
+          "Exile cards from the top of your library until you exile a nonland card with mana value that spell's mana value or less. " +
+          'You may cast that card without paying its mana cost. Put the remaining exiled cards on the bottom of your library in a random order.',
+      },
+      {
+        kind: 'modify_exile_permissions',
+        scope: 'last_exiled_cards',
+        withoutPayingManaCost: true,
+        raw: 'You may cast that card without paying its mana cost.',
       },
     ]);
   });
@@ -3961,7 +3976,7 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
     expect(pump.power).toBe(1);
     expect(pump.toughness).toBe(1);
     expect(pump.duration).toBe('end_of_turn');
-    expect(pump.scaler).toEqual({ kind: 'unknown', raw: 'for each opponent you attacked with a creature this combat' });
+    expect(pump.scaler).toEqual({ kind: 'reference_scaler', raw: 'for each opponent you attacked with a creature this combat' });
   });
 
   it('parses leading if clause into a conditional modify_pt wrapper', () => {
@@ -6431,7 +6446,7 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
     const impulse = steps.find(s => s.kind === 'impulse_exile_top') as any;
     expect(impulse).toBeTruthy();
     expect(impulse.who).toEqual({ kind: 'target_player' });
-    expect(impulse.amount.kind).toBe('unknown');
+    expect(impulse.amount.kind).toBe('reference_amount');
     expect(String(impulse.amount.raw || '')).toMatch(/cards equal to/i);
     expect(impulse.duration).toBe('until_next_end_step');
     expect(impulse.permission).toBe('play');
@@ -9647,7 +9662,7 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
     expect(impulse.who).toEqual({ kind: 'you' });
     expect(impulse.permission).toBe('play');
     expect(impulse.duration).toBe('until_end_of_next_turn');
-    expect(impulse.amount.kind).toBe('unknown');
+    expect(impulse.amount.kind).toBe('reference_amount');
   });
 
   it('parses conditional impulse permission "During any turn you attacked with a commander" (corpus)', () => {
@@ -9666,7 +9681,7 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
     expect(impulse.who).toEqual({ kind: 'you' });
     expect(impulse.permission).toBe('play');
     expect(impulse.duration).toBe('as_long_as_remains_exiled');
-    expect(impulse.amount.kind).toBe('unknown');
+    expect(impulse.amount.kind).toBe('reference_amount');
     expect(impulse.condition).toEqual({ kind: 'attacked_with', raw: 'a commander' });
   });
 
@@ -11326,7 +11341,7 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
     expect(ir.abilities.flatMap((ability) => ability.steps).some((step: any) => String(step?.raw || '').trim() === 'You may choose new targets for the copy')).toBe(false);
     expect(mergedCopyStep).toEqual(
       expect.objectContaining({
-        kind: 'unknown',
+        kind: 'grant_static_ability',
         raw: expect.stringContaining('You may choose new targets for the copy'),
       })
     );
@@ -11403,7 +11418,7 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
           kind: 'impulse_exile_top',
           who: { kind: 'you' },
           amount: {
-            kind: 'unknown',
+            kind: 'reference_amount',
             raw: "until you exile a nonland card whose mana value is less than this spell's mana value",
           },
           duration: 'during_resolution',
@@ -13068,8 +13083,14 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
 
     expect(ir.abilities[0]?.steps).toEqual([
       expect.objectContaining({
-        kind: 'grant_graveyard_permission',
-        permission: 'cast',
+        kind: 'conditional',
+        condition: { kind: 'as_long_as', raw: 'you discarded it this turn' },
+        steps: [
+          expect.objectContaining({
+            kind: 'grant_graveyard_permission',
+            permission: 'cast',
+          }),
+        ],
       }),
     ]);
     expect(

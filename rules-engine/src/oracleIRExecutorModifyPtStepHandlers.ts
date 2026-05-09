@@ -180,7 +180,7 @@ export function applyModifyPtStep(
     }
   }
 
-  if (step.scaler?.kind === 'unknown') {
+  if (step.scaler?.kind === 'unknown' || step.scaler?.kind === 'reference_scaler') {
     return {
       kind: 'recorded_skip',
       message: `Skipped P/T modifier (unsupported scaler): ${step.raw}`,

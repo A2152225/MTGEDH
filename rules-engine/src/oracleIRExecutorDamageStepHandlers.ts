@@ -27,7 +27,7 @@ import {
   removeDefenseCountersFromBattle,
   removeLoyaltyFromPlaneswalker,
 } from './oracleIRExecutorPermanentUtils';
-import { adjustLife, adjustPlayerCounter, getCardManaValue, quantityToNumber, resolvePlayers, resolvePlayersFromDamageTarget } from './oracleIRExecutorPlayerUtils';
+import { adjustLife, adjustPlayerCounter, getCardManaValue, getCardTypeLineLower, quantityToNumber, resolvePlayers, resolvePlayersFromDamageTarget } from './oracleIRExecutorPlayerUtils';
 import { findCardsExiledWithSource } from './oracleIRExecutorZoneOps';
 import { getStackItems } from './stackOperations';
 
@@ -135,6 +135,51 @@ function readObjectStat(source: any, stat: 'power' | 'toughness' | 'mana_value')
   return readFiniteCardStat((source as any)?.[stat] ?? (source as any)?.card?.[stat]);
 }
 
+function permanentTypeLineContains(permanent: any, needle: string): boolean {
+  const normalizedNeedle = String(needle || '').trim().toLowerCase();
+  if (!normalizedNeedle) return false;
+  const singular = normalizedNeedle.endsWith('s') ? normalizedNeedle.slice(0, -1) : normalizedNeedle;
+  const typeLine = getCardTypeLineLower(permanent);
+  return new RegExp(`(^|[^a-z])${singular.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?:s)?($|[^a-z])`, 'i').test(typeLine);
+}
+
+function resolveReferenceDamageAmountFromState(
+  state: GameState,
+  amount: Extract<OracleEffectStep, { kind: 'deal_damage' }>['amount'],
+  ctx: OracleIRExecutionContext
+): number | null {
+  if (amount.kind === 'greatest_power_among_creatures_you_control') {
+    const controllerId = String(ctx.controllerId || '').trim();
+    const powers = ((state.battlefield || []) as any[])
+      .filter(permanent => String(permanent?.controller || '').trim() === controllerId)
+      .filter(permanent => permanentTypeLineContains(permanent, 'creature'))
+      .map(permanent => readObjectStat(permanent, 'power'))
+      .filter((value): value is number => value !== null);
+    return powers.length > 0 ? Math.max(0, ...powers) : 0;
+  }
+
+  if (amount.kind !== 'reference_amount') return null;
+  const raw = String(amount.raw || '').replace(/\u2019/g, "'").trim().toLowerCase();
+  const controllerId = String(ctx.controllerId || '').trim();
+  if (!raw || !controllerId) return null;
+
+  if (raw === 'the number of attacking creatures') {
+    return ((state.battlefield || []) as any[]).filter(permanent =>
+      permanentTypeLineContains(permanent, 'creature') && Boolean(permanent?.attacking)
+    ).length;
+  }
+
+  const controlledTypeMatch = raw.match(/^the number of ([a-z0-9 +/'-]+?)s you control$/i);
+  if (controlledTypeMatch) {
+    const typeText = String(controlledTypeMatch[1] || '').trim();
+    return ((state.battlefield || []) as any[]).filter(permanent =>
+      String(permanent?.controller || '').trim() === controllerId && permanentTypeLineContains(permanent, typeText)
+    ).length;
+  }
+
+  return null;
+}
+
 function resolveDamageAmountSourceObjects(
   state: GameState,
   source: Extract<OracleEffectStep, { kind: 'deal_damage' }>['source'],
@@ -186,6 +231,8 @@ function resolveDamageAmount(
 ): number | null {
   const numericAmount = quantityToNumber(amount, ctx);
   if (numericAmount !== null) return numericAmount;
+  const stateReferenceAmount = resolveReferenceDamageAmountFromState(state, amount, ctx);
+  if (stateReferenceAmount !== null) return stateReferenceAmount;
   if (amount.kind === 'reference_amount') {
     const runtimeAmount = Number(runtime?.lastReferenceAmount);
     return Number.isFinite(runtimeAmount) ? Math.max(0, runtimeAmount) : null;

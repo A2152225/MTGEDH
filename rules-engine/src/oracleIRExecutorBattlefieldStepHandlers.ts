@@ -504,6 +504,10 @@ function parseSacrificeWhat(what: { readonly kind: string; readonly text?: strin
     return { mode: 'contextual', type: 'vehicle' };
   }
 
+  if (/^(?:that land|the land)$/i.test(normalized)) {
+    return { mode: 'contextual', type: 'land' };
+  }
+
   if (/^those creatures$/i.test(normalized)) {
     return { mode: 'contextual', type: 'creature', plural: true };
   }
@@ -1552,6 +1556,38 @@ export function applyTapOrUntapStep(
   };
 }
 
+export function applyPhaseOutStep(
+  state: GameState,
+  step: Extract<OracleEffectStep, { kind: 'phase_out' }>,
+  ctx: OracleIRExecutionContext
+): BattlefieldStepHandlerResult {
+  const targetIds = resolveTapOrUntapTargetIds(state, step.target as any, ctx);
+  if (targetIds.length === 0) {
+    return {
+      applied: false,
+      message: `Skipped phase out (no deterministic target): ${step.raw}`,
+      reason: 'no_deterministic_target',
+    };
+  }
+
+  const battlefield = ((state.battlefield || []) as any[]).map((permanent: any) => {
+    const id = String(permanent?.id || '').trim();
+    if (!targetIds.includes(id)) return permanent;
+    return {
+      ...permanent,
+      phasedOut: true,
+      phasedOutBy: 'effect',
+      phasedOutControllerId: String(permanent?.controllerId || permanent?.ownerId || '').trim() || undefined,
+    };
+  });
+
+  return {
+    applied: true,
+    state: { ...state, battlefield: getProcessedBattlefield({ ...state, battlefield } as any) as any },
+    log: [`Phased out ${targetIds.length} permanent(s)`],
+  };
+}
+
 export function applySkipNextUntapStep(
   state: GameState,
   step: Extract<OracleEffectStep, { kind: 'skip_next_untap' }>,
@@ -2102,17 +2138,19 @@ export function applyGrantTemporaryAbilityStep(
     };
   }
 
+  const controllerId = (String(ctx.controllerId || '').trim() || String((targets[0] as any)?.controller || '').trim()) as PlayerID;
   const nextState = applyTemporaryEffectToPermanents(state, targets, ctx, {
     descriptions,
     grantedAbilities,
-    expiresAt: step.duration === 'this_turn' ? 'end_of_turn' : 'end_of_turn',
+    expiresAt: step.duration === 'until_next_turn' ? 'leaves_battlefield' : 'end_of_turn',
+    ...(step.duration === 'until_next_turn' && controllerId ? { expiresOnControllerTurn: controllerId } : {}),
   });
 
   return {
     applied: true,
     state: nextState,
     log: [
-      `Granted temporary ability text to ${targets.length} permanent(s) until end of turn`,
+      `Granted temporary ability text to ${targets.length} permanent(s) ${step.duration === 'until_next_turn' ? 'until next turn' : 'until end of turn'}`,
     ],
   };
 }
@@ -2516,6 +2554,90 @@ export function applyEarthbendStep(
       delayedTriggerRegistry,
     } as GameState,
     log: [`Earthbended ${targetIds.length} land(s) with ${amountValue} +1/+1 counter(s)`],
+  };
+}
+
+export function applyAnimatePermanentStep(
+  state: GameState,
+  step: Extract<OracleEffectStep, { kind: 'animate_permanent' }>,
+  ctx: OracleIRExecutionContext
+): BattlefieldStepHandlerResult {
+  const battlefield = (state.battlefield || []) as BattlefieldPermanent[];
+  const targetText = String((step.target as any)?.text || '').trim().toLowerCase();
+  const explicitTargetId = String(ctx.targetPermanentId || ctx.targetCreatureId || '').trim();
+  const targets =
+    explicitTargetId && (/^(?:target|that|the)\b/.test(targetText) || targetText === 'it')
+      ? battlefield.filter((perm: any) => String((perm as any)?.id || '').trim() === explicitTargetId)
+      : resolveDirectBattlefieldPermanents(battlefield, step.target as any, ctx);
+  const targetIds = new Set(targets.map((perm: any) => String((perm as any)?.id || '').trim()).filter(Boolean));
+
+  if (targetIds.size === 0) {
+    return {
+      applied: false,
+      message: `Skipped permanent animation (no deterministic target): ${step.raw}`,
+      reason: 'no_deterministic_target',
+    };
+  }
+
+  if (targetIds.size > 1 && /^target\b/.test(targetText)) {
+    return {
+      applied: false,
+      message: `Skipped permanent animation (needs player choice): ${step.raw}`,
+      reason: 'player_choice_required',
+      options: { classification: 'player_choice' },
+    };
+  }
+
+  const normalizedAbilities = Array.isArray(step.abilities)
+    ? step.abilities.map(value => String(value || '').trim().toLowerCase()).filter(Boolean)
+    : [];
+  const controllerId = (String(ctx.controllerId || '').trim() || String((targets[0] as any)?.controller || '').trim()) as PlayerID;
+  const expiresOnControllerTurn = step.duration === 'until_next_turn' ? controllerId : undefined;
+
+  const nextBattlefield = battlefield.map((permanent: any) => {
+    const permanentId = String((permanent as any)?.id || '').trim();
+    if (!targetIds.has(permanentId)) return permanent;
+
+    let animated: any = Array.isArray(step.addTypes) && step.addTypes.length > 0
+      ? appendPermanentTypes(permanent, step.addTypes)
+      : { ...(permanent as any) };
+    const grantedAbilities = Array.isArray(animated.grantedAbilities) ? [...animated.grantedAbilities] : [];
+    for (const ability of normalizedAbilities) {
+      if (!grantedAbilities.some((entry: unknown) => String(entry || '').trim().toLowerCase() === ability)) {
+        grantedAbilities.push(ability);
+      }
+    }
+
+    const temporaryEffects = Array.isArray(animated.temporaryEffects) ? [...animated.temporaryEffects] : [];
+    if (step.duration !== 'static') {
+      temporaryEffects.push({
+        id: `${permanentId}:animate:${temporaryEffects.length + 1}`,
+        description: step.raw,
+        expiresAt: step.duration === 'until_next_turn' ? 'leaves_battlefield' : 'end_of_turn',
+        ...(expiresOnControllerTurn ? { expiresOnControllerTurn } : {}),
+        sourceId: String(ctx.sourceId || '').trim() || undefined,
+        sourceName: String(ctx.sourceName || '').trim() || undefined,
+        ...(normalizedAbilities.length > 0 ? { grantedAbilities: normalizedAbilities } : {}),
+      } as any);
+    }
+
+    animated = {
+      ...animated,
+      ...(typeof step.power === 'number' ? { power: step.power, basePower: step.power, effectivePower: undefined } : {}),
+      ...(typeof step.toughness === 'number' ? { toughness: step.toughness, baseToughness: step.toughness, effectiveToughness: undefined } : {}),
+      ...(grantedAbilities.length > 0 ? { grantedAbilities } : {}),
+      ...(temporaryEffects.length > 0 ? { temporaryEffects } : {}),
+    };
+
+    return animated as BattlefieldPermanent;
+  });
+
+  const processedBattlefield = getProcessedBattlefield({ ...(state as any), battlefield: nextBattlefield } as GameState);
+
+  return {
+    applied: true,
+    state: { ...(state as any), battlefield: processedBattlefield } as GameState,
+    log: [`Animated ${targetIds.size} permanent(s)`],
   };
 }
 

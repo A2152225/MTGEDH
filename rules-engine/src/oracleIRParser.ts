@@ -161,6 +161,7 @@ import {
   expandMoveZoneAttachUnknownAbilities,
   mergeBattlefieldEntryCharacteristicFollowupAbilities,
   mergeBattlefieldEntryAuraRewriteFollowupAbilities,
+  expandLandAnimationUnknownAbilities,
   mergeCopyChapterAbilityFollowupAbilities,
   mergeExilePermissionCastCounterFollowupAbilities,
   mergeDeterministicGraveyardPermissionFollowupAbilities,
@@ -172,6 +173,7 @@ import {
   expandStandaloneTopLibraryInfoAbilities,
   bindImmediateTopLibraryReferenceFollowups,
   mergeLookChooseFromTopAbilities,
+  mergeConditionalLookChooseFromTopAbilities,
   mergeAddManaRestrictionFollowupAbilities,
   mergeTopLibraryBottomRandomTailAbilities,
   mergeLookSelectTopFollowupAbilities,
@@ -664,14 +666,14 @@ function parseAbilityToIRAbility(ability: ParsedAbility, cardName?: string): Ora
 
       // Variable-amount variant seen in real oracle text (corpus):
       // "(When ... ,) exile a number of/that many cards from the top of your library [equal to ...]"
-      // We treat the quantity as unknown in IR.
+      // Treat bare "a number of" as a reference amount; the optional equal-to tail preserves the source relation in raw text.
       if (!amount) {
         const m10 = firstCleanNoChoose.match(
           /^(?:(?:when|whenever)\s+[^,]+,\s*)?exile\s+(a number of|that many|a|an|\d+|x|[a-z]+)\s+cards?\s+from\s+the\s+top\s+of\s+your\s+library(?:\s+equal\s+to\s+[^,]+)?(?:\s+face down)?\s*$/i
         );
         if (m10) {
           const qtyRaw = String(m10[1] || '').trim().toLowerCase();
-          if (qtyRaw === 'a number of') amount = { kind: 'unknown', raw: 'a number of' };
+          if (qtyRaw === 'a number of') amount = parseQuantity('a number of');
           else amount = parseQuantity(qtyRaw);
           who = { kind: 'you' };
         }
@@ -679,7 +681,7 @@ function parseAbilityToIRAbility(ability: ParsedAbility, cardName?: string): Ora
 
       // Exile-until variant seen in real oracle text (corpus):
       // "Exile cards from the top of your library until you exile a legendary card."
-      // We treat the quantity as unknown in IR.
+      // Keep the quantity as a structured reference when possible.
       if (!amount) {
         const m10b = firstCleanNoChoose.match(
           /^exile\s+cards?\s+from\s+the\s+top\s+of\s+your\s+library\s+until\s+you\s+exile\s+a\s+legendary\s+card(?:\s+face down)?\s*$/i
@@ -757,7 +759,7 @@ function parseAbilityToIRAbility(ability: ParsedAbility, cardName?: string): Ora
           )
         );
         if (m11) {
-          amount = { kind: 'unknown', raw: `cards equal to ${String(m11[1] || '').trim()}` };
+          amount = parseQuantity(`cards equal to ${String(m11[1] || '').trim()}`);
           const rawSrc = String(m11[2] || '').trim();
           const src = normalizePossessive(rawSrc);
           if (src === 'your') who = { kind: 'you' };
@@ -1454,6 +1456,7 @@ export function parseOracleTextToIR(oracleText: string, cardName?: string): Orac
   abilities = mergeSearchLibraryToHandFollowupAbilities(abilities);
   abilities = mergeSearchLibraryPutOnTopFollowupAbilities(abilities);
   abilities = mergeLookChooseFromTopAbilities(abilities);
+  abilities = mergeConditionalLookChooseFromTopAbilities(abilities);
   abilities = mergeAddManaRestrictionFollowupAbilities(abilities);
   abilities = mergeTopLibraryBottomRandomTailAbilities(abilities);
   abilities = mergeLookSelectTopFollowupAbilities(abilities);
@@ -1465,6 +1468,7 @@ export function parseOracleTextToIR(oracleText: string, cardName?: string): Orac
   abilities = expandDynamicCounterRiderAbilities(abilities);
   abilities = mergeBattlefieldEntryCharacteristicFollowupAbilities(abilities);
   abilities = mergeBattlefieldEntryAuraRewriteFollowupAbilities(abilities);
+  abilities = expandLandAnimationUnknownAbilities(abilities);
   abilities = expandDeterministicMoveZoneFollowupAbilities(abilities);
   abilities = expandMoveZoneCopiedSpellAbilities(abilities);
   abilities = expandMixedBattlefieldAndGraveyardExileAbilities(abilities);
@@ -1587,6 +1591,7 @@ export function parseOracleTextToIR(oracleText: string, cardName?: string): Orac
   abilities = mergeSagaChapterCopyFollowupAbilities(abilities);
   abilities = pruneRedundantImpulseCleanupUnknownAbilities(abilities);
   abilities = expandMoveZoneAttachUnknownAbilities(abilities);
+  abilities = expandLandAnimationUnknownAbilities(abilities);
   abilities = expandCreateEmblemUnknownAbilities(abilities, cardName);
   abilities = mergeDieRollResultTableAbilities(abilities);
   abilities = annotateTokenCreationMetadataAbilities(abilities, normalizedOracleText);
@@ -1601,6 +1606,7 @@ export function parseOracleTextToIR(oracleText: string, cardName?: string): Orac
   abilities = pruneRedundantProliferateReminderUnknownAbilities(abilities);
   abilities = pruneExternallyHandledStaticUnknownAbilities(abilities);
   abilities = repairSubjectlessDrawAfterZoneShuffleAbilities(abilities);
+  abilities = mergeConditionalLookChooseFromTopAbilities(abilities);
   abilities = pruneCurrentBatchReminderUnknownAbilities(abilities);
   abilities = pruneLateKeywordReminderOnlyAbilities(abilities);
   abilities = annotateTokenCreationMetadataAbilities(abilities, normalizedOracleText);

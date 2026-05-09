@@ -2132,6 +2132,15 @@ function resolveVariableAmount(
     }
   }
   if (amount.kind === 'reference_amount') {
+    const normalized = normalizeOracleText(String(amount.raw || ''));
+    const spellsCastMatch = normalized.match(/^(?:(\d+)\s+)?for each spells? (?:you(?:'ve| have)?|you) cast this turn$|^(\d+)\s+for each spells? (?:you(?:'ve| have)?|you) cast this turn$|^the number of spells? (?:you(?:'ve| have)?|you) cast this turn$/i);
+    if (spellsCastMatch) {
+      const multiplier = Number(spellsCastMatch[1] || spellsCastMatch[2] || 1);
+      const contextCount = readFinite(ctx.spellCastCountThisTurn);
+      const stateCount = readFinite((state as any)?.spellsCastThisTurn?.[controllerId]);
+      const castCount = contextCount ?? stateCount;
+      if (castCount !== null && Number.isFinite(multiplier)) return Math.max(0, castCount * Math.max(0, multiplier));
+    }
     const runtimeAmount = Number(runtime?.lastReferenceAmount);
     return Number.isFinite(runtimeAmount) ? Math.max(0, runtimeAmount) : null;
   }
@@ -2595,6 +2604,91 @@ export function applySearchLibraryStep(
     if (step.shuffle !== false) {
       log.push(`${playerId} shuffled their library`);
     }
+  }
+
+  return { applied: true, state: nextState, log };
+}
+
+export function applyExileNamedCardsFromZonesStep(
+  state: GameState,
+  step: Extract<OracleEffectStep, { kind: 'exile_named_cards_from_zones' }>,
+  ctx: OracleIRExecutionContext
+): PlayerStepHandlerResult {
+  const chosenCardName = String(ctx.selectorContext?.chosenCardName || '').trim();
+  if (!chosenCardName) {
+    return {
+      applied: false,
+      message: `Skipped named-card exile (requires chosen card name): ${step.raw}`,
+      reason: 'player_choice_required',
+      options: { classification: 'player_choice' },
+    };
+  }
+
+  const players = resolvePlayers(state, step.who, ctx);
+  if (players.length === 0) {
+    return {
+      applied: false,
+      message: `Skipped named-card exile (unsupported player selector): ${step.raw}`,
+      reason: 'unsupported_player_selector',
+    };
+  }
+
+  const normalizedName = chosenCardName.toLowerCase();
+  const maxResults = step.maxResults === 'any_number'
+    ? Number.POSITIVE_INFINITY
+    : Math.max(1, Number(step.maxResults || Number.POSITIVE_INFINITY) || Number.POSITIVE_INFINITY);
+  let nextState = state;
+  const log: string[] = [];
+
+  for (const playerId of players) {
+    const player = nextState.players.find(p => p.id === playerId) as any;
+    if (!player) {
+      return {
+        applied: false,
+        message: `Skipped named-card exile (player not found): ${step.raw}`,
+        reason: 'failed_to_apply',
+      };
+    }
+
+    let remainingSlots = maxResults;
+    const selectedByZone = new Map<string, Set<number>>();
+    const selectedCards: any[] = [];
+    for (const zone of step.zones) {
+      if (remainingSlots <= 0) break;
+      const cards = Array.isArray(player[zone]) ? player[zone] : [];
+      const selectedIndexes = new Set<number>();
+      for (let index = 0; index < cards.length && remainingSlots > 0; index += 1) {
+        const card = cards[index] as any;
+        const name = String(card?.name || card?.card?.name || '').trim().toLowerCase();
+        if (name !== normalizedName) continue;
+        selectedIndexes.add(index);
+        selectedCards.push({ ...card, zone: 'exile' });
+        remainingSlots -= 1;
+      }
+      if (selectedIndexes.size > 0) selectedByZone.set(zone, selectedIndexes);
+    }
+
+    if (selectedCards.length === 0) {
+      log.push(`${playerId} searched graveyard, hand, and library and found no ${chosenCardName}`);
+      continue;
+    }
+
+    nextState = {
+      ...(nextState as any),
+      players: nextState.players.map((entry: any) => {
+        if (entry.id !== playerId) return entry;
+        const nextEntry: any = { ...entry };
+        for (const zone of step.zones) {
+          const selectedIndexes = selectedByZone.get(zone) ?? new Set<number>();
+          if (selectedIndexes.size === 0) continue;
+          const cards = Array.isArray(entry[zone]) ? entry[zone] : [];
+          nextEntry[zone] = cards.filter((_: unknown, index: number) => !selectedIndexes.has(index));
+        }
+        nextEntry.exile = [...(Array.isArray(entry.exile) ? entry.exile : []), ...selectedCards];
+        return nextEntry;
+      }),
+    } as GameState;
+    log.push(`${playerId} exiled ${selectedCards.length} card(s) named ${chosenCardName}`);
   }
 
   return { applied: true, state: nextState, log };

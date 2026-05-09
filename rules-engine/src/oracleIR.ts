@@ -50,6 +50,7 @@ export type OracleScaler =
   | { readonly kind: 'per_artifact_you_control' }
   | { readonly kind: 'per_creature_tapped_this_way' }
   | { readonly kind: 'per_other_attacking_aurochs' }
+  | { readonly kind: 'reference_scaler'; readonly raw: string }
   | { readonly kind: 'unknown'; readonly raw: string };
 
 export type OracleClauseCondition =
@@ -216,6 +217,16 @@ export type OracleEffectStep =
       readonly entersTapped?: boolean;
       readonly shuffle?: boolean;
       readonly maxResults?: number;
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
+      readonly kind: 'exile_named_cards_from_zones';
+      readonly who: OraclePlayerSelector;
+      readonly zones: readonly Extract<OracleZone, 'graveyard' | 'hand' | 'library'>[];
+      readonly nameSource: 'chosen_card_name';
+      readonly maxResults?: number | 'any_number';
       readonly optional?: boolean;
       readonly sequence?: 'then';
       readonly raw: string;
@@ -569,6 +580,18 @@ export type OracleEffectStep =
       readonly raw: string;
     }
   | {
+      readonly kind: 'animate_permanent';
+      readonly target: OracleObjectSelector;
+      readonly addTypes?: readonly string[];
+      readonly power?: number;
+      readonly toughness?: number;
+      readonly abilities?: readonly string[];
+      readonly duration: 'static' | 'end_of_turn' | 'until_next_turn';
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
       readonly kind: 'open_attraction';
       readonly who: OraclePlayerSelector;
       readonly optional?: boolean;
@@ -866,7 +889,7 @@ export type OracleEffectStep =
   | {
       readonly kind: 'grant_temporary_ability';
       readonly target: OracleObjectSelector;
-      readonly duration: 'end_of_turn' | 'this_turn';
+      readonly duration: 'end_of_turn' | 'this_turn' | 'until_next_turn';
       /** Keyword-style granted abilities that should behave like transient grantedAbilities. */
       readonly abilities?: readonly string[];
       /** Additional temporary text that should matter while this effect lasts. */
@@ -987,6 +1010,13 @@ export type OracleEffectStep =
       readonly kind: 'tap_or_untap';
       readonly target: OracleObjectSelector;
       readonly mode?: 'tap' | 'untap';
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
+      readonly kind: 'phase_out';
+      readonly target: OracleObjectSelector;
       readonly optional?: boolean;
       readonly sequence?: 'then';
       readonly raw: string;
