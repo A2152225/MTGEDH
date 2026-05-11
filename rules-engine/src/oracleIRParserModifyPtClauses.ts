@@ -8,6 +8,13 @@ export function tryParseTemporaryModifyPtClause(params: {
 }): OracleEffectStep | null {
   const { clause, rawClause, withMeta } = params;
 
+  const parseModifyPtTarget = (raw: string): any => {
+    const targetRaw = String(raw || '').trim().toLowerCase();
+    return targetRaw === 'the creature' || targetRaw === 'equipped creature'
+      ? { kind: 'equipped_creature' }
+      : { kind: 'raw', text: targetRaw };
+  };
+
   const parseSignedPtComponent = (raw: string): { value: number; usesX: boolean } | null => {
     const s = String(raw || '').trim().toLowerCase();
     if (!s) return null;
@@ -49,8 +56,57 @@ export function tryParseTemporaryModifyPtClause(params: {
     } as OracleEffectStep);
   }
 
+  const choiceMatch = workingClause.match(
+    /^(?:then\s+)?((?:[a-z][a-z\s,/-]*?\s+you\s+control)|target\s+(?:[a-z][a-z -]+\s+)?creature(?:\s+you\s+control|\s+your\s+opponents\s+control|\s+an\s+opponent\s+controls)?|target\s+attacking\s+creature|each\s+(?:non[- ]?[a-z]+\s+)?creature(?:\s+your\s+opponents\s+control)?|each\s+other\s+attacking\s+creature|each\s+attacking\s+creature|other\s+attacking\s+creatures|(?:non[- ]?[a-z]+\s+)?creatures\s+you\s+control|(?:[a-z]+\s+)?creatures\s+your\s+opponents\s+control|(?:[a-z]+\s+)?creatures|all\s+creatures\s+you\s+control|creatures\s+your\s+opponents\s+control|all\s+creatures\s+your\s+opponents\s+control|all\s+creatures(?:\s+of\s+(?:that|the\s+chosen)\s+type)?|creatures\s+that\s+aren't\s+of\s+the\s+chosen\s+type|each\s+creature|each\s+other\s+creature|equipped\s+creature|enchanted\s+creature|that\s+creature|the\s+creature|this\s+creature|this\s+permanent|it)\s+get(?:s)?\s+([+-]?(?:\d+|x))\s*\/\s*([+-]?(?:\d+|x))\s+or\s+([+-]?(?:\d+|x))\s*\/\s*([+-]?(?:\d+|x))\s+until\s+end\s+of\s+turn$/i
+  );
+  if (choiceMatch) {
+    const targetText = String(choiceMatch[1] || '').trim();
+    const target = parseModifyPtTarget(targetText);
+    const firstPower = parseSignedPtComponent(String(choiceMatch[2] || ''));
+    const firstToughness = parseSignedPtComponent(String(choiceMatch[3] || ''));
+    const secondPower = parseSignedPtComponent(String(choiceMatch[4] || ''));
+    const secondToughness = parseSignedPtComponent(String(choiceMatch[5] || ''));
+    if (!firstPower || !firstToughness || !secondPower || !secondToughness) return null;
+
+    const buildModeStep = (
+      power: { value: number; usesX: boolean },
+      toughness: { value: number; usesX: boolean },
+      label: string
+    ): OracleEffectStep => ({
+      kind: 'modify_pt',
+      target,
+      power: power.value,
+      toughness: toughness.value,
+      ...(power.usesX ? { powerUsesX: true } : {}),
+      ...(toughness.usesX ? { toughnessUsesX: true } : {}),
+      duration: 'end_of_turn',
+      raw: `${targetText} gets ${label} until end of turn`,
+    } as OracleEffectStep);
+
+    const firstLabel = `${String(choiceMatch[2] || '').trim()}/${String(choiceMatch[3] || '').trim()}`;
+    const secondLabel = `${String(choiceMatch[4] || '').trim()}/${String(choiceMatch[5] || '').trim()}`;
+    return withMeta({
+      kind: 'choose_mode',
+      minModes: 1,
+      maxModes: 1,
+      modes: [
+        {
+          label: firstLabel,
+          raw: `${targetText} gets ${firstLabel} until end of turn`,
+          steps: [buildModeStep(firstPower, firstToughness, firstLabel)],
+        },
+        {
+          label: secondLabel,
+          raw: `${targetText} gets ${secondLabel} until end of turn`,
+          steps: [buildModeStep(secondPower, secondToughness, secondLabel)],
+        },
+      ],
+      raw: rawClause,
+    } as OracleEffectStep);
+  }
+
   const match = workingClause.match(
-    /^(?:then\s+)?((?:[a-z][a-z\s,/-]*?\s+you\s+control)|target\s+(?:[a-z][a-z -]+\s+)?creature(?:\s+you\s+control|\s+your\s+opponents\s+control|\s+an\s+opponent\s+controls)?|target\s+attacking\s+creature|each\s+(?:non[- ]?[a-z]+\s+)?creature(?:\s+your\s+opponents\s+control)?|each\s+other\s+attacking\s+creature|each\s+attacking\s+creature|other\s+attacking\s+creatures|(?:non[- ]?[a-z]+\s+)?creatures\s+you\s+control|(?:[a-z]+\s+)?creatures\s+your\s+opponents\s+control|(?:[a-z]+\s+)?creatures|all\s+creatures\s+you\s+control|creatures\s+your\s+opponents\s+control|all\s+creatures\s+your\s+opponents\s+control|all\s+creatures|creatures\s+that\s+aren't\s+of\s+the\s+chosen\s+type|each\s+creature|each\s+other\s+creature|equipped\s+creature|enchanted\s+creature|that\s+creature|the\s+creature|this\s+creature|this\s+permanent|it)\s+get(?:s)?\s+([+-]?(?:\d+|x))\s*\/\s*([+-]?(?:\d+|x))\s+(.+)$/i
+    /^(?:then\s+)?((?:[a-z][a-z\s,/-]*?\s+you\s+control)|target\s+(?:[a-z][a-z -]+\s+)?creature(?:\s+you\s+control|\s+your\s+opponents\s+control|\s+an\s+opponent\s+controls)?|target\s+attacking\s+creature|each\s+(?:non[- ]?[a-z]+\s+)?creature(?:\s+your\s+opponents\s+control)?|each\s+other\s+attacking\s+creature|each\s+attacking\s+creature|other\s+attacking\s+creatures|(?:non[- ]?[a-z]+\s+)?creatures\s+you\s+control|(?:[a-z]+\s+)?creatures\s+your\s+opponents\s+control|(?:[a-z]+\s+)?creatures|all\s+creatures\s+you\s+control|creatures\s+your\s+opponents\s+control|all\s+creatures\s+your\s+opponents\s+control|all\s+creatures(?:\s+of\s+(?:that|the\s+chosen)\s+type)?|creatures\s+that\s+aren't\s+of\s+the\s+chosen\s+type|each\s+creature|each\s+other\s+creature|equipped\s+creature|enchanted\s+creature|that\s+creature|the\s+creature|this\s+creature|this\s+permanent|it)\s+get(?:s)?\s+([+-]?(?:\d+|x))\s*\/\s*([+-]?(?:\d+|x))\s+(.+)$/i
   );
   if (!match) return null;
 
@@ -111,10 +167,7 @@ export function tryParseTemporaryModifyPtClause(params: {
 
   const step: any = {
     kind: 'modify_pt',
-    target:
-      targetRaw === 'the creature' || targetRaw === 'equipped creature'
-        ? { kind: 'equipped_creature' }
-        : { kind: 'raw', text: targetRaw },
+    target: parseModifyPtTarget(targetRaw),
     power: powerComponent.value,
     toughness: toughnessComponent.value,
     ...(powerComponent.usesX ? { powerUsesX: true } : {}),
@@ -141,43 +194,59 @@ export function tryParseTemporarySetBasePtClause(params: {
 }): OracleEffectStep | null {
   const { clause, rawClause, withMeta } = params;
 
+  const parseBasePtComponent = (raw: string): { value: number; usesX: boolean } | null => {
+    const normalized = String(raw || '').trim().toLowerCase();
+    if (!normalized) return null;
+    if (normalized === 'x') return { value: 1, usesX: true };
+    if (/^\d+$/.test(normalized)) return { value: Number.parseInt(normalized, 10), usesX: false };
+    return null;
+  };
+
+  const parseBasePtTarget = (raw: string): any => {
+    const targetRaw = String(raw || '').trim().toLowerCase();
+    return targetRaw === 'the creature'
+      ? { kind: 'equipped_creature' }
+      : { kind: 'raw', text: targetRaw };
+  };
+
   const becomeMatch = clause.match(
-    /^(?:until end of turn,\s+)?(.+?)\s+(?:has\s+base\s+power\s+and\s+toughness|base\s+power\s+and\s+toughness\s+becomes?|becomes?\s+base\s+power\s+and\s+toughness)\s+(\d+)\s*\/\s*(\d+)(?:\s+until end of turn)?$/i
+    /^(?:until end of turn,\s+)?(.+?)\s+(?:has\s+base\s+power\s+and\s+toughness|have\s+base\s+power\s+and\s+toughness|base\s+power\s+and\s+toughness\s+becomes?|becomes?\s+base\s+power\s+and\s+toughness)\s+(\d+|x)\s*\/\s*(\d+|x)(?:\s+until end of turn)?$/i
   );
   if (becomeMatch && (/^until end of turn,/i.test(clause) || /\buntil end of turn\b/i.test(clause))) {
-    const power = Number.parseInt(String(becomeMatch[2] || ''), 10);
-    const toughness = Number.parseInt(String(becomeMatch[3] || ''), 10);
-    if (!Number.isFinite(power) || !Number.isFinite(toughness)) return null;
+    const power = parseBasePtComponent(String(becomeMatch[2] || ''));
+    const toughness = parseBasePtComponent(String(becomeMatch[3] || ''));
+    if (!power || !toughness) return null;
 
     return withMeta({
       kind: 'set_base_pt',
-      target: parseSwitchTarget(String(becomeMatch[1] || '').trim()),
-      power,
-      toughness,
+      target: parseBasePtTarget(String(becomeMatch[1] || '').trim()),
+      power: power.value,
+      toughness: toughness.value,
+      ...(power.usesX ? { powerUsesX: true } : {}),
+      ...(toughness.usesX ? { toughnessUsesX: true } : {}),
       duration: 'end_of_turn',
       raw: rawClause,
-    });
+    } as OracleEffectStep);
   }
 
   const match = clause.match(
-    /^(?:until end of turn,\s+)?(target\s+creature(?:\s+you\s+control|\s+your\s+opponents\s+control|\s+an\s+opponent\s+controls)?|enchanted\s+creature|that\s+creature|the\s+creature|this\s+creature|this\s+permanent|it)\s+has\s+(?:the\s+)?base power and toughness\s+(\d+)\s*\/\s*(\d+)(?:\s+until end of turn)?$/i
+    /^(?:until end of turn,\s+)?(target\s+creature(?:\s+you\s+control|\s+your\s+opponents\s+control|\s+an\s+opponent\s+controls)?|enchanted\s+creature|that\s+creature|the\s+creature|this\s+creature|this\s+permanent|it|creatures\s+you\s+control|all\s+creatures\s+you\s+control|all\s+creatures|each\s+creature)\s+ha(?:s|ve)\s+(?:the\s+)?base power and toughness\s+(\d+|x)\s*\/\s*(\d+|x)(?:\s+until end of turn)?$/i
   );
   if (!match) return null;
 
   const targetRaw = String(match[1] || '').trim().toLowerCase();
-  const power = Number.parseInt(String(match[2] || ''), 10);
-  const toughness = Number.parseInt(String(match[3] || ''), 10);
-  if (!Number.isFinite(power) || !Number.isFinite(toughness)) return null;
+  const power = parseBasePtComponent(String(match[2] || ''));
+  const toughness = parseBasePtComponent(String(match[3] || ''));
+  if (!power || !toughness) return null;
 
   return withMeta({
     kind: 'set_base_pt',
-    target:
-      targetRaw === 'the creature'
-        ? { kind: 'equipped_creature' }
-        : { kind: 'raw', text: targetRaw },
-    power,
-    toughness,
+    target: parseBasePtTarget(targetRaw),
+    power: power.value,
+    toughness: toughness.value,
+    ...(power.usesX ? { powerUsesX: true } : {}),
+    ...(toughness.usesX ? { toughnessUsesX: true } : {}),
     duration: 'end_of_turn',
     raw: rawClause,
-  });
+  } as OracleEffectStep);
 }

@@ -707,6 +707,29 @@ describe('Turn Actions', () => {
     expect(((result.state as any).winLossEffects || []).length).toBe(0);
   });
 
+  it('should honor static no-maximum-hand-size effects in cleanup', () => {
+    const state: GameState = {
+      players: [
+        {
+          id: 'player1',
+          hand: Array.from({ length: 9 }, (_, index) => ({ id: `card-${index}` })),
+        },
+      ],
+      battlefield: [],
+      staticAbilityGrantEffects: [
+        {
+          controllerId: 'player1',
+          target: { kind: 'raw', text: 'you' },
+          effectText: ['have no maximum hand size'],
+        },
+      ],
+    } as any;
+
+    const result = executeCleanupStep(state, 'player1');
+    expect(result.discardRequired).toBe(0);
+    expect(result.logs).toContain('player1 has no maximum hand size');
+  });
+
   it('should restore temporary control changes in cleanup', () => {
     const state: GameState = {
       players: [

@@ -173,18 +173,19 @@ export function applyAddExtraCombat(
     ? ([...(state as any).extraCombats] as ExtraCombatEffect[])
     : [];
   const source = String(ctx.sourceName || ctx.sourceId || '').trim();
-  const extraCombat: ExtraCombatEffect = {
+  const count = Math.max(1, Math.floor(Number(step.count ?? 1) || 1));
+  const extraCombatsToAdd = Array.from({ length: count }, () => ({
     ...(source ? { source } : {}),
     ...(step.followedByAdditionalMain === true ? { followedByAdditionalMain: true } : {}),
     createdAt: Date.now(),
-  };
+  } as ExtraCombatEffect));
 
   return {
     applied: true,
     state: {
       ...(state as any),
-      extraCombats: [...existingExtraCombats, extraCombat],
+      extraCombats: [...existingExtraCombats, ...extraCombatsToAdd],
     } as GameState,
-    log: [`Added an additional combat phase${step.followedByAdditionalMain ? ' followed by an additional main phase' : ''}`],
+    log: [`Added ${count === 1 ? 'an additional combat phase' : `${count} additional combat phases`}${step.followedByAdditionalMain ? ' followed by an additional main phase' : ''}`],
   };
 }

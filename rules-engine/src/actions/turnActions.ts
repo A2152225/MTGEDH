@@ -27,6 +27,50 @@ function normalizeOptionalUntapText(value: unknown): string {
     .trim();
 }
 
+function normalizeStaticEffectText(value: unknown): string {
+  return String(value || '')
+    .replace(/\u2019/g, "'")
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function staticEffectAppliesToPlayer(effect: any, playerId: string): boolean {
+  const normalizedPlayerId = String(playerId || '').trim();
+  const controllerId = String(effect?.controllerId || '').trim();
+  const targetText = normalizeStaticEffectText(effect?.target?.text || effect?.target?.raw || '');
+
+  if (!targetText) return false;
+  if (targetText === 'players' || targetText === 'each player') return true;
+  if (targetText === 'you') return controllerId === normalizedPlayerId;
+  if (targetText === 'each opponent' || targetText === 'your opponents' || targetText === 'each other player') {
+    return Boolean(controllerId) && controllerId !== normalizedPlayerId;
+  }
+
+  return false;
+}
+
+function playerHasNoMaximumHandSize(state: GameState, playerId: string): boolean {
+  const player = state.players.find(p => p.id === playerId) as any;
+  if (!player) return false;
+
+  if (player.maxHandSize === Infinity) return true;
+
+  const emblemTexts = Array.isArray(player.emblems)
+    ? player.emblems.flatMap((emblem: any) => [emblem?.text, emblem?.oracleText, emblem?.oracle_text].filter(Boolean))
+    : [];
+  if (emblemTexts.some((text: unknown) => /no maximum hand size/i.test(String(text || '')))) return true;
+
+  const staticAbilityGrantEffects = Array.isArray((state as any).staticAbilityGrantEffects)
+    ? (state as any).staticAbilityGrantEffects
+    : [];
+  return staticAbilityGrantEffects.some((effect: any) => {
+    const texts = Array.isArray(effect?.effectText) ? effect.effectText : [];
+    return texts.some((text: unknown) => normalizeStaticEffectText(text) === 'have no maximum hand size')
+      && staticEffectAppliesToPlayer(effect, playerId);
+  });
+}
+
 function getPermanentOptionalUntapText(permanent: any): string {
   return normalizeOptionalUntapText([
     permanent?.oracle_text,
@@ -239,9 +283,15 @@ export function executeCleanupStep(
   // Check for discard requirement
   // Note: Default max hand size is 7, but can be modified by effects
   // Read from player state if available, otherwise use default
-  const maxHandSize = (player as any).maxHandSize ?? 7;
+  const maxHandSize = playerHasNoMaximumHandSize(state, activePlayerId)
+    ? Number.POSITIVE_INFINITY
+    : ((player as any).maxHandSize ?? 7);
   const handSize = (player.hand || []).length;
   const discardRequired = Math.max(0, handSize - maxHandSize);
+
+  if (!Number.isFinite(maxHandSize)) {
+    logs.push(`${activePlayerId} has no maximum hand size`);
+  }
   
   if (discardRequired > 0) {
     logs.push(`${activePlayerId} must discard ${discardRequired} cards`);

@@ -358,6 +358,18 @@ export function tryParseZoneAndRemovalClause(args: {
   }
 
   {
+    const addToHandMatch = clause.match(/^add\s+(it|that card|the exiled card|them|those cards)\s+to\s+your\s+hand$/i);
+    if (addToHandMatch) {
+      return parseMoveZoneStep({
+        whatRaw: String(addToHandMatch[1] || '').trim(),
+        toRaw: 'your hand',
+        rawClause,
+        withMeta,
+      });
+    }
+  }
+
+  {
     const subjectReturnMatch = clause.match(
       /^(that player|that opponent|he or she|they)\s+returns?\s+(.+?)\s+from\s+(their|his or her)\s+graveyard\s+to\s+(.+)$/i
     );

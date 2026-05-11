@@ -113,6 +113,8 @@ export interface OracleIRExecutionContext {
   readonly controllerId: PlayerID;
   readonly sourceId?: string;
   readonly sourceName?: string;
+  /** Explicit X value for resolving X/X or similar effects when already known. */
+  readonly xValue?: number;
   /** Whether the resolving source is a spell or an ability. */
   readonly sourceObjectType?: 'spell' | 'ability';
   /** Colors of the resolving source spell when relevant to source-sensitive checks. */

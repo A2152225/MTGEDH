@@ -272,6 +272,38 @@ Whenever this creature attacks, you may cast an Ally spell from among cards you 
     ]);
   });
 
+  it('parses airbend while pruning redundant reminder shards', () => {
+    const ir = parseOracleTextToIR(
+      'When Appa enters, airbend any number of other target nonland permanents you control. (Exile them. While each one is exiled, its owner may cast it for {2} rather than its mana cost.)',
+      'Appa, Steadfast Guardian'
+    );
+
+    expect(ir.abilities[0]?.steps).toEqual([
+      expect.objectContaining({
+        kind: 'airbend',
+        target: { kind: 'raw', text: 'any number of other target nonland permanents you control' },
+        raw: 'airbend any number of other target nonland permanents you control',
+      }),
+    ]);
+  });
+
+  it('parses airbend inside choose-one modes without reminder fragments', () => {
+    const ir = parseOracleTextToIR(
+      'Choose one - • Destroy target attacking creature. • Airbend target creature you control. (Exile it. While it\'s exiled, its owner may cast it for {2} rather than its mana cost.)',
+      "Airbender's Reversal"
+    );
+
+    const chooseMode = ir.abilities[0]?.steps[0];
+    expect(chooseMode?.kind).toBe('choose_mode');
+    expect((chooseMode as any)?.modes?.[1]?.steps).toEqual([
+      expect.objectContaining({
+        kind: 'airbend',
+        target: { kind: 'raw', text: 'target creature you control' },
+        raw: 'Airbend target creature you control',
+      }),
+    ]);
+  });
+
   it('prunes split Powerstone reminder tails after token creation', () => {
     const ir = parseOracleTextToIR(
       'Create a tapped Powerstone token. (It\'s an artifact with "{T}: Add {C}. This mana can\'t be spent to cast a nonartifact spell.")',
@@ -2215,6 +2247,373 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
     expect(ir.abilities).toEqual([]);
   });
 
+  it('prunes rest-of-game no-maximum-hand-size text as externally handled', () => {
+    const ir = parseOracleTextToIR(
+      'You have no maximum hand size for the rest of the game.',
+      "Praetor's Counsel"
+    );
+
+    expect(ir.abilities).toEqual([]);
+  });
+
+  it('parses target-player land-play locks into temporary ability grants', () => {
+    const ir = parseOracleTextToIR("Target player can't play lands this turn.", 'Solfatara');
+
+    expect(ir.abilities[0]?.steps).toEqual([
+      expect.objectContaining({
+        kind: 'grant_temporary_ability',
+        duration: 'this_turn',
+        effectText: ["can't play lands this turn"],
+      }),
+    ]);
+  });
+
+  it('parses turn-based and filtered spell cost reductions as static grants', () => {
+    const secondSpell = parseOracleTextToIR(
+      'The second spell you cast each turn costs {1} less to cast.',
+      'Monk Class'
+    );
+    const flyingSpell = parseOracleTextToIR(
+      'Creature spells with flying you cast cost {1} less to cast.',
+      'Watcher of the Spheres'
+    );
+
+    expect(secondSpell.abilities[0]?.steps[0]).toMatchObject({
+      kind: 'grant_static_ability',
+      effectText: ['costs {1} less to cast'],
+    });
+    expect(flyingSpell.abilities[0]?.steps[0]).toMatchObject({
+      kind: 'grant_static_ability',
+      effectText: ['costs {1} less to cast'],
+    });
+  });
+
+  it('parses static spell-count and hand-reveal restrictions for players', () => {
+    const spellLimit = parseOracleTextToIR(
+      "You can't cast more than one spell each turn.",
+      'Moderation'
+    );
+    const handsRevealed = parseOracleTextToIR(
+      'Your opponents play with their hands revealed.',
+      'Telepathy Variant'
+    );
+
+    expect(spellLimit.abilities[0]?.steps[0]).toMatchObject({
+      kind: 'grant_static_ability',
+      effectText: ["can't cast more than one spell each turn"],
+    });
+    expect(handsRevealed.abilities[0]?.steps[0]).toMatchObject({
+      kind: 'grant_static_ability',
+      effectText: ['play with their hands revealed'],
+    });
+  });
+
+  it('parses static untap locks and off-battlefield flash grants', () => {
+    const untapLock = parseOracleTextToIR(
+      "Blue creatures don't untap during their controllers' untap steps.",
+      "Thelon's Curse"
+    );
+    const flashGrant = parseOracleTextToIR(
+      "Creature cards you own that aren't on the battlefield have flash.",
+      'Teferi, Mage of Zhalfir'
+    );
+
+    expect(untapLock.abilities[0]?.steps[0]).toMatchObject({
+      kind: 'grant_static_ability',
+      effectText: ["don't untap during their controllers' untap steps"],
+    });
+    expect(flashGrant.abilities[0]?.steps[0]).toMatchObject({
+      kind: 'grant_static_ability',
+      abilities: ['flash'],
+    });
+  });
+
+  it('parses token-designation static text without reminder fragments', () => {
+    const ir = parseOracleTextToIR(
+      "All creatures are tokens. (They're considered tokens for spells and abilities. After a creature leaves the battlefield, it ceases to exist.)",
+      'Intangible Vibes'
+    );
+
+    expect(ir.abilities).toHaveLength(1);
+    expect(ir.abilities[0]?.steps).toHaveLength(1);
+    expect(ir.abilities[0]?.steps[0]).toMatchObject({
+      kind: 'grant_static_ability',
+      target: { kind: 'raw', text: 'All creatures' },
+      effectText: ['are tokens'],
+      duration: 'static',
+      raw: 'All creatures are tokens',
+    });
+  });
+
+  it('parses chosen-name, chosen-color, and chosen-type static variants', () => {
+    const chosenName = parseOracleTextToIR(
+      'Choose a card name other than a basic land card name.',
+      'Necromentia'
+    );
+    const chosenColor = parseOracleTextToIR(
+      'This permanent is the chosen color.',
+      'Faceless One'
+    );
+    const chosenType = parseOracleTextToIR(
+      'Creatures you control are the chosen type in addition to their other types.',
+      'Arcane Adaptation'
+    );
+
+    expect(chosenName.abilities[0]?.steps[0]).toMatchObject({ kind: 'choose_card_name' });
+    expect(chosenColor.abilities[0]?.steps[0]).toMatchObject({
+      kind: 'grant_static_ability',
+      effectText: ['is the chosen color'],
+    });
+    expect(chosenType.abilities[0]?.steps[0]).toMatchObject({
+      kind: 'add_types',
+      addTypes: ['chosen type'],
+    });
+  });
+
+  it('parses copy immunity and damage-prevention immunity clauses as static grants', () => {
+    const copyImmunity = parseOracleTextToIR("This spell can't be copied.", 'See Double');
+    const damageImmunity = parseOracleTextToIR(
+      "Damage that would be dealt by this creature can't be prevented.",
+      'Excruciator'
+    );
+
+    expect(copyImmunity.abilities[0]?.steps[0]).toMatchObject({
+      kind: 'grant_static_ability',
+      effectText: ["can't be copied"],
+    });
+    expect(damageImmunity.abilities[0]?.steps[0]).toMatchObject({
+      kind: 'grant_static_ability',
+      effectText: ["damage it deals can't be prevented"],
+    });
+  });
+
+  it('parses each-other-player draws and unnamed counter removal', () => {
+    const drawAll = parseOracleTextToIR('Each other player draws a card.', 'Howling Mine Variant');
+    const removeCounter = parseOracleTextToIR('You may remove a counter from target permanent.', 'Hex Parasite Variant');
+
+    expect(drawAll.abilities[0]?.steps[0]).toMatchObject({
+      kind: 'draw',
+      who: { kind: 'each_opponent' },
+      amount: { kind: 'number', value: 1 },
+    });
+    expect(removeCounter.abilities[0]?.steps[0]).toMatchObject({
+      kind: 'remove_counter',
+      counter: 'counter',
+      target: { kind: 'raw', text: 'target permanent' },
+    });
+  });
+
+  it('parses grouped mana-choice clauses with grouped symbols', () => {
+    const twoColorPair = parseOracleTextToIR('Add {B}{B} or {G}{G}.', 'Twilight Mire Variant');
+    const hybridTriplet = parseOracleTextToIR('Add {B}{B}, {B}{G}, or {G}{G}.', 'Fetid Heath Variant');
+    const colorlessOption = parseOracleTextToIR('Add {U} or {C}{U}.', 'Adarkar Unicorn Variant');
+
+    expect(twoColorPair.abilities[0]?.steps[0]).toMatchObject({
+      kind: 'add_mana',
+      mana: '{B}{B}',
+      manaOptions: ['{B}{B}', '{G}{G}'],
+    });
+    expect(hybridTriplet.abilities[0]?.steps[0]).toMatchObject({
+      kind: 'add_mana',
+      manaOptions: ['{B}{B}', '{B}{G}', '{G}{G}'],
+    });
+    expect(colorlessOption.abilities[0]?.steps[0]).toMatchObject({
+      kind: 'add_mana',
+      manaOptions: ['{U}', '{C}{U}'],
+    });
+  });
+
+  it('parses variable mana amounts and chosen-color mana quantities', () => {
+    const museum = parseOracleTextToIR(
+      'Add {C}, plus an additional {C} for each art counter on this permanent.',
+      'Famous Museum'
+    );
+    const anyColor = parseOracleTextToIR('Add 1 mana of any color.', 'Unknown Event Shores');
+    const chosenColors = parseOracleTextToIR('Add a mana of each of the chosen colors.', 'Guild Pact');
+    const xPlusOne = parseOracleTextToIR('Add an amount of {C} equal to X plus one.', 'Kyren Toy');
+    const devotion = parseOracleTextToIR(
+      'Add an amount of {G} equal to your devotion to green.',
+      "Karametra's Acolyte"
+    );
+    const chosenColorCount = parseOracleTextToIR('Add four mana of the chosen color.', 'Throne of Eldraine');
+    const exiledCardColors = parseOracleTextToIR(
+      "Add one mana of any of the exiled card's colors.",
+      'Bag of Holding Variant'
+    );
+    const specificCombination = parseOracleTextToIR(
+      'Add two mana in any combination of {U}, {B}, and/or {R}.',
+      'Chromatic Orrery Variant'
+    );
+    const guildCombination = parseOracleTextToIR(
+      "Add three mana in any combination of your guild's colors.",
+      'Guilded Lotus'
+    );
+    const variableCombination = parseOracleTextToIR(
+      "Add X mana in any combination of colors, where X is that spell's mana value.",
+      'Plasm Capture'
+    );
+    const splitPairs = parseOracleTextToIR(
+      'Add two mana of any one color and two mana of any other color.',
+      'Open the Omenpaths'
+    );
+    const enchantedPermanentManaCost = parseOracleTextToIR(
+      "Add mana equal to enchanted permanent's mana cost.",
+      'Elemental Resonance'
+    );
+    const familiarBurst = parseOracleTextToIR(
+      'Add X {G} and each opponent loses X life, where X is the number of familiars you control.',
+      'Chea, Friend to Maybe Too Many'
+    );
+
+    expect(museum.abilities[0]?.steps[0]).toMatchObject({
+      kind: 'add_mana',
+      mana: '{C}',
+      amount: { kind: 'reference_amount', raw: 'the number of art counters on this permanent plus one' },
+    });
+    expect(anyColor.abilities[0]?.steps[0]).toMatchObject({
+      kind: 'add_mana',
+      manaOptions: ['{W}', '{U}', '{B}', '{R}', '{G}'],
+    });
+    expect(chosenColors.abilities[0]?.steps[0]).toMatchObject({
+      kind: 'add_mana',
+      amount: { kind: 'reference_amount', raw: 'the chosen colors' },
+      requiresChosenMana: true,
+    });
+    expect(xPlusOne.abilities[0]?.steps[0]).toMatchObject({
+      kind: 'add_mana',
+      mana: '{C}',
+      amount: { kind: 'reference_amount', raw: 'x plus one' },
+    });
+    expect(devotion.abilities[0]?.steps[0]).toMatchObject({
+      kind: 'add_mana',
+      mana: '{G}',
+      amount: { kind: 'reference_amount', raw: 'your devotion to green' },
+    });
+    expect(chosenColorCount.abilities[0]?.steps[0]).toMatchObject({
+      kind: 'add_mana',
+      amount: { kind: 'number', value: 4 },
+      requiresChosenMana: true,
+    });
+    expect(exiledCardColors.abilities[0]?.steps[0]).toMatchObject({
+      kind: 'add_mana',
+      manaOptions: ['{W}', '{U}', '{B}', '{R}', '{G}'],
+      requiresChosenMana: true,
+    });
+    expect(specificCombination.abilities[0]?.steps[0]).toMatchObject({
+      kind: 'add_mana',
+      mana: '{U}{U}',
+      manaOptions: ['{U}', '{B}', '{R}'],
+      requiresChosenMana: true,
+    });
+    expect(guildCombination.abilities[0]?.steps[0]).toMatchObject({
+      kind: 'add_mana',
+      mana: '{W}{W}{W}',
+      manaOptions: ['{W}', '{U}', '{B}', '{R}', '{G}'],
+      requiresChosenMana: true,
+    });
+    expect(variableCombination.abilities[0]?.steps[0]).toMatchObject({
+      kind: 'add_mana',
+      amount: { kind: 'reference_amount', raw: "that spell's mana value" },
+      manaOptions: ['{W}', '{U}', '{B}', '{R}', '{G}'],
+      requiresChosenMana: true,
+    });
+    expect(splitPairs.abilities[0]?.steps[0]).toMatchObject({
+      kind: 'add_mana',
+      mana: '{W}{W}{U}{U}',
+      manaOptions: ['{W}', '{U}', '{B}', '{R}', '{G}'],
+      requiresChosenMana: true,
+    });
+    expect(enchantedPermanentManaCost.abilities[0]?.steps[0]).toMatchObject({
+      kind: 'add_mana',
+      amount: { kind: 'reference_amount', raw: "enchanted permanent's mana cost" },
+    });
+    expect(familiarBurst.abilities[0]?.steps[0]).toMatchObject({
+      kind: 'add_mana',
+      mana: '{G}',
+      amount: { kind: 'reference_amount', raw: 'the number of familiars you control' },
+    });
+    expect(familiarBurst.abilities[0]?.steps[1]).toMatchObject({
+      kind: 'lose_life',
+      who: { kind: 'each_opponent' },
+      amount: { kind: 'reference_amount', raw: 'the number of familiars you control' },
+    });
+  });
+
+  it('parses modal P/T choices and X-based base P/T setters', () => {
+    const modalPump = parseOracleTextToIR(
+      'This creature gets +1/-1 or -1/+1 until end of turn.',
+      'Simic Initiate Variant'
+    );
+    const setBaseX = parseOracleTextToIR(
+      'Creatures you control have base power and toughness X/X until end of turn.',
+      'Biomass Mutation'
+    );
+
+    const chooseModeStep = modalPump.abilities[0]?.steps[0] as any;
+    expect(chooseModeStep).toMatchObject({ kind: 'choose_mode', minModes: 1, maxModes: 1 });
+    expect(chooseModeStep.modes[0]?.steps[0]).toMatchObject({ kind: 'modify_pt', power: 1, toughness: -1 });
+    expect(chooseModeStep.modes[1]?.steps[0]).toMatchObject({ kind: 'modify_pt', power: -1, toughness: 1 });
+
+    expect(setBaseX.abilities[0]?.steps[0]).toMatchObject({
+      kind: 'set_base_pt',
+      target: { kind: 'raw', text: 'creatures you control' },
+      power: 1,
+      toughness: 1,
+      powerUsesX: true,
+      toughnessUsesX: true,
+    });
+  });
+
+  it('parses mixed no-max-hand-size and next-turn spell-lock text', () => {
+    const counsel = parseOracleTextToIR(
+      'Draw a card. You have no maximum hand size for the rest of the game.',
+      "Praetor's Counsel"
+    );
+    const spellLock = parseOracleTextToIR(
+      "Each opponent can't cast instant or sorcery spells during that player's next turn.",
+      'Defense Grid Variant'
+    );
+
+    expect(counsel.abilities[0]?.steps[1]).toMatchObject({
+      kind: 'grant_static_ability',
+      effectText: ['have no maximum hand size'],
+    });
+    expect(spellLock.abilities[0]?.steps[0]).toMatchObject({
+      kind: 'grant_temporary_ability',
+      duration: 'until_next_turn',
+      effectText: ["can't cast instant or sorcery spells during that player's next turn"],
+    });
+  });
+
+  it('parses attachment type-lock clauses and power-doubling text', () => {
+    const enchantedPermanent = parseOracleTextToIR(
+      'Enchanted permanent is an enchantment and loses all other card types.',
+      'One with the Stars'
+    );
+    const equippedPermanent = parseOracleTextToIR(
+      "Equipped permanent isn't a planeswalker and is a creature in addition to its other types.",
+      'Luxior, Giada\'s Gift'
+    );
+    const doublePower = parseOracleTextToIR(
+      "Double this permanent's power and toughness until end of turn.",
+      'Unnatural Growth Variant'
+    );
+
+    expect(enchantedPermanent.abilities[0]?.steps[0]).toMatchObject({
+      kind: 'grant_static_ability',
+      effectText: ['is an enchantment and loses all other card types'],
+    });
+    expect(equippedPermanent.abilities[0]?.steps[0]).toMatchObject({
+      kind: 'grant_static_ability',
+      effectText: ["isn't a planeswalker and is a creature in addition to its other types"],
+    });
+    expect(doublePower.abilities[0]?.steps[0]).toMatchObject({
+      kind: 'grant_temporary_ability',
+      duration: 'end_of_turn',
+      effectText: ['double power and toughness'],
+    });
+  });
+
   it('prunes additional-land-play static text as externally handled', () => {
     const ir = parseOracleTextToIR('You may play an additional land on each of your turns.', 'Exploration');
 
@@ -2242,6 +2641,191 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
         kind: 'grant_static_ability',
         target: { kind: 'raw', text: 'Creatures you control' },
         abilities: ['haste'],
+      }),
+    ]);
+  });
+
+  it('parses global color and type-changing static text as static grants', () => {
+    const lattice = parseOracleTextToIR(
+      "All cards that aren't on the battlefield, spells, and permanents are colorless.",
+      'Mycosynth Lattice'
+    );
+    const servant = parseOracleTextToIR(
+      "All cards that aren't on the battlefield, spells, and permanents are the chosen color in addition to their other colors.",
+      "Painter's Servant"
+    );
+    const rinAndSeri = parseOracleTextToIR(
+      'All Cats you control are Dogs in addition to their other types.',
+      'Rin and Seri, Inseparabler'
+    );
+
+    expect(lattice.abilities[0]?.steps).toEqual([
+      expect.objectContaining({
+        kind: 'grant_static_ability',
+        target: { kind: 'raw', text: "All cards that aren't on the battlefield, spells, and permanents" },
+        effectText: ['are colorless'],
+      }),
+    ]);
+    expect(servant.abilities[0]?.steps).toEqual([
+      expect.objectContaining({
+        kind: 'grant_static_ability',
+        target: { kind: 'raw', text: "All cards that aren't on the battlefield, spells, and permanents" },
+        effectText: ['are the chosen color in addition to their other colors'],
+      }),
+    ]);
+    expect(rinAndSeri.abilities[0]?.steps).toEqual([
+      expect.objectContaining({
+        kind: 'grant_static_ability',
+        target: { kind: 'raw', text: 'All Cats you control' },
+        effectText: ['are Dogs in addition to their other types'],
+      }),
+    ]);
+  });
+
+  it('parses all-zones keyword-loss static text as a static grant', () => {
+    const ir = parseOracleTextToIR(
+      'All cards in all zones lose that keyword ability or ability word and all text tied to that ability.',
+      'Pithing Spyglass'
+    );
+
+    expect(ir.abilities[0]?.steps).toEqual([
+      expect.objectContaining({
+        kind: 'grant_static_ability',
+        target: { kind: 'raw', text: 'All cards in all zones' },
+        effectText: ['lose that keyword ability or ability word and all text tied to that ability'],
+      }),
+    ]);
+  });
+
+  it('parses all-cards type-addition static text as a static grant', () => {
+    const ir = parseOracleTextToIR(
+      'All creature cards you own with flash are instants in addition to their other types.',
+      'Visitor from Planet Q'
+    );
+
+    expect(ir.abilities[0]?.steps).toEqual([
+      expect.objectContaining({
+        kind: 'grant_static_ability',
+        target: { kind: 'raw', text: 'All creature cards you own with flash' },
+        effectText: ['are instants in addition to their other types'],
+      }),
+    ]);
+  });
+
+  it('parses simple static characteristic clauses as static grants', () => {
+    const darkestHour = parseOracleTextToIR('All creatures are black.', 'Darkest Hour');
+    const sixthStage = parseOracleTextToIR('All creatures are legendary.', 'Sixth Stage of Magic Design');
+
+    expect(darkestHour.abilities[0]?.steps).toEqual([
+      expect.objectContaining({
+        kind: 'grant_static_ability',
+        target: { kind: 'raw', text: 'All creatures' },
+        effectText: ['are black'],
+      }),
+    ]);
+    expect(sixthStage.abilities[0]?.steps).toEqual([
+      expect.objectContaining({
+        kind: 'grant_static_ability',
+        target: { kind: 'raw', text: 'All creatures' },
+        effectText: ['are legendary'],
+      }),
+    ]);
+  });
+
+  it('parses global static protection and keyword-loss clauses as static grants', () => {
+    const absoluteGrace = parseOracleTextToIR('All creatures have protection from black.', 'Absolute Grace');
+    const absoluteLaw = parseOracleTextToIR('All creatures have protection from red.', 'Absolute Law');
+    const gravitySphere = parseOracleTextToIR('All creatures lose flying.', 'Gravity Sphere');
+
+    expect(absoluteGrace.abilities[0]?.steps).toEqual([
+      expect.objectContaining({
+        kind: 'grant_static_ability',
+        target: { kind: 'raw', text: 'All creatures' },
+        effectText: ['protection from black'],
+      }),
+    ]);
+    expect(absoluteLaw.abilities[0]?.steps).toEqual([
+      expect.objectContaining({
+        kind: 'grant_static_ability',
+        target: { kind: 'raw', text: 'All creatures' },
+        effectText: ['protection from red'],
+      }),
+    ]);
+    expect(gravitySphere.abilities[0]?.steps).toEqual([
+      expect.objectContaining({
+        kind: 'grant_static_ability',
+        target: { kind: 'raw', text: 'All creatures' },
+        effectText: ['lose flying'],
+      }),
+    ]);
+  });
+
+  it('parses global creature type-qualified and dynamic pt modifiers', () => {
+    const meishin = parseOracleTextToIR(
+      'All creatures get -X/-0, where X is the number of cards in your hand.',
+      'Meishin, the Mind Cage'
+    );
+    const outbreak = parseOracleTextToIR(
+      'All creatures of that type get -1/-1 until end of turn.',
+      'Outbreak'
+    );
+    const engineeredPlague = parseOracleTextToIR(
+      'All creatures of the chosen type get -1/-1.',
+      'Engineered Plague'
+    );
+
+    expect(meishin.abilities[0]?.steps).toEqual([
+      expect.objectContaining({
+        kind: 'grant_static_ability',
+        target: { kind: 'raw', text: 'All creatures' },
+        effectText: ['gets -X/-0 where X is the number of cards in your hand'],
+      }),
+    ]);
+    expect(outbreak.abilities[0]?.steps).toEqual([
+      expect.objectContaining({
+        kind: 'modify_pt',
+        target: { kind: 'raw', text: 'all creatures of that type' },
+        power: -1,
+        toughness: -1,
+        duration: 'end_of_turn',
+      }),
+    ]);
+    expect(engineeredPlague.abilities[0]?.steps).toEqual([
+      expect.objectContaining({
+        kind: 'grant_static_ability',
+        target: { kind: 'raw', text: 'All creatures of the chosen type' },
+        power: -1,
+        toughness: -1,
+      }),
+    ]);
+  });
+
+  it('parses global as-though-source keyword text as a static grant', () => {
+    const ir = parseOracleTextToIR(
+      'All damage is dealt as though its source had wither.',
+      'Everlasting Torment'
+    );
+
+    expect(ir.abilities[0]?.steps).toEqual([
+      expect.objectContaining({
+        kind: 'grant_static_ability',
+        target: { kind: 'raw', text: 'All damage' },
+        effectText: ['is dealt as though its source had wither'],
+      }),
+    ]);
+  });
+
+  it('parses lose-all-abilities base pt text that uses become wording', () => {
+    const ir = parseOracleTextToIR(
+      'All creatures lose all abilities and become green Elk creatures with base power and toughness 3/3.',
+      'Wrath of Oko'
+    );
+
+    expect(ir.abilities[0]?.steps).toEqual([
+      expect.objectContaining({
+        kind: 'grant_static_ability',
+        target: { kind: 'raw', text: 'All creatures' },
+        effectText: ['lose all abilities and become green Elk creatures with base power and toughness 3/3'],
       }),
     ]);
   });
@@ -9370,6 +9954,19 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
     ]);
   });
 
+  it('parses add-those-cards-to-your-hand into a contextual move_zone step', () => {
+    const ir = parseOracleTextToIR('Add those cards to your hand.', 'The Wheeling Runner');
+
+    expect(ir.abilities[0]?.steps).toHaveLength(1);
+    expect(ir.abilities[0]?.steps[0]).toMatchObject({
+      kind: 'move_zone',
+      what: { kind: 'raw', text: 'those cards' },
+      to: 'hand',
+      toRaw: 'your hand',
+      raw: 'Add those cards to your hand',
+    });
+  });
+
   it("parses look-then-exile face-down impulse (that player's library)", () => {
     const text =
       "Look at the top card of that player's library, then exile it face down. You may play that card for as long as it remains exiled.";
@@ -9875,6 +10472,53 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
       }),
     ]));
     expect(worldAtWarSteps.some((step: any) => step.kind === 'unknown' && /additional combat phase/i.test(String(step.raw || '')))).toBe(false);
+
+    const raphael = parseOracleTextToIR(
+      'Whenever Raphael deals combat damage to a player for the first time each turn, untap all attacking creatures. After this combat phase, there is an additional combat phase.',
+      'Raphael, Tag Team Tough'
+    );
+    const raphaelSteps = raphael.abilities[0]?.steps ?? [];
+    expect(raphaelSteps).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        kind: 'add_extra_combat',
+        raw: 'After this combat phase, there is an additional combat phase',
+      }),
+    ]));
+
+    const secondMainWorldAtWar = parseOracleTextToIR(
+      "Untap all creatures that attacked this turn. After the second main phase this turn, there's an additional combat phase followed by an additional main phase.",
+      'World at War'
+    );
+    const secondMainWorldAtWarSteps = secondMainWorldAtWar.abilities[0]?.steps ?? [];
+    expect(secondMainWorldAtWarSteps).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        kind: 'add_extra_combat',
+        followedByAdditionalMain: true,
+      }),
+    ]));
+
+    const fullThrottle = parseOracleTextToIR(
+      'After this main phase, there are two additional combat phases.',
+      'Full Throttle'
+    );
+    const fullThrottleSteps = fullThrottle.abilities[0]?.steps ?? [];
+    expect(fullThrottleSteps).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        kind: 'add_extra_combat',
+        count: 2,
+      }),
+    ]));
+
+    const quotedCombat = parseOracleTextToIR(
+      'After this phase, there is an additional combat phase."',
+      'Zariel Emblem'
+    );
+    const quotedCombatSteps = quotedCombat.abilities[0]?.steps ?? [];
+    expect(quotedCombatSteps).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        kind: 'add_extra_combat',
+      }),
+    ]));
   });
 
   it('parses Oathkeeper, Takeno\'s Daisho as a conditional Samurai return', () => {

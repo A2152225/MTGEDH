@@ -36,6 +36,7 @@ import {
   applyDoubleCountersStep,
   applyDestroyStep,
   applyDetainStep,
+  applyAirbendStep,
   applyEarthbendStep,
   applyAnimatePermanentStep,
   applyExertStep,
@@ -762,6 +763,21 @@ export function applyOracleIRStepsToGameStateImpl(
           lastMovedCards,
         });
         applyHandledStepResult(step, result);
+        break;
+      }
+      case 'airbend': {
+        const result = applyAirbendStep(nextState, step, currentCtx);
+        applyHandledStepResult(step, result, (appliedResult) => {
+          lastExiledCardCount = Math.max(0, Number(appliedResult.lastExiledCardCount) || 0);
+          lastExiledCards = Array.isArray(appliedResult.lastExiledCards)
+            ? [...appliedResult.lastExiledCards]
+            : [];
+          if (Array.isArray(appliedResult.lastMovedCards) && appliedResult.lastMovedCards.length > 0) {
+            lastMovedCards = [...appliedResult.lastMovedCards];
+          } else if (lastExiledCards.length > 0) {
+            lastMovedCards = [...lastExiledCards];
+          }
+        });
         break;
       }
       case 'earthbend': {

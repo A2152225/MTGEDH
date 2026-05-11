@@ -289,8 +289,8 @@ export function applySetBasePtStep(
   step: Extract<OracleEffectStep, { kind: 'set_base_pt' }>,
   ctx: OracleIRExecutionContext
 ): ModifyPtStepHandlerResult {
-  const targetCreatureId = resolveSingleCreatureTargetId(state, step.target, ctx);
-  if (!targetCreatureId) {
+  const targetCreatureIds = resolveCreatureTargetIds(state, step.target, ctx);
+  if (targetCreatureIds.length === 0) {
     return {
       kind: 'recorded_skip',
       message: `Skipped base P/T setter (no deterministic creature target): ${step.raw}`,
@@ -298,25 +298,45 @@ export function applySetBasePtStep(
     };
   }
 
-  const nextState = applyTemporarySetBasePowerToughness(
-    state,
-    targetCreatureId,
-    ctx,
-    step.power | 0,
-    step.toughness | 0
-  );
-  if (!nextState) {
+  const xValue = Number.isFinite(ctx.xValue) ? Math.max(0, Math.floor(ctx.xValue as number)) : null;
+  if ((((step as any).powerUsesX) || ((step as any).toughnessUsesX)) && xValue === null) {
     return {
       kind: 'recorded_skip',
-      message: `Skipped base P/T setter (target not on battlefield): ${step.raw}`,
-      reason: 'target_not_on_battlefield',
+      message: `Skipped base P/T setter (missing X value): ${step.raw}`,
+      reason: 'unsupported_scaler',
     };
+  }
+
+  const power = (step as any).powerUsesX ? ((step.power | 0) * (xValue ?? 0)) : (step.power | 0);
+  const toughness = (step as any).toughnessUsesX ? ((step.toughness | 0) * (xValue ?? 0)) : (step.toughness | 0);
+
+  let nextState = state;
+  for (const targetCreatureId of targetCreatureIds) {
+    const updatedState = applyTemporarySetBasePowerToughness(
+      nextState,
+      targetCreatureId,
+      ctx,
+      power,
+      toughness
+    );
+    if (!updatedState) {
+      return {
+        kind: 'recorded_skip',
+        message: `Skipped base P/T setter (target not on battlefield): ${step.raw}`,
+        reason: 'target_not_on_battlefield',
+      };
+    }
+    nextState = updatedState;
   }
 
   return {
     kind: 'applied',
     state: nextState,
-    log: [`${targetCreatureId} has base power and toughness ${step.power}/${step.toughness} until end of turn`],
+    log: [
+      targetCreatureIds.length === 1
+        ? `${targetCreatureIds[0]} has base power and toughness ${power}/${toughness} until end of turn`
+        : `${targetCreatureIds.length} creatures have base power and toughness ${power}/${toughness} until end of turn`,
+    ],
   };
 }
 

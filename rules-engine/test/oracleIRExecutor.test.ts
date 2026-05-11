@@ -5715,6 +5715,92 @@ describe('Oracle IR Executor', () => {
     expect(registry?.triggers?.[0]?.effect).toBe('Return it to the battlefield tapped under your control.');
   });
 
+  it('applies airbend by exiling the chosen permanent and granting its owner a {2} recast permission', () => {
+    const ir = parseOracleTextToIR('Airbend target creature you control.', 'Airbending');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      battlefield: [
+        {
+          id: 'airbend-target',
+          controller: 'p1',
+          owner: 'p1',
+          tapped: false,
+          counters: {},
+          card: {
+            id: 'airbend-target-card',
+            owner: 'p1',
+            name: 'Sky Bison',
+            type_line: 'Creature - Bison',
+          },
+        } as any,
+      ],
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceId: 'airbend-source',
+      sourceName: 'Airbending',
+      targetPermanentId: 'airbend-target',
+    });
+
+    const exiledCard = (result.state.players.find((player: any) => player.id === 'p1') as any)?.exile?.[0];
+
+    expect(result.appliedSteps.some((step) => step.kind === 'airbend')).toBe(true);
+    expect((result.state.battlefield || []).some((perm: any) => perm.id === 'airbend-target')).toBe(false);
+    expect(exiledCard?.id).toBe('airbend-target-card');
+    expect(exiledCard?.canBePlayedBy).toBe('p1');
+    expect(exiledCard?.exileCastCost).toBe('{2}');
+    expect(exiledCard?.exiledWithSourceId).toBe('airbend-source');
+    expect((result.state as any).playableFromExile?.p1?.['airbend-target-card']).toBe(Number.MAX_SAFE_INTEGER);
+  });
+
+  it('applies airbend to a targeted spell on the stack', () => {
+    const ir = parseOracleTextToIR(
+      'When Aang enters, airbend up to one other target creature or spell. (Exile it. While it\'s exiled, its owner may cast it for {2} rather than its mana cost.)',
+      'Aang, Swift Savior'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [], hand: [], graveyard: [], exile: [] } as any,
+        { id: 'p2', name: 'P2', seat: 1, life: 40, library: [], hand: [], graveyard: [], exile: [] } as any,
+      ],
+      stack: [
+        {
+          id: 'stack-spell',
+          type: 'spell',
+          controller: 'p2',
+          owner: 'p2',
+          card: {
+            id: 'stack-spell-card',
+            owner: 'p2',
+            name: 'Lightning Bolt',
+            type_line: 'Instant',
+          },
+        } as any,
+      ],
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceId: 'aang-source',
+      sourceName: 'Aang, Swift Savior',
+      targetSpellId: 'stack-spell',
+    });
+
+    const exiledCard = (result.state.players.find((player: any) => player.id === 'p2') as any)?.exile?.[0];
+
+    expect(result.appliedSteps.some((step) => step.kind === 'airbend')).toBe(true);
+    expect(((result.state as any).stack || [])).toHaveLength(0);
+    expect(exiledCard?.id).toBe('stack-spell-card');
+    expect(exiledCard?.canBePlayedBy).toBe('p2');
+    expect(exiledCard?.exileCastCost).toBe('{2}');
+    expect(exiledCard?.exiledWithSourceId).toBe('aang-source');
+    expect((result.state as any).playableFromExile?.p2?.['stack-spell-card']).toBe(Number.MAX_SAFE_INTEGER);
+  });
+
   it('applies impulse_exile_top when permission uses "through their next turn" with controller play-permission (target player)', () => {
     const ir = parseOracleTextToIR(
       'Target player exiles the top card of their library. Its controller may play it through their next turn.',
@@ -9064,6 +9150,23 @@ describe('Oracle IR Executor', () => {
     expect(result.appliedSteps.some(s => s.kind === 'add_mana')).toBe(true);
   });
 
+  it('applies add_mana for explicit-symbol any-combination clauses from execution context', () => {
+    const ir = parseOracleTextToIR('Add two mana in any combination of {U}, {B}, and/or {R}.', 'Test');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const result = applyOracleIRStepsToGameState(makeState(), steps, {
+      controllerId: 'p1',
+      selectorContext: { chosenMana: '{U}{R}' as any },
+    });
+
+    const pool = (result.state as any).manaPool?.['p1'];
+    expect(pool).toBeTruthy();
+    expect(pool.blue).toBe(1);
+    expect(pool.red).toBe(1);
+    expect(pool.black ?? 0).toBe(0);
+    expect(result.appliedSteps.some(s => s.kind === 'add_mana')).toBe(true);
+  });
+
   it('applies choose_color followed by chosen-color mana when execution context supplies the choice', () => {
     const steps = [
       {
@@ -9120,6 +9223,200 @@ describe('Oracle IR Executor', () => {
     expect(result.skippedSteps.map(step => step.kind)).toEqual(['choose_color', 'add_mana']);
     expect(result.automationGaps.some((gap: any) => gap.reasonCode === 'player_choice_required')).toBe(true);
     expect(totalMana).toBe(0);
+  });
+
+  it('applies add_mana for each chosen color from a chosen mana sequence', () => {
+    const steps = [
+      {
+        kind: 'add_mana',
+        who: { kind: 'you' },
+        mana: '{W}',
+        amount: { kind: 'reference_amount', raw: 'the chosen colors' },
+        manaOptions: ['{W}', '{U}', '{B}', '{R}', '{G}'],
+        requiresChosenMana: true,
+        raw: 'Add a mana of each of the chosen colors',
+      },
+    ] as any;
+
+    const result = applyOracleIRStepsToGameState(makeState(), steps, {
+      controllerId: 'p1',
+      selectorContext: { chosenMana: '{W}{U}' as any },
+    });
+
+    const pool = (result.state as any).manaPool?.['p1'];
+    expect(pool?.white).toBe(1);
+    expect(pool?.blue).toBe(1);
+    expect(pool?.black ?? 0).toBe(0);
+  });
+
+  it('applies repeated add_mana counts from source-based reference amounts', () => {
+    const steps = [
+      {
+        kind: 'add_mana',
+        who: { kind: 'you' },
+        mana: '{C}',
+        amount: { kind: 'reference_amount', raw: 'the number of art counters on this permanent plus one' },
+        raw: 'Add {C}, plus an additional {C} for each art counter on this permanent',
+      },
+    ] as any;
+
+    const result = applyOracleIRStepsToGameState(
+      makeState({
+        battlefield: [
+          {
+            id: 'museum',
+            controller: 'p1',
+            counters: { art: 2 },
+            card: { name: 'Famous Museum', type_line: 'Artifact' },
+          } as any,
+        ],
+      }),
+      steps,
+      {
+        controllerId: 'p1',
+        sourceId: 'museum',
+        sourceName: 'Famous Museum',
+      }
+    );
+
+    const pool = (result.state as any).manaPool?.['p1'];
+    expect(pool?.colorless).toBe(3);
+  });
+
+  it('applies add_mana for where-X any-combination clauses from execution context', () => {
+    const ir = parseOracleTextToIR(
+      "Add X mana in any combination of colors, where X is that spell's mana value.",
+      'Plasm Capture'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const result = applyOracleIRStepsToGameState(
+      makeState({
+        stack: [
+          { id: 'capturedSpell', type: 'spell', manaValue: 4, spell: { manaValue: 4 } } as any,
+        ],
+      }),
+      steps,
+      {
+        controllerId: 'p1',
+        sourceId: 'capturedSpell',
+        selectorContext: { chosenMana: '{U}{B}{R}{G}' as any },
+      }
+    );
+
+    const pool = (result.state as any).manaPool?.['p1'];
+    expect(pool?.blue).toBe(1);
+    expect(pool?.black).toBe(1);
+    expect(pool?.red).toBe(1);
+    expect(pool?.green).toBe(1);
+  });
+
+  it('applies add_mana for evaluated reference amounts in any-combination color clauses', () => {
+    const ir = parseOracleTextToIR(
+      'Add X mana in any combination of colors, where X is the number of creatures you control with defender.',
+      'Axebane Guardian'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const result = applyOracleIRStepsToGameState(
+      makeState({
+        battlefield: [
+          { id: 'guardian', ownerId: 'p1', controller: 'p1', name: 'Axebane Guardian', type_line: 'Creature - Plant', power: 0, toughness: 3, counters: {} } as any,
+          { id: 'wall1', ownerId: 'p1', controller: 'p1', name: 'Wall One', type_line: 'Creature - Wall Defender', power: 0, toughness: 4, counters: {} } as any,
+          { id: 'wall2', ownerId: 'p1', controller: 'p1', name: 'Wall Two', type_line: 'Creature - Human Soldier', keywords: ['Defender'], power: 1, toughness: 3, counters: {} } as any,
+          { id: 'wall3', ownerId: 'p1', controller: 'p1', name: 'Wall Three', type_line: 'Creature - Bird', grantedAbilities: ['defender'], power: 2, toughness: 2, counters: {} } as any,
+          { id: 'attacker', ownerId: 'p1', controller: 'p1', name: 'Attacker', type_line: 'Creature - Goblin', power: 2, toughness: 1, counters: {} } as any,
+        ],
+      }),
+      steps,
+      {
+        controllerId: 'p1',
+        sourceId: 'guardian',
+        selectorContext: { chosenMana: '{W}{U}{B}' as any },
+      }
+    );
+
+    const pool = (result.state as any).manaPool?.['p1'];
+    expect(pool?.white).toBe(1);
+    expect(pool?.blue).toBe(1);
+    expect(pool?.black).toBe(1);
+    expect(pool?.red ?? 0).toBe(0);
+  });
+
+  it('applies add_mana from enchanted permanent mana costs', () => {
+    const ir = parseOracleTextToIR(
+      "Add mana equal to enchanted permanent's mana cost.",
+      'Elemental Resonance'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const result = applyOracleIRStepsToGameState(
+      makeState({
+        battlefield: [
+          { id: 'resonance', ownerId: 'p1', controller: 'p1', name: 'Elemental Resonance', type_line: 'Enchantment - Aura', attachedTo: 'enchantedPermanent', counters: {} } as any,
+          { id: 'enchantedPermanent', ownerId: 'p1', controller: 'p1', name: 'Big Creature', type_line: 'Creature - Beast', manaCost: '{2}{G}{G}', power: 4, toughness: 4, counters: {} } as any,
+        ],
+      }),
+      steps,
+      {
+        controllerId: 'p1',
+        sourceId: 'resonance',
+      }
+    );
+
+    const pool = (result.state as any).manaPool?.['p1'];
+    expect(pool?.colorless).toBe(2);
+    expect(pool?.green).toBe(2);
+  });
+
+  it('applies combined add_mana and lose_life from a shared familiar count', () => {
+    const ir = parseOracleTextToIR(
+      'Add X {G} and each opponent loses X life, where X is the number of familiars you control.',
+      'Chea, Friend to Maybe Too Many'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const result = applyOracleIRStepsToGameState(
+      makeState({
+        players: [
+          { id: 'p1', name: 'P1', seat: 0, life: 40, library: [], hand: [], graveyard: [] } as any,
+          { id: 'p2', name: 'P2', seat: 1, life: 40, library: [], hand: [], graveyard: [] } as any,
+          { id: 'p3', name: 'P3', seat: 2, life: 35, library: [], hand: [], graveyard: [] } as any,
+        ],
+        battlefield: [
+          { id: 'chea', ownerId: 'p1', controller: 'p1', name: 'Chea, Friend to Maybe Too Many', type_line: 'Legendary Creature - Human', power: 2, toughness: 2, counters: {} } as any,
+          { id: 'fam1', ownerId: 'p1', controller: 'p1', name: 'Familiar One', type_line: 'Creature - Cat Familiar', power: 1, toughness: 1, counters: {} } as any,
+          { id: 'fam2', ownerId: 'p1', controller: 'p1', name: 'Familiar Two', type_line: 'Creature - Bird Familiar', power: 1, toughness: 1, counters: {} } as any,
+          { id: 'fam3', ownerId: 'p1', controller: 'p1', name: 'Familiar Three', type_line: 'Creature - Spirit Familiar', power: 1, toughness: 1, counters: {} } as any,
+        ],
+      }),
+      steps,
+      {
+        controllerId: 'p1',
+        sourceId: 'chea',
+        sourceName: 'Chea, Friend to Maybe Too Many',
+      }
+    );
+
+    const pool = (result.state as any).manaPool?.['p1'];
+    expect(pool?.green).toBe(3);
+    expect((result.state.players.find((player: any) => player.id === 'p2') as any)?.life).toBe(37);
+    expect((result.state.players.find((player: any) => player.id === 'p3') as any)?.life).toBe(32);
+  });
+
+  it('applies add_mana for split two-and-two color sequences', () => {
+    const ir = parseOracleTextToIR('Add two mana of any one color and two mana of any other color.', 'Open the Omenpaths');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const result = applyOracleIRStepsToGameState(makeState(), steps, {
+      controllerId: 'p1',
+      selectorContext: { chosenMana: '{U}{U}{R}{R}' as any },
+    });
+
+    const pool = (result.state as any).manaPool?.['p1'];
+    expect(pool?.blue).toBe(2);
+    expect(pool?.red).toBe(2);
+    expect(pool?.green ?? 0).toBe(0);
   });
 
   it('applies choose_color followed by chosen-color protection when execution context supplies the choice', () => {
@@ -45182,6 +45479,31 @@ This creature has protection from each of the exiled card's card types. (Artifac
     expect(result.appliedSteps).toEqual(expect.arrayContaining([
       expect.objectContaining({ kind: 'add_extra_combat' }),
     ]));
+  });
+
+  it('queues repeated combat phases for plural extra-combat text', () => {
+    const ir = parseOracleTextToIR(
+      'After this main phase, there are two additional combat phases.',
+      'Full Throttle'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const result = applyOracleIRStepsToGameState(
+      makeState({}),
+      steps,
+      {
+        controllerId: 'p1',
+        sourceId: 'full-throttle',
+        sourceName: 'Full Throttle',
+      }
+    );
+
+    const extraCombats = (((result.state as any).extraCombats || []) as any[]).filter(
+      effect => String(effect?.source || '') === 'Full Throttle'
+    );
+
+    expect(extraCombats).toHaveLength(2);
+    expect(extraCombats.every((effect) => effect.followedByAdditionalMain !== true)).toBe(true);
   });
 
   it('changes control and tracks cleanup reversion when resolving Act of Treason', () => {

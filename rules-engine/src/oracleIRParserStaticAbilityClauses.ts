@@ -22,6 +22,7 @@ const STATIC_KEYWORD_ABILITIES = new Set([
   'first strike',
   'double strike',
   'haste',
+  'flash',
   'ward',
   'myriad',
   'infect',
@@ -332,7 +333,7 @@ export function tryParseStaticAbilityGrantClause(args: {
   }
 
   const staticTeamPtMatch = normalized.match(
-    /^((?:(?:all|other)\s+)?(?:non[- ]?[a-z]+\s+)?(?:[a-z]+\s+)?creatures\s+(?:you\s+control|your\s+opponents\s+control)(?:\s+that\s+are\s+[a-z ]+)?(?:\s+with\s+[a-z ]+)?(?:\s+of\s+the\s+chosen\s+(?:type|color))?|(?:each\s+creature|creatures|[a-z]+\s+creatures|other\s+[a-z]+\s+creatures)(?:\s+with\s+[a-z ]+)?|creatures\s+of\s+the\s+chosen\s+color)\s+get\s+([+-]?(?:\d+|x))\s*\/\s*([+-]?(?:\d+|x))(?:\s+(.+))?$/i
+    /^((?:(?:all|other)\s+)?(?:non[- ]?[a-z]+\s+)?(?:[a-z]+\s+)?creatures\s+(?:you\s+control|your\s+opponents\s+control)(?:\s+that\s+are\s+[a-z ]+)?(?:\s+with\s+[a-z ]+)?(?:\s+of\s+the\s+chosen\s+(?:type|color))?|all\s+creatures(?:\s+of\s+(?:that|the\s+chosen)\s+type)?|(?:each\s+creature|creatures|[a-z]+\s+creatures|other\s+[a-z]+\s+creatures)(?:\s+with\s+[a-z ]+)?|creatures\s+of\s+the\s+chosen\s+color)\s+get\s+([+-]?(?:\d+|x))\s*\/\s*([+-]?(?:\d+|x))(?:\s*,?\s*(.+))?$/i
   );
   if (staticTeamPtMatch) {
     const targetText = String(staticTeamPtMatch[1] || '').trim();
@@ -459,6 +460,54 @@ export function tryParseStaticAbilityGrantClause(args: {
       duration: 'static',
       raw: rawClause,
     });
+  }
+
+  const staticCharacteristicMatch = normalized.match(/^(.+?)\s+are\s+(black|legendary)$/i);
+  if (staticCharacteristicMatch) {
+    return withMeta({
+      kind: 'grant_static_ability',
+      target: parseObjectSelector(String(staticCharacteristicMatch[1] || '').trim()),
+      effectText: [`are ${String(staticCharacteristicMatch[2] || '').trim()}`],
+      duration: 'static',
+      raw: rawClause,
+    });
+  }
+
+  const staticProtectionMatch = normalized.match(/^(.+?)\s+have\s+(protection\s+from\s+.+)$/i);
+  if (staticProtectionMatch) {
+    return withMeta({
+      kind: 'grant_static_ability',
+      target: parseObjectSelector(String(staticProtectionMatch[1] || '').trim()),
+      effectText: [String(staticProtectionMatch[2] || '').trim()],
+      duration: 'static',
+      raw: rawClause,
+    });
+  }
+
+  const staticAsThoughSourceHadMatch = normalized.match(/^(.+?)\s+is\s+dealt\s+as\s+though\s+its\s+source\s+had\s+(.+)$/i);
+  if (staticAsThoughSourceHadMatch) {
+    return withMeta({
+      kind: 'grant_static_ability',
+      target: parseObjectSelector(String(staticAsThoughSourceHadMatch[1] || '').trim()),
+      effectText: [`is dealt as though its source had ${String(staticAsThoughSourceHadMatch[2] || '').trim()}`],
+      duration: 'static',
+      raw: rawClause,
+    });
+  }
+
+  const staticLoseKeywordMatch = normalized.match(/^(.+?)\s+lose\s+(.+)$/i);
+  if (staticLoseKeywordMatch) {
+    const lossText = String(staticLoseKeywordMatch[2] || '').trim();
+    const lostKeywords = parseKeywordAbilityList(lossText);
+    if (lostKeywords.length > 0) {
+      return withMeta({
+        kind: 'grant_static_ability',
+        target: parseObjectSelector(String(staticLoseKeywordMatch[1] || '').trim()),
+        effectText: [`lose ${lossText}`],
+        duration: 'static',
+        raw: rawClause,
+      });
+    }
   }
 
   const attacksEachCombatMatch = normalized.match(/^(.+?)\s+attacks\s+each\s+combat\s+if\s+able$/i);
@@ -603,12 +652,25 @@ export function tryParseStaticAbilityGrantClause(args: {
     });
   }
 
-  const losesAbilitiesBasePtMatch = normalized.match(/^(.+?)\s+loses\s+all\s+abilities\s+and\s+is\s+(.+?)\s+with\s+base\s+power\s+and\s+toughness\s+(\d+)\s*\/\s*(\d+)(?:\s+.+)?$/i);
+  const losesAbilitiesBasePtMatch = normalized.match(/^(.+?)\s+lose(?:s)?\s+all\s+abilities\s+and\s+(?:is|becomes?)\s+(.+?)\s+with\s+base\s+power\s+and\s+toughness\s+(\d+)\s*\/\s*(\d+)(?:\s+.+)?$/i);
   if (losesAbilitiesBasePtMatch) {
     return withMeta({
       kind: 'grant_static_ability',
       target: parseObjectSelector(String(losesAbilitiesBasePtMatch[1] || '').trim()),
-      effectText: [normalized.replace(/^.+?\s+loses\s+all\s+abilities/i, 'loses all abilities')],
+      effectText: [normalized.replace(/^.+?\s+lose(?:s)?\s+all\s+abilities/i, 'lose all abilities')],
+      duration: 'static',
+      raw: rawClause,
+    });
+  }
+
+  const loseKeywordAbilityWordMatch = normalized.match(
+    /^(all\s+cards\s+in\s+all\s+zones)\s+lose\s+that\s+keyword\s+ability\s+or\s+ability\s+word\s+and\s+all\s+text\s+tied\s+to\s+that\s+ability$/i
+  );
+  if (loseKeywordAbilityWordMatch) {
+    return withMeta({
+      kind: 'grant_static_ability',
+      target: parseObjectSelector(String(loseKeywordAbilityWordMatch[1] || '').trim()),
+      effectText: ['lose that keyword ability or ability word and all text tied to that ability'],
       duration: 'static',
       raw: rawClause,
     });

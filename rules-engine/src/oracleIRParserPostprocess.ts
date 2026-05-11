@@ -3530,6 +3530,31 @@ function splitDamageAndLifeUnknownStep(step: OracleEffectStep): readonly OracleE
   return [damageStep, lifeStep];
 }
 
+function splitAddManaAndLoseLifeUnknownStep(step: OracleEffectStep): readonly OracleEffectStep[] | null {
+  if (step.kind !== 'unknown') return null;
+  const raw = normalizeOracleText(String(step.raw || ''))
+    .replace(/^otherwise,?\s*/i, '')
+    .replace(/[."]+$/g, '')
+    .trim();
+  const match = raw.match(/^add\s+x\s+(\{[^}]+\})\s+and\s+(.+?)\s+lose(?:s)?\s+x\s+life,\s+where\s+x\s+is\s+(.+)$/i);
+  if (!match) return null;
+
+  const manaSymbol = String(match[1] || '').trim();
+  const lifeWho = String(match[2] || '').trim();
+  const whereText = String(match[3] || '').trim();
+  if (!manaSymbol || !lifeWho || !whereText) return null;
+
+  const addManaRaw = `Add an amount of ${manaSymbol} equal to ${whereText}`;
+  const addManaStep = tryParseSimpleActionClause({
+    clause: normalizeClauseForParse(addManaRaw).clause,
+    rawClause: addManaRaw,
+    withMeta: <T extends OracleEffectStep>(value: T) => value,
+  });
+  const lifeStep = parseLifeTailStep(`${lifeWho} loses life equal to ${whereText}`);
+  if (!addManaStep || addManaStep.kind !== 'add_mana' || !lifeStep || lifeStep.kind !== 'lose_life') return null;
+  return [addManaStep, lifeStep];
+}
+
 function splitDestroyAndCantBlockStep(step: OracleEffectStep): readonly OracleEffectStep[] | null {
   if (step.kind !== 'cant_block' || (step.target as any)?.kind !== 'raw') return null;
   const targetText = normalizeOracleText(String((step.target as any).text || '')).trim();
@@ -3918,6 +3943,11 @@ function expandDynamicCounterRiderSteps(steps: readonly OracleEffectStep[]): Ora
     const splitDamageLife = splitDamageAndLifeUnknownStep(cleanedStep);
     if (splitDamageLife) {
       expanded.push(...splitDamageLife);
+      continue;
+    }
+    const splitAddManaLife = splitAddManaAndLoseLifeUnknownStep(cleanedStep);
+    if (splitAddManaLife) {
+      expanded.push(...splitAddManaLife);
       continue;
     }
     const splitDestroyCantBlock = splitDestroyAndCantBlockStep(cleanedStep);
@@ -7060,6 +7090,55 @@ export function pruneRedundantEarthbendReminderUnknownAbilities(
   });
 }
 
+function isAirbendPermissionStaticGrantStep(step: OracleEffectStep): boolean {
+  if (step.kind !== 'grant_static_ability') return false;
+
+  const targetText = normalizeOracleText(String((step.target as any)?.text || (step.target as any)?.raw || ''))
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+  if (!/^(?:it|that card|the exiled card|each exiled card|those cards)$/i.test(targetText)) {
+    return false;
+  }
+
+  const effectText = step.effectText
+    .map((entry) => normalizeOracleText(String(entry || '')).replace(/\s+/g, ' ').trim().toLowerCase())
+    .filter(Boolean)
+    .join(' ');
+  return /^(?:its|their) owner may cast (?:it|them) for \{2\} rather than (?:its|their) mana cost$/i.test(effectText);
+}
+
+function isRedundantAirbendReminderStep(step: OracleEffectStep): boolean {
+  const normalized = normalizeReminderStepRaw(step);
+  if (!normalized) return false;
+
+  if (step.kind === 'unknown') {
+    return /^(?:exile it|exile them)$/i.test(normalized);
+  }
+
+  return isAirbendPermissionStaticGrantStep(step);
+}
+
+export function pruneRedundantAirbendReminderUnknownAbilities(
+  abilities: readonly OracleIRAbility[]
+): OracleIRAbility[] {
+  return abilities.map((ability) => {
+    const normalizedText = normalizeOracleText(String(ability.text || ability.effectText || ''))
+      .replace(/\s+/g, ' ')
+      .trim()
+      .toLowerCase();
+    const hasAirbendLead = ability.steps.some(
+      (step) =>
+        step.kind === 'airbend' ||
+        (step.kind === 'unknown' && /^airbend\s+.+$/i.test(normalizeReminderStepRaw(step)))
+    );
+    if (!normalizedText.includes('airbend') || !hasAirbendLead) return ability;
+
+    const nextSteps = ability.steps.filter((step) => !isRedundantAirbendReminderStep(step));
+    return nextSteps.length === ability.steps.length ? ability : { ...ability, steps: nextSteps };
+  });
+}
+
 export function pruneMadnessReminderAbilities(
   abilities: readonly OracleIRAbility[]
 ): OracleIRAbility[] {
@@ -7334,6 +7413,40 @@ export function pruneRedundantArtifactTokenReminderUnknownAbilities(
       return true;
     });
     return nextSteps.length === ability.steps.length ? [ability] : [{ ...ability, steps: nextSteps }];
+  });
+}
+
+function isTokenDesignationStaticGrantStep(step: OracleEffectStep): boolean {
+  if (step.kind !== 'grant_static_ability') return false;
+
+  const effectText = Array.isArray((step as any).effectText) ? (step as any).effectText : [];
+  return effectText.some((text) => normalizeOracleText(String(text || '')).trim().toLowerCase() === 'are tokens');
+}
+
+function isRedundantTokenDesignationReminderUnknownStep(step: OracleEffectStep): boolean {
+  if (step.kind !== 'unknown') return false;
+
+  const normalized = normalizeOracleText(String(step.raw || ''))
+    .replace(/^then\b\s*/i, '')
+    .replace(/^[()\s]+/, '')
+    .replace(/[.)\s]+$/g, '')
+    .trim();
+  if (!normalized) return false;
+
+  return (
+    /^(?:they(?:'|â€™)re|they are) considered tokens for spells and abilities$/i.test(normalized) ||
+    /^after a creature leaves the battlefield, it ceases to exist[.)]*$/i.test(normalized)
+  );
+}
+
+export function pruneRedundantTokenDesignationReminderUnknownAbilities(
+  abilities: readonly OracleIRAbility[]
+): OracleIRAbility[] {
+  return abilities.map((ability) => {
+    if (!ability.steps.some(isTokenDesignationStaticGrantStep)) return ability;
+
+    const nextSteps = ability.steps.filter((step) => !isRedundantTokenDesignationReminderUnknownStep(step));
+    return nextSteps.length === ability.steps.length ? ability : { ...ability, steps: nextSteps };
   });
 }
 
@@ -8333,7 +8446,7 @@ export function pruneExternallyHandledStaticUnknownAbilities(
       /^devour\s+\d+(?:\s+[^()]+)?\s*\(as this (?:creature|permanent) enters, you may sacrifice any number of creatures\.?[^)]*\)[.)]*$/i.test(normalizedText) ||
       /^as this land enters, you may reveal (?:a|an) .+? card from your hand\. if you don't, (?:this land|it) enters tapped[.)]*$/i.test(normalizedText) ||
       /^as this land enters, you may pay \d+ life\. if you don't, (?:this land|it) enters tapped[.)]*$/i.test(normalizedText) ||
-      /^you have no maximum hand size[.)]*$/i.test(normalizedText) ||
+      /^you have no maximum hand size(?: for the rest of the game)?[.)]*$/i.test(normalizedText) ||
       /^this spell can(?:not|'t) be countered(?:\. \(this includes by the ward ability\.\))?[.)]*$/i.test(normalizedText) ||
       /^put the revealed cards on the bottom of your library in any order$/i.test(normalizedText) ||
       /^crew\s+\d+\s*\(tap any number of creatures you control with total power \d+ or more:\s*this vehicle becomes an artifact creature until end of turn\. creatures can't be attached to other permanents\.\)$/i.test(normalizedText)
@@ -8388,7 +8501,7 @@ export function pruneExternallyHandledStaticUnknownAbilities(
       /^(?:this creature|~|[a-z0-9', -]+) can block an additional(?: (?:\d+|[a-z]+(?:[ -][a-z]+)*))? creature(?:s)? each combat[.)]*$/i.test(normalizedText) ||
       /^this creature can block only creatures with flying[.)]*$/i.test(normalizedText) ||
       /^if this card is in your opening hand, you may begin the game with it on the battlefield[.)]*$/i.test(normalizedText) ||
-      /^you have no maximum hand size[.)]*$/i.test(normalizedText) ||
+      /^you have no maximum hand size(?: for the rest of the game)?[.)]*$/i.test(normalizedText) ||
       /^you may play an additional land on each of your turns[.)]*$/i.test(normalizedText)
     ) {
       return [];
@@ -13713,6 +13826,16 @@ function parseKeywordActionUnknownStep(step: Extract<OracleEffectStep, { kind: '
     return {
       kind: 'explore',
       target: { kind: 'raw', text: 'this creature' },
+      ...(step.sequence ? { sequence: step.sequence } : {}),
+      raw: normalized,
+    };
+  }
+
+  const airbendMatch = normalized.match(/^airbend\s+(.+)$/i);
+  if (airbendMatch) {
+    return {
+      kind: 'airbend',
+      target: parseObjectSelector(String(airbendMatch[1] || '').trim()),
       ...(step.sequence ? { sequence: step.sequence } : {}),
       raw: normalized,
     };

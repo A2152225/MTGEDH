@@ -4,16 +4,22 @@ import { normalizeOracleText, parseObjectSelector, parsePlayerSelector, parseQua
 type WithMeta = <T extends OracleEffectStep>(step: T) => T;
 
 const PLAYER_SUBJECT_PREFIX =
-  "(?:(you|each player|each opponent|each friend|each of those opponents|any number of target opponents|any number of target players other than that player|any number of target players|each of that player's opponents|target player|target opponent|that player|that opponent|that attacking player|an opponent|the opponent|the player|attacking player|defending player|the defending player|the attacking player|the controller of those creatures|he or she|they|its controller|its owner|that [a-z0-9][a-z0-9 ,.'’-]*?(?:'s|’s)? (?:controller|owner))\\s+)?";
+  "(?:(you|each player|each other player|each opponent|each friend|each of those opponents|any number of target opponents|any number of target players other than that player|any number of target players|each of that player's opponents|target player|target opponent|that player|that opponent|that attacking player|an opponent|the opponent|the player|attacking player|defending player|the defending player|the attacking player|the controller of those creatures|he or she|they|its controller|its owner|that [a-z0-9][a-z0-9 ,.'’-]*?(?:'s|’s)? (?:controller|owner))\\s+)?";
 
 const DRAW_AMOUNT_WORD_PATTERN = '(?:that many|that much|a|an|\\d+|x|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)';
-
 const COUNTER_AMOUNT_PATTERN = '(?:a|an|\\d+|x|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)';
 const REFERENCEABLE_COUNTER_AMOUNT_PATTERN = '(?:that many|that much|a|an|\\d+|x|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)';
 
 function parseManaChoiceList(raw: string): string[] {
   const matches = String(raw || '').match(/\{[^}]+\}/g);
   return Array.isArray(matches) ? matches.map(symbol => String(symbol || '').trim()).filter(Boolean) : [];
+}
+
+function parseManaOptionGroupList(raw: string): string[] {
+  return String(raw || '')
+    .split(/\s*,\s*or\s+|\s+or\s+|\s*,\s*/i)
+    .map(option => String(option || '').replace(/\s+/g, '').trim())
+    .filter(option => /^(?:\{[^}]+\})+$/.test(option));
 }
 
 function parseSmallNumber(raw: string): number | null {
@@ -58,7 +64,6 @@ function parseCounterQuantity(raw: string | undefined): ReturnType<typeof parseQ
     .replace(/^up to\s+/i, '')
     .trim();
   if (!normalized) return { kind: 'unknown' };
-  if (/^a number$/i.test(normalized)) return { kind: 'unknown', raw: normalized };
   return parseQuantity(normalized);
 }
 
@@ -66,6 +71,34 @@ function parseScaledCounterQuantity(amountText: string, scalingText: string): Re
   const combined = `${amountText} ${scalingText}`.trim();
   const parsed = parseQuantity(combined);
   return parsed.kind === 'unknown' ? { kind: 'unknown', raw: combined } : parsed;
+}
+
+function parseAddManaAmountExpression(
+  raw: string | undefined
+): Extract<OracleEffectStep, { kind: 'add_mana' }>['amount'] | null {
+  const normalized = normalizeOracleText(String(raw || '').replace(/^equal\s+to\s+/i, '').trim());
+  if (!normalized) return null;
+
+  switch (normalized) {
+    case "this permanent's toughness":
+      return { kind: 'object_stat', subject: 'it', stat: 'toughness' };
+    case 'the greatest power among creatures you control':
+      return { kind: 'greatest_power_among_creatures_you_control' };
+    case 'the number of art counters on this permanent plus one':
+    case 'the number of time counters on this artifact':
+    case 'the chosen colors':
+    case 'the number of charge counters removed this way':
+    case 'x plus one':
+    case 'your devotion to green':
+    case "that spell's mana value":
+    case 'the greatest power among creatures you control that entered this turn':
+    case 'the number of creatures you control of the chosen type':
+      return { kind: 'reference_amount', raw: normalized };
+    default: {
+      const parsed = parseQuantity(normalized);
+      return parsed.kind === 'unknown' ? { kind: 'reference_amount', raw: normalized } : parsed;
+    }
+  }
 }
 
 function parseDrawAmount(raw: string | undefined): Extract<OracleEffectStep, { kind: 'draw' }>['amount'] {
@@ -179,12 +212,43 @@ export function tryParseSimpleActionClause(args: {
 }): OracleEffectStep | null {
   const { clause, rawClause, withMeta } = args;
 
+  const addManaEqualToEnchantedPermanentManaCost = clause.match(
+    new RegExp(`^${PLAYER_SUBJECT_PREFIX}adds?\\s+mana\\s+equal\\s+to\\s+enchanted\\s+permanent(?:'|â€™)?s\\s+mana\\s+cost\\s*$`, 'i')
+  );
+  if (addManaEqualToEnchantedPermanentManaCost) {
+    return withMeta({
+      kind: 'add_mana',
+      who: parsePlayerSelector(addManaEqualToEnchantedPermanentManaCost[1]),
+      mana: '{C}',
+      amount: { kind: 'reference_amount', raw: "enchanted permanent's mana cost" },
+      raw: rawClause,
+    });
+  }
+
   {
     if (/^end the turn$/i.test(clause)) {
       return withMeta({
         kind: 'end_turn',
         raw: rawClause,
       });
+    }
+
+    const addVariableColorManaWhereX = clause.match(
+      new RegExp(`^${PLAYER_SUBJECT_PREFIX}adds?\\s+x\\s+mana\\s+in\\s+any\\s+combination\\s+of\\s+colors,?\\s+where\\s+x\\s+is\\s+(.+)\\s*$`, 'i')
+    );
+    if (addVariableColorManaWhereX) {
+      const amount = parseAddManaAmountExpression(String(addVariableColorManaWhereX[2] || '').trim());
+      if (amount) {
+        return withMeta({
+          kind: 'add_mana',
+          who: parsePlayerSelector(addVariableColorManaWhereX[1]),
+          mana: '{W}',
+          amount,
+          manaOptions: ['{W}', '{U}', '{B}', '{R}', '{G}'],
+          requiresChosenMana: true,
+          raw: rawClause,
+        });
+      }
     }
 
     const skipNextTurn = clause.match(new RegExp(`^${PLAYER_SUBJECT_PREFIX}skip(?:s)?\\s+(?:your|their|his or her)\\s+next\\s+turn$`, 'i'));
@@ -251,6 +315,26 @@ export function tryParseSimpleActionClause(args: {
         requiresChosenMana: true,
         raw: rawClause,
       });
+    }
+
+    const addManaChoiceForEach = clause.match(
+      new RegExp(
+        `^${PLAYER_SUBJECT_PREFIX}adds?\\s+((?:\\{[^}]+\\})+(?:(?:\\s*,\\s*|\\s+or\\s+|\\s*,\\s*or\\s*)(?:\\{[^}]+\\})+)+)\\s+for\\s+each\\s+(.+)$`,
+        'i'
+      )
+    );
+    if (addManaChoiceForEach) {
+      const manaOptions = parseManaOptionGroupList(String(addManaChoiceForEach[2] || '').trim());
+      if (manaOptions.length >= 2) {
+        return withMeta({
+          kind: 'add_mana',
+          who: parsePlayerSelector(addManaChoiceForEach[1]),
+          mana: manaOptions[0],
+          manaOptions,
+          requiresChosenMana: true,
+          raw: rawClause,
+        });
+      }
     }
   }
 
@@ -483,7 +567,7 @@ export function tryParseSimpleActionClause(args: {
 
   {
     const addAnyColorLandCouldProduceMana = clause.match(
-      new RegExp(`^${PLAYER_SUBJECT_PREFIX}adds?\\s+one\\s+mana\\s+of\\s+any\\s+(?:one\\s+)?(?:color|type)\\s+that\\s+.+?\\s+could\\s+produce\\s*$`, 'i')
+      new RegExp(`^${PLAYER_SUBJECT_PREFIX}adds?\\s+one\\s+mana\\s+of\\s+any\\s+(?:one\\s+)?(?:color|type)\\s+(?:that\\s+)?.+?\\s+could\\s+produce\\s*$`, 'i')
     );
     if (addAnyColorLandCouldProduceMana) {
       return withMeta({
@@ -496,7 +580,9 @@ export function tryParseSimpleActionClause(args: {
       });
     }
 
-    const addAnyColorMana = clause.match(new RegExp(`^${PLAYER_SUBJECT_PREFIX}adds?\\s+(?:an\\s+additional\\s+)?one\\s+mana\\s+of\\s+any\\s+(?:one\\s+)?color\\s*$`, 'i'));
+    const addAnyColorMana = clause.match(
+      new RegExp(`^${PLAYER_SUBJECT_PREFIX}adds?\\s+(?:an\\s+additional\\s+)?(?:a|an|1|one)\\s+mana\\s+of\\s+any\\s+(?:one\\s+)?color\\s*$`, 'i')
+    );
     if (addAnyColorMana) {
       return withMeta({
         kind: 'add_mana',
@@ -507,19 +593,118 @@ export function tryParseSimpleActionClause(args: {
         });
     }
 
-      const addAnyColorFromReferenceMana = clause.match(
-        new RegExp(`^${PLAYER_SUBJECT_PREFIX}adds?\\s+one\\s+mana\\s+of\\s+(?:any\\s+of\\s+the\\s+exiled\\s+card'?s\\s+colors|any\\s+color\\s+among\\s+.+)\\s*$`, 'i')
-      );
-      if (addAnyColorFromReferenceMana) {
-        return withMeta({
-          kind: 'add_mana',
-          who: parsePlayerSelector(addAnyColorFromReferenceMana[1]),
-          mana: '{W}',
-          manaOptions: ['{W}', '{U}', '{B}', '{R}', '{G}'],
-          requiresChosenMana: true,
-          raw: rawClause,
-        });
-      }
+    const addEachChosenColorMana = clause.match(new RegExp(`^${PLAYER_SUBJECT_PREFIX}adds?\\s+(?:a|an|one)\\s+mana\\s+of\\s+each\\s+of\\s+the\\s+chosen\\s+colors\\s*$`, 'i'));
+    if (addEachChosenColorMana) {
+      return withMeta({
+        kind: 'add_mana',
+        who: parsePlayerSelector(addEachChosenColorMana[1]),
+        mana: '{W}',
+        manaOptions: ['{W}', '{U}', '{B}', '{R}', '{G}'],
+        requiresChosenMana: true,
+        amount: { kind: 'reference_amount', raw: 'the chosen colors' },
+        raw: rawClause,
+      });
+    }
+
+    const addReferenceBoundAnyColorMana = clause.match(
+      new RegExp(
+        `^${PLAYER_SUBJECT_PREFIX}adds?\\s+one\\s+mana\\s+of\\s+(?:a\\s+color\\s+written\\s+on\\s+this\\s+permanent|any\\s+color\\s+chosen\\s+as\\s+you\\s+drafted\\s+cards\\s+named\\s+this\\s+permanent|any\\s+color\\s+that\\s+appears\\s+on\\s+.+|any\\s+color\\s+that\\s+shares\\s+a\\s+color\\s+with\\s+.+)\\s*$`,
+        'i'
+      )
+    );
+    if (addReferenceBoundAnyColorMana) {
+      return withMeta({
+        kind: 'add_mana',
+        who: parsePlayerSelector(addReferenceBoundAnyColorMana[1]),
+        mana: '{W}',
+        manaOptions: ['{W}', '{U}', '{B}', '{R}', '{G}'],
+        requiresChosenMana: true,
+        raw: rawClause,
+      });
+    }
+
+    const addCircledColorsMana = clause.match(new RegExp(`^${PLAYER_SUBJECT_PREFIX}adds?\\s+one\\s+mana\\s+of\\s+either\\s+of\\s+the\\s+circled\\s+colors\\s*$`, 'i'));
+    if (addCircledColorsMana) {
+      return withMeta({
+        kind: 'add_mana',
+        who: parsePlayerSelector(addCircledColorsMana[1]),
+        mana: '{W}',
+        manaOptions: ['{W}', '{U}', '{B}', '{R}', '{G}'],
+        requiresChosenMana: true,
+        raw: rawClause,
+      });
+    }
+
+    const addGuildColorsMana = clause.match(new RegExp(`^${PLAYER_SUBJECT_PREFIX}adds?\\s+one\\s+mana\\s+of\\s+your\\s+guild(?:'|â€™)?s\\s+colors\\s*$`, 'i'));
+    if (addGuildColorsMana) {
+      return withMeta({
+        kind: 'add_mana',
+        who: parsePlayerSelector(addGuildColorsMana[1]),
+        mana: '{W}',
+        manaOptions: ['{W}', '{U}', '{B}', '{R}', '{G}'],
+        requiresChosenMana: true,
+        raw: rawClause,
+      });
+    }
+
+    const addRepeatedAnyColorForRemovedCounters = clause.match(
+      new RegExp(`^${PLAYER_SUBJECT_PREFIX}adds?\\s+one\\s+mana\\s+of\\s+any\\s+color\\s+for\\s+each\\s+charge\\s+counter\\s+removed\\s+this\\s+way\\s*$`, 'i')
+    );
+    if (addRepeatedAnyColorForRemovedCounters) {
+      return withMeta({
+        kind: 'add_mana',
+        who: parsePlayerSelector(addRepeatedAnyColorForRemovedCounters[1]),
+        mana: '{W}',
+        amount: { kind: 'reference_amount', raw: 'the number of charge counters removed this way' },
+        manaOptions: ['{W}', '{U}', '{B}', '{R}', '{G}'],
+        requiresChosenMana: true,
+        raw: rawClause,
+      });
+    }
+
+    const addThatColorForChargeCounters = clause.match(
+      new RegExp(`^${PLAYER_SUBJECT_PREFIX}adds?\\s+one\\s+mana\\s+of\\s+that\\s+color\\s+for\\s+each\\s+charge\\s+counter\\s+on\\s+this\\s+artifact\\s*$`, 'i')
+    );
+    if (addThatColorForChargeCounters) {
+      return withMeta({
+        kind: 'add_mana',
+        who: parsePlayerSelector(addThatColorForChargeCounters[1]),
+        mana: '{W}',
+        amount: { kind: 'reference_amount', raw: 'the number of charge counters on this artifact' },
+        manaOptions: ['{W}', '{U}', '{B}', '{R}', '{G}'],
+        requiresChosenMana: true,
+        raw: rawClause,
+      });
+    }
+
+    const addThatColorForDifferentPowers = clause.match(
+      new RegExp(`^${PLAYER_SUBJECT_PREFIX}adds?\\s+one\\s+mana\\s+of\\s+that\\s+color\\s+for\\s+each\\s+different\\s+power\\s+among\\s+creatures\\s+you\\s+control\\s*$`, 'i')
+    );
+    if (addThatColorForDifferentPowers) {
+      return withMeta({
+        kind: 'add_mana',
+        who: parsePlayerSelector(addThatColorForDifferentPowers[1]),
+        mana: '{W}',
+        amount: { kind: 'reference_amount', raw: 'the number of different powers among creatures you control' },
+        manaOptions: ['{W}', '{U}', '{B}', '{R}', '{G}'],
+        requiresChosenMana: true,
+        raw: rawClause,
+      });
+    }
+
+    const addAnyColorFromReferenceMana = clause.match(
+      new RegExp(`^${PLAYER_SUBJECT_PREFIX}adds?\\s+one\\s+mana\\s+of\\s+(?:any\\s+of\\s+the\\s+exiled\\s+(?:card(?:'|â€™)?s|cards(?:'|â€™)?)\\s+colors|any\\s+color\\s+among\\s+.+)\\s*$`, 'i')
+    );
+    if (addAnyColorFromReferenceMana) {
+      return withMeta({
+        kind: 'add_mana',
+        who: parsePlayerSelector(addAnyColorFromReferenceMana[1]),
+        mana: '{W}',
+        manaOptions: ['{W}', '{U}', '{B}', '{R}', '{G}'],
+        requiresChosenMana: true,
+        raw: rawClause,
+      });
+    }
   }
 
   {
@@ -528,11 +713,72 @@ export function tryParseSimpleActionClause(args: {
       return withMeta({
         kind: 'add_mana',
         who: parsePlayerSelector(addVariableColorMana[1]),
-        mana: '{X}',
+        mana: '{W}',
+        amount: { kind: 'x' },
         manaOptions: ['{W}', '{U}', '{B}', '{R}', '{G}'],
         requiresChosenMana: true,
         raw: rawClause,
       });
+    }
+
+    const addAmountEqualXPlusOne = clause.match(new RegExp(`^${PLAYER_SUBJECT_PREFIX}adds?\\s+an\\s+amount\\s+of\\s+(\\{[^}]+\\})\\s+equal\\s+to\\s+x\\s+plus\\s+one\\s*$`, 'i'));
+    if (addAmountEqualXPlusOne) {
+      return withMeta({
+        kind: 'add_mana',
+        who: parsePlayerSelector(addAmountEqualXPlusOne[1]),
+        mana: String(addAmountEqualXPlusOne[2] || '').trim(),
+        amount: { kind: 'reference_amount', raw: 'x plus one' },
+        raw: rawClause,
+      });
+    }
+
+    const addBasePlusArtCounters = clause.match(
+      new RegExp(`^${PLAYER_SUBJECT_PREFIX}adds?\\s+(\\{[^}]+\\}),\\s+plus\\s+an\\s+additional\\s+(\\{[^}]+\\})\\s+for\\s+each\\s+art\\s+counter\\s+on\\s+this\\s+permanent\\s*$`, 'i')
+    );
+    if (addBasePlusArtCounters) {
+      const baseMana = String(addBasePlusArtCounters[2] || '').trim();
+      const bonusMana = String(addBasePlusArtCounters[3] || '').trim();
+      if (baseMana && baseMana === bonusMana) {
+        return withMeta({
+          kind: 'add_mana',
+          who: parsePlayerSelector(addBasePlusArtCounters[1]),
+          mana: baseMana,
+          amount: { kind: 'reference_amount', raw: 'the number of art counters on this permanent plus one' },
+          raw: rawClause,
+        });
+      }
+    }
+
+    const addAmountEqualSymbol = clause.match(new RegExp(`^${PLAYER_SUBJECT_PREFIX}adds?\\s+an\\s+amount\\s+of\\s+(\\{[^}]+\\})\\s+equal\\s+to\\s+(.+)\\s*$`, 'i'));
+    if (addAmountEqualSymbol) {
+      const amount = parseAddManaAmountExpression(String(addAmountEqualSymbol[3] || '').trim());
+      if (amount) {
+        return withMeta({
+          kind: 'add_mana',
+          who: parsePlayerSelector(addAmountEqualSymbol[1]),
+          mana: String(addAmountEqualSymbol[2] || '').trim(),
+          amount,
+          raw: rawClause,
+        });
+      }
+    }
+
+    const addChosenColorAmount = clause.match(
+      new RegExp(`^${PLAYER_SUBJECT_PREFIX}adds?\\s+an\\s+amount\\s+of\\s+mana\\s+of\\s+that\\s+color\\s+equal\\s+to\\s+(.+)\\s*$`, 'i')
+    );
+    if (addChosenColorAmount) {
+      const amount = parseAddManaAmountExpression(String(addChosenColorAmount[2] || '').trim());
+      if (amount) {
+        return withMeta({
+          kind: 'add_mana',
+          who: parsePlayerSelector(addChosenColorAmount[1]),
+          mana: '{W}',
+          amount,
+          manaOptions: ['{W}', '{U}', '{B}', '{R}', '{G}'],
+          requiresChosenMana: true,
+          raw: rawClause,
+        });
+      }
     }
 
     const addAmountEqualToPower = clause.match(new RegExp(`^${PLAYER_SUBJECT_PREFIX}adds?\\s+an\\s+amount\\s+of\\s+(\\{[^}]+\\})\\s+equal\\s+to\\s+(.+?)(?:'|â€™)?s\\s+power\\s*$`, 'i'));
@@ -553,6 +799,20 @@ export function tryParseSimpleActionClause(args: {
         kind: 'add_mana',
         who: parsePlayerSelector(addTwoDifferentColors[1]),
         mana: '{W}{U}',
+        manaOptions: ['{W}', '{U}', '{B}', '{R}', '{G}'],
+        requiresChosenMana: true,
+        raw: rawClause,
+      });
+    }
+
+    const addTwoOfOneColorAndTwoOfAnother = clause.match(
+      new RegExp(`^${PLAYER_SUBJECT_PREFIX}adds?\\s+two\\s+mana\\s+of\\s+any\\s+one\\s+color\\s+and\\s+two\\s+mana\\s+of\\s+any\\s+other\\s+color\\s*$`, 'i')
+    );
+    if (addTwoOfOneColorAndTwoOfAnother) {
+      return withMeta({
+        kind: 'add_mana',
+        who: parsePlayerSelector(addTwoOfOneColorAndTwoOfAnother[1]),
+        mana: '{W}{W}{U}{U}',
         manaOptions: ['{W}', '{U}', '{B}', '{R}', '{G}'],
         requiresChosenMana: true,
         raw: rawClause,
@@ -587,6 +847,43 @@ export function tryParseSimpleActionClause(args: {
         kind: 'add_mana',
         who: parsePlayerSelector(addManaForEach[1]),
         mana: String(addManaForEach[2] || '').trim(),
+        requiresChosenMana: true,
+        raw: rawClause,
+      });
+    }
+
+    const addThatMuchMana = clause.match(new RegExp(`^${PLAYER_SUBJECT_PREFIX}adds?\\s+that\\s+much\\s+(\\{[^}]+\\})\\s*$`, 'i'));
+    if (addThatMuchMana) {
+      return withMeta({
+        kind: 'add_mana',
+        who: parsePlayerSelector(addThatMuchMana[1]),
+        mana: String(addThatMuchMana[2] || '').trim(),
+        amount: { kind: 'reference_amount', raw: 'that much' },
+        raw: rawClause,
+      });
+    }
+
+    const addTwiceThatMuchMana = clause.match(new RegExp(`^${PLAYER_SUBJECT_PREFIX}adds?\\s+twice\\s+that\\s+much\\s+(\\{[^}]+\\})\\s*$`, 'i'));
+    if (addTwiceThatMuchMana) {
+      return withMeta({
+        kind: 'add_mana',
+        who: parsePlayerSelector(addTwiceThatMuchMana[1]),
+        mana: String(addTwiceThatMuchMana[2] || '').trim(),
+        amount: { kind: 'reference_amount', raw: 'twice that much' },
+        raw: rawClause,
+      });
+    }
+
+    const addThatMuchAnyCombinationRg = clause.match(
+      new RegExp(`^${PLAYER_SUBJECT_PREFIX}adds?\\s+that\\s+much\\s+mana\\s+in\\s+any\\s+combination\\s+of\\s+\\{R\\}\\s+and\\/or\\s+\\{G\\}\\s*$`, 'i')
+    );
+    if (addThatMuchAnyCombinationRg) {
+      return withMeta({
+        kind: 'add_mana',
+        who: parsePlayerSelector(addThatMuchAnyCombinationRg[1]),
+        mana: '{R}',
+        amount: { kind: 'reference_amount', raw: 'that much' },
+        manaOptions: ['{R}', '{G}'],
         requiresChosenMana: true,
         raw: rawClause,
       });
@@ -641,6 +938,73 @@ export function tryParseSimpleActionClause(args: {
           kind: 'add_mana',
           who: parsePlayerSelector(addAnyOneColorMana[1]),
           mana: buildRepeatedMana('{W}', manaCount),
+          manaOptions: ['{W}', '{U}', '{B}', '{R}', '{G}'],
+          requiresChosenMana: true,
+          raw: rawClause,
+        });
+      }
+    }
+
+    const addCountedChosenColorMana = clause.match(
+      new RegExp(`^${PLAYER_SUBJECT_PREFIX}adds?\\s+(${COUNTER_AMOUNT_PATTERN})\\s+mana\\s+of\\s+the\\s+chosen\\s+color\\s*$`, 'i')
+    );
+    if (addCountedChosenColorMana) {
+      const manaCount = parseSmallNumber(addCountedChosenColorMana[2]);
+      if (manaCount && manaCount > 0) {
+        return withMeta({
+          kind: 'add_mana',
+          who: parsePlayerSelector(addCountedChosenColorMana[1]),
+          mana: '{W}',
+          amount: { kind: 'number', value: manaCount },
+          manaOptions: ['{W}', '{U}', '{B}', '{R}', '{G}'],
+          requiresChosenMana: true,
+          raw: rawClause,
+        });
+      }
+    }
+
+    const addAnyCombinationSpecificOptions = clause.match(
+      new RegExp(`^${PLAYER_SUBJECT_PREFIX}adds?\\s+(${COUNTER_AMOUNT_PATTERN}|that\\s+much)\\s+mana\\s+in\\s+any\\s+combination\\s+of\\s+(.+)\\s*$`, 'i')
+    );
+    if (addAnyCombinationSpecificOptions) {
+      const countRaw = String(addAnyCombinationSpecificOptions[2] || '').trim().toLowerCase();
+      const optionsText = String(addAnyCombinationSpecificOptions[3] || '').trim();
+      const manaOptions = parseManaChoiceList(optionsText);
+      const amount = countRaw === 'that much'
+        ? ({ kind: 'reference_amount', raw: 'that much' } as const)
+        : parseQuantity(countRaw);
+      if (manaOptions.length >= 2 && amount.kind !== 'unknown') {
+        const fixedCount = amount.kind === 'number' ? amount.value : null;
+        return withMeta({
+          kind: 'add_mana',
+          who: parsePlayerSelector(addAnyCombinationSpecificOptions[1]),
+          mana: fixedCount && fixedCount > 0 ? buildRepeatedMana(manaOptions[0], fixedCount) : manaOptions[0],
+          ...(fixedCount && fixedCount > 0 ? {} : { amount }),
+          manaOptions,
+          requiresChosenMana: true,
+          raw: rawClause,
+        });
+      }
+    }
+
+    const addAnyCombinationGuildColors = clause.match(
+      new RegExp(
+        `^${PLAYER_SUBJECT_PREFIX}adds?\\s+(${COUNTER_AMOUNT_PATTERN}|that\\s+much)\\s+mana\\s+in\\s+any\\s+combination\\s+of\\s+your\\s+guild(?:'|â€™)?s\\s+colors\\s*$`,
+        'i'
+      )
+    );
+    if (addAnyCombinationGuildColors) {
+      const countRaw = String(addAnyCombinationGuildColors[2] || '').trim().toLowerCase();
+      const amount = countRaw === 'that much'
+        ? ({ kind: 'reference_amount', raw: 'that much' } as const)
+        : parseQuantity(countRaw);
+      if (amount.kind !== 'unknown') {
+        const fixedCount = amount.kind === 'number' ? amount.value : null;
+        return withMeta({
+          kind: 'add_mana',
+          who: parsePlayerSelector(addAnyCombinationGuildColors[1]),
+          mana: fixedCount && fixedCount > 0 ? buildRepeatedMana('{W}', fixedCount) : '{W}',
+          ...(fixedCount && fixedCount > 0 ? {} : { amount }),
           manaOptions: ['{W}', '{U}', '{B}', '{R}', '{G}'],
           requiresChosenMana: true,
           raw: rawClause,
@@ -730,7 +1094,9 @@ export function tryParseSimpleActionClause(args: {
   }
 
   {
-    const chooseCardName = clause.match(/^(?:secretly\s+)?choose\s+a\s+(?:nonland\s+)?card\s+name\s*$/i);
+    const chooseCardName = clause.match(
+      /^(?:secretly\s+)?choose\s+a\s+(?:nonland\s+)?card\s+name(?:\s+other\s+than\s+a\s+basic\s+land\s+card\s+name)?\s*$/i
+    );
     if (chooseCardName) {
       return withMeta({
         kind: 'choose_card_name',
@@ -969,13 +1335,28 @@ export function tryParseSimpleActionClause(args: {
   }
 
   {
+    const normalizedAdditionalCombatClause = clause.replace(/[."]+\s*$/, '').trim();
+    const addMultipleExtraCombat = normalizedAdditionalCombatClause.match(
+      /^(?:after\s+this\s+main\s+phase,?\s+there\s+are|this\s+main\s+phase\s+is\s+followed\s+by)\s+(.+?)\s+additional\s+combat\s+phases$/i
+    );
+    if (addMultipleExtraCombat) {
+      const count = parseSmallNumber(String(addMultipleExtraCombat[1] || '').trim());
+      if (count && count > 0) {
+        return withMeta({
+          kind: 'add_extra_combat',
+          ...(count > 1 ? { count } : {}),
+          raw: rawClause,
+        });
+      }
+    }
+
     const addExtraCombat = clause.match(
-      /^(?:(?:after|and after)\s+this\s+(?:main\s+)?phase,?\s+there\s+is|there(?:'|’)s|there\s+is)\s+an\s+additional\s+combat\s+phase(?:\s+after\s+this\s+phase)?(?:,?\s+followed\s+by\s+an\s+additional\s+main\s+phase)?$/i
+      /^(?:(?:after|and after)\s+(?:this\s+phase|this\s+main\s+phase|this\s+combat\s+phase|the\s+second\s+main\s+phase\s+this\s+turn),?\s+)?(?:there(?:'|’)s|there\s+is)\s+an\s+additional\s+combat\s+phase(?:\s+after\s+this\s+phase)?(?:,?\s+followed\s+by\s+an\s+additional\s+main\s+phase)?[."]*$/i
     );
     if (addExtraCombat) {
       return withMeta({
         kind: 'add_extra_combat',
-        followedByAdditionalMain: /followed by an additional main phase/i.test(clause) || undefined,
+        followedByAdditionalMain: /followed by an additional main phase/i.test(normalizedAdditionalCombatClause) || undefined,
         raw: rawClause,
       });
     }
@@ -1456,6 +1837,17 @@ export function tryParseSimpleActionClause(args: {
         counter: normalizeCounterName(String(removeCounters[2] || '')),
         target: parseObjectSelector(removeCounters[3]),
         optional: /^up\s+to\s+/i.test(String(removeCounters[1] || '')) || undefined,
+        raw: rawClause,
+        });
+    }
+
+    const removeUnnamedCounter = clause.match(/^remove\s+(a|an|one)\s+counter\s+from\s+(.+)$/i);
+    if (removeUnnamedCounter) {
+      return withMeta({
+        kind: 'remove_counter',
+        amount: parseQuantity(String(removeUnnamedCounter[1] || '').trim()),
+        counter: 'counter',
+        target: parseObjectSelector(removeUnnamedCounter[2]),
         raw: rawClause,
         });
     }
@@ -1966,10 +2358,13 @@ export function tryParseSimpleActionClause(args: {
     }
 
     const addManaChoice = clause.match(
-      new RegExp(`^${PLAYER_SUBJECT_PREFIX}adds?\\s+(\\{[^}]+\\}(?:(?:\\s*,\\s*|\\s+or\\s+|\\s*,\\s*or\\s*)\\{[^}]+\\})+)\\s*$`, 'i')
+      new RegExp(
+        `^${PLAYER_SUBJECT_PREFIX}adds?\\s+((?:\\{[^}]+\\})+(?:(?:\\s*,\\s*|\\s+or\\s+|\\s*,\\s*or\\s*)(?:\\{[^}]+\\})+)+)\\s*$`,
+        'i'
+      )
     );
     if (addManaChoice) {
-      const manaOptions = parseManaChoiceList(String(addManaChoice[2] || '').trim());
+      const manaOptions = parseManaOptionGroupList(String(addManaChoice[2] || '').trim());
       if (manaOptions.length >= 2) {
         return withMeta({
           kind: 'add_mana',
@@ -2318,12 +2713,23 @@ export function tryParseSimpleActionClause(args: {
       });
     }
 
-    const chosenTypeAdditionMatch = clause.match(/^(this\s+creature|this\s+permanent|it)\s+is\s+the\s+chosen\s+type\s+in\s+addition\s+to\s+its\s+other\s+types$/i);
+    const chosenTypeAdditionMatch = clause.match(/^(this\s+creature|this\s+permanent|it|creatures\s+you\s+control)\s+(?:is|are)\s+the\s+chosen\s+type\s+in\s+addition\s+to\s+(?:its|their)\s+other\s+types$/i);
     if (chosenTypeAdditionMatch) {
       return withMeta({
         kind: 'add_types',
         target: parseObjectSelector(String(chosenTypeAdditionMatch[1] || '').trim()),
         addTypes: ['chosen type'],
+        raw: rawClause,
+      });
+    }
+
+    const chosenColorStaticMatch = clause.match(/^(.+?)\s+(?:is|are)\s+the\s+chosen\s+color$/i);
+    if (chosenColorStaticMatch) {
+      return withMeta({
+        kind: 'grant_static_ability',
+        target: parseObjectSelector(String(chosenColorStaticMatch[1] || '').trim()),
+        effectText: ['is the chosen color'],
+        duration: 'static',
         raw: rawClause,
       });
     }
@@ -2344,6 +2750,69 @@ export function tryParseSimpleActionClause(args: {
         kind: 'add_types',
         target: parseObjectSelector(String(partyClassAdditionMatch[1] || '').trim()),
         addTypes: ['Cleric', 'Rogue', 'Warrior', 'Wizard'],
+        raw: rawClause,
+      });
+    }
+
+    const enchantedPermanentTypeLock = clause.match(/^(enchanted\s+permanent)\s+is\s+an\s+enchantment\s+and\s+loses\s+all\s+other\s+card\s+types$/i);
+    if (enchantedPermanentTypeLock) {
+      return withMeta({
+        kind: 'grant_static_ability',
+        target: parseObjectSelector(String(enchantedPermanentTypeLock[1] || '').trim()),
+        effectText: ['is an enchantment and loses all other card types'],
+        duration: 'static',
+        raw: rawClause,
+      });
+    }
+
+    const equippedPermanentCreatureType = clause.match(
+      /^(equipped\s+permanent)\s+isn(?:'|â€™)t\s+a\s+planeswalker\s+and\s+is\s+a\s+creature\s+in\s+addition\s+to\s+its\s+other\s+types$/i
+    );
+    if (equippedPermanentCreatureType) {
+      return withMeta({
+        kind: 'grant_static_ability',
+        target: parseObjectSelector(String(equippedPermanentCreatureType[1] || '').trim()),
+        effectText: ["isn't a planeswalker and is a creature in addition to its other types"],
+        duration: 'static',
+        raw: rawClause,
+      });
+    }
+
+    const globalColorlessMatch = clause.match(
+      /^(all\s+cards\s+that\s+aren(?:'|â€™)?t\s+on\s+the\s+battlefield,\s+spells,\s+and\s+permanents)\s+are\s+colorless$/i
+    );
+    if (globalColorlessMatch) {
+      return withMeta({
+        kind: 'grant_static_ability',
+        target: parseObjectSelector(String(globalColorlessMatch[1] || '').trim()),
+        effectText: ['are colorless'],
+        duration: 'static',
+        raw: rawClause,
+      });
+    }
+
+    const globalChosenColorMatch = clause.match(
+      /^(all\s+cards\s+that\s+aren(?:'|â€™)?t\s+on\s+the\s+battlefield,\s+spells,\s+and\s+permanents)\s+are\s+the\s+chosen\s+color\s+in\s+addition\s+to\s+their\s+other\s+colors$/i
+    );
+    if (globalChosenColorMatch) {
+      return withMeta({
+        kind: 'grant_static_ability',
+        target: parseObjectSelector(String(globalChosenColorMatch[1] || '').trim()),
+        effectText: ['are the chosen color in addition to their other colors'],
+        duration: 'static',
+        raw: rawClause,
+      });
+    }
+
+    const typeAdditionMatch = clause.match(
+      /^(all\s+.+?)\s+are\s+(.+?)\s+in\s+addition\s+to\s+their\s+other\s+types$/i
+    );
+    if (typeAdditionMatch) {
+      return withMeta({
+        kind: 'grant_static_ability',
+        target: parseObjectSelector(String(typeAdditionMatch[1] || '').trim()),
+        effectText: [`are ${String(typeAdditionMatch[2] || '').trim()} in addition to their other types`],
+        duration: 'static',
         raw: rawClause,
       });
     }
@@ -2905,12 +3374,46 @@ export function tryParseSimpleActionClause(args: {
       });
     }
 
+    const spellCantBeCopied = clause.match(/^(.+?)\s+can(?:not|(?:'|â€™)t)\s+be\s+copied$/i);
+    if (spellCantBeCopied) {
+      return withMeta({
+        kind: 'grant_static_ability',
+        target: parseObjectSelector(String(spellCantBeCopied[1] || '').trim()),
+        effectText: ["can't be copied"],
+        duration: 'static',
+        raw: rawClause,
+      });
+    }
+
     const chosenTypeCostLess = clause.match(/^spells\s+you\s+cast\s+of\s+the\s+chosen\s+type\s+cost\s+(\{[^}]+\})\s+less\s+to\s+cast$/i);
     if (chosenTypeCostLess) {
       return withMeta({
         kind: 'grant_static_ability',
         target: parseObjectSelector('spells you cast of the chosen type'),
         effectText: [`cost ${String(chosenTypeCostLess[1] || '').trim()} less to cast`],
+        duration: 'static',
+        raw: rawClause,
+      });
+    }
+
+    const genericSpellCostReduction = clause.match(/^(.+?)\s+costs?\s+(\{[^}]+\})\s+less\s+to\s+cast$/i);
+    if (genericSpellCostReduction) {
+      const targetText = String(genericSpellCostReduction[1] || '').trim();
+      const effectText = [`costs ${String(genericSpellCostReduction[2] || '').trim()} less to cast`];
+      if (/\bthis turn\b/i.test(targetText)) {
+        return withMeta({
+          kind: 'grant_temporary_ability',
+          target: parseObjectSelector(targetText),
+          duration: 'this_turn',
+          effectText,
+          raw: rawClause,
+        });
+      }
+
+      return withMeta({
+        kind: 'grant_static_ability',
+        target: parseObjectSelector(targetText),
+        effectText,
         duration: 'static',
         raw: rawClause,
       });
@@ -2991,13 +3494,81 @@ export function tryParseSimpleActionClause(args: {
       });
     }
 
-    const noMaxHandSize = clause.match(/^players\s+have\s+no\s+maximum\s+hand\s+size$/i);
+    const staticUntapLock = clause.match(/^(.+?)\s+do(?:es)?(?:n't|\s+not)\s+untap\s+during\s+their\s+controllers?(?:'|â€™)?\s+untap\s+steps$/i);
+    if (staticUntapLock) {
+      return withMeta({
+        kind: 'grant_static_ability',
+        target: parseObjectSelector(String(staticUntapLock[1] || '').trim()),
+        effectText: ["don't untap during their controllers' untap steps"],
+        duration: 'static',
+        raw: rawClause,
+      });
+    }
+
+    const handsRevealed = clause.match(/^(.+?)\s+play\s+with\s+their\s+hands\s+revealed$/i);
+    if (handsRevealed) {
+      return withMeta({
+        kind: 'grant_static_ability',
+        target: parseObjectSelector(String(handsRevealed[1] || '').trim()),
+        effectText: ['play with their hands revealed'],
+        duration: 'static',
+        raw: rawClause,
+      });
+    }
+
+    const areTokens = clause.match(/^(.+?)\s+are\s+tokens$/i);
+    if (areTokens) {
+      return withMeta({
+        kind: 'grant_static_ability',
+        target: parseObjectSelector(String(areTokens[1] || '').trim()),
+        effectText: ['are tokens'],
+        duration: 'static',
+        raw: rawClause,
+      });
+    }
+
+    const cantPlayLandsThisTurn = clause.match(/^(.+?)\s+can(?:not|(?:'|â€™)t)\s+play\s+lands\s+this\s+turn$/i);
+    if (cantPlayLandsThisTurn) {
+      return withMeta({
+        kind: 'grant_temporary_ability',
+        target: parseObjectSelector(String(cantPlayLandsThisTurn[1] || '').trim()),
+        duration: 'this_turn',
+        effectText: ["can't play lands this turn"],
+        raw: rawClause,
+      });
+    }
+
+    const nextTurnInstantSorceryLock = clause.match(
+      /^(.+?)\s+can(?:not|(?:'|â€™)t)\s+cast\s+instant\s+or\s+sorcery\s+spells\s+during\s+that\s+player(?:'|â€™)?s\s+next\s+turn$/i
+    );
+    if (nextTurnInstantSorceryLock) {
+      return withMeta({
+        kind: 'grant_temporary_ability',
+        target: parseObjectSelector(String(nextTurnInstantSorceryLock[1] || '').trim()),
+        duration: 'until_next_turn',
+        effectText: ["can't cast instant or sorcery spells during that player's next turn"],
+        raw: rawClause,
+      });
+    }
+
+    const noMaxHandSize = clause.match(/^(.+?)\s+ha(?:ve|s)\s+no\s+maximum\s+hand\s+size(?:\s+for\s+the\s+rest\s+of\s+the\s+game)?$/i);
     if (noMaxHandSize) {
       return withMeta({
         kind: 'grant_static_ability',
-        target: parseObjectSelector('players'),
+        target: parseObjectSelector(String(noMaxHandSize[1] || '').trim()),
         effectText: ['have no maximum hand size'],
         duration: 'static',
+        raw: rawClause,
+      });
+    }
+
+    const doublePowerToughness = clause.match(/^double\s+(.+?)(?:'|â€™)?s\s+power\s+and\s+toughness\s+until\s+end\s+of\s+turn$/i);
+    if (doublePowerToughness) {
+      return withMeta({
+        kind: 'grant_temporary_ability',
+        target: parseObjectSelector(String(doublePowerToughness[1] || '').trim()),
+        duration: 'end_of_turn',
+        effectText: ['double power and toughness'],
         raw: rawClause,
       });
     }
@@ -3080,7 +3651,7 @@ export function tryParseSimpleActionClause(args: {
       });
     }
 
-    const temporaryLoseKeywords = clause.match(/^(.+?)\s+lose\s+([a-z, ]+)\s+until\s+end\s+of\s+turn$/i);
+    const temporaryLoseKeywords = clause.match(/^(.+?)\s+loses?\s+([a-z, ]+)\s+until\s+end\s+of\s+turn$/i);
     if (temporaryLoseKeywords) {
       return withMeta({
         kind: 'grant_temporary_ability',
@@ -3203,6 +3774,17 @@ export function tryParseSimpleActionClause(args: {
         });
     }
 
+    const sourceDamageCantBePrevented = clause.match(/^damage\s+that\s+would\s+be\s+dealt\s+by\s+(.+?)\s+can(?:not|(?:'|â€™)t)\s+be\s+prevented$/i);
+    if (sourceDamageCantBePrevented) {
+      return withMeta({
+        kind: 'grant_static_ability',
+        target: parseObjectSelector(String(sourceDamageCantBePrevented[1] || '').trim()),
+        effectText: ["damage it deals can't be prevented"],
+        duration: 'static',
+        raw: rawClause,
+        });
+    }
+
     if (/^damage\s+can(?:not|'t)\s+be\s+prevented$/i.test(clause)) {
       return withMeta({
         kind: 'grant_static_ability',
@@ -3224,10 +3806,11 @@ export function tryParseSimpleActionClause(args: {
         });
     }
 
-    if (/^each\s+player\s+can(?:not|'t)\s+cast\s+more\s+than\s+one\s+spell\s+each\s+turn$/i.test(clause)) {
+    const spellPerTurnRestriction = clause.match(/^(.+?)\s+can(?:not|(?:'|â€™)t)\s+cast\s+more\s+than\s+one\s+spell\s+each\s+turn$/i);
+    if (spellPerTurnRestriction) {
       return withMeta({
         kind: 'grant_static_ability',
-        target: parseObjectSelector('each player'),
+        target: parseObjectSelector(String(spellPerTurnRestriction[1] || '').trim()),
         effectText: ["can't cast more than one spell each turn"],
         duration: 'static',
         raw: rawClause,

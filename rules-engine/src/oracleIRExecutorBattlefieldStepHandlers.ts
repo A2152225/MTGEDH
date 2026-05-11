@@ -38,6 +38,7 @@ import {
 import { getExecutorTypeLineLower } from './oracleIRExecutorPermanentUtils';
 import { getCardManaValue, getCardTypeLineLower, quantityToNumber, resolvePlayers } from './oracleIRExecutorPlayerUtils';
 import { canTargetPermanent } from './permanentTargeting';
+import { AIRBEND_ALTERNATE_COST } from './keywordActions/airbend';
 import { EARTHBENDED_PROPERTIES } from './keywordActions/earthbend';
 
 type StepApplyResult = {
@@ -760,6 +761,61 @@ function exileSourceStackObject(
   return {
     state: { ...(state as any), players: updatedPlayers as any, stack: stack as any } as any,
     log: [`${playerId} exiles ${stackCard.name} from the stack`],
+  };
+}
+
+function grantAirbendPermissionToExiledCards(
+  state: GameState,
+  exiledCards: readonly any[]
+): { readonly state: GameState; readonly granted: number } {
+  const exiledIds = new Set(
+    exiledCards
+      .map((card) => String((card as any)?.id ?? (card as any)?.cardId ?? '').trim())
+      .filter(Boolean)
+  );
+  if (exiledIds.size === 0) return { state, granted: 0 };
+
+  const stateAny: any = state as any;
+  stateAny.playableFromExile = stateAny.playableFromExile || {};
+
+  let granted = 0;
+  const updatedPlayers = (state.players || []).map((player: any) => {
+    const exile = Array.isArray(player?.exile) ? player.exile : [];
+    if (exile.length === 0) return player;
+
+    let changed = false;
+    const nextExile = exile.map((card: any) => {
+      const cardId = String(card?.id ?? card?.cardId ?? '').trim();
+      if (!cardId || !exiledIds.has(cardId)) return card;
+
+      const typeLineLower = String(card?.type_line || card?.card?.type_line || '').toLowerCase();
+      if (typeLineLower.includes('land')) return card;
+
+      const ownerId = String(card?.ownerId || card?.owner || card?.card?.ownerId || card?.card?.owner || player?.id || '').trim();
+      if (!ownerId) return card;
+
+      stateAny.playableFromExile[ownerId] = stateAny.playableFromExile[ownerId] || {};
+      stateAny.playableFromExile[ownerId][cardId] = Number.MAX_SAFE_INTEGER;
+      granted += 1;
+      changed = true;
+
+      return {
+        ...card,
+        zone: 'exile',
+        owner: ownerId,
+        ownerId,
+        canBePlayedBy: ownerId,
+        playableUntilTurn: null,
+        exileCastCost: AIRBEND_ALTERNATE_COST,
+      };
+    });
+
+    return changed ? ({ ...player, exile: nextExile } as any) : player;
+  });
+
+  return {
+    state: { ...(stateAny as any), players: updatedPlayers as any } as any,
+    granted,
   };
 }
 
@@ -2415,6 +2471,189 @@ export function applyExertStep(
     applied: true,
     state: nextState,
     log: [`Exerted ${targets.length} permanent(s)`],
+  };
+}
+
+export function applyAirbendStep(
+  state: GameState,
+  step: Extract<OracleEffectStep, { kind: 'airbend' }>,
+  ctx: OracleIRExecutionContext
+): BattlefieldStepHandlerResult {
+  const battlefield = (state.battlefield || []) as BattlefieldPermanent[];
+  const targetText = String((step.target as any)?.text || (step.target as any)?.raw || '').replace(/\u2019/g, "'").trim();
+  const normalizedTarget = targetText.toLowerCase().replace(/\s+/g, ' ').trim();
+  const directTarget = /\btarget\b/.test(normalizedTarget);
+  const allowsZeroTargets = /^(?:up to\s+|any number of\s+)/i.test(targetText);
+  const explicitSpellId = String(ctx.targetSpellId || ctx.selectorContext?.targetSpellId || '').trim();
+  const explicitPermanentIds = Array.from(
+    new Set(
+      [
+        String(ctx.targetPermanentId || '').trim(),
+        String(ctx.targetCreatureId || '').trim(),
+        ...(
+          Array.isArray(ctx.selectorContext?.chosenObjectIds)
+            ? ctx.selectorContext.chosenObjectIds.map((id) => String(id || '').trim()).filter(Boolean)
+            : []
+        ),
+      ].filter(Boolean)
+    )
+  );
+
+  if (directTarget && allowsZeroTargets && explicitPermanentIds.length === 0 && !explicitSpellId) {
+    return { applied: true, state, log: [] };
+  }
+
+  let permanentTargets: BattlefieldPermanent[] = [];
+  const allOtherMatch = normalizedTarget.match(/^(all|each)\s+other\s+(.+)$/i);
+  if (allOtherMatch) {
+    const selector = parseSimpleBattlefieldSelector({ kind: 'raw', text: `${allOtherMatch[1]} ${allOtherMatch[2]}` } as any);
+    if (!selector) {
+      return {
+        applied: false,
+        message: `Skipped airbend (unsupported target): ${step.raw}`,
+        reason: 'unsupported_target',
+      };
+    }
+
+    const excludedIds = new Set(explicitPermanentIds);
+    permanentTargets = battlefield.filter(
+      (perm: any) =>
+        permanentMatchesSelector(perm, selector, ctx) && !excludedIds.has(String((perm as any)?.id || '').trim())
+    );
+  } else {
+    const massSelector = !directTarget ? parseSimpleBattlefieldSelector(step.target as any) : null;
+    permanentTargets = massSelector
+      ? battlefield.filter((perm: any) => permanentMatchesSelector(perm, massSelector, ctx))
+      : resolveContextualBattlefieldPermanents(battlefield, step.target as any, ctx);
+  }
+
+  const wantsSpellTarget = /\bspell\b/.test(normalizedTarget);
+  let targetSpell: any = null;
+  if (wantsSpellTarget && (explicitSpellId || (directTarget && permanentTargets.length === 0))) {
+    const stackItems = Array.isArray((state as any).stack) ? [ ...((state as any).stack as any[]) ] : [];
+    const candidateSpells = stackItems.filter((item) => {
+      const itemId = String((item as any)?.id || '').trim();
+      return String((item as any)?.type || '').trim() === 'spell' && itemId && itemId !== String(ctx.sourceId || '').trim();
+    });
+
+    targetSpell = explicitSpellId
+      ? candidateSpells.find((item) => String((item as any)?.id || '').trim() === explicitSpellId)
+      : candidateSpells.length === 1
+        ? candidateSpells[0]
+        : null;
+
+    if (explicitSpellId && !targetSpell) {
+      return {
+        applied: false,
+        message: `Skipped airbend (target spell not found on stack): ${step.raw}`,
+        reason: 'unsupported_target',
+      };
+    }
+
+    if (!explicitSpellId && !targetSpell && candidateSpells.length > 1) {
+      return {
+        applied: false,
+        message: `Skipped airbend (needs spell target choice): ${step.raw}`,
+        reason: 'player_choice_required',
+        options: { classification: 'player_choice' },
+      };
+    }
+  }
+
+  const massSelection = Boolean(allOtherMatch) || (!directTarget && Boolean(parseSimpleBattlefieldSelector(step.target as any)));
+  if (permanentTargets.length === 0 && !targetSpell) {
+    if (massSelection) return { applied: true, state, log: [] };
+    return {
+      applied: false,
+      message: `Skipped airbend (no deterministic target): ${step.raw}`,
+      reason: 'no_deterministic_target',
+    };
+  }
+
+  let nextState = state;
+  const movedCards: any[] = [];
+  let affectedCount = 0;
+  const log: string[] = [];
+
+  if (permanentTargets.length > 0) {
+    const removedIds = new Set<string>(permanentTargets.map((perm) => String((perm as any)?.id || '').trim()).filter(Boolean));
+    const kept = battlefield.filter((perm) => !removedIds.has(String((perm as any)?.id || '').trim()));
+    const result = finalizeBattlefieldRemoval(nextState, permanentTargets, removedIds, kept, 'exile', 'exiled');
+    nextState = annotateBattlefieldExilesWithSource(result.state, permanentTargets, ctx);
+    movedCards.push(
+      ...permanentTargets
+        .filter((perm) => !(perm as any).isToken)
+        .map((perm) => buildZoneObjectWithRetainedCounters((perm as any).card, perm, 'exile'))
+    );
+    affectedCount += permanentTargets.length;
+    log.push(...result.log);
+  }
+
+  if (targetSpell) {
+    const targetSpellId = String((targetSpell as any)?.id || '').trim();
+    const ownerId = String(
+      (targetSpell as any)?.owner ||
+        (targetSpell as any)?.ownerId ||
+        (targetSpell as any)?.controller ||
+        (targetSpell as any)?.controllerId ||
+        ''
+    ).trim();
+    if (!targetSpellId || !ownerId) {
+      return {
+        applied: false,
+        message: `Skipped airbend (missing stack spell owner metadata): ${step.raw}`,
+        reason: 'unsupported_target',
+      };
+    }
+
+    const currentStack = Array.isArray((nextState as any).stack) ? [ ...((nextState as any).stack as any[]) ] : [];
+    const sourceId = String(ctx.sourceId || '').trim();
+    const sourceRef = sourceId || String(ctx.sourceName || '').trim();
+    const baseCard = ((targetSpell as any)?.card && typeof (targetSpell as any).card === 'object')
+      ? { ...((targetSpell as any).card || {}) }
+      : { ...(targetSpell as any) };
+    const exiledSpellCard = {
+      ...baseCard,
+      id: String((baseCard as any)?.id || targetSpellId).trim() || targetSpellId,
+      name: String((baseCard as any)?.name || (targetSpell as any)?.name || targetSpellId).trim() || targetSpellId,
+      zone: 'exile',
+      owner: ownerId,
+      ownerId,
+      ...(sourceRef ? { exiledBy: sourceRef } : {}),
+      ...(sourceId ? { exiledWith: sourceId, exiledWithSourceId: sourceId } : {}),
+    };
+
+    const updatedStack = currentStack.filter((item) => String((item as any)?.id || '').trim() !== targetSpellId);
+    const updatedPlayers = (nextState.players || []).map((player: any) => {
+      if (String(player?.id || '').trim() !== ownerId) return player;
+      const exile = Array.isArray(player?.exile) ? [...player.exile] : [];
+      return {
+        ...player,
+        exile: [...exile, exiledSpellCard],
+      };
+    });
+
+    nextState = {
+      ...(nextState as any),
+      stack: updatedStack as any,
+      players: updatedPlayers as any,
+    } as GameState;
+    movedCards.push(exiledSpellCard);
+    affectedCount += 1;
+    log.push(`${ownerId} exiles ${exiledSpellCard.name} from the stack`);
+  }
+
+  const permissionResult = grantAirbendPermissionToExiledCards(nextState, movedCards);
+  nextState = permissionResult.state;
+  if (permissionResult.granted > 0) {
+    log.push(`Granted airbend permission for ${permissionResult.granted} exiled card(s)`);
+  }
+
+  return {
+    applied: true,
+    state: nextState,
+    log: log.length > 0 ? log : [`Airbended ${affectedCount} object(s)`],
+    ...(movedCards.length > 0 ? { lastMovedCards: movedCards, lastExiledCards: movedCards, lastExiledCardCount: movedCards.length } : {}),
   };
 }
 

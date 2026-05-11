@@ -112,6 +112,7 @@ import {
   pruneRedundantPrototypeReminderUnknownAbilities,
   pruneFirebendingReminderAbilities,
   pruneReadAheadReminderAbilities,
+  pruneRedundantAirbendReminderUnknownAbilities,
   pruneRedundantEarthbendReminderUnknownAbilities,
   pruneRedundantWaterbendReminderUnknownAbilities,
   pruneSoulbondReminderAbilities,
@@ -123,6 +124,7 @@ import {
   pruneRedundantFaceDownReminderUnknownAbilities,
   pruneRedundantAttackRequirementAbilities,
   pruneRedundantArtifactTokenReminderUnknownAbilities,
+  pruneRedundantTokenDesignationReminderUnknownAbilities,
   pruneRedundantDecayedReminderUnknownAbilities,
   pruneRedundantEldraziTokenManaReminderUnknownAbilities,
   pruneRedundantEnchantAttachmentReminderUnknownAbilities,
@@ -1379,7 +1381,7 @@ function mergeAdditionalCombatContinuationAbilities(abilities: OracleIRAbility[]
       ability.type === AbilityType.STATIC &&
       steps.length > 0 &&
       steps.every((step) => step.kind === 'add_extra_combat') &&
-      /^\s*(?:after|and after)\s+this\s+(?:main\s+)?phase\b/i.test(ability.effectText || ability.text || '');
+      /^\s*(?:after|and after)\s+(?:this\s+phase|this\s+main\s+phase|this\s+combat\s+phase|the\s+second\s+main\s+phase\s+this\s+turn)\b/i.test(ability.effectText || ability.text || '');
 
     if (isAdditionalCombatContinuation && merged.length > 0) {
       const previous = merged[merged.length - 1];
@@ -1521,6 +1523,7 @@ export function parseOracleTextToIR(oracleText: string, cardName?: string): Orac
   abilities = pruneRedundantCrewReminderAbilities(abilities);
   abilities = pruneRedundantChampionReminderAbilities(abilities);
   abilities = pruneRedundantArtifactTokenReminderUnknownAbilities(abilities);
+  abilities = pruneRedundantTokenDesignationReminderUnknownAbilities(abilities);
   abilities = pruneRedundantDecayedReminderUnknownAbilities(abilities);
   abilities = pruneRedundantEldraziTokenManaReminderUnknownAbilities(abilities);
   abilities = pruneRedundantEnchantAttachmentReminderUnknownAbilities(abilities);
@@ -1572,6 +1575,7 @@ export function parseOracleTextToIR(oracleText: string, cardName?: string): Orac
   abilities = expandTurnScopedStaticKeywordAbilities(abilities);
   abilities = pruneExternallyHandledTemporaryLandBonusUnknownSteps(abilities);
   abilities = pruneRedundantExploreReminderAbilities(abilities);
+  abilities = pruneRedundantAirbendReminderUnknownAbilities(abilities);
   abilities = pruneRedundantEarthbendReminderUnknownAbilities(abilities);
   abilities = pruneRedundantWaterbendReminderUnknownAbilities(abilities);
   abilities = mergeDestroyCantRegenerateFollowupAbilities(abilities);

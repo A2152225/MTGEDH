@@ -35,6 +35,8 @@ import {
   normalizeOracleText,
   stampCardsPutIntoGraveyardThisTurn,
 } from './oracleIRExecutorPlayerUtils';
+import { countManaSymbolsInManaCost } from './oracleIRExecutorManaUtils';
+import { evaluateModifyPtWhereX } from './oracleIRExecutorModifyPtWhereEvaluator';
 import { resolveSingleCreatureTargetId } from './oracleIRExecutorCreatureStepUtils';
 
 type StepApplyResult = {
@@ -66,6 +68,14 @@ function readPermanentPower(permanent: any): number | null {
   return null;
 }
 
+function readPermanentToughness(permanent: any): number | null {
+  for (const value of [permanent?.effectiveToughness, permanent?.baseToughness, permanent?.card?.toughness, permanent?.toughness]) {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return null;
+}
+
 function permanentIsCreature(permanent: any): boolean {
   const typeLine = String(permanent?.card?.type_line || permanent?.type_line || permanent?.cardType || '')
     .toLowerCase();
@@ -78,6 +88,183 @@ function permanentHasSubtype(permanent: any, subtype: string | undefined): boole
   const typeLine = String(permanent?.card?.type_line || permanent?.type_line || permanent?.cardType || '')
     .toLowerCase();
   return new RegExp(`\\b${needle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i').test(typeLine);
+}
+
+function repeatManaString(mana: string, count: number): string {
+  if (count <= 0) return '';
+  return Array.from({ length: count }, () => mana).join('');
+}
+
+function getSourceBattlefieldPermanent(state: GameState, ctx: OracleIRExecutionContext): any | null {
+  const sourceId = String(ctx.sourceId || '').trim();
+  if (!sourceId) return null;
+  return ((state.battlefield || []) as any[]).find((permanent) => String(permanent?.id || '').trim() === sourceId) || null;
+}
+
+function readCounterCount(permanent: any, counterName: string): number {
+  const normalizedCounterName = normalizeOracleText(counterName);
+  const counters = permanent?.counters;
+  if (!counters || typeof counters !== 'object') return 0;
+
+  for (const [name, value] of Object.entries(counters)) {
+    if (normalizeOracleText(name) !== normalizedCounterName) continue;
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? Math.max(0, Math.floor(parsed)) : 0;
+  }
+
+  return 0;
+}
+
+function getControlledPermanents(state: GameState, controllerId: string): any[] {
+  const normalizedControllerId = String(controllerId || '').trim();
+  return ((state.battlefield || []) as any[]).filter(
+    (permanent) => String(permanent?.controller || permanent?.controllerId || '').trim() === normalizedControllerId
+  );
+}
+
+function expandManaCostToManaSequence(rawManaCost: string): string | null {
+  const symbols = parseManaSymbols(String(rawManaCost || '').trim());
+  if (symbols.length === 0) return '';
+
+  let mana = '';
+  for (const symbolRaw of symbols) {
+    const symbol = String(symbolRaw || '').trim().toUpperCase();
+    if (!symbol) continue;
+
+    if (/^\{\d+\}$/.test(symbol)) {
+      mana += repeatManaString('{C}', Number.parseInt(symbol.slice(1, -1), 10));
+      continue;
+    }
+
+    if (/^\{[WUBRGC]\}$/.test(symbol)) {
+      mana += symbol;
+      continue;
+    }
+
+    return null;
+  }
+
+  return mana;
+}
+
+function resolveDynamicAddManaSequence(
+  state: GameState,
+  step: Extract<OracleEffectStep, { kind: 'add_mana' }>,
+  ctx: OracleIRExecutionContext
+): string | null | undefined {
+  const normalizedReference = step.amount?.kind === 'reference_amount'
+    ? normalizeOracleText(String(step.amount.raw || ''))
+    : '';
+  if (normalizedReference !== "enchanted permanent's mana cost") return undefined;
+
+  const sourcePermanent = getSourceBattlefieldPermanent(state, ctx);
+  if (!sourcePermanent) return null;
+
+  const attachedToId = String(sourcePermanent?.attachedTo || sourcePermanent?.enchanting || '').trim();
+  if (!attachedToId) return null;
+
+  const enchantedPermanent = ((state.battlefield || []) as any[]).find(
+    (permanent) => String(permanent?.id || '').trim() === attachedToId
+  );
+  if (!enchantedPermanent) return null;
+
+  const manaCost = String(
+    enchantedPermanent?.manaCost ||
+      enchantedPermanent?.mana_cost ||
+      enchantedPermanent?.card?.manaCost ||
+      enchantedPermanent?.card?.mana_cost ||
+      ''
+  ).trim();
+  return expandManaCostToManaSequence(manaCost);
+}
+
+function resolveAddManaAmount(
+  state: GameState,
+  step: Extract<OracleEffectStep, { kind: 'add_mana' }>,
+  ctx: OracleIRExecutionContext
+): number | null {
+  if (!step.amount) return 1;
+
+  if (step.amount.kind === 'number') return Math.max(0, Math.floor(step.amount.value));
+  if (step.amount.kind === 'x') return Number.isFinite(ctx.xValue) ? Math.max(0, Math.floor(ctx.xValue as number)) : null;
+  if (step.amount.kind === 'object_stat') {
+    const sourcePermanent = getSourceBattlefieldPermanent(state, ctx);
+    if (!sourcePermanent) return null;
+    if (step.amount.stat === 'power') return readPermanentPower(sourcePermanent);
+    if (step.amount.stat === 'toughness') return readPermanentToughness(sourcePermanent);
+    if (step.amount.stat === 'mana_value') return getCardManaValue(sourcePermanent?.card || sourcePermanent);
+    return null;
+  }
+  if (step.amount.kind === 'greatest_power_among_creatures_you_control') {
+    const powers = getControlledPermanents(state, ctx.controllerId)
+      .filter(permanentIsCreature)
+      .map(readPermanentPower)
+      .filter((value): value is number => value !== null);
+    return powers.length > 0 ? Math.max(0, ...powers) : 0;
+  }
+  if (step.amount.kind === 'reference_amount') {
+    const normalized = normalizeOracleText(String(step.amount.raw || ''));
+    const sourcePermanent = getSourceBattlefieldPermanent(state, ctx);
+    switch (normalized) {
+      case 'the chosen colors':
+        return 1;
+      case 'the number of art counters on this permanent plus one':
+        return sourcePermanent ? readCounterCount(sourcePermanent, 'art') + 1 : null;
+      case 'the number of time counters on this artifact':
+        return sourcePermanent ? readCounterCount(sourcePermanent, 'time') : null;
+      case 'the number of charge counters on this artifact':
+        return sourcePermanent ? readCounterCount(sourcePermanent, 'charge') : null;
+      case 'the number of different powers among creatures you control': {
+        const powers = new Set<number>();
+        for (const permanent of getControlledPermanents(state, ctx.controllerId).filter(permanentIsCreature)) {
+          const power = readPermanentPower(permanent);
+          if (power !== null) powers.add(power);
+        }
+        return powers.size;
+      }
+      case 'x plus one':
+        return Number.isFinite(ctx.xValue) ? Math.max(0, Math.floor(ctx.xValue as number) + 1) : null;
+      case 'your devotion to green': {
+        return getControlledPermanents(state, ctx.controllerId)
+          .reduce((sum, permanent) => sum + countManaSymbolsInManaCost(permanent, 'G'), 0);
+      }
+      case 'the greatest power among creatures you control that entered this turn': {
+        const powers = getControlledPermanents(state, ctx.controllerId)
+          .filter(permanentIsCreature)
+          .filter((permanent) => permanent?.enteredThisTurn === true)
+          .map(readPermanentPower)
+          .filter((value): value is number => value !== null);
+        return powers.length > 0 ? Math.max(0, ...powers) : 0;
+      }
+      case 'the number of creatures you control of the chosen type': {
+        const chosenType = String(ctx.selectorContext?.chosenCreatureType || '').trim();
+        if (!chosenType) return null;
+        return getControlledPermanents(state, ctx.controllerId)
+          .filter(permanentIsCreature)
+          .filter((permanent) => permanentHasSubtype(permanent, chosenType))
+          .length;
+      }
+      case 'twice that much': {
+        const quantity = quantityToNumber({ kind: 'reference_amount', raw: 'that much' }, ctx);
+        return quantity === null ? null : Math.max(0, quantity * 2);
+      }
+      default: {
+        const evaluated = evaluateModifyPtWhereX(state, ctx.controllerId, `X is ${normalized}`, undefined, ctx);
+        if (evaluated !== null) return Math.max(0, evaluated);
+        const quantity = quantityToNumber(step.amount, ctx);
+        return quantity === null ? null : Math.max(0, quantity);
+      }
+    }
+  }
+
+  if (step.amount.kind === 'unknown') {
+    const normalized = normalizeOracleText(String(step.amount.raw || ''));
+    const evaluated = evaluateModifyPtWhereX(state, ctx.controllerId, `X is ${normalized}`, undefined, ctx);
+    if (evaluated !== null) return Math.max(0, evaluated);
+  }
+
+  const quantity = quantityToNumber(step.amount, ctx);
+  return quantity === null ? null : Math.max(0, quantity);
 }
 
 function resolveDynamicDrawAmount(
@@ -2142,7 +2329,12 @@ function resolveVariableAmount(
       if (castCount !== null && Number.isFinite(multiplier)) return Math.max(0, castCount * Math.max(0, multiplier));
     }
     const runtimeAmount = Number(runtime?.lastReferenceAmount);
-    return Number.isFinite(runtimeAmount) ? Math.max(0, runtimeAmount) : null;
+    if (Number.isFinite(runtimeAmount)) return Math.max(0, runtimeAmount);
+    if (evaluateWhereX) {
+      const evaluated = evaluateWhereX(state, controllerId, `X is ${normalized}`, undefined, ctx, runtime);
+      if (evaluated !== null) return Math.max(0, evaluated);
+    }
+    return null;
   }
   if (amount.kind === 'object_stat') {
     const sacrificed = Array.isArray(runtime?.lastSacrificedPermanents) ? runtime.lastSacrificedPermanents : [];
@@ -3963,6 +4155,7 @@ export function applyAddManaStep(
     const single = normalizeManaChoice(compact);
     return single ? [single] : null;
   };
+  const repeatedAmount = resolveAddManaAmount(state, step, ctx);
   const manaResolution = (() => {
     let options = Array.isArray(step.manaOptions)
       ? step.manaOptions.map(option => String(option || '').trim()).filter(Boolean)
@@ -3998,10 +4191,100 @@ export function applyAddManaStep(
 
     const symbolCount = Math.max(1, countManaSymbols(String(step.mana || '').trim()));
     const rawText = String(step.raw || '').trim();
-    const requiresCombinationChoice = /any combination of colors/i.test(rawText) && symbolCount > 1;
-    const requiresRepeatedSingleChoice = /any one color/i.test(rawText) && symbolCount > 1;
+    const requiresChosenColorSequence = /each of the chosen colors/i.test(rawText);
+    const requestedSymbolCount = step.amount ? repeatedAmount : symbolCount;
+    const requiresCombinationChoice = /any combination of/i.test(rawText) && (requestedSymbolCount ?? 0) > 1;
+    const requiresRepeatedSingleChoice = /any one color/i.test(rawText) && (requestedSymbolCount ?? 0) > 1;
 
-    if (symbolCount > 1 && (requiresCombinationChoice || requiresRepeatedSingleChoice)) {
+    if (requiresChosenColorSequence) {
+      const chosenSymbols = normalizeManaChoiceSequence(String(ctx.selectorContext?.chosenMana || '').trim());
+      if (!chosenSymbols || chosenSymbols.length === 0) {
+        return {
+          kind: 'skip' as const,
+          message: `Skipped add mana (needs chosen colors): ${step.raw}`,
+          reason: 'player_choice_required' as const,
+          options: { classification: 'player_choice' as const },
+        };
+      }
+
+      if (options.length > 0 && !chosenSymbols.every((symbol) => options.some((option) => option.toUpperCase() === symbol.toUpperCase()))) {
+        return {
+          kind: 'skip' as const,
+          message: `Skipped add mana (invalid chosen colors): ${step.raw}`,
+          reason: 'invalid_input' as const,
+          options: {
+            classification: 'invalid_input' as const,
+            metadata: {
+              chosenMana: chosenSymbols.join(''),
+              options,
+            },
+          },
+        };
+      }
+
+      return {
+        kind: 'resolved' as const,
+        mana: chosenSymbols.join(''),
+      };
+    }
+
+    const requiresSplitColorPairs = /two mana of any one color and two mana of any other color/i.test(rawText);
+    if (requiresSplitColorPairs) {
+      const chosenSymbols = normalizeManaChoiceSequence(String(ctx.selectorContext?.chosenMana || '').trim());
+      if (!chosenSymbols || chosenSymbols.length !== 4) {
+        return {
+          kind: 'skip' as const,
+          message: `Skipped add mana (needs two chosen colors): ${step.raw}`,
+          reason: 'player_choice_required' as const,
+          options: { classification: 'player_choice' as const },
+        };
+      }
+
+      if (!chosenSymbols.every((symbol) => options.some((option) => option.toUpperCase() === symbol.toUpperCase()))) {
+        return {
+          kind: 'skip' as const,
+          message: `Skipped add mana (invalid chosen colors): ${step.raw}`,
+          reason: 'invalid_input' as const,
+          options: {
+            classification: 'invalid_input' as const,
+            metadata: {
+              chosenMana: chosenSymbols.join(''),
+              options,
+            },
+          },
+        };
+      }
+
+      const [first, second, third, fourth] = chosenSymbols;
+      if (
+        !first ||
+        !second ||
+        !third ||
+        !fourth ||
+        first.toUpperCase() !== second.toUpperCase() ||
+        third.toUpperCase() !== fourth.toUpperCase() ||
+        first.toUpperCase() === third.toUpperCase()
+      ) {
+        return {
+          kind: 'skip' as const,
+          message: `Skipped add mana (invalid split color pairs): ${step.raw}`,
+          reason: 'invalid_input' as const,
+          options: {
+            classification: 'invalid_input' as const,
+            metadata: {
+              chosenMana: chosenSymbols.join(''),
+            },
+          },
+        };
+      }
+
+      return {
+        kind: 'resolved' as const,
+        mana: chosenSymbols.join(''),
+      };
+    }
+
+    if ((requestedSymbolCount ?? symbolCount) > 1 && (requiresCombinationChoice || requiresRepeatedSingleChoice)) {
       const chosenSymbols = normalizeManaChoiceSequence(String(ctx.selectorContext?.chosenMana || '').trim());
       if (!chosenSymbols || chosenSymbols.length === 0) {
         return {
@@ -4028,7 +4311,7 @@ export function applyAddManaStep(
       }
 
       if (requiresCombinationChoice) {
-        if (chosenSymbols.length !== symbolCount) {
+        if (chosenSymbols.length !== requestedSymbolCount) {
           return {
             kind: 'skip' as const,
             message: `Skipped add mana (invalid chosen color count): ${step.raw}`,
@@ -4037,7 +4320,7 @@ export function applyAddManaStep(
               classification: 'invalid_input' as const,
               metadata: {
                 chosenMana: chosenSymbols.join(''),
-                expectedCount: symbolCount,
+                expectedCount: requestedSymbolCount ?? symbolCount,
               },
             },
           };
@@ -4051,10 +4334,10 @@ export function applyAddManaStep(
 
       const chosenColor = chosenSymbols[0];
       const repeatedChoice = chosenSymbols.length === 1
-        ? Array.from({ length: symbolCount }, () => chosenColor)
+        ? Array.from({ length: requestedSymbolCount ?? symbolCount }, () => chosenColor)
         : chosenSymbols;
       if (
-        repeatedChoice.length !== symbolCount ||
+        repeatedChoice.length !== (requestedSymbolCount ?? symbolCount) ||
         repeatedChoice.some((symbol) => symbol.toUpperCase() !== chosenColor.toUpperCase())
       ) {
         return {
@@ -4065,7 +4348,7 @@ export function applyAddManaStep(
             classification: 'invalid_input' as const,
             metadata: {
               chosenMana: chosenSymbols.join(''),
-              expectedCount: symbolCount,
+              expectedCount: requestedSymbolCount ?? symbolCount,
             },
           },
         };
@@ -4123,6 +4406,15 @@ export function applyAddManaStep(
     };
   })();
 
+  const dynamicManaSequence = resolveDynamicAddManaSequence(state, step, ctx);
+  if (dynamicManaSequence === null) {
+    return {
+      applied: false,
+      message: `Skipped add mana (unknown amount): ${step.raw}`,
+      reason: 'unknown_amount',
+    };
+  }
+
   if (manaResolution.kind === 'skip') {
     return {
       applied: false,
@@ -4132,7 +4424,58 @@ export function applyAddManaStep(
     };
   }
 
-  const manaToAdd = manaResolution.mana;
+  if (dynamicManaSequence !== undefined) {
+    const manaToAdd = dynamicManaSequence;
+
+    if (!manaToAdd) {
+      return {
+        applied: true,
+        state,
+        log: [`Resolved add mana to zero mana: ${step.raw}`],
+      };
+    }
+
+    for (const playerId of players) {
+      const result = addManaToPoolForPlayer(nextState, playerId, manaToAdd, step.spendRestriction, ctx.sourceId, ctx.sourceName);
+      log.push(...result.log);
+      if (!result.applied) {
+        return {
+          applied: false,
+          message: log.join('\n') || `Skipped add mana (failed to apply): ${step.raw}`,
+          reason: 'failed_to_apply',
+          options: {
+            metadata: log.length > 0 ? { log } : undefined,
+          },
+        };
+      }
+      nextState = result.state;
+    }
+
+    return { applied: true, state: nextState, log };
+  }
+
+  if (repeatedAmount === null) {
+    return {
+      applied: false,
+      message: `Skipped add mana (unknown amount): ${step.raw}`,
+      reason: 'unknown_amount',
+    };
+  }
+
+  const sequenceDrivenAmount = step.amount && /each of the chosen colors|any combination of/i.test(String(step.raw || ''));
+  const manaToAdd = sequenceDrivenAmount
+    ? manaResolution.mana
+    : step.amount
+    ? repeatManaString(manaResolution.mana, repeatedAmount)
+    : manaResolution.mana;
+
+  if (!manaToAdd) {
+    return {
+      applied: true,
+      state,
+      log: [`Resolved add mana to zero mana: ${step.raw}`],
+    };
+  }
 
   for (const playerId of players) {
     const result = addManaToPoolForPlayer(nextState, playerId, manaToAdd, step.spendRestriction, ctx.sourceId, ctx.sourceName);

@@ -294,6 +294,7 @@ export type OracleEffectStep =
     }
   | {
       readonly kind: 'add_extra_combat';
+      readonly count?: number;
       readonly followedByAdditionalMain?: boolean;
       readonly optional?: boolean;
       readonly sequence?: 'then';
@@ -447,6 +448,8 @@ export type OracleEffectStep =
       readonly who: OraclePlayerSelector;
       /** Raw mana string, e.g. "{R}{R}{R}" or "{2}{C}" */
       readonly mana: string;
+      /** Optional repeat count for clauses like "Add four mana of the chosen color." */
+      readonly amount?: OracleQuantity;
       /** Optional mana choices for clauses like "Add {R} or {G}." */
       readonly manaOptions?: readonly string[];
       /** Restricts available choices to the controller's commander color identity. */
@@ -575,6 +578,13 @@ export type OracleEffectStep =
       readonly kind: 'earthbend';
       readonly target: OracleObjectSelector;
       readonly amount: OracleQuantity;
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
+      readonly kind: 'airbend';
+      readonly target: OracleObjectSelector;
       readonly optional?: boolean;
       readonly sequence?: 'then';
       readonly raw: string;
