@@ -1147,6 +1147,8 @@ function resolveSubtypeOrCompoundBattlefieldPermanents(
     .trim();
   if (!text) return null;
 
+  if (/^each of those\b/i.test(text)) return null;
+
   const controllerId = String(ctx.controllerId || '').trim();
   const controllerMatches = (permanent: BattlefieldPermanent, controllerFilter: 'any' | 'you' | 'opponents'): boolean => {
     if (controllerFilter === 'any') return true;
@@ -3591,8 +3593,7 @@ export function applyCopyPermanentStep(
   const sourceCard = ((sourceObject as any)?.card || sourceObject || {}) as any;
   const sourceTypeLine = String(sourceCard?.type_line || (sourceObject as any)?.type_line || '').trim();
   const sourceOracleText = String(sourceCard?.oracle_text || (sourceObject as any)?.oracle_text || '').trim();
-  const retainedAbilityText = String(step.retainAbilityText || '').trim();
-  const copiedOracleText = [sourceOracleText, retainedAbilityText].filter(Boolean).join('\n').trim();
+  const rawRetainedAbilityText = String(step.retainAbilityText || '').trim();
   const copiedName = String(sourceCard?.name || (sourceObject as any)?.name || '').trim();
   const copiedPower = readCharacteristicNumber(
     (sourceObject as any)?.basePower,
@@ -3608,6 +3609,11 @@ export function applyCopyPermanentStep(
   const nextBattlefield = battlefield.map((perm: any) => {
     const permanentId = String((perm as any)?.id || '').trim();
     if (!targetIds.includes(permanentId)) return perm;
+
+    const retainedAbilityText = /^it has this ability$/i.test(rawRetainedAbilityText)
+      ? String((perm as any)?.card?.oracle_text || (perm as any)?.oracle_text || step.raw || '').trim()
+      : rawRetainedAbilityText;
+    const copiedOracleText = [sourceOracleText, retainedAbilityText].filter(Boolean).join('\n').trim();
 
     const grantedAbilities = Array.isArray((perm as any)?.grantedAbilities)
       ? (perm as any).grantedAbilities

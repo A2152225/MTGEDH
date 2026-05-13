@@ -1632,6 +1632,27 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
     return staticMetadata('energy payment', 'you may pay eight {E}');
   }
 
+  if (/^manifest\s+the\s+top\s+card\s+of\s+your\s+library\s+and\s+attach\s+this\s+enchantment\s+to\s+it$/i.test(raw)) {
+    return [
+      {
+        kind: 'move_zone',
+        what: parseObjectSelector('the top card of your library'),
+        to: 'battlefield',
+        toRaw: 'battlefield face down',
+        entersFaceDown: true,
+        raw: 'Manifest the top card of your library',
+        ...sequence,
+      } as OracleEffectStep,
+      {
+        kind: 'attach',
+        attachment: parseObjectSelector('this enchantment'),
+        to: parseObjectSelector('it'),
+        raw: 'attach this enchantment to it',
+        sequence: 'then',
+      } as OracleEffectStep,
+    ];
+  }
+
   if (/^(?:then\s+)?you\s+put\s+a\s+creature\s+card\s+from\s+a\s+graveyard\s+onto\s+the\s+battlefield\s+under\s+your\s+control$/i.test(raw)) {
     return [{ kind: 'move_zone', what: parseObjectSelector('a creature card from a graveyard'), to: 'battlefield', toRaw: 'the battlefield under your control', raw, ...sequence } as OracleEffectStep];
   }
@@ -2486,6 +2507,24 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
     } as OracleEffectStep];
   }
 
+  const eachLandTypeBeforeResidual = raw.match(/^(all|each)\s+lands?\s+(?:are|is)\s+(?:an?\s+)?(islands?|swamps?|mountains?|plains?|forests?)\s+in\s+addition\s+to\s+(?:their|its)\s+other\s+(?:types|land\s+types)$/i);
+  if (eachLandTypeBeforeResidual) {
+    const landTypeRaw = String(eachLandTypeBeforeResidual[2] || '').toLowerCase();
+    const landType = /^islands?$/.test(landTypeRaw) ? 'Island'
+      : /^swamps?$/.test(landTypeRaw) ? 'Swamp'
+        : /^mountains?$/.test(landTypeRaw) ? 'Mountain'
+          : /^plains?$/.test(landTypeRaw) ? 'Plains'
+            : 'Forest';
+    return [{
+      kind: 'set_basic_land_type',
+      target: parseObjectSelector('all lands'),
+      landType,
+      duration: 'static',
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
   if (/^each\b/i.test(raw)) {
     if (/\binvestigates?$/i.test(raw)) {
       return [step];
@@ -2811,6 +2850,18 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
 
   if (/^target\s+opponent\s+reveals\s+(?:a\s+number\s+of\s+cards\s+from\s+their\s+hand\s+equal\s+to\s+.+|that\s+many\s+cards\s+from\s+their\s+hand|x\s+cards\s+from\s+their\s+hand,\s+where\s+x\s+is\s+.+)$/i.test(raw)) {
     return [{ kind: 'reveal_hand', who: { kind: 'target_opponent' }, raw, ...sequence } as OracleEffectStep];
+  }
+
+  const earlyRevealUntilCreature = raw.match(/^(target\s+opponent|that\s+creature(?:'|’)?s\s+controller)\s+reveals\s+cards\s+from\s+the\s+top\s+of\s+their\s+library\s+until\s+they\s+reveal\s+a\s+creature\s+card$/i);
+  if (earlyRevealUntilCreature) {
+    const whoRaw = String(earlyRevealUntilCreature[1] || '').toLowerCase();
+    return [{
+      kind: 'reveal_top',
+      who: whoRaw === 'target opponent' ? { kind: 'target_opponent' } : { kind: 'target_player' },
+      amount: { kind: 'reference_amount', raw: 'until they reveal a creature card' },
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
   }
 
   if (/^target\s+opponent\s+(?:blights\s+\d+|chooses\b|chosen\s+at\s+random\s+gains\s+control\b|exiles\s+(?:a\s+creature\s+they\s+control\s+and\s+their\s+graveyard|cards\s+from\s+the\s+bottom|the\s+top\s+half)|gets\s+an\s+emblem\b|guesses\b|looks\s+at\b|loses\s+all\s+counters\b|may\s+(?:ante|choose|guess|have|put|sacrifice)\b|reveals\s+cards\s+from\s+the\s+top\b|skips\b|whose\s+turn\s+it\s+is\b|(?:'|’)s\s+life\s+total\s+becomes\b)/i.test(raw)) {
@@ -3344,6 +3395,24 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
 
   if (/^add\s+mana\s+of\s+the\s+chosen\s+color\s+or\s+chosen\s+combination\s+of\s+colors$/i.test(raw)) {
     return staticMetadata('mana choice', raw);
+  }
+
+  const earlyAllLandType = raw.match(/^(all|each)\s+lands?\s+(?:are|is)\s+(?:an?\s+)?(islands?|swamps?|mountains?|plains?|forests?)\s+in\s+addition\s+to\s+(?:their|its)\s+other\s+(?:types|land\s+types)$/i);
+  if (earlyAllLandType) {
+    const landTypeRaw = String(earlyAllLandType[2] || '').toLowerCase();
+    const landType = /^islands?$/.test(landTypeRaw) ? 'Island'
+      : /^swamps?$/.test(landTypeRaw) ? 'Swamp'
+        : /^mountains?$/.test(landTypeRaw) ? 'Mountain'
+          : /^plains?$/.test(landTypeRaw) ? 'Plains'
+            : 'Forest';
+    return [{
+      kind: 'set_basic_land_type',
+      target: parseObjectSelector('all lands'),
+      landType,
+      duration: 'static',
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
   }
 
   const allLandType = raw.match(/^(all|each)\s+lands?\s+(?:are|is)\s+(?:an?\s+)?(islands?|swamps?|mountains?|plains?|forests?)\s+in\s+addition\s+to\s+(?:their|its)\s+other\s+(?:types|land\s+types)$/i);
@@ -7366,6 +7435,10 @@ function parsePayManaUnknownStep(step: Extract<OracleEffectStep, { kind: 'unknow
     .trim();
   if (!normalized) return null;
 
+  if (/^(?:at\s+the\s+beginning\s+of\s+your\s+upkeep,\s+)?this\s+creature\s+phases\s+out\s+unless\s+you\s+pay\s+(?:\{[^}]+\})+$/i.test(normalized)) {
+    return null;
+  }
+
   let whoRaw = 'you';
   let manaRaw = '';
   let optional = Boolean(step.optional);
@@ -7886,7 +7959,7 @@ export function pruneRedundantFaceDownReminderUnknownAbilities(
     const hasManifestDread = ability.steps.some((step) => step.kind === 'manifest_dread');
     const hasManifestReminderText = /\(to manifest a card, put it onto the battlefield face down as a 2\/2 creature\.?/i.test(normalizedText);
     const hasCloakReminderText = /\(to cloak a card, put it onto the battlefield face down as a 2\/2 creature with ward \{2\}\.?/i.test(normalizedText);
-    const hasManifestDreadReminderText = /\bmanifest dread\.?\s*\(look at the top two cards of your library\./i.test(normalizedText);
+    const hasManifestDreadReminderText = /\bmanifests? dread\.?\s*\((?:that player )?looks? at the top two cards of (?:your|their) library\./i.test(normalizedText);
     if (!hasFaceDownMove && !hasManifestDread && !hasManifestReminderText && !hasCloakReminderText && !hasManifestDreadReminderText) {
       return ability;
     }
@@ -8627,7 +8700,8 @@ export function pruneRedundantDecayedReminderUnknownAbilities(
   abilities: readonly OracleIRAbility[]
 ): OracleIRAbility[] {
   return abilities.map((ability) => {
-    if (!ability.steps.some((step) => isDecayedTokenCreateStep(step) || isDecayedGrantStep(step))) return ability;
+    const mentionsDecayed = /\bdecayed\b/i.test(String(ability.text || ability.effectText || ''));
+    if (!mentionsDecayed && !ability.steps.some((step) => isDecayedTokenCreateStep(step) || isDecayedGrantStep(step))) return ability;
 
     const nextSteps = ability.steps.filter((step) => !isRedundantDecayedAttackSacrificeReminderUnknownStep(step));
     return nextSteps.length === ability.steps.length ? ability : { ...ability, steps: nextSteps };
@@ -9059,6 +9133,7 @@ function isCurrentBatchReminderOrPlatformOnlyText(raw: string): boolean {
         /^to scry\s+[^,]+, look at the top (?:card|(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+|x) cards?) of your library(?:, (?:you may put that card on the bottom|then put any number of them on the bottom(?: of your library)? and the rest on top in any order))?$/i.test(normalizedText) ||
         /^to surveil\s+[^,]+, look at the top (?:card|(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+|x) cards?) of your library(?:, then put any number of them into your graveyard and the rest on top of your library in any order)?$/i.test(normalizedText) ||
         /^to manifest dread, look at the top two cards of your library$/i.test(normalizedText) ||
+        /^(?:that player )?looks? at the top two cards of (?:your|their) library$/i.test(normalizedText) ||
         /^put one of them onto the battlefield face down as a 2\/2 creature and the other into your graveyard$/i.test(normalizedText) ||
         /^(?:then\s+)?put any number of them on the bottom(?: of your library)? and the rest on top in any order$/i.test(normalizedText) ||
         /^you may put that card on the bottom$/i.test(normalizedText)
@@ -9305,6 +9380,17 @@ export function pruneCurrentBatchReminderUnknownAbilities(
     }
 
     if (/^conspire\s*\(as you cast this spell, you may tap two untapped creatures you control that share a color with it\./i.test(normalizedAbilityText)) {
+      return [];
+    }
+
+    if (/^this\s+vehicle\s+becomes\s+an\s+artifact\s+creature[.)]*$/i.test(normalizedAbilityText)) {
+      return [];
+    }
+
+    if (
+      /^it has "?sacrifice this token:\s*add \{c\}\."?\s*\(\{c\} represents colorless mana\.\)?[.)]*$/i.test(normalizedAbilityText) ||
+      /^it(?:'|â€™)?s an artifact with "?\{2\}, \{t\}, sacrifice this token: you gain 3 life\."?\)?[.)]*$/i.test(normalizedAbilityText)
+    ) {
       return [];
     }
 

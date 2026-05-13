@@ -1,5 +1,5 @@
 import type { OracleEffectStep } from './oracleIR';
-import { normalizeCounterName } from './oracleIRParserSacrificeHelpers';
+import { normalizeCounterName, splitSacrificeObjectAndCondition } from './oracleIRParserSacrificeHelpers';
 import { normalizeOracleText, parseObjectSelector, parsePlayerSelector, parseQuantity } from './oracleIRParserUtils';
 type WithMeta = <T extends OracleEffectStep>(step: T) => T;
 
@@ -211,6 +211,102 @@ export function tryParseSimpleActionClause(args: {
   withMeta: WithMeta;
 }): OracleEffectStep | null {
   const { clause, rawClause, withMeta } = args;
+
+  {
+    const exiledCardPermission = clause.match(
+      new RegExp(`^${PLAYER_SUBJECT_PREFIX}(?:may\\s+)?(cast|play)s?\\s+(the\\s+exiled\\s+card|that\\s+card|this\\s+card|it)(?:\\s+from\\s+exile)?(?:\\s+without\\s+paying\\s+its\\s+mana\\s+cost)?(?:\\s+this\\s+turn)?(?:\\s+if\\s+.+)?$`, 'i')
+    );
+    if (exiledCardPermission) {
+      return withMeta({
+        kind: 'grant_exile_permission',
+        who: parsePlayerSelector(exiledCardPermission[1]),
+        what: parseObjectSelector(String(exiledCardPermission[3] || '').trim()),
+        duration: /\bthis\s+turn\b/i.test(clause) ? 'this_turn' : 'during_resolution',
+        permission: String(exiledCardPermission[2] || '').toLowerCase().startsWith('play') ? 'play' : 'cast',
+        withoutPayingManaCost: /without\s+paying\s+its\s+mana\s+cost/i.test(clause) || undefined,
+        optional: /\bmay\b/i.test(clause) || undefined,
+        raw: rawClause,
+      });
+    }
+  }
+
+  {
+    const selfDamageRemoveCounter = clause.match(
+      /^if\s+damage\s+would\s+be\s+dealt\s+to\s+(.+?)\s+while\s+it\s+has\s+(?:a|an|one|one\s+or\s+more|\d+|[a-z]+)\s+(.+?)\s+counters?\s+on\s+it,\s+prevent\s+that\s+damage\s+and\s+remove\s+(a|an|one|\d+|[a-z]+)\s+(.+?)\s+counters?\s+from\s+(.+)$/i
+    );
+    if (selfDamageRemoveCounter) {
+      const recipientText = String(selfDamageRemoveCounter[1] || '').trim();
+      const removeAmountText = String(selfDamageRemoveCounter[3] || '').trim();
+      const removeCounterText = String(selfDamageRemoveCounter[4] || '').trim();
+      const removeTargetText = String(selfDamageRemoveCounter[5] || '').trim();
+      return withMeta({
+        kind: 'conditional',
+        condition: {
+          kind: 'if',
+          raw: `damage would be dealt to ${recipientText} while it has ${String(selfDamageRemoveCounter[2] || '').trim()} counters on it`,
+        },
+        steps: [
+          {
+            kind: 'prevent_damage',
+            amount: 'all',
+            recipientTarget: parseObjectSelector(recipientText),
+            duration: 'this_turn',
+            raw: 'prevent that damage',
+          },
+          {
+            kind: 'remove_counter',
+            amount: parseQuantity(removeAmountText),
+            counter: normalizeCounterName(removeCounterText),
+            target: parseObjectSelector(removeTargetText),
+            raw: `remove ${removeAmountText} ${removeCounterText} counter from ${removeTargetText}`,
+          },
+        ],
+        raw: rawClause,
+      } as OracleEffectStep);
+    }
+  }
+
+  {
+    const basicLandTypeChoice = clause.match(
+      /^(.+?)\s+becomes\s+the\s+basic\s+land\s+type\s+of\s+your\s+choice(?:\s+until\s+end\s+of\s+turn)?$/i
+    );
+    if (basicLandTypeChoice) {
+      return withMeta({
+        kind: 'set_basic_land_type',
+        target: parseObjectSelector(String(basicLandTypeChoice[1] || '').trim()),
+        landType: 'choice',
+        duration: /\buntil\s+end\s+of\s+turn\b/i.test(clause) ? 'end_of_turn' : 'static',
+        raw: rawClause,
+      });
+    }
+  }
+
+  {
+    if (/^for each opponent,\s+create\s+a\s+token\s+copy\s+that\s+attacks\s+that\s+opponent\s+this\s+turn\s+if\s+able$/i.test(clause)) {
+      return withMeta({
+        kind: 'create_token',
+        who: { kind: 'you' },
+        amount: { kind: 'number', value: 1 },
+        token: 'copy',
+        attacking: 'each_opponent',
+        raw: rawClause,
+      });
+    }
+  }
+
+  {
+    const sacrifice = clause.match(new RegExp(`^${PLAYER_SUBJECT_PREFIX}sacrifices?\\s+(.+)$`, 'i'));
+    if (sacrifice) {
+      const parsedObject = splitSacrificeObjectAndCondition(String(sacrifice[2] || '').trim());
+      return withMeta({
+        kind: 'sacrifice',
+        who: parsePlayerSelector(sacrifice[1] || 'you'),
+        what: parseObjectSelector(parsedObject.objectText),
+        ...(parsedObject.condition ? { condition: parsedObject.condition } : {}),
+        raw: rawClause,
+      });
+    }
+  }
 
   const addManaEqualToEnchantedPermanentManaCost = clause.match(
     new RegExp(`^${PLAYER_SUBJECT_PREFIX}adds?\\s+mana\\s+equal\\s+to\\s+enchanted\\s+permanent(?:'|â€™)?s\\s+mana\\s+cost\\s*$`, 'i')
@@ -2073,6 +2169,23 @@ export function tryParseSimpleActionClause(args: {
         });
     }
 
+    const staticLandAnimationWithAbility = clause.match(/^(.+?)\s+becomes?\s+a\s+(\d+)\/(\d+)\s+(.+?)\s+creature(?:\s+with\s+(.+?))?(?:\s+that(?:'|â€™)?s\s+still\s+a\s+land)?$/i);
+    if (staticLandAnimationWithAbility && !/^until\s+end\s+of\s+turn,/i.test(clause) && /\bland\b/i.test(String(staticLandAnimationWithAbility[1] || ''))) {
+      const abilityText = String(staticLandAnimationWithAbility[5] || '').replace(/\s+that(?:'|â€™)?s\s+still\s+a\s+land$/i, '').trim().toLowerCase();
+      const abilities = abilityText === 'haste' ? ['haste'] : [];
+      const typeText = String(staticLandAnimationWithAbility[4] || '').trim();
+      return withMeta({
+        kind: 'animate_permanent',
+        target: parseObjectSelector(String(staticLandAnimationWithAbility[1] || '').trim()),
+        power: Number.parseInt(String(staticLandAnimationWithAbility[2] || '0'), 10),
+        toughness: Number.parseInt(String(staticLandAnimationWithAbility[3] || '0'), 10),
+        addTypes: typeText ? [...typeText.split(/\s+/).filter(Boolean), 'creature'] : ['creature'],
+        ...(abilities.length > 0 ? { abilities } : {}),
+        duration: 'static',
+        raw: rawClause,
+      });
+    }
+
     const animatePermanent = clause.match(/^(.+?)\s+becomes?\s+a\s+(\d+)\/(\d+)(?:\s+(.+?))?\s+creature\s+until\s+end\s+of\s+turn$/i);
     if (animatePermanent) {
       return withMeta({
@@ -2125,6 +2238,20 @@ export function tryParseSimpleActionClause(args: {
         duration: 'end_of_turn',
         raw: rawClause,
         });
+    }
+
+    const leadingTemporaryAnimation = clause.match(/^until\s+end\s+of\s+turn,\s+(.+?)\s+becomes?\s+a\s+(\d+)\/(\d+)(?:\s+(.+?))?\s+creature$/i);
+    if (leadingTemporaryAnimation) {
+      const typeText = String(leadingTemporaryAnimation[4] || '').trim();
+      return withMeta({
+        kind: 'animate_permanent',
+        target: parseObjectSelector(String(leadingTemporaryAnimation[1] || '').trim()),
+        power: Number.parseInt(String(leadingTemporaryAnimation[2] || '0'), 10),
+        toughness: Number.parseInt(String(leadingTemporaryAnimation[3] || '0'), 10),
+        addTypes: typeText ? [...typeText.split(/\s+/).filter(Boolean), 'creature'] : ['creature'],
+        duration: 'end_of_turn',
+        raw: rawClause,
+      });
     }
 
     const becomesUntilEnd = clause.match(/^(.+?)\s+becomes?\s+(.+?)\s+until\s+end\s+of\s+turn$/i);

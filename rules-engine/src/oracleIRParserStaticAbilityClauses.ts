@@ -54,6 +54,24 @@ const STATIC_KEYWORD_ABILITIES = new Set([
   'annihilator 4',
 ]);
 
+function normalizeGraveyardGrantSelector(rawSelector: string, qualifier = ''): string {
+  const selector = normalizeOracleText(rawSelector)
+    .replace(/^(?:each|all)\s+/i, '')
+    .trim();
+  const cleanQualifier = normalizeOracleText(qualifier).trim();
+  return `${selector}${cleanQualifier ? ` ${cleanQualifier}` : ''}`.replace(/\s+/g, ' ').trim();
+}
+
+function parseGraveyardKeywordAbilityCost(rawCost: string | undefined): string | undefined {
+  const cost = normalizeOracleText(String(rawCost || ''))
+    .replace(/[.)]+$/g, '')
+    .trim();
+  if (!cost) return undefined;
+  if (/^(?:\{[^}]+\}\s*)+$/.test(cost)) return cost.replace(/\s+/g, '');
+  if (/^pay\s+.+$/i.test(cost)) return cost;
+  return undefined;
+}
+
 function parseKeywordAbilityList(raw: string): string[] {
   const normalized = normalizeOracleText(raw)
     .replace(/"[^"]*"/g, ' ')
@@ -115,6 +133,38 @@ export function tryParseStaticAbilityGrantClause(args: {
   if (/\buntil\s+end\s+of\s+turn\b/i.test(normalized) && !/"[^"]*\buntil\s+end\s+of\s+turn\b[^"]*"/i.test(normalized)) return null;
   if (/^during your turn,\s+/i.test(normalized) && !/^during your turn,\s+you may\s+(?:cast|play)\b/i.test(normalized)) return null;
   if (/^(?:plainswalk|islandwalk|swampwalk|mountainwalk|forestwalk)\s*\(/i.test(normalized)) return null;
+
+  const exiledCardPermission = normalized.match(
+    /^(you|that player|target player|target opponent|its controller)?\s*(?:may\s+)?(cast|play)s?\s+(the\s+exiled\s+card|that\s+card|this\s+card|it)(?:\s+from\s+exile)?(?:\s+without\s+paying\s+its\s+mana\s+cost)?(?:\s+this\s+turn)?(?:\s+if\s+.+)?$/i
+  );
+  if (exiledCardPermission) {
+    return withMeta({
+      kind: 'grant_exile_permission',
+      who: parsePlayerSelector(String(exiledCardPermission[1] || 'you').trim()),
+      what: parseObjectSelector(String(exiledCardPermission[3] || '').trim()),
+      duration: /\bthis\s+turn\b/i.test(normalized) ? 'this_turn' : 'during_resolution',
+      permission: String(exiledCardPermission[2] || '').toLowerCase().startsWith('play') ? 'play' : 'cast',
+      withoutPayingManaCost: /without\s+paying\s+its\s+mana\s+cost/i.test(normalized) || undefined,
+      optional: /\bmay\b/i.test(normalized) || undefined,
+      raw: rawClause,
+    });
+  }
+
+  const qualifiedOpponentLifeLoss = normalized.match(/^each\s+opponent\s+who\s+(.+?)\s+loses\s+(that\s+much|\d+|one|two|three|four|five|six|seven|eight|nine|ten)\s+life$/i);
+  if (qualifiedOpponentLifeLoss) {
+    const amountText = String(qualifiedOpponentLifeLoss[2] || '').trim();
+    return withMeta({
+      kind: 'conditional',
+      condition: { kind: 'if', raw: `each opponent who ${String(qualifiedOpponentLifeLoss[1] || '').trim()}` },
+      steps: [{
+        kind: 'lose_life',
+        who: { kind: 'each_opponent' },
+        amount: parseQuantity(amountText),
+        raw: `each opponent loses ${amountText} life`,
+      }],
+      raw: rawClause,
+    } as OracleEffectStep);
+  }
 
   const staticGenericPtMatch = normalized.match(/^(.+?\b(?:you control|opponents control|opponent controls|enchanted creature|equipped creature|this creature|this permanent|it|they))\s+gets?\s+([+-]?(?:\d+|x))\s*\/\s*([+-]?(?:\d+|x))(?:\s*,?\s*(.+))?$/i);
   if (staticGenericPtMatch) {
@@ -540,6 +590,32 @@ export function tryParseStaticAbilityGrantClause(args: {
   if (staticKeywordGrantMatch && !/"/.test(normalized)) {
     const targetText = String(staticKeywordGrantMatch[1] || '').trim();
     const abilityText = String(staticKeywordGrantMatch[2] || '').trim();
+    const graveyardKeywordGrant = normalized.match(
+      /^(until end of turn,\s+)?((?:(?:each|all|target|up to one target)\s+)?[a-z0-9][^"]*?)\s+in\s+your\s+graveyard((?:\s+that(?:'s| is)\s+.+?)?)\s+(?:has|have|gain|gains)\s+(unearth|embalm|eternalize)(?:\s+((?:(?:\{[^}]+\}\s*)+|pay\s+.+?)))?(?:\s+(until end of turn|this turn))?$/i
+    );
+    if (graveyardKeywordGrant) {
+      const leadingDuration = Boolean(graveyardKeywordGrant[1]);
+      const trailingDuration = String(graveyardKeywordGrant[6] || '').trim().toLowerCase();
+      const keyword = String(graveyardKeywordGrant[4] || '').trim().toLowerCase();
+      const costRaw = parseGraveyardKeywordAbilityCost(graveyardKeywordGrant[5]);
+      return withMeta({
+        kind: 'grant_graveyard_keyword_ability',
+        who: { kind: 'you' },
+        what: {
+          kind: 'raw',
+          text: normalizeGraveyardGrantSelector(
+            String(graveyardKeywordGrant[2] || ''),
+            String(graveyardKeywordGrant[3] || '')
+          ),
+        },
+        keyword: keyword as 'unearth' | 'embalm' | 'eternalize',
+        ...(costRaw ? { costRaw } : {}),
+        duration: leadingDuration || trailingDuration === 'until end of turn' || trailingDuration === 'this turn' ? 'this_turn' : 'during_resolution',
+        optional: true,
+        raw: rawClause,
+      });
+    }
+
     const abilities = parseKeywordAbilityList(abilityText);
     const looksLikeGlobalGrant = /^(?:all|each|artifact|creature|sliver|auras?|basic\s+lands?|commanders?|commander\s+creatures?|[a-z][a-z -]+\s+spells?|[a-z][a-z -]+\s+creatures?)/i.test(targetText);
     if (abilities.length > 0 || looksLikeGlobalGrant) {

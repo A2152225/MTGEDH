@@ -62,7 +62,13 @@ export function tryParseTemporaryModifyPtClause(params: {
         const eachRaw = `for each ${String(forEachMatch[1] || '').trim()}`.trim();
         scaler = /^for\s+each\s+card\s+revealed\s+this\s+way$/i.test(eachRaw)
           ? { kind: 'per_revealed_this_way' }
-          : { kind: 'reference_scaler', raw: eachRaw };
+          : /^for\s+each\s+artifact\s+you\s+control$/i.test(eachRaw)
+            ? { kind: 'per_artifact_you_control' }
+            : /^for\s+each\s+creature\s+tapped\s+this\s+way$/i.test(eachRaw)
+              ? { kind: 'per_creature_tapped_this_way' }
+              : /^for\s+each\s+other\s+attacking\s+aurochs$/i.test(eachRaw)
+                ? { kind: 'per_other_attacking_aurochs' }
+                : { kind: 'reference_scaler', raw: eachRaw };
       } else {
         const whereMatch = tail.match(/^where\s+(.+)$/i);
         if (whereMatch) {
