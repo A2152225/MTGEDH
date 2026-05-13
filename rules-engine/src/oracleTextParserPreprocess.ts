@@ -134,6 +134,7 @@ function splitAbilityLineIntoSentences(line: string): string[] {
 
 export function normalizeOracleTextSelfReferences(oracleText: string, cardName?: string): string {
   return buildSelfReferenceAliases(cardName).reduce((text, alias) => {
+    if (/^ascend\s+magiccon\b/i.test(alias)) return text;
     const pattern = new RegExp(`(^|[^a-z0-9])(${escapeRegex(alias)})(?=[^a-z0-9]|$)`, 'gi');
     return text.replace(pattern, '$1this permanent');
   }, oracleText);

@@ -172,6 +172,112 @@ function getAttackerBlockerLimit(attacker: any): number {
   return Number.POSITIVE_INFINITY;
 }
 
+type AllAbleBlockRequirement = {
+  readonly requiredBlockerAbility?: string;
+};
+
+function normalizeCombatRequirementText(value: unknown): string {
+  return String(value || '')
+    .replace(/\u2019/g, "'")
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function parseAllAbleBlockRequirementText(
+  text: unknown,
+  options: {
+    readonly allowSelf: boolean;
+    readonly allowEquipped: boolean;
+    readonly allowEnchanted: boolean;
+  }
+): AllAbleBlockRequirement | null {
+  const normalized = normalizeCombatRequirementText(text);
+  if (!normalized) return null;
+
+  const selfQualifiedMatch = normalized.match(
+    /^all creatures with (.+?) able to block (?:this creature|this permanent|~) do so[.)]*$/i
+  );
+  if (selfQualifiedMatch && options.allowSelf) {
+    return { requiredBlockerAbility: String(selfQualifiedMatch[1] || '').trim() };
+  }
+
+  if (
+    options.allowSelf &&
+    /^all creatures able to block (?:this creature|this permanent|~) do so[.)]*$/i.test(normalized)
+  ) {
+    return {};
+  }
+
+  if (
+    /^all creatures able to block this creature or enchanted creature do so[.)]*$/i.test(normalized) &&
+    (options.allowSelf || options.allowEnchanted)
+  ) {
+    return {};
+  }
+
+  const equippedMatch = normalized.match(/^all creatures(?: with (.+?))? able to block equipped creature do so[.)]*$/i);
+  if (equippedMatch && options.allowEquipped) {
+    const ability = String(equippedMatch[1] || '').trim();
+    return ability ? { requiredBlockerAbility: ability } : {};
+  }
+
+  const enchantedMatch = normalized.match(/^all creatures(?: with (.+?))? able to block enchanted creature do so[.)]*$/i);
+  if (enchantedMatch && options.allowEnchanted) {
+    const ability = String(enchantedMatch[1] || '').trim();
+    return ability ? { requiredBlockerAbility: ability } : {};
+  }
+
+  return null;
+}
+
+function collectAllAbleBlockRequirements(
+  attacker: any,
+  battlefield: readonly BattlefieldPermanent[]
+): readonly AllAbleBlockRequirement[] {
+  const requirements: AllAbleBlockRequirement[] = [];
+  const seen = new Set<string>();
+
+  const pushRequirement = (requirement: AllAbleBlockRequirement | null) => {
+    if (!requirement) return;
+    const key = String(requirement.requiredBlockerAbility || '*').trim().toLowerCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+    requirements.push(requirement);
+  };
+
+  for (const fragment of getPermanentTextFragments(attacker)) {
+    pushRequirement(
+      parseAllAbleBlockRequirementText(fragment, {
+        allowSelf: true,
+        allowEquipped: false,
+        allowEnchanted: false,
+      })
+    );
+  }
+
+  const attackerId = String(attacker?.id || '').trim();
+  if (!attackerId) return requirements;
+
+  for (const attachment of battlefield) {
+    if (String((attachment as any)?.attachedTo || '').trim() !== attackerId) continue;
+    const typeLineLower = getPermanentTypeLineLower(attachment);
+    const isEquipment = /\bequipment\b/i.test(typeLineLower);
+
+    for (const fragment of getPermanentTextFragments(attachment)) {
+      pushRequirement(
+        parseAllAbleBlockRequirementText(fragment, {
+          allowSelf: false,
+          allowEquipped: isEquipment,
+          allowEnchanted: !isEquipment,
+        })
+      );
+    }
+  }
+
+  return requirements;
+}
+
 /**
  * Check if a permanent is currently a creature (Rule 302)
  * This considers:
@@ -1508,16 +1614,16 @@ export function validateDeclareBlockers(
     }
   }
 
-  const attackersRequiringAllAbleBlockers = battlefield.filter((attacker: any) => {
+  const attackingPermanents = battlefield.filter((attacker: any) => {
     const attackerId = String(attacker?.id || '').trim();
     if (!attackerId) return false;
-    const isAttacking = (state.combat?.attackers || []).some((entry: any) => String(entry?.cardId || '').trim() === attackerId);
-    if (!isAttacking) return false;
-    const oracleText = String(attacker?.card?.oracle_text || attacker?.oracle_text || '').replace(/\u2019/g, "'").toLowerCase();
-    return /all creatures able to block (?:this creature|this permanent|~) do so/.test(oracleText);
+    return (state.combat?.attackers || []).some((entry: any) => String(entry?.cardId || '').trim() === attackerId);
   });
 
-  for (const attacker of attackersRequiringAllAbleBlockers) {
+  for (const attacker of attackingPermanents) {
+    const requirements = collectAllAbleBlockRequirements(attacker, battlefield);
+    if (requirements.length === 0) continue;
+
     const attackerId = String(attacker?.id || '').trim();
     const assignedBlockers = attackerAssignments.get(attackerId) || new Set<string>();
     for (const candidate of battlefield) {
@@ -1526,6 +1632,12 @@ export function validateDeclareBlockers(
 
       const validationResult = canPermanentBlock(candidate, attacker, battlefield);
       if (!validationResult.canParticipate) continue;
+
+      const appliesToCandidate = requirements.some((requirement) => {
+        const requiredAbility = String(requirement.requiredBlockerAbility || '').trim();
+        return !requiredAbility || hasAbility(candidate, requiredAbility, battlefield);
+      });
+      if (!appliesToCandidate) continue;
 
       if (!assignedBlockers.has(candidateId)) {
         const attackerName = attacker?.card?.name || attackerId;

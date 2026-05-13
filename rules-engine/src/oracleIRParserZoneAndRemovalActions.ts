@@ -494,6 +494,16 @@ export function tryParseZoneAndRemovalClause(args: {
     });
   }
 
+  const targetOwnerShufflesIntoLibraryMatch = clause.match(/^(target\s+.+?)(?:'|â€™)?s\s+owner\s+shuffles?\s+it\s+into\s+their\s+library$/i);
+  if (targetOwnerShufflesIntoLibraryMatch) {
+    return parseMoveZoneStep({
+      whatRaw: String(targetOwnerShufflesIntoLibraryMatch[1] || 'it').trim(),
+      toRaw: "its owner's library",
+      rawClause,
+      withMeta,
+    });
+  }
+
   const revealAndShuffleIntoOwnerLibraryMatch = clause.match(/^reveal\s+(.+?)\s+and\s+shuffle\s+(it|them|that card|this permanent)\s+into\s+its\s+owner(?:'|â€™)?s\s+library$/i);
   if (revealAndShuffleIntoOwnerLibraryMatch) {
     return parseMoveZoneStep({

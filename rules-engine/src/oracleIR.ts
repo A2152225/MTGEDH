@@ -20,6 +20,7 @@ export type OracleQuantity =
 
 export type OraclePlayerSelector =
   | { readonly kind: 'you' }
+  | { readonly kind: 'any_player' }
   | { readonly kind: 'each_player' }
   | { readonly kind: 'each_opponent' }
   | { readonly kind: 'any_number_of_target_opponents' }

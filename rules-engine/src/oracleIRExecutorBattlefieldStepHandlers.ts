@@ -1110,7 +1110,75 @@ function resolveDirectBattlefieldPermanents(
   if (selector) {
     return battlefield.filter(perm => permanentMatchesSelector(perm, selector, ctx));
   }
+  const subtypeOrCompoundMatches = resolveSubtypeOrCompoundBattlefieldPermanents(battlefield, target as any, ctx);
+  if (subtypeOrCompoundMatches) return subtypeOrCompoundMatches;
   return resolveContextualBattlefieldPermanents(battlefield, target, ctx);
+}
+
+function normalizePluralSubtype(raw: string): string {
+  const normalized = String(raw || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9 -]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!normalized) return '';
+  if (/ies$/i.test(normalized)) return `${normalized.slice(0, -3)}y`;
+  if (/s$/i.test(normalized) && !/ss$/i.test(normalized)) return normalized.slice(0, -1);
+  return normalized;
+}
+
+function typeLineHasSubtype(permanent: BattlefieldPermanent, subtype: string): boolean {
+  const normalizedSubtype = normalizePluralSubtype(subtype);
+  if (!normalizedSubtype) return false;
+  const escaped = normalizedSubtype.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`(^|[^a-z0-9])${escaped}s?($|[^a-z0-9])`, 'i').test(getExecutorTypeLineLower(permanent));
+}
+
+function resolveSubtypeOrCompoundBattlefieldPermanents(
+  battlefield: readonly BattlefieldPermanent[],
+  target: { readonly kind: string; readonly text?: string; readonly raw?: string } | undefined,
+  ctx: OracleIRExecutionContext
+): BattlefieldPermanent[] | null {
+  if (!target || target.kind !== 'raw') return null;
+  const text = String((target as any).text || '')
+    .replace(/\u2019/g, "'")
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!text) return null;
+
+  const controllerId = String(ctx.controllerId || '').trim();
+  const controllerMatches = (permanent: BattlefieldPermanent, controllerFilter: 'any' | 'you' | 'opponents'): boolean => {
+    if (controllerFilter === 'any') return true;
+    const permanentController = String((permanent as any)?.controller || '').trim();
+    if (!permanentController || !controllerId) return false;
+    return controllerFilter === 'you' ? permanentController === controllerId : permanentController !== controllerId;
+  };
+
+  const artifactCreatureMatch = text.match(/^(?:all\s+|each\s+)?artifact\s+creatures(?:\s+(you\s+control|your\s+opponents\s+control))?$/i);
+  if (artifactCreatureMatch) {
+    const filterText = String(artifactCreatureMatch[1] || '').trim().toLowerCase();
+    const controllerFilter = filterText === 'you control' ? 'you' : filterText === 'your opponents control' ? 'opponents' : 'any';
+    return battlefield.filter(perm =>
+      controllerMatches(perm, controllerFilter) &&
+      permanentMatchesType(perm, 'artifact') &&
+      permanentMatchesType(perm, 'creature')
+    );
+  }
+
+  const subtypeCreatureMatch = text.match(/^(?:all\s+|each\s+)([a-z][a-z -]+?)(?:\s+creatures?)?(?:\s+(you\s+control|your\s+opponents\s+control))?$/i);
+  if (!subtypeCreatureMatch) return null;
+
+  const rawSubtype = String(subtypeCreatureMatch[1] || '').trim();
+  if (!rawSubtype || /^(?:creature|artifact|enchantment|land|permanent|nonland|target|another target)$/i.test(rawSubtype)) return null;
+  const filterText = String(subtypeCreatureMatch[2] || '').trim().toLowerCase();
+  const controllerFilter = filterText === 'you control' ? 'you' : filterText === 'your opponents control' ? 'opponents' : 'any';
+
+  return battlefield.filter(perm =>
+    controllerMatches(perm, controllerFilter) &&
+    permanentMatchesType(perm, 'creature') &&
+    typeLineHasSubtype(perm, rawSubtype)
+  );
 }
 
 function filterIllegalDirectTargetPermanents(
@@ -1183,6 +1251,28 @@ function applyTemporaryEffectToPermanents(
   });
 
   return { ...(state as any), battlefield: nextBattlefield } as GameState;
+}
+
+function buildAllAbleBlockerRequirementDescription(
+  target: { readonly kind: string; readonly text?: string; readonly raw?: string } | undefined
+): string | null {
+  if (!target || target.kind !== 'raw') return null;
+  const normalized = String(target.text || target.raw || '')
+    .replace(/\u2019/g, "'")
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  const qualifiedMatch = normalized.match(/^all creatures(?: your opponents control)? with (.+?) able to block$/i);
+  if (qualifiedMatch) {
+    return `all creatures with ${String(qualifiedMatch[1] || '').trim()} able to block this creature do so`;
+  }
+
+  if (/^all creatures(?: your opponents control)? able to block$/i.test(normalized)) {
+    return 'all creatures able to block this creature do so';
+  }
+
+  return null;
 }
 
 function resolveAttachedStaticAbilityGrantTargets(
@@ -4007,14 +4097,46 @@ export function applyForceBlockStep(
   ctx: OracleIRExecutionContext
 ): BattlefieldStepHandlerResult {
   const battlefield = (state.battlefield || []) as BattlefieldPermanent[];
-  const blockers = resolveDirectBattlefieldPermanents(battlefield, step.blocker as any, ctx);
   const attackers = resolveDirectBattlefieldPermanents(battlefield, step.attacker as any, ctx);
-  if (blockers.length !== 1 || attackers.length !== 1) {
+  if (attackers.length !== 1) {
     return {
       applied: false,
-      message: `Skipped force block (needs deterministic blocker and attacker): ${step.raw}`,
-      reason: blockers.length > 1 || attackers.length > 1 ? 'player_choice_required' : 'no_deterministic_target',
-      options: blockers.length > 1 || attackers.length > 1 ? { classification: 'player_choice' } : undefined,
+      message: `Skipped force block (needs deterministic attacker): ${step.raw}`,
+      reason: attackers.length > 1 ? 'player_choice_required' : 'no_deterministic_target',
+      options: attackers.length > 1 ? { classification: 'player_choice' } : undefined,
+    };
+  }
+
+  const allAbleBlockerDescription = buildAllAbleBlockerRequirementDescription(step.blocker as any);
+  if (allAbleBlockerDescription) {
+    const attackerId = String((attackers[0] as any)?.id || '').trim();
+    if (!attackerId) {
+      return {
+        applied: false,
+        message: `Skipped force block (invalid attacker): ${step.raw}`,
+        reason: 'unsupported_target',
+      };
+    }
+
+    const nextState = applyTemporaryEffectToPermanents(state, attackers, ctx, {
+      descriptions: [allAbleBlockerDescription],
+      expiresAt: 'end_of_turn',
+    });
+
+    return {
+      applied: true,
+      state: nextState,
+      log: [`Marked ${attackerId} as requiring all able blockers this turn`],
+    };
+  }
+
+  const blockers = resolveDirectBattlefieldPermanents(battlefield, step.blocker as any, ctx);
+  if (blockers.length !== 1) {
+    return {
+      applied: false,
+      message: `Skipped force block (needs deterministic blocker): ${step.raw}`,
+      reason: blockers.length > 1 ? 'player_choice_required' : 'no_deterministic_target',
+      options: blockers.length > 1 ? { classification: 'player_choice' } : undefined,
     };
   }
 

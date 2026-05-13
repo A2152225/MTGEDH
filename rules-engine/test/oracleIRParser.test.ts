@@ -21,6 +21,21 @@ function flattenNestedSteps(steps: readonly any[]): readonly any[] {
   return out;
 }
 
+function collectUnknownSteps(value: unknown): any[] {
+  const unknowns: any[] = [];
+  const visit = (node: unknown): void => {
+    if (!node || typeof node !== 'object') return;
+    if ((node as any).kind === 'unknown') unknowns.push(node as any);
+    if (Array.isArray(node)) {
+      for (const item of node) visit(item);
+      return;
+    }
+    for (const child of Object.values(node as Record<string, unknown>)) visit(child);
+  };
+  visit(value);
+  return unknowns;
+}
+
 describe('Oracle IR Parser', () => {
   it('parses ordered draw/then-discard into IR steps', () => {
     const text = 'Draw two cards. Then discard a card.';
@@ -2769,6 +2784,10 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
       'All creatures of that type get -1/-1 until end of turn.',
       'Outbreak'
     );
+    const telimTor = parseOracleTextToIR(
+      'All attacking creatures with flanking get +1/+1 until end of turn.',
+      "Telim'Tor"
+    );
     const engineeredPlague = parseOracleTextToIR(
       'All creatures of the chosen type get -1/-1.',
       'Engineered Plague'
@@ -2787,6 +2806,15 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
         target: { kind: 'raw', text: 'all creatures of that type' },
         power: -1,
         toughness: -1,
+        duration: 'end_of_turn',
+      }),
+    ]);
+    expect(telimTor.abilities[0]?.steps).toEqual([
+      expect.objectContaining({
+        kind: 'modify_pt',
+        target: { kind: 'raw', text: 'all attacking creatures with flanking' },
+        power: 1,
+        toughness: 1,
         duration: 'end_of_turn',
       }),
     ]);
@@ -2811,6 +2839,1134 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
         kind: 'grant_static_ability',
         target: { kind: 'raw', text: 'All damage' },
         effectText: ['is dealt as though its source had wither'],
+      }),
+    ]);
+  });
+
+  it('parses static and temporary all-able blocker wording variants', () => {
+    const nemesisMask = parseOracleTextToIR(
+      'All creatures able to block equipped creature do so.',
+      'Nemesis Mask'
+    );
+    const nobleQuarry = parseOracleTextToIR(
+      'All creatures able to block this creature or enchanted creature do so.',
+      'Noble Quarry'
+    );
+    const talruumPiper = parseOracleTextToIR(
+      'All creatures with flying able to block this creature do so.',
+      'Talruum Piper'
+    );
+    const opponentLure = parseOracleTextToIR(
+      'All creatures your opponents control able to block that creature this turn do so.',
+      'You Look Upon the Tarrasque'
+    );
+
+    expect(nemesisMask.abilities[0]?.steps).toEqual([
+      expect.objectContaining({
+        kind: 'grant_static_ability',
+        target: { kind: 'raw', text: 'equipped creature' },
+        effectText: ['all creatures able to block it do so'],
+      }),
+    ]);
+    expect(nobleQuarry.abilities[0]?.steps).toEqual([
+      expect.objectContaining({
+        kind: 'grant_static_ability',
+        target: { kind: 'raw', text: 'this creature or enchanted creature' },
+        effectText: ['all creatures able to block it do so'],
+      }),
+    ]);
+    expect(talruumPiper.abilities[0]?.steps).toEqual([
+      expect.objectContaining({
+        kind: 'grant_static_ability',
+        target: { kind: 'raw', text: 'this creature' },
+        effectText: ['all creatures with flying able to block it do so'],
+      }),
+    ]);
+
+    expect(opponentLure.abilities[0]?.steps).toEqual([
+      expect.objectContaining({
+        kind: 'force_block',
+        blocker: { kind: 'raw', text: 'all creatures your opponents control able to block' },
+        attacker: { kind: 'raw', text: 'that creature' },
+      }),
+    ]);
+  });
+
+  it('parses pass19 global subtype, color, keyword, and land animation static rows', () => {
+    const dralnu = parseOracleTextToIR(
+      "All Goblins are black and are Zombies in addition to their other creature types. All Goblins get +1/+1.",
+      "Dralnu's Crusade"
+    );
+    const sliverLord = parseOracleTextToIR(
+      'All Sliver creatures get +1/+1. All Sliver creatures have flanking. All Slivers are colorless.',
+      'Sliver Static Cluster'
+    );
+    const nature = parseOracleTextToIR(
+      'All lands are 2/2 creatures that are still lands.',
+      "Nature's Revolt"
+    );
+    const thranLens = parseOracleTextToIR(
+      'All permanents are colorless.',
+      'Thran Lens'
+    );
+
+    expect(collectUnknownSteps([dralnu, sliverLord, nature, thranLens])).toEqual([]);
+    expect(dralnu.abilities.flatMap(ability => ability.steps)).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        kind: 'grant_static_ability',
+        target: { kind: 'raw', text: 'All Goblins' },
+        effectText: ['are black and are Zombies in addition to their other creature types'],
+      }),
+      expect.objectContaining({
+        kind: 'grant_static_ability',
+        target: { kind: 'raw', text: 'All Goblins' },
+        power: 1,
+        toughness: 1,
+      }),
+    ]));
+    expect(sliverLord.abilities.flatMap(ability => ability.steps)).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'grant_static_ability', target: { kind: 'raw', text: 'All Sliver creatures' }, power: 1, toughness: 1 }),
+      expect.objectContaining({ kind: 'grant_static_ability', target: { kind: 'raw', text: 'All Sliver creatures' }, abilities: ['flanking'] }),
+      expect.objectContaining({ kind: 'grant_static_ability', target: { kind: 'raw', text: 'All Slivers' }, effectText: ['are colorless'] }),
+    ]));
+    expect(nature.abilities[0]?.steps).toEqual([
+      expect.objectContaining({
+        kind: 'animate_permanent',
+        target: { kind: 'raw', text: 'All lands' },
+        power: 2,
+        toughness: 2,
+        addTypes: ['creature'],
+        duration: 'static',
+      }),
+    ]);
+    expect(thranLens.abilities[0]?.steps).toEqual([
+      expect.objectContaining({ kind: 'grant_static_ability', target: { kind: 'raw', text: 'All permanents' }, effectText: ['are colorless'] }),
+    ]);
+  });
+
+  it('lowers representative pass19 residual choice, phase, cost, and entry rows without unknowns', () => {
+    const cases = [
+      ['Throat Wolf', "After each opponent's first combat phase of each turn, there is an additional combat phase."],
+      ['Magnetic Web', 'All creatures with magnet counters on them block that creature this turn if able.'],
+      ['Public Enemy', "All creatures attack enchanted creature's controller each combat if able."],
+      ['Rhystic Cave Fragment', 'Add one mana of that color unless any player.'],
+      ['Guided Passage', 'An opponent chooses from among them a creature card, a land card, and a noncreature, nonland card.'],
+      ['Herald of War', 'Angel spells and Human spells you cast cost {1} less to cast for each +1/+1 counter on this creature.'],
+      ['Defiler of Flesh', 'As an additional cost to cast black permanent spells, you may pay 2 life.'],
+      ['Archangel of Strife', 'As this creature enters, each player chooses war or peace.'],
+      ['Thief of Blood', 'As this creature enters, remove all counters from all permanents.'],
+      ['Sigarda\'s Splendor', 'As this enchantment enters, note your life total.'],
+    ] as const;
+
+    for (const [cardName, text] of cases) {
+      const ir = parseOracleTextToIR(text, cardName);
+      expect(collectUnknownSteps(ir), cardName).toEqual([]);
+      expect(ir.abilities.some(ability => ability.steps.length > 0), cardName).toBe(true);
+    }
+  });
+
+  it('lowers representative pass21 quantity, static, combat, and residual rows without unknowns', () => {
+    const cases = [
+      ['Cabal Conditioning', 'Any number of target opponents each discard a number of cards equal to the greatest mana value among permanents you control.'],
+      ['The Circle of Loyalty', 'Another target legendary permanent you control gains indestructible for as long as you control this permanent.'],
+      ['Reward the Faithful', 'Any number of target players each gain life equal to the number of creatures they control.'],
+      ['Aether Rift Fragment', 'unless any player pays 5 life'],
+      ['Agrus Kos, Wojek Veteran', 'attacking red creatures get +2/+0 and attacking white creatures get +0/+2 until end of turn.'],
+      ['Blood Age General', 'Attacking Spirits get +1/+0 until end of turn.'],
+      ['Blaring Captain', 'attacking Warriors get +1/+1 until end of turn.'],
+      ['Gornog, the Red Reaper', 'Attacking Warriors you control get +X/+0, where X is the number of Cowards your opponents control.'],
+      ['Kangee, Sky Warden', 'blocking creatures with flying get +0/+2 until end of turn.'],
+      ['Umbra Mystic', 'Auras attached to permanents you control have umbra armor.'],
+      ['Rashel, Fist of Torm', 'Auras you control have exalted.'],
+      ['Sheltering Prayers', 'Basic lands each player controls have shroud as long as that player controls three or fewer lands.'],
+      ['Ascend MagicCon Chicago', 'Ascend MagicCon Chicago.'],
+      ['Phone a Friend', 'Call someone and ask them to choose one.'],
+      ['Backup Plan', 'Before taking mulligans, shuffle all but one of your hands into your library.'],
+      ['Fog Patch', 'Attacking creatures become blocked.'],
+    ] as const;
+
+    for (const [cardName, text] of cases) {
+      const ir = parseOracleTextToIR(text, cardName);
+      expect(collectUnknownSteps(ir), cardName).toEqual([]);
+      expect(ir.abilities.some(ability => ability.steps.length > 0), cardName).toBe(true);
+    }
+  });
+
+  it('lowers representative pass22 quoted, change, cast, and choose rows without unknowns', () => {
+    const cases = [
+      ['Mari, the Killing Quill', 'Assassins, Mercenaries, and Rogues you control have deathtouch and "Whenever this creature deals combat damage to a player, you may remove a hit counter from a card that player owns in exile.'],
+      ['Tarkir Charm', 'Bathe in Dragonfire (4 damage to a creature.)'],
+      ['Spellskite', 'Change a target of target spell or ability to this creature.'],
+      ['Captured by the Consulate', 'If it has a single target, change the target to enchanted creature if able.'],
+      ['Mind Bend', 'Change the text of target permanent by replacing all instances of one color word with another or one basic land type with another.'],
+      ['Crystal Spray', 'Change the text of target spell or permanent by replacing all instances of one color word with another or one basic land type with another until end of turn.'],
+      ['Shape Stealer', "change this creature's base power and toughness to that creature's power and toughness until end of turn."],
+      ['Celeborn the Wise', 'Celeborn gets +1/+1 until end of turn for each card looked at while scrying this way.'],
+      ['Izzet Chemister', 'Cast any number of cards exiled with this creature without paying their mana costs.'],
+      ['Ob Nixilis, the Adversary', 'Casualty X.'],
+      ['Omenpath Journey', 'choose a card at random exiled with this enchantment and put it onto the battlefield tapped.'],
+      ['Meteor Crater', 'Choose a color of a permanent you control.'],
+    ] as const;
+
+    for (const [cardName, text] of cases) {
+      const ir = parseOracleTextToIR(text, cardName);
+      expect(collectUnknownSteps(ir), cardName).toEqual([]);
+      expect(ir.abilities.some(ability => ability.steps.length > 0), cardName).toBe(true);
+    }
+  });
+
+  it('lowers representative pass23 type, commander, cloak, and residual rows without unknowns', () => {
+    const cases = [
+      ['Amass Zomby', "If it isn't a Zomby, it becomes a Zomby in addition to its other types."],
+      ['Amass Orc', "If it isn't an Orc, it becomes an Orc in addition to its other types."],
+      ['Scheming Symmetry', 'then shuffles and puts that card on top.'],
+      ['Marvo, Deep Operative', 'clash with defending player.'],
+      ['Edgewalker', 'Cleric spells you cast cost {W}{B} less to cast.'],
+      ['Vannifar, Evolved Enigma', 'Cloak a card from your hand.'],
+      ['Questing Beast', "Combat damage that would be dealt by creatures you control can't be prevented."],
+      ['Command Power Plant', 'Command Towers you control have, "{T}: If you control a Command Mine and a Command Power Plant, add three mana of any color in your commander\'s color identity."'],
+      ['Wizard from Beyond', 'Commander creatures you own are Clerics, Rogues, Warriors, and Wizards in addition to their other types.'],
+      ['Far Traveler', 'Commander creatures you own have "At the beginning of your end step, exile up to one target tapped creature you control.'],
+      ['Disguise Agent', 'Commanders you own have disguise.'],
+      ['Vraska, Betrayal\'s Sting', 'Compleated ({B/P} can be paid with {B} or 2 life.'],
+      ['Rusko, Clockmaker', 'conjure a card named Midnight Clock onto the battlefield.'],
+      ['Storm of Forms', 'copy it for each kind of counter among permanents you control. You may choose new targets for the copies.'],
+      ['Invincible Hymn', 'Count the number of cards in your library.'],
+      ['Swift Silence', 'Counter all other spells.'],
+    ] as const;
+
+    for (const [cardName, text] of cases) {
+      const ir = parseOracleTextToIR(text, cardName);
+      expect(collectUnknownSteps(ir), cardName).toEqual([]);
+      expect(ir.abilities.some(ability => ability.steps.length > 0), cardName).toBe(true);
+    }
+  });
+
+  it('lowers representative pass24 create and creature rows without unknowns', () => {
+    const cases = [
+      ['Dialogue Tree', 'Could you repeat that again? - Exile this permanent.'],
+      ['Chancellor of the Annex', 'counter it unless that player pays {1}.'],
+      ['Water Gun Balloon Game', 'counters to "0."'],
+      ['Advanced Tactics', 'create a 5x5 grid for as long as it remains on the battlefield.'],
+      ['The Heron Moon', 'create a copy of Emrakul, the Promised End.'],
+      ['Zimone, All-Questioning', 'create Primo, the Indivisible, a legendary 0/0 green and blue Fractal creature token.'],
+      ['Grafdigger\'s Cage', "Creature cards in graveyards and libraries can't enter the battlefield."],
+      ['Case of the Uneaten Feast', 'Creature cards in your graveyard gain "You may cast this card from your graveyard" until end of turn.'],
+      ['Animar, Soul of Elements', 'Creature spells you cast cost {1} less to cast for each +1/+1 counter on this permanent.'],
+      ['Zinnia, Valley\'s Voice', 'Creature spells you cast gain offspring {2} as you cast them.'],
+      ['Illness in the Ranks', 'Creature tokens get -1/-1.'],
+      ['Bloodline Culling', 'Creature tokens get -2/-2 until end of turn.'],
+      ['Boarded Window', 'Creatures attacking you get -1/-0.'],
+      ['Dress Down', 'Creatures lose all abilities.'],
+      ['Witch\'s Vengeance', 'Creatures of the creature type of your choice get -3/-3 until end of turn.'],
+    ] as const;
+
+    for (const [cardName, text] of cases) {
+      const ir = parseOracleTextToIR(text, cardName);
+      expect(collectUnknownSteps(ir), cardName).toEqual([]);
+      expect(ir.abilities.some(ability => ability.steps.length > 0), cardName).toBe(true);
+    }
+  });
+
+  it('lowers representative pass25 creature group rows without unknowns', () => {
+    const cases = [
+      ['Ezzaroot Channeler', 'Creature spells you cast cost {X} less to cast, where X is the amount of life you gained this turn.'],
+      ['Space Beleren', 'Creatures in each sector can be blocked this turn only by creatures in the same sector.'],
+      ['Azorius Traffic Enforcement', "Creatures opponents control entering the battlefield don't cause backup abilities to trigger."],
+      ['Imaginary Threats', 'Creatures target opponent controls attack this turn if able.'],
+      ['Neutralize the Guards', 'Creatures target opponent controls get -1/-1 until end of turn.'],
+      ['Shields of Velis Vel', 'Creatures target player controls get +0/+1 and gain all creature types until end of turn.'],
+      ['Glistening Deluge', 'Creatures that are green and/or white get an additional -2/-2 until end of turn.'],
+      ['Stronghold Overseer', 'Creatures with shadow get +1/+0 until end of turn and creatures without shadow get -1/-0 until end of turn.'],
+      ['Biotransference', 'Creatures you control are artifacts in addition to their other types.'],
+      ['Spellbane Centaur', "Creatures you control can't be the targets of blue spells or abilities from blue sources."],
+      ['Inga and Esika', 'Creatures you control have vigilance and "{T}: Add one mana of any color.'],
+      ['Toxrill, the Corrosive', "Creatures you don't control get -1/-1 for each slime counter on them."],
+    ] as const;
+
+    for (const [cardName, text] of cases) {
+      const ir = parseOracleTextToIR(text, cardName);
+      expect(collectUnknownSteps(ir), cardName).toEqual([]);
+      expect(ir.abilities.some(ability => ability.steps.length > 0), cardName).toBe(true);
+    }
+  });
+
+  it('lowers representative pass26 damage and d-prefix rows without unknowns', () => {
+    const cases = [
+      ['Basilisk Collar', 'Damage dealt by this creature also causes you to gain that much life.)'],
+      ['Fortune Thief', 'Damage that would reduce your life total to less than 1 reduces it to 1 instead.'],
+      ['Warbringer', 'Dash costs you pay cost {2} less (as long as this creature is on the battlefield).'],
+      ['Werewhat', 'Daybound.'],
+      ['Xantid Swarm', "defending player can't cast spells this turn."],
+      ['Lord Xander, the Collector', 'defending player mills half their library, rounded down.'],
+      ['Convert to Slime', 'Delirium -'],
+      ['Fioran Reformist', 'Democracy is in effect until this permanent leaves the battlefield.'],
+      ['Desert Nomads', 'Desertwalk.'],
+      ['Feasting Hobbit', 'Devour Food 3 (As this creature enters, you may sacrifice any number of Foods.'],
+      ['Aloy, Savior of Meridian', 'discover X, where X is the greatest power among them.'],
+      ['Full Flowering', 'Do this X times.)'],
+      ['Dragonclaw Strike', 'Double the power and toughness of target creature you control until end of turn.'],
+      ['Beacon of Immortality', "Double target player's life total."],
+      ['Palace Siege', 'Dragons - At the beginning of your upkeep, each opponent loses 2 life.'],
+    ] as const;
+
+    for (const [cardName, text] of cases) {
+      const ir = parseOracleTextToIR(text, cardName);
+      expect(collectUnknownSteps(ir), cardName).toEqual([]);
+      expect(ir.abilities.some(ability => ability.steps.length > 0), cardName).toBe(true);
+    }
+  });
+
+  it('lowers representative pass27 draw and during rows without unknowns', () => {
+    const cases = [
+      ['Mind Maggots', 'discard any number of creature cards.'],
+      ['Toofer, Keeper of the Full Grip', 'Divination, Annihilate, and Wrath of God can all be card advantage.'],
+      ['Midnight Oil', 'draw an additional card and remove two hour counters from this enchantment.'],
+      ['Backup Plan', 'Draw an additional hand of seven cards as the game begins.'],
+      ['Imoen, Mystic Trickster', "Draw another card if you've completed a dungeon."],
+      ['Innistrad Charm', 'Duress (Look at their hand, make them discard a noncreature, nonland.)'],
+      ['Summon: Brynhildr', 'During any turn you put a lore counter on this Saga, you may play that card.'],
+      ['Hand to Hand', "During combat, players can't cast instant spells or activate abilities that aren't mana abilities."],
+      ['Share the Spoils', "During each player's turn, that player may play a land or cast a spell from among cards exiled with this enchantment, and they may spend mana as though it were mana of any color to cast that spell."],
+      ['Gideon Jura', "During target opponent's next turn, creatures that player controls attack this permanent if able."],
+      ['Gourmand\'s Talent', 'During your turn, artifacts you control are Foods in addition to their other types and have "{2}, {T}, Sacrifice this artifact: You gain 3 life."'],
+      ['Theater of Horrors', 'During your turn, if an opponent lost life this turn, you may play lands and cast spells from among cards exiled with this enchantment.'],
+      ['Minamo\'s Meddling', 'then discards each card with the same name as a card spliced onto that spell.'],
+    ] as const;
+
+    for (const [cardName, text] of cases) {
+      const ir = parseOracleTextToIR(text, cardName);
+      expect(collectUnknownSteps(ir), cardName).toEqual([]);
+      expect(ir.abilities.some(ability => ability.steps.length > 0), cardName).toBe(true);
+    }
+  });
+
+  it('lowers representative pass28 each-prefixed rows without unknowns', () => {
+    const cases = [
+      ['Icing Manipulator', 'Each +1/+1 counter on a creature you control is also a Food token.'],
+      ['Pendelhaven Elder', 'Each 1/1 creature you control gets +1/+2 until end of turn.'],
+      ['Hum of the Radix', 'Each artifact spell costs {1} more to cast for each artifact its controller controls.'],
+      ['Precursor Golem', 'Each copy targets a different one of those Golems.'],
+      ['Doran, the Siege Tower', 'Each creature assigns combat damage equal to its toughness rather than its power.'],
+      ['Plague Wight', 'each creature blocking it gets -1/-1 until end of turn.'],
+      ['Nuclear Fallout', 'Each creature gets twice -X/-X until end of turn.'],
+      ['Xenograft', 'Each creature you control is the chosen type in addition to its other types.'],
+      ['Raggadragga, Goreguts Boss', 'Each creature you control with a mana ability gets +2/+2.'],
+      ['Khorvath\'s Fury', 'Each friend discards all cards from their hand.'],
+      ['Heartwood Storyteller', "each of that player's opponents may draw a card."],
+    ] as const;
+
+    for (const [cardName, text] of cases) {
+      const ir = parseOracleTextToIR(text, cardName);
+      expect(collectUnknownSteps(ir), cardName).toEqual([]);
+      expect(ir.abilities.some(ability => ability.steps.length > 0), cardName).toBe(true);
+    }
+  });
+
+  it('lowers representative pass29 improvise and enchanted rows without unknowns', () => {
+    const cases = [
+      ['Fen Hauler', 'Improvise (Your artifacts can help cast this spell.'],
+      ['Gollum, Obsessed Stalker', 'each opponent dealt combat damage this game by a creature named this permanent loses life equal to the amount of life you gained this turn.'],
+      ['Duskmantle Seer', "each player reveals the top card of their library, loses life equal to that card's mana value."],
+      ['Kefka, Dancing Mad', 'Then each player who owns a spell you cast this way loses life equal to its mana value.'],
+      ['Toph, Earthbending Master', 'earthbend X, where X is the number of experience counters you have.'],
+      ["Who's That Praetor?", 'Ebon Praetor.'],
+      ['Skizzik Surger', 'Echo-Sacrifice two lands.'],
+      ['Slivdrazi Monstrosity', 'Eldrazi you control are Slivers in addition to their other types.'],
+      ['Ashling, the Limitless', 'Elemental permanent spells you cast from your hand gain evoke {4} as you cast them.'],
+      ['Crabomination', "Emerge from artifact {5}{B}{B} (You may cast this spell by sacrificing an artifact and paying the emerge cost reduced by that artifact's mana value.)"],
+      ['Animate Spell', "enchanted card's owner sacrifices it unless they cast it."],
+      ['Crown of Vigor', 'Enchanted creature and other creatures that share a creature type with it get +1/+1 until end of turn.'],
+      ['Revoke Privileges', "Enchanted creature can't attack, block, or crew Vehicles."],
+      ['Deep Freeze', 'Enchanted creature has base power and toughness 0/4, has defender, loses all other abilities, and is a blue Wall in addition to its other colors and types.'],
+    ] as const;
+
+    for (const [cardName, text] of cases) {
+      const ir = parseOracleTextToIR(text, cardName);
+      expect(collectUnknownSteps(ir), cardName).toEqual([]);
+      expect(ir.abilities.some(ability => ability.steps.length > 0), cardName).toBe(true);
+    }
+  });
+
+  it('lowers representative pass30 enchanted and equip rows without unknowns', () => {
+    const cases = [
+      ['Animate Graveyard', 'Enchanted graveyard is a creature on the battlefield with base power and toughness each equal to the number of cards in it.'],
+      ['Wind Zendikon', 'Enchanted land is a 2/2 blue Elemental creature with flying.'],
+      ['Nylea\'s Presence', 'Enchanted land is every basic land type in addition to its other types.'],
+      ['Awaken the Ancient', 'Enchanted Mountain is a 7/7 red Giant creature with haste.'],
+      ['Overencumbered', 'enchanted opponent creates a Clue token, a Food token, and a Junk token.'],
+      ['Intercessor\'s Arrest', "Enchanted permanent can't attack, block, or crew Vehicles."],
+      ['Song of the Dryads', 'Enchanted permanent is a colorless Forest land.'],
+      ['Grievous Wound', "Enchanted player can't gain life."],
+      ['Fraying Sanity', 'enchanted player mills X cards, where X is the number of cards put into their graveyard from anywhere this turn.'],
+      ['Mandate of Peace', 'End the combat phase.'],
+      ['Kaya\'s Guile', 'Entwine {3} (Choose all if you pay the entwine cost.)'],
+      ['Betrayal of Flesh', 'Entwine-Sacrifice three lands.'],
+      ['Bloodthorn Flail', 'Equip-Pay {3} or discard a card.'],
+    ] as const;
+
+    for (const [cardName, text] of cases) {
+      const ir = parseOracleTextToIR(text, cardName);
+      expect(collectUnknownSteps(ir), cardName).toEqual([]);
+      expect(ir.abilities.some(ability => ability.steps.length > 0), cardName).toBe(true);
+    }
+  });
+
+  it('lowers representative pass31 equipped and exchange rows without unknowns', () => {
+    const cases = [
+      ['Astor, Bearer of Blades', 'Equipment you control have equip {1}.'],
+      ['Chainsaw', 'Equipped creature gets +X/+0, where X is the number of rev counters on this Equipment.'],
+      ['Field-Tested Frying Pan', 'Equipped creature has "Whenever you gain life, this creature gets +X/+X until end of turn, where X is the amount of life you gained."'],
+      ['Blade of the Oni', 'Equipped creature has base power and toughness 5/5, has menace, and is a black Demon in addition to its other colors and types.'],
+      ['Trailblazer\'s Boots', 'Equipped creature has nonbasic landwalk.'],
+      ['Hand of Vecna', 'equipped creature or a creature you control named Vecna gets +X/+X until end of turn, where X is the number of cards in your hand.'],
+      ['Collective Brutality', 'Escalate-Discard a card.'],
+      ['The Archenemy\'s Charm', 'Every Hope Shall Vanish.'],
+      ['Grief', 'Evoke-Exile a black card from your hand.'],
+      ['Charging War Boar', "It can deal excess damage to the player or planeswalker it's attacking."],
+      ['Magus of the Mirror', 'Exchange life totals with target opponent.'],
+      ['Arcanum Wings', 'Exchange this Aura with an Aura card in your hand.)'],
+    ] as const;
+
+    for (const [cardName, text] of cases) {
+      const ir = parseOracleTextToIR(text, cardName);
+      expect(collectUnknownSteps(ir), cardName).toEqual([]);
+      expect(ir.abilities.some(ability => ability.steps.length > 0), cardName).toBe(true);
+    }
+  });
+
+  it('lowers representative pass32 f-prefix rows without unknowns', () => {
+    const cases = [
+      ['Boom Scholar', 'Exhaust abilities of other permanents you control cost {2} less to activate.'],
+      ['Merfolk Surveyor', 'explore-clash.'],
+      ['Dalek Drone', 'Exterminate!'],
+      ['Ixidor, Reality Sculptor', 'Face-down creatures get +1/+1.'],
+      ['Tangle Wire', 'Fading 4 (This artifact enters with four fade counters on it.'],
+      ['Vanille, Cheerful l\'Cie', "Fearless l'Cie, you."],
+      ['Phyrexian Crusader', 'First strike, protection from red and from white.'],
+      ['Throat Wolf', 'Firstest strike (This creature deals combat damage to creatures before creatures with first strike.)'],
+      ['Knight of Sursi', 'flanking (Whenever a creature without flanking blocks this creature, the blocking creature gets -1/-1 until end of turn.)'],
+      ['Boltfire', 'Flashforward {4}{R} (You may cast this card from exile for its flashforward cost.'],
+      ['Rakdos, the Showstopper', "flip a coin for each creature that isn't a Demon, Devil, or Imp."],
+      ['Saga of Krark Losing His Thumb', 'Flip Ahead (If you would put a lore counter on this saga, instead flip a coin.'],
+      ['Baneslayer Angel', 'Flying, first strike, lifelink, protection from Demons and from Dragons.'],
+      ['Battle Angels of Tyr', 'Flying, myriad.'],
+    ] as const;
+
+    for (const [cardName, text] of cases) {
+      const ir = parseOracleTextToIR(text, cardName);
+      expect(collectUnknownSteps(ir), cardName).toEqual([]);
+      expect(ir.abilities.some(ability => ability.steps.length > 0), cardName).toBe(true);
+    }
+  });
+
+  it('lowers representative pass33 for-prefixed rows without unknowns', () => {
+    const cases = [
+      ['Maître Tree', 'Food.'],
+      ['Dimensional Breach', "For as long as any of those cards remain exiled, at the beginning of each player's upkeep, that player returns one of the exiled cards they own to the battlefield."],
+      ['Kitesail Larcenist', 'For as long as this creature remains on the battlefield, the chosen permanents become Treasure artifacts with "{T}, Sacrifice this artifact: Add one mana of any color" and lose all other abilities.'],
+      ['Kotose, the Silent Spider', 'For as long as you control this permanent, you may play one of the exiled cards, and you may spend mana as though it were mana of any color to cast it.'],
+      ["K'rrik, Son of Yawgmoth", 'For each {B} in a cost, you may pay 2 life rather than pay that mana.'],
+      ['Saheeli, the Gifted', "For each artifact you control, create a token that's a copy of it."],
+      ['Tidal Flats', 'For each attacking creature without flying, its controller may pay {1}.'],
+      ['Heroism', 'For each attacking red creature, prevent all combat damage that would be dealt by that creature this turn unless its controller pays {2}{R}.'],
+      ['Hour of Eternity', "For each card exiled this way, create a token that's a copy of that card, except it's a 4/4 black Zombie."],
+      ['Descent of the Dragons', 'For each creature destroyed this way, its controller creates a 4/4 red Dragon creature token with flying.'],
+    ] as const;
+
+    for (const [cardName, text] of cases) {
+      const ir = parseOracleTextToIR(text, cardName);
+      expect(collectUnknownSteps(ir), cardName).toEqual([]);
+      expect(ir.abilities.some(ability => ability.steps.length > 0), cardName).toBe(true);
+    }
+  });
+
+  it('lowers representative pass34 broader for and g-prefix rows without unknowns', () => {
+    const cases = [
+      ['Luminate Primordial', 'for each opponent, exile up to one target creature that player controls and that player gains life equal to its power.'],
+      ['Agrus Kos, Eternal Soldier', 'If you do, copy that ability for each other creature you control that ability could target.'],
+      ['Built Bear', "For every 2 points spent beyond that, increase this card's mana cost by {1}.)"],
+      ['Trinisphere', 'For example, a spell that would cost {1}{B} to cast costs {2}{B} to cast instead.)'],
+      ['Claire D\'Loon, Joy Sculptor', 'for the rest of the game, tokens you own become cards that are still tokens.'],
+      ['Can\'t Quite Recall', "Forbidden (This card can't be in your starting deck."],
+      ['Ambush Commander', 'Forests you control are 1/1 green Elf creatures that are still lands.'],
+      ['Ulgrotha Charm', 'Forget (Target player discards 2.'],
+      ['Monstrous War-Leech', 'mill four cards.'],
+      ['Patron of the Kitsune', 'Fox offering (You may cast this spell any time you could cast an instant by sacrificing a Fox and paying the difference in mana costs between this and the sacrificed Fox.'],
+      ['Gond Gate', 'Gates you control enter untapped.'],
+      ['Fioran Reformist', 'get rid of the monarchy.'],
+      ['Growth Charm', 'Giant Growth.'],
+      ['Animation Module', 'Give that permanent or player another counter of that kind.'],
+      ['Patron of the Akki', 'Goblin offering (You may cast this spell any time you could cast an instant by sacrificing a Goblin and paying the difference in mana costs between this and the sacrificed Goblin.'],
+      ['Llanowar Reborn', 'Graft 1 (This land enters with a +1/+1 counter on it.'],
+    ] as const;
+
+    for (const [cardName, text] of cases) {
+      const ir = parseOracleTextToIR(text, cardName);
+      expect(collectUnknownSteps(ir), cardName).toEqual([]);
+      expect(ir.abilities.some(ability => ability.steps.length > 0), cardName).toBe(true);
+    }
+  });
+
+  it('lowers representative pass35 half and h/i-prefix rows without unknowns', () => {
+    const cases = [
+      ['Strax, Sontaran Nurse', 'Grenades!'],
+      ['Haktos the Unscarred', 'Haktos has protection from each mana value other than the chosen number.'],
+      ['The Goose Mother', 'create half X Food tokens, rounded up.'],
+      ['Heartless Hidetsugu', "this permanent deals damage to each player equal to half that player's life total, rounded down."],
+      ['Peer into the Abyss', 'Target player draws cards equal to half the number of cards in their library and loses half their life.'],
+      ['Unicycling Automaton', 'Hand Backup 1 (When this creature enters the battlefield, you may reveal a creature card from your hand.'],
+      ['Glissa\'s Retriever', 'Haste, toxic 3 (Players dealt combat damage by this creature also get three poison counters.)'],
+      ['Hydro-Man, Fluid Felon', 'he gets +1/+1 until end of turn.'],
+      ['Fang, Roku\'s Companion', "He's a Spirit in addition to his other types."],
+      ['The Weekly Princess', 'she deals damage equal to her power to each opponent.'],
+      ['Nevinyrral, Urborg Tyrant', 'Hexproof from artifacts, creatures, and enchantments.'],
+      ['Tarkir Charm', 'Hordeling Outburst (Create three 1/1 Goblin tokens.)'],
+      ['Greymond, Avacyn\'s Stalwart', 'Humans you control have each of the chosen abilities.'],
+      ['Book of Mazarbul', 'I - Amass Orcs 1.'],
+      ['Yet Another Night in Vegas', "I'm fine!"],
+      ['Ignis Scientia', "I've Come Up with a New Recipe!"],
+    ] as const;
+
+    for (const [cardName, text] of cases) {
+      const ir = parseOracleTextToIR(text, cardName);
+      expect(collectUnknownSteps(ir), cardName).toEqual([]);
+      expect(ir.abilities.some(ability => ability.steps.length > 0), cardName).toBe(true);
+    }
+  });
+
+  it('lowers representative pass36 if-family rows without unknowns', () => {
+    const cases = [
+      ['Fight Rigging', 'then put the rest on the bottom in a random order.)'],
+      ['Theros Charm', "Choose one - • Idyllic Tutor (Search for an enchantment.) • Revoke Existence (Exile an artifact or enchantment.) • Reprisal (Destroy a creature with power 4 or greater. It can't be regenerated.)"],
+      ['Mythos of Snapdax', 'If {B}{R} was spent to cast this spell, you choose the permanents for each player instead.'],
+      ['Sphere of Grace', 'If a black source would deal damage to you, prevent 2 of that damage.'],
+      ['Isshin, Two Heavens as One', 'If a creature attacking causes a triggered ability of a permanent you control to trigger, that ability triggers an additional time.'],
+      ['Gisela, Blade of Goldnight', 'If a source would deal damage to you or a permanent you control, prevent half that damage, rounded up.'],
+      ['Pizza Face, Gastromancer', "If a permanent left the battlefield under your control this turn, put three +1/+1 counters on up to one other target artifact or creature. If it isn't a creature, it becomes a 0/0 Mutant creature in addition to its other types."],
+      ['Puppet Master', "If that card is returned to its owner's hand this way, you may pay {U}{U}{U}."],
+      ['Bill Ferny, Bree Swindler', "Choose one - • Create a Treasure token. • Target opponent gains control of target Horse you control. If they do, remove this permanent from combat and create three Treasure tokens."],
+    ] as const;
+
+    for (const [cardName, text] of cases) {
+      const ir = parseOracleTextToIR(text, cardName);
+      expect(collectUnknownSteps(ir), cardName).toEqual([]);
+      expect(ir.abilities.some(ability => ability.steps.length > 0), cardName).toBe(true);
+    }
+  });
+
+  it('lowers representative pass37 keyword and i-prefix rows without unknowns', () => {
+    const cases = [
+      ['Ragavan, Nimble Pilferer', 'Dash {1}{R} (You may cast this spell for its dash cost'],
+      ['Desperate Ritual', 'Splice onto Arcane {1}{R} (As you cast an Arcane spell, you may reveal this card from your hand and pay its splice cost'],
+      ['Foundation Breaker', 'Evoke {1}{G} (You may cast this spell for its evoke cost'],
+      ['Cyclonic Rift', 'Overload {6}{U} (You may cast this spell for its overload cost'],
+      ['Dig Up', 'Cleave {1}{B}{B}{G} (You may cast this spell for its cleave cost'],
+      ['Book of Mazarbul', 'II - Amass Orcs 2'],
+      ['The Mirari Conjecture', 'III - Until end of turn, whenever you cast an instant or sorcery spell, copy it. You may choose new targets for the copy'],
+      ['Overlord of the Hauntwoods', "Impending 4-{1}{G}{G} (If you cast this spell for its impending cost, it enters with four time counters and isn't a creature until the last is removed"],
+      ['Glissa, Herald of Predation', 'Incubate 2 twice'],
+      ['Sunfall', 'Incubate X, where X is the number of creatures exiled this way'],
+      ['Anticognition', 'instead counter that spell'],
+      ['Erdwal Illuminator', 'investigate an additional time'],
+      ['Old Way Phyrexian', 'Infect (A creature with infect deals damage to creatures in the form of -1/-1 counters and to players in the form of poison counters.)'],
+    ] as const;
+
+    for (const [cardName, text] of cases) {
+      const ir = parseOracleTextToIR(text, cardName);
+      expect(collectUnknownSteps(ir), cardName).toEqual([]);
+      expect(ir.abilities.some(ability => ability.steps.length > 0), cardName).toBe(true);
+    }
+  });
+
+  it('lowers representative pass38 it/its residual rows without unknowns', () => {
+    const cases = [
+      ['Humble the Brute', 'It\'s an artifact with "{2}, Sacrifice this token: Draw a card.")'],
+      ['Case of the Filched Falcon', 'It becomes a 0/0 Bird creature with flying in addition to its other types'],
+      ['The Sprinkler of Stardust', 'It becomes a 2/2 creature with "Whenever this deals combat damage to an opponent, cast a copy of this card." (The 2/2 creature stays on the battlefield.)'],
+      ['Swiftfoot Boots', 'It can attack and {T} no matter when it came under your control.)'],
+      ['Noctis, Heir Apparent', "It can't be blocked that combat"],
+      ['City on Fire', 'it deals triple that damage'],
+      ['Ty Lee, Chi Blocker', "It doesn't untap during its controller's untap step for as long as you control this permanent"],
+      ['Rekindling Phoenix', 'It gains haste until end of turn."'],
+      ['Growth Cycle', 'It gets an additional +2/+2 until end of turn for each card named this permanent in your graveyard'],
+      ['Animate Graveyard', 'It has the text boxes of all creature cards in it'],
+      ['Gonti, Night Minister', "its controller looks at the top card of that opponent's library and exiles it face down"],
+    ] as const;
+
+    for (const [cardName, text] of cases) {
+      const ir = parseOracleTextToIR(text, cardName);
+      expect(collectUnknownSteps(ir), cardName).toEqual([]);
+      expect(ir.abilities.some(ability => ability.steps.length > 0), cardName).toBe(true);
+    }
+  });
+
+  it('lowers representative pass39 j/k/l/m/n/o rows without unknowns', () => {
+    const cases = [
+      ['Rakdos Drake', 'Unleash (You may have this creature enter with a +1/+1 counter on it'],
+      ['Unwanted Remake', 'then puts one onto the battlefield face down as a 2/2 creature and the other into their graveyard'],
+      ['Midnight Crusader Shuttle', "defending player faces a villainous choice - That player sacrifices a creature of their choice, or you gain control of a creature of your choice that player controls until end of turn. If you gain control of a creature this way, tap it, and it's attacking that player"],
+      ['Blood Poet', 'You gain life equal to its converted mana cost'],
+      ['Phthisis', 'Its controller loses life equal to its power plus its toughness'],
+      ['Goliath Hatchery', 'draw cards equal to its total toxic value'],
+      ['The Pride of Hull Clade', 'draw cards equal to its toughness," and can attack as though it didn\'t have defender'],
+      ['The Day of the Doctor', 'IV - Choose up to three Doctors'],
+      ['Kappa Tech-Wrecker', 'Ninjutsu {1}{G}'],
+      ['Clone Shell', 'look at the top four cards of your library, exile one face down. then put the rest on the bottom of your library in any order'],
+      ['Giant Opportunity', 'Otherwise, create three Food tokens'],
+      ['Crawlspace', 'No more than two creatures can attack you each combat'],
+      ['Mirkwood Bats', 'Whenever you create or sacrifice a token, each opponent loses 1 life.'],
+      ['Sulfuric Vortex', 'that player gains no life'],
+    ] as const;
+
+    for (const [cardName, text] of cases) {
+      const ir = parseOracleTextToIR(text, cardName);
+      expect(collectUnknownSteps(ir), cardName).toEqual([]);
+      expect(ir.abilities.some(ability => ability.steps.length > 0), cardName).toBe(true);
+    }
+  });
+
+  it('lowers representative pass40 p/r rows without unknowns', () => {
+    const cases = [
+      ['Demonic Tourist Laser', 'Outlast only as a sorcery.)'],
+      ['Spider-Man India', "Pavitr's Seva - Whenever you cast a creature spell, put a +1/+1 counter on target creature you control"],
+      ['Plunge into Darkness', 'Choose one - • Sacrifice any number of creatures. You gain 3 life for each creature sacrificed this way. • Pay any amount of life, then look at that many cards from the top of your library. Put one of those cards into your hand and exile the rest.'],
+      ['Soulless Jailer', "Permanent cards in graveyards can't enter the battlefield"],
+      ['Display of Dominance', "Choose one - • Destroy target blue or black noncreature permanent. • Permanents you control can't be the targets of blue or black spells your opponents control this turn."],
+      ['City of Solitude', 'Players can cast spells and activate abilities only during their own turns'],
+      ['Goring Warplow', 'Prototype {1}{B} - 1/1 (You may cast this spell with different mana cost, color, and size'],
+      ['Elspeth Resplendent', 'Put a +1/+1 counter and a counter from among flying, first strike, lifelink, or vigilance on it'],
+      ['Krovikan Rot', 'Recover {1}{B}{B} (When a creature is put into your graveyard from the battlefield, you may pay {1}{B}{B}'],
+      ['Mirrored Lotus', 'Reflect {0} (As this enters, each opponent may pay {0}'],
+      ['Suncleanser', 'Remove all counters from target creature'],
+      ['Shahrazad', 'Players play a Magic subgame, using their libraries as their decks'],
+      ['Sunimret', 'Reverse miracle {B} (If this card is on the bottom of your library as you begin searching it, you may cast it by paying its reverse miracle cost.)'],
+      ['Wyll\'s Reversal', 'Roll a d20 and add the greatest power among creatures you control'],
+    ] as const;
+
+    for (const [cardName, text] of cases) {
+      const ir = parseOracleTextToIR(text, cardName);
+      expect(collectUnknownSteps(ir), cardName).toEqual([]);
+      expect(ir.abilities.some(ability => ability.steps.length > 0), cardName).toBe(true);
+    }
+  });
+
+  it('lowers representative pass41 search and s/t rows without unknowns', () => {
+    const cases = [
+      ['Hama Pashar, Ruin Seeker', 'Room abilities of dungeons you own trigger an additional time.'],
+      ['Ruhan of the Fomori', 'Ruhan attacks that player this combat if able.'],
+      ['The Crab Queen', 'Ruin Crab. Scuttletide. Skittering Crustacean.'],
+      ['Verdeloth the Ancient', 'Saproling creatures and other Treefolk creatures get +1/+1.'],
+      ['Tarkir Charm', 'Choose one - • Bathe in Dragonfire (4 damage to a creature.) • Hordeling Outburst (Create three 1/1 Goblin tokens.) • Sarkhan\'s Triumph (Search for a dragon.)'],
+      ['Surgical Extraction', 'Search its owner\'s graveyard, hand, and library for any number of cards with the same name as that card and exile them.'],
+      ['Gate to the Afterlife', "Search your graveyard, hand, and/or library for a card named God-Pharaoh's Gift and put it onto the battlefield."],
+      ['Death or Glory', 'Separate all creature cards in your graveyard into two piles.'],
+      ['Dark Dabbling', 'Spell mastery - If there are two or more instant and/or sorcery cards in your graveyard, also regenerate each other creature you control.'],
+      ['Root Sliver', "Sliver spells can't be countered."],
+      ['Hypergenesis', 'Starting with you, each player may put an artifact, creature, enchantment, or land card from their hand onto the battlefield.'],
+      ['Dragon Turtle', 'tap it and up to one target creature an opponent controls.'],
+      ['Masako the Humorless', 'Tapped creatures you control can block as though they were untapped.'],
+      ['Valakut Fireboar', 'switch its power and toughness until end of turn.'],
+    ] as const;
+
+    for (const [cardName, text] of cases) {
+      const ir = parseOracleTextToIR(text, cardName);
+      expect(collectUnknownSteps(ir), cardName).toEqual([]);
+      expect(ir.abilities.some(ability => ability.steps.length > 0), cardName).toBe(true);
+    }
+  });
+
+  it('parses pass41 search, tap, and switch rows into typed steps where available', () => {
+    const praetorsGrasp = parseOracleTextToIR(
+      "Search target opponent's library for a card and exile it face down.",
+      "Praetor's Grasp"
+    );
+    const acquire = parseOracleTextToIR(
+      "Search target opponent's library for an artifact card and put that card onto the battlefield under your control.",
+      'Acquire'
+    );
+    const cranialExtraction = parseOracleTextToIR(
+      "Search target player's graveyard, hand, and library for all cards with that name and exile them.",
+      'Cranial Extraction'
+    );
+    const amazingAcrobatics = parseOracleTextToIR(
+      'Tap one or two target creatures.',
+      'Amazing Acrobatics'
+    );
+    const valakutFireboar = parseOracleTextToIR(
+      'switch its power and toughness until end of turn.',
+      'Valakut Fireboar'
+    );
+
+    expect(collectUnknownSteps([praetorsGrasp, acquire, cranialExtraction, amazingAcrobatics, valakutFireboar])).toEqual([]);
+    expect(praetorsGrasp.abilities[0]?.steps).toEqual([
+      expect.objectContaining({
+        kind: 'search_library',
+        who: { kind: 'target_opponent' },
+        criteria: { kind: 'raw', text: 'card' },
+        destination: 'exile',
+        maxResults: 1,
+      }),
+    ]);
+    expect(acquire.abilities[0]?.steps).toEqual([
+      expect.objectContaining({
+        kind: 'search_library',
+        who: { kind: 'target_opponent' },
+        criteria: { kind: 'raw', text: 'artifact card' },
+        destination: 'battlefield',
+        maxResults: 1,
+      }),
+    ]);
+    expect(cranialExtraction.abilities[0]?.steps).toEqual([
+      expect.objectContaining({
+        kind: 'exile_named_cards_from_zones',
+        who: { kind: 'target_player' },
+        zones: ['graveyard', 'hand', 'library'],
+        nameSource: 'chosen_card_name',
+      }),
+    ]);
+    expect(amazingAcrobatics.abilities[0]?.steps).toEqual([
+      expect.objectContaining({
+        kind: 'tap_or_untap',
+        target: { kind: 'raw', text: 'one or two target creatures' },
+        mode: 'tap',
+      }),
+    ]);
+    expect(valakutFireboar.abilities[0]?.steps).toEqual([
+      expect.objectContaining({
+        kind: 'switch_power_toughness',
+        target: { kind: 'raw', text: 'it' },
+        duration: 'end_of_turn',
+      }),
+    ]);
+  });
+
+  it('lowers representative pass42 target bands without unknowns', () => {
+    const cases = [
+      ['Tezzeret, Agent of Bolas', 'Target artifact becomes an artifact creature with base power and toughness 5/5.'],
+      ['True Polymorph', 'Target artifact or creature becomes a copy of another target artifact or creature.'],
+      ['Auriok Siege Sled', 'Target artifact creature blocks this creature this turn if able.'],
+      ['Arcum Dagsson', "Target artifact creature's controller sacrifices it."],
+      ['Alluring Siren', 'Target creature an opponent controls attacks you this turn if able.'],
+      ['Oko, Thief of Crowns', 'Target creature an opponent controls becomes a 3/3 green Elk creature.'],
+      ['Biblioplex Tomekeeper', 'Choose up to one - • Target creature becomes prepared. • Target creature becomes unprepared.'],
+      ['Vines of Vastwood', "Target creature can't be the target of spells or abilities your opponents control this turn."],
+      ['Avalanche Tusker', 'target creature defending player controls blocks it this combat if able.'],
+      ['Spring Splasher', 'target creature defending player controls gets -3/-0 until end of turn.'],
+      ['Spirit Shield', 'Target creature gets +0/+2 for as long as this artifact remains tapped.'],
+      ['Give No Ground', 'Target creature gets +2/+6 until end of turn and can block any number of creatures this turn.'],
+      ['Shelkin Brownie', 'Target creature loses all "bands with other" abilities until end of turn.'],
+      ['Oubliette', 'target creature phases out until this enchantment leaves the battlefield.'],
+      ['Seedpod Squire', 'target creature you control without flying gets +1/+1 until end of turn.'],
+      ['Friendly Fire', "Target creature's controller reveals a card at random from their hand."],
+      ['Ominous Cemetery', "Target creature's owner shuffles it into their library."],
+      ['Woodwraith Corrupter', 'Target Forest becomes a 4/4 black and green Elemental Horror creature.'],
+      ['Thelonite Monk', 'Target land becomes a Forest.'],
+      ['Tide Shaper', 'If it was kicked, target land becomes an Island for as long as this creature remains on the battlefield.'],
+      ['Nissa, Worldwaker', 'Target land you control becomes a 4/4 Elemental creature with trample.'],
+      ['Vastwood Animist', 'Target land you control becomes an X/X Elemental creature until end of turn, where X is the number of Allies you control.'],
+      ['Tyrite Sanctum', 'Target legendary creature becomes a God in addition to its other types.'],
+      ['Rise and Shine', 'Target noncreature artifact you control becomes a 0/0 artifact creature.'],
+      ['Wan Shi Tong, All-Knowing', "target nonland permanent's owner puts it into their library second from the top or on the bottom."],
+      ['Arcum\'s Weathervane', 'Target nonsnow basic land becomes snow.'],
+      ['Tyrant of Discord', 'target opponent chooses a permanent they control at random and sacrifices it.'],
+      ['Witness the End', 'Target opponent exiles two cards from their hand and loses 2 life.'],
+      ['Tempest Efreet', 'Target opponent may pay 10 life.'],
+      ['Kitsune\'s Technique', 'Target opponent mills half their library, rounded up.'],
+      ['Acquisitions Expert', 'target opponent reveals a number of cards from their hand equal to the number of creatures in your party.'],
+      ['Talent of the Telepath', 'Target opponent reveals the top seven cards of their library.'],
+      ['Empty City Ruse', 'Target opponent skips all combat phases of their next turn.'],
+      ['Cease-Fire', "Target player can't cast creature spells this turn."],
+      ['Tormented Thoughts', "Target player discards a number of cards equal to the sacrificed creature's power."],
+      ['Heliod\'s Intervention', 'Target player gains twice X life.'],
+      ['Ashiok, Wicked Manipulator', 'Target player exiles the top X cards of their library, where X is the total mana value of cards you own in exile.'],
+      ['Fleet Swallower', 'target player mills half their library, rounded up.'],
+      ['Leadership Vacuum', 'Target player returns each commander they control from the battlefield to the command zone.'],
+      ['Aven Windreader', 'Target player reveals the top card of their library.'],
+      ['Bamboozle', 'Target player reveals the top four cards of their library.'],
+      ['Varragoth, Bloodsky Sire', 'Target player searches their library for a card.'],
+      ['False Peace', 'Target player skips all combat phases of their next turn.'],
+      ['Deathlace', 'Target spell or permanent becomes black.'],
+      ['One-Clown Band', 'Target Robot gets +2/+0 until end of turn.'],
+    ] as const;
+
+    for (const [cardName, text] of cases) {
+      const ir = parseOracleTextToIR(text, cardName);
+      expect(collectUnknownSteps(ir), cardName).toEqual([]);
+      expect(ir.abilities.some(ability => ability.steps.length > 0), cardName).toBe(true);
+    }
+  });
+
+  it('parses pass42 target rows into typed steps where available', () => {
+    const forceBlock = parseOracleTextToIR(
+      'Target artifact creature blocks this creature this turn if able.',
+      'Auriok Siege Sled'
+    );
+    const staticAnimation = parseOracleTextToIR(
+      'Target artifact becomes an artifact creature with base power and toughness 5/5.',
+      'Tezzeret, Agent of Bolas'
+    );
+    const copyPermanent = parseOracleTextToIR(
+      'Target artifact or creature becomes a copy of another target artifact or creature.',
+      'True Polymorph'
+    );
+    const ptModifier = parseOracleTextToIR(
+      'Target attacking Human gets +1/+1 until end of turn.',
+      'Crossroads Consecrator'
+    );
+    const landType = parseOracleTextToIR(
+      'Target land becomes a Forest.',
+      'Thelonite Monk'
+    );
+    const opponentMayPayLife = parseOracleTextToIR(
+      'Target opponent may pay 10 life.',
+      'Tempest Efreet'
+    );
+    const opponentRevealTop = parseOracleTextToIR(
+      'Target opponent reveals the top seven cards of their library.',
+      'Talent of the Telepath'
+    );
+    const targetPlayerMill = parseOracleTextToIR(
+      'target player mills half their library, rounded up.',
+      'Fleet Swallower'
+    );
+    const targetPlayerRevealTop = parseOracleTextToIR(
+      'Target player reveals the top four cards of their library.',
+      'Bamboozle'
+    );
+    const targetPlayerSearch = parseOracleTextToIR(
+      'Target player searches their library for a card.',
+      'Varragoth, Bloodsky Sire'
+    );
+
+    expect(collectUnknownSteps([forceBlock, staticAnimation, copyPermanent, ptModifier, landType, opponentMayPayLife, opponentRevealTop, targetPlayerMill, targetPlayerRevealTop, targetPlayerSearch])).toEqual([]);
+    expect(forceBlock.abilities[0]?.steps).toEqual([
+      expect.objectContaining({
+        kind: 'force_block',
+        blocker: { kind: 'raw', text: 'Target artifact creature' },
+        attacker: { kind: 'raw', text: 'this creature' },
+        duration: 'end_of_turn',
+      }),
+    ]);
+    expect(staticAnimation.abilities[0]?.steps).toEqual([
+      expect.objectContaining({
+        kind: 'grant_static_ability',
+        target: { kind: 'raw', text: 'Target artifact' },
+        power: 5,
+        toughness: 5,
+      }),
+    ]);
+    expect(copyPermanent.abilities[0]?.steps).toEqual([
+      expect.objectContaining({
+        kind: 'copy_permanent',
+        target: { kind: 'raw', text: 'Target artifact or creature' },
+        source: { kind: 'raw', text: 'another target artifact or creature' },
+      }),
+    ]);
+    expect(ptModifier.abilities[0]?.steps).toEqual([
+      expect.objectContaining({
+        kind: 'modify_pt',
+        target: { kind: 'raw', text: 'target attacking human' },
+        power: 1,
+        toughness: 1,
+      }),
+    ]);
+    expect(landType.abilities[0]?.steps).toEqual([
+      expect.objectContaining({
+        kind: 'set_basic_land_type',
+        target: { kind: 'raw', text: 'Target land' },
+        landType: 'Forest',
+        duration: 'static',
+      }),
+    ]);
+    expect(opponentMayPayLife.abilities[0]?.steps).toEqual([
+      expect.objectContaining({
+        kind: 'lose_life',
+        who: { kind: 'target_opponent' },
+        amount: { kind: 'number', value: 10 },
+        optional: true,
+      }),
+    ]);
+    expect(opponentRevealTop.abilities[0]?.steps).toEqual([
+      expect.objectContaining({
+        kind: 'reveal_top',
+        who: { kind: 'target_opponent' },
+        amount: { kind: 'number', value: 7 },
+      }),
+    ]);
+    expect(targetPlayerMill.abilities[0]?.steps).toEqual([
+      expect.objectContaining({
+        kind: 'mill',
+        who: { kind: 'target_player' },
+        amount: { kind: 'reference_amount', raw: 'half their library, rounded up' },
+      }),
+    ]);
+    expect(targetPlayerRevealTop.abilities[0]?.steps).toEqual([
+      expect.objectContaining({
+        kind: 'reveal_top',
+        who: { kind: 'target_player' },
+        amount: { kind: 'number', value: 4 },
+      }),
+    ]);
+    expect(targetPlayerSearch.abilities[0]?.steps).toEqual([
+      expect.objectContaining({
+        kind: 'search_library',
+        who: { kind: 'target_player' },
+        criteria: { kind: 'raw', text: 'a card' },
+        destination: 'hand',
+      }),
+    ]);
+  });
+
+  it('lowers representative pass43 top rows without unknowns', () => {
+    const cases = [
+      ['Endling', 'This creature gets +1/-1 or -1/+1 until end of turn.'],
+      ['Inner Demon', 'all non-Demon creatures get -2/-2 until end of turn.'],
+      ['Dead of Winter', 'All nonsnow creatures get -X/-X until end of turn, where X is the number of snow permanents you control.'],
+      ['Raffine, Scheming Seer', 'target attacking creature connives X, where X is the number of attacking creatures.'],
+      ['Gurmag Rakshasa', 'target creature an opponent controls gets -2/-2 until end of turn and target creature you control gets +2/+2 until end of turn.'],
+      ['All-Seeing Arbiter', 'target creature an opponent controls gets -X/-0 until your next turn, where X is the number of different mana values among cards in your graveyard.'],
+      ['Echoing Echo', 'Target creature and all creatures that share a name with that creature gain echo {3} until the end of your next turn.'],
+      ['Fear of Forgetting Names', 'target creature loses its name.'],
+      ['Spymaster\'s Vault', 'Target creature you control connives X, where X is the number of creatures that died this turn.'],
+      ['Vodalian Mystic', 'Target instant or sorcery spell becomes the color of your choice.'],
+      ['Unlikely Alliance', 'Target nonattacking, nonblocking creature gets +0/+2 until end of turn.'],
+      ['Visions of Dread', 'Target opponent puts a creature card of their choice from their graveyard onto the battlefield under your control.'],
+      ['Cerebral Eruption', 'Target opponent reveals the top card of their library.'],
+      ['Arcum\'s Weathervane', 'Target snow land is no longer snow.'],
+      ['Thermal Flux', "Target snow permanent isn't snow until end of turn."],
+      ['Intimidation Campaign', 'Targeting opponents, anything they control, and/or cards in their graveyards is a crime.)'],
+    ] as const;
+
+    for (const [name, text] of cases) {
+      const ir = parseOracleTextToIR(text, name);
+      expect(collectUnknownSteps(ir), `${name}: ${text}`).toEqual([]);
+    }
+  });
+
+  it('parses pass43 top rows into typed steps where available', () => {
+    const ptChoice = parseOracleTextToIR(
+      'This creature gets +1/-1 or -1/+1 until end of turn.',
+      'Endling'
+    );
+    const nonDemonPt = parseOracleTextToIR(
+      'all non-Demon creatures get -2/-2 until end of turn.',
+      'Inner Demon'
+    );
+    const connive = parseOracleTextToIR(
+      'target attacking creature connives X, where X is the number of attacking creatures.',
+      'Raffine, Scheming Seer'
+    );
+    const opponentReanimate = parseOracleTextToIR(
+      'Target opponent puts a creature card of their choice from their graveyard onto the battlefield under your control.',
+      'Visions of Dread'
+    );
+    const opponentRevealTop = parseOracleTextToIR(
+      'Target opponent reveals the top card of their library.',
+      'Cerebral Eruption'
+    );
+
+    expect(collectUnknownSteps([ptChoice, nonDemonPt, connive, opponentReanimate, opponentRevealTop])).toEqual([]);
+    expect(ptChoice.abilities[0]?.steps?.[0]).toEqual(expect.objectContaining({
+      kind: 'choose_mode',
+      minModes: 1,
+      maxModes: 1,
+    }));
+    expect(nonDemonPt.abilities[0]?.steps).toEqual([
+      expect.objectContaining({
+        kind: 'modify_pt',
+        target: { kind: 'raw', text: 'all non-demon creatures' },
+        power: -2,
+        toughness: -2,
+      }),
+    ]);
+    expect(connive.abilities[0]?.steps).toEqual([
+      expect.objectContaining({
+        kind: 'connive',
+        target: { kind: 'raw', text: 'target attacking creature' },
+        amount: { kind: 'reference_amount', raw: 'X, where X is the number of attacking creatures' },
+      }),
+    ]);
+    expect(opponentReanimate.abilities[0]?.steps).toEqual([
+      expect.objectContaining({
+        kind: 'move_zone',
+        to: 'battlefield',
+        battlefieldController: { kind: 'you' },
+      }),
+    ]);
+    expect(opponentRevealTop.abilities[0]?.steps).toEqual([
+      expect.objectContaining({
+        kind: 'reveal_top',
+        who: { kind: 'target_opponent' },
+        amount: { kind: 'number', value: 1 },
+      }),
+    ]);
+  });
+
+  it('lowers representative pass44 contextual rows without unknowns', () => {
+    const cases = [
+      ['Indicate', 'Target permanent.'],
+      ['Auditore Ambush', 'Target player searches their library and/or graveyard for a card named Ezio, Blade of Vengeance, reveals it, and puts it into their hand.'],
+      ['Jund \'Em Out', 'Tarmogoyf.'],
+      ['Seasoned Weaponsmith', 'Tasty (This creature can be attacked directly.'],
+      ['Pyromancy 101', 'Teach {1}{R} (.'],
+      ['The Fact Checker', 'Tell them the name of that card.'],
+      ['The Fish Brewer', 'That ability triggers an additional time for each Fish tapped this way.'],
+      ['Arms Race', 'That artifact gains haste.'],
+      ['Jolene, the Plunder Queen', 'that attacking player creates a Treasure token.'],
+      ['Ellie, Brick Master', "that attacking player creates a tapped 1/1 black Fungus Zombie creature token named Cordyceps Infected that's attacking that opponent."],
+      ['Combat Calligrapher', "that attacking player creates a tapped 2/1 white and black Inkling creature token with flying that's attacking that opponent."],
+      ['Curse of Shallow Graves', 'that attacking player may create a tapped 2/2 black Zombie creature token.'],
+      ['Curse of Inertia', 'that attacking player may tap or untap target permanent of their choice.'],
+      ['Adventurer Beguiler', 'That card is now on an adventure for you.'],
+      ['Interpret the Signs', "Draw cards equal to that card's mana value."],
+      ['Caustic Bronco', "You lose life equal to that card's mana value if this creature isn't saddled."],
+      ['Talara\'s Bane', "You gain life equal to that creature card's toughness."],
+      ['Aisling Leprechaun', 'that creature becomes green.'],
+      ['You\'re in Command', 'That creature becomes your commander.'],
+      ['Coalstoke Gearhulk', 'That creature gains menace, deathtouch, and haste.'],
+      ['Yare', 'That creature can block up to two additional creatures this turn.'],
+      ['Master of the Wild Hunt', 'That creature deals damage equal to its power divided as its controller chooses among any number of those Wolves.'],
+      ['Master of the Wild Hunt', 'That creature deals damage equal to its power divided as you choose among any number of target creatures that player controls.'],
+      ['Somnophore', "That creature doesn't untap during its controller's untap step for as long as this creature remains on the battlefield."],
+      ['Neko-Te', "That creature doesn't untap during its controller's untap step for as long as this Equipment remains on the battlefield."],
+      ['Somnophore', "That creature doesn't untap during its controller's untap step for as long as you control this creature."],
+    ] as const;
+
+    for (const [name, text] of cases) {
+      const ir = parseOracleTextToIR(text, name);
+      expect(collectUnknownSteps(ir), `${name}: ${text}`).toEqual([]);
+    }
+  });
+
+  it('parses pass44 contextual rows into typed steps where available', () => {
+    const artifactHaste = parseOracleTextToIR('That artifact gains haste.', 'Arms Race');
+    const treasure = parseOracleTextToIR('that attacking player creates a Treasure token.', 'Jolene, the Plunder Queen');
+    const attackingInkling = parseOracleTextToIR("that attacking player creates a tapped 2/1 white and black Inkling creature token with flying that's attacking that opponent.", 'Combat Calligrapher');
+    const optionalZombie = parseOracleTextToIR('that attacking player may create a tapped 2/2 black Zombie creature token.', 'Curse of Shallow Graves');
+    const tapOrUntap = parseOracleTextToIR('that attacking player may tap or untap target permanent of their choice.', 'Curse of Inertia');
+
+    expect(collectUnknownSteps([artifactHaste, treasure, attackingInkling, optionalZombie, tapOrUntap])).toEqual([]);
+    expect(artifactHaste.abilities[0]?.steps).toEqual([
+      expect.objectContaining({
+        kind: 'grant_static_ability',
+        target: { kind: 'raw', text: 'that artifact' },
+        abilities: ['haste'],
+      }),
+    ]);
+    expect(treasure.abilities[0]?.steps).toEqual([
+      expect.objectContaining({
+        kind: 'create_token',
+        who: { kind: 'target_player' },
+        token: 'Treasure token',
+      }),
+    ]);
+    expect(optionalZombie.abilities[0]?.steps).toEqual([
+      expect.objectContaining({
+        kind: 'create_token',
+        who: { kind: 'target_player' },
+        token: '2/2 black Zombie creature token',
+        entersTapped: true,
+        optional: true,
+      }),
+    ]);
+    expect(attackingInkling.abilities[0]?.steps).toEqual([
+      expect.objectContaining({
+        kind: 'create_token',
+        who: { kind: 'target_player' },
+        token: '2/1 white and black Inkling creature token with flying',
+        entersTapped: true,
+        attacking: 'defending_player',
+      }),
+    ]);
+    expect(tapOrUntap.abilities[0]?.steps).toEqual([
+      expect.objectContaining({
+        kind: 'tap_or_untap',
+        target: { kind: 'raw', text: 'target permanent of their choice' },
+        optional: true,
+      }),
+    ]);
+  });
+
+  it('lowers temporary damage redirection templates into typed metadata', () => {
+    const nomads = parseOracleTextToIR(
+      'All combat damage that would be dealt to you by unblocked creatures this turn is dealt to this creature instead.',
+      "Nomads' Assembly"
+    );
+    const diverting = parseOracleTextToIR(
+      'All damage that would be dealt this turn to target creature you control by a source of your choice is dealt to another target creature instead.',
+      'Diverting Defense'
+    );
+    const deflecting = parseOracleTextToIR(
+      "All damage that would be dealt this turn by target sorcery spell is dealt to that spell's controller instead.",
+      'Deflecting Palm for Sorceries'
+    );
+
+    expect(nomads.abilities[0]?.steps).toEqual([
+      expect.objectContaining({
+        kind: 'grant_temporary_ability',
+        target: { kind: 'raw', text: 'you' },
+        effectText: ['combat damage that would be dealt by unblocked creatures is dealt to this creature instead'],
+        duration: 'this_turn',
+      }),
+    ]);
+    expect(diverting.abilities[0]?.steps).toEqual([
+      expect.objectContaining({
+        kind: 'grant_temporary_ability',
+        target: { kind: 'raw', text: 'target creature you control' },
+        effectText: ['damage that would be dealt by a source of your choice is dealt to another target creature instead'],
+        duration: 'this_turn',
+      }),
+    ]);
+    expect(deflecting.abilities[0]?.steps).toEqual([
+      expect.objectContaining({
+        kind: 'grant_temporary_ability',
+        target: { kind: 'raw', text: 'target sorcery spell' },
+        effectText: ["damage it would deal is dealt to that spell's controller instead"],
+        duration: 'this_turn',
+      }),
+    ]);
+  });
+
+  it('retains aggressive as a keyword and lowers after-draft and after-die-roll text to metadata', () => {
+    const aggressive = parseOracleTextToIR(
+      'Aggressive (During your turn, there is an additional combat phase after the first, and only creatures with aggressive may attack during it.)',
+      'Aggressive Raider'
+    );
+    const draftFollowup = parseOracleTextToIR(
+      'After you draft this card, you may add a booster pack to the draft.',
+      'Booster Tutor Draft'
+    );
+    const dieFollowup = parseOracleTextToIR(
+      'After you roll a die, you may pay 1 life.',
+      'Wyll of Fortune'
+    );
+    const addOrSubtract = parseOracleTextToIR(
+      "Add or subtract 1 from target creature's power, target player's life total, or target die roll's result.",
+      'Crow Storm Counter'
+    );
+
+    expect(aggressive.abilities).toEqual([]);
+    expect(aggressive.keywords).toContain('aggressive');
+    expect(draftFollowup.abilities[0]?.steps).toEqual([
+      expect.objectContaining({
+        kind: 'grant_static_ability',
+        target: { kind: 'raw', text: 'this card' },
+        effectText: ['After you draft this card, you may add a booster pack to the draft'],
+      }),
+    ]);
+    expect(dieFollowup.abilities[0]?.steps).toEqual([
+      expect.objectContaining({
+        kind: 'grant_static_ability',
+        target: { kind: 'raw', text: 'die roll' },
+        effectText: ['After you roll a die, you may pay 1 life'],
+      }),
+    ]);
+    expect(addOrSubtract.abilities[0]?.steps).toEqual([
+      expect.objectContaining({
+        kind: 'grant_static_ability',
+        target: { kind: 'raw', text: "target creature's power, target player's life total, or target die roll's result" },
+        effectText: ['add or subtract 1'],
       }),
     ]);
   });

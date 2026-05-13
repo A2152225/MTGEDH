@@ -623,6 +623,8 @@ export function resolvePlayers(
   switch (selector.kind) {
     case 'you':
       return hasValidController ? [controllerId] : [];
+    case 'any_player':
+      return state.players.map(p => p.id);
     case 'each_player':
       return state.players.map(p => p.id);
     case 'each_opponent':

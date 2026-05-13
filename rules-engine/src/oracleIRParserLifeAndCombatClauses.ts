@@ -591,7 +591,7 @@ export function tryParseLifeAndCombatClause(args: {
     }
 
     const tapTarget = clause.match(
-      /^(?:or\s+)?(?:for\s+each\s+opponent,\s+)?tap\s+((?:(?:all|any\s+number\s+of\s+untapped|another\s+target|(?:up\s+to\s+)?x\s+target|(?:(?:up\s+to\s+)?(?:one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+)?target|that|those|this|enchanted|equipped)\s+.+|it|them))$/i
+      /^(?:or\s+)?(?:for\s+each\s+opponent,\s+)?tap\s+((?:(?:all|any\s+number\s+of\s+untapped|another\s+target|one\s+or\s+two\s+target|(?:up\s+to\s+)?x\s+target|(?:(?:up\s+to\s+)?(?:one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+)?target|that|those|this|enchanted|equipped)\s+.+|it|them))$/i
     );
     if (tapTarget) {
       return withMeta({

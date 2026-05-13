@@ -15,6 +15,7 @@ const STATIC_KEYWORD_ABILITIES = new Set([
   'shroud',
   'hexproof',
   'indestructible',
+  'defender',
   'fear',
   'intimidate',
   'shadow',
@@ -24,14 +25,29 @@ const STATIC_KEYWORD_ABILITIES = new Set([
   'haste',
   'flash',
   'ward',
+  'disguise',
+  'daybound',
   'myriad',
   'infect',
   'convoke',
+  'improvise',
+  'flanking',
+  'exalted',
+  'suspend',
+  'umbra armor',
+  'provoke',
+  'demonstrate',
+  'affinity for artifacts',
+  'afflict 3',
+  'absorb 1',
+  'frenzy 1',
+  'poisonous 1',
   'plainswalk',
   'islandwalk',
   'swampwalk',
   'mountainwalk',
   'forestwalk',
+  'desertwalk',
   'annihilator 1',
   'annihilator 2',
   'annihilator 3',
@@ -96,16 +112,16 @@ export function tryParseStaticAbilityGrantClause(args: {
   const { clause, rawClause, withMeta } = args;
   const normalized = normalizeOracleText(clause).replace(/^[\u2022â€¢]\s+/, '').replace(/[.]+$/g, '').trim();
   if (!normalized) return null;
-  if (/\buntil\s+end\s+of\s+turn\b/i.test(normalized)) return null;
+  if (/\buntil\s+end\s+of\s+turn\b/i.test(normalized) && !/"[^"]*\buntil\s+end\s+of\s+turn\b[^"]*"/i.test(normalized)) return null;
   if (/^during your turn,\s+/i.test(normalized) && !/^during your turn,\s+you may\s+(?:cast|play)\b/i.test(normalized)) return null;
   if (/^(?:plainswalk|islandwalk|swampwalk|mountainwalk|forestwalk)\s*\(/i.test(normalized)) return null;
 
-  const staticGenericPtMatch = normalized.match(/^(.+?\b(?:you control|opponents control|opponent controls|enchanted creature|equipped creature|this creature|this permanent|it|they))\s+gets?\s+([+-]?(?:\d+|x))\s*\/\s*([+-]?(?:\d+|x))(?:\s+(.+))?$/i);
+  const staticGenericPtMatch = normalized.match(/^(.+?\b(?:you control|opponents control|opponent controls|enchanted creature|equipped creature|this creature|this permanent|it|they))\s+gets?\s+([+-]?(?:\d+|x))\s*\/\s*([+-]?(?:\d+|x))(?:\s*,?\s*(.+))?$/i);
   if (staticGenericPtMatch) {
     const power = parseSignedInt(staticGenericPtMatch[2]);
     const toughness = parseSignedInt(staticGenericPtMatch[3]);
     const targetText = String(staticGenericPtMatch[1] || '').trim();
-    const tail = String(staticGenericPtMatch[4] || '').trim();
+    const tail = String(staticGenericPtMatch[4] || '').replace(/^,\s*/, '').trim();
     const dynamicTail = /^(?:for\s+each|where\b|as\s+long\s+as\b)/i.test(tail);
     if ((power === undefined || toughness === undefined) && !dynamicTail) return null;
     return withMeta({
@@ -170,11 +186,23 @@ export function tryParseStaticAbilityGrantClause(args: {
     });
   }
 
-  const staticCastAsThoughFlashMatch = normalized.match(/^(?:you\s+may\s+)?cast\s+(.+?)\s+spells\s+as\s+though\s+they\s+had\s+flash$/i);
+  const staticCastAsThoughFlashMatch = normalized.match(/^(?:(you|any\s+player)\s+may\s+)?cast\s+(.+?)\s+spells\s+as\s+though\s+they\s+had\s+flash$/i);
   if (staticCastAsThoughFlashMatch) {
+    const casterText = String(staticCastAsThoughFlashMatch[1] || 'you').trim();
+    const spellText = String(staticCastAsThoughFlashMatch[2] || '').trim();
     return withMeta({
       kind: 'grant_static_ability',
-      target: parseObjectSelector(`you casting ${String(staticCastAsThoughFlashMatch[1] || '').trim()} spells`),
+      target: parseObjectSelector(`${casterText} casting ${spellText} spells`),
+      effectText: ['may cast as though they had flash'],
+      duration: 'static',
+      raw: rawClause,
+    });
+  }
+
+  if (/^any\s+player\s+may\s+cast\s+spells\s+as\s+though\s+they\s+had\s+flash$/i.test(normalized)) {
+    return withMeta({
+      kind: 'grant_static_ability',
+      target: parseObjectSelector('any player casting spells'),
       effectText: ['may cast as though they had flash'],
       duration: 'static',
       raw: rawClause,
@@ -246,20 +274,21 @@ export function tryParseStaticAbilityGrantClause(args: {
     });
   }
 
-  if (/^creatures\s+entering\s+don't\s+cause\s+abilities\s+to\s+trigger$/i.test(normalized)) {
+  if (/^(?:artifacts\s+and\s+)?creatures\s+entering\s+don't\s+cause\s+abilities\s+to\s+trigger$/i.test(normalized)) {
     return withMeta({
       kind: 'grant_static_ability',
-      target: parseObjectSelector('creatures entering'),
+      target: parseObjectSelector(/^artifacts/i.test(normalized) ? 'artifacts and creatures entering' : 'creatures entering'),
       effectText: ["don't cause abilities to trigger"],
       duration: 'static',
       raw: rawClause,
     });
   }
 
-  if (/^creatures\s+destroyed\s+this\s+way\s+can't\s+be\s+regenerated$/i.test(normalized)) {
+  const destroyedThisWayCantRegenerateMatch = normalized.match(/^(.+?)\s+destroyed\s+this\s+way\s+can't\s+be\s+regenerated$/i);
+  if (destroyedThisWayCantRegenerateMatch) {
     return withMeta({
       kind: 'grant_static_ability',
-      target: parseObjectSelector('creatures destroyed this way'),
+      target: parseObjectSelector(`${String(destroyedThisWayCantRegenerateMatch[1] || '').trim()} destroyed this way`),
       effectText: ["can't be regenerated"],
       duration: 'static',
       raw: rawClause,
@@ -277,6 +306,29 @@ export function tryParseStaticAbilityGrantClause(args: {
       kind: 'grant_static_ability',
       target: parseObjectSelector(String(quotedGrantMatch[1] || '').trim()),
       effectText: [String(quotedGrantMatch[2] || '').trim()],
+      duration: 'static',
+      raw: rawClause,
+    });
+  }
+
+  const partialQuotedGrantMatch = normalized.match(/^(.+?)\s+have\s+deathtouch\s+and\s+"(.+)$/i);
+  if (partialQuotedGrantMatch) {
+    return withMeta({
+      kind: 'grant_static_ability',
+      target: parseObjectSelector(String(partialQuotedGrantMatch[1] || '').trim()),
+      abilities: ['deathtouch'],
+      effectText: [String(partialQuotedGrantMatch[2] || '').trim()],
+      duration: 'static',
+      raw: rawClause,
+    });
+  }
+
+  const partialGenericQuotedGrantMatch = normalized.match(/^(.+?)\s+(?:has|have)\s*,?\s+"(.+)$/i);
+  if (partialGenericQuotedGrantMatch) {
+    return withMeta({
+      kind: 'grant_static_ability',
+      target: parseObjectSelector(String(partialGenericQuotedGrantMatch[1] || '').trim()),
+      effectText: [String(partialGenericQuotedGrantMatch[2] || '').trim()],
       duration: 'static',
       raw: rawClause,
     });
@@ -333,7 +385,7 @@ export function tryParseStaticAbilityGrantClause(args: {
   }
 
   const staticTeamPtMatch = normalized.match(
-    /^((?:(?:all|other)\s+)?(?:non[- ]?[a-z]+\s+)?(?:[a-z]+\s+)?creatures\s+(?:you\s+control|your\s+opponents\s+control)(?:\s+that\s+are\s+[a-z ]+)?(?:\s+with\s+[a-z ]+)?(?:\s+of\s+the\s+chosen\s+(?:type|color))?|all\s+creatures(?:\s+of\s+(?:that|the\s+chosen)\s+type)?|(?:each\s+creature|creatures|[a-z]+\s+creatures|other\s+[a-z]+\s+creatures)(?:\s+with\s+[a-z ]+)?|creatures\s+of\s+the\s+chosen\s+color)\s+get\s+([+-]?(?:\d+|x))\s*\/\s*([+-]?(?:\d+|x))(?:\s*,?\s*(.+))?$/i
+    /^((?:(?:all|other)\s+)?(?:non[- ]?[a-z]+\s+)?(?:[a-z]+\s+)?creatures\s+(?:you\s+control|your\s+opponents\s+control)(?:\s+that\s+are\s+[a-z ]+)?(?:\s+with\s+[a-z ]+)?(?:\s+of\s+the\s+chosen\s+(?:type|color))?|all\s+creatures(?:\s+of\s+(?:that|the\s+chosen)\s+type)?|all\s+[a-z][a-z -]+\s+creatures|all\s+[a-z][a-z -]+s|(?:each\s+creature|creatures|[a-z]+\s+creatures|other\s+[a-z]+\s+creatures)(?:\s+with\s+[a-z ]+)?|creatures\s+of\s+the\s+chosen\s+color)\s+get\s+([+-]?(?:\d+|x))\s*\/\s*([+-]?(?:\d+|x))(?:\s*,?\s*(.+))?$/i
   );
   if (staticTeamPtMatch) {
     const targetText = String(staticTeamPtMatch[1] || '').trim();
@@ -462,7 +514,7 @@ export function tryParseStaticAbilityGrantClause(args: {
     });
   }
 
-  const staticCharacteristicMatch = normalized.match(/^(.+?)\s+are\s+(black|legendary)$/i);
+  const staticCharacteristicMatch = normalized.match(/^(.+?)\s+are\s+(black|legendary|colorless(?:\s+sources\s+of\s+damage)?|no\s+longer\s+snow)$/i);
   if (staticCharacteristicMatch) {
     return withMeta({
       kind: 'grant_static_ability',
@@ -471,6 +523,34 @@ export function tryParseStaticAbilityGrantClause(args: {
       duration: 'static',
       raw: rawClause,
     });
+  }
+
+  const staticTypeRenameMatch = normalized.match(/^(all\s+[a-z][a-z -]+s)\s+are\s+([a-z][a-z -]+s)$/i);
+  if (staticTypeRenameMatch) {
+    return withMeta({
+      kind: 'grant_static_ability',
+      target: parseObjectSelector(String(staticTypeRenameMatch[1] || '').trim()),
+      effectText: [`are ${String(staticTypeRenameMatch[2] || '').trim()}`],
+      duration: 'static',
+      raw: rawClause,
+    });
+  }
+
+  const staticKeywordGrantMatch = normalized.match(/^(.+?)\s+(?:has|have)\s+(.+)$/i);
+  if (staticKeywordGrantMatch && !/"/.test(normalized)) {
+    const targetText = String(staticKeywordGrantMatch[1] || '').trim();
+    const abilityText = String(staticKeywordGrantMatch[2] || '').trim();
+    const abilities = parseKeywordAbilityList(abilityText);
+    const looksLikeGlobalGrant = /^(?:all|each|artifact|creature|sliver|auras?|basic\s+lands?|commanders?|commander\s+creatures?|[a-z][a-z -]+\s+spells?|[a-z][a-z -]+\s+creatures?)/i.test(targetText);
+    if (abilities.length > 0 || looksLikeGlobalGrant) {
+      return withMeta({
+        kind: 'grant_static_ability',
+        target: parseObjectSelector(targetText),
+        ...(abilities.length > 0 ? { abilities } : { effectText: [abilityText] }),
+        duration: 'static',
+        raw: rawClause,
+      });
+    }
   }
 
   const staticProtectionMatch = normalized.match(/^(.+?)\s+have\s+(protection\s+from\s+.+)$/i);
@@ -490,6 +570,27 @@ export function tryParseStaticAbilityGrantClause(args: {
       kind: 'grant_static_ability',
       target: parseObjectSelector(String(staticAsThoughSourceHadMatch[1] || '').trim()),
       effectText: [`is dealt as though its source had ${String(staticAsThoughSourceHadMatch[2] || '').trim()}`],
+      duration: 'static',
+      raw: rawClause,
+    });
+  }
+
+  const staticAllAbleBlockMatch = normalized.match(
+    /^all\s+creatures(?:\s+with\s+(.+?))?\s+able\s+to\s+block\s+(this\s+creature|this\s+permanent|~|equipped\s+creature|enchanted\s+creature|this\s+creature\s+or\s+enchanted\s+creature)\s+do\s+so$/i
+  );
+  if (staticAllAbleBlockMatch) {
+    const qualifier = String(staticAllAbleBlockMatch[1] || '').trim();
+    const effectText = [
+      'all creatures',
+      qualifier ? `with ${qualifier}` : '',
+      'able to block it do so',
+    ]
+      .filter(Boolean)
+      .join(' ');
+    return withMeta({
+      kind: 'grant_static_ability',
+      target: parseObjectSelector(String(staticAllAbleBlockMatch[2] || '').trim()),
+      effectText: [effectText],
       duration: 'static',
       raw: rawClause,
     });
@@ -532,7 +633,7 @@ export function tryParseStaticAbilityGrantClause(args: {
     });
   }
 
-  const staticKeywordConditionalMatch = normalized.match(/^(.+?)\s+has\s+(.+?)\s+as\s+long\s+as\s+(.+)$/i);
+  const staticKeywordConditionalMatch = normalized.match(/^(.+?)\s+(?:has|have|gains?)\s+(.+?)\s+as\s+long\s+as\s+(.+)$/i);
   if (staticKeywordConditionalMatch) {
     const abilityText = String(staticKeywordConditionalMatch[2] || '').trim();
     const abilities = parseKeywordAbilityList(abilityText);

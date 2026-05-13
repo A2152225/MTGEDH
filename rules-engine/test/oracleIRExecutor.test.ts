@@ -957,6 +957,142 @@ describe('Oracle IR Executor', () => {
     expect(result.skippedSteps).toHaveLength(0);
   });
 
+  it('applies modify_pt to all attacking creatures with flanking', () => {
+    const ir = parseOracleTextToIR(
+      'All attacking creatures with flanking get +1/+1 until end of turn.',
+      "Telim'Tor"
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const result = applyOracleIRStepsToGameState(
+      makeState({
+        battlefield: [
+          {
+            id: 'telim-tor',
+            ownerId: 'p1',
+            owner: 'p1',
+            controller: 'p1',
+            power: 2,
+            toughness: 2,
+            basePower: 2,
+            baseToughness: 2,
+            attacking: 'p2',
+            card: { id: 'telim-tor-card', name: "Telim'Tor", type_line: 'Legendary Creature - Human', power: '2', toughness: '2', oracle_text: 'Flanking', keywords: ['Flanking'] },
+          } as any,
+          {
+            id: 'flanking-ally',
+            ownerId: 'p1',
+            owner: 'p1',
+            controller: 'p1',
+            power: 3,
+            toughness: 3,
+            basePower: 3,
+            baseToughness: 3,
+            attacking: 'p2',
+            card: { id: 'flanking-ally-card', name: "Suq'Ata Lancer", type_line: 'Creature - Human Knight', power: '3', toughness: '3', oracle_text: 'Flanking', keywords: ['Flanking'] },
+          } as any,
+          {
+            id: 'nonflanking-attacker',
+            ownerId: 'p1',
+            owner: 'p1',
+            controller: 'p1',
+            power: 2,
+            toughness: 2,
+            basePower: 2,
+            baseToughness: 2,
+            attacking: 'p2',
+            card: { id: 'nonflanking-card', name: 'Goblin Raider', type_line: 'Creature - Goblin', power: '2', toughness: '2' },
+          } as any,
+          {
+            id: 'flanking-defender',
+            ownerId: 'p1',
+            owner: 'p1',
+            controller: 'p1',
+            power: 2,
+            toughness: 2,
+            basePower: 2,
+            baseToughness: 2,
+            card: { id: 'flanking-defender-card', name: 'Standing Knight', type_line: 'Creature - Human Knight', power: '2', toughness: '2', oracle_text: 'Flanking', keywords: ['Flanking'] },
+          } as any,
+        ],
+      } as any),
+      steps,
+      {
+        controllerId: 'p1',
+        sourceId: 'telim-tor',
+        sourceName: "Telim'Tor",
+      }
+    );
+
+    const telimTor = (result.state.battlefield as any[]).find((perm: any) => perm.id === 'telim-tor');
+    const flankingAlly = (result.state.battlefield as any[]).find((perm: any) => perm.id === 'flanking-ally');
+    const nonflankingAttacker = (result.state.battlefield as any[]).find((perm: any) => perm.id === 'nonflanking-attacker');
+    const flankingDefender = (result.state.battlefield as any[]).find((perm: any) => perm.id === 'flanking-defender');
+
+    const telimTorModifier = (Array.isArray(telimTor?.modifiers) ? telimTor.modifiers : []).find((modifier: any) => modifier?.type === 'powerToughness');
+    const flankingAllyModifier = (Array.isArray(flankingAlly?.modifiers) ? flankingAlly.modifiers : []).find((modifier: any) => modifier?.type === 'powerToughness');
+
+    expect(telimTorModifier?.power).toBe(1);
+    expect(telimTorModifier?.toughness).toBe(1);
+    expect(flankingAllyModifier?.power).toBe(1);
+    expect(flankingAllyModifier?.toughness).toBe(1);
+    expect(Array.isArray(nonflankingAttacker?.modifiers) ? nonflankingAttacker.modifiers : []).toHaveLength(0);
+    expect(Array.isArray(flankingDefender?.modifiers) ? flankingDefender.modifiers : []).toHaveLength(0);
+  });
+
+  it('applies static subtype grants to matching Sliver creatures', () => {
+    const ir = parseOracleTextToIR(
+      'All Sliver creatures get +1/+1. All Sliver creatures have flanking.',
+      'Sliver Static Cluster'
+    );
+    const steps = ir.abilities.flatMap(ability => ability.steps);
+
+    const result = applyOracleIRStepsToGameState(
+      makeState({
+        battlefield: [
+          {
+            id: 'sliver-a',
+            ownerId: 'p1',
+            owner: 'p1',
+            controller: 'p1',
+            power: 1,
+            toughness: 1,
+            basePower: 1,
+            baseToughness: 1,
+            card: { id: 'sliver-card', name: 'Metallic Sliver', type_line: 'Artifact Creature - Sliver', power: '1', toughness: '1' },
+          } as any,
+          {
+            id: 'bear-a',
+            ownerId: 'p1',
+            owner: 'p1',
+            controller: 'p1',
+            power: 2,
+            toughness: 2,
+            basePower: 2,
+            baseToughness: 2,
+            card: { id: 'bear-card', name: 'Grizzly Bears', type_line: 'Creature - Bear', power: '2', toughness: '2' },
+          } as any,
+        ],
+      } as any),
+      steps,
+      {
+        controllerId: 'p1',
+        sourceId: 'sliver-source',
+        sourceName: 'Sliver Static Cluster',
+      }
+    );
+
+    const sliver = (result.state.battlefield as any[]).find((perm: any) => perm.id === 'sliver-a');
+    const bear = (result.state.battlefield as any[]).find((perm: any) => perm.id === 'bear-a');
+    const sliverModifier = (Array.isArray(sliver?.modifiers) ? sliver.modifiers : []).find((modifier: any) => modifier?.type === 'powerToughness');
+
+    expect(sliverModifier?.power).toBe(1);
+    expect(sliverModifier?.toughness).toBe(1);
+    expect(sliver?.grantedAbilities).toContain('flanking');
+    expect(Array.isArray(bear?.modifiers) ? bear.modifiers : []).toHaveLength(0);
+    expect(Array.isArray(bear?.grantedAbilities) ? bear.grantedAbilities : []).toHaveLength(0);
+  });
+
   it('does not apply Myr Battlesphere conditional followup when no untapped Myr are tapped', () => {
     const ir = parseOracleTextToIR(
       'Whenever Myr Battlesphere attacks, you may tap X untapped Myr you control. If you do, Myr Battlesphere gets +X/+0 until end of turn and deals X damage to defending player.',
@@ -54732,6 +54868,142 @@ This creature has protection from each of the exiled card's card types. (Artifac
 
     expect(validateDeclareBlockers(state, { type: 'declareBlockers', playerId: 'p2', blockers: [{ blockerId: 'blocker-a', attackerId: 'lure-attacker' }] } as any).legal).toBe(false);
     expect(validateDeclareBlockers(state, { type: 'declareBlockers', playerId: 'p2', blockers: [{ blockerId: 'blocker-a', attackerId: 'lure-attacker' }, { blockerId: 'blocker-b', attackerId: 'lure-attacker' }] } as any).legal).toBe(true);
+  });
+
+  it('requires all able blockers to block an equipped attacker', () => {
+    const state = makeState({
+      step: 'DECLARE_BLOCKERS' as any,
+      combat: { attackers: [{ cardId: 'equipped-attacker', defendingPlayerId: 'p2' }] } as any,
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [], hand: [], graveyard: [], exile: [] } as any,
+        { id: 'p2', name: 'P2', seat: 1, life: 40, library: [], hand: [], graveyard: [], exile: [] } as any,
+      ],
+      battlefield: [
+        {
+          id: 'equipped-attacker',
+          controller: 'p1',
+          owner: 'p1',
+          tapped: true,
+          attachments: ['nemesis-mask'],
+          attachedEquipment: ['nemesis-mask'],
+          isEquipped: true,
+          card: { id: 'equipped-attacker-card', name: 'Masked Bear', type_line: 'Creature - Bear', oracle_text: '' },
+        } as any,
+        {
+          id: 'nemesis-mask',
+          controller: 'p1',
+          owner: 'p1',
+          attachedTo: 'equipped-attacker',
+          card: { id: 'nemesis-mask-card', name: 'Nemesis Mask', type_line: 'Artifact - Equipment', oracle_text: 'All creatures able to block equipped creature do so.' },
+        } as any,
+        { id: 'blocker-a', controller: 'p2', owner: 'p2', tapped: false, card: { id: 'blocker-a-card', name: 'Blocker A', type_line: 'Creature - Soldier' } } as any,
+        { id: 'blocker-b', controller: 'p2', owner: 'p2', tapped: false, card: { id: 'blocker-b-card', name: 'Blocker B', type_line: 'Creature - Soldier' } } as any,
+      ],
+    });
+
+    expect(validateDeclareBlockers(state, { type: 'declareBlockers', playerId: 'p2', blockers: [{ blockerId: 'blocker-a', attackerId: 'equipped-attacker' }] } as any).legal).toBe(false);
+    expect(validateDeclareBlockers(state, { type: 'declareBlockers', playerId: 'p2', blockers: [{ blockerId: 'blocker-a', attackerId: 'equipped-attacker' }, { blockerId: 'blocker-b', attackerId: 'equipped-attacker' }] } as any).legal).toBe(true);
+  });
+
+  it('requires all able blockers to block an enchanted attacker', () => {
+    const state = makeState({
+      step: 'DECLARE_BLOCKERS' as any,
+      combat: { attackers: [{ cardId: 'enchanted-attacker', defendingPlayerId: 'p2' }] } as any,
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [], hand: [], graveyard: [], exile: [] } as any,
+        { id: 'p2', name: 'P2', seat: 1, life: 40, library: [], hand: [], graveyard: [], exile: [] } as any,
+      ],
+      battlefield: [
+        {
+          id: 'enchanted-attacker',
+          controller: 'p1',
+          owner: 'p1',
+          tapped: true,
+          attachments: ['noble-quarry'],
+          card: { id: 'enchanted-attacker-card', name: 'Blessed Bear', type_line: 'Creature - Bear', oracle_text: '' },
+        } as any,
+        {
+          id: 'noble-quarry',
+          controller: 'p1',
+          owner: 'p1',
+          attachedTo: 'enchanted-attacker',
+          card: { id: 'noble-quarry-card', name: 'Noble Quarry', type_line: 'Enchantment Creature - Unicorn', oracle_text: 'All creatures able to block this creature or enchanted creature do so.' },
+        } as any,
+        { id: 'blocker-a', controller: 'p2', owner: 'p2', tapped: false, card: { id: 'blocker-a-card', name: 'Blocker A', type_line: 'Creature - Soldier' } } as any,
+        { id: 'blocker-b', controller: 'p2', owner: 'p2', tapped: false, card: { id: 'blocker-b-card', name: 'Blocker B', type_line: 'Creature - Soldier' } } as any,
+      ],
+    });
+
+    expect(validateDeclareBlockers(state, { type: 'declareBlockers', playerId: 'p2', blockers: [{ blockerId: 'blocker-a', attackerId: 'enchanted-attacker' }] } as any).legal).toBe(false);
+    expect(validateDeclareBlockers(state, { type: 'declareBlockers', playerId: 'p2', blockers: [{ blockerId: 'blocker-a', attackerId: 'enchanted-attacker' }, { blockerId: 'blocker-b', attackerId: 'enchanted-attacker' }] } as any).legal).toBe(true);
+  });
+
+  it('requires only keyword-qualified blockers when lure text names an ability', () => {
+    const state = makeState({
+      step: 'DECLARE_BLOCKERS' as any,
+      combat: { attackers: [{ cardId: 'piper-attacker', defendingPlayerId: 'p2' }] } as any,
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [], hand: [], graveyard: [], exile: [] } as any,
+        { id: 'p2', name: 'P2', seat: 1, life: 40, library: [], hand: [], graveyard: [], exile: [] } as any,
+      ],
+      battlefield: [
+        {
+          id: 'piper-attacker',
+          controller: 'p1',
+          owner: 'p1',
+          tapped: true,
+          card: { id: 'piper-attacker-card', name: 'Talruum Piper', type_line: 'Creature - Human', oracle_text: 'All creatures with flying able to block this creature do so.' },
+        } as any,
+        { id: 'flying-blocker', controller: 'p2', owner: 'p2', tapped: false, card: { id: 'flying-blocker-card', name: 'Drake', type_line: 'Creature - Drake', oracle_text: 'Flying', keywords: ['Flying'] } } as any,
+        { id: 'ground-blocker', controller: 'p2', owner: 'p2', tapped: false, card: { id: 'ground-blocker-card', name: 'Bear', type_line: 'Creature - Bear' } } as any,
+      ],
+    });
+
+    expect(validateDeclareBlockers(state, { type: 'declareBlockers', playerId: 'p2', blockers: [{ blockerId: 'ground-blocker', attackerId: 'piper-attacker' }] } as any).legal).toBe(false);
+    expect(validateDeclareBlockers(state, { type: 'declareBlockers', playerId: 'p2', blockers: [{ blockerId: 'flying-blocker', attackerId: 'piper-attacker' }] } as any).legal).toBe(true);
+  });
+
+  it('applies force_block to all able blockers for the chosen attacker this turn', () => {
+    const ir = parseOracleTextToIR('All creatures your opponents control able to block that creature this turn do so.', 'You Look Upon the Tarrasque');
+    const steps = ir.abilities[0]?.steps ?? [];
+    const forceBlock = steps.find((step: any) => step.kind === 'force_block') as any;
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [], hand: [], graveyard: [], exile: [] } as any,
+        { id: 'p2', name: 'P2', seat: 1, life: 40, library: [], hand: [], graveyard: [], exile: [] } as any,
+      ],
+      battlefield: [
+        {
+          id: 'tarrasque-target',
+          controller: 'p1',
+          owner: 'p1',
+          tapped: true,
+          card: { id: 'tarrasque-target-card', name: 'Target Bear', type_line: 'Creature - Bear', oracle_text: '' },
+        } as any,
+        { id: 'blocker-a', controller: 'p2', owner: 'p2', tapped: false, card: { id: 'blocker-a-card', name: 'Blocker A', type_line: 'Creature - Soldier' } } as any,
+        { id: 'blocker-b', controller: 'p2', owner: 'p2', tapped: false, card: { id: 'blocker-b-card', name: 'Blocker B', type_line: 'Creature - Soldier' } } as any,
+      ],
+    });
+
+    const resolved = applyOracleIRStepsToGameState(start, [forceBlock], {
+      controllerId: 'p1',
+      sourceId: 'tarrasque-source',
+      sourceName: 'You Look Upon the Tarrasque',
+      targetCreatureId: 'tarrasque-target',
+    });
+
+    const markedAttacker = resolved.state.battlefield.find((perm: any) => perm.id === 'tarrasque-target') as any;
+    expect(markedAttacker?.temporaryEffects?.some((effect: any) => String(effect?.description || '').includes('all creatures able to block this creature do so'))).toBe(true);
+
+    const combatState = {
+      ...resolved.state,
+      step: 'DECLARE_BLOCKERS' as any,
+      combat: { attackers: [{ cardId: 'tarrasque-target', defendingPlayerId: 'p2' }] } as any,
+    } as any;
+
+    expect(validateDeclareBlockers(combatState, { type: 'declareBlockers', playerId: 'p2', blockers: [{ blockerId: 'blocker-a', attackerId: 'tarrasque-target' }] } as any).legal).toBe(false);
+    expect(validateDeclareBlockers(combatState, { type: 'declareBlockers', playerId: 'p2', blockers: [{ blockerId: 'blocker-a', attackerId: 'tarrasque-target' }, { blockerId: 'blocker-b', attackerId: 'tarrasque-target' }] } as any).legal).toBe(true);
   });
 
 });

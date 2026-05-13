@@ -1,5 +1,6 @@
 const ORACLE_KEYWORDS = [
   'absorb', 'affinity', 'afflict', 'afterlife', 'aftermath', 'amplify', 'annihilator',
+  'aggressive',
   'ascend',
   'backup', 'banding', 'bargain', 'battalion', 'battle cry', 'bestow', 'blitz', 'bloodthirst',
   'bushido', 'buyback', 'cascade', 'casualty', 'celebration', 'champion', 'changeling',

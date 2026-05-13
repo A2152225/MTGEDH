@@ -1,0 +1,4522 @@
+{
+  "meta": {
+    "generatedAt": "2026-05-13T08:29:52.862Z",
+    "oraclePath": "D:\\Git\\MTGEDH\\oracle-cards.json",
+    "atomicPath": "D:\\Git\\MTGEDH\\AtomicCards.json",
+    "includeOracle": true,
+    "includeAtomic": false,
+    "maxExamples": 5,
+    "top": 250
+  },
+  "stats": {
+    "seenUniqueCards": 29800,
+    "scannedOracleCards": 29800,
+    "scannedAtomicCards": 0,
+    "skippedDuplicateOracleId": 0,
+    "cardsWithAnyGap": 1833
+  },
+  "topGaps": [
+    {
+      "rank": 1,
+      "key": "unknown-step|unknown|this creature gets +1/-1 or -1/+1 until end of turn",
+      "raw": "This creature gets +1/-1 or -1/+1 until end of turn",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 3,
+      "exampleCards": [
+        "Endling",
+        "Shorecrasher Elemental",
+        "Brightling"
+      ],
+      "exampleClauses": [
+        "This creature gets +1/-1 or -1/+1 until end of turn"
+      ],
+      "sources": {
+        "oracle-cards": 3,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 2,
+      "key": "unknown-step|unknown|all non-demon creatures get -2/-2 until end of turn",
+      "raw": "all non-Demon creatures get -2/-2 until end of turn",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Inner Demon"
+      ],
+      "exampleClauses": [
+        "all non-Demon creatures get -2/-2 until end of turn"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 3,
+      "key": "unknown-step|unknown|all non-zombie creatures get -1/-1 until end of turn",
+      "raw": "all non-Zombie creatures get -1/-1 until end of turn",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Noxious Ghoul"
+      ],
+      "exampleClauses": [
+        "all non-Zombie creatures get -1/-1 until end of turn"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 4,
+      "key": "unknown-step|unknown|all nonsnow creatures get -x/-x until end of turn, where x is the number of snow permanents you control",
+      "raw": "All nonsnow creatures get -X/-X until end of turn, where X is the number of snow permanents you control",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Dead of Winter"
+      ],
+      "exampleClauses": [
+        "All nonsnow creatures get -X/-X until end of turn, where X is the number of snow permanents you control"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 5,
+      "key": "unknown-step|unknown|sorry, but i learned from yuriko.)",
+      "raw": "Sorry, but I learned from Yuriko.)",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "The Multifaceted Phyrexian"
+      ],
+      "exampleClauses": [
+        "Sorry, but I learned from Yuriko.)"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 6,
+      "key": "unknown-fragment|choose_mode.modes[0].steps[2]|sorry, color pie.)",
+      "raw": "Sorry, color pie.)",
+      "gapType": "unknown-fragment",
+      "fieldPath": "choose_mode.modes[0].steps[2]",
+      "count": 1,
+      "exampleCards": [
+        "Brutal Command"
+      ],
+      "exampleClauses": [
+        "Choose two- • Create a Gingerbrute token. (Yes, it's technically red life gain. Sorry, color pie.) • Create a Brute Suit token. • Create a The Brute token, then attach it to a creature you control. • Cast a copy of Brute Strength without paying its mana cost."
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 7,
+      "key": "unknown-step|unknown|target attacking creature connives x, where x is the number of attacking creatures",
+      "raw": "target attacking creature connives X, where X is the number of attacking creatures",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Raffine, Scheming Seer"
+      ],
+      "exampleClauses": [
+        "target attacking creature connives X, where X is the number of attacking creatures"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 8,
+      "key": "unknown-step|unknown|target creature an opponent controls gets -2/-2 until end of turn and target creature you control gets +2/+2 until end of turn",
+      "raw": "target creature an opponent controls gets -2/-2 until end of turn and target creature you control gets +2/+2 until end of turn",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Gurmag Rakshasa"
+      ],
+      "exampleClauses": [
+        "target creature an opponent controls gets -2/-2 until end of turn and target creature you control gets +2/+2 until end of turn"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 9,
+      "key": "unknown-step|unknown|target creature an opponent controls gets -x/-0 until your next turn, where x is the number of different mana values among cards in your graveyard",
+      "raw": "target creature an opponent controls gets -X/-0 until your next turn, where X is the number of different mana values among cards in your graveyard",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "All-Seeing Arbiter"
+      ],
+      "exampleClauses": [
+        "target creature an opponent controls gets -X/-0 until your next turn, where X is the number of different mana values among cards in your graveyard"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 10,
+      "key": "unknown-step|unknown|target creature and all creatures that share a name with that creature gain echo {3} until the end of your next turn",
+      "raw": "Target creature and all creatures that share a name with that creature gain echo {3} until the end of your next turn",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Echoing Echo"
+      ],
+      "exampleClauses": [
+        "Target creature and all creatures that share a name with that creature gain echo {3} until the end of your next turn"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 11,
+      "key": "unknown-step|unknown|target creature defending player controls gets -2/-0 and loses flying until your next turn",
+      "raw": "target creature defending player controls gets -2/-0 and loses flying until your next turn",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Fear of Falling"
+      ],
+      "exampleClauses": [
+        "target creature defending player controls gets -2/-0 and loses flying until your next turn"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 12,
+      "key": "unknown-step|unknown|target creature gets +2/-2 or -2/+2 until end of turn",
+      "raw": "target creature gets +2/-2 or -2/+2 until end of turn",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Shaper Parasite"
+      ],
+      "exampleClauses": [
+        "target creature gets +2/-2 or -2/+2 until end of turn"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 13,
+      "key": "unknown-step|unknown|target creature loses its name",
+      "raw": "target creature loses its name",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Fear of Forgetting Names"
+      ],
+      "exampleClauses": [
+        "target creature loses its name"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 14,
+      "key": "unknown-step|unknown|target creature you control connives x, where x is the number of creatures that died this turn",
+      "raw": "Target creature you control connives X, where X is the number of creatures that died this turn",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Spymaster's Vault"
+      ],
+      "exampleClauses": [
+        "Target creature you control connives X, where X is the number of creatures that died this turn"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 15,
+      "key": "unknown-step|unknown|target creature you control gets +x/+0 until end of turn and up to one target creature an opponent controls gets -0/-x until end of turn, where x is the number of elves you control plus the number of elf cards in your graveyard",
+      "raw": "target creature you control gets +X/+0 until end of turn and up to one target creature an opponent controls gets -0/-X until end of turn, where X is the number of Elves you control plus the number of Elf cards in your graveyard",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Gloom Ripper"
+      ],
+      "exampleClauses": [
+        "target creature you control gets +X/+0 until end of turn and up to one target creature an opponent controls gets -0/-X until end of turn, where X is the number of Elves you control plus the number of Elf cards in your graveyard"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 16,
+      "key": "unknown-step|unknown|target instant or sorcery spell becomes the color of your choice",
+      "raw": "Target instant or sorcery spell becomes the color of your choice",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Vodalian Mystic"
+      ],
+      "exampleClauses": [
+        "Target instant or sorcery spell becomes the color of your choice"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 17,
+      "key": "unknown-step|unknown|target nonattacking, nonblocking creature gets +0/+2 until end of turn",
+      "raw": "Target nonattacking, nonblocking creature gets +0/+2 until end of turn",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Unlikely Alliance"
+      ],
+      "exampleClauses": [
+        "Target nonattacking, nonblocking creature gets +0/+2 until end of turn"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 18,
+      "key": "unknown-step|unknown|target opponent puts a creature card of their choice from their graveyard onto the battlefield under your control",
+      "raw": "Target opponent puts a creature card of their choice from their graveyard onto the battlefield under your control",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Visions of Dread"
+      ],
+      "exampleClauses": [
+        "Target opponent puts a creature card of their choice from their graveyard onto the battlefield under your control"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 19,
+      "key": "unknown-step|unknown|target opponent reveals the top card of their library",
+      "raw": "Target opponent reveals the top card of their library",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Cerebral Eruption"
+      ],
+      "exampleClauses": [
+        "Target opponent reveals the top card of their library"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 20,
+      "key": "unknown-step|unknown|target permanent",
+      "raw": "Target permanent",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Indicate"
+      ],
+      "exampleClauses": [
+        "Target permanent"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 21,
+      "key": "unknown-fragment|gain_control.newController|target player other than this artifact's owner",
+      "raw": "Target player other than this artifact's owner",
+      "gapType": "unknown-fragment",
+      "fieldPath": "gain_control.newController",
+      "count": 1,
+      "exampleCards": [
+        "Crown of Doom"
+      ],
+      "exampleClauses": [
+        "Target player other than this artifact's owner gains control of it"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 22,
+      "key": "unknown-fragment|choose_mode.modes[1].steps[0]|target player searches their library and/or graveyard for a card named ezio, blade of vengeance, reveals it, and puts it into their hand",
+      "raw": "Target player searches their library and/or graveyard for a card named Ezio, Blade of Vengeance, reveals it, and puts it into their hand",
+      "gapType": "unknown-fragment",
+      "fieldPath": "choose_mode.modes[1].steps[0]",
+      "count": 1,
+      "exampleCards": [
+        "Auditore Ambush"
+      ],
+      "exampleClauses": [
+        "Choose one or both - • Return target creature to its owner's hand. • Target player searches their library and/or graveyard for a card named Ezio, Blade of Vengeance, reveals it, and puts it into their hand. If they search their library this way, they shuffle."
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 23,
+      "key": "unknown-step|unknown|target snow land is no longer snow",
+      "raw": "Target snow land is no longer snow",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Arcum's Weathervane"
+      ],
+      "exampleClauses": [
+        "Target snow land is no longer snow"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 24,
+      "key": "unknown-fragment|choose_mode.modes[1].steps[0]|target snow permanent isn't snow until end of turn",
+      "raw": "Target snow permanent isn't snow until end of turn",
+      "gapType": "unknown-fragment",
+      "fieldPath": "choose_mode.modes[1].steps[0]",
+      "count": 1,
+      "exampleCards": [
+        "Thermal Flux"
+      ],
+      "exampleClauses": [
+        "Choose one - • Target nonsnow permanent becomes snow until end of turn. • Target snow permanent isn't snow until end of turn."
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 25,
+      "key": "unknown-step|unknown|targeting opponents, anything they control, and/or cards in their graveyards is a crime.)",
+      "raw": "Targeting opponents, anything they control, and/or cards in their graveyards is a crime.)",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Intimidation Campaign"
+      ],
+      "exampleClauses": [
+        "Targeting opponents, anything they control, and/or cards in their graveyards is a crime.)"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 26,
+      "key": "unknown-step|unknown|tarmogoyf",
+      "raw": "Tarmogoyf",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Jund 'Em Out"
+      ],
+      "exampleClauses": [
+        "Tarmogoyf"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 27,
+      "key": "unknown-step|unknown|tasty (this creature can be attacked directly",
+      "raw": "Tasty (This creature can be attacked directly",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Seasoned Weaponsmith"
+      ],
+      "exampleClauses": [
+        "Tasty (This creature can be attacked directly"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 28,
+      "key": "unknown-step|unknown|teach {1}{r} (",
+      "raw": "Teach {1}{R} (",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Pyromancy 101"
+      ],
+      "exampleClauses": [
+        "Teach {1}{R} ("
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 29,
+      "key": "unknown-step|unknown|tell them the name of that card",
+      "raw": "Tell them the name of that card",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "The Fact Checker"
+      ],
+      "exampleClauses": [
+        "Tell them the name of that card"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 30,
+      "key": "unknown-step|unknown|that ability triggers an additional time for each fish tapped this way",
+      "raw": "That ability triggers an additional time for each Fish tapped this way",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "The Fish Brewer"
+      ],
+      "exampleClauses": [
+        "That ability triggers an additional time for each Fish tapped this way"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 31,
+      "key": "unknown-step|unknown|that artifact gains haste",
+      "raw": "That artifact gains haste",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Arms Race"
+      ],
+      "exampleClauses": [
+        "That artifact gains haste"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 32,
+      "key": "unknown-fragment|discard.who|that attacking player",
+      "raw": "that attacking player",
+      "gapType": "unknown-fragment",
+      "fieldPath": "discard.who",
+      "count": 1,
+      "exampleCards": [
+        "Curse of Chaos"
+      ],
+      "exampleClauses": [
+        "that attacking player may discard a card"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 33,
+      "key": "unknown-fragment|conditional.steps[0].who|that attacking player",
+      "raw": "that attacking player",
+      "gapType": "unknown-fragment",
+      "fieldPath": "conditional.steps[0].who",
+      "count": 1,
+      "exampleCards": [
+        "Breena, the Demagogue"
+      ],
+      "exampleClauses": [
+        "If that opponent has more life than another of your opponents, that attacking player draws a card and you put two +1/+1 counters on a creature you control."
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 34,
+      "key": "unknown-step|unknown|that attacking player creates a tapped 1/1 black fungus zombie creature token named cordyceps infected that's attacking that opponent",
+      "raw": "that attacking player creates a tapped 1/1 black Fungus Zombie creature token named Cordyceps Infected that's attacking that opponent",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Ellie, Brick Master"
+      ],
+      "exampleClauses": [
+        "that attacking player creates a tapped 1/1 black Fungus Zombie creature token named Cordyceps Infected that's attacking that opponent"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 35,
+      "key": "unknown-step|unknown|that attacking player creates a tapped 2/1 white and black inkling creature token with flying that's attacking that opponent",
+      "raw": "that attacking player creates a tapped 2/1 white and black Inkling creature token with flying that's attacking that opponent",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Combat Calligrapher"
+      ],
+      "exampleClauses": [
+        "that attacking player creates a tapped 2/1 white and black Inkling creature token with flying that's attacking that opponent"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 36,
+      "key": "unknown-step|unknown|that attacking player creates a treasure token",
+      "raw": "that attacking player creates a Treasure token",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Jolene, the Plunder Queen"
+      ],
+      "exampleClauses": [
+        "that attacking player creates a Treasure token"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 37,
+      "key": "unknown-step|unknown|that attacking player may create a tapped 2/2 black zombie creature token",
+      "raw": "that attacking player may create a tapped 2/2 black Zombie creature token",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Curse of Shallow Graves"
+      ],
+      "exampleClauses": [
+        "that attacking player may create a tapped 2/2 black Zombie creature token"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 38,
+      "key": "unknown-step|unknown|that attacking player may tap or untap target permanent of their choice",
+      "raw": "that attacking player may tap or untap target permanent of their choice",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Curse of Inertia"
+      ],
+      "exampleClauses": [
+        "that attacking player may tap or untap target permanent of their choice"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 39,
+      "key": "unknown-step|unknown|that card is now on an adventure for you",
+      "raw": "That card is now on an adventure for you",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Adventurer Beguiler"
+      ],
+      "exampleClauses": [
+        "That card is now on an adventure for you"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 40,
+      "key": "unknown-fragment|draw.amount|that card's mana value",
+      "raw": "that card's mana value",
+      "gapType": "unknown-fragment",
+      "fieldPath": "draw.amount",
+      "count": 1,
+      "exampleCards": [
+        "Interpret the Signs"
+      ],
+      "exampleClauses": [
+        "Draw cards equal to that card's mana value"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 41,
+      "key": "unknown-fragment|lose_life.amount|that card's mana value if this creature isn't saddled",
+      "raw": "that card's mana value if this creature isn't saddled",
+      "gapType": "unknown-fragment",
+      "fieldPath": "lose_life.amount",
+      "count": 1,
+      "exampleCards": [
+        "Caustic Bronco"
+      ],
+      "exampleClauses": [
+        "You lose life equal to that card's mana value if this creature isn't saddled"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 42,
+      "key": "unknown-fragment|conditional.steps[0].amount|that card's toughness, lose life equal to its power",
+      "raw": "that card's toughness, lose life equal to its power",
+      "gapType": "unknown-fragment",
+      "fieldPath": "conditional.steps[0].amount",
+      "count": 1,
+      "exampleCards": [
+        "Sapling of Colfenor"
+      ],
+      "exampleClauses": [
+        "If it's a creature card, you gain life equal to that card's toughness, lose life equal to its power, then put it into your hand"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 43,
+      "key": "unknown-step|unknown|that creature becomes green",
+      "raw": "that creature becomes green",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Aisling Leprechaun"
+      ],
+      "exampleClauses": [
+        "that creature becomes green"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 44,
+      "key": "unknown-step|unknown|that creature becomes your commander",
+      "raw": "That creature becomes your commander",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "You're in Command"
+      ],
+      "exampleClauses": [
+        "That creature becomes your commander"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 45,
+      "key": "unknown-step|unknown|that creature can block up to two additional creatures this turn",
+      "raw": "That creature can block up to two additional creatures this turn",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Yare"
+      ],
+      "exampleClauses": [
+        "That creature can block up to two additional creatures this turn"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 46,
+      "key": "unknown-fragment|gain_life.amount|that creature card's toughness",
+      "raw": "that creature card's toughness",
+      "gapType": "unknown-fragment",
+      "fieldPath": "gain_life.amount",
+      "count": 1,
+      "exampleCards": [
+        "Talara's Bane"
+      ],
+      "exampleClauses": [
+        "You gain life equal to that creature card's toughness"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 47,
+      "key": "unknown-step|unknown|that creature deals damage equal to its power divided as its controller chooses among any number of those wolves",
+      "raw": "That creature deals damage equal to its power divided as its controller chooses among any number of those Wolves",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Master of the Wild Hunt"
+      ],
+      "exampleClauses": [
+        "That creature deals damage equal to its power divided as its controller chooses among any number of those Wolves"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 48,
+      "key": "unknown-step|unknown|that creature doesn't untap during its controller's untap step for as long as this creature remains on the battlefield",
+      "raw": "That creature doesn't untap during its controller's untap step for as long as this creature remains on the battlefield",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Somnophore"
+      ],
+      "exampleClauses": [
+        "That creature doesn't untap during its controller's untap step for as long as this creature remains on the battlefield"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 49,
+      "key": "unknown-step|unknown|that creature doesn't untap during its controller's untap step for as long as this equipment remains on the battlefield",
+      "raw": "That creature doesn't untap during its controller's untap step for as long as this Equipment remains on the battlefield",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Neko-Te"
+      ],
+      "exampleClauses": [
+        "That creature doesn't untap during its controller's untap step for as long as this Equipment remains on the battlefield"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 50,
+      "key": "unknown-step|unknown|that creature gains menace, deathtouch, and haste",
+      "raw": "That creature gains menace, deathtouch, and haste",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Coalstoke Gearhulk"
+      ],
+      "exampleClauses": [
+        "That creature gains menace, deathtouch, and haste"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 51,
+      "key": "unknown-step|unknown|that creature gets -4/-4 instead if you control a creature named bogbrew witch",
+      "raw": "That creature gets -4/-4 instead if you control a creature named Bogbrew Witch",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Festering Newt"
+      ],
+      "exampleClauses": [
+        "That creature gets -4/-4 instead if you control a creature named Bogbrew Witch"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 52,
+      "key": "unknown-step|unknown|that creature gets an additional -3/-3 until end of turn if you controlled a faerie as you cast this spell",
+      "raw": "That creature gets an additional -3/-3 until end of turn if you controlled a Faerie as you cast this spell",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Faerie Fencing"
+      ],
+      "exampleClauses": [
+        "That creature gets an additional -3/-3 until end of turn if you controlled a Faerie as you cast this spell"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 53,
+      "key": "unknown-fragment|pay_mana.who|that creature gets an additional +4/+4 until end of turn unless any player",
+      "raw": "That creature gets an additional +4/+4 until end of turn unless any player",
+      "gapType": "unknown-fragment",
+      "fieldPath": "pay_mana.who",
+      "count": 1,
+      "exampleCards": [
+        "Wild Might"
+      ],
+      "exampleClauses": [
+        "That creature gets an additional +4/+4 until end of turn unless any player pays {2}"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 54,
+      "key": "unknown-step|unknown|that creature is 1/1 until end of turn and can't be anything other than 1/1 until end of turn",
+      "raw": "That creature is 1/1 until end of turn and can't be anything other than 1/1 until end of turn",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Just a Li'l Guy"
+      ],
+      "exampleClauses": [
+        "That creature is 1/1 until end of turn and can't be anything other than 1/1 until end of turn"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 55,
+      "key": "unknown-step|unknown|that creature is black and is a nightmare in addition to its other creature types",
+      "raw": "That creature is black and is a Nightmare in addition to its other creature types",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Chainer, Dementia Master"
+      ],
+      "exampleClauses": [
+        "That creature is black and is a Nightmare in addition to its other creature types"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 56,
+      "key": "unknown-step|unknown|that creature must be blocked this combat if able",
+      "raw": "That creature must be blocked this combat if able",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Neyith of the Dire Hunt"
+      ],
+      "exampleClauses": [
+        "That creature must be blocked this combat if able"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 57,
+      "key": "unknown-step|unknown|that creature's controller may create an arrest token attached to a creature you control",
+      "raw": "That creature's controller may create an Arrest token attached to a creature you control",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Would You Have Done the Same?"
+      ],
+      "exampleClauses": [
+        "That creature's controller may create an Arrest token attached to a creature you control"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 58,
+      "key": "unknown-step|unknown|that creature's controller may have target creature of their choice get -3/-3 until end of turn",
+      "raw": "that creature's controller may have target creature of their choice get -3/-3 until end of turn",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Death Match"
+      ],
+      "exampleClauses": [
+        "that creature's controller may have target creature of their choice get -3/-3 until end of turn"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 59,
+      "key": "unknown-step|unknown|that creature's controller may sacrifice a land of their choice",
+      "raw": "That creature's controller may sacrifice a land of their choice",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Chain of Silence"
+      ],
+      "exampleClauses": [
+        "That creature's controller may sacrifice a land of their choice"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 60,
+      "key": "unknown-step|unknown|that creature's controller returns this aura from its owner's graveyard to the battlefield",
+      "raw": "that creature's controller returns this Aura from its owner's graveyard to the battlefield",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Traveling Plague"
+      ],
+      "exampleClauses": [
+        "that creature's controller returns this Aura from its owner's graveyard to the battlefield"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 61,
+      "key": "unknown-fragment|conditional.steps[0].amount|that creature's mana value",
+      "raw": "that creature's mana value",
+      "gapType": "unknown-fragment",
+      "fieldPath": "conditional.steps[0].amount",
+      "count": 1,
+      "exampleCards": [
+        "Niambi, Esteemed Speaker"
+      ],
+      "exampleClauses": [
+        "If you do, you gain life equal to that creature's mana value"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 62,
+      "key": "unknown-step|unknown|that creature's owner can't cast spells with the same name as that creature until your next turn",
+      "raw": "That creature's owner can't cast spells with the same name as that creature until your next turn",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Reflector Mage"
+      ],
+      "exampleClauses": [
+        "That creature's owner can't cast spells with the same name as that creature until your next turn"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 63,
+      "key": "unknown-fragment|gain_life.amount|that creature's power plus its toughness",
+      "raw": "that creature's power plus its toughness",
+      "gapType": "unknown-fragment",
+      "fieldPath": "gain_life.amount",
+      "count": 1,
+      "exampleCards": [
+        "Predator's Rapport"
+      ],
+      "exampleClauses": [
+        "You gain life equal to that creature's power plus its toughness"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 64,
+      "key": "unknown-fragment|conditional.steps[0].amount|that damage",
+      "raw": "that damage",
+      "gapType": "unknown-fragment",
+      "fieldPath": "conditional.steps[0].amount",
+      "count": 1,
+      "exampleCards": [
+        "Vigorous Charge"
+      ],
+      "exampleClauses": [
+        "If this spell was kicked, you gain life equal to that damage."
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 65,
+      "key": "unknown-step|unknown|that device enters as a token that's a photocopy of the pictured creature",
+      "raw": "That device enters as a token that's a photocopy of the pictured creature",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Mobile Clone"
+      ],
+      "exampleClauses": [
+        "That device enters as a token that's a photocopy of the pictured creature"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 66,
+      "key": "unknown-fragment|deal_damage.amount|that equipment's mana value",
+      "raw": "that Equipment's mana value",
+      "gapType": "unknown-fragment",
+      "fieldPath": "deal_damage.amount",
+      "count": 1,
+      "exampleCards": [
+        "Captain America, First Avenger"
+      ],
+      "exampleClauses": [
+        "He deals damage equal to that Equipment's mana value divided as you choose among one, two, or three targets"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 67,
+      "key": "unknown-step|unknown|that land is an island for as long as it has a flood counter on it",
+      "raw": "That land is an Island for as long as it has a flood counter on it",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Quicksilver Fountain"
+      ],
+      "exampleClauses": [
+        "That land is an Island for as long as it has a flood counter on it"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 68,
+      "key": "unknown-step|unknown|that mana becomes black",
+      "raw": "that mana becomes black",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Omnath, Locus of All"
+      ],
+      "exampleClauses": [
+        "that mana becomes black"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 69,
+      "key": "unknown-step|unknown|that mana becomes red",
+      "raw": "that mana becomes red",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Ozai, the Phoenix King"
+      ],
+      "exampleClauses": [
+        "that mana becomes red"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 70,
+      "key": "unknown-fragment|lose_life.amount|that mana value",
+      "raw": "that mana value",
+      "gapType": "unknown-fragment",
+      "fieldPath": "lose_life.amount",
+      "count": 1,
+      "exampleCards": [
+        "Scythe Specter"
+      ],
+      "exampleClauses": [
+        "Each player who discarded a card with the greatest mana value among cards discarded this way loses life equal to that mana value"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 71,
+      "key": "unknown-step|unknown|that many -1/-1 counters minus one are put on it",
+      "raw": "that many -1/-1 counters minus one are put on it",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Vizier of Remedies"
+      ],
+      "exampleClauses": [
+        "that many -1/-1 counters minus one are put on it"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 72,
+      "key": "unknown-step|unknown|that many 4/4 white angel creature tokens with flying and vigilance are created",
+      "raw": "that many 4/4 white Angel creature tokens with flying and vigilance are created",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Divine Visitation"
+      ],
+      "exampleClauses": [
+        "that many 4/4 white Angel creature tokens with flying and vigilance are created"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 73,
+      "key": "unknown-step|unknown|that many plus one +1/+1 counters are put on that creature",
+      "raw": "that many plus one +1/+1 counters are put on that creature",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Conclave Mentor"
+      ],
+      "exampleClauses": [
+        "that many plus one +1/+1 counters are put on that creature"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 74,
+      "key": "unknown-step|unknown|that many plus one +1/+1 counters are put on that permanent",
+      "raw": "that many plus one +1/+1 counters are put on that permanent",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Kami of Whispered Hopes"
+      ],
+      "exampleClauses": [
+        "that many plus one +1/+1 counters are put on that permanent"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 75,
+      "key": "unknown-step|unknown|that opponent asks you five yes or no questions about that creature",
+      "raw": "That opponent asks you five yes or no questions about that creature",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Guess Who it Is!"
+      ],
+      "exampleClauses": [
+        "That opponent asks you five yes or no questions about that creature"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 76,
+      "key": "unknown-fragment|conditional.steps[0]|that opponent may pay {x}, where x is the number of cards in their hand",
+      "raw": "that opponent may pay {X}, where X is the number of cards in their hand",
+      "gapType": "unknown-fragment",
+      "fieldPath": "conditional.steps[0]",
+      "count": 1,
+      "exampleCards": [
+        "Champions of Minas Tirith"
+      ],
+      "exampleClauses": [
+        "If you're the monarch, that opponent may pay {X}, where X is the number of cards in their hand. If they don't, they can't attack you this combat."
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 77,
+      "key": "unknown-step|unknown|that opponent may put an artifact, creature, enchantment, or land card from their hand onto the battlefield",
+      "raw": "That opponent may put an artifact, creature, enchantment, or land card from their hand onto the battlefield",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Metamorphose"
+      ],
+      "exampleClauses": [
+        "That opponent may put an artifact, creature, enchantment, or land card from their hand onto the battlefield"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 78,
+      "key": "unknown-step|unknown|that opponent may repeat this process as many times as they choose",
+      "raw": "That opponent may repeat this process as many times as they choose",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Trade Secrets"
+      ],
+      "exampleClauses": [
+        "That opponent may repeat this process as many times as they choose"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 79,
+      "key": "unknown-step|unknown|that permanent is an enchantment in addition to its other types",
+      "raw": "That permanent is an enchantment in addition to its other types",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Arbiter of the Ideal"
+      ],
+      "exampleClauses": [
+        "That permanent is an enchantment in addition to its other types"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 80,
+      "key": "unknown-step|unknown|that permanent's controller or that player creates a 1/1 green squirrel creature token",
+      "raw": "That permanent's controller or that player creates a 1/1 green Squirrel creature token",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Acorn Catapult"
+      ],
+      "exampleClauses": [
+        "That permanent's controller or that player creates a 1/1 green Squirrel creature token"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 81,
+      "key": "unknown-fragment|conditional.steps[0].amount|that permanent's mana value",
+      "raw": "that permanent's mana value",
+      "gapType": "unknown-fragment",
+      "fieldPath": "conditional.steps[0].amount",
+      "count": 1,
+      "exampleCards": [
+        "Orim's Thunder"
+      ],
+      "exampleClauses": [
+        "If this spell was kicked, it deals damage equal to that permanent's mana value to target creature"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 82,
+      "key": "unknown-fragment|lose_life.amount|that permanent's mana value",
+      "raw": "that permanent's mana value",
+      "gapType": "unknown-fragment",
+      "fieldPath": "lose_life.amount",
+      "count": 1,
+      "exampleCards": [
+        "Feed the Swarm"
+      ],
+      "exampleClauses": [
+        "You lose life equal to that permanent's mana value"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 83,
+      "key": "unknown-step|unknown|that player",
+      "raw": "That player",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Zyym, Mesmeric Lord"
+      ],
+      "exampleClauses": [
+        "That player"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 84,
+      "key": "unknown-step|unknown|that player adds one mana of any color they choose",
+      "raw": "That player adds one mana of any color they choose",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Spectral Searchlight"
+      ],
+      "exampleClauses": [
+        "That player adds one mana of any color they choose"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 85,
+      "key": "unknown-step|unknown|that player adds two mana of any one color they choose",
+      "raw": "That player adds two mana of any one color they choose",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Stadium Vendors"
+      ],
+      "exampleClauses": [
+        "That player adds two mana of any one color they choose"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 86,
+      "key": "unknown-step|unknown|that player attaches this aura to a land of their choice",
+      "raw": "That player attaches this Aura to a land of their choice",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Steam Vines"
+      ],
+      "exampleClauses": [
+        "That player attaches this Aura to a land of their choice"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 87,
+      "key": "unknown-step|unknown|that player can untap only permanents of the chosen type this step",
+      "raw": "That player can untap only permanents of the chosen type this step",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Storage Matrix"
+      ],
+      "exampleClauses": [
+        "That player can untap only permanents of the chosen type this step"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 88,
+      "key": "unknown-step|unknown|that player can't gain life for the rest of the game",
+      "raw": "that player can't gain life for the rest of the game",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Stigma Lasher"
+      ],
+      "exampleClauses": [
+        "that player can't gain life for the rest of the game"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 89,
+      "key": "unknown-fragment|choose_mode.modes[1].steps[1]|that player can't get counters for as long as this creature remains on the battlefield",
+      "raw": "That player can't get counters for as long as this creature remains on the battlefield",
+      "gapType": "unknown-fragment",
+      "fieldPath": "choose_mode.modes[1].steps[1]",
+      "count": 1,
+      "exampleCards": [
+        "Suncleanser"
+      ],
+      "exampleClauses": [
+        "choose one - • Remove all counters from target creature. It can't have counters put on it for as long as this creature remains on the battlefield. • Target opponent loses all counters. That player can't get counters for as long as this creature remains on the battlefield."
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 90,
+      "key": "unknown-step|unknown|that player chooses a color",
+      "raw": "that player chooses a color",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Hall of Gemstone"
+      ],
+      "exampleClauses": [
+        "that player chooses a color"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 91,
+      "key": "unknown-step|unknown|that player chooses a permanent for each card in their graveyard",
+      "raw": "that player chooses a permanent for each card in their graveyard",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Mist of Stagnation"
+      ],
+      "exampleClauses": [
+        "that player chooses a permanent for each card in their graveyard"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 92,
+      "key": "unknown-fragment|conditional.steps[0]|that player chooses an attacking creature",
+      "raw": "that player chooses an attacking creature",
+      "gapType": "unknown-fragment",
+      "fieldPath": "conditional.steps[0]",
+      "count": 1,
+      "exampleCards": [
+        "Mirkwood Trapper"
+      ],
+      "exampleClauses": [
+        "If they aren't attacking you, that player chooses an attacking creature. It gets +2/+0 until end of turn."
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 93,
+      "key": "unknown-step|unknown|that player chooses artifact, creature, land, or non-aura enchantment",
+      "raw": "that player chooses artifact, creature, land, or non-Aura enchantment",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Teferi's Realm"
+      ],
+      "exampleClauses": [
+        "that player chooses artifact, creature, land, or non-Aura enchantment"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 94,
+      "key": "unknown-step|unknown|that player chooses draw step, main phase, or combat phase",
+      "raw": "that player chooses draw step, main phase, or combat phase",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Fatespinner"
+      ],
+      "exampleClauses": [
+        "that player chooses draw step, main phase, or combat phase"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 95,
+      "key": "unknown-step|unknown|that player chooses one of those creatures",
+      "raw": "That player chooses one of those creatures",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Trial of Agony"
+      ],
+      "exampleClauses": [
+        "That player chooses one of those creatures"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 96,
+      "key": "unknown-step|unknown|that player chooses target player who controls more creatures than they do and is their opponent",
+      "raw": "that player chooses target player who controls more creatures than they do and is their opponent",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Oath of Druids"
+      ],
+      "exampleClauses": [
+        "that player chooses target player who controls more creatures than they do and is their opponent"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 97,
+      "key": "unknown-step|unknown|that player chooses target player who controls more lands than they do and is their opponent",
+      "raw": "that player chooses target player who controls more lands than they do and is their opponent",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Oath of Lieges"
+      ],
+      "exampleClauses": [
+        "that player chooses target player who controls more lands than they do and is their opponent"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 98,
+      "key": "unknown-step|unknown|that player chooses target player who has more cards in hand than they do and is their opponent",
+      "raw": "that player chooses target player who has more cards in hand than they do and is their opponent",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Oath of Scholars"
+      ],
+      "exampleClauses": [
+        "that player chooses target player who has more cards in hand than they do and is their opponent"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 99,
+      "key": "unknown-step|unknown|that player chooses target player who has more life than they do and is their opponent",
+      "raw": "that player chooses target player who has more life than they do and is their opponent",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Oath of Mages"
+      ],
+      "exampleClauses": [
+        "that player chooses target player who has more life than they do and is their opponent"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 100,
+      "key": "unknown-step|unknown|that player chooses target player whose graveyard has fewer creature cards in it than their graveyard does and is their opponent",
+      "raw": "that player chooses target player whose graveyard has fewer creature cards in it than their graveyard does and is their opponent",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Oath of Ghouls"
+      ],
+      "exampleClauses": [
+        "that player chooses target player whose graveyard has fewer creature cards in it than their graveyard does and is their opponent"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 101,
+      "key": "unknown-step|unknown|that player chooses up to two creatures they control",
+      "raw": "that player chooses up to two creatures they control",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Archfiend of Depravity"
+      ],
+      "exampleClauses": [
+        "that player chooses up to two creatures they control"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 102,
+      "key": "unknown-step|unknown|that player copies that spell for each other creature they control that the spell could target",
+      "raw": "that player copies that spell for each other creature they control that the spell could target",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Mirrorwing Dragon"
+      ],
+      "exampleClauses": [
+        "that player copies that spell for each other creature they control that the spell could target"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 103,
+      "key": "unknown-step|unknown|that player copies that spell for each other golem that spell could target",
+      "raw": "that player copies that spell for each other Golem that spell could target",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Precursor Golem"
+      ],
+      "exampleClauses": [
+        "that player copies that spell for each other Golem that spell could target"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 104,
+      "key": "unknown-step|unknown|that player discards all nonland cards with the same name as another card in their hand",
+      "raw": "That player discards all nonland cards with the same name as another card in their hand",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Hint of Insanity"
+      ],
+      "exampleClauses": [
+        "That player discards all nonland cards with the same name as another card in their hand"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 105,
+      "key": "unknown-fragment|conditional.steps[0]|that player discards cards equal to the damage",
+      "raw": "that player discards cards equal to the damage",
+      "gapType": "unknown-fragment",
+      "fieldPath": "conditional.steps[0]",
+      "count": 1,
+      "exampleCards": [
+        "Jagged Poppet"
+      ],
+      "exampleClauses": [
+        "If you have no cards in hand, that player discards cards equal to the damage."
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 106,
+      "key": "unknown-step|unknown|that player draws an additional card for each growth counter on this enchantment",
+      "raw": "that player draws an additional card for each growth counter on this enchantment",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Malignant Growth"
+      ],
+      "exampleClauses": [
+        "that player draws an additional card for each growth counter on this enchantment"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 107,
+      "key": "unknown-step|unknown|that player draws up to three cards",
+      "raw": "That player draws up to three cards",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Fatal Lore"
+      ],
+      "exampleClauses": [
+        "That player draws up to three cards"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 108,
+      "key": "unknown-step|unknown|that player exiles a card from it",
+      "raw": "That player exiles a card from it",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Struggle for Sanity"
+      ],
+      "exampleClauses": [
+        "That player exiles a card from it"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 109,
+      "key": "unknown-step|unknown|that player exiles a card from their hand face down",
+      "raw": "that player exiles a card from their hand face down",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Kheru Mind-Eater"
+      ],
+      "exampleClauses": [
+        "that player exiles a card from their hand face down"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 110,
+      "key": "unknown-step|unknown|that player exiles that card",
+      "raw": "That player exiles that card",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Ghastlord of Fugue"
+      ],
+      "exampleClauses": [
+        "That player exiles that card"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 111,
+      "key": "unknown-step|unknown|that player exiles that card face up",
+      "raw": "that player exiles that card face up",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Uba Mask"
+      ],
+      "exampleClauses": [
+        "that player exiles that card face up"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 112,
+      "key": "unknown-step|unknown|that player exiles that many cards from the top of their library",
+      "raw": "that player exiles that many cards from the top of their library",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Crumbling Sanctuary"
+      ],
+      "exampleClauses": [
+        "that player exiles that many cards from the top of their library"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 113,
+      "key": "unknown-step|unknown|that player exiles the top card of one of their opponents' libraries face down",
+      "raw": "that player exiles the top card of one of their opponents' libraries face down",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Shared Fate"
+      ],
+      "exampleClauses": [
+        "that player exiles the top card of one of their opponents' libraries face down"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 114,
+      "key": "unknown-step|unknown|that player gets an additional upkeep step after this step",
+      "raw": "that player gets an additional upkeep step after this step",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Paradox Haze"
+      ],
+      "exampleClauses": [
+        "that player gets an additional upkeep step after this step"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 115,
+      "key": "unknown-step|unknown|that player guesses whether the card's mana value is greater than 4",
+      "raw": "That player guesses whether the card's mana value is greater than 4",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Master of Predicaments"
+      ],
+      "exampleClauses": [
+        "That player guesses whether the card's mana value is greater than 4"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 116,
+      "key": "unknown-step|unknown|that player investigates for each nontoken creature exiled this way",
+      "raw": "That player investigates for each nontoken creature exiled this way",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Declaration in Stone"
+      ],
+      "exampleClauses": [
+        "That player investigates for each nontoken creature exiled this way"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 117,
+      "key": "unknown-step|unknown|that player looks at the top card of your library and chooses a word on that card",
+      "raw": "that player looks at the top card of your library and chooses a word on that card",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Spelling Bee"
+      ],
+      "exampleClauses": [
+        "that player looks at the top card of your library and chooses a word on that card"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 118,
+      "key": "unknown-step|unknown|that player looks at the top three cards of your library",
+      "raw": "That player looks at the top three cards of your library",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Tahngarth's Glare"
+      ],
+      "exampleClauses": [
+        "That player looks at the top three cards of your library"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 119,
+      "key": "unknown-step|unknown|that player loses half their life, rounded down",
+      "raw": "that player loses half their life, rounded down",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Raving Dead"
+      ],
+      "exampleClauses": [
+        "that player loses half their life, rounded down"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 120,
+      "key": "unknown-step|unknown|that player loses the game",
+      "raw": "that player loses the game",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Phage the Untouchable"
+      ],
+      "exampleClauses": [
+        "that player loses the game"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 121,
+      "key": "unknown-step|unknown|that player loses the game if they own three or more exiled cards with hit counters on them",
+      "raw": "That player loses the game if they own three or more exiled cards with hit counters on them",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Etrata, the Silencer"
+      ],
+      "exampleClauses": [
+        "That player loses the game if they own three or more exiled cards with hit counters on them"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 122,
+      "key": "unknown-step|unknown|that player may choose any number of tapped blue creatures they control and pay {4} for each creature chosen this way",
+      "raw": "that player may choose any number of tapped blue creatures they control and pay {4} for each creature chosen this way",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Magnetic Mountain"
+      ],
+      "exampleClauses": [
+        "that player may choose any number of tapped blue creatures they control and pay {4} for each creature chosen this way"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 123,
+      "key": "unknown-step|unknown|that player may choose any number of tapped blue creatures they control and pay {u} for each creature chosen this way",
+      "raw": "that player may choose any number of tapped blue creatures they control and pay {U} for each creature chosen this way",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Thelon's Curse"
+      ],
+      "exampleClauses": [
+        "that player may choose any number of tapped blue creatures they control and pay {U} for each creature chosen this way"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 124,
+      "key": "unknown-step|unknown|that player may choose any number of tapped nongreen creatures they control and pay {2} for each creature chosen this way",
+      "raw": "that player may choose any number of tapped nongreen creatures they control and pay {2} for each creature chosen this way",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Dream Tides"
+      ],
+      "exampleClauses": [
+        "that player may choose any number of tapped nongreen creatures they control and pay {2} for each creature chosen this way"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 125,
+      "key": "unknown-step|unknown|that player may choose new targets for the copy",
+      "raw": "That player may choose new targets for the copy",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Meletis Charlatan"
+      ],
+      "exampleClauses": [
+        "That player may choose new targets for the copy"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 126,
+      "key": "unknown-step|unknown|that player may draw an additional card",
+      "raw": "that player may draw an additional card",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Academy Loremaster"
+      ],
+      "exampleClauses": [
+        "that player may draw an additional card"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 127,
+      "key": "unknown-step|unknown|that player may exile a card from their graveyard",
+      "raw": "that player may exile a card from their graveyard",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Web of Inertia"
+      ],
+      "exampleClauses": [
+        "that player may exile a card from their graveyard"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 128,
+      "key": "unknown-step|unknown|that player may pay {1} for each artifact they control",
+      "raw": "that player may pay {1} for each artifact they control",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Overencumbered"
+      ],
+      "exampleClauses": [
+        "that player may pay {1} for each artifact they control"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 129,
+      "key": "unknown-step|unknown|that player may pay {r}{r} or 2 life",
+      "raw": "that player may pay {R}{R} or 2 life",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Emberwilde Djinn"
+      ],
+      "exampleClauses": [
+        "that player may pay {R}{R} or 2 life"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 130,
+      "key": "unknown-step|unknown|that player may pay {x}, where x is that creature's mana value",
+      "raw": "That player may pay {X}, where X is that creature's mana value",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Arcum's Whistle"
+      ],
+      "exampleClauses": [
+        "That player may pay {X}, where X is that creature's mana value"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 131,
+      "key": "unknown-step|unknown|that player may pay 10 life",
+      "raw": "That player may pay 10 life",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Bronze Tablet"
+      ],
+      "exampleClauses": [
+        "That player may pay 10 life"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 132,
+      "key": "unknown-step|unknown|that player may pay 2 life",
+      "raw": "that player may pay 2 life",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Umbilicus"
+      ],
+      "exampleClauses": [
+        "that player may pay 2 life"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 133,
+      "key": "unknown-step|unknown|that player may pay life equal to that card's mana value",
+      "raw": "That player may pay life equal to that card's mana value",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Protection Racket"
+      ],
+      "exampleClauses": [
+        "That player may pay life equal to that card's mana value"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 134,
+      "key": "unknown-step|unknown|that player may put a permanent card from their hand onto the battlefield",
+      "raw": "That player may put a permanent card from their hand onto the battlefield",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Divine Gambit"
+      ],
+      "exampleClauses": [
+        "That player may put a permanent card from their hand onto the battlefield"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 135,
+      "key": "unknown-step|unknown|that player may put an artifact, creature, or land card from their hand onto the battlefield",
+      "raw": "that player may put an artifact, creature, or land card from their hand onto the battlefield",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Braids, Conjurer Adept"
+      ],
+      "exampleClauses": [
+        "that player may put an artifact, creature, or land card from their hand onto the battlefield"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 136,
+      "key": "unknown-step|unknown|that player may sacrifice a creature of their choice",
+      "raw": "that player may sacrifice a creature of their choice",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Pillar Tombs of Aku"
+      ],
+      "exampleClauses": [
+        "that player may sacrifice a creature of their choice"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 137,
+      "key": "unknown-fragment|conditional.steps[0]|that player may sacrifice a permanent of their choice",
+      "raw": "that player may sacrifice a permanent of their choice",
+      "gapType": "unknown-fragment",
+      "fieldPath": "conditional.steps[0]",
+      "count": 1,
+      "exampleCards": [
+        "Curse of the Cabal"
+      ],
+      "exampleClauses": [
+        "If this card is suspended, that player may sacrifice a permanent of their choice. If the player does, put two time counters on this card."
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 138,
+      "key": "unknown-step|unknown|that player may sacrifice a permanent of their choice for that player to ignore this effect until end of turn",
+      "raw": "That player may sacrifice a permanent of their choice for that player to ignore this effect until end of turn",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Damping Engine"
+      ],
+      "exampleClauses": [
+        "That player may sacrifice a permanent of their choice for that player to ignore this effect until end of turn"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 139,
+      "key": "unknown-step|unknown|that player puts a card from their hand on top of their library",
+      "raw": "that player puts a card from their hand on top of their library",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Widespread Panic"
+      ],
+      "exampleClauses": [
+        "that player puts a card from their hand on top of their library"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 140,
+      "key": "unknown-step|unknown|that player puts a flood counter on target non-island land they control of their choice",
+      "raw": "that player puts a flood counter on target non-Island land they control of their choice",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Quicksilver Fountain"
+      ],
+      "exampleClauses": [
+        "that player puts a flood counter on target non-Island land they control of their choice"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 141,
+      "key": "unknown-step|unknown|that player puts all cards revealed this way into their graveyard",
+      "raw": "That player puts all cards revealed this way into their graveyard",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Mind Funeral"
+      ],
+      "exampleClauses": [
+        "That player puts all cards revealed this way into their graveyard"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 142,
+      "key": "unknown-step|unknown|that player puts all noncreature cards revealed this way into their graveyard",
+      "raw": "That player puts all noncreature cards revealed this way into their graveyard",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Telemin Performance"
+      ],
+      "exampleClauses": [
+        "That player puts all noncreature cards revealed this way into their graveyard"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 143,
+      "key": "unknown-step|unknown|that player puts that card into their library third from the top",
+      "raw": "That player puts that card into their library third from the top",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Lost Hours"
+      ],
+      "exampleClauses": [
+        "That player puts that card into their library third from the top"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 144,
+      "key": "unknown-step|unknown|that player puts the cards in their hand on the bottom of their library in any order",
+      "raw": "that player puts the cards in their hand on the bottom of their library in any order",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Teferi's Puzzle Box"
+      ],
+      "exampleClauses": [
+        "that player puts the cards in their hand on the bottom of their library in any order"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 145,
+      "key": "unknown-step|unknown|that player puts the chosen card on the bottom of their library",
+      "raw": "That player puts the chosen card on the bottom of their library",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Psychotic Episode"
+      ],
+      "exampleClauses": [
+        "That player puts the chosen card on the bottom of their library"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 146,
+      "key": "unknown-step|unknown|that player puts the rest of the revealed cards into their graveyard",
+      "raw": "That player puts the rest of the revealed cards into their graveyard",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Curse of Unbinding"
+      ],
+      "exampleClauses": [
+        "That player puts the rest of the revealed cards into their graveyard"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 147,
+      "key": "unknown-step|unknown|that player puts the rest on the bottom of their library in a random order",
+      "raw": "That player puts the rest on the bottom of their library in a random order",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Lonis, Cryptozoologist"
+      ],
+      "exampleClauses": [
+        "That player puts the rest on the bottom of their library in a random order"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 148,
+      "key": "unknown-step|unknown|that player puts the revealed cards into their graveyard",
+      "raw": "That player puts the revealed cards into their graveyard",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Trepanation Blade"
+      ],
+      "exampleClauses": [
+        "That player puts the revealed cards into their graveyard"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 149,
+      "key": "unknown-step|unknown|that player puts this card from its owner's graveyard onto the battlefield under their control at the beginning of the next end step.\"",
+      "raw": "That player puts this card from its owner's graveyard onto the battlefield under their control at the beginning of the next end step.\"",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Endless Whispers"
+      ],
+      "exampleClauses": [
+        "That player puts this card from its owner's graveyard onto the battlefield under their control at the beginning of the next end step.\""
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 150,
+      "key": "unknown-step|unknown|that player returns a creature they control to its owner's hand",
+      "raw": "that player returns a creature they control to its owner's hand",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Sunken Hope"
+      ],
+      "exampleClauses": [
+        "that player returns a creature they control to its owner's hand"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 151,
+      "key": "unknown-fragment|choose_mode.modes[0].steps[0]|that player returns a permanent they control to its owner's hand",
+      "raw": "That player returns a permanent they control to its owner's hand",
+      "gapType": "unknown-fragment",
+      "fieldPath": "choose_mode.modes[0].steps[0]",
+      "count": 1,
+      "exampleCards": [
+        "Blizzard Specter"
+      ],
+      "exampleClauses": [
+        "choose one - • That player returns a permanent they control to its owner's hand. • That player discards a card."
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 152,
+      "key": "unknown-step|unknown|that player returns a permanent they control to its owner's hand unless they pay 2 life",
+      "raw": "that player returns a permanent they control to its owner's hand unless they pay 2 life",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Blood Clock"
+      ],
+      "exampleClauses": [
+        "that player returns a permanent they control to its owner's hand unless they pay 2 life"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 153,
+      "key": "unknown-step|unknown|that player returns the cards they exiled this way to their hand and puts the rest into their graveyard",
+      "raw": "That player returns the cards they exiled this way to their hand and puts the rest into their graveyard",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Struggle for Sanity"
+      ],
+      "exampleClauses": [
+        "That player returns the cards they exiled this way to their hand and puts the rest into their graveyard"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 154,
+      "key": "unknown-step|unknown|that player returns those cards to their hand",
+      "raw": "that player returns those cards to their hand",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Suppress"
+      ],
+      "exampleClauses": [
+        "that player returns those cards to their hand"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 155,
+      "key": "unknown-step|unknown|that player reveals cards from the top of their library until a creature card is revealed",
+      "raw": "That player reveals cards from the top of their library until a creature card is revealed",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Blessed Reincarnation"
+      ],
+      "exampleClauses": [
+        "That player reveals cards from the top of their library until a creature card is revealed"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 156,
+      "key": "unknown-step|unknown|that player reveals cards from the top of their library until they reveal a creature card",
+      "raw": "that player reveals cards from the top of their library until they reveal a creature card",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Curse of Unbinding"
+      ],
+      "exampleClauses": [
+        "that player reveals cards from the top of their library until they reveal a creature card"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 157,
+      "key": "unknown-step|unknown|that player reveals cards from the top of their library until they reveal four land cards",
+      "raw": "that player reveals cards from the top of their library until they reveal four land cards",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Mirko Vosk, Mind Drinker"
+      ],
+      "exampleClauses": [
+        "that player reveals cards from the top of their library until they reveal four land cards"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 158,
+      "key": "unknown-step|unknown|that player reveals cards from their sideboard at random until they reveal a nonland card",
+      "raw": "That player reveals cards from their sideboard at random until they reveal a nonland card",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Wormhole Warp"
+      ],
+      "exampleClauses": [
+        "That player reveals cards from their sideboard at random until they reveal a nonland card"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 159,
+      "key": "unknown-fragment|conditional.steps[0]|that player reveals the chosen card, puts it on the bottom of their library",
+      "raw": "that player reveals the chosen card, puts it on the bottom of their library",
+      "gapType": "unknown-fragment",
+      "fieldPath": "conditional.steps[0]",
+      "count": 1,
+      "exampleCards": [
+        "Vendilion Clique"
+      ],
+      "exampleClauses": [
+        "If you do, that player reveals the chosen card, puts it on the bottom of their library, then draws a card"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 160,
+      "key": "unknown-step|unknown|that player reveals the top two cards of their library",
+      "raw": "that player reveals the top two cards of their library",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Balshan Beguiler"
+      ],
+      "exampleClauses": [
+        "that player reveals the top two cards of their library"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 161,
+      "key": "unknown-step|unknown|that player searches the top four cards of that library",
+      "raw": "that player searches the top four cards of that library",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Aven Mindcensor"
+      ],
+      "exampleClauses": [
+        "that player searches the top four cards of that library"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 162,
+      "key": "unknown-step|unknown|that player shuffles that card into their library",
+      "raw": "That player shuffles that card into their library",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Perish the Thought"
+      ],
+      "exampleClauses": [
+        "That player shuffles that card into their library"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 163,
+      "key": "unknown-step|unknown|that player simultaneously untaps each tapped artifact, creature, and land they control and taps each untapped artifact, creature, and land they control",
+      "raw": "that player simultaneously untaps each tapped artifact, creature, and land they control and taps each untapped artifact, creature, and land they control",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Sands of Time"
+      ],
+      "exampleClauses": [
+        "that player simultaneously untaps each tapped artifact, creature, and land they control and taps each untapped artifact, creature, and land they control"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 164,
+      "key": "unknown-step|unknown|that player skips that draw",
+      "raw": "that player skips that draw",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Possessed Portal"
+      ],
+      "exampleClauses": [
+        "that player skips that draw"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 165,
+      "key": "unknown-step|unknown|that player skips their next combat phase",
+      "raw": "that player skips their next combat phase",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Blinding Angel"
+      ],
+      "exampleClauses": [
+        "that player skips their next combat phase"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 166,
+      "key": "unknown-step|unknown|that player taps an untapped artifact, creature, or land they control for each fade counter on this artifact",
+      "raw": "that player taps an untapped artifact, creature, or land they control for each fade counter on this artifact",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Tangle Wire"
+      ],
+      "exampleClauses": [
+        "that player taps an untapped artifact, creature, or land they control for each fade counter on this artifact"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 167,
+      "key": "unknown-fragment|gain_life.amount|that player's life total as the turn began",
+      "raw": "that player's life total as the turn began",
+      "gapType": "unknown-fragment",
+      "fieldPath": "gain_life.amount",
+      "count": 1,
+      "exampleCards": [
+        "Sengir, the Dark Baron"
+      ],
+      "exampleClauses": [
+        "you gain life equal to that player's life total as the turn began"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 168,
+      "key": "unknown-step|unknown|that player's life total becomes 1",
+      "raw": "that player's life total becomes 1",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Master of Cruelties"
+      ],
+      "exampleClauses": [
+        "that player's life total becomes 1"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 169,
+      "key": "unknown-fragment|draw.amount|that result",
+      "raw": "that result",
+      "gapType": "unknown-fragment",
+      "fieldPath": "draw.amount",
+      "count": 1,
+      "exampleCards": [
+        "Arcane Endeavor"
+      ],
+      "exampleClauses": [
+        "Draw cards equal to that result"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 170,
+      "key": "unknown-fragment|deal_damage.amount|that result",
+      "raw": "that result",
+      "gapType": "unknown-fragment",
+      "fieldPath": "deal_damage.amount",
+      "count": 1,
+      "exampleCards": [
+        "Reckless Endeavor"
+      ],
+      "exampleClauses": [
+        "this permanent deals damage equal to that result to each creature"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 171,
+      "key": "unknown-fragment|conditional.steps[0]|that spell gains rebound",
+      "raw": "that spell gains rebound",
+      "gapType": "unknown-fragment",
+      "fieldPath": "conditional.steps[0]",
+      "count": 1,
+      "exampleCards": [
+        "Taigam, Ojutai Master"
+      ],
+      "exampleClauses": [
+        "If this permanent attacked this turn, that spell gains rebound. (Exile the spell as it resolves. At the beginning of your next upkeep, you may cast that card from exile without paying its mana cost.)"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 172,
+      "key": "unknown-fragment|deal_damage.amount|that spell's power",
+      "raw": "that spell's power",
+      "gapType": "unknown-fragment",
+      "fieldPath": "deal_damage.amount",
+      "count": 1,
+      "exampleCards": [
+        "Essence Backlash"
+      ],
+      "exampleClauses": [
+        "this permanent deals damage equal to that spell's power to its controller"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 173,
+      "key": "unknown-step|unknown|that token attacks this combat if able",
+      "raw": "That token attacks this combat if able",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Howlsquad Heavy"
+      ],
+      "exampleClauses": [
+        "That token attacks this combat if able"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 174,
+      "key": "unknown-step|unknown|that vehicle gets +1/+1 until end of turn",
+      "raw": "that Vehicle gets +1/+1 until end of turn",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Veteran Motorist"
+      ],
+      "exampleClauses": [
+        "that Vehicle gets +1/+1 until end of turn"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 175,
+      "key": "unknown-fragment|deal_damage.amount|that wall's mana value",
+      "raw": "that Wall's mana value",
+      "gapType": "unknown-fragment",
+      "fieldPath": "deal_damage.amount",
+      "count": 1,
+      "exampleCards": [
+        "Word of Blasting"
+      ],
+      "exampleClauses": [
+        "this permanent deals damage equal to that Wall's mana value to the Wall's controller"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 176,
+      "key": "unknown-step|unknown|that would be ridiculous",
+      "raw": "That would be ridiculous",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "You and Ooze Army?"
+      ],
+      "exampleClauses": [
+        "That would be ridiculous"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 177,
+      "key": "unknown-fragment|create_token.amount|the",
+      "raw": "the",
+      "gapType": "unknown-fragment",
+      "fieldPath": "create_token.amount",
+      "count": 1,
+      "exampleCards": [
+        "May the Mana Be with You"
+      ],
+      "exampleClauses": [
+        "Create the appropriate Shockland token"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 178,
+      "key": "unknown-step|unknown|the \"legend rule\" doesn't apply",
+      "raw": "The \"legend rule\" doesn't apply",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Mirror Gallery"
+      ],
+      "exampleClauses": [
+        "The \"legend rule\" doesn't apply"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 179,
+      "key": "unknown-step|unknown|the \"legend rule\" doesn't apply to commanders you control",
+      "raw": "The \"legend rule\" doesn't apply to commanders you control",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Try-My-Deck Elemental"
+      ],
+      "exampleClauses": [
+        "The \"legend rule\" doesn't apply to commanders you control"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 180,
+      "key": "unknown-step|unknown|the \"legend rule\" doesn't apply to creature tokens you control",
+      "raw": "The \"legend rule\" doesn't apply to creature tokens you control",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "The Master, Multiplied"
+      ],
+      "exampleClauses": [
+        "The \"legend rule\" doesn't apply to creature tokens you control"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 181,
+      "key": "unknown-step|unknown|the \"legend rule\" doesn't apply to slivers you control",
+      "raw": "The \"legend rule\" doesn't apply to Slivers you control",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Sliver Gravemother"
+      ],
+      "exampleClauses": [
+        "The \"legend rule\" doesn't apply to Slivers you control"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 182,
+      "key": "unknown-step|unknown|the \"legend rule\" doesn't apply to spiders you control",
+      "raw": "The \"legend rule\" doesn't apply to Spiders you control",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Spider-Verse"
+      ],
+      "exampleClauses": [
+        "The \"legend rule\" doesn't apply to Spiders you control"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 183,
+      "key": "unknown-step|unknown|the \"legend rule\" doesn't apply to tokens you control",
+      "raw": "The \"legend rule\" doesn't apply to tokens you control",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Cadric, Soul Kindler"
+      ],
+      "exampleClauses": [
+        "The \"legend rule\" doesn't apply to tokens you control"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 184,
+      "key": "unknown-step|unknown|the active player adds {c}{c} for each of your opponents who lost life this turn",
+      "raw": "the active player adds {C}{C} for each of your opponents who lost life this turn",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Belbe, Corrupted Observer"
+      ],
+      "exampleClauses": [
+        "the active player adds {C}{C} for each of your opponents who lost life this turn"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 185,
+      "key": "unknown-fragment|draw.amount|the amount of damage dealt to this permanent this turn by sources they controlled",
+      "raw": "the amount of damage dealt to this permanent this turn by sources they controlled",
+      "gapType": "unknown-fragment",
+      "fieldPath": "draw.amount",
+      "count": 1,
+      "exampleCards": [
+        "Grothama, All-Devouring"
+      ],
+      "exampleClauses": [
+        "each player draws cards equal to the amount of damage dealt to this permanent this turn by sources they controlled"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 186,
+      "key": "unknown-fragment|choose_mode.modes[0].steps[0].amount|the amount of life they lost this turn",
+      "raw": "the amount of life they lost this turn",
+      "gapType": "unknown-fragment",
+      "fieldPath": "choose_mode.modes[0].steps[0].amount",
+      "count": 1,
+      "exampleCards": [
+        "Astarion, the Decadent"
+      ],
+      "exampleClauses": [
+        "choose one - • Feed - Target opponent loses life equal to the amount of life they lost this turn. • Friends - You gain life equal to the amount of life you gained this turn."
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 187,
+      "key": "unknown-fragment|deal_damage.amount|the amount of mana spent to cast this spell",
+      "raw": "the amount of mana spent to cast this spell",
+      "gapType": "unknown-fragment",
+      "fieldPath": "deal_damage.amount",
+      "count": 1,
+      "exampleCards": [
+        "Molten Note"
+      ],
+      "exampleClauses": [
+        "this permanent deals damage to target creature equal to the amount of mana spent to cast this spell"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 188,
+      "key": "unknown-step|unknown|the amount you pay can't be more than the total number of white nontoken permanents your opponents control plus the total number of white cards in their graveyards",
+      "raw": "The amount you pay can't be more than the total number of white nontoken permanents your opponents control plus the total number of white cards in their graveyards",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Nameless Race"
+      ],
+      "exampleClauses": [
+        "The amount you pay can't be more than the total number of white nontoken permanents your opponents control plus the total number of white cards in their graveyards"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 189,
+      "key": "unknown-fragment|deal_damage.amount|the artifact's mana value",
+      "raw": "the artifact's mana value",
+      "gapType": "unknown-fragment",
+      "fieldPath": "deal_damage.amount",
+      "count": 1,
+      "exampleCards": [
+        "Viashino Heretic"
+      ],
+      "exampleClauses": [
+        "This creature deals damage to that artifact's controller equal to the artifact's mana value"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 190,
+      "key": "unknown-fragment|gain_control.newController|the attacking player",
+      "raw": "the attacking player",
+      "gapType": "unknown-fragment",
+      "fieldPath": "gain_control.newController",
+      "count": 1,
+      "exampleCards": [
+        "Contested Game Ball"
+      ],
+      "exampleClauses": [
+        "the attacking player gains control of this artifact and untaps it"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 191,
+      "key": "unknown-fragment|conditional.steps[0].who|the attacking player",
+      "raw": "the attacking player",
+      "gapType": "unknown-fragment",
+      "fieldPath": "conditional.steps[0].who",
+      "count": 1,
+      "exampleCards": [
+        "Norn's Decree"
+      ],
+      "exampleClauses": [
+        "If one or more players being attacked are poisoned, the attacking player draws a card."
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 192,
+      "key": "unknown-step|unknown|the attacking player chooses how each creature blocks each combat",
+      "raw": "The attacking player chooses how each creature blocks each combat",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Invasion Plans"
+      ],
+      "exampleClauses": [
+        "The attacking player chooses how each creature blocks each combat"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 193,
+      "key": "unknown-step|unknown|the blitz cost is equal to its mana cost",
+      "raw": "The blitz cost is equal to its mana cost",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Henzie \"Toolbox\" Torre"
+      ],
+      "exampleClauses": [
+        "The blitz cost is equal to its mana cost"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 194,
+      "key": "unknown-step|unknown|the blocking creature gets +1/+1 until end of turn",
+      "raw": "the blocking creature gets +1/+1 until end of turn",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Righteous Indignation"
+      ],
+      "exampleClauses": [
+        "the blocking creature gets +1/+1 until end of turn"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 195,
+      "key": "unknown-fragment|conditional.steps[1].amount|the card's mana value",
+      "raw": "the card's mana value",
+      "gapType": "unknown-fragment",
+      "fieldPath": "conditional.steps[1].amount",
+      "count": 1,
+      "exampleCards": [
+        "Ruin Raider"
+      ],
+      "exampleClauses": [
+        "If you attacked this turn, reveal the top card of your library and put that card into your hand. You lose life equal to the card's mana value."
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 196,
+      "key": "unknown-fragment|lose_life.who|the chosen player",
+      "raw": "the chosen player",
+      "gapType": "unknown-fragment",
+      "fieldPath": "lose_life.who",
+      "count": 1,
+      "exampleCards": [
+        "Haunt the Network"
+      ],
+      "exampleClauses": [
+        "the chosen player loses X life"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 197,
+      "key": "unknown-step|unknown|the chosen player reveals each card they draw",
+      "raw": "The chosen player reveals each card they draw",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Booby Trap"
+      ],
+      "exampleClauses": [
+        "The chosen player reveals each card they draw"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 198,
+      "key": "unknown-step|unknown|the chosen player's maximum commander size is one",
+      "raw": "The chosen player's maximum Commander size is one",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Spice Rack"
+      ],
+      "exampleClauses": [
+        "The chosen player's maximum Commander size is one"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 199,
+      "key": "unknown-fragment|gain_life.who|the controller of each of those artifacts",
+      "raw": "The controller of each of those artifacts",
+      "gapType": "unknown-fragment",
+      "fieldPath": "gain_life.who",
+      "count": 1,
+      "exampleCards": [
+        "Seeds of Innocence"
+      ],
+      "exampleClauses": [
+        "The controller of each of those artifacts gains life equal to its mana value"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 200,
+      "key": "unknown-step|unknown|the controller of target artifact sacrifices it",
+      "raw": "The controller of target artifact sacrifices it",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Shape Anew"
+      ],
+      "exampleClauses": [
+        "The controller of target artifact sacrifices it"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 201,
+      "key": "unknown-step|unknown|the controller of target instant or sorcery spell copies it",
+      "raw": "The controller of target instant or sorcery spell copies it",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Meletis Charlatan"
+      ],
+      "exampleClauses": [
+        "The controller of target instant or sorcery spell copies it"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 202,
+      "key": "unknown-step|unknown|the copies become tokens.)",
+      "raw": "The copies become tokens.)",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Try-My-Deck Elemental"
+      ],
+      "exampleClauses": [
+        "The copies become tokens.)"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 203,
+      "key": "unknown-step|unknown|the copy becomes a token.)",
+      "raw": "The copy becomes a token.)",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Ob Nixilis, the Adversary"
+      ],
+      "exampleClauses": [
+        "The copy becomes a token.)"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 204,
+      "key": "unknown-step|unknown|the copy isn't legendary and has starting loyalty x",
+      "raw": "The copy isn't legendary and has starting loyalty X",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Ob Nixilis, the Adversary"
+      ],
+      "exampleClauses": [
+        "The copy isn't legendary and has starting loyalty X"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 205,
+      "key": "unknown-step|unknown|the copy targets ivy",
+      "raw": "The copy targets Ivy",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Ivy, Gleeful Spellthief"
+      ],
+      "exampleClauses": [
+        "The copy targets Ivy"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 206,
+      "key": "unknown-step|unknown|the copy targets that creature",
+      "raw": "The copy targets that creature",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Feather, Radiant Arbiter"
+      ],
+      "exampleClauses": [
+        "The copy targets that creature"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 207,
+      "key": "unknown-step|unknown|the copy targets that token",
+      "raw": "The copy targets that token",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Frontline Heroism"
+      ],
+      "exampleClauses": [
+        "The copy targets that token"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 208,
+      "key": "unknown-step|unknown|the copy targets the chosen creature",
+      "raw": "The copy targets the chosen creature",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Beamsplitter Mage"
+      ],
+      "exampleClauses": [
+        "The copy targets the chosen creature"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 209,
+      "key": "unknown-step|unknown|the copy targets the chosen permanent",
+      "raw": "The copy targets the chosen permanent",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Exterminator Magmarch"
+      ],
+      "exampleClauses": [
+        "The copy targets the chosen permanent"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 210,
+      "key": "unknown-step|unknown|the creature can't be regenerated",
+      "raw": "The creature can't be regenerated",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Mephitic Ooze"
+      ],
+      "exampleClauses": [
+        "The creature can't be regenerated"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 211,
+      "key": "unknown-step|unknown|the creature is a vampire in addition to its other types",
+      "raw": "The creature is a Vampire in addition to its other types",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Drana, the Last Bloodchief"
+      ],
+      "exampleClauses": [
+        "The creature is a Vampire in addition to its other types"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 212,
+      "key": "unknown-fragment|deal_damage.amount|the damage already dealt to it this turn",
+      "raw": "the damage already dealt to it this turn",
+      "gapType": "unknown-fragment",
+      "fieldPath": "deal_damage.amount",
+      "count": 1,
+      "exampleCards": [
+        "Whipkeeper"
+      ],
+      "exampleClauses": [
+        "This creature deals damage to target creature equal to the damage already dealt to it this turn"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 213,
+      "key": "unknown-fragment|lose_life.amount|the damage already dealt to that player this turn",
+      "raw": "the damage already dealt to that player this turn",
+      "gapType": "unknown-fragment",
+      "fieldPath": "lose_life.amount",
+      "count": 1,
+      "exampleCards": [
+        "Final Punishment"
+      ],
+      "exampleClauses": [
+        "Target player loses life equal to the damage already dealt to that player this turn"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 214,
+      "key": "unknown-fragment|draw.amount|the damage dealt to target opponent this turn",
+      "raw": "the damage dealt to target opponent this turn",
+      "gapType": "unknown-fragment",
+      "fieldPath": "draw.amount",
+      "count": 1,
+      "exampleCards": [
+        "Knollspine Dragon"
+      ],
+      "exampleClauses": [
+        "draw cards equal to the damage dealt to target opponent this turn"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 215,
+      "key": "unknown-fragment|gain_life.amount|the damage dealt to you this turn",
+      "raw": "the damage dealt to you this turn",
+      "gapType": "unknown-fragment",
+      "fieldPath": "gain_life.amount",
+      "count": 1,
+      "exampleCards": [
+        "Simulacrum"
+      ],
+      "exampleClauses": [
+        "You gain life equal to the damage dealt to you this turn"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 216,
+      "key": "unknown-fragment|deal_damage.amount|the damage dealt to you this turn",
+      "raw": "the damage dealt to you this turn",
+      "gapType": "unknown-fragment",
+      "fieldPath": "deal_damage.amount",
+      "count": 1,
+      "exampleCards": [
+        "Simulacrum"
+      ],
+      "exampleClauses": [
+        "this permanent deals damage to target creature you control equal to the damage dealt to you this turn"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 217,
+      "key": "unknown-fragment|gain_life.amount|the damage dealt, but not more life than the player's life total before the damage was dealt, the planeswalker's loyalty before the damage was dealt, or the creature's toughness",
+      "raw": "the damage dealt, but not more life than the player's life total before the damage was dealt, the planeswalker's loyalty before the damage was dealt, or the creature's toughness",
+      "gapType": "unknown-fragment",
+      "fieldPath": "gain_life.amount",
+      "count": 1,
+      "exampleCards": [
+        "Drain Life"
+      ],
+      "exampleClauses": [
+        "You gain life equal to the damage dealt, but not more life than the player's life total before the damage was dealt, the planeswalker's loyalty before the damage was dealt, or the creature's toughness"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 218,
+      "key": "unknown-fragment|gain_life.amount|the damage dealt, but not more than the amount of {b} spent on x, the player's life total before the damage was dealt, the planeswalker's loyalty before the damage was dealt, or the creature's toughness",
+      "raw": "the damage dealt, but not more than the amount of {B} spent on X, the player's life total before the damage was dealt, the planeswalker's loyalty before the damage was dealt, or the creature's toughness",
+      "gapType": "unknown-fragment",
+      "fieldPath": "gain_life.amount",
+      "count": 1,
+      "exampleCards": [
+        "Soul Burn"
+      ],
+      "exampleClauses": [
+        "You gain life equal to the damage dealt, but not more than the amount of {B} spent on X, the player's life total before the damage was dealt, the planeswalker's loyalty before the damage was dealt, or the creature's toughness"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 219,
+      "key": "unknown-fragment|lose_life.amount|the difference between that creature's power and its toughness",
+      "raw": "the difference between that creature's power and its toughness",
+      "gapType": "unknown-fragment",
+      "fieldPath": "lose_life.amount",
+      "count": 1,
+      "exampleCards": [
+        "Jaws of Defeat"
+      ],
+      "exampleClauses": [
+        "target opponent loses life equal to the difference between that creature's power and its toughness"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 220,
+      "key": "unknown-fragment|lose_life.amount|the difference.\"",
+      "raw": "the difference.\"",
+      "gapType": "unknown-fragment",
+      "fieldPath": "lose_life.amount",
+      "count": 1,
+      "exampleCards": [
+        "Lolth, Spider Queen"
+      ],
+      "exampleClauses": [
+        "You get an emblem with \"Whenever an opponent is dealt combat damage by one or more creatures you control, if that player lost less than 8 life this turn, they lose life equal to the difference.\""
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 221,
+      "key": "unknown-fragment|lose_life.amount|the discarded card's mana value.\"",
+      "raw": "the discarded card's mana value.\"",
+      "gapType": "unknown-fragment",
+      "fieldPath": "lose_life.amount",
+      "count": 1,
+      "exampleCards": [
+        "Ninja's Blades"
+      ],
+      "exampleClauses": [
+        "That player loses life equal to the discarded card's mana value.\""
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 222,
+      "key": "unknown-step|unknown|the emerge cost is equal to its mana cost",
+      "raw": "The emerge cost is equal to its mana cost",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Herigast, Erupting Nullkite"
+      ],
+      "exampleClauses": [
+        "The emerge cost is equal to its mana cost"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 223,
+      "key": "unknown-fragment|gain_life.amount|the excess damage dealt this way",
+      "raw": "the excess damage dealt this way",
+      "gapType": "unknown-fragment",
+      "fieldPath": "gain_life.amount",
+      "count": 1,
+      "exampleCards": [
+        "Razor Rings"
+      ],
+      "exampleClauses": [
+        "You gain life equal to the excess damage dealt this way"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 224,
+      "key": "unknown-fragment|grant_exile_permission.who|the exiled card's owner",
+      "raw": "the exiled card's owner",
+      "gapType": "unknown-fragment",
+      "fieldPath": "grant_exile_permission.who",
+      "count": 1,
+      "exampleCards": [
+        "Spell Queller"
+      ],
+      "exampleClauses": [
+        "the exiled card's owner may cast that card without paying its mana cost"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 225,
+      "key": "unknown-step|unknown|the exiled card's owner creates an x/x blue illusion creature token, where x is the mana value of the exiled card",
+      "raw": "the exiled card's owner creates an X/X blue Illusion creature token, where X is the mana value of the exiled card",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Skyclave Apparition"
+      ],
+      "exampleClauses": [
+        "the exiled card's owner creates an X/X blue Illusion creature token, where X is the mana value of the exiled card"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 226,
+      "key": "unknown-step|unknown|the exiled card's owner creates an x/x white spirit creature token, where x is the mana value of the exiled card",
+      "raw": "the exiled card's owner creates an X/X white Spirit creature token, where X is the mana value of the exiled card",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Severance Priest"
+      ],
+      "exampleClauses": [
+        "the exiled card's owner creates an X/X white Spirit creature token, where X is the mana value of the exiled card"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 227,
+      "key": "unknown-step|unknown|the exiled card's owner manifests dread",
+      "raw": "the exiled card's owner manifests dread",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Unidentified Hovership"
+      ],
+      "exampleClauses": [
+        "the exiled card's owner manifests dread"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 228,
+      "key": "unknown-fragment|conditional.steps[0]|the fading light, exile them",
+      "raw": "the Fading Light, exile them",
+      "gapType": "unknown-fragment",
+      "fieldPath": "conditional.steps[0]",
+      "count": 1,
+      "exampleCards": [
+        "Gisela, the Broken Blade"
+      ],
+      "exampleClauses": [
+        "If you both own and control this permanent and a creature named Bruna, the Fading Light, exile them, then meld them into Brisela, Voice of Nightmares."
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 229,
+      "key": "unknown-step|unknown|the first activated ability of an artifact you activate each turn costs {2} less to activate",
+      "raw": "The first activated ability of an artifact you activate each turn costs {2} less to activate",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Tezzeret, Betrayer of Flesh"
+      ],
+      "exampleClauses": [
+        "The first activated ability of an artifact you activate each turn costs {2} less to activate"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 230,
+      "key": "unknown-step|unknown|the first activated ability you activate during your turn that targets a creature you control costs {2} less to activate",
+      "raw": "The first activated ability you activate during your turn that targets a creature you control costs {2} less to activate",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Professor Hojo"
+      ],
+      "exampleClauses": [
+        "The first activated ability you activate during your turn that targets a creature you control costs {2} less to activate"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 231,
+      "key": "unknown-step|unknown|the first card you foretell each turn costs {0} to foretell",
+      "raw": "The first card you foretell each turn costs {0} to foretell",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Ranar the Ever-Watchful"
+      ],
+      "exampleClauses": [
+        "The first card you foretell each turn costs {0} to foretell"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 232,
+      "key": "unknown-step|unknown|the first instant or sorcery spell you cast each turn costs {u} (or {1}) less to cast for each land you control with a flood counter on it",
+      "raw": "The first instant or sorcery spell you cast each turn costs {U} (or {1}) less to cast for each land you control with a flood counter on it",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Eluge, the Shoreless Sea"
+      ],
+      "exampleClauses": [
+        "The first instant or sorcery spell you cast each turn costs {U} (or {1}) less to cast for each land you control with a flood counter on it"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 233,
+      "key": "unknown-step|unknown|the first player controls the second player during the second player's next turn, and the second player controls the first player during the first player's next turn",
+      "raw": "The first player controls the second player during the second player's next turn, and the second player controls the first player during the first player's next turn",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Cruel Entertainment"
+      ],
+      "exampleClauses": [
+        "The first player controls the second player during the second player's next turn, and the second player controls the first player during the first player's next turn"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 234,
+      "key": "unknown-step|unknown|the first player may return a creature card from their graveyard to their hand",
+      "raw": "The first player may return a creature card from their graveyard to their hand",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Oath of Ghouls"
+      ],
+      "exampleClauses": [
+        "The first player may return a creature card from their graveyard to their hand"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 235,
+      "key": "unknown-step|unknown|the first player may reveal cards from the top of their library until they reveal a creature card",
+      "raw": "The first player may reveal cards from the top of their library until they reveal a creature card",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Oath of Druids"
+      ],
+      "exampleClauses": [
+        "The first player may reveal cards from the top of their library until they reveal a creature card"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 236,
+      "key": "unknown-step|unknown|the first spell each player casts during each of their turns may be cast without paying its mana cost",
+      "raw": "The first spell each player casts during each of their turns may be cast without paying its mana cost",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Weftwalking"
+      ],
+      "exampleClauses": [
+        "The first spell each player casts during each of their turns may be cast without paying its mana cost"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 237,
+      "key": "unknown-step|unknown|the first spell you cast with {x} in its mana cost each turn costs {1} less to cast for each +1/+1 counter on this permanent",
+      "raw": "The first spell you cast with {X} in its mana cost each turn costs {1} less to cast for each +1/+1 counter on this permanent",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Zimone, Infinite Analyst"
+      ],
+      "exampleClauses": [
+        "The first spell you cast with {X} in its mana cost each turn costs {1} less to cast for each +1/+1 counter on this permanent"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 238,
+      "key": "unknown-step|unknown|the first time you would create one or more tokens during each of your turns, you may instead choose a creature other than this permanent",
+      "raw": "The first time you would create one or more tokens during each of your turns, you may instead choose a creature other than this permanent",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Esix, Fractal Bloom"
+      ],
+      "exampleClauses": [
+        "The first time you would create one or more tokens during each of your turns, you may instead choose a creature other than this permanent"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 239,
+      "key": "unknown-step|unknown|the first time you would create one or more tokens each turn, you may instead create that many tokens that are copies of enchanted permanent",
+      "raw": "The first time you would create one or more tokens each turn, you may instead create that many tokens that are copies of enchanted permanent",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Moonlit Meditation"
+      ],
+      "exampleClauses": [
+        "The first time you would create one or more tokens each turn, you may instead create that many tokens that are copies of enchanted permanent"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 240,
+      "key": "unknown-fragment|grant_graveyard_permission.who|the flashback cost is equal to its mana cost.\" (you",
+      "raw": "The flashback cost is equal to its mana cost.\" (You",
+      "gapType": "unknown-fragment",
+      "fieldPath": "grant_graveyard_permission.who",
+      "count": 1,
+      "exampleCards": [
+        "Lost in Memories"
+      ],
+      "exampleClauses": [
+        "The flashback cost is equal to its mana cost.\" (You may cast that card from your graveyard for its flashback cost"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 241,
+      "key": "unknown-fragment|draw.amount|the greatest mana value among artifacts you control",
+      "raw": "the greatest mana value among artifacts you control",
+      "gapType": "unknown-fragment",
+      "fieldPath": "draw.amount",
+      "count": 1,
+      "exampleCards": [
+        "One with the Machine"
+      ],
+      "exampleClauses": [
+        "Draw cards equal to the greatest mana value among artifacts you control"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 242,
+      "key": "unknown-fragment|gain_life.amount|the greatest mana value among creatures you control",
+      "raw": "the greatest mana value among creatures you control",
+      "gapType": "unknown-fragment",
+      "fieldPath": "gain_life.amount",
+      "count": 1,
+      "exampleCards": [
+        "Death's Oasis"
+      ],
+      "exampleClauses": [
+        "You gain life equal to the greatest mana value among creatures you control"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 243,
+      "key": "unknown-fragment|conditional.steps[0].modes[0].steps[0].amount|the greatest mana value among equipment attached",
+      "raw": "the greatest mana value among Equipment attached",
+      "gapType": "unknown-fragment",
+      "fieldPath": "conditional.steps[0].modes[0].steps[0].amount",
+      "count": 1,
+      "exampleCards": [
+        "Tetsuo, Imperial Champion"
+      ],
+      "exampleClauses": [
+        "If it's equipped, choose one - • this permanent deals damage equal to the greatest mana value among Equipment attached to it to any target. • You may cast an instant or sorcery spell from your hand with mana value less than or equal to the greatest mana value among Equipment attached to this permanent without paying its mana cost."
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 244,
+      "key": "unknown-fragment|draw.amount|the greatest mana value among historic permanents you control",
+      "raw": "the greatest mana value among historic permanents you control",
+      "gapType": "unknown-fragment",
+      "fieldPath": "draw.amount",
+      "count": 1,
+      "exampleCards": [
+        "Traverse Eternity"
+      ],
+      "exampleClauses": [
+        "Draw cards equal to the greatest mana value among historic permanents you control"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 245,
+      "key": "unknown-fragment|deal_damage.amount|the greatest mana value among permanents you control",
+      "raw": "the greatest mana value among permanents you control",
+      "gapType": "unknown-fragment",
+      "fieldPath": "deal_damage.amount",
+      "count": 1,
+      "exampleCards": [
+        "Torrent of Fire"
+      ],
+      "exampleClauses": [
+        "this permanent deals damage to any target equal to the greatest mana value among permanents you control"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 246,
+      "key": "unknown-fragment|draw.amount|the greatest mana value among permanents you control",
+      "raw": "the greatest mana value among permanents you control",
+      "gapType": "unknown-fragment",
+      "fieldPath": "draw.amount",
+      "count": 1,
+      "exampleCards": [
+        "Rush of Knowledge"
+      ],
+      "exampleClauses": [
+        "Draw cards equal to the greatest mana value among permanents you control"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 247,
+      "key": "unknown-fragment|gain_life.amount|the greatest mana value among permanents you control",
+      "raw": "the greatest mana value among permanents you control",
+      "gapType": "unknown-fragment",
+      "fieldPath": "gain_life.amount",
+      "count": 1,
+      "exampleCards": [
+        "Reward the Faithful"
+      ],
+      "exampleClauses": [
+        "Any number of target players each gain life equal to the greatest mana value among permanents you control"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 248,
+      "key": "unknown-fragment|choose_mode.modes[1].steps[0].amount|the greatest mana value among permanents you control",
+      "raw": "the greatest mana value among permanents you control",
+      "gapType": "unknown-fragment",
+      "fieldPath": "choose_mode.modes[1].steps[0].amount",
+      "count": 1,
+      "exampleCards": [
+        "Will of the Temur"
+      ],
+      "exampleClauses": [
+        "Choose one. If you control a commander as you cast this spell, you may choose both instead. • Create a token that's a copy of target permanent, except it's a 4/4 Dragon creature with flying in addition to its other types. • Target player draws cards equal to the greatest mana value among permanents"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 249,
+      "key": "unknown-fragment|deal_damage.amount|the greatest mana value among the milled cards",
+      "raw": "the greatest mana value among the milled cards",
+      "gapType": "unknown-fragment",
+      "fieldPath": "deal_damage.amount",
+      "count": 1,
+      "exampleCards": [
+        "Heretic's Punishment"
+      ],
+      "exampleClauses": [
+        "This enchantment deals damage to that permanent or player equal to the greatest mana value among the milled cards"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 250,
+      "key": "unknown-fragment|draw.amount|the greatest mana value of a commander they own on the battlefield or in the command zone",
+      "raw": "the greatest mana value of a commander they own on the battlefield or in the command zone",
+      "gapType": "unknown-fragment",
+      "fieldPath": "draw.amount",
+      "count": 1,
+      "exampleCards": [
+        "Imposing Grandeur"
+      ],
+      "exampleClauses": [
+        "draw cards equal to the greatest mana value of a commander they own on the battlefield or in the command zone"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    }
+  ]
+}

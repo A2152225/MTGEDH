@@ -2101,6 +2101,1082 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
     return staticMetadata('die roll', raw);
   }
 
+  if (/^after you roll a die,\s+.+$/i.test(raw)) {
+    return staticMetadata('die roll', raw);
+  }
+
+  if (/^after you draft this card,\s+.+$/i.test(raw)) {
+    return staticMetadata('this card', raw);
+  }
+
+  if (/^after you draft three cards this way,\s+.+$/i.test(raw)) {
+    return staticMetadata('drafted cards this way', raw);
+  }
+
+  if (/^add or subtract 1 from target creature(?:'|’)s power, target player(?:'|’)s life total, or target die roll(?:'|’)s result$/i.test(raw)) {
+    return staticMetadata(
+      "target creature's power, target player's life total, or target die roll's result",
+      'add or subtract 1'
+    );
+  }
+
+  const addOrSubtractNumberText = raw.match(/^add\s+or\s+subtract\s+x\s+from\s+a\s+number\s+or\s+number\s+word\s+on\s+(target\s+spell\s+or\s+permanent)\s+until\s+end\s+of\s+turn$/i);
+  if (addOrSubtractNumberText) {
+    return temporaryMetadata(String(addOrSubtractNumberText[1] || '').trim(), 'add or subtract X from a number or number word', 'end_of_turn');
+  }
+
+  const anyNumberDiscard = raw.match(/^any\s+number\s+of\s+target\s+(opponents|players)\s+each\s+discard\s+(a\s+card|their\s+hands)$/i);
+  if (anyNumberDiscard) {
+    return [{
+      kind: 'discard',
+      who: parsePlayerSelector(`any number of target ${String(anyNumberDiscard[1] || '').trim()}`),
+      amount: /^their\s+hands$/i.test(String(anyNumberDiscard[2] || '')) ? { kind: 'all' } : { kind: 'number', value: 1 },
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  const anyNumberDraw = raw.match(/^any\s+number\s+of\s+target\s+players\s+each\s+draw\s+(.+?)\s+cards$/i);
+  if (anyNumberDraw) {
+    return [{
+      kind: 'draw',
+      who: parsePlayerSelector('any number of target players'),
+      amount: parseQuantity(String(anyNumberDraw[1] || '').trim()),
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  const anyNumberGainLife = raw.match(/^any\s+number\s+of\s+target\s+players\s+each\s+gain\s+(.+?)\s+life$/i);
+  if (anyNumberGainLife) {
+    return [{
+      kind: 'gain_life',
+      who: parsePlayerSelector('any number of target players'),
+      amount: parseQuantity(String(anyNumberGainLife[1] || '').trim()),
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  const anyNumberMill = raw.match(/^any\s+number\s+of\s+target\s+players\s+each\s+mill\s+(.+)$/i);
+  if (anyNumberMill) {
+    return [{
+      kind: 'mill',
+      who: parsePlayerSelector('any number of target players'),
+      amount: parseQuantity(String(anyNumberMill[1] || '').trim()),
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  const anotherPlayerCreatesToken = raw.match(/^another\s+target\s+player\s+creates\s+a\s+(.+?)\s+token\s+with\s+"([^"]+)"$/i);
+  if (anotherPlayerCreatesToken) {
+    const token = String(anotherPlayerCreatesToken[1] || '').trim();
+    const tokenAbility = String(anotherPlayerCreatesToken[2] || '').trim();
+    return [{
+      kind: 'create_token',
+      who: parsePlayerSelector('target player'),
+      amount: { kind: 'number', value: 1 },
+      token: `${token} with "${tokenAbility}"`,
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  const faceUpCounters = raw.match(/^as\s+this\s+creature\s+is\s+turned\s+face\s+up,\s+put\s+(four|five|\d+)\s+\+1\/\+1\s+counters\s+on\s+it$/i);
+  if (faceUpCounters) {
+    return [{
+      kind: 'add_counter',
+      target: parseObjectSelector('this creature'),
+      counter: '+1/+1',
+      amount: parseQuantity(String(faceUpCounters[1] || '').trim()),
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  const phylacteryCounter = raw.match(/^as\s+this\s+creature\s+enters,\s+put\s+a\s+phylactery\s+counter\s+on\s+(an\s+artifact\s+you\s+control)$/i);
+  if (phylacteryCounter) {
+    return [{
+      kind: 'add_counter',
+      target: parseObjectSelector(String(phylacteryCounter[1] || '').trim()),
+      counter: 'phylactery',
+      amount: { kind: 'number', value: 1 },
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  const asEntersMill = raw.match(/^as\s+this\s+creature\s+enters,\s+(?:if\s+it\s+was\s+kicked,\s+)?mill\s+(.+)$/i);
+  if (asEntersMill) {
+    return [{
+      kind: 'mill',
+      who: { kind: 'you' },
+      amount: parseQuantity(String(asEntersMill[1] || '').trim()),
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  const asEntersDiscardHand = raw.match(/^as\s+this\s+enchantment\s+enters,\s+discard\s+your\s+hand$/i);
+  if (asEntersDiscardHand) {
+    return [{
+      kind: 'discard',
+      who: { kind: 'you' },
+      amount: { kind: 'all' },
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  const asEntersSacrificeAllLands = raw.match(/^as\s+this\s+enchantment\s+enters,\s+sacrifice\s+all\s+lands\s+you\s+control$/i);
+  if (asEntersSacrificeAllLands) {
+    return [{
+      kind: 'sacrifice',
+      who: { kind: 'you' },
+      what: parseObjectSelector('all lands you control'),
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  if (/^another\s+target\s+creature\s+you\s+control\s+can't\s+be\s+blocked\s+this\s+turn\s+except\s+by\s+spirits$/i.test(raw)) {
+    return temporaryMetadata('another target creature you control', "can't be blocked except by Spirits", 'this_turn');
+  }
+
+  const persistentArtifactAnimation = raw.match(/^another\s+target\s+nontoken\s+artifact\s+you\s+control\s+becomes\s+a\s+4\/4\s+artifact\s+creature\s+for\s+as\s+long\s+as\s+this\s+permanent\s+remains\s+tapped$/i);
+  if (persistentArtifactAnimation) {
+    return staticMetadata('another target nontoken artifact you control', 'becomes a 4/4 artifact creature for as long as this permanent remains tapped');
+  }
+
+  const broadPersistentIndestructible = raw.match(/^(another\s+target\s+(?:legendary\s+)?permanent(?:\s+you\s+control)?)\s+gains\s+indestructible\s+for\s+as\s+long\s+as\s+you\s+control\s+(this\s+(?:creature|permanent))$/i);
+  if (broadPersistentIndestructible) {
+    return staticMetadata(String(broadPersistentIndestructible[1] || '').trim(), `gains indestructible for as long as you control ${String(broadPersistentIndestructible[2] || '').trim()}`);
+  }
+
+  const compoundAttackingPt = raw.match(/^attacking\s+([a-z][a-z -]+?)\s+creatures\s+get\s+([+-]?(?:\d+|x))\s*\/\s*([+-]?(?:\d+|x))\s+and\s+attacking\s+([a-z][a-z -]+?)\s+creatures\s+get\s+([+-]?(?:\d+|x))\s*\/\s*([+-]?(?:\d+|x))\s+until\s+end\s+of\s+turn$/i);
+  if (compoundAttackingPt) {
+    const buildPt = (kindRaw: string, powerRaw: string, toughnessRaw: string): OracleEffectStep => ({
+      kind: 'modify_pt',
+      target: parseObjectSelector(`attacking ${kindRaw.trim()} creatures`),
+      power: /^-?x$/i.test(powerRaw) ? (powerRaw.startsWith('-') ? -1 : 1) : Number.parseInt(powerRaw, 10) || 0,
+      toughness: /^-?x$/i.test(toughnessRaw) ? (toughnessRaw.startsWith('-') ? -1 : 1) : Number.parseInt(toughnessRaw, 10) || 0,
+      ...(/^[-+]?x$/i.test(powerRaw) ? { powerUsesX: true } : {}),
+      ...(/^[-+]?x$/i.test(toughnessRaw) ? { toughnessUsesX: true } : {}),
+      duration: 'end_of_turn',
+      raw,
+      ...sequence,
+    } as OracleEffectStep);
+    return [
+      buildPt(String(compoundAttackingPt[1] || ''), String(compoundAttackingPt[2] || ''), String(compoundAttackingPt[3] || '')),
+      buildPt(String(compoundAttackingPt[4] || ''), String(compoundAttackingPt[5] || ''), String(compoundAttackingPt[6] || '')),
+    ];
+  }
+
+  const anyNumberDiscardReference = raw.match(/^any\s+number\s+of\s+target\s+(opponents|players)\s+each\s+discard\s+a\s+number\s+of\s+cards\s+equal\s+to\s+(.+)$/i);
+  if (anyNumberDiscardReference) {
+    return [{
+      kind: 'discard',
+      who: parsePlayerSelector(`any number of target ${String(anyNumberDiscardReference[1] || '').trim()}`),
+      amount: parseQuantity(`a number of cards equal to ${String(anyNumberDiscardReference[2] || '').trim()}`),
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  if (/^all\s+unblocked\s+creatures\s+attacking\s+you\s+become\s+blocked\s+by\s+this\s+permanent$/i.test(raw)) {
+    return staticMetadata('all unblocked creatures attacking you', 'become blocked by this permanent');
+  }
+
+  if (/^all\s+walls\s+able\s+to\s+block\s+this\s+creature\s+do\s+so$/i.test(raw)) {
+    return staticMetadata('combat requirements', raw);
+  }
+
+  if (/^attacking\s+creatures\s+become\s+blocked$/i.test(raw)) {
+    return staticMetadata('attacking creatures', 'become blocked');
+  }
+
+  if (/^black\s+creatures\s+you\s+control\s+can't\s+be\s+blocked\s+this\s+turn\s+except\s+by\s+black\s+creatures$/i.test(raw)) {
+    return temporaryMetadata('black creatures you control', "can't be blocked except by black creatures", 'this_turn');
+  }
+
+  if (/^unless\s+.+?\s+pays\s+\d+\s+life$/i.test(raw)) {
+    return staticMetadata('payment gate', raw);
+  }
+
+  const conditionalTypeAddition = raw.match(/^if\s+it\s+isn(?:'|’)t\s+an?\s+([a-z][a-z -]+),\s+it\s+becomes\s+an?\s+\1\s+in\s+addition\s+to\s+its\s+other\s+types$/i);
+  if (conditionalTypeAddition) {
+    const typeName = String(conditionalTypeAddition[1] || '').trim();
+    return staticMetadata('it', `becomes a ${typeName} in addition to its other types if it is not already one`);
+  }
+
+  if (/^then\s+shuffles\s+and\s+puts\s+that\s+card\s+on\s+top$/i.test(raw)) {
+    return staticMetadata('library order', raw);
+  }
+
+  if (/^cloak\s+a\s+card\s+from\s+your\s+hand$/i.test(raw)) {
+    return [{
+      kind: 'move_zone',
+      what: parseObjectSelector('a card from your hand'),
+      to: 'battlefield',
+      toRaw: 'battlefield face down as a 2/2 creature with ward {2}',
+      entersFaceDown: true,
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  if (/^.+?\s+-\s+exile\s+this\s+permanent$/i.test(raw)) {
+    return [{
+      kind: 'exile',
+      target: parseObjectSelector('this permanent'),
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  if (/^counters\s+to\s+"0\."$/i.test(raw)) {
+    return staticMetadata('counters', raw);
+  }
+
+  if (/^create\s+(?:a\s+5x5\s+grid|a\s+character\b|a\s+copy\b|a\s+token\s+from\b|a\s+token\s+of\b|an\s+animated\s+role\b|one\s+resource\b|two\s+(?:copies|tokens)\b|[A-Z][\s\S]+?\s+token\b)/i.test(raw)) {
+    return staticMetadata('create residual', raw);
+  }
+
+  if (/^creature\s+cards\s+in\s+.+?\s+can(?:not|'|’)t\s+enter\s+the\s+battlefield$/i.test(raw)) {
+    return staticMetadata('creature cards', raw);
+  }
+
+  const graveyardTemporaryCastGrant = raw.match(/^creature\s+cards\s+in\s+your\s+graveyard\s+gain\s+"([^"]+)"\s+until\s+end\s+of\s+turn$/i);
+  if (graveyardTemporaryCastGrant) {
+    return temporaryMetadata('creature cards in your graveyard', String(graveyardTemporaryCastGrant[1] || '').trim(), 'end_of_turn');
+  }
+
+  if (/^combat\s+damage(?:\s+that\s+would\s+be\s+dealt\s+by\s+.+?)?\s+can(?:not|'|’)?t\s+be\s+prevented$/i.test(raw) || /^combat\s+damage\s+uses\s+the\s+stack$/i.test(raw)) {
+    return staticMetadata('combat damage', raw);
+  }
+
+  const spellCostReduction = raw.match(/^(.+?\bspells\s+you\s+cast)\s+cost\s+(.+?)\s+less\s+to\s+cast(?:,?\s+(.+))?$/i);
+  if (spellCostReduction) {
+    const tail = String(spellCostReduction[3] || '').trim();
+    return staticMetadata(String(spellCostReduction[1] || '').trim(), `cost ${String(spellCostReduction[2] || '').trim()} less to cast${tail ? ` ${tail}` : ''}`);
+  }
+
+  if (/^creatures\b.+?\s+get\s+[+-]?(?:\d+|x)\s*\/\s*[+-]?(?:\d+|x)\s+and\s+(?:gain|can(?:not|'|’)t)\b/i.test(raw)) {
+    if (/\buntil\s+end\s+of\s+turn\b/i.test(raw)) return temporaryMetadata('creatures', raw, 'end_of_turn');
+    return staticMetadata('creatures', raw);
+  }
+
+  const broadCreaturePt = raw.match(/^((?:creature\s+tokens\b.*?|creatures\b.*?))\s+get\s+(?:an\s+additional\s+)?([+-]?(?:\d+|x))\s*\/\s*([+-]?(?:\d+|x))(?:\s+for\s+each\b.*?)?(?:\s+until\s+end\s+of\s+turn)?$/i);
+  if (broadCreaturePt) {
+    const targetText = String(broadCreaturePt[1] || '').trim();
+    const powerRaw = String(broadCreaturePt[2] || '').trim();
+    const toughnessRaw = String(broadCreaturePt[3] || '').trim();
+    const isTemporary = /\buntil\s+end\s+of\s+turn\b/i.test(raw);
+    const power = /^-?x$/i.test(powerRaw) ? (powerRaw.startsWith('-') ? -1 : 1) : Number.parseInt(powerRaw, 10) || 0;
+    const toughness = /^-?x$/i.test(toughnessRaw) ? (toughnessRaw.startsWith('-') ? -1 : 1) : Number.parseInt(toughnessRaw, 10) || 0;
+    if (isTemporary) {
+      return [{
+        kind: 'modify_pt',
+        target: parseObjectSelector(targetText),
+        power,
+        toughness,
+        ...(/^[-+]?x$/i.test(powerRaw) ? { powerUsesX: true } : {}),
+        ...(/^[-+]?x$/i.test(toughnessRaw) ? { toughnessUsesX: true } : {}),
+        duration: 'end_of_turn',
+        raw,
+        ...sequence,
+      } as OracleEffectStep];
+    }
+    return [{
+      kind: 'grant_static_ability',
+      target: parseObjectSelector(targetText),
+      power,
+      toughness,
+      duration: 'static',
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  if (/^creature\s+spells\s+you\s+cast\s+gain\s+.+?\s+as\s+you\s+cast\s+them$/i.test(raw)) {
+    return staticMetadata('creature spells you cast', raw);
+  }
+
+  if (/^creature\s+spells\s+(?:you\s+cast\s+this\s+turn|you\s+control\s+with\s+power\s+.+?)\s+can(?:not|'|’)t\s+be\s+countered$/i.test(raw)) {
+    return staticMetadata('creature spells', raw);
+  }
+
+  if (/^creatures\s+(?:can(?:not|'|’)t\s+be\s+the\s+targets\s+of\s+spells|don(?:'|’)t\s+untap\s+during\s+target\s+player(?:'|’)s\s+next\s+untap\s+step|enter\s+to\s+the\s+left\s+or\s+right\s+of\s+the\s+volcano|entering\s+or\s+dying\s+don(?:'|’)t\s+cause\s+abilities\s+to\s+trigger|in\s+each\s+sector\s+can\s+be\s+blocked\b.*|it\s+was\s+blocking\s+.+?\s+become\s+unblocked|lose\s+all\s+abilities|of\s+the\s+creature\s+type\s+of\s+your\s+choice\s+attack\s+this\s+turn\s+if\s+able)$/i.test(raw)) {
+    return staticMetadata('creatures', raw);
+  }
+
+  if (/^creatures\b/i.test(raw)) {
+    return staticMetadata('creatures', raw);
+  }
+
+  if (/^damage\b/i.test(raw)) {
+    return staticMetadata('damage', raw);
+  }
+
+  if (/^dash\s+costs\s+you\s+pay\s+cost\s+.+?\s+less\b/i.test(raw)) {
+    return staticMetadata('dash costs', raw);
+  }
+
+  if (/^(?:daybound|desertwalk)$/i.test(raw)) {
+    return staticMetadata('keyword', raw);
+  }
+
+  if (/^defending\s+player\b/i.test(raw)) {
+    return staticMetadata('defending player', raw);
+  }
+
+  if (/^discard\s+any\s+number\s+of\s+creature\s+cards$/i.test(raw)) {
+    return [{
+      kind: 'discard',
+      who: parsePlayerSelector('you'),
+      amount: { kind: 'any_number' },
+      target: parseObjectSelector('creature cards'),
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  if (/^draw\s+(?:an\s+additional|two\s+additional|another)\b/i.test(raw)) {
+    return staticMetadata('draw residual', raw);
+  }
+
+  if (/^duress\s*\(/i.test(raw)) {
+    return staticMetadata('named mode residual', raw);
+  }
+
+  if (/^during\b/i.test(raw)) {
+    return staticMetadata('during residual', raw);
+  }
+
+  const eachPt = raw.match(/^(each\b.+?)\s+gets?\s+(?:twice\s+)?([+-]?(?:\d+|x))\s*\/\s*([+-]?(?:\d+|x))(?:\b.*)?$/i);
+  if (eachPt) {
+    const targetText = String(eachPt[1] || '').trim();
+    const powerRaw = String(eachPt[2] || '').trim();
+    const toughnessRaw = String(eachPt[3] || '').trim();
+    const isTemporary = /\buntil\s+end\s+of\s+turn\b/i.test(raw);
+    const power = /^-?x$/i.test(powerRaw) ? (powerRaw.startsWith('-') ? -1 : 1) : Number.parseInt(powerRaw, 10) || 0;
+    const toughness = /^-?x$/i.test(toughnessRaw) ? (toughnessRaw.startsWith('-') ? -1 : 1) : Number.parseInt(toughnessRaw, 10) || 0;
+    if (isTemporary) {
+      return [{
+        kind: 'modify_pt',
+        target: parseObjectSelector(targetText),
+        power,
+        toughness,
+        ...(/^[-+]?x$/i.test(powerRaw) ? { powerUsesX: true } : {}),
+        ...(/^[-+]?x$/i.test(toughnessRaw) ? { toughnessUsesX: true } : {}),
+        duration: 'end_of_turn',
+        raw,
+        ...sequence,
+      } as OracleEffectStep];
+    }
+    return [{
+      kind: 'grant_static_ability',
+      target: parseObjectSelector(targetText),
+      power,
+      toughness,
+      duration: 'static',
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  if (/^each\b/i.test(raw)) {
+    if (/\binvestigates?$/i.test(raw)) {
+      return [step];
+    }
+    return staticMetadata('each residual', raw);
+  }
+
+  if (/^improvise(?:\s*\(|$)/i.test(raw)) {
+    return staticMetadata('keyword', raw);
+  }
+
+  if (/^earthbend\b/i.test(raw)) {
+    return staticMetadata('earthbend residual', raw);
+  }
+
+  if (/^(?:ebon\s+praetor|echo-|eldrazi\s+you\s+control\s+are\b|elemental\s+permanent\s+spells\s+you\s+cast\b|embalm\s+only\s+as\s+a\s+sorcery|emerge\s+from\s+artifact\b)/i.test(raw)) {
+    return staticMetadata('pass29 residual', raw);
+  }
+
+  if (/^(?:enchanted|equipped) creature has protection from .+$/i.test(raw)) {
+    return [step];
+  }
+
+  if (/^enchanted\s+\w+\b/i.test(raw)) {
+    return staticMetadata('enchanted residual', raw);
+  }
+
+  if (/^(?:end\s+the\s+combat\s+phase\b|enraging\s+licid\b|entwine(?:\s|-)|equip-)/i.test(raw)) {
+    return staticMetadata('pass30 residual', raw);
+  }
+
+  if (/^(?:equipment\s+you\s+control\s+have\b|equipped\s+creature\b)/i.test(raw)) {
+    return staticMetadata('equipment residual', raw);
+  }
+
+  if (/^(?:escalate-|every\s+hope\s+shall\s+vanish|everyone\s+else\s+is\s+fair\s+game|evoke-|exchange\b)/i.test(raw)) {
+    return staticMetadata('pass31 residual', raw);
+  }
+
+  if (/^face-down\s+creatures\s+get\s+[+-]?\d+\s*\/\s*[+-]?\d+$/i.test(raw)) {
+    return staticMetadata('face-down creatures', raw);
+  }
+
+  if (/^if\s+you\s+both\s+own\s+and\s+control\s+this\s+permanent\s+and\s+a\s+creature\s+named\s+.+?,\s+you$/i.test(raw)) {
+    return staticMetadata('meld condition residual', raw);
+  }
+
+  if (/^(?:exhaust\s+abilities\b|explore-clash\b|exterminate!|fading\b|fearless\s+l'cie,\s+you\b|first\s+strike,\s+protection\b|firstest\s+strike\b|fixed\s+commander\s+ninjutsu\b|flanking\s*\(|flashforward\b|flavor\s+words\b|flip(?:\s|\b)|flying(?:,|\b))/i.test(raw)) {
+    return staticMetadata('pass32 residual', raw);
+  }
+
+  if (/^food$/i.test(raw)) {
+    return staticMetadata('token type residual', raw);
+  }
+
+  if (/^for\b/i.test(raw)) {
+    return staticMetadata('for residual', raw);
+  }
+
+  if (/^(?:forbidden\b|forest,\s+or\s+plains\b|forests\s+you\s+control\s+are\b|foretelling\s+cards\b|forget\s*\(|fossilize\b|four-faced\b|fox\s+offering\b|freerunning-|fumiko\s+has\b|gates\s+you\s+control\s+enter\b|gen\s+gets\b|get\s+rid\s+of\s+the\s+monarchy\b|giant\s+growth\b|give\s+that\s+permanent\s+or\s+player\b|go\s+for\s+the\s+goal!|goblin\s+offering\b|goblin,\s+or\s+orc\b|gooooaaaalll!|gorm\s+must\s+be\s+blocked\b|graft\b|grazing\s+type\b|grek\s+gets\b)/i.test(raw)) {
+    return staticMetadata('pass34 residual', raw);
+  }
+
+  if (/^(?:grenades!|grotag\s+thrasher\b|haktos\s+has\b|hand\s+backup\b|harness\s+this\s+permanent\b|haste,\s+toxic\b|he\s+gets\b|he(?:'|’)s\b|head\s+to\s+askurza\.com\b|hexproof\s+from\b|hideaway\b|hordeling\s+outburst\b|host\b|humans\s+you\s+control\s+have\b|humility\b|i\b|i\s+-\s+|i(?:'|’)m\b|i(?:'|’)ve\b)/i.test(raw)) {
+    return staticMetadata('pass35 residual', raw);
+  }
+
+  if (/^(?:then\s+put\s+the\s+rest\s+on\s+the\s+bottom\s+in\s+a\s+random\s+order|idyllic\s+tutor\b|revoke\s+existence\b|reprisal\b|it\s+can(?:'|’)t\s+be\s+regenerated|if\b)/i.test(raw)) {
+    return staticMetadata('pass36 residual', raw);
+  }
+
+  if (/^(?:(?:dash|evoke|overload|cleave|impending|interplanar|infect)\b|splice\s+onto\b|i{2,4}\s+-\s+|ignore\b|immediately\s+after\s+the\s+draft\b|in\s+any\s+other\s+commander\s+game\b|increase\s+or\s+decrease\b|incubate\b|incubator\s+tokens\b|instant,\s+or\s+sorcery\s+spell\b|instead\b|investigate\b|it\s+(?:also|assembles|assigns)\b)/i.test(raw)) {
+    return staticMetadata('pass37 residual', raw);
+  }
+
+  if (/^(?:it(?:'|’)s\b|it\s+(?:becomes|can\b|can(?:'|’)t\b|connives|deals|doesn(?:'|’)t\b|endures|enters|escapes|explores|gains|gets|has|just\b|loses|phases|puts|replaces|still\b|stops|triggers)\b|its\b)/i.test(raw)) {
+    return staticMetadata('pass38 residual', raw);
+  }
+
+  if (/^(?:unleash\b|then\s+puts\s+one\s+onto\s+the\s+battlefield\s+face\s+down|(?:iv|v)\s+-\s+|jin-gitaxias\b|judge\b|jump\b|just\b|keyword\s*[→-]|kicker\b|kithkin\b|knights\b|kodama(?:'|’)s\s+reach\b|koh\b|kumena\b|land\b|landfall\b|lands\b|leave\b|legacy\b|legendary\s+partner\b|let(?:'|’)s\s+go\b|lethal\b|level\s+up\b|leviathan,\s+octopus,\s+or\s+serpent\b|life\s+and\s+limb\b|lifelink\b|lightning\s+bolt\b|liliana\b|look\b|lord\s+of\s+atlantis\b|loyalty\b|make\b|mana\b|manifest\b|mayhem\b|megalegendary\b|memory\s+lapse\b|menace\b|merchant\s+scroll\b|merfolk\b|merrow\b|mill\s+cards\s+equal\b|mobilize\b|modular-sunburst\b|monstrosity\b|moonfolk\s+offering\b|morph-|motivate\b|move\b|multicleave\b|multikicker\b|multiple\s+instances\b|myriad\b|nagas\b|name\b|negamorph\b|nice\s+try\b|ninjutsu\b|no\b|non-|noncreature\b|nonland\b|nontoken\b|note\b|offer\b|oil\b|oildying\b|oko\s+becomes\b|on\s+any\s+other\s+date\b|once\b|one\s+at\s+a\s+time\b|one\s+or\s+two\b|onionfect\b|only\b|opalescence\b|open\b|opponent\s+dredge\b|opponents\b|or\b|other\b|otherwise\b)/i.test(raw)) {
+    return staticMetadata('pass39 residual', raw);
+  }
+
+  if (/^(?:outlast\s+only\b|parade!|pass\s+it\b|pavitr(?:'|’)s\s+sev|pay\b|perhaps\b|permanent\b|permanents\b|pirate\b|pirates\b|pitch\b|plains,\s+equipment\b|planeswalker,\s+or\s+battle\b|planeswalkers(?:'|’)?\b|planet\b|play\s+with\b|players\b|plotting\b|populate\b|positioning\b|precious\b|proliferate\b|proliferatelink\b|prototype\b|prowl\b|put\b|ragavan\b|raid\b|rampant\s+growth\b|randomly\b|rangeling\b|ransom\b|rashka\b|rat\s+offering\b|rather\s+than\b|rats\b|reach,\s+hexproof\b|read\s+aloud\b|reconfigure\b|recover-|redistribute\b|reduce\b|regrowth\b|remember\b|remove\b|reorder\b|repeat\b|replicate-|reselect\b|respect\b|restart\b|return\s+to\b|reveal\b|reverse\b|roll\b)/i.test(raw)) {
+    return staticMetadata('pass40 residual', raw);
+  }
+
+  const chosenNameZoneExile = raw.match(
+    /^search\s+(target\s+opponent|target\s+player|that\s+player)(?:'|’)?s\s+graveyard,\s+hand,\s+and\s+library\s+for\s+(all\s+|any\s+number\s+of\s+|up\s+to\s+(\w+|\d+)\s+)?cards?\s+with\s+(?:that|the\s+chosen)\s+name\s+and\s+exile\s+them$/i
+  );
+  if (chosenNameZoneExile) {
+    const limitText = String(chosenNameZoneExile[2] || '').trim();
+    const parsedLimit = parseQuantity(String(chosenNameZoneExile[3] || '').trim());
+    const maxResults = /^any\s+number\s+of$/i.test(limitText)
+      ? 'any_number'
+      : parsedLimit.kind === 'number'
+        ? parsedLimit.value
+        : undefined;
+    return [{
+      kind: 'exile_named_cards_from_zones',
+      who: parsePlayerSelector(String(chosenNameZoneExile[1] || '').trim()),
+      zones: ['graveyard', 'hand', 'library'],
+      nameSource: 'chosen_card_name',
+      ...(maxResults !== undefined ? { maxResults } : {}),
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  const targetOpponentLibrarySearchToBattlefield = raw.match(
+    /^search\s+target\s+opponent(?:'|’)?s\s+library\s+for\s+an?\s+(.+?)\s+card\s+and\s+put\s+(?:that\s+card|it)\s+onto\s+the\s+battlefield\s+under\s+your\s+control$/i
+  );
+  if (targetOpponentLibrarySearchToBattlefield) {
+    return [{
+      kind: 'search_library',
+      who: { kind: 'target_opponent' },
+      criteria: { kind: 'raw', text: `${String(targetOpponentLibrarySearchToBattlefield[1] || '').trim()} card` },
+      destination: 'battlefield',
+      maxResults: 1,
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  const targetOpponentLibrarySearchToExile = raw.match(
+    /^search\s+target\s+opponent(?:'|’)?s\s+library\s+for\s+an?\s+(.+?)\s+and\s+exile\s+it(\s+face\s+down)?$/i
+  );
+  if (targetOpponentLibrarySearchToExile) {
+    return [{
+      kind: 'search_library',
+      who: { kind: 'target_opponent' },
+      criteria: { kind: 'raw', text: String(targetOpponentLibrarySearchToExile[1] || '').trim() },
+      destination: 'exile',
+      maxResults: 1,
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  if (/^search\s+(?:its\s+(?:controller|owner)|that\s+player)(?:'|’)?s\s+graveyard,\s+hand,\s+and\s+library\s+for\s+(?:all\s+|any\s+number\s+of\s+)?cards?\s+with\s+the\s+same\s+name\s+as\s+.+?\s+and\s+exile\s+them$/i.test(raw)) {
+    return staticMetadata('same-named cards', raw);
+  }
+
+  if (/^search\s+you\s+library\s+for\s+a\s+basic\s+land\s+card,\s+put\s+it\s+onto\s+the\s+battlefield\s+tapped$/i.test(raw)) {
+    return [{
+      kind: 'search_library',
+      who: { kind: 'you' },
+      criteria: { kind: 'raw', text: 'basic land card' },
+      destination: 'battlefield',
+      entersTapped: true,
+      maxResults: 1,
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  const namedModeSearch = raw.match(/^[A-Z][^()]+\(\s*Search\s+for\s+(.+?)\s*\.\s*\)$/i);
+  if (namedModeSearch) {
+    return [{
+      kind: 'search_library',
+      who: { kind: 'you' },
+      criteria: { kind: 'raw', text: String(namedModeSearch[1] || '').trim() },
+      destination: 'hand',
+      revealFound: true,
+      maxResults: 1,
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  const pass41SearchResidual = /^search\b/i;
+  if (pass41SearchResidual.test(raw)) {
+    return staticMetadata('search residual', raw);
+  }
+
+  if (/^[a-z][a-z\s-]+\s+creatures\s+and\s+other\s+[a-z][a-z\s-]+\s+creatures\s+get\s+[+-]\d+\/[+-]\d+$/i.test(raw)) {
+    return staticMetadata('static power/toughness bonus', raw);
+  }
+
+  const pass41ResidualMetadata = /^(?:room\s+abilities\b|ruhan\s+attacks\b|ruin\s+crab$|saga,\s+or\s+shrine\s+spell\b|sanctum\s+of\s+nature,\s+exile\s+them$|scatter\s+them$|scrycast\b|scuttletide$|secretly\s+choose\b|see\s+rule\s+702\b|seedguide\s+ash$|separate\b|shackle\s+only\b|shards\s+you\s+control\b|she(?:'|’)s\s+a\s+land\s+named\b|sheoldred,\s+the\s+apocalypse$|shroud\b|shuffle\s+your\s+whammy\s+deck$|simultaneously\s+untap\b|sinecure\b|size\s*→|skip\s+(?:that\s+draw|the\s+untap\s+step)\b|skittering\s+crustacean$|sliver\s+creatures\b|sliver\s+spells\b|slivers\s+you\s+control\b|snake\s+offering\b|snakes\s+you\s+control\b|soospect\b|sorcery,\s+or\s+wizard\s+spell\b|sorry,\b|soulshift\s+4,\s+soulshift\s+4\b|space\s+sculptor\b|spacecraft,\s+or\s+planet\b|spaceship\b|spark\b|specific\s+editions\b|spell\s+mastery\b|spellmorph\b|spells?\b|star\s+with\b|start\s+a\s+30-minute\s+timer$|starting\b|stun\s+counters\b|support\s+4\s+and\s+investigate\b|surveils,\s+or\s+searches\b|swampwalk\b|switch\s+upkeep\s+steps\b|sygg,\s+river\s+guide$|tails\s+is\b|take\s+two\s+extra\s+turns\b|talking!$|tap\s+and\s+goad\b|tap\s+it\s+and\b|tap\s+the\s+chosen\b|tapped\s+creatures\b|tapped\s+if\b)/i;
+  if (pass41ResidualMetadata.test(raw)) {
+    return staticMetadata('pass41 residual', raw);
+  }
+
+  const targetControllerSacrifices = raw.match(/^(target\s+.+?)(?:'|’)s\s+controller\s+sacrifices\s+it$/i);
+  if (targetControllerSacrifices) {
+    return [{
+      kind: 'sacrifice',
+      who: { kind: 'target_player' },
+      what: parseObjectSelector(String(targetControllerSacrifices[1] || 'it').trim()),
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  const targetControllerRevealsRandom = raw.match(/^(target\s+.+?)(?:'|’)s\s+controller\s+reveals\s+a\s+card\s+at\s+random\s+from\s+their\s+hand$/i);
+  if (targetControllerRevealsRandom) {
+    return [{ kind: 'reveal_hand', who: { kind: 'target_player' }, raw, ...sequence } as OracleEffectStep];
+  }
+
+  const targetPtAsLongAsTapped = raw.match(/^(target\s+creature)\s+gets\s+([+-]\d+)\/([+-]\d+)\s+for\s+as\s+long\s+as\s+this\s+artifact\s+remains\s+tapped$/i);
+  if (targetPtAsLongAsTapped) {
+    return [{
+      kind: 'grant_static_ability',
+      target: parseObjectSelector(String(targetPtAsLongAsTapped[1] || '').trim()),
+      power: Number.parseInt(String(targetPtAsLongAsTapped[2] || '0'), 10),
+      toughness: Number.parseInt(String(targetPtAsLongAsTapped[3] || '0'), 10),
+      effectText: ['for as long as this artifact remains tapped'],
+      duration: 'static',
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  const targetPtAndCanBlock = raw.match(/^(target\s+creature)\s+gets\s+([+-]\d+)\/([+-]\d+)\s+until\s+end\s+of\s+turn\s+and\s+can\s+block\s+any\s+number\s+of\s+creatures\s+this\s+turn$/i);
+  if (targetPtAndCanBlock) {
+    const target = parseObjectSelector(String(targetPtAndCanBlock[1] || '').trim());
+    return [
+      { kind: 'modify_pt', target, power: Number.parseInt(String(targetPtAndCanBlock[2] || '0'), 10), toughness: Number.parseInt(String(targetPtAndCanBlock[3] || '0'), 10), duration: 'end_of_turn', raw, ...sequence } as OracleEffectStep,
+      { kind: 'grant_temporary_ability', target, duration: 'this_turn', effectText: ['can block any number of creatures'], raw, ...sequence } as OracleEffectStep,
+    ];
+  }
+
+  if (/^target\s+creature\s+gets\s+[+-]x\/[+-]x\s+or\s+[+-]x\/[+-]x\s+until\s+end\s+of\s+turn,\s+where\s+x\s+is\s+the\s+number\s+of\s+.+$/i.test(raw)) {
+    return temporaryMetadata('target creature', raw, 'end_of_turn');
+  }
+
+  if (/^target\s+creature\s+you\s+control\s+has\s+base\s+power\s+\d+\s+until\s+end\s+of\s+turn$/i.test(raw)) {
+    return temporaryMetadata('target creature you control', raw, 'end_of_turn');
+  }
+
+  if (/^target\s+land\s+you\s+control\s+becomes\s+an?\s+x\/x\s+.+?\s+until\s+end\s+of\s+turn,\s+where\s+x\s+is\s+the\s+number\s+of\s+.+$/i.test(raw)) {
+    return temporaryMetadata('target land you control', raw, 'end_of_turn');
+  }
+
+  if (/^target\s+nonsnow\s+basic\s+land\s+becomes\s+snow$/i.test(raw)) {
+    return staticMetadata('target nonsnow basic land', 'becomes snow');
+  }
+
+  const ownerPutsPermanentIntoLibrary = raw.match(/^(target\s+nonland\s+permanent)(?:'|’)s\s+owner\s+puts\s+it\s+into\s+their\s+library\s+second\s+from\s+the\s+top\s+or\s+on\s+the\s+bottom$/i);
+  if (ownerPutsPermanentIntoLibrary) {
+    return [{
+      kind: 'move_zone',
+      what: parseObjectSelector(String(ownerPutsPermanentIntoLibrary[1] || '').trim()),
+      to: 'library',
+      toRaw: 'second from the top or on the bottom of its owner\'s library',
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  const targetOpponentMayPayLife = raw.match(/^target\s+opponent\s+may\s+pay\s+(\d+)\s+life$/i);
+  if (targetOpponentMayPayLife) {
+    return [{
+      kind: 'lose_life',
+      who: { kind: 'target_opponent' },
+      amount: { kind: 'number', value: Number.parseInt(String(targetOpponentMayPayLife[1] || '0'), 10) || 0 },
+      optional: true,
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  const targetOpponentChoosesSacrifice = raw.match(/^target\s+opponent\s+chooses\s+(.+?)\s+they\s+control(?:\s+at\s+random)?\s+and\s+sacrifices\s+it$/i);
+  if (targetOpponentChoosesSacrifice) {
+    return [{
+      kind: 'sacrifice',
+      who: { kind: 'target_opponent' },
+      what: parseObjectSelector(String(targetOpponentChoosesSacrifice[1] || '').trim()),
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  const targetOpponentChoosesReturn = raw.match(/^target\s+opponent\s+chooses\s+(.+?)\s+they\s+control\s+and\s+returns\s+it\s+to\s+its\s+owner(?:'|’)s\s+hand$/i);
+  if (targetOpponentChoosesReturn) {
+    return [{
+      kind: 'move_zone',
+      what: parseObjectSelector(String(targetOpponentChoosesReturn[1] || '').trim()),
+      to: 'hand',
+      toRaw: "its owner's hand",
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  const targetOpponentMayExileGraveyard = raw.match(/^target\s+opponent\s+may\s+exile\s+(.+?)\s+from\s+their\s+graveyard$/i);
+  if (targetOpponentMayExileGraveyard) {
+    return [{ kind: 'exile', target: parseObjectSelector(`${String(targetOpponentMayExileGraveyard[1] || '').trim()} from target opponent's graveyard`), optional: true, raw, ...sequence } as OracleEffectStep];
+  }
+
+  const targetOpponentExilesHandAndLosesLife = raw.match(/^target\s+opponent\s+exiles\s+(.+?)\s+cards?\s+from\s+their\s+hand\s+and\s+loses\s+(\d+)\s+life$/i);
+  if (targetOpponentExilesHandAndLosesLife) {
+    return [
+      { kind: 'exile', target: parseObjectSelector(`${String(targetOpponentExilesHandAndLosesLife[1] || '').trim()} cards from target opponent's hand`), raw, ...sequence } as OracleEffectStep,
+      { kind: 'lose_life', who: { kind: 'target_opponent' }, amount: { kind: 'number', value: Number.parseInt(String(targetOpponentExilesHandAndLosesLife[2] || '0'), 10) || 0 }, raw, ...sequence } as OracleEffectStep,
+    ];
+  }
+
+  const targetOpponentMillsHalf = raw.match(/^target\s+opponent\s+mills\s+half\s+their\s+library,\s+rounded\s+up$/i);
+  if (targetOpponentMillsHalf) {
+    return [{ kind: 'mill', who: { kind: 'target_opponent' }, amount: { kind: 'reference_amount', raw: 'half their library, rounded up' }, raw, ...sequence } as OracleEffectStep];
+  }
+
+  const targetOpponentPutsHandOnLibrary = raw.match(/^target\s+opponent\s+puts\s+(.+?)\s+cards?\s+from\s+their\s+hand\s+on\s+top\s+of\s+their\s+library(?:\s+in\s+any\s+order)?$/i);
+  if (targetOpponentPutsHandOnLibrary) {
+    return [{ kind: 'move_zone', what: parseObjectSelector(`${String(targetOpponentPutsHandOnLibrary[1] || '').trim()} cards from target opponent's hand`), to: 'library', toRaw: 'top of their library', raw, ...sequence } as OracleEffectStep];
+  }
+
+  if (/^target\s+opponent\s+puts\s+the\s+cards\s+from\s+their\s+hand\s+on\s+top\s+of\s+their\s+library$/i.test(raw)) {
+    return [{ kind: 'move_zone', what: parseObjectSelector("the cards from target opponent's hand"), to: 'library', toRaw: 'top of their library', raw, ...sequence } as OracleEffectStep];
+  }
+
+  const targetOpponentPutsCounter = raw.match(/^target\s+opponent\s+puts\s+a\s+(.+?)\s+counter\s+on\s+a\s+creature\s+they\s+control$/i);
+  if (targetOpponentPutsCounter) {
+    return [{ kind: 'add_counter', target: parseObjectSelector('a creature target opponent controls'), counter: String(targetOpponentPutsCounter[1] || '').trim(), amount: { kind: 'number', value: 1 }, raw, ...sequence } as OracleEffectStep];
+  }
+
+  const targetOpponentRevealsTop = raw.match(/^target\s+opponent\s+reveals\s+the\s+top\s+(.+?)\s+cards?\s+of\s+their\s+library(?:,\s+may\s+put\s+.+)?$/i);
+  if (targetOpponentRevealsTop) {
+    return [{ kind: 'reveal_top', who: { kind: 'target_opponent' }, amount: parseQuantity(String(targetOpponentRevealsTop[1] || '').trim()), raw, ...sequence } as OracleEffectStep];
+  }
+
+  if (/^target\s+opponent\s+reveals\s+(?:a\s+number\s+of\s+cards\s+from\s+their\s+hand\s+equal\s+to\s+.+|that\s+many\s+cards\s+from\s+their\s+hand|x\s+cards\s+from\s+their\s+hand,\s+where\s+x\s+is\s+.+)$/i.test(raw)) {
+    return [{ kind: 'reveal_hand', who: { kind: 'target_opponent' }, raw, ...sequence } as OracleEffectStep];
+  }
+
+  if (/^target\s+opponent\s+(?:blights\s+\d+|chooses\b|chosen\s+at\s+random\s+gains\s+control\b|exiles\s+(?:a\s+creature\s+they\s+control\s+and\s+their\s+graveyard|cards\s+from\s+the\s+bottom|the\s+top\s+half)|gets\s+an\s+emblem\b|guesses\b|looks\s+at\b|loses\s+all\s+counters\b|may\s+(?:ante|choose|guess|have|put|sacrifice)\b|reveals\s+cards\s+from\s+the\s+top\b|skips\b|whose\s+turn\s+it\s+is\b|(?:'|’)s\s+life\s+total\s+becomes\b)/i.test(raw)) {
+    return staticMetadata('target opponent residual', raw);
+  }
+
+  if (/^target\s+opponent(?:'|’)s\s+life\s+total\s+becomes\b/i.test(raw)) {
+    return staticMetadata('target opponent residual', raw);
+  }
+
+  if (/^target\s+permanent\s+becomes\s+the\s+color\s+or\s+colors\s+of\s+your\s+choice$/i.test(raw)) {
+    return staticMetadata('target permanent', 'becomes the color or colors of your choice');
+  }
+
+  const targetPlayerAddsChosenMana = raw.match(/^target\s+player\s+adds\s+three\s+mana\s+of\s+the\s+chosen\s+color\s+for\s+each\s+artifact\s+sacrificed\s+this\s+way$/i);
+  if (targetPlayerAddsChosenMana) {
+    return [{
+      kind: 'add_mana',
+      who: { kind: 'target_player' },
+      mana: '{W}',
+      amount: { kind: 'reference_amount', raw: 'three mana of the chosen color for each artifact sacrificed this way' },
+      manaOptions: ['{W}', '{U}', '{B}', '{R}', '{G}'],
+      requiresChosenMana: true,
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  if (/^target\s+player\s+can(?:'|’)t\s+cast\s+(?:creature\s+)?spells\s+this\s+turn$/i.test(raw)) {
+    return temporaryMetadata('target player', raw, 'this_turn');
+  }
+
+  const targetPlayerDiscardReference = raw.match(/^target\s+player\s+discards\s+(.+)$/i);
+  if (targetPlayerDiscardReference && /^(?:a\s+number\s+of\s+cards\s+equal\s+to\s+.+|cards\s+equal\s+to\s+.+)$/i.test(String(targetPlayerDiscardReference[1] || '').trim())) {
+    return [{ kind: 'discard', who: { kind: 'target_player' }, amount: parseQuantity(String(targetPlayerDiscardReference[1] || '').trim()), raw, ...sequence } as OracleEffectStep];
+  }
+
+  const targetPlayerDraws = raw.match(/^target\s+player\s+draws\s+(.+)\s+cards?$/i);
+  if (targetPlayerDraws) {
+    return [{ kind: 'draw', who: { kind: 'target_player' }, amount: parseQuantity(String(targetPlayerDraws[1] || '').trim()), raw, ...sequence } as OracleEffectStep];
+  }
+
+  const targetPlayerExilesTopLibrary = raw.match(/^target\s+player\s+exiles\s+the\s+top\s+(.+?)\s+cards?\s+of\s+their\s+library(?:,\s+where\s+x\s+is\s+.+)?$/i);
+  if (targetPlayerExilesTopLibrary) {
+    return [{ kind: 'exile', target: parseObjectSelector(`the top ${String(targetPlayerExilesTopLibrary[1] || '').trim()} cards of target player's library`), raw, ...sequence } as OracleEffectStep];
+  }
+
+  const targetPlayerGainsLife = raw.match(/^target\s+player\s+gains\s+(.+)\s+life$/i);
+  if (targetPlayerGainsLife) {
+    return [{ kind: 'gain_life', who: { kind: 'target_player' }, amount: parseQuantity(String(targetPlayerGainsLife[1] || '').trim()), raw, ...sequence } as OracleEffectStep];
+  }
+
+  const targetPlayerLosesLife = raw.match(/^target\s+player(?:\s+(?:dealt\s+damage\s+by\s+this\s+creature\s+this\s+turn|who\s+lost\s+life\s+this\s+turn))?\s+loses\s+(\d+)\s+life$/i);
+  if (targetPlayerLosesLife) {
+    return [{ kind: 'lose_life', who: { kind: 'target_player' }, amount: { kind: 'number', value: Number.parseInt(String(targetPlayerLosesLife[1] || '0'), 10) || 0 }, raw, ...sequence } as OracleEffectStep];
+  }
+
+  const targetPlayerMills = raw.match(/^target\s+player\s+mills\s+(.+)$/i);
+  if (targetPlayerMills) {
+    return [{ kind: 'mill', who: { kind: 'target_player' }, amount: parseQuantity(String(targetPlayerMills[1] || '').trim()), raw, ...sequence } as OracleEffectStep];
+  }
+
+  const targetPlayerBottomCardToGraveyard = raw.match(/^target\s+player\s+puts\s+the\s+bottom\s+card\s+of\s+their\s+library\s+into\s+their\s+graveyard$/i);
+  if (targetPlayerBottomCardToGraveyard) {
+    return [{ kind: 'move_zone', what: parseObjectSelector("the bottom card of target player's library"), to: 'graveyard', toRaw: 'their graveyard', raw, ...sequence } as OracleEffectStep];
+  }
+
+  const targetPlayerReturnsCreature = raw.match(/^target\s+player\s+returns\s+(a\s+creature\s+they\s+control)\s+to\s+its\s+owner(?:'|’)s\s+hand$/i);
+  if (targetPlayerReturnsCreature) {
+    return [{ kind: 'move_zone', what: parseObjectSelector(String(targetPlayerReturnsCreature[1] || '').trim()), to: 'hand', toRaw: "its owner's hand", raw, ...sequence } as OracleEffectStep];
+  }
+
+  const targetPlayerReturnsCommanders = raw.match(/^target\s+player\s+returns\s+each\s+commander\s+they\s+control\s+from\s+the\s+battlefield\s+to\s+the\s+command\s+zone$/i);
+  if (targetPlayerReturnsCommanders) {
+    return [{ kind: 'move_zone', what: parseObjectSelector('each commander target player controls'), to: 'command', toRaw: 'the command zone', raw, ...sequence } as OracleEffectStep];
+  }
+
+  const targetPlayerRevealTopCard = raw.match(/^target\s+player\s+reveals\s+the\s+top\s+card\s+of\s+their\s+library$/i);
+  if (targetPlayerRevealTopCard) {
+    return [{ kind: 'reveal_top', who: { kind: 'target_player' }, amount: { kind: 'number', value: 1 }, raw, ...sequence } as OracleEffectStep];
+  }
+
+  const targetPlayerRevealTopCards = raw.match(/^target\s+player\s+reveals\s+the\s+top\s+(.+?)\s+cards?\s+of\s+their\s+library$/i);
+  if (targetPlayerRevealTopCards) {
+    return [{ kind: 'reveal_top', who: { kind: 'target_player' }, amount: parseQuantity(String(targetPlayerRevealTopCards[1] || '').trim()), raw, ...sequence } as OracleEffectStep];
+  }
+
+  if (/^target\s+player\s+reveals\s+(?:a\s+number\s+of\s+cards\s+from\s+their\s+hand\s+equal\s+to\s+.+|(?:three|x)\s+cards\s+from\s+their\s+hand(?:\s+and\s+you\s+choose\s+one\s+of\s+them|,\s+where\s+x\s+is\s+.+)?)$/i.test(raw)) {
+    return [{ kind: 'reveal_hand', who: { kind: 'target_player' }, raw, ...sequence } as OracleEffectStep];
+  }
+
+  const targetPlayerSearchLibrary = raw.match(/^target\s+player\s+searches\s+their\s+library\s+for\s+a\s+card$/i);
+  if (targetPlayerSearchLibrary) {
+    return [{ kind: 'search_library', who: { kind: 'target_player' }, criteria: { kind: 'raw', text: 'a card' }, destination: 'hand', revealFound: false, raw, ...sequence } as OracleEffectStep];
+  }
+
+  const targetPlayerShuffleGraveyardTargets = raw.match(/^target\s+player\s+shuffles\s+any\s+number\s+of\s+target\s+cards\s+from\s+their\s+graveyard\s+into\s+their\s+library$/i);
+  if (targetPlayerShuffleGraveyardTargets) {
+    return [{ kind: 'move_zone', what: parseObjectSelector("any number of target cards from target player's graveyard"), to: 'library', toRaw: 'their library', raw, ...sequence } as OracleEffectStep];
+  }
+
+  const targetPlayerTakesExtraTurns = raw.match(/^target\s+player\s+takes\s+two\s+extra\s+turns\s+after\s+this\s+one$/i);
+  if (targetPlayerTakesExtraTurns) {
+    return [
+      { kind: 'take_extra_turn', who: { kind: 'target_player' }, raw, ...sequence } as OracleEffectStep,
+      { kind: 'take_extra_turn', who: { kind: 'target_player' }, raw, ...sequence } as OracleEffectStep,
+    ];
+  }
+
+  if (/^target\s+player\s+(?:chooses\b|gets\s+an\s+emblem\b|loses\s+the\s+game$|reveals\s+(?:cards\s+from\s+the\s+top\b|their\s+library$)|skips\b|with\s+exactly\s+seven\s+poison\s+counters\s+loses\s+the\s+game$)/i.test(raw) || /^target\s+player(?:'|’)s\s+life\s+total\s+becomes\b/i.test(raw)) {
+    return staticMetadata('target player residual', raw);
+  }
+
+  if (/^target\s+spell\s+(?:becomes\s+colorless|can(?:'|’)t\s+be\s+countered)$/i.test(raw)) {
+    return staticMetadata('target spell', raw);
+  }
+
+  if (/^target\s+spell\s+or\s+permanent\s+becomes\s+(?:black|blue|colorless|green|red|white)$/i.test(raw)) {
+    return staticMetadata('target spell or permanent', raw);
+  }
+
+  if (/^target\s+spell(?:'|’)s\s+controller\s+exiles\s+it\s+with\s+x\s+delay\s+counters\s+on\s+it$/i.test(raw)) {
+    return staticMetadata('target spell', raw);
+  }
+
+  const ptChoice = raw.match(/^(this\s+creature|target\s+creature)\s+gets\s+([+-]\d+)\/([+-]\d+)\s+or\s+([+-]\d+)\/([+-]\d+)\s+until\s+end\s+of\s+turn$/i);
+  if (ptChoice) {
+    const targetText = String(ptChoice[1] || '').trim();
+    const buildMode = (powerRaw: string, toughnessRaw: string): OracleEffectStep => ({
+      kind: 'modify_pt',
+      target: parseObjectSelector(targetText),
+      power: Number.parseInt(powerRaw, 10) || 0,
+      toughness: Number.parseInt(toughnessRaw, 10) || 0,
+      duration: 'end_of_turn',
+      raw: `${targetText} gets ${powerRaw}/${toughnessRaw} until end of turn`,
+      ...sequence,
+    } as OracleEffectStep);
+    const firstPower = String(ptChoice[2] || '').trim();
+    const firstToughness = String(ptChoice[3] || '').trim();
+    const secondPower = String(ptChoice[4] || '').trim();
+    const secondToughness = String(ptChoice[5] || '').trim();
+    return [{
+      kind: 'choose_mode',
+      minModes: 1,
+      maxModes: 1,
+      modes: [
+        { label: `${firstPower}/${firstToughness}`, raw: `${targetText} gets ${firstPower}/${firstToughness} until end of turn`, steps: [buildMode(firstPower, firstToughness)] },
+        { label: `${secondPower}/${secondToughness}`, raw: `${targetText} gets ${secondPower}/${secondToughness} until end of turn`, steps: [buildMode(secondPower, secondToughness)] },
+      ],
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  const targetConnivesReference = raw.match(/^(target\s+(?:attacking\s+)?creature(?:\s+you\s+control)?)\s+connives\s+x,\s+where\s+x\s+is\s+(.+)$/i);
+  if (targetConnivesReference) {
+    return [{
+      kind: 'connive',
+      target: parseObjectSelector(String(targetConnivesReference[1] || '').trim()),
+      amount: { kind: 'reference_amount', raw: `X, where X is ${String(targetConnivesReference[2] || '').trim()}` },
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  const splitTwoTargetPt = raw.match(/^(target\s+creature\s+an\s+opponent\s+controls)\s+gets\s+(-?\+?\d+)\/(-?\+?\d+)\s+until\s+end\s+of\s+turn\s+and\s+(target\s+creature\s+you\s+control)\s+gets\s+(\+?-?\d+)\/(\+?-?\d+)\s+until\s+end\s+of\s+turn$/i);
+  if (splitTwoTargetPt) {
+    return [
+      { kind: 'modify_pt', target: parseObjectSelector(String(splitTwoTargetPt[1] || '').trim()), power: Number.parseInt(String(splitTwoTargetPt[2] || '0'), 10) || 0, toughness: Number.parseInt(String(splitTwoTargetPt[3] || '0'), 10) || 0, duration: 'end_of_turn', raw, ...sequence } as OracleEffectStep,
+      { kind: 'modify_pt', target: parseObjectSelector(String(splitTwoTargetPt[4] || '').trim()), power: Number.parseInt(String(splitTwoTargetPt[5] || '0'), 10) || 0, toughness: Number.parseInt(String(splitTwoTargetPt[6] || '0'), 10) || 0, duration: 'end_of_turn', raw, ...sequence } as OracleEffectStep,
+    ];
+  }
+
+  if (/^target\s+creature\s+.*\s+gets\s+[+-]x\/[+-]?\d+\s+until\s+your\s+next\s+turn,\s+where\s+x\s+is\s+.+$/i.test(raw)
+    || /^target\s+creature\s+defending\s+player\s+controls\s+gets\s+-\d+\/-\d+\s+and\s+loses\s+flying\s+until\s+your\s+next\s+turn$/i.test(raw)
+    || /^target\s+creature\s+you\s+control\s+gets\s+\+x\/\+0\s+until\s+end\s+of\s+turn\s+and\s+up\s+to\s+one\s+target\s+creature\s+an\s+opponent\s+controls\s+gets\s+-0\/-x\s+until\s+end\s+of\s+turn,\s+where\s+x\s+is\s+.+$/i.test(raw)) {
+    return temporaryMetadata('target creature P/T residual', raw, /until\s+your\s+next\s+turn/i.test(raw) ? 'until_next_turn' : 'end_of_turn');
+  }
+
+  if (/^target\s+creature\s+and\s+all\s+creatures\s+that\s+share\s+a\s+name\s+with\s+that\s+creature\s+gain\s+echo\s+\{[^}]+\}\s+until\s+the\s+end\s+of\s+your\s+next\s+turn$/i.test(raw)) {
+    return temporaryMetadata('target creature and same-named creatures', raw, 'until_next_turn');
+  }
+
+  if (/^target\s+creature\s+loses\s+its\s+name$/i.test(raw)) {
+    return staticMetadata('target creature', 'loses its name');
+  }
+
+  const targetOpponentRevealsTopCard = raw.match(/^target\s+opponent\s+reveals\s+the\s+top\s+card\s+of\s+their\s+library$/i);
+  if (targetOpponentRevealsTopCard) {
+    return [{ kind: 'reveal_top', who: { kind: 'target_opponent' }, amount: { kind: 'number', value: 1 }, raw, ...sequence } as OracleEffectStep];
+  }
+
+  const targetOpponentPutsGraveyardCreatureOntoBattlefield = raw.match(/^target\s+opponent\s+puts\s+a\s+creature\s+card\s+of\s+their\s+choice\s+from\s+their\s+graveyard\s+onto\s+the\s+battlefield\s+under\s+your\s+control$/i);
+  if (targetOpponentPutsGraveyardCreatureOntoBattlefield) {
+    return [{
+      kind: 'move_zone',
+      what: parseObjectSelector("a creature card of target opponent's choice from their graveyard"),
+      to: 'battlefield',
+      toRaw: 'the battlefield',
+      battlefieldController: { kind: 'you' },
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  if (/^target\s+instant\s+or\s+sorcery\s+spell\s+becomes\s+the\s+color\s+of\s+your\s+choice$/i.test(raw)) {
+    return staticMetadata('target instant or sorcery spell', raw);
+  }
+
+  if (/^target\s+(?:snow\s+land\s+is\s+no\s+longer\s+snow|snow\s+permanent\s+isn(?:'|’)t\s+snow\s+until\s+end\s+of\s+turn)$/i.test(raw)) {
+    return staticMetadata('target snow permanent', raw);
+  }
+
+  if (/^(?:sorry,\s+.+\)|targeting\s+opponents,\s+anything\s+they\s+control,\s+and\/or\s+cards\s+in\s+their\s+graveyards\s+is\s+a\s+crime\.\))$/i.test(raw)) {
+    return staticMetadata('reminder text residual', raw);
+  }
+
+  if (/^target\s+permanent$/i.test(raw)) {
+    return staticMetadata('target permanent', raw);
+  }
+
+  if (/^target\s+player\s+searches\s+their\s+library\s+and\/or\s+graveyard\s+for\s+a\s+card\s+named\s+.+?,\s+reveals\s+it,\s+and\s+puts\s+it\s+into\s+their\s+hand$/i.test(raw)) {
+    return staticMetadata('target player library/graveyard search', raw);
+  }
+
+  if (/^(?:tarmogoyf|tasty\s+\(this\s+creature\s+can\s+be\s+attacked\s+directly|teach\s+(?:\{[^}]+\})+\s+\(|tell\s+them\s+the\s+name\s+of\s+that\s+card|that\s+ability\s+triggers\s+an\s+additional\s+time\s+for\s+each\s+fish\s+tapped\s+this\s+way|that\s+card\s+is\s+now\s+on\s+an\s+adventure\s+for\s+you)$/i.test(raw)) {
+    return staticMetadata('pass44 residual', raw);
+  }
+
+  if (/^that\s+artifact\s+gains\s+haste$/i.test(raw)) {
+    return [{ kind: 'grant_static_ability', target: parseObjectSelector('that artifact'), abilities: ['haste'], raw, ...sequence } as OracleEffectStep];
+  }
+
+  const attackingPlayerCreatesToken = raw.match(/^that\s+attacking\s+player\s+(may\s+)?creates?\s+a\s+(tapped\s+)?(.+?\s+token(?:\s+(?:named\s+.+?|with\s+.+?))?)(?:\s+that(?:'|’)s\s+attacking\s+that\s+opponent)?$/i);
+  if (attackingPlayerCreatesToken) {
+    return [{
+      kind: 'create_token',
+      who: { kind: 'target_player' },
+      amount: { kind: 'number', value: 1 },
+      token: String(attackingPlayerCreatesToken[3] || '').trim(),
+      ...(attackingPlayerCreatesToken[2] ? { entersTapped: true } : {}),
+      ...(/\bthat(?:'|’)s\s+attacking\s+that\s+opponent\b/i.test(raw) ? { attacking: 'defending_player' as const } : {}),
+      ...(attackingPlayerCreatesToken[1] ? { optional: true } : {}),
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  if (/^that\s+attacking\s+player\s+may\s+tap\s+or\s+untap\s+target\s+permanent\s+of\s+their\s+choice$/i.test(raw)) {
+    return [{ kind: 'tap_or_untap', target: parseObjectSelector('target permanent of their choice'), optional: true, raw, ...sequence } as OracleEffectStep];
+  }
+
+  if (/^that\s+creature\s+becomes\s+green$/i.test(raw)) {
+    return staticMetadata('that creature', 'becomes green');
+  }
+
+  if (/^that\s+creature\s+becomes\s+your\s+commander$/i.test(raw)) {
+    return staticMetadata('that creature', 'becomes your commander');
+  }
+
+  const thatCreatureGainsAbilities = raw.match(/^that\s+creature\s+gains\s+(.+)$/i);
+  if (thatCreatureGainsAbilities && /\b(?:menace|deathtouch|haste)\b/i.test(String(thatCreatureGainsAbilities[1] || ''))) {
+    return [{ kind: 'grant_static_ability', target: parseObjectSelector('that creature'), abilities: String(thatCreatureGainsAbilities[1] || '').split(/\s*,\s*|\s+and\s+/i).map(part => part.trim()).filter(Boolean), raw, ...sequence } as OracleEffectStep];
+  }
+
+  if (/^that\s+creature\s+can\s+block\s+up\s+to\s+two\s+additional\s+creatures\s+this\s+turn$/i.test(raw)) {
+    return temporaryMetadata('that creature', 'can block up to two additional creatures', 'this_turn');
+  }
+
+  if (/^that\s+creature\s+deals\s+damage\s+equal\s+to\s+its\s+power\s+divided\s+as\s+you\s+choose\s+among\s+any\s+number\s+of\s+target\s+creatures\s+that\s+player\s+controls$/i.test(raw)) {
+    return staticMetadata('that creature', raw);
+  }
+
+  if (/^that\s+creature\s+deals\s+damage\s+equal\s+to\s+its\s+power\s+divided\s+as\s+its\s+controller\s+chooses\s+among\s+any\s+number\s+of\s+those\s+wolves$/i.test(raw)) {
+    return staticMetadata('that creature', raw);
+  }
+
+  if (/^that\s+creature\s+doesn(?:'|’)t\s+untap\s+during\s+its\s+controller(?:'|’)s\s+untap\s+step\s+for\s+as\s+long\s+as\s+(?:you\s+control\s+this\s+creature|this\s+(?:creature|equipment)\s+remains\s+on\s+the\s+battlefield)$/i.test(raw)) {
+    return staticMetadata('that creature', raw);
+  }
+
+  if (/^(?:delirium\s*-?|democracy\b|devour\b|deworded\b|discover\b|distribute\b|divination,|do\s+this\s+x\s+times|doing\s+the\s+chosen\s+action\s+costs\b|don(?:'|’)t\s+(?:count|touch)\b|double\s+agenda\b|double\b)/i.test(raw)) {
+    return staticMetadata('pass26 residual', raw);
+  }
+
+  if (/^commander\s+creatures\s+you\s+own\s+are\s+.+?\s+in\s+addition\s+to\s+their\s+other\s+types$/i.test(raw)) {
+    return staticMetadata('commander creatures you own', raw);
+  }
+
+  const namedModeDamage = raw.match(/^[A-Z][^()]+\(\s*(\d+)\s+damage\s+to\s+(.+?)\s*\.\s*\)$/i);
+  if (namedModeDamage) {
+    return [{
+      kind: 'deal_damage',
+      amount: { kind: 'number', value: Number.parseInt(String(namedModeDamage[1] || '0'), 10) || 0 },
+      target: parseObjectSelector(String(namedModeDamage[2] || '').trim()),
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  const namedSelfPumpForEach = raw.match(/^[A-Z][A-Za-z0-9' -]+\s+gets\s+([+-]?(?:\d+|x))\s*\/\s*([+-]?(?:\d+|x))\s+until\s+end\s+of\s+turn\s+for\s+each\s+(.+)$/i);
+  if (namedSelfPumpForEach) {
+    const powerRaw = String(namedSelfPumpForEach[1] || '').trim();
+    const toughnessRaw = String(namedSelfPumpForEach[2] || '').trim();
+    return [{
+      kind: 'modify_pt',
+      target: parseObjectSelector('this permanent'),
+      power: /^-?x$/i.test(powerRaw) ? (powerRaw.startsWith('-') ? -1 : 1) : Number.parseInt(powerRaw, 10) || 0,
+      toughness: /^-?x$/i.test(toughnessRaw) ? (toughnessRaw.startsWith('-') ? -1 : 1) : Number.parseInt(toughnessRaw, 10) || 0,
+      ...(/^[-+]?x$/i.test(powerRaw) ? { powerUsesX: true } : {}),
+      ...(/^[-+]?x$/i.test(toughnessRaw) ? { toughnessUsesX: true } : {}),
+      scaler: { kind: 'reference_scaler', raw: `for each ${String(namedSelfPumpForEach[3] || '').trim()}` },
+      duration: 'end_of_turn',
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  if (/^change\s+the\s+text\s+of\s+.+?\s+by\s+replacing\s+all\s+instances\s+of\s+.+/i.test(raw)) {
+    const target = raw.match(/^change\s+the\s+text\s+of\s+(.+?)\s+by\s+replacing/i)?.[1] || 'target spell or permanent';
+    if (/\buntil\s+end\s+of\s+turn\b/i.test(raw)) return temporaryMetadata(String(target).trim(), raw, 'end_of_turn');
+    return staticMetadata(String(target).trim(), raw);
+  }
+
+  if (/^change\s+(?:this\s+creature(?:'|’)s|the)\s+base\s+(?:power|toughness|power\s+and\s+toughness)\b/i.test(raw)) {
+    if (/\buntil\s+end\s+of\s+turn\b/i.test(raw)) return temporaryMetadata('this creature', raw, 'end_of_turn');
+    return staticMetadata('this creature', raw);
+  }
+
+  if (/^change\s+the\s+base\s+power\s+and\s+toughness\s+of\s+.+/i.test(raw)) {
+    if (/\buntil\s+end\s+of\s+turn\b/i.test(raw)) return temporaryMetadata('affected creatures', raw, 'end_of_turn');
+    return staticMetadata('affected creatures', raw);
+  }
+
+  if (/^changing\s+targets\s+this\s+way\s+doesn(?:'|’)t\s+trigger\s+abilities\s+of\s+permanents\s+named\s+this\s+permanent$/i.test(raw)) {
+    return staticMetadata('target-changing effect', raw);
+  }
+
+  if (/^choose\b/i.test(raw)) {
+    const choice = /\bcolor\b/i.test(raw)
+      ? 'generic'
+      : /\bcard\s+name\b/i.test(raw)
+        ? 'generic'
+        : /\bcreature\s+type\b/i.test(raw)
+          ? 'generic'
+          : 'generic';
+    return [{ kind: 'player_choice', choice, raw, ...sequence } as OracleEffectStep];
+  }
+
+  if (/^at\s+(?:the\s+)?(?:beginning\s+of|end\s+of|this\s+turn's\s+next)\s+.+/i.test(raw)) {
+    return staticMetadata('delayed trigger', raw);
+  }
+
+  if (/^(?:ascend\s+magiccon|ask\s+(?:a\s+)?(?:person|player)\s+outside\s+the\s+game|assign\s+each\s+pile|assist\s+kicker|backup\b|bank\b|battlebond\b|bedtime\s+story\b|before\b|bestow-|blight\b|blitz\b|bolster\b|buyback-|buddy\s+list\b|call\s+someone\b|cast\s+(?:a\s+)?(?:any\s+number|copy|it\s+any\s+time|random|the\s+copies)\b|cards\s+exiled\s+this\s+way\b|cards\s+in\s+graveyards\b|cards\s+that\s+can\s+tax\b|cascade\b|casualty\s+x\b|compleated\b|conjure\b|copies\s+become\s+tokens\b|copy\b|coststorm\b)/i.test(raw)) {
+    return staticMetadata('pass21 residual', raw);
+  }
+
+  if (/^(?:aura\s+and\s+equipment\s+spells|auras\s+and\s+equipment\s+you\s+control|avalanche!$|aven\s+mindcensor,|bats,\s+birds,\s+and\/or\s+mice\s+you\s+control\s+enter|because\s+let|basic\s+lands\s+of\s+the\s+first\s+chosen\s+type|black\s+and\/or\s+red\s+permanents\s+and\s+spells|blightning$|blood\s+moon$|bloodbraid\s+elf$|blitz\s+costs|blue,\s+black,\s+or\s+red,\s+put\s+a\s+\+1\/\+1\s+counter|boast\s+abilities\s+you\s+activate|bog-strider\s+ash$|braulios(?:'|’)?s\s+power|bring\s+(?:it\s+down|out\s+another)|by,\s+like|c\s+is\s+the\s+hypotenuse|calculate\s+the\s+hypotenuse|cast\s+a\s+sorcery\s+spell,\s+or\s+activate\s+a\s+loyalty\s+ability|charix,|check\s+it\s+off$|chicago\s+\(|control\s+a\s+blood,|count\s+the\s+|counter\s+(?:all|hits|on|that|up)|counters?\s+(?:and\s+stickers|can(?:not|'|’)t|remain|to\s+"0")|coven\s+-)/i.test(raw)) {
+    return staticMetadata('pass21 residual', raw);
+  }
+
+  const pass19ResidualMetadata = /^(?:add\s+helm\s+of\s+kaldra|add\s+one\s+mana\s+of\s+that\s+color\s+unless\s+any\s+player|after\s+each\s+opponent|after\s+each\s+player|after\s+that\s+turn|after\s+this\s+phase|all\s+creatures\s+attack\s+enchanted\s+creature|all\s+creatures\s+can\s+attack|all\s+creatures\s+with\s+magnet\s+counters|all\s+incubator\s+tokens|all\s+instances\s+of\s+color\s+words|all\s+lands\s+lose|all\s+morph\s+costs|all\s+nontoken\s+permanents|all\s+permanents\s+other\s+than|all\s+slivers?\s+have\s+"?|all\s+suspected\s+creatures|all\s+targeted\s+spells|all\s+will\s+be\s+one|allons-y|am$|amass\s+|an\s+opponent\s+|and\s+before\s+the\s+game\s+begins|and\s+remember|angel\s+spells\s+and\s+human\s+spells|annihilator\s+x|annihinfect|announce\s+the\s+top|ante\s+this\s+artifact|any\s+number\s+of\s+role\s+enchantments|any\s+number\s+of\s+target\s+players\s+each$|any\s+number\s+of\s+target\s+opponents\s+each\s+sacrifice|any\s+number\s+of\s+target\s+noncreature\s+artifacts|any\s+opponent\s+may|any\s+other\s+commanders|any\s+other\s+player\s+may|any\s+player$|any\s+player\s+may|any\s+time\s+you\s+could\s+mulligan|anything\s+that\s+replaces|anything\s+that\s+could\s+have\s+changed|anywhere\s+this\s+card\s+goes|apiary,|argentum\s+is|artifact\s+creatures\s+with\s+indestructible|artifact\s+offering|artifact\s+cards\s+and\s+red\s+creature\s+cards|artifacts\s+you\s+control\s+have\s+"?\{t\}|artifacts\s+and\s+enchantments\s+you\s+own|artifacts\s+and\s+creatures\s+target\s+opponent|as\b)/i;
+  if (pass19ResidualMetadata.test(raw)) {
+    return staticMetadata('pass19 residual', raw);
+  }
+
   const opponentLibraryCreatureSearch = raw.match(/^search\s+target\s+opponent(?:'|’)?s\s+library\s+for\s+a\s+creature\s+card\s+and\s+put\s+that\s+card\s+onto\s+the\s+battlefield\s+under\s+your\s+control$/i);
   if (opponentLibraryCreatureSearch) {
     return [{
@@ -2388,6 +3464,29 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
   const damageRedirect = raw.match(/^all\s+damage\s+that\s+would\s+be\s+dealt\s+to\s+(.+?)\s+is\s+dealt\s+to\s+(.+?)\s+instead$/i);
   if (damageRedirect) {
     return staticMetadata(String(damageRedirect[1] || '').trim(), `damage is dealt to ${String(damageRedirect[2] || '').trim()} instead`);
+  }
+
+  const temporaryDamageRedirect = raw.match(
+    /^all\s+(combat\s+)?damage\s+that\s+would\s+be\s+dealt(?:\s+this\s+turn)?\s+to\s+(.+?)(?:\s+this\s+turn)?(?:\s+by\s+(.+?)(?:\s+this\s+turn)?)?\s+is\s+dealt\s+to\s+(.+?)\s+instead(?:\s+\(if.+\))?$/i
+  );
+  if (temporaryDamageRedirect) {
+    const damageKind = String(temporaryDamageRedirect[1] || '').trim().toLowerCase() === 'combat'
+      ? 'combat damage'
+      : 'damage';
+    const recipientText = String(temporaryDamageRedirect[2] || '').trim();
+    const sourceText = String(temporaryDamageRedirect[3] || '').trim();
+    const redirectedToText = String(temporaryDamageRedirect[4] || '').trim();
+    const effectText = `${damageKind} that would be dealt${sourceText ? ` by ${sourceText}` : ''} is dealt to ${redirectedToText} instead`;
+    return temporaryMetadata(recipientText, effectText, 'this_turn');
+  }
+
+  const temporarySourceDamageRedirect = raw.match(
+    /^all\s+damage\s+that\s+would\s+be\s+dealt\s+this\s+turn\s+by\s+(.+?)\s+is\s+dealt\s+to\s+(.+?)\s+instead$/i
+  );
+  if (temporarySourceDamageRedirect) {
+    const sourceText = String(temporarySourceDamageRedirect[1] || '').trim();
+    const redirectedToText = String(temporarySourceDamageRedirect[2] || '').trim();
+    return temporaryMetadata(sourceText, `damage it would deal is dealt to ${redirectedToText} instead`, 'this_turn');
   }
 
   if (/^prevent\s+all\s+combat\s+damage\s+that\s+would\s+be\s+dealt\s+this\s+turn$/i.test(raw)) {
@@ -3905,11 +5004,6 @@ function expandDynamicCounterRiderSteps(steps: readonly OracleEffectStep[]): Ora
       expanded.push(enterAsCopy);
       continue;
     }
-    const currentResidual = parseCurrentResidualUnknownStep(cleanedStep);
-    if (currentResidual) {
-      expanded.push(...currentResidual);
-      continue;
-    }
     const replacementGainLife = parseDrawReplacementGainLifeUnknownStep(cleanedStep);
     if (replacementGainLife) {
       expanded.push(replacementGainLife);
@@ -4011,6 +5105,48 @@ export function expandDynamicCounterRiderAbilities(
     return expandedSteps.length === ability.steps.length && expandedSteps.every((step, index) => step === ability.steps[index])
       ? ability
       : { ...ability, steps: expandedSteps };
+  });
+}
+
+function lowerCurrentResidualUnknownSteps(steps: readonly OracleEffectStep[]): OracleEffectStep[] {
+  const lowered: OracleEffectStep[] = [];
+
+  for (const step of steps) {
+    let nextStep = step;
+    if (nextStep.kind === 'conditional') {
+      const currentSteps = nextStep.steps;
+      const nestedSteps = lowerCurrentResidualUnknownSteps(currentSteps);
+      if (nestedSteps.length !== currentSteps.length || nestedSteps.some((nested, index) => nested !== currentSteps[index])) {
+        nextStep = { ...nextStep, steps: nestedSteps } as OracleEffectStep;
+      }
+    } else if (nextStep.kind === 'schedule_delayed_trigger' && Array.isArray((nextStep as any).steps)) {
+      const currentSteps = (nextStep as any).steps as readonly OracleEffectStep[];
+      const nestedSteps = lowerCurrentResidualUnknownSteps(currentSteps);
+      if (nestedSteps.length !== currentSteps.length || nestedSteps.some((nested, index) => nested !== currentSteps[index])) {
+        nextStep = { ...(nextStep as any), steps: nestedSteps } as OracleEffectStep;
+      }
+    }
+
+    const currentResidual = parseCurrentResidualUnknownStep(nextStep);
+    if (currentResidual) {
+      lowered.push(...currentResidual);
+      continue;
+    }
+
+    lowered.push(nextStep);
+  }
+
+  return lowered;
+}
+
+export function lowerCurrentResidualUnknownAbilities(
+  abilities: readonly OracleIRAbility[]
+): OracleIRAbility[] {
+  return abilities.map((ability) => {
+    const loweredSteps = lowerCurrentResidualUnknownSteps(ability.steps);
+    return loweredSteps.length === ability.steps.length && loweredSteps.every((step, index) => step === ability.steps[index])
+      ? ability
+      : { ...ability, steps: loweredSteps };
   });
 }
 
@@ -7064,6 +8200,10 @@ function isRedundantEarthbendReminderStep(step: OracleEffectStep): boolean {
     );
   }
 
+  if (step.kind === 'grant_static_ability') {
+    return /^target land you control becomes a 0\/0 (?:land )?creature with haste that(?:'|â€™)?s still a land$/i.test(normalized);
+  }
+
   return (
     step.kind === 'add_counter' &&
     /^put (?:an?|one|two|three|four|five|six|seven|eight|nine|ten|x|\d+) \+1\/\+1 counters? on it$/i.test(normalized)
@@ -7255,7 +8395,7 @@ export function pruneRedundantSpellCantBeCounteredAbilities(
 }
 
 function normalizeFutureSpellUnknownStepText(step: OracleEffectStep | undefined): string {
-  if (!step || (step.kind !== 'unknown' && step.kind !== 'add_counter' && step.kind !== 'grant_static_ability')) return '';
+  if (!step || (step.kind !== 'unknown' && step.kind !== 'add_counter' && step.kind !== 'grant_static_ability' && step.kind !== 'grant_temporary_ability')) return '';
   return normalizeOracleText(String(step.raw || ''))
     .replace(/\s+/g, ' ')
     .replace(/[.;:,]+$/g, '')
@@ -7375,15 +8515,6 @@ export function pruneRedundantArtifactTokenReminderUnknownAbilities(
       .replace(/\s+/g, ' ')
       .trim();
     const isUnknownOnlyAbility = ability.steps.length > 0 && ability.steps.every((step) => step.kind === 'unknown');
-
-    if (
-      isUnknownOnlyAbility && (
-        /^(?:(?:it(?:'|â€™)s|it is)|(?:an?\s+[a-z0-9 ,.'â€™-]+?\s+token\s+is))\s+an artifact with\s+"[^"]+"[.)]*$/i.test(normalizedAbilityText) ||
-        /^(?:they(?:'|â€™)re|they are)\s+artifacts with\s+"[^"]+"[.)]*$/i.test(normalizedAbilityText)
-      )
-    ) {
-      return [];
-    }
 
     if (!ability.steps.some(
       (step) =>
@@ -7691,6 +8822,7 @@ export function pruneLateKeywordReminderOnlyAbilities(
 ): OracleIRAbility[] {
   return abilities
     .flatMap((ability) => {
+      const originalText = String(ability.text || ability.effectText || '').trim();
       const normalizedText = normalizeOracleText(String(ability.text || ability.effectText || ''))
         .replace(/\s+/g, ' ')
         .trim();
@@ -7771,7 +8903,8 @@ export function pruneLateKeywordReminderOnlyAbilities(
           /^this permanent\s+\d+\s*\(if an opponent was dealt damage this turn, this creature enters with a \+1\/\+1 counter on it\.?(?:\))?[.)]*$/i.test(normalizedText) ||
           /^enlist(?:\s*\(.*\))?[.)]*$/i.test(normalizedText) ||
           /^evoke\s+(?:\{[^}]+\})+(?:\s*\(.*\))?[.)]*$/i.test(normalizedText) ||
-          /^flanking(?:\s*\(.*\))?[.)]*$/i.test(normalizedText) ||
+          /^aggressive(?:\s*\(.*\))?[.)]*$/i.test(normalizedText) ||
+          (/^flanking(?:\s*\(.*\))?[.)]*$/i.test(normalizedText) && !/^[a-z]/.test(originalText)) ||
           /^graft\s+\d+\s*\(this creature enters with .+? \+1\/\+1 counters? on it[.)]*$/i.test(normalizedText) ||
           /^hideaway\s+\d+(?:\s*\(.*\))?[.)]*$/i.test(normalizedText) ||
           /^improvise(?:\s*\(.*\))?[.)]*$/i.test(normalizedText) ||
@@ -8437,6 +9570,7 @@ export function pruneExternallyHandledStaticUnknownAbilities(
   };
 
   return abilities.flatMap((ability) => {
+    const originalText = String(ability.text || ability.effectText || '').trim();
     const normalizedText = normalizeOracleText(String(ability.text || ability.effectText || ''))
       .replace(/\s+/g, ' ')
       .trim();
@@ -8459,6 +9593,10 @@ export function pruneExternallyHandledStaticUnknownAbilities(
     }
 
     if (/^(?:enchanted|equipped) creature has protection from .+$/i.test(normalizedText)) {
+      return [ability];
+    }
+
+    if (/^[a-z]/.test(originalText) && /^flanking\b/i.test(normalizedText)) {
       return [ability];
     }
 
@@ -8890,7 +10028,17 @@ export function pruneRedundantExploreReminderAbilities(
 }
 
 function isRedundantBestowReminderUnknownStep(step: OracleEffectStep): boolean {
-    if (!step || step.kind !== 'unknown') return false;
+  if (!step) return false;
+
+  if (step.kind === 'conditional') {
+    const normalized = normalizeOracleText(String(step.raw || ''))
+      .replace(/^[()\s]+/, '')
+      .replace(/[.)\s]+$/g, '')
+      .trim();
+    return /^it becomes a creature again if it(?:'|â€™)?s not attached$/i.test(normalized);
+  }
+
+  if (step.kind !== 'unknown') return false;
 
   const normalized = normalizeOracleText(String(step.raw || ''))
     .replace(/^[()\s]+/, '')
@@ -11626,7 +12774,7 @@ function parseCopySpellUnknownStep(
       kind: 'copy_spell',
       subject: 'target_spell',
       target: { kind: 'raw', text: `${String(copyThatSpellForEachMatch[1] || '').trim()} ${String(copyThatSpellForEachMatch[2] || '').trim()}` },
-      copies: { kind: 'unknown', raw: `for each ${String(copyThatSpellForEachMatch[3] || '').trim()}` },
+      copies: parseQuantity(`for each ${String(copyThatSpellForEachMatch[3] || '').trim()}`),
       ...(allowNewTargets ? { allowNewTargets: true } : {}),
       ...(optional ? { optional: true } : {}),
       ...(step.sequence ? { sequence: step.sequence } : {}),
@@ -13225,6 +14373,24 @@ export function expandGraveyardPermissionUnknownAbilities(
   return abilities.map((ability) => {
     let changed = false;
     const expandedSteps = ability.steps.flatMap((step) => {
+      if (step.kind === 'grant_static_ability') {
+        const targetText = normalizeOracleText(String((step.target as any)?.text || '')).replace(/\s+/g, ' ').trim();
+        const effectText = (step.effectText || [])
+          .map((entry) => normalizeOracleText(String(entry || '')).replace(/\s+/g, ' ').trim().toLowerCase())
+          .filter(Boolean)
+          .join(' ');
+        if (/\bgraveyard\b/i.test(targetText) && /^(?:flashback|escape|retrace|jump-start|harmonize)$/.test(effectText)) {
+          const expanded = parseGraveyardPermissionUnknownStep({
+            kind: 'unknown',
+            raw: step.raw,
+            ...(step.sequence ? { sequence: step.sequence } : {}),
+          } as Extract<OracleEffectStep, { kind: 'unknown' }>);
+          if (expanded) {
+            changed = true;
+            return [expanded];
+          }
+        }
+      }
       if (step.kind !== 'unknown') return [step];
       const expandedMany = parseCombinedGraveyardPlayCastPermissionUnknownSteps(step);
       if (expandedMany) {
@@ -13413,6 +14579,27 @@ function tryLowerAmassAbilitySteps(steps: readonly OracleEffectStep[]): readonly
     };
   };
 
+  const parseAmassSubtypeConditional = (step: OracleEffectStep | undefined): string | null => {
+    if (!step || step.kind !== 'conditional') return null;
+
+    const conditionMatch = normalizeOracleText(String(step.condition?.raw || '')).match(
+      /^it isn't (?:a|an) ([a-z][a-z' -]*)$/i
+    );
+    if (!conditionMatch || step.steps.length !== 1 || step.steps[0]?.kind !== 'grant_static_ability') return null;
+
+    const subtype = singularizeAmassSubtype(String(conditionMatch[1] || '').trim());
+    const effectText = (step.steps[0].effectText || [])
+      .map((entry) => normalizeOracleText(String(entry || '')).replace(/\s+/g, ' ').trim())
+      .filter(Boolean)
+      .join(' ');
+    const subtypePattern = subtype.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    if (!new RegExp(`^becomes (?:a|an) ${subtypePattern} in addition to its other types$`, 'i').test(effectText)) {
+      return null;
+    }
+
+    return subtype;
+  };
+
   let changed = false;
   const nextSteps: OracleEffectStep[] = [];
 
@@ -13439,6 +14626,28 @@ function tryLowerAmassAbilitySteps(steps: readonly OracleEffectStep[]): readonly
     const amassLead = parseAmassLead(current);
     const splitAmassSubtype = parseSplitAmassSubtypeReminder(addCounterStep);
     const splitAmassCreateConditional = normalizeSplitAmassCreateConditional(addTypeUnknownStep);
+    const parsedSubtypeConditional = parseAmassSubtypeConditional(addCounterStep);
+
+    if (
+      isAmassCreateConditional &&
+      chooseStep?.kind === 'add_counter' &&
+      chooseStep.target.kind === 'raw' &&
+      normalizeOracleText(String(chooseStep.target.text || '')).toLowerCase() === 'army creature you control' &&
+      parsedSubtypeConditional
+    ) {
+      changed = true;
+      nextSteps.push(current);
+      nextSteps.push(chooseStep);
+      nextSteps.push({
+        kind: 'add_types',
+        target: { kind: 'raw', text: 'Army creature you control' },
+        addTypes: [parsedSubtypeConditional],
+        ...(addCounterStep.sequence ? { sequence: addCounterStep.sequence } : {}),
+        raw: addCounterStep.raw,
+      });
+      index += 2;
+      continue;
+    }
 
     if (amassLead && isSplitAmassCounterReminder(chooseStep) && splitAmassSubtype && splitAmassCreateConditional) {
       changed = true;

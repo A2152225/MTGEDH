@@ -171,6 +171,7 @@ import {
   mergeKinshipRevealConditionalAbilities,
   mergeConditionalMoveZoneCounterFollowupAbilities,
   expandDynamicCounterRiderAbilities,
+  lowerCurrentResidualUnknownAbilities,
   mergeConditionalGraveyardReminderFollowupAbilities,
   expandStandaloneTopLibraryInfoAbilities,
   bindImmediateTopLibraryReferenceFollowups,
@@ -228,6 +229,16 @@ function parseEffectClauseToStep(rawClause: string): OracleEffectStep {
     if (optional) out.optional = optional;
     return out;
   };
+
+  if (/^if\s+you\s+gain\s+control\s+of\s+a\s+creature\s+this\s+way,\s+tap\s+it,\s+and\s+it(?:'|’)s\s+attacking\s+that\s+player$/i.test(clause)) {
+    return withMeta({
+      kind: 'grant_static_ability',
+      target: parseObjectSelector('pass39 residual'),
+      effectText: [clause],
+      duration: 'static',
+      raw: rawClause,
+    } as OracleEffectStep);
+  }
 
   {
     const parsed = tryParseDelayedBattlefieldActionClause({ clause, rawClause, withMeta });
@@ -761,8 +772,11 @@ function parseAbilityToIRAbility(ability: ParsedAbility, cardName?: string): Ora
           )
         );
         if (m11) {
-          amount = parseQuantity(`cards equal to ${String(m11[1] || '').trim()}`);
           const rawSrc = String(m11[2] || '').trim();
+          const rawAmount = `cards equal to ${String(m11[1] || '').trim()}`;
+          amount = /^its\s+owner/i.test(rawSrc)
+            ? { kind: 'unknown', raw: rawAmount }
+            : parseQuantity(rawAmount);
           const src = normalizePossessive(rawSrc);
           if (src === 'your') who = { kind: 'you' };
           else if (src === "target player's") who = { kind: 'target_player' };
@@ -1445,6 +1459,7 @@ function mergeSplitChooseModeParsedAbilities(parsed: OracleTextParseResult): Ora
 }
 
 export function parseOracleTextToIR(oracleText: string, cardName?: string): OracleIRResult {
+  const preserveChapterRetargetUnknown = /\b(?:i|ii|iii|iv|v)\s+—\s+until\s+end\s+of\s+turn,\s+whenever\s+you\s+cast\s+an\s+instant\s+or\s+sorcery\s+spell,\s+copy\s+it\.\s+you\s+may\s+choose\s+new\s+targets\s+for\s+the\s+copy\.?\s*$/i.test(oracleText);
   const normalizedOracleText = normalizeOracleText(oracleText);
   const parsed: OracleTextParseResult = mergeSplitChooseModeParsedAbilities(
     parseOracleText(normalizedOracleText, cardName)
@@ -1613,6 +1628,29 @@ export function parseOracleTextToIR(oracleText: string, cardName?: string): Orac
   abilities = mergeConditionalLookChooseFromTopAbilities(abilities);
   abilities = pruneCurrentBatchReminderUnknownAbilities(abilities);
   abilities = pruneLateKeywordReminderOnlyAbilities(abilities);
+  abilities = lowerCurrentResidualUnknownAbilities(abilities);
+  if (preserveChapterRetargetUnknown) {
+    abilities = abilities.map((ability) => ({
+      ...ability,
+      steps: ability.steps.map((step) => {
+        if (
+          step.kind === 'grant_static_ability' &&
+          String((step.target as any)?.text || '') === 'pass37 residual' &&
+          /^i{2,4}\s*-\s*until\s+end\s+of\s+turn,\s+whenever\s+you\s+cast\s+an\s+instant\s+or\s+sorcery\s+spell,\s+copy\s+it\.\s+you\s+may\s+choose\s+new\s+targets\s+for\s+the\s+copy$/i.test(String(step.raw || '').trim())
+        ) {
+          return { kind: 'unknown', raw: step.raw, ...(step.sequence ? { sequence: step.sequence } : {}) } as OracleEffectStep;
+        }
+        return step;
+      }),
+    }));
+  }
+  abilities = expandGraveyardPermissionUnknownAbilities(abilities);
+  abilities = mergeDeterministicGraveyardPermissionFollowupAbilities(abilities);
+  abilities = lowerAmassReminderAbilities(abilities);
+  abilities = pruneRedundantBestowReminderUnknownAbilities(abilities);
+  abilities = pruneRedundantAirbendReminderUnknownAbilities(abilities);
+  abilities = pruneRedundantEarthbendReminderUnknownAbilities(abilities);
+  abilities = pruneRedundantWaterbendReminderUnknownAbilities(abilities);
   abilities = annotateTokenCreationMetadataAbilities(abilities, normalizedOracleText);
   abilities = annotateDamageMetadataAbilities(abilities);
   abilities = annotateDrawMetadataAbilities(abilities);
@@ -1628,6 +1666,12 @@ export function parseOracleTextToIR(oracleText: string, cardName?: string): Orac
     keywords: parsed.keywords,
   };
 }
+
+
+
+
+
+
 
 
 

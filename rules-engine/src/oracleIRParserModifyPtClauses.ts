@@ -1,6 +1,8 @@
 import type { OracleEffectStep } from './oracleIR';
 import { normalizeOracleText } from './oracleIRParserUtils';
 
+const MODIFY_PT_TARGET_PATTERN = String.raw`(?:[a-z][a-z\s,/-]*?\s+you\s+control|target\s+creature\s+or\s+vehicle\s+an\s+opponent\s+controls|target\s+(?:nonattacking,\s+nonblocking\s+)?(?:(?:attacking|blocking)\s+)?(?:[a-z][a-z -]+\s+)?(?:creature|human|vampire|assembly-worker|robot|wall|zombie|shapeshifter)(?:\s+(?:you\s+control|your\s+opponents\s+control|an\s+opponent\s+controls|defending\s+player\s+controls|that\s+player\s+controls|you\s+don(?:'|’)t\s+control|with\s+flying|without\s+flying|that\s+dealt\s+damage\s+this\s+turn|other\s+than\s+the\s+creature\s+tapped\s+this\s+way))*|another\s+target\s+(?:attacking\s+)?(?:[a-z][a-z -]+\s+)?creature(?:\s+you\s+control)?|any\s+number\s+of\s+target\s+creatures|one\s+or\s+two\s+target\s+creatures|target\s+1\/1\s+creature|attacking\s+[a-z][a-z -]+s(?:\s+you\s+control)?|(?:attacking|blocking)\s+(?:[a-z][a-z -]+\s+)?creatures(?:\s+you\s+control)?(?:\s+with\s+[a-z][a-z -]+)?|each\s+(?:non[- ]?[a-z]+\s+)?creature(?:\s+your\s+opponents\s+control)?|each\s+other\s+attacking\s+creature|each\s+attacking\s+creature|other\s+attacking\s+creatures|all\s+attacking\s+creatures(?:\s+with\s+[a-z][a-z -]+)?|all\s+non[- ]?[a-z]+\s+creatures|(?:non[- ]?[a-z]+\s+)?creatures\s+you\s+control|(?:[a-z]+\s+)?creatures\s+your\s+opponents\s+control|(?:[a-z]+\s+)?creatures|all\s+creatures\s+you\s+control|creatures\s+your\s+opponents\s+control|all\s+creatures\s+your\s+opponents\s+control|all\s+creatures(?:\s+of\s+(?:that|the\s+chosen)\s+type)?|creatures\s+that\s+aren't\s+of\s+the\s+chosen\s+type|each\s+creature|each\s+other\s+creature|equipped\s+creature|enchanted\s+creature|that\s+creature|the\s+creature|this\s+creature|this\s+permanent|it)`;
+
 export function tryParseTemporaryModifyPtClause(params: {
   clause: string;
   rawClause: string;
@@ -32,6 +34,68 @@ export function tryParseTemporaryModifyPtClause(params: {
     .replace(/^have\s+(?=target|that|the|this|it\b|each|all|creatures?\b)/i, '')
     .trim();
 
+  const broadTemporaryPtMatch = workingClause.match(
+    new RegExp(String.raw`^(?:then\s+)?(${MODIFY_PT_TARGET_PATTERN})\s+(?:each\s+)?get(?:s)?\s+([+-]?(?:\d+|x))\s*\/\s*([+-]?(?:\d+|x))\s+(.+)$`, 'i')
+  );
+  if (broadTemporaryPtMatch) {
+    const targetRaw = String(broadTemporaryPtMatch[1] || '').trim().toLowerCase();
+    const powerComponent = parseSignedPtComponent(String(broadTemporaryPtMatch[2] || ''));
+    const toughnessComponent = parseSignedPtComponent(String(broadTemporaryPtMatch[3] || ''));
+    if (!powerComponent || !toughnessComponent) return null;
+
+    let tail = normalizeOracleText(String(broadTemporaryPtMatch[4] || ''))
+      .replace(/[,.;]\s*$/g, '')
+      .trim();
+
+    if (!/\buntil\s+end\s+of\s+turn\b/i.test(tail)) return null;
+
+    tail = tail
+      .replace(/\buntil\s+end\s+of\s+turn\b/i, '')
+      .replace(/^,\s*/i, '')
+      .trim();
+
+    let scaler: any | undefined;
+    let condition: any | undefined;
+    if (tail) {
+      const forEachMatch = tail.match(/^for\s+each\s+(.+)$/i);
+      if (forEachMatch) {
+        const eachRaw = `for each ${String(forEachMatch[1] || '').trim()}`.trim();
+        scaler = /^for\s+each\s+card\s+revealed\s+this\s+way$/i.test(eachRaw)
+          ? { kind: 'per_revealed_this_way' }
+          : { kind: 'reference_scaler', raw: eachRaw };
+      } else {
+        const whereMatch = tail.match(/^where\s+(.+)$/i);
+        if (whereMatch) {
+          condition = { kind: 'where', raw: String(whereMatch[1] || '').trim() };
+        } else {
+          const asLongAsMatch = tail.match(/^as\s+long\s+as\s+(.+)$/i);
+          if (asLongAsMatch) {
+            condition = { kind: 'as_long_as', raw: String(asLongAsMatch[1] || '').trim() };
+          } else {
+            const ifMatch = tail.match(/^if\s+(.+)$/i);
+            if (ifMatch) condition = { kind: 'if', raw: String(ifMatch[1] || '').trim() };
+          }
+        }
+      }
+    }
+
+    if (tail && !scaler && !condition) return null;
+
+    const step: any = {
+      kind: 'modify_pt',
+      target: parseModifyPtTarget(targetRaw),
+      power: powerComponent.value,
+      toughness: toughnessComponent.value,
+      ...(powerComponent.usesX ? { powerUsesX: true } : {}),
+      ...(toughnessComponent.usesX ? { toughnessUsesX: true } : {}),
+      duration: 'end_of_turn',
+      raw: rawClause,
+    };
+    if (scaler) step.scaler = scaler;
+    if (condition) step.condition = condition;
+    return withMeta(step as OracleEffectStep);
+  }
+
   const possessiveSwitchMatch = workingClause.match(
     /^switch\s+(.+?)(?:'s|’s)\s+power\s+and\s+toughness\s+until\s+end\s+of\s+turn$/i
   );
@@ -42,6 +106,18 @@ export function tryParseTemporaryModifyPtClause(params: {
       duration: 'end_of_turn',
       raw: rawClause,
     } as OracleEffectStep);
+  }
+
+  const pronounSwitchMatch = workingClause.match(
+    /^switch\s+(its|his|her|their)\s+power\s+and\s+toughness\s+until\s+end\s+of\s+turn$/i
+  );
+  if (pronounSwitchMatch) {
+    return withMeta({
+      kind: 'switch_power_toughness',
+      target: parseModifyPtTarget('it'),
+      duration: 'end_of_turn',
+      raw: rawClause,
+    });
   }
 
   const ofSwitchMatch = workingClause.match(
@@ -57,7 +133,7 @@ export function tryParseTemporaryModifyPtClause(params: {
   }
 
   const choiceMatch = workingClause.match(
-    /^(?:then\s+)?((?:[a-z][a-z\s,/-]*?\s+you\s+control)|target\s+(?:[a-z][a-z -]+\s+)?creature(?:\s+you\s+control|\s+your\s+opponents\s+control|\s+an\s+opponent\s+controls)?|target\s+attacking\s+creature|each\s+(?:non[- ]?[a-z]+\s+)?creature(?:\s+your\s+opponents\s+control)?|each\s+other\s+attacking\s+creature|each\s+attacking\s+creature|other\s+attacking\s+creatures|(?:non[- ]?[a-z]+\s+)?creatures\s+you\s+control|(?:[a-z]+\s+)?creatures\s+your\s+opponents\s+control|(?:[a-z]+\s+)?creatures|all\s+creatures\s+you\s+control|creatures\s+your\s+opponents\s+control|all\s+creatures\s+your\s+opponents\s+control|all\s+creatures(?:\s+of\s+(?:that|the\s+chosen)\s+type)?|creatures\s+that\s+aren't\s+of\s+the\s+chosen\s+type|each\s+creature|each\s+other\s+creature|equipped\s+creature|enchanted\s+creature|that\s+creature|the\s+creature|this\s+creature|this\s+permanent|it)\s+get(?:s)?\s+([+-]?(?:\d+|x))\s*\/\s*([+-]?(?:\d+|x))\s+or\s+([+-]?(?:\d+|x))\s*\/\s*([+-]?(?:\d+|x))\s+until\s+end\s+of\s+turn$/i
+    new RegExp(String.raw`^(?:then\s+)?(${MODIFY_PT_TARGET_PATTERN})\s+get(?:s)?\s+([+-]?(?:\d+|x))\s*\/\s*([+-]?(?:\d+|x))\s+or\s+([+-]?(?:\d+|x))\s*\/\s*([+-]?(?:\d+|x))\s+until\s+end\s+of\s+turn$`, 'i')
   );
   if (choiceMatch) {
     const targetText = String(choiceMatch[1] || '').trim();
@@ -106,7 +182,7 @@ export function tryParseTemporaryModifyPtClause(params: {
   }
 
   const match = workingClause.match(
-    /^(?:then\s+)?((?:[a-z][a-z\s,/-]*?\s+you\s+control)|target\s+(?:[a-z][a-z -]+\s+)?creature(?:\s+you\s+control|\s+your\s+opponents\s+control|\s+an\s+opponent\s+controls)?|target\s+attacking\s+creature|each\s+(?:non[- ]?[a-z]+\s+)?creature(?:\s+your\s+opponents\s+control)?|each\s+other\s+attacking\s+creature|each\s+attacking\s+creature|other\s+attacking\s+creatures|(?:non[- ]?[a-z]+\s+)?creatures\s+you\s+control|(?:[a-z]+\s+)?creatures\s+your\s+opponents\s+control|(?:[a-z]+\s+)?creatures|all\s+creatures\s+you\s+control|creatures\s+your\s+opponents\s+control|all\s+creatures\s+your\s+opponents\s+control|all\s+creatures(?:\s+of\s+(?:that|the\s+chosen)\s+type)?|creatures\s+that\s+aren't\s+of\s+the\s+chosen\s+type|each\s+creature|each\s+other\s+creature|equipped\s+creature|enchanted\s+creature|that\s+creature|the\s+creature|this\s+creature|this\s+permanent|it)\s+get(?:s)?\s+([+-]?(?:\d+|x))\s*\/\s*([+-]?(?:\d+|x))\s+(.+)$/i
+    new RegExp(String.raw`^(?:then\s+)?(${MODIFY_PT_TARGET_PATTERN})\s+get(?:s)?\s+([+-]?(?:\d+|x))\s*\/\s*([+-]?(?:\d+|x))\s+(.+)$`, 'i')
   );
   if (!match) return null;
 

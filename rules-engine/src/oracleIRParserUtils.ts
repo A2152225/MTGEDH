@@ -54,7 +54,30 @@ export function parseQuantity(raw: string | undefined): OracleQuantity {
   if (/^that$/i.test(trimmed)) return { kind: 'reference_amount', raw: 'that' };
   if (/^that (much|many)$/i.test(trimmed)) return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
   if (/^the difference$/i.test(trimmed)) return { kind: 'reference_amount', raw: 'the difference' };
+  if (/^the\s+amount\s+of\s+life\s+you\s+gained\s+this\s+turn$/i.test(trimmed)) return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
+  if (/^excess$/i.test(trimmed)) return { kind: 'reference_amount', raw: 'excess' };
+  if (/^for\s+each\s+other\s+creature\s+you\s+control\s+that\s+ability\s+could\s+target$/i.test(trimmed)) return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
+  if (/^half\b/i.test(trimmed)) return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
+  if (/^(?:her|his)\s+power$/i.test(trimmed)) return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
+  if (/^its\s+converted\s+mana\s+cost$/i.test(trimmed)) return { kind: 'object_stat', subject: 'it', stat: 'mana_value' };
+  if (/^its\s+power\s+plus\s+its\s+toughness$/i.test(trimmed)) return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
+  if (/^its\s+total\s+toxic\s+value$/i.test(trimmed)) return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
+  if (/^its\s+toughness(?:,"\s+and\s+can\s+attack\s+as\s+though\s+it\s+didn(?:'|’)t\s+have\s+defender)?$/i.test(trimmed)) return { kind: 'object_stat', subject: 'it', stat: 'toughness' };
+  if (/^no$/i.test(trimmed)) return { kind: 'number', value: 0 };
+  if (/^or$/i.test(trimmed)) return { kind: 'reference_amount', raw: 'or' };
   if (/^a\s+for\s+each\s+color\s+of\s+mana\s+spent\s+to\s+cast\s+it$/i.test(trimmed)) {
+    return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
+  }
+  if (/^an?\s+for\s+each\s+.+$/i.test(trimmed)) {
+    return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
+  }
+  if (/^an?\s+amount\s+of\s+damage\s+equal\s+to\s+.+$/i.test(trimmed)) {
+    return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
+  }
+  if (/^a\s+number\s+of\s+cards\s+equal\s+to\s+.+$/i.test(trimmed)) {
+    return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
+  }
+  if (/^cards?\s+equal\s+to\s+.+$/i.test(trimmed)) {
     return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
   }
   if (/^(?:\d+|a|a\s+card)\s+for\s+each\s+.+$/i.test(trimmed)) {
@@ -75,6 +98,10 @@ export function parseQuantity(raw: string | undefined): OracleQuantity {
   if (/^the greatest toughness among (?:other )?creatures you control$/i.test(trimmed)) return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
   if (/^the\s+high\s+bid$/i.test(trimmed)) return { kind: 'reference_amount', raw: 'the high bid' };
   if (/^that\s+spell'?s\s+mana\s+value$/i.test(trimmed)) return { kind: 'object_stat', subject: 'that_card', stat: 'mana_value' };
+  if (/^that\s+card(?:'|’)?s\s+mana\s+value$/i.test(trimmed)) return { kind: 'object_stat', subject: 'that_card', stat: 'mana_value' };
+  if (/^that\s+card(?:'|’)?s\s+mana\s+value\s+if\s+this\s+creature\s+isn(?:'|’)?t\s+saddled$/i.test(trimmed)) return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
+  if (/^that\s+card(?:'|’)?s\s+toughness,\s+lose\s+life\s+equal\s+to\s+its\s+power$/i.test(trimmed)) return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
+  if (/^that\s+creature\s+card(?:'|’)?s\s+toughness$/i.test(trimmed)) return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
   if (/^that\s+card'?s\s+power$/i.test(trimmed)) return { kind: 'object_stat', subject: 'that_card', stat: 'power' };
   if (/^that\s+card'?s\s+toughness$/i.test(trimmed)) return { kind: 'object_stat', subject: 'that_card', stat: 'toughness' };
   if (/^target\s+creature'?s\s+power$/i.test(trimmed)) return { kind: 'object_stat', subject: 'that_creature', stat: 'power' };
@@ -154,6 +181,14 @@ export function parseQuantity(raw: string | undefined): OracleQuantity {
     return { kind: 'object_stat', subject: 'the_sacrificed_creature', stat: 'toughness' };
   }
   if (/^any number$/i.test(trimmed)) return { kind: 'any_number' };
+  if (/^each$/i.test(trimmed)) return { kind: 'all' };
+  {
+    const cardCount = trimmed.match(/^(\d+|one|two|three|four|five|six|seven|eight|nine|ten)\s+cards?$/i);
+    if (cardCount) {
+      const value = parseNumberFromText(String(cardCount[1] || ''), NaN as any);
+      if (typeof value === 'number' && Number.isFinite(value)) return { kind: 'number', value };
+    }
+  }
   {
     const nonlandMvMatch = trimmed.match(/^until (?:they|you) exile a nonland card with mana value (\d+) or less$/i);
     if (nonlandMvMatch) {
@@ -208,7 +243,24 @@ export function parsePlayerSelector(raw: string | undefined): OraclePlayerSelect
     .toLowerCase();
   if (!s) return { kind: 'you' };
 
+  if (/\s+each$/.test(s)) return parsePlayerSelector(s.replace(/\s+each$/, ''));
   if (s === 'you') return { kind: 'you' };
+  if (s === 'any player') return { kind: 'any_player' };
+  if (/^if\b.+,\s*you$/.test(s)) return { kind: 'you' };
+  if (/^counter\s+(?:it|that\s+spell|that\s+spell\s+or\s+ability)\s+unless\s+that\s+player$/.test(s)) return { kind: 'target_player' };
+  if (/^destroy\s+all\s+.+?\s+and\s+each\s+of\s+your\s+opponents$/.test(s)) return { kind: 'each_opponent' };
+  if (/^dragons\s+-\s+at\s+the\s+beginning\s+of\s+your\s+upkeep,\s+each\s+opponent$/.test(s)) return { kind: 'each_opponent' };
+  if (/^during\s+your\s+turn,\s+if\s+an\s+opponent\s+lost\s+life\s+this\s+turn,\s+you$/.test(s)) return { kind: 'you' };
+  if (s === 'each friend') return { kind: 'each_player' };
+  if (s === "each of that player's opponents") return { kind: 'each_opponent' };
+  if (/^each\s+opponent\s+dealt\s+combat\s+damage\s+this\s+game\s+by\s+a\s+creature\s+named\s+this\s+permanent$/.test(s)) return { kind: 'each_opponent' };
+  if (/^each\s+player\s+reveals\s+the\s+top\s+card\s+of\s+their\s+library,?$/.test(s)) return { kind: 'each_player' };
+  if (/^each\s+player\s+who\s+/.test(s)) return { kind: 'each_player' };
+  if (/^fearless\s+l'cie,\s+you$/.test(s)) return { kind: 'you' };
+  if (/^for\s+each\s+attacking\s+.+?\s+controller$/.test(s)) return { kind: 'target_player' };
+  if (/^for\s+each\s+opponent,\s+exile\s+up\s+to\s+one\s+target\s+creature\s+that\s+player\s+controls\s+and\s+that\s+player$/.test(s)) return { kind: 'target_player' };
+  if (/^recover\s+.+\s+you$/.test(s)) return { kind: 'you' };
+  if (/^reflect\s+.+\s+each\s+opponent$/.test(s)) return { kind: 'each_opponent' };
   if (s === 'you and that player' || s === 'you and target player') return { kind: 'you_and_target_player' };
   if (s === 'you and that opponent' || s === 'you and target opponent') return { kind: 'you_and_target_opponent' };
   if (s === 'each player') return { kind: 'each_player' };
@@ -220,10 +272,12 @@ export function parsePlayerSelector(raw: string | undefined): OraclePlayerSelect
   if (s === 'any number of target players' || s === 'any number of target players other than that player') return { kind: 'any_number_of_target_players' };
   if (isThoseOpponentsSelector(s)) return { kind: 'each_of_those_opponents' };
   if (s === 'target player') return { kind: 'target_player' };
+  if (/^target\s+player\s+other\s+than\s+.+?\s+owner$/.test(s)) return { kind: 'target_player' };
   if (s === 'target opponent') return { kind: 'target_opponent' };
   if (s === 'an opponent' || s === 'the opponent') return { kind: 'target_opponent' };
   if (s === 'the player') return { kind: 'target_player' };
   if (s === 'that player' || s === 'he or she' || s === 'him or her' || s === 'they') return { kind: 'target_player' };
+  if (s === 'that attacking player' || s === 'attacking player' || s === 'the attacking player') return { kind: 'target_player' };
   if (s === 'that opponent' || s === 'defending player' || s === 'the defending player') return { kind: 'target_opponent' };
   if (/^enchanted\s+[a-z0-9 -]+(?:'s)?\s+controller$/.test(s)) return { kind: 'target_player' };
   if (s === 'its controller') return { kind: 'target_player' };

@@ -3,6 +3,7 @@ import type { OracleObjectSelector } from './oracleIR';
 import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
 import { normalizeOracleText } from './oracleIRExecutorPlayerUtils';
 import { getExecutorTypeLineLower, hasExecutorClass, isExecutorCreature } from './oracleIRExecutorPermanentUtils';
+import { getCombinedPermanentText } from './permanentText';
 import { applyStaticAbilitiesToBattlefield } from './staticAbilities';
 
 function readPowerForComparison(permanent: BattlefieldPermanent | any): number | null {
@@ -44,6 +45,21 @@ function readCreatureStatForComparison(
 
 function isAttackingPermanent(permanent: BattlefieldPermanent | any): boolean {
   return Boolean((permanent as any)?.attacking || (permanent as any)?.defendingPlayerId || (permanent as any)?.attackingPlayerId);
+}
+
+function permanentHasKeyword(permanent: BattlefieldPermanent | any, rawKeyword: string): boolean {
+  const keyword = normalizeOracleText(rawKeyword);
+  if (!keyword) return false;
+
+  const combinedText = normalizeOracleText(getCombinedPermanentText(permanent));
+  if (combinedText.includes(keyword)) return true;
+
+  const keywordValues: unknown[] = [
+    ...(Array.isArray((permanent as any)?.keywords) ? (permanent as any).keywords : []),
+    ...(Array.isArray((permanent as any)?.card?.keywords) ? (permanent as any).card.keywords : []),
+  ];
+
+  return keywordValues.some(value => normalizeOracleText(String(value || '')) === keyword);
 }
 
 export function resolveMentorTargetCreatureIdFromBattlefield(
@@ -350,6 +366,15 @@ export function resolveCreatureTargetIds(
         if (!permanentId || permanentId === sourceId) return false;
         return isAttackingPermanent(permanent);
       })
+      .map(permanent => String((permanent as any)?.id || '').trim())
+      .filter(Boolean);
+  }
+
+  const attackingKeywordMatch = targetText.match(/^all attacking creatures with (.+)$/i);
+  if (attackingKeywordMatch) {
+    const requiredKeyword = String(attackingKeywordMatch[1] || '').trim();
+    return battlefield
+      .filter(permanent => isAttackingPermanent(permanent) && permanentHasKeyword(permanent, requiredKeyword))
       .map(permanent => String((permanent as any)?.id || '').trim())
       .filter(Boolean);
   }

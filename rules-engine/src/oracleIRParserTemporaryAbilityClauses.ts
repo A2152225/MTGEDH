@@ -187,6 +187,45 @@ export function tryParseTemporaryAbilityClause(args: {
   }
 
   {
+    const m = workingClause.match(/^(?:until end of turn,\s+)?(.+?)\s+can(?:not|(?:'|’)t)\s+be\s+the\s+targets?\s+of\s+(.+?)\s+this\s+turn$/i);
+    if (m) {
+      return withMeta({
+        kind: 'grant_temporary_ability',
+        target: parseObjectSelector(String(m[1] || '').trim()),
+        duration: 'this_turn',
+        effectText: [`can't be the target of ${String(m[2] || '').trim()}`],
+        raw: rawClause,
+      });
+    }
+  }
+
+  {
+    const m = workingClause.match(/^(.+?)\s+assigns\s+combat\s+damage\s+equal\s+to\s+its\s+toughness\s+rather\s+than\s+its\s+power\s+this\s+turn$/i);
+    if (m) {
+      return withMeta({
+        kind: 'grant_temporary_ability',
+        target: parseObjectSelector(String(m[1] || '').trim()),
+        duration: 'this_turn',
+        effectText: ['assigns combat damage equal to its toughness rather than its power'],
+        raw: rawClause,
+      });
+    }
+  }
+
+  {
+    const m = workingClause.match(/^(?:until end of turn,\s+)?(.+?)\s+loses?\s+(.+?)\s+until\s+end\s+of\s+turn$/i);
+    if (m && !/^all\s+abilities$/i.test(String(m[2] || '').trim())) {
+      return withMeta({
+        kind: 'grant_temporary_ability',
+        target: parseObjectSelector(String(m[1] || '').trim()),
+        duration: 'end_of_turn',
+        effectText: [`loses ${String(m[2] || '').trim()}`],
+        raw: rawClause,
+      });
+    }
+  }
+
+  {
     const m = workingClause.match(/^(?:until end of turn,\s+)?(.+?)\s+can't be blocked(?:\s+this turn)?$/i);
     if (m) {
       return withMeta({
