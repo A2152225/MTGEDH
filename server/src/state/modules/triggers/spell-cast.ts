@@ -200,8 +200,8 @@ export function detectSpellCastTriggers(card: any, permanent: any): SpellCastTri
   
   // Pattern: "Whenever you cast a [TYPE] spell, [EFFECT]"
   const spellCastPatterns = [
-    /whenever you cast (?:a |an )?(\w+) spell,?\s*([^.]+)/gi,
-    /whenever you cast (?:a |an )?(creature|noncreature|instant|sorcery|instant or sorcery) spell,?\s*([^.]+)/gi,
+    /whenever you cast (?:a |an )?(\w+) spell(?!\s+that\b),?\s*([^.]+)/gi,
+    /whenever you cast (?:a |an )?(creature|noncreature|instant|sorcery|instant or sorcery) spell(?!\s+that\b),?\s*([^.]+)/gi,
   ];
   
   for (const pattern of spellCastPatterns) {
@@ -218,6 +218,8 @@ export function detectSpellCastTriggers(card: any, permanent: any): SpellCastTri
         spellCondition = 'creature';
       } else if (spellType === 'noncreature') {
         spellCondition = 'noncreature';
+      } else if (spellType === 'historic') {
+        spellCondition = 'historic';
       } else if (spellType === 'instant' || spellType === 'sorcery' || spellType === 'instant or sorcery') {
         spellCondition = 'instant_sorcery';
       } else if (!['a', 'an', 'spell'].includes(spellType)) {
@@ -389,6 +391,7 @@ export function getSpellCastTriggers(
   const spellTypeLine = (spellCard?.type_line || '').toLowerCase();
   const isCreatureSpell = spellTypeLine.includes('creature');
   const isInstantOrSorcery = spellTypeLine.includes('instant') || spellTypeLine.includes('sorcery');
+  const isHistoricSpell = spellTypeLine.includes('artifact') || spellTypeLine.includes('legendary') || spellTypeLine.includes('saga');
   
   const spellCreatureTypes = extractCreatureTypes(spellTypeLine);
   
@@ -413,6 +416,9 @@ export function getSpellCastTriggers(
           break;
         case 'instant_sorcery':
           shouldTrigger = isInstantOrSorcery;
+          break;
+        case 'historic':
+          shouldTrigger = isHistoricSpell;
           break;
         case 'tribal_type':
           if (trigger.tribalType) {

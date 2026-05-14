@@ -105,6 +105,16 @@ describe('Oracle templates: bounce / tap / untap', () => {
     expect(spec?.opponentOnly).not.toBe(true);
   });
 
+  it('categorizeSpell: "Untap target creature. After this main phase, there is an additional combat phase followed by an additional main phase." -> UNTAP_TARGET + addExtraCombat', () => {
+    const spec = categorizeSpell(
+      'Seize the Day',
+      'Untap target creature. After this main phase, there is an additional combat phase followed by an additional main phase.',
+    );
+    expect(spec?.op).toBe('UNTAP_TARGET');
+    expect(spec?.filter).toBe('CREATURE');
+    expect(spec?.addExtraCombat).toBe(true);
+  });
+
   it('categorizeSpell: "Untap target planeswalker." -> UNTAP_TARGET (PLANESWALKER)', () => {
     const spec = categorizeSpell('Wake', 'Untap target planeswalker.');
     expect(spec?.op).toBe('UNTAP_TARGET');

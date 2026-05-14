@@ -564,6 +564,29 @@ function satisfiesDefendingPlayerLandAttackRestriction(
   );
 }
 
+function getAttackProhibitionSourceForPlayer(
+  battlefield: readonly any[] | undefined,
+  defendingPlayerId: string | undefined,
+): string | null {
+  if (!Array.isArray(battlefield) || !defendingPlayerId) {
+    return null;
+  }
+
+  const normalizedDefendingPlayerId = String(defendingPlayerId || '').trim();
+  for (const permanent of battlefield) {
+    if (String(permanent?.controller || '').trim() !== normalizedDefendingPlayerId) {
+      continue;
+    }
+
+    const oracleText = String(permanent?.card?.oracle_text || '');
+    if (/\byou can't be attacked\b/i.test(oracleText)) {
+      return String(permanent?.card?.name || 'an effect');
+    }
+  }
+
+  return null;
+}
+
 /**
  * Check if a permanent has a "can't attack" restriction
  * This includes:
@@ -1361,6 +1384,14 @@ export function validateDeclareAttackers(
   
   // Validate each attacker using comprehensive validation
   for (const attacker of action.attackers) {
+    const attackProhibitionSource = getAttackProhibitionSourceForPlayer(battlefield, attacker.defendingPlayerId);
+    if (attackProhibitionSource) {
+      return {
+        legal: false,
+        reason: `${attacker.defendingPlayerId} can't be attacked while ${attackProhibitionSource} is on the battlefield`,
+      };
+    }
+
     // Check global battlefield (single source of truth)
     const permanent = battlefield.find(
       (p: any) => p.id === attacker.creatureId && p.controller === action.playerId

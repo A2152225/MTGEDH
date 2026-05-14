@@ -188,31 +188,58 @@ function extendSpellCopyEffectText(
 ): string {
   const baseEffect = String(effectText || '').trim();
   const lowerBaseEffect = baseEffect.toLowerCase();
-  if (!(lowerBaseEffect.includes('copy that spell') || lowerBaseEffect.includes('copy it'))) {
-    return baseEffect;
-  }
-  if (lowerBaseEffect.includes('choose new targets for the copy')) {
-    return baseEffect;
-  }
+  let extendedEffect = baseEffect;
 
   const normalizedOracle = String(oracleText || '');
   const safeIndex = Number.isFinite(matchIndex as number)
     ? Number(matchIndex)
     : normalizedOracle.toLowerCase().indexOf(String(matchedText || '').toLowerCase());
 
-  if (safeIndex >= 0) {
+  if ((lowerBaseEffect.includes('copy that spell') || lowerBaseEffect.includes('copy it')) && !lowerBaseEffect.includes('choose new targets for the copy') && safeIndex >= 0) {
     const trailingText = normalizedOracle.slice(safeIndex + String(matchedText || '').length);
     const retargetSentenceMatch = trailingText.match(/^\s*\.\s*(You may choose new targets? for the copy\.)/i);
     if (retargetSentenceMatch) {
-      return `${baseEffect} ${retargetSentenceMatch[1].trim()}`.trim();
+      extendedEffect = `${extendedEffect} ${retargetSentenceMatch[1].trim()}`.trim();
     }
   }
 
-  if (/you may choose new targets? for the copy\.?/i.test(normalizedOracle)) {
-    return `${baseEffect} You may choose new targets for the copy.`.trim();
+  if (
+    (lowerBaseEffect.includes('copy that spell') || lowerBaseEffect.includes('copy it'))
+    && !lowerBaseEffect.includes('choose new targets for the copy')
+    && /you may choose new targets? for the copy\.?/i.test(normalizedOracle)
+    && !extendedEffect.toLowerCase().includes('choose new targets for the copy')
+  ) {
+    extendedEffect = `${extendedEffect} You may choose new targets for the copy.`.trim();
   }
 
-  return baseEffect;
+  if (
+    safeIndex >= 0
+    && /from (?:your|a|any|an opponent['’]s|target opponent['’]s) graveyard to the battlefield/i.test(extendedEffect)
+  ) {
+    let trailingText = normalizedOracle.slice(safeIndex + String(matchedText || '').length);
+    const riderPatterns = [
+      /^\s*(?:\.\s*)?(It gains [^.]+\.)/i,
+      /^\s*(?:\.\s*)?(Exile it at the beginning of [^.]+\.)/i,
+      /^\s*(?:\.\s*)?(If it would leave the battlefield, [^.]+\.)/i,
+    ];
+    let matchedRider = true;
+    while (matchedRider) {
+      matchedRider = false;
+      for (const pattern of riderPatterns) {
+        const riderMatch = trailingText.match(pattern);
+        if (!riderMatch) continue;
+        const riderSentence = String(riderMatch[1] || '').trim();
+        if (riderSentence && !extendedEffect.toLowerCase().includes(riderSentence.toLowerCase())) {
+          extendedEffect = `${extendedEffect} ${riderSentence}`.trim();
+        }
+        trailingText = trailingText.slice(riderMatch[0].length);
+        matchedRider = true;
+        break;
+      }
+    }
+  }
+
+  return extendedEffect;
 }
 
 /**
@@ -3408,7 +3435,7 @@ export interface SpellCastTrigger {
   controllerId: string;
   description: string;
   effect: string;
-  spellCondition: 'any' | 'creature' | 'noncreature' | 'instant_sorcery' | 'colorless' | 'tribal_type';
+  spellCondition: 'any' | 'creature' | 'noncreature' | 'instant_sorcery' | 'colorless' | 'historic' | 'tribal_type';
   tribalType?: string; // For tribal triggers like "Merfolk spell"
   copiesSpell?: boolean;
   firstSpellThisTurn?: boolean;
@@ -3461,6 +3488,8 @@ export function detectSpellCastTriggers(card: any, permanent: any): SpellCastTri
       spellCondition = 'noncreature';
     } else if (spellType === 'colorless') {
       spellCondition = 'colorless';
+    } else if (spellType === 'historic') {
+      spellCondition = 'historic';
     } else if (spellType === 'instant' || spellType === 'sorcery' || spellType === 'instant or sorcery') {
       spellCondition = 'instant_sorcery';
     } else if (!['a', 'an', 'spell'].includes(spellType)) {
@@ -3526,9 +3555,9 @@ export function detectSpellCastTriggers(card: any, permanent: any): SpellCastTri
   // Pattern: "Whenever you cast a [TYPE] spell, [EFFECT]"
   const spellCastPatterns = [
     // Tribal patterns: "Whenever you cast a Merfolk/Goblin/Elf spell"
-    /whenever you cast (?:a |an )?(\w+) spell,?\s*([^.]+)/gi,
+    /whenever you cast (?:a |an )?(\w+) spell(?!\s+that\b),?\s*([^.]+)/gi,
     // Generic creature/noncreature patterns
-    /whenever you cast (?:a |an )?(creature|noncreature|instant|sorcery|instant or sorcery) spell,?\s*([^.]+)/gi,
+    /whenever you cast (?:a |an )?(creature|noncreature|instant|sorcery|instant or sorcery) spell(?!\s+that\b),?\s*([^.]+)/gi,
   ];
   
   for (const pattern of spellCastPatterns) {
@@ -3830,6 +3859,7 @@ export function getSpellCastTriggers(
   const spellTypeLine = (spellCard?.type_line || '').toLowerCase();
   const isCreatureSpell = spellTypeLine.includes('creature');
   const isInstantOrSorcery = spellTypeLine.includes('instant') || spellTypeLine.includes('sorcery');
+  const isHistoricSpell = spellTypeLine.includes('artifact') || spellTypeLine.includes('legendary') || spellTypeLine.includes('saga');
   // Check if this is a Kindred/Tribal spell (e.g., "Kindred Sorcery — Merfolk")
   const isKindredOrTribal = spellTypeLine.includes('kindred') || spellTypeLine.includes('tribal');
   
@@ -3858,6 +3888,9 @@ export function getSpellCastTriggers(
           break;
         case 'instant_sorcery':
           shouldTrigger = isInstantOrSorcery;
+          break;
+        case 'historic':
+          shouldTrigger = isHistoricSpell;
           break;
         case 'tribal_type':
           // Check if the spell has the tribal type

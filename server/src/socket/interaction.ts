@@ -28,7 +28,7 @@ import { ResolutionQueueManager, ResolutionStepType, createResolutionStep } from
 import { parseUpgradeAbilities as parseCreatureUpgradeAbilities } from "../../../rules-engine/src/creatureUpgradeAbilities";
 import { isAIPlayer } from "./ai.js";
 import { getActivatedAbilityConfig } from "../../../rules-engine/src/cards/activatedAbilityCards.js";
-import { creatureHasHaste, processHeroicTriggersForTargets, processOpponentSpellCastTriggersForCast, processSpellCastTriggersForCast, recordSpellCastThisTurn } from "./game-actions.js";
+import { consumeDelayedSpellCopiesForCast, creatureHasHaste, processHeroicTriggersForTargets, processOpponentSpellCastTriggersForCast, processSpellCastTriggersForCast, recordSpellCastThisTurn } from "./game-actions.js";
 import { debug, debugWarn, debugError } from "../utils/debug.js";
 import { filterLibraryCardsForSearch } from "./library-search.js";
 import { pushWheneverYouExertTriggersOntoStack } from "./exert-triggers.js";
@@ -39,7 +39,8 @@ import { serializeAbilityActivatedTriggeredStackItem, triggerAbilityActivatedTri
 import { isCreatureNow } from "../state/creatureTypeNow.js";
 import { countArtifacts, getActiveAbilityConditions, getTotalCreaturePower } from "../state/modules/game-state-effects.js";
 import { detectActivatedAbilityConditionRequirement, type ActivatedAbilityConditionRequirement } from "../state/modules/activated-ability-conditions.js";
-import { getGrantedCastFromGraveyardKeywordInfo, getGrantedEmbalmInfo, getGrantedFlashbackInfo, getGrantedUnearthInfo, getPrintedUnearthInfo } from "../state/modules/graveyard-permissions.js";
+import { buildCastFromGraveyardCard, getGrantedCastFromGraveyardKeywordInfo, getGrantedEmbalmInfo, getGrantedFlashbackInfo, getGrantedUnearthInfo, getPrintedUnearthInfo } from "../state/modules/graveyard-permissions.js";
+import { detectAdditionalCost } from "./land-helpers.js";
 
 function cardHasSplitSecond(card: any): boolean {
   if (!card) return false;
@@ -1108,7 +1109,7 @@ function getCastFromGraveyardActivationCost(card: any, abilityId: string, contex
   };
 }
 
-function getCastFromGraveyardDiscardCost(abilityId: string): { discardCount: number; discardTypeRestriction?: string } | undefined {
+function getCastFromGraveyardDiscardCost(card: any, abilityId: string): { discardCount: number; discardTypeRestriction?: string } | undefined {
   const normalizedAbilityId = String(abilityId || '').trim().toLowerCase();
   if (normalizedAbilityId === 'jump-start') {
     return { discardCount: 1 };
@@ -1116,6 +1117,12 @@ function getCastFromGraveyardDiscardCost(abilityId: string): { discardCount: num
   if (normalizedAbilityId === 'retrace') {
     return { discardCount: 1, discardTypeRestriction: 'land' };
   }
+
+  const additionalCost = detectAdditionalCost(String(card?.oracle_text || ''));
+  if (additionalCost?.type === 'discard' && Number(additionalCost.amount || 0) > 0) {
+    return { discardCount: Math.max(1, Number(additionalCost.amount || 1)) };
+  }
+
   return undefined;
 }
 
@@ -1135,6 +1142,112 @@ function getCastFromGraveyardExileCost(card: any, abilityId: string, context?: {
 
   const exileCount = parseWordNumber(String(exileMatch[1] || ''), 0);
   return exileCount > 0 ? { exileCount } : undefined;
+}
+
+function getCastFromGraveyardSacrificeCost(
+  card: any,
+  abilityId: string,
+): {
+  sacrificeType: Exclude<SacrificeType, 'self'>;
+  sacrificeCount: number;
+  sacrificeSubtype?: string;
+  mustBeOther?: boolean;
+} | undefined {
+  const normalizedAbilityId = String(abilityId || '').trim().toLowerCase();
+  if (!normalizedAbilityId) return undefined;
+
+  const keywordLine = String(card?.oracle_text || '')
+    .split(/\r?\n/)
+    .find((line) => line.toLowerCase().includes(normalizedAbilityId.replace('-', '')) || line.toLowerCase().includes(normalizedAbilityId));
+  if (!keywordLine || !/\bsacrifice\b/i.test(keywordLine)) return undefined;
+
+  const sacrificeInfo = parseSacrificeCost(keywordLine);
+  if (!sacrificeInfo.requiresSacrifice || !sacrificeInfo.sacrificeType || sacrificeInfo.sacrificeType === 'self') {
+    return undefined;
+  }
+
+  return {
+    sacrificeType: sacrificeInfo.sacrificeType,
+    sacrificeCount: Math.max(1, Number(sacrificeInfo.sacrificeCount || 1)),
+    ...(sacrificeInfo.creatureSubtype ? { sacrificeSubtype: sacrificeInfo.creatureSubtype } : {}),
+    ...(sacrificeInfo.mustBeOther ? { mustBeOther: true } : {}),
+  };
+}
+
+function getEligiblePermanentsForSacrificeCost(
+  battlefield: any[],
+  controllerId: string,
+  sacrificeType: Exclude<SacrificeType, 'self'>,
+  sacrificeSubtype?: string,
+  mustBeOther?: boolean,
+  excludedPermanentId?: string,
+): any[] {
+  return battlefield.filter((perm: any) => {
+    if (!perm) return false;
+    if (String(perm.controller || '') !== String(controllerId)) return false;
+    if (mustBeOther && excludedPermanentId && String(perm.id || '') === String(excludedPermanentId)) return false;
+
+    const typeLine = String(perm.card?.type_line || '').toLowerCase();
+    let okType = false;
+    switch (sacrificeType) {
+      case 'creature':
+        okType = typeLine.includes('creature');
+        break;
+      case 'artifact':
+        okType = typeLine.includes('artifact');
+        break;
+      case 'enchantment':
+        okType = typeLine.includes('enchantment');
+        break;
+      case 'land':
+        okType = typeLine.includes('land');
+        break;
+      case 'artifact_or_creature':
+        okType = typeLine.includes('artifact') || typeLine.includes('creature');
+        break;
+      case 'permanent':
+        okType = true;
+        break;
+      default:
+        okType = false;
+        break;
+    }
+
+    if (!okType) return false;
+    if (sacrificeSubtype) {
+      return typeLine.includes(String(sacrificeSubtype).toLowerCase());
+    }
+    return true;
+  });
+}
+
+function getCastFromGraveyardResourceValidationError(
+  game: any,
+  playerId: string,
+  manaCost?: string,
+  lifeCost?: number,
+): { code: string; message: string } | undefined {
+  if (manaCost) {
+    const parsedCost = parseManaCost(manaCost);
+    const pool = getOrInitManaPool(game.state, playerId);
+    const totalAvailable = calculateTotalAvailableMana(pool, []);
+    const validationError = validateManaPayment(totalAvailable, parsedCost.colors, parsedCost.generic);
+    if (validationError) {
+      return { code: 'INSUFFICIENT_MANA', message: `Cannot pay ${manaCost}: ${validationError}` };
+    }
+  }
+
+  if (Number.isFinite(lifeCost) && Number(lifeCost) > 0) {
+    const currentLife = Number(game.state.life?.[playerId] ?? game.state.startingLife ?? 40);
+    if (!Number.isFinite(currentLife) || currentLife <= Number(lifeCost)) {
+      return {
+        code: 'INSUFFICIENT_LIFE',
+        message: `Cannot pay ${Number(lifeCost)} life (you have ${Number.isFinite(currentLife) ? currentLife : 0} life)`,
+      };
+    }
+  }
+
+  return undefined;
 }
 
 function getKeywordGraveyardActivationManaCost(card: any, abilityId: string): string | undefined {
@@ -1259,11 +1372,7 @@ function buildGraveyardCastSpellCard(card: any, abilityId: string): any {
     return buildDisturbCastCard(card);
   }
 
-  return {
-    ...card,
-    zone: 'stack',
-    castWithAbility: abilityId,
-  };
+  return buildCastFromGraveyardCard(card, abilityId);
 }
 
 function getAuraEnchantTargeting(card: any): {
@@ -1551,6 +1660,7 @@ function queueGraveyardSpellCastTargetSelection(params: {
   discardedCardIdsForCost?: string[];
   exiledCardIdsFromHandForCost?: string[];
   exiledCardIdsFromGraveyardForCost?: string[];
+  sacrificedPermanentIdsForCost?: string[];
   emitError: (payload: { code: string; message: string }) => void;
 }): 'queued' | 'error' | null {
   const spellCard = buildGraveyardCastSpellCard(params.card, params.abilityId);
@@ -1644,6 +1754,9 @@ function queueGraveyardSpellCastTargetSelection(params: {
       exiledCardIdsFromGraveyardForCost: Array.isArray(params.exiledCardIdsFromGraveyardForCost) && params.exiledCardIdsFromGraveyardForCost.length > 0
         ? params.exiledCardIdsFromGraveyardForCost.slice()
         : undefined,
+      sacrificedPermanentIdsForCost: Array.isArray(params.sacrificedPermanentIdsForCost) && params.sacrificedPermanentIdsForCost.length > 0
+        ? params.sacrificedPermanentIdsForCost.slice()
+        : undefined,
     } as any);
 
     persistQueuedGraveyardAbilityStepActivation({
@@ -1698,7 +1811,16 @@ export function finalizeGraveyardSpellCast(params: {
     controller: params.playerId,
     card: spellCard,
     targets: normalizedTargets,
+    ...(spellCard?.entersBattlefieldWithCounters && typeof spellCard.entersBattlefieldWithCounters === 'object'
+      ? { entersBattlefieldWithCounters: { ...(spellCard.entersBattlefieldWithCounters as Record<string, number>) } }
+      : {}),
   };
+
+  const pendingDelayedSpellCopies = Array.isArray((params.game.state as any)?.delayedSpellCopiesThisTurn)
+    ? [...(params.game.state as any).delayedSpellCopiesThisTurn]
+    : Array.isArray((params.game as any).delayedSpellCopiesThisTurn)
+    ? [...(params.game as any).delayedSpellCopiesThisTurn]
+    : [];
 
   params.game.state.stack = params.game.state.stack || [];
   params.game.state.stack.push(stackItem as any);
@@ -1738,6 +1860,16 @@ export function finalizeGraveyardSpellCast(params: {
 
   recordSpellCastThisTurn(params.game, params.playerId, stackItem.card, 'graveyard');
   processSpellCastTriggersForCast(params.gameId, params.game, params.io as any, params.playerId, stackItem.card, 'graveyard', stackId);
+  consumeDelayedSpellCopiesForCast(
+    params.gameId,
+    params.game,
+    params.io as any,
+    params.playerId,
+    stackItem.card,
+    stackId,
+    stackItem,
+    pendingDelayedSpellCopies,
+  );
   if (normalizedTargets.length > 0) {
     processHeroicTriggersForTargets(params.game, params.playerId, normalizedTargets, params.io as any, params.gameId);
   }
@@ -1757,6 +1889,7 @@ export function continueCastFromGraveyardAbility(params: {
   discardedCardIds?: string[];
   exiledCardIdsFromHandForCost?: string[];
   exiledCardIdsFromGraveyardForCost?: string[];
+  sacrificedPermanentIdsForCost?: string[];
   emitError: (payload: { code: string; message: string }) => void;
 }): 'queued' | 'cast' | 'error' {
   const zones = (params.game.state as any)?.zones?.[params.playerId];
@@ -1782,8 +1915,9 @@ export function continueCastFromGraveyardAbility(params: {
   }
   const recordedManaCost = String(activationCost.manaCost || '').trim();
   const recordedLifeCost = Number(activationCost.lifeCost || 0);
-  const discardCost = getCastFromGraveyardDiscardCost(params.abilityId);
+  const discardCost = getCastFromGraveyardDiscardCost(card, params.abilityId);
   const exileCost = getCastFromGraveyardExileCost(card, params.abilityId, { game: params.game, playerId: params.playerId });
+  const sacrificeCost = getCastFromGraveyardSacrificeCost(card, params.abilityId);
   const paidDiscardCount = (Array.isArray(params.discardedCardIds) ? params.discardedCardIds.length : 0)
     + (Array.isArray(params.exiledCardIdsFromHandForCost) ? params.exiledCardIdsFromHandForCost.length : 0);
 
@@ -1893,6 +2027,106 @@ export function continueCastFromGraveyardAbility(params: {
     return 'queued';
   }
 
+  if (sacrificeCost && !(Array.isArray(params.sacrificedPermanentIdsForCost) && params.sacrificedPermanentIdsForCost.length >= sacrificeCost.sacrificeCount)) {
+    const resourceValidationError = getCastFromGraveyardResourceValidationError(
+      params.game,
+      params.playerId,
+      recordedManaCost || undefined,
+      recordedLifeCost > 0 ? recordedLifeCost : undefined,
+    );
+    if (resourceValidationError) {
+      params.emitError(resourceValidationError);
+      return 'error';
+    }
+
+    const battlefield = Array.isArray(params.game.state?.battlefield) ? params.game.state.battlefield : [];
+    const eligiblePermanents = getEligiblePermanentsForSacrificeCost(
+      battlefield,
+      params.playerId,
+      sacrificeCost.sacrificeType,
+      sacrificeCost.sacrificeSubtype,
+      sacrificeCost.mustBeOther,
+    );
+
+    let sacrificeLabel = sacrificeCost.sacrificeSubtype || sacrificeCost.sacrificeType;
+    if (sacrificeCost.sacrificeType === 'artifact_or_creature') {
+      sacrificeLabel = 'artifact or creature';
+    }
+    const sacrificeLabelPlural = sacrificeCost.sacrificeCount === 1 ? sacrificeLabel : `${sacrificeLabel}s`;
+    if (eligiblePermanents.length < sacrificeCost.sacrificeCount) {
+      params.emitError({
+        code: 'CANNOT_PAY_COST',
+        message: `Cannot cast ${cardName} using ${params.abilityId}: you need to sacrifice ${sacrificeCost.sacrificeCount} ${sacrificeLabelPlural}.`,
+      });
+      return 'error';
+    }
+
+    const existingSacrificeStep = ResolutionQueueManager
+      .getStepsForPlayer(params.gameId, params.playerId as any)
+      .find((step: any) =>
+        step?.type === ResolutionStepType.TARGET_SELECTION
+        && (step as any)?.graveyardCastSacrificeAsCost === true
+        && String((step as any)?.cardId || step?.sourceId || '') === String(params.cardId)
+      );
+
+    if (!existingSacrificeStep) {
+      const sacrificeStep = ResolutionQueueManager.addStep(params.gameId, {
+        type: ResolutionStepType.TARGET_SELECTION,
+        playerId: params.playerId as PlayerID,
+        sourceId: params.cardId,
+        sourceName: cardName,
+        sourceImage: (card as any)?.image_uris?.small || (card as any)?.image_uris?.normal,
+        description: `${cardName}: Sacrifice ${sacrificeCost.sacrificeCount} ${sacrificeLabelPlural} to cast it using ${params.abilityId}.`,
+        mandatory: false,
+        validTargets: eligiblePermanents.map((perm: any) => ({
+          id: perm.id,
+          label: perm.card?.name || 'Permanent',
+          description: perm.card?.type_line || 'Permanent',
+          imageUrl: perm.card?.image_uris?.small || perm.card?.image_uris?.normal,
+        })),
+        targetTypes: ['sacrifice_cost'],
+        minTargets: sacrificeCost.sacrificeCount,
+        maxTargets: sacrificeCost.sacrificeCount,
+        targetDescription: `${sacrificeLabelPlural} you control`,
+        sacrificeSelection: true,
+        sacrificeSourceName: cardName,
+        sacrificePermanentType: sacrificeCost.sacrificeType === 'artifact_or_creature' ? 'permanent' : sacrificeCost.sacrificeType,
+        sacrificeReason: `Cast ${cardName} using ${params.abilityId}`,
+        graveyardCastSacrificeAsCost: true,
+        cardId: params.cardId,
+        abilityId: params.abilityId,
+        cardName,
+        manaCost: recordedManaCost || undefined,
+        lifeToPayForCost: recordedLifeCost > 0 ? recordedLifeCost : undefined,
+        sacrificeType: sacrificeCost.sacrificeType,
+        sacrificeSubtype: sacrificeCost.sacrificeSubtype,
+        sacrificeCount: sacrificeCost.sacrificeCount,
+        mustBeOther: sacrificeCost.mustBeOther || undefined,
+        targetsForCast: normalizedTargets.length > 0 ? normalizedTargets : undefined,
+        discardedCardIdsForCost: Array.isArray(params.discardedCardIds) && params.discardedCardIds.length > 0 ? params.discardedCardIds.slice() : undefined,
+        exiledCardIdsFromHandForCost: Array.isArray(params.exiledCardIdsFromHandForCost) && params.exiledCardIdsFromHandForCost.length > 0
+          ? params.exiledCardIdsFromHandForCost.slice()
+          : undefined,
+        exiledCardIdsFromGraveyardForCost: Array.isArray(params.exiledCardIdsFromGraveyardForCost) && params.exiledCardIdsFromGraveyardForCost.length > 0
+          ? params.exiledCardIdsFromGraveyardForCost.slice()
+          : undefined,
+      } as any);
+
+      persistQueuedGraveyardAbilityStepActivation({
+        gameId: params.gameId,
+        game: params.game,
+        playerId: String(params.playerId),
+        cardId: String(params.cardId),
+        abilityId: String(params.abilityId),
+        queuedStep: {
+          ...(sacrificeStep as any),
+        },
+      });
+    }
+
+    return 'queued';
+  }
+
   if (normalizedTargets.length === 0) {
     const targetSelectionResult = queueGraveyardSpellCastTargetSelection({
       gameId: params.gameId,
@@ -1906,6 +2140,7 @@ export function continueCastFromGraveyardAbility(params: {
       discardedCardIdsForCost: params.discardedCardIds,
       exiledCardIdsFromHandForCost: params.exiledCardIdsFromHandForCost,
       exiledCardIdsFromGraveyardForCost: params.exiledCardIdsFromGraveyardForCost,
+      sacrificedPermanentIdsForCost: params.sacrificedPermanentIdsForCost,
       emitError: params.emitError,
     });
     if (targetSelectionResult) {

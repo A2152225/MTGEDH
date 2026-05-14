@@ -166,7 +166,7 @@ export interface SpellCastTrigger {
   controllerId: string;
   description: string;
   effect: string;
-  spellCondition: 'any' | 'creature' | 'noncreature' | 'instant_sorcery' | 'tribal_type';
+  spellCondition: 'any' | 'creature' | 'noncreature' | 'instant_sorcery' | 'historic' | 'tribal_type';
   tribalType?: string;
   requiresTarget?: boolean;
   targetType?: string;

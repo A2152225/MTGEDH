@@ -52,7 +52,7 @@ import { buildEmbalmOrEternalizeTokenPermanent } from "./graveyard-tokens.js";
 import { clearPreparedPermanent, syncPreparedPermanentAfterControlChange } from "./prepared.js";
 import { applyMyriadTokenCopies, pushStack, resolveTopOfStack, playLand, castSpell, triggerETBEffectsForToken } from "./stack";
 import { exileEntireStack } from "./stack";
-import { applyGraveyardPermissionEffectsFromText, applyTemporaryGraveyardKeywordGrantFromText } from "./graveyard-permissions.js";
+import { applyGraveyardPermissionEffectsFromText, applyTemporaryGraveyardKeywordGrantFromText, buildCastFromGraveyardCard } from "./graveyard-permissions.js";
 import { permanentHasKeyword } from "./keyword-handlers";
 import { nextTurn, nextStep, passPriority } from "./turn";
 import {
@@ -2793,6 +2793,27 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
         } catch {
           // best-effort only
         }
+
+        try {
+          const stateAny = (ctx.state as any) as any;
+          const delayedEntries = Array.isArray(stateAny.delayedSpellCopiesThisTurn)
+            ? stateAny.delayedSpellCopiesThisTurn
+            : [];
+          const playerId = String((e as any).playerId || '').trim();
+          const spellTypeLine = String((spellCardData as any)?.type_line || (e as any)?.card?.type_line || '').toLowerCase();
+          if (
+            delayedEntries.length > 0
+            && playerId
+            && (spellTypeLine.includes('instant') || spellTypeLine.includes('sorcery'))
+          ) {
+            stateAny.delayedSpellCopiesThisTurn = delayedEntries.filter((entry: any) => !(
+              String(entry?.controllerId || '').trim() === playerId
+              && String(entry?.spellType || '').trim() === 'instant_or_sorcery'
+            ));
+          }
+        } catch {
+          // best-effort only
+        }
         break;
       }
 
@@ -3413,6 +3434,96 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           ctx.bumpSeq();
         } catch (err) {
           debugWarn(1, 'applyEvent(copyTriggeredSpellResolve): failed', err);
+        }
+        break;
+      }
+
+      case "resolvedSpellCopyChoiceResolve": {
+        try {
+          const replayGameId = String((ctx as any).gameId || '').trim();
+          const sourceId = String((e as any).sourceId || '').trim();
+          const resolvedStepId = String((e as any).resolvedStepId || '').trim();
+
+          if (replayGameId) {
+            clearReplayQueuedSteps(replayGameId, (step: any) => {
+              if (!step) return false;
+              const stepId = String((step as any)?.id || '').trim();
+              if (resolvedStepId && stepId === resolvedStepId) {
+                return true;
+              }
+
+              return (
+                String((step as any)?.type || '') === String(ResolutionStepType.OPTION_CHOICE) &&
+                (step as any)?.resolvedSpellCopyChoice === true &&
+                sourceId.length > 0 &&
+                String((step as any)?.sourceId || '').trim() === sourceId
+              );
+            });
+          }
+
+          ctx.bumpSeq();
+        } catch (err) {
+          debugWarn(1, 'applyEvent(resolvedSpellCopyChoiceResolve): failed', err);
+        }
+        break;
+      }
+
+      case "resolvedSpellCopyResolve": {
+        try {
+          const rawCopiedSpell = (e as any).copiedSpell;
+          if (!rawCopiedSpell || typeof rawCopiedSpell !== 'object' || Array.isArray(rawCopiedSpell)) {
+            break;
+          }
+
+          ctx.state.stack = Array.isArray(ctx.state.stack) ? ctx.state.stack : [];
+          const stack = ctx.state.stack as any[];
+          const copiedSpellId = String((rawCopiedSpell as any).id || '').trim();
+          const existingCopiedItem = copiedSpellId
+            ? stack.find((item: any) => item && String(item.id || '').trim() === copiedSpellId)
+            : null;
+
+          if (!existingCopiedItem) {
+            stack.push({
+              ...(rawCopiedSpell as any),
+              ...(copiedSpellId ? { id: copiedSpellId } : {}),
+              targets: Array.isArray((rawCopiedSpell as any).targets)
+                ? ((rawCopiedSpell as any).targets as any[]).map((target: any) => (
+                    target && typeof target === 'object' && !Array.isArray(target)
+                      ? { ...target }
+                      : target
+                  ))
+                : (rawCopiedSpell as any).targets,
+              card: (rawCopiedSpell as any).card && typeof (rawCopiedSpell as any).card === 'object' && !Array.isArray((rawCopiedSpell as any).card)
+                ? { ...((rawCopiedSpell as any).card as Record<string, any>) }
+                : (rawCopiedSpell as any).card,
+              spell: (rawCopiedSpell as any).spell && typeof (rawCopiedSpell as any).spell === 'object' && !Array.isArray((rawCopiedSpell as any).spell)
+                ? { ...((rawCopiedSpell as any).spell as Record<string, any>) }
+                : (rawCopiedSpell as any).spell,
+              searchParams: (rawCopiedSpell as any).searchParams && typeof (rawCopiedSpell as any).searchParams === 'object' && !Array.isArray((rawCopiedSpell as any).searchParams)
+                ? { ...((rawCopiedSpell as any).searchParams as Record<string, any>) }
+                : (rawCopiedSpell as any).searchParams,
+              targetRequirements: (rawCopiedSpell as any).targetRequirements && typeof (rawCopiedSpell as any).targetRequirements === 'object' && !Array.isArray((rawCopiedSpell as any).targetRequirements)
+                ? { ...((rawCopiedSpell as any).targetRequirements as Record<string, any>) }
+                : (rawCopiedSpell as any).targetRequirements,
+              manaPayment: (rawCopiedSpell as any).manaPayment
+                ? (Array.isArray((rawCopiedSpell as any).manaPayment)
+                    ? [...((rawCopiedSpell as any).manaPayment as any[])]
+                    : { ...((rawCopiedSpell as any).manaPayment as Record<string, any>) })
+                : (rawCopiedSpell as any).manaPayment,
+              counterImmunity: (rawCopiedSpell as any).counterImmunity
+                ? (Array.isArray((rawCopiedSpell as any).counterImmunity)
+                    ? [...((rawCopiedSpell as any).counterImmunity as any[])]
+                    : { ...((rawCopiedSpell as any).counterImmunity as Record<string, any>) })
+                : (rawCopiedSpell as any).counterImmunity,
+              entersBattlefieldWithCounters: (rawCopiedSpell as any).entersBattlefieldWithCounters && typeof (rawCopiedSpell as any).entersBattlefieldWithCounters === 'object' && !Array.isArray((rawCopiedSpell as any).entersBattlefieldWithCounters)
+                ? { ...((rawCopiedSpell as any).entersBattlefieldWithCounters as Record<string, any>) }
+                : (rawCopiedSpell as any).entersBattlefieldWithCounters,
+            });
+          }
+
+          ctx.bumpSeq();
+        } catch (err) {
+          debugWarn(1, 'applyEvent(resolvedSpellCopyResolve): failed', err);
         }
         break;
       }
@@ -7817,11 +7928,15 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
                   ? ((e as any).targets as any[]).map((targetId: any) => String(targetId || '').trim()).filter(Boolean)
                   : [];
                 ctx.state.stack = ctx.state.stack || [];
+                const graveyardCastCard = buildCastFromGraveyardCard(card, String(abilityType));
                 (ctx.state.stack as any[]).push({
                   id: stackId,
                   controller: pid,
-                  card: { ...card, zone: 'stack', castWithAbility: String(abilityType) },
+                  card: graveyardCastCard,
                   targets: recordedTargets,
+                  ...(graveyardCastCard?.entersBattlefieldWithCounters && typeof graveyardCastCard.entersBattlefieldWithCounters === 'object'
+                    ? { entersBattlefieldWithCounters: { ...(graveyardCastCard.entersBattlefieldWithCounters as Record<string, number>) } }
+                    : {}),
                 });
 
                 const stateAny = ctx.state as any;

@@ -95,9 +95,12 @@ Source: [oracle-automation-next-200-offset-200.md](./oracle-automation-next-200-
 
 - [x] 316. Whip of Erebos
   - Verified live activated reanimation from graveyard, haste grant, next-end-step exile scheduling, and early leave-battlefield exile replacement.
-- [ ] 317. Moira and Teshar
-- [ ] 318. Kheru Lich Lord
-- [ ] 319. Personal Decoy
+- [x] 317. Moira and Teshar
+  - Verified live historic-spell trigger creation, nonland permanent graveyard target filtering, battlefield return, haste grant, next-end-step exile scheduling, and early leave-battlefield exile replacement.
+- [x] 318. Kheru Lich Lord
+  - Verified upkeep trigger text preservation past the first period, optional {2}{B} payment prompt, deterministic single-creature random graveyard return, flying/trample/haste grant, next-end-step exile scheduling, and early leave-battlefield exile replacement.
+- [x] 319. Personal Decoy
+  - Verified life-total-based planeswalker entry loyalty, static leave-battlefield exile replacement stamping, live declare-attackers rejection for `You can't be attacked`, and nearby server plus rules-engine combat validation coverage.
 
 Required system work:
 
@@ -112,8 +115,36 @@ Required system work:
 
 Source: [oracle-automation-next-200-offset-200.md](./oracle-automation-next-200-offset-200.md), items 320-354.
 
-- [ ] Flashback self-permission cards: Faithless Looting, Sevinne's Reclamation, Dread Return, Strike It Rich, Past in Flames, Deep Analysis, Seize the Day, Army of the Damned, Think Twice, Otherworldly Gaze, Momentary Blink, Electroduplicate, Echo of Eons, Galvanic Iteration, Laughing Mad, Cackling Counterpart.
-- [ ] Escape cards and global escape grants: Underworld Breach, Uro, Woe Strider.
+- [x] Dread Return
+  - Verified flashback's `Sacrifice three creatures` cost queues through `ResolutionQueueManager`, persists replayable sacrifice resolution, and resumes graveyard target selection before casting.
+- [x] Sevinne's Reclamation
+  - Verified the original flashback cast resolves first, then queues a post-resolution `copy this spell` choice, materializes the copied spell from a replay-safe snapshot, and recomputes legal graveyard retargets after the original target has already returned.
+- [x] Past in Flames
+  - Verified ordinary spell resolution now applies temporary graveyard keyword grants, so the flashback cast grants `flashback until end of turn` to other instant and sorcery cards in your graveyard in both live play and replay.
+- [x] Momentary Blink
+  - Verified the generic `FlickerPermanent` spell-resolution path already works through flashback in both live play and replay; the targeted creature leaves and returns as a new untapped permanent under its owner's control.
+- [x] Cackling Counterpart
+  - Verified ordinary spell resolution now creates a token copy of the targeted creature you control in both live play and replay, including flashback casts.
+- [x] Think Twice
+  - Verified a simple flashback draw spell now resolves through the generic draw path and is exiled after resolution in both live play and replay.
+- [x] Strike It Rich
+  - Verified the generic token-creation path plus flashback cleanup produces a Treasure token and exiles the spell in both live play and replay.
+- [x] Deep Analysis
+  - Verified targeted draw spells with a flashback cost line now classify correctly, pay life, draw cards for the selected player, and exile themselves on resolution in both live play and replay.
+- [x] Army of the Damned
+  - Verified the existing flashback path plus token creation already produces thirteen tapped 2/2 black Zombie tokens and exiles the spell on resolution in both live play and replay.
+- [x] Otherworldly Gaze
+  - Verified flashback resolution now snapshots the top library cards onto queued `SURVEIL` prompts, so live play and replay both restore `Surveil 3` with the real card payload and exile the spell on resolution.
+- [x] Faithless Looting
+  - Verified the existing draw-then-discard spell path already works through flashback in both live play and replay: the spell resolves into a queue-backed discard prompt after drawing two cards, and the flashback cast exiles itself on resolution.
+- [x] Laughing Mad
+  - Verified flashback activation now reuses the generic additional-cost discard detector for live graveyard casts, so the spell queues its discard cost before casting, then draws two cards and exiles itself on resolution; replay already restored the pre-cost prompt correctly.
+- [x] Seize the Day
+  - Verified ordinary spell resolution now recognizes the combined `Untap target creature` plus `additional combat phase followed by an additional main phase` rider, so flashback casts untap the target, add one extra combat, and exile themselves in both live play and replay.
+- [x] Electroduplicate
+  - Verified ordinary spell resolution now extends the targeted creature-copy spell path to the haste-plus-end-step-sacrifice rider, so flashback casts create the token copy, grant haste, schedule the delayed sacrifice, and exile themselves in both live play and replay.
+- [x] Flashback self-permission cards: Galvanic Iteration.
+- [ ] Escape cards and global escape grants: Underworld Breach, Uro.
 - [ ] Static self-cast cards: Gravecrawler, Squee, the Immortal, The Indomitable.
 - [ ] Static/granted creature or permanent graveyard casting: Six, Chainer, Exploration Broodship, Lurrus, Rivaz, Kess.
 - [ ] Special additional-cost or alternate-cost cards: Nature's Rhythm, Quilled Greatwurm, Bulk Up, Resurgent Belief, Torrential Gearhulk.

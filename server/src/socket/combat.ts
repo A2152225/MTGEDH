@@ -102,6 +102,21 @@ function trimReminderText(text: string): string {
   return String(text || '').replace(/\s*\([^)]*\)\s*$/i, '').trim();
 }
 
+function getAttackProhibitionSourceForPlayer(battlefield: any[], defendingPlayerId: string): string | null {
+  for (const permanent of battlefield) {
+    if (String((permanent as any)?.controller || '').trim() !== String(defendingPlayerId || '').trim()) {
+      continue;
+    }
+
+    const oracleText = String((permanent as any)?.card?.oracle_text || '');
+    if (/\byou can't be attacked\b/i.test(oracleText)) {
+      return String((permanent as any)?.card?.name || 'an effect');
+    }
+  }
+
+  return null;
+}
+
 function pushPaidAttackTriggerEffectOntoStack(
   game: any,
   gameId: string,
@@ -1667,6 +1682,18 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
       }
       
       for (const attacker of attackers as Array<{ creatureId: string; targetPlayerId?: string; targetPermanentId?: string }>) {
+        const targetPlayerId = String(attacker.targetPlayerId || '').trim();
+        if (targetPlayerId) {
+          const attackProhibitionSource = getAttackProhibitionSourceForPlayer(battlefield, targetPlayerId);
+          if (attackProhibitionSource) {
+            socket.emit('error', {
+              code: 'ATTACK_PROHIBITED',
+              message: `${getPlayerName(game, targetPlayerId)} can't be attacked while ${attackProhibitionSource} is on the battlefield.`,
+            });
+            return;
+          }
+        }
+
         const creature = battlefield.find((perm: any) => 
           perm.id === attacker.creatureId && 
           perm.controller === playerId

@@ -46,6 +46,44 @@ const SACRIFICE_CREATURE_OR_SELF_PATTERN = /at the beginning of your upkeep,?\s*
  */
 const SACRIFICE_OR_PATTERN = /at the beginning of your upkeep,?\s*sacrifice a creature\s+or\s+sacrifice/i;
 
+function extendUpkeepEffectText(
+  oracleText: string,
+  matchedText: string,
+  effectText: string,
+  matchIndex: number,
+): string {
+  let extended = String(effectText || '').trim().replace(/\s+/g, ' ');
+  if (!extended || !/\byou may pay\b/i.test(extended)) {
+    return extended;
+  }
+
+  let remaining = String(oracleText || '').slice(matchIndex + matchedText.length);
+  const followUpPatterns = [
+    /^\.\s*if you do,?\s*[^.]+/i,
+    /^\.\s*(?:it|that card|that creature|those creatures|those permanents?)\s+gains?\s+[^.]+/i,
+    /^\.\s*exile\s+(?:that card|that creature|those cards|those creatures|it|them)\s+at the beginning of\s+[^.]+/i,
+    /^\.\s*if\s+(?:it|that card|that creature|they|those cards|those creatures|those permanents?)\s+would leave the battlefield,\s*[^.]+/i,
+  ];
+
+  let appended = true;
+  while (appended) {
+    appended = false;
+    for (const pattern of followUpPatterns) {
+      const match = remaining.match(pattern);
+      if (!match) {
+        continue;
+      }
+
+      extended += match[0].replace(/^\.\s*/, '. ').replace(/\s+/g, ' ');
+      remaining = remaining.slice(match[0].length);
+      appended = true;
+      break;
+    }
+  }
+
+  return extended.trim();
+}
+
 export interface UpkeepTrigger {
   permanentId: string;
   cardName: string;
@@ -327,7 +365,12 @@ export function detectUpkeepTriggers(card: any, permanent: any): UpkeepTrigger[]
   // "At the beginning of your upkeep" - most common pattern
   const yourUpkeepMatch = oracleText.match(/at the beginning of your upkeep,?\s*([^.]+)/i);
   if (yourUpkeepMatch && !triggers.some(t => t.triggerType === 'upkeep_effect')) {
-    const effectText = yourUpkeepMatch[1].trim();
+    const effectText = extendUpkeepEffectText(
+      oracleText,
+      yourUpkeepMatch[0],
+      yourUpkeepMatch[1],
+      yourUpkeepMatch.index ?? 0,
+    );
     const hasCost = effectText.toLowerCase().includes("pay") || effectText.toLowerCase().includes("sacrifice");
     const isOptional = effectText.toLowerCase().includes("you may") || effectText.toLowerCase().includes("may ");
     

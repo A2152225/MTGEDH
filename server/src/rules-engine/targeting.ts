@@ -106,6 +106,7 @@ export type SpellSpec = {
   excludeSource?: boolean; // For "another target" patterns (Skrelv, etc.) - cannot target the source
   multiFilter?: PermanentFilter[]; // For "artifact or enchantment" patterns (Nature's Claim) - uses OR logic
   creatureRestriction?: TargetRestriction; // For restrictions that only apply to creatures when multiFilter includes CREATURE (Atraxa's Fall)
+  addExtraCombat?: boolean;
 };
 
 const CARD_TYPE_WORDS = [
@@ -729,7 +730,12 @@ export function parseTargetRequirements(oracleText?: string, options?: DynamicMa
 }
 
 export function categorizeSpell(_name: string, oracleText?: string): SpellSpec | null {
-  const t = (oracleText || '').replace(/\u2019/g, "'").toLowerCase();
+  const normalizedOracleText = String(oracleText || '').replace(/\u2019/g, "'");
+  const t = normalizedOracleText
+    .split(/\r?\n/)
+    .filter((line) => !/^\s*(?:flashback|jump-start|retrace|escape|disturb)\b/i.test(String(line || '').trim()))
+    .join('\n')
+    .toLowerCase();
 
   // IMPORTANT: Check for stack-targeting spells FIRST before battlefield patterns
   // Spells like Summary Dismissal ("Exile all other spells and counter all abilities")
@@ -2242,6 +2248,33 @@ export function categorizeSpell(_name: string, oracleText?: string): SpellSpec |
     }
   }
   {
+    const m = t.trim().match(/^untap\s+target\s+(creature|permanent|artifact|enchantment|land|planeswalker|nonland\s+permanent)(?:\s+(you\s+control|an\s+opponent\s+controls))?\.?(?:\s+after\s+this\s+(?:main\s+)?phase,\s+there\s+is\s+an\s+additional\s+combat\s+phase\s+followed\s+by\s+an\s+additional\s+main\s+phase\.?)$/i);
+    if (m) {
+      const targetType = m[1].toLowerCase();
+      const scope = (m[2] || '').toLowerCase();
+      const controllerOnly = scope === 'you control';
+      const opponentOnly = scope === 'an opponent controls';
+      const nonlandOnly = targetType === 'nonland permanent';
+      return {
+        op: 'UNTAP_TARGET',
+        filter:
+          targetType === 'creature' ? 'CREATURE' :
+          targetType === 'artifact' ? 'ARTIFACT' :
+          targetType === 'enchantment' ? 'ENCHANTMENT' :
+          targetType === 'land' ? 'LAND' :
+          targetType === 'planeswalker' ? 'PLANESWALKER' :
+          'PERMANENT',
+        minTargets: 1,
+        maxTargets: 1,
+        ...(nonlandOnly ? { nonlandOnly: true } : {}),
+        ...(controllerOnly ? { controllerOnly: true } : {}),
+        ...(opponentOnly ? { opponentOnly: true } : {}),
+        addExtraCombat: true,
+        targetDescription: scope ? `target ${targetType} ${scope}` : `target ${targetType}`,
+      };
+    }
+  }
+  {
     const m = t.trim().match(/^untap\s+target\s+(creature|permanent|artifact|enchantment|land|planeswalker|nonland\s+permanent)(?:\s+(you\s+control|an\s+opponent\s+controls))?\.?$/i);
     if (m) {
       const targetType = m[1].toLowerCase();
@@ -3095,6 +3128,7 @@ export type EngineEffect =
   | { kind: 'BouncePermanent'; id: string }
   | { kind: 'TapPermanent'; id: string }
   | { kind: 'UntapPermanent'; id: string }
+  | { kind: 'AddExtraCombat'; untapAttackers?: boolean }
   | { kind: 'GainLife'; playerId: PlayerID; amount: number }
   | { kind: 'LoseLife'; playerId: PlayerID; amount: number }
   | { kind: 'DamagePermanent'; id: string; amount: number }
@@ -3635,6 +3669,9 @@ export function resolveSpell(spec: SpellSpec, chosen: readonly TargetRef[], stat
           if (spec.nonlandOnly && isLand(perm)) continue;
           eff.push({ kind: 'UntapPermanent', id: t.id });
         }
+      }
+      if (spec.addExtraCombat) {
+        eff.push({ kind: 'AddExtraCombat' });
       }
       break;
     case 'TAP_ALL':

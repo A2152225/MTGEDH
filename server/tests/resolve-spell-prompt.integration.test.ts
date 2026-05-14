@@ -140,6 +140,23 @@ describe('resolveSpell prompt persistence (integration)', () => {
 
     (game as any).gameId = surveilGameId;
     (game.state as any).players = [{ id: 'p1', name: 'P1', spectator: false, life: 40 }];
+    const libraryCards = [
+      { id: 'spell_surveil_top_1', name: 'Island', type_line: 'Basic Land - Island', oracle_text: '', zone: 'library' },
+      { id: 'spell_surveil_top_2', name: 'Opt', type_line: 'Instant', oracle_text: 'Scry 1, then draw a card.', zone: 'library' },
+    ];
+    (game.state as any).zones = {
+      p1: {
+        library: libraryCards.map((card) => ({ ...card })),
+        libraryCount: libraryCards.length,
+        hand: [],
+        handCount: 0,
+        graveyard: [],
+        graveyardCount: 0,
+        exile: [],
+        exileCount: 0,
+      },
+    };
+    (game as any).libraries.set('p1', libraryCards.map((card) => ({ ...card })));
     (game.state as any).stack = [
       {
         id: 'spell_surveil_stack_1',
@@ -163,6 +180,10 @@ describe('resolveSpell prompt persistence (integration)', () => {
     expect((queue.steps[0] as any)?.type).toBe(ResolutionStepType.SURVEIL);
     expect((queue.steps[0] as any)?.sourceId).toBe('spell_surveil_stack_1');
     expect(Number((queue.steps[0] as any)?.surveilCount || 0)).toBe(2);
+    expect((queue.steps[0] as any)?.cards).toMatchObject([
+      { id: 'spell_surveil_top_1', name: 'Island' },
+      { id: 'spell_surveil_top_2', name: 'Opt' },
+    ]);
 
     const promptEvent = getEvents(surveilGameId).find(
       (event: any) => String(event?.type || '') === 'resolveTopOfStackPrompt'

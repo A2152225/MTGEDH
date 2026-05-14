@@ -43,7 +43,7 @@ import { applyDamageToPermanentWithCounterEffects } from "./counter-common-effec
 import { detectCombatDamageTriggers } from "./triggers/index.js";
 import { isInterveningIfSatisfied } from "./triggers/intervening-if.js";
 import { isCreatureNow } from "../creatureTypeNow.js";
-import { handleElixirShuffle, handleEldraziShuffle } from "./zone-manipulation.js";
+import { handleElixirShuffle, handleEldraziShuffle, shuffleZoneIntoLibrary } from "./zone-manipulation.js";
 import { addExtraTurn, addExtraCombat } from "./turn.js";
 import { drawCards as drawCardsFromZone, movePermanentToHand } from "./zones.js";
 import { createToken, runSBA, applyCounterModifications, destroyPermanent, movePermanentToGraveyard, movePermanentToExile } from "./counters_tokens.js";
@@ -218,6 +218,49 @@ export function buildMyriadTokenCopy(
         id: `${tokenId}_card`,
         zone: 'battlefield',
       },
+  } as any;
+}
+
+function buildPermanentTokenCopy(
+  sourcePermanent: any,
+  tokenId: string,
+  controller: PlayerID,
+): any {
+  const sourceCard = sourcePermanent?.card && typeof sourcePermanent.card === 'object'
+    ? JSON.parse(JSON.stringify(sourcePermanent.card))
+    : {};
+  const typeLine = String(sourceCard?.type_line || '').toLowerCase();
+  const isCreature = typeLine.includes('creature');
+  const keywords = Array.isArray(sourceCard?.keywords)
+    ? sourceCard.keywords.map((value: any) => String(value || ''))
+    : [];
+  const oracleText = String(sourceCard?.oracle_text || '');
+  const hasHaste = keywords.some((value: string) => /\bhaste\b/i.test(value)) || /\bhaste\b/i.test(oracleText);
+
+  return {
+    id: tokenId,
+    controller,
+    owner: controller,
+    tapped: false,
+    counters: sourcePermanent?.counters ? { ...sourcePermanent.counters } : {},
+    isToken: true,
+    summoningSickness: isCreature && !hasHaste,
+    copiedFromPermanentId: String(sourcePermanent?.id || ''),
+    ...(isCreature
+      ? {
+          basePower: typeof sourcePermanent?.basePower === 'number'
+            ? sourcePermanent.basePower
+            : parsePT(sourceCard?.power),
+          baseToughness: typeof sourcePermanent?.baseToughness === 'number'
+            ? sourcePermanent.baseToughness
+            : parsePT(sourceCard?.toughness),
+        }
+      : null),
+    card: {
+      ...sourceCard,
+      id: tokenId,
+      zone: 'battlefield',
+    },
   } as any;
 }
 
@@ -821,7 +864,7 @@ function applyReanimatedPermanentLeaveBattlefieldRiders(
     return;
   }
 
-  if (/\bexile\s+(?:it|that creature|that permanent)\s+at\s+the\s+beginning\s+of\s+the\s+next\s+end\s+step\b/i.test(normalizedText)) {
+  if (/\bexile\s+(?:it|that card|that creature|that permanent)\s+at\s+the\s+beginning\s+of\s+(?:the|your)\s+next\s+end\s+step\b/i.test(normalizedText)) {
     stateAny.pendingExileAtNextEndStep = Array.isArray(stateAny.pendingExileAtNextEndStep)
       ? stateAny.pendingExileAtNextEndStep
       : [];
@@ -849,6 +892,78 @@ function applyReanimatedPermanentLeaveBattlefieldRiders(
         : {}),
     };
   }
+}
+
+export function applyTriggeredReanimationEntryRiders(
+  ctx: GameContext,
+  permanent: any,
+  sourceName: string,
+  controller: PlayerID,
+  fullText: string,
+  targetLabel?: string,
+): void {
+  applyReanimatedPermanentLeaveBattlefieldRiders(ctx, permanent, sourceName, controller, fullText);
+
+  try {
+    const KEYWORD_GRANT_VOCAB_TRIG = [
+      'indestructible','haste','flying','trample','lifelink','deathtouch',
+      'vigilance','menace','reach','first strike','double strike',
+      'hexproof','shroud','flash','defender',
+    ];
+    const grantPattern = /(?:that\s+(?:creature|permanent|card)|it)\s+gains?\s+([^.]+)/gi;
+    const granted: string[] = [];
+    let gm: RegExpExecArray | null;
+    while ((gm = grantPattern.exec(fullText)) !== null) {
+      const list = String(gm[1] || '').toLowerCase();
+      for (const kw of KEYWORD_GRANT_VOCAB_TRIG) {
+        const escapedKw = kw.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&');
+        if (new RegExp(`\\b${escapedKw}\\b`, 'i').test(list)) granted.push(kw);
+      }
+    }
+    if (granted.length > 0) {
+      permanent.grantedAbilities = Array.isArray(permanent.grantedAbilities) ? permanent.grantedAbilities : [];
+      for (const kw of granted) {
+        if (!permanent.grantedAbilities.some((a: any) => String(a || '').toLowerCase() === kw)) {
+          permanent.grantedAbilities.push(kw);
+        }
+      }
+      if (granted.includes('haste')) {
+        permanent.summoningSickness = false;
+      }
+      debug(2, `[applyTriggeredReanimationEntryRiders] ${sourceName} granted [${granted.join(', ')}] to ${targetLabel || permanent.card?.name || permanent.id}`);
+    }
+  } catch (err) {
+    debugWarn(1, '[applyTriggeredReanimationEntryRiders] keyword-grant rider failed:', err);
+  }
+}
+
+function getEnteringPlaneswalkerLoyaltyValue(
+  state: any,
+  controller: PlayerID,
+  card: any,
+): number | undefined {
+  const rawLoyalty = String(card?.loyalty ?? '').trim();
+  if (rawLoyalty) {
+    const parsedLoyalty = Number.parseInt(rawLoyalty, 10);
+    if (Number.isFinite(parsedLoyalty)) {
+      return parsedLoyalty;
+    }
+  }
+
+  const oracleText = String(card?.oracle_text || '').replace(/[’]/g, "'");
+  if (/enters with a number of loyalty counters on it equal to your life total/i.test(oracleText)) {
+    const lifeTotal = Number(
+      state?.life?.[controller]
+      ?? state?.players?.find((player: any) => String(player?.id || '') === String(controller))?.life
+      ?? state?.startingLife
+      ?? 0
+    );
+    if (Number.isFinite(lifeTotal)) {
+      return Math.max(0, lifeTotal);
+    }
+  }
+
+  return undefined;
 }
 
 function scheduleDelayedGraveyardReturn(ctx: GameContext, options: {
@@ -1449,7 +1564,10 @@ export function inferTriggeredAbilityTargetMetadata(effectText: string, context?
         battlefieldCounters = parseBattlefieldCounterClause(effectText);
       }
 
-      if (lower.includes('target permanent card')) {
+      if (lower.includes('target nonland permanent card')) {
+        targetFilterPermanentOnly = true;
+        targetFilterExcludeTypes = ['land'];
+      } else if (lower.includes('target permanent card')) {
         targetFilterPermanentOnly = true;
       } else if (lower.includes('target battle card')) {
         targetFilterTypes = ['battle'];
@@ -3330,7 +3448,9 @@ function maybeQueueControllerMayPayTriggeredAbility(
     String((item as any)?.targetDestination || '').trim().toLowerCase() === 'battlefield' &&
     (!String((item as any)?.targetZone || '').trim() || String((item as any)?.targetZone || '').trim().toLowerCase() === 'graveyard') &&
     /\breturn\b[\s\S]*\b(?:that card|it)\b[\s\S]*\bto the battlefield\b/i.test(paidEffect);
-  if (!hasBoundGraveyardReturn) {
+  const hasRandomCreatureGraveyardReturn =
+    /\breturn\s+a\s+creature\s+card\s+at\s+random\s+from\s+your\s+graveyard\s+to\s+the\s+battlefield\b/i.test(paidEffect);
+  if (!(hasBoundGraveyardReturn || hasRandomCreatureGraveyardReturn)) {
     return false;
   }
 
@@ -3373,12 +3493,58 @@ function maybeQueueControllerMayPayTriggeredAbility(
       const parsedCost = parseManaCost(manaCost);
       const pool = getOrInitManaPool((ctx as any).state as any, triggerController);
       consumeManaFromPool(pool as any, parsedCost.colors, parsedCost.generic, `[triggerManaPayment:${sourceName}]`);
-      executeTriggerEffect(ctx, triggerController, sourceName, paidEffect, {
+      const battlefieldBeforeIds = new Set(
+        Array.isArray(((ctx as any).state as any)?.battlefield)
+          ? ((((ctx as any).state as any).battlefield as any[]).map((permanent: any) => String(permanent?.id || '')))
+          : []
+      );
+      const resolvedTriggerItem = {
         ...(item as any),
         description: paidEffect,
         effect: paidEffect,
         optionalPaymentResolved: true,
+      } as any;
+
+      if (hasRandomCreatureGraveyardReturn && !String(resolvedTriggerItem.boundGraveyardCardId || '').trim()) {
+        const zones = (((ctx as any).state as any)?.zones || {}) as Record<string, any>;
+        const playerZones = (zones[String(triggerController)] || {}) as any;
+        const graveyard = Array.isArray(playerZones.graveyard) ? playerZones.graveyard : [];
+        const creatureCards = graveyard.filter((card: any) => /\bcreature\b/i.test(String(card?.type_line || '')));
+        if (creatureCards.length > 0) {
+          const rng = typeof (ctx as any).rng === 'function' ? () => Number((ctx as any).rng()) || 0 : () => Math.random();
+          const choiceIndex = Math.floor(Math.max(0, Math.min(0.999999, rng())) * creatureCards.length);
+          const chosenCard = creatureCards[Math.min(choiceIndex, creatureCards.length - 1)];
+          if (chosenCard) {
+            resolvedTriggerItem.boundGraveyardCardId = String(chosenCard.id || '').trim() || undefined;
+            resolvedTriggerItem.boundGraveyardOwnerId = String(triggerController || '').trim() || undefined;
+            resolvedTriggerItem.targetZone = 'graveyard';
+            resolvedTriggerItem.targetDestination = 'battlefield';
+          }
+        }
+      }
+
+      executeTriggerEffect(ctx, triggerController, sourceName, paidEffect, {
+        ...resolvedTriggerItem,
       });
+      if (String(resolvedTriggerItem.targetDestination || '').trim().toLowerCase() === 'battlefield') {
+        const battlefield = Array.isArray(((ctx as any).state as any)?.battlefield)
+          ? ((((ctx as any).state as any).battlefield as any[]) as any[])
+          : [];
+        const returnedPermanent = battlefield.find((permanent: any) => (
+          !battlefieldBeforeIds.has(String(permanent?.id || ''))
+          && String(permanent?.card?.id || '').trim() === String(resolvedTriggerItem.boundGraveyardCardId || '').trim()
+        ));
+        if (returnedPermanent) {
+          applyTriggeredReanimationEntryRiders(
+            ctx,
+            returnedPermanent,
+            sourceName,
+            triggerController,
+            String(description || paidEffect || ''),
+            returnedPermanent?.card?.name || String(resolvedTriggerItem.boundGraveyardCardId || ''),
+          );
+        }
+      }
       if (typeof (ctx as any).bumpSeq === 'function') {
         (ctx as any).bumpSeq();
       }
@@ -4733,6 +4899,146 @@ function applyOracleIRFallbackForUncategorizedSpell(
   }
 }
 
+function shouldQueueResolvedSpellCopyChoice(item: any, oracleText: string): boolean {
+  if (!item || (item as any).isCopy === true) {
+    return false;
+  }
+
+  const castWithAbility = String((item as any).card?.castWithAbility || '').trim().toLowerCase();
+  const castFromGraveyard =
+    (item as any).castFromGraveyard === true
+    || (item as any).card?.castFromGraveyard === true
+    || String((item as any).castSourceZone || (item as any).card?.castSourceZone || '').trim().toLowerCase() === 'graveyard'
+    || ['flashback', 'jump-start', 'retrace', 'escape', 'disturb'].includes(castWithAbility);
+  if (!castFromGraveyard) {
+    return false;
+  }
+
+  return /if\s+this\s+spell\s+was\s+cast\s+from\s+a\s+graveyard\s*,\s*you\s+may\s+copy\s+this\s+spell\s+and\s+may\s+choose\s+a\s+new\s+target\s+for\s+the\s+copy/i.test(
+    String(oracleText || '').replace(/[\u2019]/g, "'")
+  );
+}
+
+function buildResolvedSpellCopySnapshot(
+  item: any,
+  sourceName: string,
+  controller: PlayerID,
+): any {
+  const copiedCard = item?.card && typeof item.card === 'object' && !Array.isArray(item.card)
+    ? { ...(item.card as Record<string, any>) }
+    : item?.card;
+
+  if (copiedCard && typeof copiedCard === 'object' && !Array.isArray(copiedCard)) {
+    copiedCard.zone = 'stack';
+    copiedCard.ceaseOnResolution = true;
+    copiedCard.ceaseOnCounter = true;
+    copiedCard.castFromHand = false;
+    copiedCard.castFromExile = false;
+    copiedCard.castFromGraveyard = false;
+    copiedCard.castFromLibrary = false;
+    copiedCard.castFromRebound = false;
+    copiedCard.castSourceZone = undefined;
+    copiedCard.fromZone = undefined;
+    copiedCard.source = undefined;
+    copiedCard.castWithAbility = undefined;
+  }
+
+  return {
+    ...item,
+    id: uid('copied_spell'),
+    type: String((item as any)?.type || 'spell'),
+    controller: String((item as any)?.controller || controller),
+    targets: Array.isArray((item as any)?.targets)
+      ? (item as any).targets.map((target: any) => (
+          target && typeof target === 'object' && !Array.isArray(target)
+            ? { ...target }
+            : target
+        ))
+      : (item as any)?.targets,
+    card: copiedCard,
+    spell: (item as any)?.spell ? { ...((item as any).spell as Record<string, any>) } : (item as any)?.spell,
+    searchParams: (item as any)?.searchParams ? { ...((item as any).searchParams as Record<string, any>) } : (item as any)?.searchParams,
+    targetRequirements: (item as any)?.targetRequirements
+      ? { ...((item as any).targetRequirements as Record<string, any>) }
+      : (item as any)?.targetRequirements,
+    manaPayment: (item as any)?.manaPayment
+      ? (Array.isArray((item as any).manaPayment) ? [...(item as any).manaPayment] : { ...((item as any).manaPayment as Record<string, any>) })
+      : (item as any)?.manaPayment,
+    counterImmunity: (item as any)?.counterImmunity
+      ? (Array.isArray((item as any).counterImmunity) ? [...(item as any).counterImmunity] : { ...((item as any).counterImmunity as Record<string, any>) })
+      : (item as any)?.counterImmunity,
+    entersBattlefieldWithCounters: (item as any)?.entersBattlefieldWithCounters
+      ? { ...((item as any).entersBattlefieldWithCounters as Record<string, any>) }
+      : (item as any)?.entersBattlefieldWithCounters,
+    copiedFromStackItemId: String((item as any)?.id || '').trim() || undefined,
+    copiedBySourceName: sourceName,
+    isCopy: true,
+    castFromHand: false,
+    castFromExile: false,
+    castFromGraveyard: false,
+    castFromLibrary: false,
+    castSourceZone: undefined,
+    source: undefined,
+  };
+}
+
+function buildSevinnesReclamationCopyRetargetTargets(
+  ctx: GameContext,
+  controller: PlayerID,
+): Array<{ id: string; name: string; type: string; controller: string; zoneOwnerId: string; imageUrl?: string; typeLine?: string; isOpponent: boolean }> {
+  const zones = (ctx.state as any)?.zones || {};
+  const graveyard = Array.isArray(zones?.[controller]?.graveyard) ? zones[controller].graveyard : [];
+  const permanentTypePattern = /\bartifact\b|\bcreature\b|\benchantment\b|\bland\b|\bplaneswalker\b|\bbattle\b/i;
+
+  return graveyard
+    .filter((entry: any) => {
+      if (!entry?.id) return false;
+      if (!permanentTypePattern.test(String(entry?.type_line || ''))) return false;
+      return cardManaValue(entry) <= 3;
+    })
+    .map((entry: any) => ({
+      id: String(entry.id),
+      name: String(entry.name || 'Card'),
+      type: 'card',
+      controller: String(controller),
+      zoneOwnerId: String(controller),
+      imageUrl: entry?.image_uris?.small || entry?.image_uris?.normal,
+      typeLine: entry?.type_line,
+      isOpponent: false,
+    }));
+}
+
+function queueResolvedSpellCopyChoice(
+  ctx: GameContext,
+  item: any,
+  controller: PlayerID,
+  sourceName: string,
+): void {
+  const copiedSpellSnapshot = buildResolvedSpellCopySnapshot(item, sourceName, controller);
+  const retargetValidTargets = buildSevinnesReclamationCopyRetargetTargets(ctx, controller);
+
+  queueResolveTopOfStackPrompt(ctx, {
+    type: ResolutionStepType.OPTION_CHOICE,
+    playerId: controller,
+    description: `${sourceName}: Copy this spell?`,
+    mandatory: false,
+    sourceId: String((item as any)?.id || '').trim() || undefined,
+    sourceName,
+    options: [
+      { id: 'yes', label: 'Copy spell' },
+      { id: 'no', label: 'Do not copy' },
+    ],
+    minSelections: 1,
+    maxSelections: 1,
+    resolvedSpellCopyChoice: true,
+    resolvedSpellCopySnapshot: copiedSpellSnapshot,
+    resolvedSpellCopyRetargetValidTargets: retargetValidTargets,
+    resolvedSpellCopyRetargetMinTargets: 1,
+    resolvedSpellCopyRetargetMaxTargets: 1,
+    resolvedSpellCopyRetargetTargetDescription: 'target permanent card with mana value 3 or less from your graveyard',
+  } as any);
+}
+
 /**
  * Mapping of irregular plural creature types to their singular forms.
  * Used when counting creatures of a specific type (e.g., Myrel counting Soldiers).
@@ -4871,6 +5177,7 @@ export function detectEntersWithCounters(card: any): Record<string, number> {
   
   const oracleText = (card.oracle_text || '').toLowerCase();
   const typeLine = (card.type_line || '').toLowerCase();
+  const castWithAbility = String((card as any)?.castWithAbility || '').trim().toLowerCase();
   
   // Pattern: "enters the battlefield with N +1/+1 counter(s) on it"
   // Also matches: "~ enters with N +1/+1 counters"
@@ -4900,6 +5207,25 @@ export function detectEntersWithCounters(card: any): Record<string, number> {
     
     if (!isNaN(count) && count > 0) {
       counters[counterType] = (counters[counterType] || 0) + count;
+    }
+  }
+
+  if (castWithAbility === 'escape') {
+    const escapeCounterPattern = /(?:~|this creature|it)\s+escapes?\s+with\s+(\d+|a|an|one|two|three|four|five|six|seven|eight|nine|ten)\s*([+\-\d\/]+|\w+)\s*counters?\s*(?:on it)?/gi;
+    escapeCounterPattern.lastIndex = 0;
+    while ((match = escapeCounterPattern.exec(oracleText)) !== null) {
+      let countStr = match[1].toLowerCase();
+      let counterType = match[2].trim();
+
+      const wordToNum: Record<string, number> = {
+        'a': 1, 'an': 1, 'one': 1, 'two': 2, 'three': 3, 'four': 4, 'five': 5,
+        'six': 6, 'seven': 7, 'eight': 8, 'nine': 9, 'ten': 10
+      };
+      const count = wordToNum[countStr] !== undefined ? wordToNum[countStr] : parseInt(countStr, 10);
+
+      if (!isNaN(count) && count > 0) {
+        counters[counterType] = (counters[counterType] || 0) + count;
+      }
     }
   }
   
@@ -11544,45 +11870,7 @@ export function executeTriggerEffect(
       markPermanentEnteredFromZone(permanent, 'graveyard');
       battlefield.push(permanent);
       debug(2, `[executeTriggerEffect] ${sourceName} returned ${card?.name || targetId} from ${sourceOwnerId}'s graveyard to the battlefield under ${battlefieldControllerId}'s control`);
-      applyReanimatedPermanentLeaveBattlefieldRiders(ctx, permanent, sourceName, battlefieldControllerId as PlayerID, desc);
-
-      // Trailing keyword-grant rider on trigger/activated graveyard reanimation —
-      // "It gains haste.", "That creature gains indestructible.", etc.
-      try {
-        const KEYWORD_GRANT_VOCAB_TRIG = [
-          'indestructible','haste','flying','trample','lifelink','deathtouch',
-          'vigilance','menace','reach','first strike','double strike',
-          'hexproof','shroud','flash','defender',
-        ];
-        const kwAlt = KEYWORD_GRANT_VOCAB_TRIG.map((k) => k.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&')).join('|');
-        const grantPattern = new RegExp(
-          `(?:that\\s+(?:creature|permanent|card)|it)\\s+gains?\\s+((?:${kwAlt})(?:\\s*(?:,|and)\\s*(?:${kwAlt}))*)`,
-          'gi'
-        );
-        const granted: string[] = [];
-        let gm: RegExpExecArray | null;
-        while ((gm = grantPattern.exec(desc)) !== null) {
-          const list = String(gm[1] || '').toLowerCase();
-          for (const kw of KEYWORD_GRANT_VOCAB_TRIG) {
-            if (list.includes(kw)) granted.push(kw);
-          }
-        }
-        if (granted.length > 0) {
-          permanent.grantedAbilities = Array.isArray(permanent.grantedAbilities) ? permanent.grantedAbilities : [];
-          for (const kw of granted) {
-            if (!permanent.grantedAbilities.some((a: any) => String(a || '').toLowerCase() === kw)) {
-              permanent.grantedAbilities.push(kw);
-            }
-          }
-          // Granting haste should clear summoning sickness.
-          if (granted.includes('haste')) {
-            permanent.summoningSickness = false;
-          }
-          debug(2, `[executeTriggerEffect] ${sourceName} granted [${granted.join(', ')}] to ${permanent.card?.name || targetId}`);
-        }
-      } catch (err) {
-        debugWarn(1, '[executeTriggerEffect] trigger-side keyword-grant rider failed:', err);
-      }
+      applyTriggeredReanimationEntryRiders(ctx, permanent, sourceName, battlefieldControllerId as PlayerID, desc, String(permanent.card?.name || targetId || ''));
 
       // Trailing color/type rider — "That creature is a black Zombie in addition to its other colors and types."
       try {
@@ -14686,9 +14974,9 @@ export function resolveTopOfStack(ctx: GameContext) {
     
     // Initialize counters - planeswalkers enter with loyalty counters equal to their printed loyalty
     const initialCounters: Record<string, number> = {};
-    if (isPlaneswalker && effectiveCard.loyalty) {
-      const startingLoyalty = typeof effectiveCard.loyalty === 'number' ? effectiveCard.loyalty : parseInt(effectiveCard.loyalty, 10);
-      if (!isNaN(startingLoyalty)) {
+    if (isPlaneswalker) {
+      const startingLoyalty = getEnteringPlaneswalkerLoyaltyValue(state, controller, effectiveCard);
+      if (typeof startingLoyalty === 'number' && !Number.isNaN(startingLoyalty)) {
         initialCounters.loyalty = startingLoyalty;
         debug(2, `[resolveTopOfStack] Planeswalker ${effectiveCard.name} enters with ${startingLoyalty} loyalty`);
       }
@@ -14833,6 +15121,10 @@ export function resolveTopOfStack(ctx: GameContext) {
       (newPermanent as any).castSourceZone = (item as any).source;
       (newPermanent.card as any).castSourceZone = (item as any).source;
     }
+    if (String((effectiveCard as any)?.castWithAbility || (item as any)?.card?.castWithAbility || '').trim().toLowerCase() === 'escape') {
+      (newPermanent as any).escapedFrom = 'graveyard';
+      (newPermanent.card as any).escapedFrom = 'graveyard';
+    }
     if (gainsHasteUntilEndOfTurnFromManaSpent) {
       (newPermanent as any).temporaryAbilities = Array.isArray((newPermanent as any).temporaryAbilities)
         ? (newPermanent as any).temporaryAbilities
@@ -14867,6 +15159,14 @@ export function resolveTopOfStack(ctx: GameContext) {
         oracleTextLength: effectiveCard.oracle_text?.length || 0,
       });
     }
+
+    applyReanimatedPermanentLeaveBattlefieldRiders(
+      ctx,
+      newPermanent,
+      String(effectiveCard?.name || (item as any)?.card?.name || 'Permanent'),
+      controller,
+      String(effectiveCard?.oracle_text || ''),
+    );
 
     const isMutatingSpell =
       !wasCastWithMorph &&
@@ -16402,6 +16702,29 @@ export function resolveTopOfStack(ctx: GameContext) {
       }
     }
 
+    applyGraveyardPermissionEffectsFromText(
+      ctx,
+      controller as PlayerID,
+      effectiveCard.name || 'spell',
+      graveyardEffectiveOracleText,
+      item,
+    );
+
+    if (oracleTextLower.includes('when you next cast an instant or sorcery spell this turn, copy that spell. you may choose new targets for the copy.')) {
+      const stateAny = state as any;
+      stateAny.delayedSpellCopiesThisTurn = Array.isArray(stateAny.delayedSpellCopiesThisTurn)
+        ? stateAny.delayedSpellCopiesThisTurn
+        : [];
+      stateAny.delayedSpellCopiesThisTurn.push({
+        controllerId: controller,
+        spellType: 'instant_or_sorcery',
+        sourceName: effectiveCard.name || 'Spell copy',
+        allowRetargeting: true,
+      });
+      (ctx as any).delayedSpellCopiesThisTurn = stateAny.delayedSpellCopiesThisTurn;
+      debug(2, `[resolveTopOfStack] ${effectiveCard.name || 'Spell'}: queued next instant/sorcery spell copy for ${controller}`);
+    }
+
     applySimpleTargetedTemporarySpellEffects(
       ctx,
       oracleText,
@@ -16753,6 +17076,71 @@ export function resolveTopOfStack(ctx: GameContext) {
             }
           }
         }
+
+      }
+    }
+
+    const isTargetedCreatureCopyTokenSpell =
+      /create\s+a\s+token\s+that['']s\s+a\s+copy\s+of\s+target\s+creature\s+you\s+control/i.test(oracleTextLower)
+      && !/except\s+it\s+has/i.test(oracleTextLower)
+      && !/tapped\s+and\s+attacking/i.test(oracleTextLower);
+    const isTargetedCreatureCopyTokenSpellWithHasteSacrifice =
+      /create\s+a\s+token\s+that['']s\s+a\s+copy\s+of\s+target\s+creature\s+you\s+control,\s+except\s+it\s+has\s+haste\s+and\s+"at\s+the\s+beginning\s+of\s+the\s+end\s+step,\s+sacrifice\s+this\s+token\."/i.test(oracleTextLower);
+
+    if ((isTargetedCreatureCopyTokenSpell || isTargetedCreatureCopyTokenSpellWithHasteSacrifice) && targets.length > 0) {
+      const targetId = typeof targets[0] === 'string' ? targets[0] : targets[0]?.id;
+      const targetPerm = state.battlefield?.find((p: any) => p && String(p.id || '') === String(targetId || ''));
+      const targetTypeLine = String(targetPerm?.card?.type_line || '').toLowerCase();
+
+      if (targetPerm && String(targetPerm.controller || '') === String(controller) && targetTypeLine.includes('creature')) {
+        try {
+          const tokenId = uid('copy_token');
+          const tokenPerm = buildPermanentTokenCopy(targetPerm, tokenId, controller as PlayerID);
+
+          if (isTargetedCreatureCopyTokenSpellWithHasteSacrifice) {
+            (tokenPerm as any).grantedAbilities = Array.isArray((tokenPerm as any).grantedAbilities)
+              ? (tokenPerm as any).grantedAbilities
+              : [];
+            if (!(tokenPerm as any).grantedAbilities.includes('Haste')) {
+              (tokenPerm as any).grantedAbilities.push('Haste');
+            }
+            if (!(tokenPerm as any).grantedAbilities.includes('At the beginning of the end step, sacrifice this token.')) {
+              (tokenPerm as any).grantedAbilities.push('At the beginning of the end step, sacrifice this token.');
+            }
+            (tokenPerm as any).summoningSickness = false;
+          }
+
+          state.battlefield = state.battlefield || [];
+          state.battlefield.push(tokenPerm as any);
+
+          if (isTargetedCreatureCopyTokenSpellWithHasteSacrifice) {
+            const stateAny = state as any;
+            stateAny.pendingSacrificeAtNextEndStep = Array.isArray(stateAny.pendingSacrificeAtNextEndStep)
+              ? stateAny.pendingSacrificeAtNextEndStep
+              : [];
+
+            const currentTurn = Number(stateAny?.turnNumber ?? stateAny?.turn ?? 0) || 0;
+            const currentPhase = String(stateAny?.phase ?? '').toLowerCase();
+            const currentStepUpper = String(stateAny?.step ?? '').toUpperCase();
+            const inEnding = currentPhase === 'ending' && (currentStepUpper === 'END' || currentStepUpper === 'CLEANUP');
+            const fireAtTurnNumber = inEnding ? currentTurn + 1 : currentTurn;
+
+            stateAny.pendingSacrificeAtNextEndStep.push({
+              permanentId: String(tokenPerm.id || tokenId),
+              fireAtTurnNumber,
+              maxManaValue: 0,
+              sourceName: effectiveCard.name || 'Spell',
+              createdBy: String(controller),
+            });
+          }
+
+          debug(2, `[resolveTopOfStack] ${effectiveCard.name || 'Spell'} created a token copy of ${String(targetPerm.card?.name || targetId)}`);
+
+          queueSelfETBTriggersForPermanent(ctx, tokenPerm, controller as any);
+          triggerETBEffectsForToken(ctx, tokenPerm, controller);
+        } catch (err) {
+          debugWarn(1, `[resolveTopOfStack] ${effectiveCard.name || 'Spell'} failed to create token copy:`, err);
+        }
       }
     }
 
@@ -16926,8 +17314,31 @@ export function resolveTopOfStack(ctx: GameContext) {
       debug(2, `[resolveTopOfStack] Extra turn granted to ${extraTurnPlayer} by ${effectiveCard.name}`);
     }
     
+    const shuffleHandAndGraveyardWheelMatch = oracleTextLower.includes(
+      'each player shuffles their hand and graveyard into their library, then draws seven cards.'
+    );
+    if (shuffleHandAndGraveyardWheelMatch) {
+      const players = (state as any).players || [];
+      for (const player of players) {
+        const playerId = player?.id as PlayerID | undefined;
+        if (!playerId) continue;
+
+        shuffleZoneIntoLibrary(ctx, playerId, 'hand');
+        shuffleZoneIntoLibrary(ctx, playerId, 'graveyard');
+
+        try {
+          const drawn = drawCardsFromZone(ctx, playerId, 7);
+          debug(2, `[resolveTopOfStack] ${effectiveCard.name}: ${player.name || playerId} shuffled hand+graveyard and drew ${drawn.length} card(s)`);
+        } catch (err) {
+          debugWarn(1, `[resolveTopOfStack] Failed to resolve ${effectiveCard.name} for ${playerId}:`, err);
+        }
+      }
+    }
+
     // Handle "each player draws" spells (Vision Skeins, Prosperity, Howling Mine effects, etc.)
-    const eachPlayerDrawsMatch = oracleTextLower.match(/each player draws?\s+(\d+|a|an|one|two|three|four|five|six|seven|eight|nine|ten)\s+cards?/i);
+    const eachPlayerDrawsMatch = shuffleHandAndGraveyardWheelMatch
+      ? null
+      : oracleTextLower.match(/each player draws?\s+(\d+|a|an|one|two|three|four|five|six|seven|eight|nine|ten)\s+cards?/i);
     if (eachPlayerDrawsMatch) {
       const drawCountStr = eachPlayerDrawsMatch[1].toLowerCase();
       const wordToNumber: Record<string, number> = { 
@@ -16952,8 +17363,12 @@ export function resolveTopOfStack(ctx: GameContext) {
     
     // Handle "You draw X. Each other player draws Y" patterns (Words of Wisdom style)
     // Words of Wisdom: "You draw two cards. Each other player draws a card."
-    const youDrawMatch = oracleTextLower.match(/you draw\s+(\d+|a|an|one|two|three|four|five|six|seven|eight|nine|ten)\s+cards?/i);
-    const eachOtherDrawMatch = oracleTextLower.match(/each other player draws?\s+(\d+|a|an|one|two|three|four|five|six|seven|eight|nine|ten)\s+cards?/i);
+    const youDrawMatch = shuffleHandAndGraveyardWheelMatch
+      ? null
+      : oracleTextLower.match(/you draw\s+(\d+|a|an|one|two|three|four|five|six|seven|eight|nine|ten)\s+cards?/i);
+    const eachOtherDrawMatch = shuffleHandAndGraveyardWheelMatch
+      ? null
+      : oracleTextLower.match(/each other player draws?\s+(\d+|a|an|one|two|three|four|five|six|seven|eight|nine|ten)\s+cards?/i);
     
     if (youDrawMatch && !eachPlayerDrawsMatch) {
       const wordToNumber: Record<string, number> = { 
@@ -16987,7 +17402,7 @@ export function resolveTopOfStack(ctx: GameContext) {
     }
     
     // Handle Windfall-style effects: "Each player discards their hand, then draws cards equal to..."
-    if (oracleTextLower.includes('each player discards') && oracleTextLower.includes('hand') && 
+    if (!shuffleHandAndGraveyardWheelMatch && oracleTextLower.includes('each player discards') && oracleTextLower.includes('hand') && 
         (oracleTextLower.includes('then draws') || oracleTextLower.includes('draws cards equal'))) {
       const players = (state as any).players || [];
       const zones = state.zones || {};
@@ -17032,7 +17447,9 @@ export function resolveTopOfStack(ctx: GameContext) {
     
     // Handle "draw X, then discard Y" spells (Faithless Looting, Cathartic Reunion, Tormenting Voice, etc.)
     // Pattern: "Draw two cards, then discard two cards" or "Draw two cards. Then discard two cards."
-    const drawThenDiscardMatch = oracleTextLower.match(/draw\s+(\d+|a|an|one|two|three|four|five)\s+cards?(?:\.|,)?\s*(?:then\s+)?discard\s+(\d+|a|an|one|two|three|four|five)\s+cards?/i);
+    const drawThenDiscardMatch = shuffleHandAndGraveyardWheelMatch
+      ? null
+      : oracleTextLower.match(/draw\s+(\d+|a|an|one|two|three|four|five)\s+cards?(?:\.|,)?\s*(?:then\s+)?discard\s+(\d+|a|an|one|two|three|four|five)\s+cards?/i);
     if (drawThenDiscardMatch && !oracleTextLower.includes('each player')) {
       const wordToNumber: Record<string, number> = { 
         'a': 1, 'an': 1, 'one': 1, 'two': 2, 'three': 3, 'four': 4, 'five': 5
@@ -17060,7 +17477,9 @@ export function resolveTopOfStack(ctx: GameContext) {
     
     // Handle "draw cards and create treasure" spells (Seize the Spoils, Unexpected Windfall, etc.)
     // Pattern: "Draw two cards and create a Treasure token"
-    const drawAndTreasureMatch = oracleTextLower.match(/draw\s+(\d+|a|an|one|two|three|four|five)\s+cards?.*(?:create|creates?)\s+(?:a|an|one|two|three|\d+)?\s*treasure\s+tokens?/i);
+    const drawAndTreasureMatch = shuffleHandAndGraveyardWheelMatch
+      ? null
+      : oracleTextLower.match(/draw\s+(\d+|a|an|one|two|three|four|five)\s+cards?.*(?:create|creates?)\s+(?:a|an|one|two|three|\d+)?\s*treasure\s+tokens?/i);
     debug(2, `[resolveTopOfStack] ${effectiveCard.name}: Checking draw+treasure pattern. Match: ${!!drawAndTreasureMatch}, drawThenDiscardMatch: ${!!drawThenDiscardMatch}, eachPlayer: ${oracleTextLower.includes('each player')}`);
     if (drawAndTreasureMatch && !oracleTextLower.includes('each player') && !drawThenDiscardMatch) {
       const wordToNumber: Record<string, number> = { 
@@ -17092,7 +17511,7 @@ export function resolveTopOfStack(ctx: GameContext) {
     // Pattern: "Draw three cards." or "Draw four cards." 
     // This is the imperative form without "you" and catches cards like Harmonize
     // Must NOT match other patterns we've already handled
-    if (!eachPlayerDrawsMatch && !youDrawMatch && !drawThenDiscardMatch && !drawAndTreasureMatch) {
+    if (!shuffleHandAndGraveyardWheelMatch && !eachPlayerDrawsMatch && !youDrawMatch && !drawThenDiscardMatch && !drawAndTreasureMatch) {
       // First try exact match for simple draw spells (e.g., "Draw three cards.")
       // Then try to find "draw X cards" anywhere in the text if it's the main effect
       const simpleDrawMatch = oracleTextLower.match(/^draw\s+(\d+|a|an|one|two|three|four|five|six|seven|eight|nine|ten)\s+cards?\.?$/i) ||
@@ -18254,6 +18673,15 @@ export function resolveTopOfStack(ctx: GameContext) {
       bumpSeq();
       return; // Skip normal graveyard movement
     }
+
+    if (shouldQueueResolvedSpellCopyChoice(item, oracleText)) {
+      queueResolvedSpellCopyChoice(
+        ctx,
+        item,
+        controller as PlayerID,
+        String(effectiveCard.name || card?.name || 'Spell').trim() || 'Spell',
+      );
+    }
     
     // Move spell to graveyard or exile (for adventure/rebound) after resolution
     const zones = ctx.state.zones || {};
@@ -18270,6 +18698,8 @@ export function resolveTopOfStack(ctx: GameContext) {
       const hasRebound = /\brebound\b/i.test(oracleText);
       const wasCastFromHand = (item as any).castFromHand === true || (item as any).source === 'hand';
       const wasCastFromRebound = (item as any).castFromRebound === true;
+      const castWithAbility = String((item as any).card?.castWithAbility || '').trim().toLowerCase();
+      const shouldExileAfterResolutionFromGraveyardAbility = ['flashback', 'jump-start', 'escape', 'disturb'].includes(castWithAbility);
       
       const hasParadigm = /\bparadigm\b/i.test(oracleText);
       const stateAny = state as any;
@@ -18312,6 +18742,15 @@ export function resolveTopOfStack(ctx: GameContext) {
           2,
           `[resolveTopOfStack] Paradigm spell ${effectiveCard.name || 'unnamed'} exiled for ${controller}${firstParadigmResolution ? ' and activated for future precombat main phases' : ''}`
         );
+      } else if (shouldExileAfterResolutionFromGraveyardAbility) {
+        z.exile = z.exile || [];
+        (z.exile as any[]).push({
+          ...card,
+          zone: 'exile',
+        });
+        z.exileCount = (z.exile as any[]).length;
+
+        debug(2, `[resolveTopOfStack] ${castWithAbility || 'graveyard-cast'} spell ${effectiveCard.name || 'unnamed'} exiled for ${controller} after resolution`);
       } else if (hasRebound && wasCastFromHand && !wasCastFromRebound) {
         // Rebound: Exile the spell instead of putting it in graveyard
         // Mark it for casting at the beginning of next upkeep
@@ -18455,6 +18894,11 @@ function executeSpellEffect(
         ctx.bumpSeq();
         debug(2, `[resolveSpell] ${spellName} untapped ${(perm as any).card?.name || (effect as any).id}`);
       }
+      break;
+    }
+    case 'AddExtraCombat': {
+      addExtraCombat(ctx, spellName, Boolean((effect as any).untapAttackers));
+      debug(2, `[resolveSpell] ${spellName} added an extra combat phase`);
       break;
     }
     case 'GainLife': {
@@ -18804,21 +19248,38 @@ function executeSpellEffect(
       const isReplaying = !!(ctx as any).isReplaying;
       if (!playerId || count <= 0 || !gameId || gameId === 'unknown' || isReplaying) break;
       try {
+        const library = Array.isArray((ctx as any).libraries?.get?.(playerId))
+          ? (ctx as any).libraries.get(playerId)
+          : [];
+        const actualCount = Math.min(count, library.length);
+        if (actualCount <= 0) {
+          break;
+        }
+        const cards = library.slice(0, actualCount).map((card: any) => ({
+          id: card.id,
+          name: card.name,
+          type_line: card.type_line,
+          oracle_text: card.oracle_text,
+          imageUrl: card.image_uris?.normal,
+          mana_cost: card.mana_cost,
+          cmc: card.cmc,
+        }));
         const step = ResolutionQueueManager.addStep(gameId, {
           type: ResolutionStepType.SURVEIL,
           playerId,
-          description: `${spellName}: Surveil ${count}`,
+          description: `${spellName}: Surveil ${actualCount}`,
           mandatory: true,
           sourceId: stepSourceId,
           sourceName: spellName,
-          surveilCount: count,
+          surveilCount: actualCount,
+          cards,
         } as any);
         appendQueuedResolutionPromptEvent(ctx, {
           playerId,
           sourceId: stepSourceId || String((step as any)?.sourceId || '').trim(),
           queuedResolutionStep: step,
         });
-        debug(2, `[resolveSpell] ${spellName} queued surveil ${count} for ${playerId}`);
+        debug(2, `[resolveSpell] ${spellName} queued surveil ${actualCount} for ${playerId}`);
       } catch (err) {
         debugWarn(1, `[resolveSpell] ${spellName} queue surveil failed:`, err);
       }

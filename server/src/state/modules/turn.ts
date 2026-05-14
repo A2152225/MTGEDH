@@ -3500,6 +3500,15 @@ export function nextTurn(ctx: GameContext) {
       // best-effort only
     }
 
+    try {
+      const stateAny = (ctx as any).state as any;
+      stateAny.delayedSpellCopiesThisTurn = [];
+      (ctx as any).delayedSpellCopiesThisTurn = [];
+      debug(2, `${ts()} [nextTurn] Cleared delayedSpellCopiesThisTurn for new turn`);
+    } catch {
+      // best-effort only
+    }
+
     // Clear played-from-exile tracking (for intervening-if templates like
     // "if you (didn't) play a card from exile this turn").
     try {

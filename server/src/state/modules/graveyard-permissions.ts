@@ -280,6 +280,36 @@ function extractAdditionalEscapeExileCount(fullOracleText: string): number | und
   return count > 0 ? count : undefined;
 }
 
+function extractEscapeEntryCounterCount(fullOracleText: string): number | undefined {
+  const counterMatch = String(fullOracleText || '').match(/escapes?\s+with\s+(one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+\+1\/\+1\s+counters?\s+on\s+it/i);
+  if (!counterMatch?.[1]) return undefined;
+  const count = parseSmallNumber(counterMatch[1]);
+  return count > 0 ? count : undefined;
+}
+
+export function buildCastFromGraveyardCard(card: any, abilityId: string): any {
+  const normalizedAbilityId = String(abilityId || '').trim().toLowerCase();
+  const nextCard: any = {
+    ...card,
+    zone: 'stack',
+    castWithAbility: abilityId,
+  };
+
+  if (normalizedAbilityId === 'escape') {
+    nextCard.escapedFrom = 'graveyard';
+    const escapeCounterCount = extractEscapeEntryCounterCount(String(card?.oracle_text || ''));
+    if (escapeCounterCount > 0) {
+      const existingCounters = nextCard.entersBattlefieldWithCounters && typeof nextCard.entersBattlefieldWithCounters === 'object'
+        ? { ...(nextCard.entersBattlefieldWithCounters as Record<string, number>) }
+        : {};
+      existingCounters['+1/+1'] = Number(existingCounters['+1/+1'] || 0) + escapeCounterCount;
+      nextCard.entersBattlefieldWithCounters = existingCounters;
+    }
+  }
+
+  return nextCard;
+}
+
 function getTemporaryGraveyardKeywordGrants(state: any): TemporaryGraveyardKeywordGrant[] {
   return Array.isArray(state?.temporaryGraveyardKeywordGrants)
     ? state.temporaryGraveyardKeywordGrants

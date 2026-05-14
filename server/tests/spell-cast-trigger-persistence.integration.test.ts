@@ -535,7 +535,7 @@ describe('cast spell trigger persistence (integration)', () => {
       triggerType: 'cast_creature_type',
       mandatory: true,
       requiresTarget: true,
-      targetType: 'permanent',
+      targetType: 'creature',
     });
 
     const persistedTrigger = ((game.state as any).stack || []).find(
@@ -543,7 +543,7 @@ describe('cast spell trigger persistence (integration)', () => {
     );
     expect(persistedTrigger).toMatchObject({
       requiresTarget: true,
-      targetType: 'permanent',
+      targetType: 'creature',
     });
   });
 

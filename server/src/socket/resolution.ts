@@ -74,6 +74,7 @@ import { dispatchDamageReceivedTrigger, processDamageReceivedTriggers, resolveDa
 import { getTokenImageUrls } from "../services/tokens.js";
 import { normalizeCardName } from "../state/modules/chosen-name-restrictions.js";
 import {
+  applyTriggeredReanimationEntryRiders,
   applyMyriadTokenCopies,
   executeTriggerEffect,
   inferTriggeredAbilityTargetMetadata,
@@ -16195,7 +16196,7 @@ async function handleTargetSelectionResponse(
   // SACRIFICE SELECTION (Grave Pact / Dictate of Erebos variants, etc.)
   // These are enqueued as TARGET_SELECTION steps with sacrificeSelection metadata.
   // ========================================================================
-  if (stepAny?.sacrificeSelection === true) {
+  if (stepAny?.sacrificeSelection === true && stepAny?.graveyardCastSacrificeAsCost !== true) {
     const permanentType = String(stepAny?.sacrificePermanentType || 'permanent');
     const sourceName = String(stepAny?.sacrificeSourceName || step.sourceName || 'Effect');
     const reason = String(stepAny?.sacrificeReason || step.description || '').trim();
@@ -19207,6 +19208,161 @@ async function handleTargetSelectionResponse(
     return;
   }
 
+  if ((step as any)?.graveyardCastSacrificeAsCost === true) {
+    try {
+      const stepAny = step as any;
+      const controllerId = String(pid);
+      const cardId = String(stepAny?.cardId || step.sourceId || '').trim();
+      const abilityId = String(stepAny?.abilityId || '').trim();
+      const cardName = String(stepAny?.cardName || step.sourceName || 'Spell');
+      const sacrificeType = String(stepAny?.sacrificeType || '').trim();
+      const sacrificeSubtype = stepAny?.sacrificeSubtype ? String(stepAny.sacrificeSubtype) : undefined;
+      const sacrificeCount = Number(stepAny?.sacrificeCount || selections.length || 1);
+      const mustBeOther = Boolean(stepAny?.mustBeOther);
+
+      const playerZones = (game.state as any)?.zones?.[controllerId];
+      const graveyard = Array.isArray(playerZones?.graveyard) ? playerZones.graveyard : [];
+      if (!graveyard.some((entry: any) => entry && String(entry.id || '') === cardId)) {
+        emitToPlayer(io, controllerId, 'error', { code: 'CARD_NOT_IN_GRAVEYARD', message: 'Card not found in graveyard' });
+        return;
+      }
+
+      const battlefield = Array.isArray(game.state?.battlefield) ? game.state.battlefield : [];
+      const matchesSacrificeRequirement = (perm: any): boolean => {
+        if (!perm) return false;
+        if (String(perm.controller || '') !== controllerId) return false;
+        if (mustBeOther && String(perm.id || '') === cardId) return false;
+
+        const typeLine = String(perm.card?.type_line || '').toLowerCase();
+        let okType = false;
+        switch (sacrificeType) {
+          case 'creature':
+            okType = typeLine.includes('creature');
+            break;
+          case 'artifact':
+            okType = typeLine.includes('artifact');
+            break;
+          case 'enchantment':
+            okType = typeLine.includes('enchantment');
+            break;
+          case 'land':
+            okType = typeLine.includes('land');
+            break;
+          case 'artifact_or_creature':
+            okType = typeLine.includes('artifact') || typeLine.includes('creature');
+            break;
+          case 'permanent':
+            okType = true;
+            break;
+          default:
+            okType = false;
+            break;
+        }
+
+        if (!okType) return false;
+        if (sacrificeSubtype) {
+          return typeLine.includes(sacrificeSubtype.toLowerCase());
+        }
+        return true;
+      };
+
+      if (selections.length < sacrificeCount) {
+        emitToPlayer(io, controllerId, 'error', { code: 'INVALID_SELECTION', message: 'Not enough permanents were selected.' });
+        return;
+      }
+
+      for (const chosenId of selections) {
+        const chosenPerm = battlefield.find((perm: any) => perm && String(perm.id || '') === String(chosenId));
+        if (!chosenPerm || !matchesSacrificeRequirement(chosenPerm)) {
+          emitToPlayer(io, controllerId, 'error', {
+            code: 'INVALID_SELECTION',
+            message: 'One or more chosen permanents can no longer be sacrificed for this cost',
+          });
+          return;
+        }
+      }
+
+      const ctx = {
+        state: game.state,
+        libraries: (game as any).libraries,
+        bumpSeq: typeof (game as any).bumpSeq === 'function' ? (game as any).bumpSeq.bind(game) : (() => {}),
+        rng: (game as any).rng,
+        gameId,
+      } as unknown as GameContext;
+
+      const { movePermanentToGraveyard } = await import('../state/modules/counters_tokens.js');
+      const sacrificedNames: string[] = [];
+      const sacrificedIds: string[] = [];
+      for (const chosenId of selections) {
+        const chosenPerm = battlefield.find((perm: any) => perm && String(perm.id || '') === String(chosenId));
+        const permName = String(chosenPerm?.card?.name || 'permanent');
+        const ok = movePermanentToGraveyard(ctx, String(chosenId), true);
+        if (ok) {
+          sacrificedNames.push(permName);
+          sacrificedIds.push(String(chosenId));
+        }
+      }
+
+      if (sacrificedIds.length < sacrificeCount) {
+        emitToPlayer(io, controllerId, 'error', {
+          code: 'SACRIFICE_FAILED',
+          message: 'Failed to sacrifice the required permanents',
+        });
+        return;
+      }
+
+      try {
+        appendEvent(gameId, (game as any).seq ?? 0, 'sacrificeSelectionResolve', {
+          resolvedStepId: String(step?.id || '').trim(),
+          playerId: controllerId,
+          sourceId: cardId,
+          sourceName: cardName,
+          permanentType: String(stepAny?.sacrificePermanentType || 'permanent'),
+          permanentIds: sacrificedIds,
+          reason: String(stepAny?.sacrificeReason || step.description || '').trim(),
+        });
+      } catch (err) {
+        debugWarn(1, '[Resolution] Failed to persist graveyard sacrificeSelectionResolve:', err);
+      }
+
+      io.to(gameId).emit('chat', {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: 'system',
+        message: `${getPlayerName(game, controllerId)} sacrifices ${sacrificedNames.join(', ') || 'permanents'} (${cardName}).`,
+        ts: Date.now(),
+      });
+
+      const result = continueCastFromGraveyardAbility({
+        gameId,
+        game,
+        io,
+        playerId: controllerId,
+        cardId,
+        abilityId,
+        targets: Array.isArray(stepAny?.targetsForCast) ? stepAny.targetsForCast : undefined,
+        discardedCardIds: Array.isArray(stepAny?.discardedCardIdsForCost)
+          ? stepAny.discardedCardIdsForCost.map((id: any) => String(id)).filter(Boolean)
+          : undefined,
+        exiledCardIdsFromHandForCost: Array.isArray(stepAny?.exiledCardIdsFromHandForCost)
+          ? stepAny.exiledCardIdsFromHandForCost.map((id: any) => String(id)).filter(Boolean)
+          : undefined,
+        exiledCardIdsFromGraveyardForCost: Array.isArray(stepAny?.exiledCardIdsFromGraveyardForCost)
+          ? stepAny.exiledCardIdsFromGraveyardForCost.map((id: any) => String(id)).filter(Boolean)
+          : undefined,
+        sacrificedPermanentIdsForCost: sacrificedIds,
+        emitError: (payload) => emitToPlayer(io, controllerId as any, 'error', payload),
+      });
+
+      if (result !== 'error') {
+        broadcastGame(io, game, gameId);
+      }
+      return;
+    } catch (err) {
+      debugError(1, '[Resolution] Failed to resume graveyard sacrifice-cost cast', err);
+    }
+  }
+
   if ((step as any)?.graveyardSpellCastTargetSelection === true) {
     const result = continueCastFromGraveyardAbility({
       gameId,
@@ -19224,6 +19380,9 @@ async function handleTargetSelectionResponse(
         : undefined,
       exiledCardIdsFromGraveyardForCost: Array.isArray((step as any)?.exiledCardIdsFromGraveyardForCost)
         ? (step as any).exiledCardIdsFromGraveyardForCost.map((id: any) => String(id)).filter(Boolean)
+        : undefined,
+      sacrificedPermanentIdsForCost: Array.isArray((step as any)?.sacrificedPermanentIdsForCost)
+        ? (step as any).sacrificedPermanentIdsForCost.map((id: any) => String(id)).filter(Boolean)
         : undefined,
       emitError: (payload) => emitToPlayer(io, pid as any, 'error', payload),
     });
@@ -28098,6 +28257,108 @@ async function handleOptionChoiceResponse(
     return;
   }
 
+  if (stepData?.resolvedSpellCopyChoice === true) {
+    const choiceId = String(extractId(selectedOption) || 'no').trim().toLowerCase() || 'no';
+    const sourceId = String(step.sourceId || '').trim() || undefined;
+    const sourceName = String(step.sourceName || 'Spell').trim() || 'Spell';
+
+    try {
+      await appendEvent(gameId, (game as any).seq ?? 0, 'resolvedSpellCopyChoiceResolve', {
+        playerId,
+        sourceId,
+        resolvedStepId: String(step.id || '').trim() || undefined,
+        choiceId,
+      });
+    } catch (err) {
+      debugWarn(1, '[Resolution] appendEvent(resolvedSpellCopyChoiceResolve) failed:', err);
+    }
+
+    if (choiceId !== 'yes') {
+      if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
+      broadcastGame(io, game, gameId);
+      return;
+    }
+
+    const copiedSpellSnapshot = stepData?.resolvedSpellCopySnapshot;
+    if (!copiedSpellSnapshot || typeof copiedSpellSnapshot !== 'object' || Array.isArray(copiedSpellSnapshot)) {
+      if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
+      broadcastGame(io, game, gameId);
+      return;
+    }
+
+    const copyResolvePayload = {
+      playerId,
+      sourceId,
+      sourceName,
+      copiedSpell: copiedSpellSnapshot,
+    };
+
+    try {
+      await appendEvent(gameId, (game as any).seq ?? 0, 'resolvedSpellCopyResolve', copyResolvePayload);
+    } catch (err) {
+      debugWarn(1, '[Resolution] appendEvent(resolvedSpellCopyResolve) failed:', err);
+    }
+
+    if (typeof (game as any).applyEvent === 'function') {
+      (game as any).applyEvent({ type: 'resolvedSpellCopyResolve', ...copyResolvePayload } as any);
+    } else {
+      const stack = Array.isArray((game.state as any)?.stack) ? (game.state as any).stack : (((game.state as any).stack = []) as any[]);
+      const copiedSpellId = String((copiedSpellSnapshot as any)?.id || '').trim();
+      if (!copiedSpellId || !stack.some((item: any) => item && String(item.id || '').trim() === copiedSpellId)) {
+        stack.push({ ...(copiedSpellSnapshot as any) });
+      }
+    }
+
+    io.to(gameId).emit('chat', {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: 'system',
+      message: `${sourceName} is copied.`,
+      ts: Date.now(),
+    });
+
+    const copyStackItemId = String((copiedSpellSnapshot as any)?.id || '').trim();
+    const validTargets = Array.isArray(stepData?.resolvedSpellCopyRetargetValidTargets)
+      ? stepData.resolvedSpellCopyRetargetValidTargets
+      : [];
+    const currentTargets = Array.isArray((copiedSpellSnapshot as any)?.targets)
+      ? (copiedSpellSnapshot as any).targets
+      : [];
+
+    if (copyStackItemId && validTargets.length > 0 && currentTargets.length > 0) {
+      const queuedResolutionStep = ResolutionQueueManager.addStep(gameId, {
+        type: ResolutionStepType.OPTION_CHOICE,
+        playerId: playerId as any,
+        description: `${sourceName}: You may choose new targets for the copy.`,
+        mandatory: false,
+        sourceId: copyStackItemId,
+        sourceName,
+        options: [
+          { id: 'keep', label: 'Keep current targets' },
+          { id: 'retarget', label: 'Choose new targets' },
+        ],
+        minSelections: 1,
+        maxSelections: 1,
+        retargetSpellCopy: true,
+        retargetSpellCopyStackItemId: copyStackItemId,
+        retargetSpellCopyValidTargets: validTargets.map((target: any) => ({ ...target })),
+        retargetSpellCopyMinTargets: Number(stepData?.resolvedSpellCopyRetargetMinTargets || currentTargets.length || 1),
+        retargetSpellCopyMaxTargets: Number(stepData?.resolvedSpellCopyRetargetMaxTargets || currentTargets.length || 1),
+        retargetSpellCopyTargetDescription: String(stepData?.resolvedSpellCopyRetargetTargetDescription || 'target'),
+      } as any);
+
+      appendQueuedResolutionPromptEvent(game, gameId, {
+        playerId,
+        sourceId: copyStackItemId,
+        queuedResolutionStep,
+      });
+    }
+
+    if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
+    broadcastGame(io, game, gameId);
+    return;
+  }
+
   // ===== GENERIC: Retarget a copied spell =====
   if (stepData?.retargetSpellCopy === true) {
     const choiceId = extractId(selectedOption);
@@ -30141,6 +30402,8 @@ async function handleGraveyardSelectionResponse(
     debugWarn(1, 'appendEvent(confirmGraveyardTargets) failed:', e);
   }
 
+  const triggeredAbilityEffectText = String((step as any)?.triggeredAbilityEffectText || '').trim();
+
   for (const entry of createdBattlefieldEntries) {
     const ctx = {
       state: game.state,
@@ -30153,6 +30416,16 @@ async function handleGraveyardSelectionResponse(
         }
       },
     } as any;
+    if ((step as any)?.triggeredAbilityGraveyardSelection === true && destination === 'battlefield' && triggeredAbilityEffectText) {
+      applyTriggeredReanimationEntryRiders(
+        ctx,
+        entry.permanent,
+        String(step.sourceName || cardName || 'Ability'),
+        entry.controllerId as PlayerID,
+        triggeredAbilityEffectText,
+        String(entry.permanent?.card?.name || entry.permanent?.id || ''),
+      );
+    }
     triggerETBEffectsForPermanent(ctx, entry.permanent, entry.controllerId as PlayerID);
   }
 

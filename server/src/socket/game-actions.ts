@@ -20,6 +20,7 @@ import { requiresColorChoice } from "./color-choice";
 import { detectETBPlayerSelection, requestPlayerSelection } from "./player-selection";
 import { checkAndPromptOpeningHandActions, isOpeningHandBattlefieldCard } from "./opening-hand";
 import { detectSpellCastTriggers, getBeginningOfCombatTriggers, getEndStepTriggers, getLandfallTriggers, detectETBTriggers, detectEldraziEffect, type SpellCastTrigger } from "../state/modules/triggered-abilities";
+import { inferTriggeredAbilityTargetMetadata } from "../state/modules/stack.js";
 import { getOpponentSpellCastTriggers, type OpponentSpellCastTriggerType } from "../state/modules/triggers/index.js";
 import { isInterveningIfSatisfied } from "../state/modules/triggers/intervening-if";
 import { getUpkeepTriggersForPlayer, autoProcessCumulativeUpkeepMana, sacrificePermanent } from "../state/modules/upkeep-triggers";
@@ -2728,6 +2729,7 @@ function getSpellCastTriggersForCard(game: any, casterId: string, spellCard: any
     const spellTypeLine = String(card?.type_line || '').toLowerCase();
     const isCreatureSpell = spellTypeLine.includes('creature');
     const isInstantOrSorcery = spellTypeLine.includes('instant') || spellTypeLine.includes('sorcery');
+    const isHistoricSpell = spellTypeLine.includes('artifact') || spellTypeLine.includes('legendary') || spellTypeLine.includes('saga');
     const spellColors = Array.isArray(card?.colors)
       ? card.colors
       : (Array.isArray(card?.color_identity) ? card.color_identity : []);
@@ -2744,6 +2746,8 @@ function getSpellCastTriggersForCard(game: any, casterId: string, spellCard: any
         return isInstantOrSorcery;
       case 'colorless':
         return isColorlessSpell;
+      case 'historic':
+        return isHistoricSpell;
       case 'tribal_type': {
         if (!trigger.tribalType) return false;
         const spellSubtypes = extractCreatureTypes(spellTypeLine);
@@ -2955,6 +2959,108 @@ export function processSpellCastTriggersForCast(
         continue;
       }
 
+      const inferredTargetMetadata = inferTriggeredAbilityTargetMetadata(String(trigger.effect || trigger.description || ''), {
+        gameState: game.state,
+        controllerId: String(trigger.controllerId || casterId),
+        sourceName: trigger.cardName,
+        sourcePermanent: sourcePerm,
+      });
+      const routesThroughDirectSpellCopy = trigger.copiesSpell === true;
+
+      if (
+        !routesThroughDirectSpellCopy
+        && (
+          inferredTargetMetadata.requiresTarget === true
+          || String(inferredTargetMetadata.targetZone || '').length > 0
+          || String(inferredTargetMetadata.targetAction || '').length > 0
+        )
+      ) {
+        const triggerId = uid('trigger');
+        const stackItem = {
+          id: triggerId,
+          type: 'triggered_ability',
+          controller: String(trigger.controllerId || casterId),
+          source: trigger.permanentId,
+          sourceName: trigger.cardName,
+          description: trigger.description,
+          triggerType: 'cast_creature_type',
+          effect: trigger.effect,
+          mandatory: trigger.mandatory,
+          ...(inferredTargetMetadata.requiresTarget ? { requiresTarget: true, needsTargetSelection: true } : null),
+          ...(inferredTargetMetadata.targetType ? { targetType: inferredTargetMetadata.targetType } : null),
+          ...(inferredTargetMetadata.targetConstraint ? { targetConstraint: inferredTargetMetadata.targetConstraint } : null),
+          ...(inferredTargetMetadata.targetZone ? { targetZone: inferredTargetMetadata.targetZone } : null),
+          ...(inferredTargetMetadata.targetDestination ? { targetDestination: inferredTargetMetadata.targetDestination } : null),
+          ...(inferredTargetMetadata.targetGraveyardScope ? { targetGraveyardScope: inferredTargetMetadata.targetGraveyardScope } : null),
+          ...(inferredTargetMetadata.destinationUsesSelectedCardOwner === true ? { destinationUsesSelectedCardOwner: true } : null),
+          ...(inferredTargetMetadata.battlefieldControllerMode ? { battlefieldControllerMode: inferredTargetMetadata.battlefieldControllerMode } : null),
+          ...(inferredTargetMetadata.battlefieldCounters ? { battlefieldCounters: inferredTargetMetadata.battlefieldCounters } : null),
+          ...(inferredTargetMetadata.targetAction ? { targetAction: inferredTargetMetadata.targetAction } : null),
+          ...(Array.isArray(inferredTargetMetadata.targetFilterTypes) ? { targetFilterTypes: inferredTargetMetadata.targetFilterTypes } : null),
+          ...(Array.isArray(inferredTargetMetadata.targetFilterRequiredTypeWords) ? { targetFilterRequiredTypeWords: inferredTargetMetadata.targetFilterRequiredTypeWords } : null),
+          ...(Array.isArray(inferredTargetMetadata.targetFilterExcludeTypes) ? { targetFilterExcludeTypes: inferredTargetMetadata.targetFilterExcludeTypes } : null),
+          ...(inferredTargetMetadata.targetFilterPermanentOnly === true ? { targetFilterPermanentOnly: true } : null),
+          ...(typeof inferredTargetMetadata.targetFilterExactManaValue === 'number' ? { targetFilterExactManaValue: inferredTargetMetadata.targetFilterExactManaValue } : null),
+          ...(typeof inferredTargetMetadata.targetFilterMinManaValue === 'number' ? { targetFilterMinManaValue: inferredTargetMetadata.targetFilterMinManaValue } : null),
+          ...(typeof inferredTargetMetadata.targetFilterMaxManaValue === 'number' ? { targetFilterMaxManaValue: inferredTargetMetadata.targetFilterMaxManaValue } : null),
+          ...(typeof inferredTargetMetadata.targetTotalPowerLimit === 'number' ? { targetTotalPowerLimit: inferredTargetMetadata.targetTotalPowerLimit } : null),
+          ...(inferredTargetMetadata.targetCastWithoutPayingManaCost === true ? { targetCastWithoutPayingManaCost: true } : null),
+          ...(inferredTargetMetadata.targetCastIsOptional === true ? { targetCastIsOptional: true } : null),
+          ...(typeof inferredTargetMetadata.minTargets === 'number' ? { minTargets: inferredTargetMetadata.minTargets } : null),
+          ...(typeof inferredTargetMetadata.maxTargets === 'number' ? { maxTargets: inferredTargetMetadata.maxTargets } : null),
+        } as any;
+
+        game.state.stack = game.state.stack || [];
+        game.state.stack.push(stackItem);
+
+        try {
+          appendEvent(gameId, (game as any).seq ?? 0, 'pushTriggeredAbility', {
+            triggerId,
+            sourceId: trigger.permanentId,
+            permanentId: trigger.permanentId,
+            sourceName: trigger.cardName,
+            controllerId: String(trigger.controllerId || casterId),
+            description: trigger.description,
+            triggerType: 'cast_creature_type',
+            effect: trigger.effect,
+            mandatory: trigger.mandatory,
+            ...(inferredTargetMetadata.requiresTarget ? { requiresTarget: true, needsTargetSelection: true } : null),
+            ...(inferredTargetMetadata.targetType ? { targetType: inferredTargetMetadata.targetType } : null),
+            ...(inferredTargetMetadata.targetConstraint ? { targetConstraint: inferredTargetMetadata.targetConstraint } : null),
+            ...(inferredTargetMetadata.targetZone ? { targetZone: inferredTargetMetadata.targetZone } : null),
+            ...(inferredTargetMetadata.targetDestination ? { targetDestination: inferredTargetMetadata.targetDestination } : null),
+            ...(inferredTargetMetadata.targetGraveyardScope ? { targetGraveyardScope: inferredTargetMetadata.targetGraveyardScope } : null),
+            ...(inferredTargetMetadata.destinationUsesSelectedCardOwner === true ? { destinationUsesSelectedCardOwner: true } : null),
+            ...(inferredTargetMetadata.battlefieldControllerMode ? { battlefieldControllerMode: inferredTargetMetadata.battlefieldControllerMode } : null),
+            ...(inferredTargetMetadata.battlefieldCounters ? { battlefieldCounters: inferredTargetMetadata.battlefieldCounters } : null),
+            ...(inferredTargetMetadata.targetAction ? { targetAction: inferredTargetMetadata.targetAction } : null),
+            ...(Array.isArray(inferredTargetMetadata.targetFilterTypes) ? { targetFilterTypes: inferredTargetMetadata.targetFilterTypes } : null),
+            ...(Array.isArray(inferredTargetMetadata.targetFilterRequiredTypeWords) ? { targetFilterRequiredTypeWords: inferredTargetMetadata.targetFilterRequiredTypeWords } : null),
+            ...(Array.isArray(inferredTargetMetadata.targetFilterExcludeTypes) ? { targetFilterExcludeTypes: inferredTargetMetadata.targetFilterExcludeTypes } : null),
+            ...(inferredTargetMetadata.targetFilterPermanentOnly === true ? { targetFilterPermanentOnly: true } : null),
+            ...(typeof inferredTargetMetadata.targetFilterExactManaValue === 'number' ? { targetFilterExactManaValue: inferredTargetMetadata.targetFilterExactManaValue } : null),
+            ...(typeof inferredTargetMetadata.targetFilterMinManaValue === 'number' ? { targetFilterMinManaValue: inferredTargetMetadata.targetFilterMinManaValue } : null),
+            ...(typeof inferredTargetMetadata.targetFilterMaxManaValue === 'number' ? { targetFilterMaxManaValue: inferredTargetMetadata.targetFilterMaxManaValue } : null),
+            ...(typeof inferredTargetMetadata.targetTotalPowerLimit === 'number' ? { targetTotalPowerLimit: inferredTargetMetadata.targetTotalPowerLimit } : null),
+            ...(inferredTargetMetadata.targetCastWithoutPayingManaCost === true ? { targetCastWithoutPayingManaCost: true } : null),
+            ...(inferredTargetMetadata.targetCastIsOptional === true ? { targetCastIsOptional: true } : null),
+            ...(typeof inferredTargetMetadata.minTargets === 'number' ? { minTargets: inferredTargetMetadata.minTargets } : null),
+            ...(typeof inferredTargetMetadata.maxTargets === 'number' ? { maxTargets: inferredTargetMetadata.maxTargets } : null),
+          });
+        } catch (err) {
+          debugWarn(1, '[processSpellCastTriggersForCast] appendEvent(pushTriggeredAbility spell-cast generic) failed:', err);
+        }
+
+        io.to(gameId).emit('chat', {
+          id: `m_${Date.now()}`,
+          gameId,
+          from: 'system',
+          message: `${trigger.cardName} triggers: ${trigger.description}`,
+          ts: Date.now(),
+        });
+        continue;
+      }
+
       const effectLower = trigger.effect.toLowerCase();
       if (effectLower.includes('draw a card') || effectLower.includes('draw cards') || effectLower.includes('draws a card')) {
         if (typeof game.drawCards === 'function') {
@@ -2974,7 +3080,7 @@ export function processSpellCastTriggersForCast(
       }
 
       if (trigger.copiesSpell === true) {
-        cloneTriggeredSpellCopy(gameId, game, io, trigger, casterId, resolvedTriggeringStackItemId);
+        cloneTriggeredSpellCopy(gameId, game, io, trigger, casterId, resolvedTriggeringStackItemId, String(spellCard?.id || ''));
       }
 
       if (trigger.cardName.toLowerCase().includes('consuming aberration') || effectLower.includes('until they reveal a land card')) {
@@ -3118,6 +3224,7 @@ export function processSpellCastTriggersForCast(
         });
       }
     }
+
   } catch (err) {
     debugWarn(1, '[processSpellCastTriggersForCast] Failed to process spell-cast triggers:', err);
   }
@@ -3239,17 +3346,25 @@ function cloneTriggeredSpellCopy(
   trigger: SpellCastTrigger,
   controllerId: string,
   triggeringStackItemId?: string,
+  triggeringSpellCardId?: string,
+  originalStackItem?: any,
 ): any | null {
   const normalizedStackItemId = String(triggeringStackItemId || '').trim();
-  if (!normalizedStackItemId) {
-    return null;
-  }
+  const normalizedTriggeringSpellCardId = String(triggeringSpellCardId || '').trim();
 
   const stack = Array.isArray((game.state as any)?.stack) ? (game.state as any).stack : [];
-  const original = stack.find((item: any) => item && String(item.id || '').trim() === normalizedStackItemId);
+  const original = originalStackItem
+    || stack.find((item: any) => item && String(item.id || '').trim() === normalizedStackItemId)
+    || stack.find((item: any) => (
+      item
+      && normalizedTriggeringSpellCardId.length > 0
+      && String(item?.card?.id || '').trim() === normalizedTriggeringSpellCardId
+    ));
   if (!original) {
     return null;
   }
+
+  const copiedFromStackItemId = String((original as any)?.id || normalizedStackItemId).trim();
 
   const copiedItem: any = {
     ...original,
@@ -3286,7 +3401,7 @@ function cloneTriggeredSpellCopy(
     copyRetargetTargetTypes: Array.isArray((original as any).copyRetargetTargetTypes)
       ? [...(original as any).copyRetargetTargetTypes]
       : (original as any).copyRetargetTargetTypes,
-    copiedFromStackItemId: normalizedStackItemId,
+    copiedFromStackItemId,
     copiedBySourceName: trigger.cardName,
     isCopy: true,
   };
@@ -3297,7 +3412,7 @@ function cloneTriggeredSpellCopy(
     sourceId: String(trigger.permanentId || '').trim() || undefined,
     sourceName: String(trigger.cardName || 'Spell copy').trim() || 'Spell copy',
     controllerId: String(controllerId || '').trim() || undefined,
-    triggeringStackItemId: normalizedStackItemId,
+    triggeringStackItemId: copiedFromStackItemId,
     copiedStackItemId: String((copiedItem as any).id || '').trim() || undefined,
   });
 
@@ -3351,6 +3466,176 @@ function cloneTriggeredSpellCopy(
   }
 
   return copiedItem;
+}
+
+function spellQualifiesForDelayedCopy(entry: any, spellCard: any, casterId: string): boolean {
+  if (!entry || String(entry?.controllerId || '') !== String(casterId)) {
+    return false;
+  }
+
+  const spellType = String(entry?.spellType || '').trim();
+  const typeLine = String(spellCard?.type_line || '').toLowerCase();
+  if (spellType === 'instant_or_sorcery') {
+    return typeLine.includes('instant') || typeLine.includes('sorcery');
+  }
+
+  return false;
+}
+
+export function consumeDelayedSpellCopiesForCast(
+  gameId: string,
+  game: any,
+  io: Server,
+  casterId: string,
+  spellCard: any,
+  triggeringStackItemId?: string,
+  originalStackItem?: any,
+  delayedEntriesOverride?: any[],
+): void {
+  let normalizedTriggeringStackItemId = String(triggeringStackItemId || '').trim();
+  if (!normalizedTriggeringStackItemId) {
+    const stackArr: any[] = Array.isArray((game.state as any)?.stack) ? (game.state as any).stack : [];
+    for (let i = stackArr.length - 1; i >= 0; i--) {
+      const item = stackArr[i];
+      if (!item || String(item.controller || '') !== String(casterId)) continue;
+      if (String(item?.card?.id || '') !== String(spellCard?.id || '')) continue;
+      normalizedTriggeringStackItemId = String(item.id || '').trim();
+      break;
+    }
+  }
+  if (!normalizedTriggeringStackItemId) {
+    return;
+  }
+
+  const stateAny = (game.state as any) || {};
+  const delayedEntries = Array.isArray(delayedEntriesOverride)
+    ? delayedEntriesOverride
+    : Array.isArray((game as any).delayedSpellCopiesThisTurn)
+    ? (game as any).delayedSpellCopiesThisTurn
+    : Array.isArray(stateAny.delayedSpellCopiesThisTurn)
+    ? stateAny.delayedSpellCopiesThisTurn
+    : [];
+  if (delayedEntries.length === 0) {
+    return;
+  }
+
+  const matchingEntries = delayedEntries.filter((entry: any) => spellQualifiesForDelayedCopy(entry, spellCard, casterId));
+  if (matchingEntries.length === 0) {
+    return;
+  }
+
+  const stack = Array.isArray((game.state as any)?.stack) ? (game.state as any).stack : [];
+  const original = originalStackItem
+    || stack.find((item: any) => item && String(item.id || '').trim() === normalizedTriggeringStackItemId)
+    || stack.find((item: any) => item && String(item?.card?.id || '').trim() === String(spellCard?.id || '').trim());
+  if (!original) {
+    return;
+  }
+
+  const copiedFromStackItemId = String((original as any)?.id || normalizedTriggeringStackItemId).trim();
+  const remainingEntries = delayedEntries.filter((entry: any) => !matchingEntries.includes(entry));
+  stateAny.delayedSpellCopiesThisTurn = remainingEntries;
+  (game as any).delayedSpellCopiesThisTurn = remainingEntries;
+
+  for (const entry of matchingEntries) {
+    const sourceName = String(entry?.sourceName || 'Spell copy').trim() || 'Spell copy';
+    const copiedItem: any = {
+      ...original,
+      id: uid('copied_spell'),
+      type: String((original as any).type || 'spell'),
+      controller: String((original as any).controller || casterId),
+      targets: Array.isArray((original as any).targets)
+        ? (original as any).targets.map((target: any) => (
+            target && typeof target === 'object' && !Array.isArray(target)
+              ? { ...target }
+              : target
+          ))
+        : (original as any).targets,
+      card: (original as any).card ? { ...(original as any).card } : (original as any).card,
+      spell: (original as any).spell ? { ...(original as any).spell } : (original as any).spell,
+      searchParams: (original as any).searchParams ? { ...(original as any).searchParams } : (original as any).searchParams,
+      targetRequirements: (original as any).targetRequirements ? { ...(original as any).targetRequirements } : (original as any).targetRequirements,
+      manaPayment: (original as any).manaPayment
+        ? (Array.isArray((original as any).manaPayment) ? [...(original as any).manaPayment] : { ...(original as any).manaPayment })
+        : (original as any).manaPayment,
+      counterImmunity: (original as any).counterImmunity
+        ? (Array.isArray((original as any).counterImmunity) ? [...(original as any).counterImmunity] : { ...(original as any).counterImmunity })
+        : (original as any).counterImmunity,
+      entersBattlefieldWithCounters: (original as any).entersBattlefieldWithCounters
+        ? { ...(original as any).entersBattlefieldWithCounters }
+        : (original as any).entersBattlefieldWithCounters,
+      copyRetargetValidTargets: Array.isArray((original as any).copyRetargetValidTargets)
+        ? (original as any).copyRetargetValidTargets.map((target: any) => (
+            target && typeof target === 'object' && !Array.isArray(target)
+              ? { ...target }
+              : target
+          ))
+        : (original as any).copyRetargetValidTargets,
+      copyRetargetTargetTypes: Array.isArray((original as any).copyRetargetTargetTypes)
+        ? [...(original as any).copyRetargetTargetTypes]
+        : (original as any).copyRetargetTargetTypes,
+      copiedFromStackItemId,
+      copiedBySourceName: sourceName,
+      isCopy: true,
+    };
+
+    stack.push(copiedItem);
+
+    appendCopyTriggeredSpellResolveEvent(gameId, game, {
+      sourceId: String(entry?.sourceId || '').trim() || undefined,
+      sourceName,
+      controllerId: String(casterId || '').trim() || undefined,
+      triggeringStackItemId: copiedFromStackItemId,
+      copiedStackItemId: String((copiedItem as any).id || '').trim() || undefined,
+    });
+
+    io.to(gameId).emit('chat', {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: 'system',
+      message: `${sourceName} copies ${String((original as any)?.card?.name || (original as any)?.sourceName || 'that spell')}.`,
+      ts: Date.now(),
+    });
+
+    const validTargets = Array.isArray((copiedItem as any).copyRetargetValidTargets)
+      ? (copiedItem as any).copyRetargetValidTargets
+      : [];
+    const currentTargets = Array.isArray((copiedItem as any).targets) ? (copiedItem as any).targets : [];
+    if (entry?.allowRetargeting === true && validTargets.length > 0 && currentTargets.length > 0) {
+      const queuedResolutionStep = createResolutionStep({
+        type: ResolutionStepType.OPTION_CHOICE,
+        playerId: casterId as any,
+        description: `${sourceName}: You may choose new targets for the copy.`,
+        mandatory: false,
+        sourceId: String((copiedItem as any).id || '').trim() || undefined,
+        sourceName,
+        options: [
+          { id: 'keep', label: 'Keep current targets' },
+          { id: 'retarget', label: 'Choose new targets' },
+        ],
+        minSelections: 1,
+        maxSelections: 1,
+        retargetSpellCopy: true,
+        retargetSpellCopyStackItemId: String((copiedItem as any).id || '').trim(),
+        retargetSpellCopyValidTargets: validTargets.map((target: any) => ({ ...target })),
+        retargetSpellCopyMinTargets: Number((copiedItem as any).copyRetargetMinTargets || currentTargets.length || 1),
+        retargetSpellCopyMaxTargets: Number((copiedItem as any).copyRetargetMaxTargets || currentTargets.length || 1),
+        retargetSpellCopyTargetDescription: String((copiedItem as any).copyRetargetTargetDescription || 'target'),
+      } as any);
+
+      persistQueuedSpellCastStepContinuation(gameId, game, {
+        playerId: casterId,
+        cardId: String((original as any)?.card?.id || ''),
+        queuedResolutionStep,
+      });
+
+      ResolutionQueueManager.addStep(gameId, queuedResolutionStep as any);
+    }
+  }
+
+  if (typeof game.bumpSeq === 'function') {
+    game.bumpSeq();
+  }
 }
 
 /**
@@ -6648,6 +6933,11 @@ export function registerGameActions(io: Server, socket: Socket) {
       const game = ensureGame(gameId);
       const playerId = socket.data.playerId;
       if (!game || !playerId) return;
+      const delayedSpellCopiesSnapshot = Array.isArray((game.state as any)?.delayedSpellCopiesThisTurn)
+        ? [...(game.state as any).delayedSpellCopiesThisTurn]
+        : Array.isArray((game as any).delayedSpellCopiesThisTurn)
+        ? [...(game as any).delayedSpellCopiesThisTurn]
+        : [];
 
       const { isSpellCastingProhibitedByChosenName } = await import('../state/modules/chosen-name-restrictions.js');
 
@@ -9976,6 +10266,8 @@ export function registerGameActions(io: Server, socket: Socket) {
               source: castSourceZone,
               ...(spellCopyRetargetMetadata ? { ...spellCopyRetargetMetadata } : {}),
             };
+
+            const pendingDelayedSpellCopies = delayedSpellCopiesSnapshot;
             
             if (typeof game.pushStack === 'function') {
               game.pushStack(stackItem);
@@ -10279,17 +10571,38 @@ export function registerGameActions(io: Server, socket: Socket) {
         }
 
         let triggeringStackItemId: string | undefined;
+        let triggeringStackItem: any = null;
         const stackArr: any[] = Array.isArray((game.state as any)?.stack) ? (game.state as any).stack : [];
-        for (let i = stackArr.length - 1; i >= 0; i--) {
-          const item = stackArr[i];
-          if (!item || String(item.controller || '') !== String(playerId)) continue;
-          if (String(item?.card?.id || '') === String(cardId)) {
-            triggeringStackItemId = String(item.id || '');
-            break;
+        if (stackArr.length > 0) {
+          const topStackItem = stackArr[stackArr.length - 1];
+          if (topStackItem) {
+            triggeringStackItem = topStackItem;
+            triggeringStackItemId = String(topStackItem.id || '');
+          }
+        }
+        if (!triggeringStackItem) {
+          for (let i = stackArr.length - 1; i >= 0; i--) {
+            const item = stackArr[i];
+            if (!item || String(item.controller || '') !== String(playerId)) continue;
+            if (String(item?.card?.id || '') === String(cardId)) {
+              triggeringStackItem = item;
+              triggeringStackItemId = String(item.id || '');
+              break;
+            }
           }
         }
 
         processSpellCastTriggersForCast(gameId, game, io, playerId, cardInHand, castSourceZone, triggeringStackItemId);
+        consumeDelayedSpellCopiesForCast(
+          gameId,
+          game,
+          io,
+          playerId,
+          triggeringStackItem?.card || cardInHand,
+          triggeringStackItemId,
+          triggeringStackItem,
+          delayedSpellCopiesSnapshot,
+        );
       } catch (err) {
         debugWarn(1, '[castSpellFromHand] Failed to process spell-cast triggers:', err);
       }
