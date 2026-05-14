@@ -134,8 +134,15 @@ export function applyDamageToPermanentWithCounterEffects(
 
 export function getCounterLeaveBattlefieldReplacement(
   permanent: any,
-  destination: 'graveyard' | 'exile' | 'hand'
-): 'graveyard' | 'exile' | 'hand' {
+  destination: 'graveyard' | 'exile' | 'hand' | 'library'
+): 'graveyard' | 'exile' | 'hand' | 'library' {
+  const leaveBattlefieldReplacementDestination = normalizeText(
+    permanent?.leaveBattlefieldReplacementDestination || permanent?.card?.leaveBattlefieldReplacementDestination || ''
+  );
+  if (leaveBattlefieldReplacementDestination === 'exile' && destination !== 'exile') {
+    return 'exile';
+  }
+
   if (destination !== 'graveyard') return destination;
 
   const typeLine = normalizeText(permanent?.card?.type_line || permanent?.type_line || '');

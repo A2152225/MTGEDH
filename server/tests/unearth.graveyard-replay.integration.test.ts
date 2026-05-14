@@ -4,6 +4,7 @@ import { createGameIfNotExists, deleteGame, getEvents, initDb } from '../src/db/
 import { registerInteractionHandlers } from '../src/socket/interaction.js';
 import { games } from '../src/socket/socket.js';
 import { ensureGame } from '../src/socket/util.js';
+import { movePermanentToHand } from '../src/state/modules/zones.js';
 
 async function resetGame(gameId: string) {
   games.delete(gameId as any);
@@ -117,6 +118,70 @@ describe('unearth graveyard replay semantics (integration)', () => {
       },
     ]));
     expect((game.state as any).manaPool?.[playerId]).toEqual({ white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 });
+  });
+
+  it('exiles an unearthed creature if it leaves the battlefield early for hand', async () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const playerId = 'p1';
+    (game.state as any).players = [{ id: playerId, name: 'P1', spectator: false, life: 40 }];
+    (game.state as any).zones = {
+      [playerId]: {
+        hand: [],
+        handCount: 0,
+        library: [],
+        libraryCount: 0,
+        graveyard: [
+          {
+            id: 'unearth_card_leave_1',
+            name: 'Hellspark Elemental',
+            type_line: 'Creature - Elemental',
+            oracle_text: 'Trample, haste\nUnearth {1}{R}',
+            power: '3',
+            toughness: '1',
+            zone: 'graveyard',
+          },
+        ],
+        graveyardCount: 1,
+        exile: [],
+        exileCount: 0,
+      },
+    };
+    (game.state as any).manaPool = {
+      [playerId]: { white: 0, blue: 0, black: 0, red: 1, green: 0, colorless: 1 },
+    };
+    (game.state as any).battlefield = [];
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).turnNumber = 3;
+    (game.state as any).phase = 'main';
+    (game.state as any).stack = [];
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const io = createMockIo(emitted);
+    const { socket, handlers } = createMockSocket(playerId, gameId, emitted);
+
+    registerInteractionHandlers(io as any, socket as any);
+
+    await handlers['activateGraveyardAbility']({
+      gameId,
+      cardId: 'unearth_card_leave_1',
+      abilityId: 'unearth',
+    });
+
+    const unearthedPermanentId = String(((game.state as any).battlefield || [])[0]?.id || '');
+    expect(unearthedPermanentId).toBeTruthy();
+
+    expect(movePermanentToHand(game as any, unearthedPermanentId)).toBe(true);
+
+    const zones = (game.state as any).zones?.[playerId];
+    expect((game.state as any).battlefield || []).toHaveLength(0);
+    expect(zones?.handCount).toBe(0);
+    expect(zones?.hand || []).toHaveLength(0);
+    expect(zones?.graveyardCount).toBe(0);
+    expect((zones?.graveyard || []).map((card: any) => card?.id)).not.toContain('unearth_card_leave_1');
+    expect((zones?.exile || []).map((card: any) => card?.id)).toContain('unearth_card_leave_1');
   });
 
   it('uses a battlefield-granted unearth cost for live activation', async () => {

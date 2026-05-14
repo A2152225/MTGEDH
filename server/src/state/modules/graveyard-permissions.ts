@@ -79,6 +79,93 @@ function getCardId(card: any): string {
   return String(card?.id || '').trim();
 }
 
+function getPlayerGraveyardCollections(state: any, playerId: PlayerID): any[][] {
+  const collections: any[][] = [];
+  const zonesGraveyard = state?.zones?.[playerId]?.graveyard;
+  if (Array.isArray(zonesGraveyard)) {
+    collections.push(zonesGraveyard);
+  }
+
+  const playerEntry = Array.isArray(state?.players)
+    ? state.players.find((entry: any) => String(entry?.id || '') === String(playerId || ''))
+    : undefined;
+  const playerGraveyard = Array.isArray(playerEntry?.graveyard) ? playerEntry.graveyard : undefined;
+  if (Array.isArray(playerGraveyard) && playerGraveyard !== zonesGraveyard) {
+    collections.push(playerGraveyard);
+  }
+
+  return collections;
+}
+
+function findCardInPlayerGraveyard(
+  state: any,
+  playerId: PlayerID,
+  options: { cardId?: string; cardName?: string },
+): any | undefined {
+  const cardId = String(options.cardId || '').trim();
+  const cardName = normalizeText(options.cardName || '');
+  const graveyards = getPlayerGraveyardCollections(state, playerId);
+
+  if (cardId) {
+    for (const graveyard of graveyards) {
+      const card = graveyard.find((entry: any) => getCardId(entry) === cardId);
+      if (card) return card;
+    }
+  }
+
+  if (cardName) {
+    for (const graveyard of graveyards) {
+      const matches = graveyard.filter((entry: any) => normalizeText(entry?.name || '') === cardName);
+      if (matches.length === 1) {
+        return matches[0];
+      }
+    }
+  }
+
+  return undefined;
+}
+
+function markSourceCardPlayableFromGraveyardThisTurn(
+  state: any,
+  playerId: PlayerID,
+  sourceCard: any,
+  permission: 'play' | 'cast',
+): number {
+  const cardId = getCardId(sourceCard);
+  if (!state || !playerId || !cardId) return 0;
+
+  const typeLine = getTypeLine(sourceCard);
+  if (permission === 'cast' && /\bland\b/.test(typeLine)) {
+    return 0;
+  }
+
+  const playableUntilTurn = Number(state.turnNumber ?? state.turn ?? 0) || 0;
+  let updated = 0;
+
+  for (const graveyard of getPlayerGraveyardCollections(state, playerId)) {
+    const index = graveyard.findIndex((entry: any) => getCardId(entry) === cardId);
+    if (index < 0) continue;
+
+    graveyard[index] = {
+      ...graveyard[index],
+      zone: 'graveyard',
+      canBePlayedBy: String(playerId),
+      playableUntilTurn,
+    };
+    updated += 1;
+  }
+
+  if (updated === 0) {
+    return 0;
+  }
+
+  state.playableFromGraveyard = state.playableFromGraveyard || {};
+  const playerEntry = state.playableFromGraveyard[String(playerId)] = state.playableFromGraveyard[String(playerId)] || {};
+  playerEntry[cardId] = playableUntilTurn;
+
+  return 1;
+}
+
 function getCardColors(card: any): string[] {
   const rawColors = Array.isArray(card?.colors)
     ? card.colors
@@ -254,9 +341,12 @@ function getGraveyardCardsForTemporaryGrant(state: any, playerId: PlayerID, qual
     ? new Set(targetIds.map((id) => String(id || '').trim()).filter(Boolean))
     : null;
 
+  if (targetIdSet) {
+    return graveyard.filter((card: any) => card && typeof card !== 'string' && targetIdSet.has(getCardId(card)));
+  }
+
   return graveyard.filter((card: any) => {
     if (!card || typeof card === 'string') return false;
-    if (targetIdSet && !targetIdSet.has(getCardId(card))) return false;
     return qualifierMatchesCard(qualifier, card);
   });
 }
@@ -340,8 +430,8 @@ export function applyTemporaryGraveyardKeywordGrantFromText(
       : [];
 
     const grantPatterns = [
-      { targetMode: 'each', pattern: /(?:^|[.,]\s*)(?:until end of turn,\s*)?each\s+(.+?)\s+cards?\s+in\s+your\s+graveyard\s+gains?\s+(?:"([^"]+)"|([a-z][a-z-]*)(?:\s+((?:\{[^}]+\}\s*)+))?)(?:\s+until end of turn)?/gi },
-      { targetMode: 'target', pattern: /(?:^|[.,]\s*)target\s+(.+?)\s+cards?\s+in\s+your\s+graveyard\s+gains?\s+(?:"([^"]+)"|([a-z][a-z-]*)(?:\s+((?:\{[^}]+\}\s*)+))?)(?:\s+until end of turn)?/gi },
+      { targetMode: 'each', pattern: /(?:^|[.,]\s*)(?:until end of turn,\s*)?each\s+(.+?)\s+cards?\s+in\s+your\s+graveyard(?:\s+that(?:'s| is)\s+[^.]+?)?\s+gains?\s+(?:"([^"]+)"|([a-z][a-z-]*)(?:\s+((?:\{[^}]+\}\s*)+))?)(?:\s+until end of turn)?/gi },
+      { targetMode: 'target', pattern: /(?:^|[.,]\s*)target\s+(.+?)\s+cards?\s+in\s+your\s+graveyard(?:\s+that(?:'s| is)\s+[^.]+?)?\s+gains?\s+(?:"([^"]+)"|([a-z][a-z-]*)(?:\s+((?:\{[^}]+\}\s*)+))?)(?:\s+until end of turn)?/gi },
     ];
 
     let applied = 0;
@@ -384,6 +474,75 @@ export function applyTemporaryGraveyardKeywordGrantFromText(
   } catch {
     return 0;
   }
+}
+
+export function applyPlayableFromGraveyardPermissionFromText(
+  ctx: GameContext,
+  playerId: PlayerID,
+  sourceName: string,
+  description: string,
+  triggerItem?: any,
+): number {
+  try {
+    const state = (ctx as any)?.state;
+    if (!state || !playerId) return 0;
+
+    const text = String(description || '')
+      .replace(/[\u2018\u2019]/g, "'")
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (!text || !/\bgraveyard\b/i.test(text)) return 0;
+
+    const grantsCastPermission = /\byou may cast (?:it|this card) from your graveyard this turn\b/i.test(text);
+    const grantsPlayPermission = !grantsCastPermission
+      && /\byou may play (?:it|this card) from your graveyard this turn\b/i.test(text);
+    if (!grantsCastPermission && !grantsPlayPermission) return 0;
+
+    if (/\bit'?s your turn\b/i.test(text) && !isPlayersTurn(state, playerId)) {
+      return 0;
+    }
+
+    const sourceCardId = String(
+      triggerItem?.interveningIfSubjectSnapshot?.id
+      || triggerItem?.card?.id
+      || triggerItem?.sourceId
+      || triggerItem?.source
+      || ''
+    ).trim();
+    const sourceCardName = String(
+      triggerItem?.interveningIfSubjectSnapshot?.name
+      || triggerItem?.card?.name
+      || sourceName
+      || ''
+    ).trim();
+    const sourceCard = findCardInPlayerGraveyard(state, playerId, {
+      cardId: sourceCardId,
+      cardName: sourceCardName,
+    });
+    if (!sourceCard) return 0;
+
+    return markSourceCardPlayableFromGraveyardThisTurn(
+      state,
+      playerId,
+      sourceCard,
+      grantsPlayPermission ? 'play' : 'cast',
+    );
+  } catch {
+    return 0;
+  }
+}
+
+export function applyGraveyardPermissionEffectsFromText(
+  ctx: GameContext,
+  playerId: PlayerID,
+  sourceName: string,
+  description: string,
+  triggerItem?: any,
+): number {
+  return (
+    applyTemporaryGraveyardKeywordGrantFromText(ctx, playerId, sourceName, description, triggerItem)
+    + applyPlayableFromGraveyardPermissionFromText(ctx, playerId, sourceName, description, triggerItem)
+  );
 }
 
 function findGrantedKeywordInfo(

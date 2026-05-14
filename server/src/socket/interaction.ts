@@ -3235,7 +3235,16 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         wasUnearthed: true,
         unearthed: true,
         counters: {},
-        card: { ...card, zone: "battlefield", unearth: true, wasUnearthed: true },
+          leaveBattlefieldReplacementDestination: 'exile',
+          leaveBattlefieldReplacementSourceName: cardName,
+          card: {
+            ...card,
+            zone: "battlefield",
+            unearth: true,
+            wasUnearthed: true,
+            leaveBattlefieldReplacementDestination: 'exile',
+            leaveBattlefieldReplacementSourceName: cardName,
+          },
       } as any;
         game.state.battlefield.push(createdPermanent);
         queueSelfEtbForLiveGraveyardEntry(game, gameId, String(pid), createdPermanent);
@@ -8385,29 +8394,9 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       ? 0
       : abilityIndex;
     
-    // Parse activated abilities: look for "cost: effect" patterns
-    const abilityPattern = /([^:]+):\s*([^.]+\.?)/gi;
-    const abilities: { cost: string; effect: string; fullText: string }[] = [];
-    let match;
-    while ((match = abilityPattern.exec(abilityOracleText)) !== null) {
-      const cost = match[1].trim();
-      const effect = match[2].trim();
-      const fullText = match[0].trim();
-      // Filter out keyword abilities and keep only activated abilities
-      const costLower = cost.toLowerCase();
-      if (
-        cost.includes('{') ||
-        costLower.includes('tap') ||
-        costLower.includes('sacrifice') ||
-        costLower.includes('discard') ||
-        (costLower.includes('remove') && costLower.includes('counter')) ||
-        (costLower.includes('pay') && costLower.includes('life')) ||
-        costLower.includes('exile') ||
-        costLower.includes('return')
-      ) {
-        abilities.push({ cost, effect, fullText });
-      }
-    }
+    // Preserve full same-line effect text for multi-sentence activated abilities such as
+    // Confession Dial's granted escape clause.
+    const abilities = extractActivatedAbilitiesFromText(abilityOracleText);
     
     if (selectedAbilityIndex < abilities.length) {
       const ability = abilities[selectedAbilityIndex];

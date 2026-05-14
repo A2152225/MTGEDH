@@ -15,7 +15,11 @@
 import type { GameContext } from "../../context.js";
 
 export interface LandfallTrigger {
-  permanentId: string;
+  permanentId?: string;
+  sourceId?: string;
+  sourceZone?: 'battlefield' | 'graveyard';
+  sourceCard?: any;
+  interveningIfSubjectSnapshot?: any;
   cardName: string;
   controllerId: string;
   effect: string;
@@ -27,6 +31,39 @@ export interface LandfallTrigger {
   // For triggers that require targeting (Geode Rager - "goad each creature target player controls")
   requiresTarget?: boolean;
   targetType?: 'player' | 'creature' | 'permanent';
+}
+
+function escapeRegExp(value: string): string {
+  return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function stripZoneFromSourceSnapshot(card: any): any {
+  if (!card || typeof card !== 'object') return card;
+  const { zone, ...rest } = card as any;
+  return rest;
+}
+
+function canLandfallTriggerFromGraveyard(card: any): boolean {
+  const oracleText = String(card?.oracle_text || card?.oracleText || '');
+  if (!oracleText) return false;
+  if (/\bif\s+this\s+card\s+is\s+in\s+your\s+graveyard\b/i.test(oracleText)) {
+    return true;
+  }
+
+  const cardName = String(card?.name || '').trim();
+  if (!cardName) return false;
+
+  return new RegExp(`\\bif\\s+${escapeRegExp(cardName)}\\s+is\\s+in\\s+your\\s+graveyard\\b`, 'i').test(oracleText);
+}
+
+function getControllerGraveyard(ctx: GameContext, controllerId: string): any[] {
+  const zonesGraveyard = ctx.state?.zones?.[controllerId]?.graveyard;
+  if (Array.isArray(zonesGraveyard)) return zonesGraveyard;
+
+  const playerEntry = Array.isArray(ctx.state?.players)
+    ? ctx.state.players.find((player: any) => String(player?.id || '') === String(controllerId || ''))
+    : undefined;
+  return Array.isArray(playerEntry?.graveyard) ? playerEntry.graveyard : [];
 }
 
 /**
@@ -171,7 +208,34 @@ export function getLandfallTriggers(
     if (permanent.controller !== landController) continue;
     
     const permTriggers = detectLandfallTriggers(permanent.card, permanent);
-    triggers.push(...permTriggers);
+    triggers.push(...permTriggers.map((trigger) => ({
+      ...trigger,
+      sourceId: trigger.permanentId,
+      sourceZone: 'battlefield' as const,
+      sourceCard: permanent.card,
+    })));
+  }
+
+  const graveyard = getControllerGraveyard(ctx, landController);
+  for (const card of graveyard) {
+    if (!card || !canLandfallTriggerFromGraveyard(card)) continue;
+
+    const pseudoPermanent = {
+      id: String(card?.id || ''),
+      controller: landController,
+      card,
+    };
+    const graveyardTriggers = detectLandfallTriggers(card, pseudoPermanent);
+    for (const trigger of graveyardTriggers) {
+      triggers.push({
+        ...trigger,
+        permanentId: undefined,
+        sourceId: String(card?.id || '').trim(),
+        sourceZone: 'graveyard',
+        sourceCard: { ...card },
+        interveningIfSubjectSnapshot: stripZoneFromSourceSnapshot(card),
+      });
+    }
   }
   
   return triggers;

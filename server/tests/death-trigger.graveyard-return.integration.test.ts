@@ -2334,4 +2334,238 @@ describe('Death trigger graveyard returns (integration)', () => {
       battlefieldControllerMode: 'owner',
     });
   });
+
+  it('prompts for Vraska payment and returns the dying card as a tapped Treasure artifact', async () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const controllerId = 'p1';
+    const opponentId = 'p2';
+    const eventsBefore = getEvents(gameId).length;
+    (game.state as any).players = [
+      { id: controllerId, name: 'P1', spectator: false, life: 40 },
+      { id: opponentId, name: 'P2', spectator: false, life: 40 },
+    ];
+    (game.state as any).turnPlayer = controllerId;
+    (game.state as any).priority = controllerId;
+    (game.state as any).manaPool = {
+      [controllerId]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 1 },
+      [opponentId]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+    };
+    (game.state as any).battlefield = [
+      {
+        id: 'vraska_1',
+        controller: controllerId,
+        owner: controllerId,
+        tapped: false,
+        counters: {},
+        basePower: 3,
+        baseToughness: 3,
+        card: {
+          id: 'vraska_card_1',
+          name: 'Vraska, the Silencer',
+          type_line: 'Legendary Creature - Gorgon Assassin',
+          oracle_text: 'Deathtouch\nWhenever a nontoken creature an opponent controls dies, you may pay {1}. If you do, return that card to the battlefield tapped under your control. It\'s a Treasure artifact with "{T}, Sacrifice this artifact: Add one mana of any color," and it loses all other card types.',
+          zone: 'battlefield',
+          power: '3',
+          toughness: '3',
+        },
+      },
+      {
+        id: 'vraska_victim_1',
+        controller: opponentId,
+        owner: opponentId,
+        tapped: false,
+        counters: {},
+        basePower: 2,
+        baseToughness: 2,
+        card: {
+          id: 'vraska_victim_card_1',
+          name: 'Doomed Ranger',
+          type_line: 'Creature - Human Scout',
+          oracle_text: '',
+          zone: 'battlefield',
+          power: '2',
+          toughness: '2',
+        },
+      },
+    ];
+    (game.state as any).zones = {
+      [controllerId]: {
+        hand: [], handCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0, library: [], libraryCount: 0,
+      },
+      [opponentId]: {
+        hand: [], handCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0, library: [], libraryCount: 0,
+      },
+    };
+
+    expect(movePermanentToGraveyard(game as any, 'vraska_victim_1')).toBe(true);
+    expect((game.state as any).stack).toHaveLength(1);
+    expect((game.state as any).stack[0]).toMatchObject({
+      source: 'vraska_1',
+      boundGraveyardCardId: 'vraska_victim_card_1',
+      targetZone: 'graveyard',
+      targetDestination: 'battlefield',
+      battlefieldTapped: true,
+      battlefieldSetTypeLine: 'Artifact - Treasure',
+    });
+    expect(String((game.state as any).stack[0]?.effect || '').toLowerCase()).toContain('if you do, return that card');
+
+    game.resolveTopOfStack();
+
+    const queue = ResolutionQueueManager.getQueue(gameId);
+    const paymentStep = queue.steps.find((step: any) => (step as any).optionalPaymentPrompt === true) as any;
+    expect(paymentStep).toBeDefined();
+    expect(paymentStep).toMatchObject({
+      type: 'option_choice',
+      playerId: controllerId,
+      optionalPaymentManaCost: '{1}',
+      triggeredAbilityManaPaymentChoice: true,
+    });
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(controllerId, emitted);
+    socket.rooms.add(gameId);
+    const io = createMockIo(emitted, [socket]);
+    registerResolutionHandlers(io as any, socket as any);
+
+    await handlers.submitResolutionResponse({
+      gameId,
+      stepId: paymentStep.id,
+      selections: 'pay_mana',
+    });
+
+    expect((game.state as any).manaPool[controllerId].colorless).toBe(0);
+    const opponentZones = (game.state as any).zones?.[opponentId];
+    expect((opponentZones?.graveyard || []).some((card: any) => String(card?.id || '') === 'vraska_victim_card_1')).toBe(false);
+
+    const returnedPermanent = ((game.state as any).battlefield || []).find(
+      (perm: any) => String(perm?.card?.id || '') === 'vraska_victim_card_1',
+    );
+    expect(returnedPermanent).toMatchObject({
+      controller: controllerId,
+      owner: opponentId,
+      tapped: true,
+      card: {
+        type_line: 'Artifact - Treasure',
+        oracle_text: '{t}, sacrifice this artifact: add one mana of any color,',
+      },
+    });
+    expect(returnedPermanent?.basePower).toBeUndefined();
+    expect(returnedPermanent?.baseToughness).toBeUndefined();
+
+    const newEvents = getEvents(gameId).slice(eventsBefore);
+    const confirmEvent = [...newEvents].reverse().find((event: any) => event.type === 'confirmGraveyardTargets') as any;
+    expect(confirmEvent?.payload).toMatchObject({
+      selectedCardIds: ['vraska_victim_card_1'],
+      destination: 'battlefield',
+      battlefieldTapped: true,
+      battlefieldSetTypeLine: 'Artifact - Treasure',
+    });
+  });
+
+  it('prompts for Lim-Dul payment and returns the dying creature with Zombie added', async () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const controllerId = 'p1';
+    const opponentId = 'p2';
+    (game.state as any).players = [
+      { id: controllerId, name: 'P1', spectator: false, life: 40 },
+      { id: opponentId, name: 'P2', spectator: false, life: 40 },
+    ];
+    (game.state as any).turnPlayer = controllerId;
+    (game.state as any).priority = controllerId;
+    (game.state as any).manaPool = {
+      [controllerId]: { white: 0, blue: 0, black: 1, red: 0, green: 0, colorless: 1 },
+      [opponentId]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+    };
+    (game.state as any).battlefield = [
+      {
+        id: 'lim_dul_1',
+        controller: controllerId,
+        owner: controllerId,
+        tapped: false,
+        counters: {},
+        basePower: 4,
+        baseToughness: 4,
+        card: {
+          id: 'lim_dul_card_1',
+          name: 'Lim-Dul the Necromancer',
+          type_line: 'Legendary Creature - Human Wizard',
+          oracle_text: 'Whenever a creature an opponent controls dies, you may pay {1}{B}. If you do, return that card to the battlefield under your control. If it\'s a creature, it\'s a Zombie in addition to its other creature types.\n{1}{B}: Regenerate target Zombie.',
+          zone: 'battlefield',
+          power: '4',
+          toughness: '4',
+        },
+      },
+      {
+        id: 'lim_dul_victim_1',
+        controller: opponentId,
+        owner: opponentId,
+        tapped: false,
+        counters: {},
+        basePower: 4,
+        baseToughness: 2,
+        card: {
+          id: 'lim_dul_victim_card_1',
+          name: 'Fallen Ogre',
+          type_line: 'Creature - Ogre Warrior',
+          oracle_text: '',
+          zone: 'battlefield',
+          power: '4',
+          toughness: '2',
+        },
+      },
+    ];
+    (game.state as any).zones = {
+      [controllerId]: {
+        hand: [], handCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0, library: [], libraryCount: 0,
+      },
+      [opponentId]: {
+        hand: [], handCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0, library: [], libraryCount: 0,
+      },
+    };
+
+    expect(movePermanentToGraveyard(game as any, 'lim_dul_victim_1')).toBe(true);
+    expect((game.state as any).stack[0]).toMatchObject({
+      source: 'lim_dul_1',
+      boundGraveyardCardId: 'lim_dul_victim_card_1',
+      battlefieldGrantedTypes: ['Zombie'],
+    });
+
+    game.resolveTopOfStack();
+
+    const queue = ResolutionQueueManager.getQueue(gameId);
+    const paymentStep = queue.steps.find((step: any) => (step as any).optionalPaymentPrompt === true) as any;
+    expect(paymentStep).toBeDefined();
+    expect(paymentStep.optionalPaymentManaCost).toBe('{1}{b}');
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(controllerId, emitted);
+    socket.rooms.add(gameId);
+    const io = createMockIo(emitted, [socket]);
+    registerResolutionHandlers(io as any, socket as any);
+
+    await handlers.submitResolutionResponse({
+      gameId,
+      stepId: paymentStep.id,
+      selections: 'pay_mana',
+    });
+
+    expect((game.state as any).manaPool[controllerId].black).toBe(0);
+    expect((game.state as any).manaPool[controllerId].colorless).toBe(0);
+
+    const returnedPermanent = ((game.state as any).battlefield || []).find(
+      (perm: any) => String(perm?.card?.id || '') === 'lim_dul_victim_card_1',
+    );
+    expect(returnedPermanent).toMatchObject({
+      controller: controllerId,
+      owner: opponentId,
+    });
+    expect(String(returnedPermanent?.card?.type_line || '').toLowerCase()).toContain('ogre');
+    expect(String(returnedPermanent?.card?.type_line || '').toLowerCase()).toContain('zombie');
+  });
 });

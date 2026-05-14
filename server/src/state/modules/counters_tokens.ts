@@ -19,6 +19,7 @@ import { clearPreparedPermanent } from "./prepared.js";
 import { applyShieldCounterDamagePrevention, getCounterLeaveBattlefieldReplacement } from "./counter-common-effects.js";
 import { inferManaValueConstraintFromText } from "./graveyard-mana-value.js";
 import { detectKeywords } from "./keyword-detection.js";
+import { moveRemovedPermanentToExile } from "./zones.js";
 
 /**
  * Counter modification effects that double or halve counters
@@ -47,6 +48,10 @@ type DeathTriggerStackMetadata = {
   battlefieldFaceDown?: true;
   battlefieldTurnFaceUp?: true;
   battlefieldSuspected?: true;
+  battlefieldSetTypeLine?: string;
+  battlefieldSetOracleText?: string;
+  battlefieldLoseAllOtherTypes?: true;
+  battlefieldGrantedTypes?: string[];
   targetFilterTypes?: string[];
   targetFilterRequiredTypeWords?: string[];
   targetFilterExcludeTypes?: string[];
@@ -100,12 +105,36 @@ function isPermanentTypeLine(typeLineValue: string): boolean {
   return ['artifact', 'battle', 'creature', 'enchantment', 'land', 'planeswalker'].some((type) => typeLine.includes(type));
 }
 
+function unwrapOptionalManaPaymentSuccessText(effectText: string): string {
+  const text = String(effectText || '').trim();
+  const match = text.match(/^you\s+may\s+pay\s+\{[^}]+\}(?:\{[^}]+\})*\.\s*if\s+you\s+do,?\s*([\s\S]+)$/i);
+  return String(match?.[1] || text).trim();
+}
+
+function applyBattlefieldReturnCharacteristicMetadata(metadata: DeathTriggerStackMetadata, effectText: string): void {
+  const normalized = String(effectText || '').replace(/[’]/g, "'").trim();
+  const lower = normalized.toLowerCase();
+
+  const treasureArtifactMatch = normalized.match(/\bit'?s\s+a\s+treasure\s+artifact\s+with\s+"([^"]+)"\s+and\s+it\s+loses\s+all\s+other\s+card\s+types\.?/i);
+  if (treasureArtifactMatch) {
+    metadata.battlefieldSetTypeLine = 'Artifact - Treasure';
+    metadata.battlefieldSetOracleText = String(treasureArtifactMatch[1] || '').trim();
+    metadata.battlefieldLoseAllOtherTypes = true;
+  }
+
+  if (/\bif\s+it'?s\s+a\s+creature,\s+it'?s\s+a\s+zombie\s+in\s+addition\s+to\s+its\s+other\s+creature\s+types\.?/i.test(lower)) {
+    metadata.battlefieldGrantedTypes = Array.from(new Set([...(metadata.battlefieldGrantedTypes || []), 'Zombie']));
+  }
+}
+
 function inferDeathTriggerStackMetadata(effectText: string, dyingPermanent: any, gameState?: any): DeathTriggerStackMetadata {
-  const lower = String(effectText || '').toLowerCase();
+  const normalizedEffectText = unwrapOptionalManaPaymentSuccessText(effectText);
+  const lower = String(normalizedEffectText || '').toLowerCase();
   const metadata: DeathTriggerStackMetadata = {};
   const underlyingCard = (dyingPermanent as any)?.faceUpCard || dyingPermanent?.card;
   const underlyingTypeLine = String(underlyingCard?.type_line || '');
   const dyingSubtypeWords = getSubtypeWordsFromTypeLine(underlyingTypeLine);
+  applyBattlefieldReturnCharacteristicMetadata(metadata, normalizedEffectText);
 
   if (lower.includes("if it's a permanent card") || lower.includes("if it is a permanent card")) {
     if (!isPermanentTypeLine(underlyingTypeLine)) {
@@ -196,7 +225,7 @@ function inferDeathTriggerStackMetadata(effectText: string, dyingPermanent: any,
     if (lower.includes('target permanent card')) {
       metadata.targetFilterPermanentOnly = true;
     } else {
-      const manaValueConstraint = inferManaValueConstraintFromText(effectText, {
+      const manaValueConstraint = inferManaValueConstraintFromText(normalizedEffectText, {
         gameState,
         controllerId: String(dyingPermanent?.controller || dyingPermanent?.owner || '').trim() || undefined,
         sourceName: String(dyingPermanent?.card?.name || dyingPermanent?.name || '').trim() || undefined,
@@ -254,90 +283,90 @@ function inferDeathTriggerStackMetadata(effectText: string, dyingPermanent: any,
     return metadata;
   }
 
-  if (/^return (?:that card|it) to its owner['’]s hand\.?$/i.test(effectText)) {
+  if (/^return (?:that card|it) to its owner['’]s hand\.?$/i.test(normalizedEffectText)) {
     metadata.targetZone = 'graveyard';
     metadata.targetDestination = 'hand';
     metadata.destinationUsesSelectedCardOwner = true;
     metadata.boundGraveyardCardId = boundCardId;
     metadata.boundGraveyardOwnerId = boundOwnerId || undefined;
-  } else if (/^return (?:that card|it) to its owner['’]s hand at the beginning of the next end step\.?$/i.test(effectText)) {
+  } else if (/^return (?:that card|it) to its owner['’]s hand at the beginning of the next end step\.?$/i.test(normalizedEffectText)) {
     metadata.targetZone = 'graveyard';
     metadata.targetDestination = 'hand';
     metadata.destinationUsesSelectedCardOwner = true;
     metadata.boundGraveyardCardId = boundCardId;
     metadata.boundGraveyardOwnerId = boundOwnerId || undefined;
-  } else if (/^return to owner['’]s hand at beginning of next end step\.?$/i.test(effectText)) {
+  } else if (/^return to owner['’]s hand at beginning of next end step\.?$/i.test(normalizedEffectText)) {
     metadata.targetZone = 'graveyard';
     metadata.targetDestination = 'hand';
     metadata.destinationUsesSelectedCardOwner = true;
     metadata.boundGraveyardCardId = boundCardId;
     metadata.boundGraveyardOwnerId = boundOwnerId || undefined;
-  } else if (/^return (?:that card|it) to your hand\.?$/i.test(effectText)) {
+  } else if (/^return (?:that card|it) to your hand\.?$/i.test(normalizedEffectText)) {
     metadata.targetZone = 'graveyard';
     metadata.targetDestination = 'hand';
     metadata.boundGraveyardCardId = boundCardId;
     metadata.boundGraveyardOwnerId = boundOwnerId || undefined;
-  } else if (/^return (?:that card|it) to the battlefield(?: tapped)? under its owner['’]s control(?: with [^.]+?)?(?: at the beginning of (?:the next end step|their next upkeep|its owner['’]s next upkeep))?\.?$/i.test(effectText)) {
+  } else if (/^return (?:that card|it) to the battlefield(?: tapped)? under its owner['’]s control(?: with [^.]+?)?(?: at the beginning of (?:the next end step|their next upkeep|its owner['’]s next upkeep))?\.?$/i.test(normalizedEffectText)) {
     metadata.targetZone = 'graveyard';
     metadata.targetDestination = 'battlefield';
     metadata.battlefieldControllerMode = 'owner';
     metadata.boundGraveyardCardId = boundCardId;
     metadata.boundGraveyardOwnerId = boundOwnerId || undefined;
-  } else if (/^return (?:that card|it) to the battlefield(?: tapped)? under your control(?: with [^.]+?)?(?: at the beginning of the next end step)?\.?$/i.test(effectText)) {
+  } else if (/^return (?:that card|it) to the battlefield(?: tapped)? under your control(?: with [^.]+?)?(?: at the beginning of the next end step)?\.?$/i.test(normalizedEffectText)) {
     metadata.targetZone = 'graveyard';
     metadata.targetDestination = 'battlefield';
     metadata.boundGraveyardCardId = boundCardId;
     metadata.boundGraveyardOwnerId = boundOwnerId || undefined;
-  } else if (/^return creature to battlefield under your control(?: with (?:an additional )?\+1\/\+1 counter(?: on it)?)? at beginning of next end step\.?$/i.test(effectText)) {
+  } else if (/^return creature to battlefield under your control(?: with (?:an additional )?\+1\/\+1 counter(?: on it)?)? at beginning of next end step\.?$/i.test(normalizedEffectText)) {
     metadata.targetZone = 'graveyard';
     metadata.targetDestination = 'battlefield';
     metadata.boundGraveyardCardId = boundCardId;
     metadata.boundGraveyardOwnerId = boundOwnerId || undefined;
-  } else if (/^return (?:that card|it) to the battlefield under its owner['’]s control\.?$/i.test(effectText)) {
-    metadata.targetZone = 'graveyard';
-    metadata.targetDestination = 'battlefield';
-    metadata.battlefieldControllerMode = 'owner';
-    metadata.boundGraveyardCardId = boundCardId;
-    metadata.boundGraveyardOwnerId = boundOwnerId || undefined;
-  } else if (/^return (?:that card|it) to the battlefield under its owner['’]s control at the beginning of the next end step\.?$/i.test(effectText)) {
+  } else if (/^return (?:that card|it) to the battlefield under its owner['’]s control\.?$/i.test(normalizedEffectText)) {
     metadata.targetZone = 'graveyard';
     metadata.targetDestination = 'battlefield';
     metadata.battlefieldControllerMode = 'owner';
     metadata.boundGraveyardCardId = boundCardId;
     metadata.boundGraveyardOwnerId = boundOwnerId || undefined;
-  } else if (/^return to battlefield under owner['’]s control at beginning of next end step\.?$/i.test(effectText)) {
+  } else if (/^return (?:that card|it) to the battlefield under its owner['’]s control at the beginning of the next end step\.?$/i.test(normalizedEffectText)) {
     metadata.targetZone = 'graveyard';
     metadata.targetDestination = 'battlefield';
     metadata.battlefieldControllerMode = 'owner';
     metadata.boundGraveyardCardId = boundCardId;
     metadata.boundGraveyardOwnerId = boundOwnerId || undefined;
-  } else if (/^return (?:that card|it) to the battlefield under your control\.?$/i.test(effectText)) {
-    metadata.targetZone = 'graveyard';
-    metadata.targetDestination = 'battlefield';
-    metadata.boundGraveyardCardId = boundCardId;
-    metadata.boundGraveyardOwnerId = boundOwnerId || undefined;
-  } else if (/^return (?:that card|it) to the battlefield under your control at the beginning of the next end step\.?$/i.test(effectText)) {
-    metadata.targetZone = 'graveyard';
-    metadata.targetDestination = 'battlefield';
-    metadata.boundGraveyardCardId = boundCardId;
-    metadata.boundGraveyardOwnerId = boundOwnerId || undefined;
-  } else if (/^return to battlefield under your control with an additional \+1\/\+1 counter on it at beginning of next end step/i.test(effectText)) {
-    metadata.targetZone = 'graveyard';
-    metadata.targetDestination = 'battlefield';
-    metadata.boundGraveyardCardId = boundCardId;
-    metadata.boundGraveyardOwnerId = boundOwnerId || undefined;
-  } else if (/^return (?:that card|it) to the battlefield\.?$/i.test(effectText)) {
-    metadata.targetZone = 'graveyard';
-    metadata.targetDestination = 'battlefield';
-    metadata.boundGraveyardCardId = boundCardId;
-    metadata.boundGraveyardOwnerId = boundOwnerId || undefined;
-  } else if (/^return (?:that card|it) to the battlefield(?: tapped)? under its owner['’]s control at the beginning of (?:their|its owner['’]s) next upkeep\.?$/i.test(effectText)) {
+  } else if (/^return to battlefield under owner['’]s control at beginning of next end step\.?$/i.test(normalizedEffectText)) {
     metadata.targetZone = 'graveyard';
     metadata.targetDestination = 'battlefield';
     metadata.battlefieldControllerMode = 'owner';
     metadata.boundGraveyardCardId = boundCardId;
     metadata.boundGraveyardOwnerId = boundOwnerId || undefined;
-  } else if (/^return\b/i.test(effectText) && lower.includes('to the battlefield')) {
+  } else if (/^return (?:that card|it) to the battlefield under your control\.?$/i.test(normalizedEffectText)) {
+    metadata.targetZone = 'graveyard';
+    metadata.targetDestination = 'battlefield';
+    metadata.boundGraveyardCardId = boundCardId;
+    metadata.boundGraveyardOwnerId = boundOwnerId || undefined;
+  } else if (/^return (?:that card|it) to the battlefield under your control at the beginning of the next end step\.?$/i.test(normalizedEffectText)) {
+    metadata.targetZone = 'graveyard';
+    metadata.targetDestination = 'battlefield';
+    metadata.boundGraveyardCardId = boundCardId;
+    metadata.boundGraveyardOwnerId = boundOwnerId || undefined;
+  } else if (/^return to battlefield under your control with an additional \+1\/\+1 counter on it at beginning of next end step/i.test(normalizedEffectText)) {
+    metadata.targetZone = 'graveyard';
+    metadata.targetDestination = 'battlefield';
+    metadata.boundGraveyardCardId = boundCardId;
+    metadata.boundGraveyardOwnerId = boundOwnerId || undefined;
+  } else if (/^return (?:that card|it) to the battlefield\.?$/i.test(normalizedEffectText)) {
+    metadata.targetZone = 'graveyard';
+    metadata.targetDestination = 'battlefield';
+    metadata.boundGraveyardCardId = boundCardId;
+    metadata.boundGraveyardOwnerId = boundOwnerId || undefined;
+  } else if (/^return (?:that card|it) to the battlefield(?: tapped)? under its owner['’]s control at the beginning of (?:their|its owner['’]s) next upkeep\.?$/i.test(normalizedEffectText)) {
+    metadata.targetZone = 'graveyard';
+    metadata.targetDestination = 'battlefield';
+    metadata.battlefieldControllerMode = 'owner';
+    metadata.boundGraveyardCardId = boundCardId;
+    metadata.boundGraveyardOwnerId = boundOwnerId || undefined;
+  } else if (/^return\b/i.test(normalizedEffectText) && lower.includes('to the battlefield')) {
     metadata.targetZone = 'graveyard';
     metadata.targetDestination = 'battlefield';
     metadata.boundGraveyardCardId = boundCardId;
@@ -345,7 +374,7 @@ function inferDeathTriggerStackMetadata(effectText: string, dyingPermanent: any,
     if (/under (?:its )?owner['’]s control/.test(lower)) {
       metadata.battlefieldControllerMode = 'owner';
     }
-  } else if (/^return\b/i.test(effectText) && (lower.includes("to its owner's hand") || lower.includes("to owner's hand") || lower.includes('to your hand'))) {
+  } else if (/^return\b/i.test(normalizedEffectText) && (lower.includes("to its owner's hand") || lower.includes("to owner's hand") || lower.includes('to your hand'))) {
     metadata.targetZone = 'graveyard';
     metadata.targetDestination = 'hand';
     metadata.boundGraveyardCardId = boundCardId;
@@ -404,6 +433,10 @@ function pushDeathTriggerOntoStack(ctx: GameContext, trigger: any, dyingPermanen
     ...(metadata.battlefieldFaceDown === true ? { battlefieldFaceDown: true } : null),
     ...(metadata.battlefieldTurnFaceUp === true ? { battlefieldTurnFaceUp: true } : null),
     ...(metadata.battlefieldSuspected === true ? { battlefieldSuspected: true } : null),
+    ...(metadata.battlefieldSetTypeLine ? { battlefieldSetTypeLine: metadata.battlefieldSetTypeLine } : null),
+    ...(typeof metadata.battlefieldSetOracleText === 'string' ? { battlefieldSetOracleText: metadata.battlefieldSetOracleText } : null),
+    ...(metadata.battlefieldLoseAllOtherTypes === true ? { battlefieldLoseAllOtherTypes: true } : null),
+    ...(Array.isArray(metadata.battlefieldGrantedTypes) ? { battlefieldGrantedTypes: metadata.battlefieldGrantedTypes } : null),
     ...(Array.isArray(metadata.targetFilterTypes) ? { targetFilterTypes: metadata.targetFilterTypes } : null),
     ...(Array.isArray(metadata.targetFilterRequiredTypeWords) ? { targetFilterRequiredTypeWords: metadata.targetFilterRequiredTypeWords } : null),
     ...(Array.isArray(metadata.targetFilterExcludeTypes) ? { targetFilterExcludeTypes: metadata.targetFilterExcludeTypes } : null),
@@ -451,6 +484,10 @@ function pushDeathTriggerOntoStack(ctx: GameContext, trigger: any, dyingPermanen
       ...(metadata.battlefieldFaceDown === true ? { battlefieldFaceDown: true } : null),
       ...(metadata.battlefieldTurnFaceUp === true ? { battlefieldTurnFaceUp: true } : null),
       ...(metadata.battlefieldSuspected === true ? { battlefieldSuspected: true } : null),
+      ...(metadata.battlefieldSetTypeLine ? { battlefieldSetTypeLine: metadata.battlefieldSetTypeLine } : null),
+      ...(typeof metadata.battlefieldSetOracleText === 'string' ? { battlefieldSetOracleText: metadata.battlefieldSetOracleText } : null),
+      ...(metadata.battlefieldLoseAllOtherTypes === true ? { battlefieldLoseAllOtherTypes: true } : null),
+      ...(Array.isArray(metadata.battlefieldGrantedTypes) ? { battlefieldGrantedTypes: metadata.battlefieldGrantedTypes } : null),
       ...(Array.isArray(metadata.targetFilterTypes) ? { targetFilterTypes: metadata.targetFilterTypes } : null),
       ...(Array.isArray(metadata.targetFilterRequiredTypeWords) ? { targetFilterRequiredTypeWords: metadata.targetFilterRequiredTypeWords } : null),
       ...(Array.isArray(metadata.targetFilterExcludeTypes) ? { targetFilterExcludeTypes: metadata.targetFilterExcludeTypes } : null),
@@ -1205,30 +1242,7 @@ export function movePermanentToGraveyard(ctx: GameContext, permanentId: string, 
 
   const leaveReplacementDestination = getCounterLeaveBattlefieldReplacement(perm, 'graveyard');
   if (leaveReplacementDestination === 'exile') {
-    if (owner) {
-      const ownerZone = zones[owner] = zones[owner] || { hand: [], handCount: 0, libraryCount: 0, graveyard: [], graveyardCount: 0, exile: [] } as any;
-      (ownerZone as any).exile = (ownerZone as any).exile || [];
-      if (!isToken && zoneCard) {
-        const exiledCard = {
-          id: zoneCard.id,
-          name: zoneCard.name,
-          type_line: zoneCard.type_line,
-          oracle_text: zoneCard.oracle_text,
-          image_uris: zoneCard.image_uris,
-          mana_cost: zoneCard.mana_cost,
-          power: zoneCard.power,
-          toughness: zoneCard.toughness,
-          ...buildZoneObjectWithRetainedCounters(zoneCard, perm, 'exile'),
-        };
-        (ownerZone as any).exile.push(exiledCard);
-      }
-    }
-
-    if (removedPermanentId) {
-      processLinkedExileReturns(ctx, removedPermanentId);
-    }
-
-    bumpSeq();
+    moveRemovedPermanentToExile(ctx, perm, removedPermanentId);
     try {
       recalculatePlayerEffects(ctx);
     } catch (err) {
@@ -1892,26 +1906,7 @@ export function runSBA(ctx: GameContext) {
         const leaveReplacementDestination = getCounterLeaveBattlefieldReplacement(destroyed, 'graveyard');
 
         if (leaveReplacementDestination === 'exile') {
-          const owner = (destroyed as any).owner || (destroyed as any).controller;
-          if (!isToken && owner) {
-            const ownerZone = zones[owner] = zones[owner] || { hand: [], graveyard: [], exile: [], handCount: 0, graveyardCount: 0, exileCount: 0, libraryCount: 0 } as any;
-            (ownerZone as any).exile = (ownerZone as any).exile || [];
-            const card = (destroyed as any).card;
-            if (card) {
-              (ownerZone as any).exile.push({
-                id: card.id,
-                name: card.name,
-                type_line: card.type_line,
-                oracle_text: card.oracle_text,
-                image_uris: card.image_uris,
-                mana_cost: card.mana_cost,
-                power: card.power,
-                toughness: card.toughness,
-                ...buildZoneObjectWithRetainedCounters(card, destroyed, 'exile'),
-              });
-              (ownerZone as any).exileCount = ((ownerZone as any).exile || []).length;
-            }
-          }
+          moveRemovedPermanentToExile(ctx, destroyed, String((destroyed as any)?.id || '').trim());
           changed = true;
           continue;
         }

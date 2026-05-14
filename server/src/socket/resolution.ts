@@ -138,6 +138,7 @@ import {
   buildDungeonRoomPromptSteps,
 } from "../state/modules/dungeon-effects.js";
 import { parseMadnessCost } from "../state/modules/alternate-costs.js";
+import { applyGraveyardPermissionEffectsFromText } from "../state/modules/graveyard-permissions.js";
 import { createEffectProgramChoiceResponse, readEffectProgramQueueMetadata, resumeEffectProgramResolution } from "../state/effects/index.js";
 
 type ResolutionPaymentItem = {
@@ -147,6 +148,32 @@ type ResolutionPaymentItem = {
   count?: number;
   producedColors?: string[]; // Added producedColors property
 };
+
+function markPermanentEnteredFromZone(permanent: any, zone: string): void {
+  const normalizedZone = String(zone || '').trim().toLowerCase();
+  if (!permanent || !normalizedZone) return;
+
+  permanent.enteredFromZone = normalizedZone;
+  if (normalizedZone === 'graveyard') {
+    permanent.enteredFromGraveyard = true;
+  }
+
+  if (permanent.card && typeof permanent.card === 'object') {
+    permanent.card = {
+      ...(permanent.card as any),
+      enteredFromZone: normalizedZone,
+      ...(normalizedZone === 'graveyard' ? { enteredFromGraveyard: true } : null),
+    };
+  }
+
+  if (permanent.faceUpCard && typeof permanent.faceUpCard === 'object') {
+    permanent.faceUpCard = {
+      ...(permanent.faceUpCard as any),
+      enteredFromZone: normalizedZone,
+      ...(normalizedZone === 'graveyard' ? { enteredFromGraveyard: true } : null),
+    };
+  }
+}
 
 function cloneCascadeZoneCard(card: any, zone: 'library' | 'exile'): any {
   return card && typeof card === 'object' ? { ...card, zone } : card;
@@ -1968,6 +1995,118 @@ function appendCastFromExilePromptResolveEvent(
     appendEvent(gameId, (game as any).seq ?? 0, 'castFromExilePromptResolve', payload);
   } catch (err) {
     debugWarn(1, '[Resolution] appendEvent(castFromExilePromptResolve) failed:', err);
+  }
+}
+
+function appendCastFromGraveyardPromptResolveEvent(
+  gameId: string,
+  game: any,
+  payload: Record<string, unknown>
+): void {
+  try {
+    appendEvent(gameId, (game as any).seq ?? 0, 'castFromGraveyardPromptResolve', payload);
+  } catch (err) {
+    debugWarn(1, '[Resolution] appendEvent(castFromGraveyardPromptResolve) failed:', err);
+  }
+}
+
+const DISCARD_TRIGGERED_GRAVEYARD_CAST_ORACLE = 'whenever you discard a nonland card, you may cast it from your graveyard.';
+
+function normalizeOracleTextForMatch(text: unknown): string {
+  return String(text || '').replace(/[’]/g, "'").trim().toLowerCase();
+}
+
+function cardHasDiscardTriggeredGraveyardCast(card: any): boolean {
+  return normalizeOracleTextForMatch(card?.oracle_text).includes(DISCARD_TRIGGERED_GRAVEYARD_CAST_ORACLE);
+}
+
+function appendTriggeredAbilityPushEvent(
+  gameId: string,
+  game: any,
+  stackItem: any,
+): void {
+  try {
+    appendEvent(gameId, (game as any).seq ?? 0, 'pushTriggeredAbility', {
+      triggerId: stackItem.id,
+      sourceId: stackItem.source,
+      permanentId: stackItem.permanentId || stackItem.source,
+      sourceName: stackItem.sourceName,
+      controllerId: stackItem.controller,
+      description: stackItem.description,
+      triggerType: stackItem.triggerType,
+      ...(stackItem.effect ? { effect: stackItem.effect } : null),
+      mandatory: typeof stackItem.mandatory === 'boolean' ? stackItem.mandatory : true,
+      ...(stackItem.effectData && typeof stackItem.effectData === 'object' ? { effectData: stackItem.effectData } : null),
+      ...(stackItem.card && typeof stackItem.card === 'object' ? { card: stackItem.card } : null),
+    });
+  } catch (err) {
+    debugWarn(1, '[Resolution] appendEvent(pushTriggeredAbility) failed:', err);
+  }
+}
+
+function queueDiscardTriggeredGraveyardCastAbilities(
+  game: any,
+  gameId: string,
+  playerId: string,
+  discardedCards: any[],
+): void {
+  const battlefield = Array.isArray((game.state as any)?.battlefield) ? (game.state as any).battlefield : [];
+  const sources = battlefield.filter((permanent: any) => {
+    if (!permanent || String(permanent.controller || '') !== String(playerId)) return false;
+    return cardHasDiscardTriggeredGraveyardCast((permanent as any).card);
+  });
+  if (sources.length === 0) {
+    return;
+  }
+
+  const cardsToTrigger = Array.isArray(discardedCards)
+    ? discardedCards.filter((card: any) => {
+        if (!card) return false;
+        const cardId = String(card.id || '').trim();
+        const typeLine = String(card.type_line || '').toLowerCase();
+        return Boolean(cardId) && !typeLine.includes('land');
+      })
+    : [];
+  if (cardsToTrigger.length === 0) {
+    return;
+  }
+
+  const stateAny = game.state as any;
+  stateAny.stack = Array.isArray(stateAny.stack) ? stateAny.stack : [];
+
+  for (const discardedCard of cardsToTrigger) {
+    const discardedCardId = String(discardedCard?.id || '').trim();
+    const discardedCardName = String(discardedCard?.name || 'that card').trim() || 'that card';
+    if (!discardedCardId) continue;
+
+    for (const sourcePermanent of sources) {
+      const triggerId = uid('trigger');
+      const sourceId = String(sourcePermanent?.id || triggerId).trim();
+      const sourceName = String(sourcePermanent?.card?.name || 'Discard trigger').trim() || 'Discard trigger';
+      const stackItem = {
+        id: triggerId,
+        type: 'triggered_ability',
+        controller: String(playerId),
+        source: sourceId,
+        permanentId: sourceId,
+        sourceName,
+        description: `You may cast ${discardedCardName} from your graveyard.`,
+        effect: 'Whenever you discard a nonland card, you may cast it from your graveyard.',
+        triggerType: 'triggered_ability',
+        mandatory: true,
+        effectData: {
+          discardTriggeredCastFromGraveyard: true,
+          discardedCardId,
+          discardedCardName,
+        },
+        ...(sourcePermanent?.card && typeof sourcePermanent.card === 'object'
+          ? { card: { ...(sourcePermanent.card as any) } }
+          : null),
+      } as any;
+
+      stateAny.stack.push(stackItem);
+      appendTriggeredAbilityPushEvent(gameId, game, stackItem);
+    }
   }
 }
 
@@ -15132,6 +15271,10 @@ async function handleDiscardResponse(
     }
   }
 
+  if (!isDiscardCostActivation && !isExileFromHandCostActivation && !isGraveyardCastDiscardActivation && !isCleanupDiscard && movedCards.length > 0) {
+    queueDiscardTriggeredGraveyardCastAbilities(game, gameId, String(pid), movedCards);
+  }
+
   if ((step as any)?.wardPayment === true) {
     const stepAny = step as any;
     try {
@@ -26685,38 +26828,44 @@ async function handleOptionChoiceResponse(
       const choiceId = extractId(selectedOption) || 'decline';
       const graveyardCardId = String(stepData.castFromGraveyardCardId);
       const zones = game.state?.zones?.[playerId];
-      if (!zones || !zones.graveyard) {
-        debugWarn(2, `[Resolution] Cast-from-graveyard: No graveyard found for player ${playerId}`);
-        return;
-      }
-
-      const cardIndex = zones.graveyard.findIndex((c: any) => c?.id === graveyardCardId);
-      if (cardIndex === -1) {
-        debugWarn(2, `[Resolution] Cast-from-graveyard: Card ${graveyardCardId} not found in graveyard`);
-        return;
-      }
+      const graveyard = Array.isArray(zones?.graveyard) ? zones.graveyard : [];
+      const cardIndex = graveyard.findIndex((c: any) => c?.id === graveyardCardId);
 
       if (choiceId === 'cast') {
         const castWithoutPayingManaCost = stepData.castFromGraveyardWithoutPayingManaCost === true;
-        const fakeSocket: any = {
-          data: { playerId, spectator: false },
-          emit: (event: string, payload: unknown) => {
-            emitToPlayer(io, playerId as any, event as any, payload);
-          },
-        };
+        if (!zones || !Array.isArray(zones.graveyard)) {
+          debugWarn(2, `[Resolution] Cast-from-graveyard: No graveyard found for player ${playerId}`);
+        } else if (cardIndex === -1) {
+          debugWarn(2, `[Resolution] Cast-from-graveyard: Card ${graveyardCardId} not found in graveyard`);
+        } else {
+          const fakeSocket: any = {
+            data: { playerId, spectator: false },
+            emit: (event: string, payload: unknown) => {
+              emitToPlayer(io, playerId as any, event as any, payload);
+            },
+          };
 
-        await requestCastSpellForSocket(
-          io,
-          fakeSocket,
-          { gameId, cardId: graveyardCardId, fromZone: 'graveyard' },
-          {
-            skipPriorityCheck: true,
-            forcedAlternateCostId: castWithoutPayingManaCost ? 'free' : undefined,
-            castWithoutPayingManaCost,
-            ignoreTimingRestrictions: true,
-          }
-        );
+          await requestCastSpellForSocket(
+            io,
+            fakeSocket,
+            { gameId, cardId: graveyardCardId, fromZone: 'graveyard' },
+            {
+              skipPriorityCheck: true,
+              forcedAlternateCostId: castWithoutPayingManaCost ? 'free' : undefined,
+              castWithoutPayingManaCost,
+              ignoreTimingRestrictions: true,
+            }
+          );
+        }
       }
+
+      appendCastFromGraveyardPromptResolveEvent(gameId, game, {
+        playerId,
+        sourceId: String((step as any).sourceId || '').trim(),
+        resolvedStepId: String((step as any).id || '').trim(),
+        cardId: graveyardCardId,
+        choice: choiceId === 'cast' ? 'cast' : 'decline',
+      });
 
       if (typeof (game as any).bumpSeq === 'function') {
         (game as any).bumpSeq();
@@ -29289,6 +29438,7 @@ async function handleGraveyardSelectionResponse(
   const movedCards: string[] = [];
   const movedCardIds: string[] = [];
   const createdPermanentIds: string[] = [];
+  const createdBattlefieldEntries: Array<{ permanent: any; controllerId: string }> = [];
   const touchedZoneOwners = new Set<string>();
 
   const findSelectedCardSourceOwner = (cardId: string): string | null => {
@@ -29915,8 +30065,10 @@ async function handleGraveyardSelectionResponse(
         permanent.isSuspected = true;
         permanent.card = { ...(permanent.card || {}), suspected: true, isSuspected: true };
       }
+      markPermanentEnteredFromZone(permanent, 'graveyard');
       battlefield.push(permanent);
       createdPermanentIds.push(permanentId);
+      createdBattlefieldEntries.push({ permanent, controllerId: battlefieldControllerId });
     } else if (destination === 'library_top' || destination === 'library_bottom') {
       const destinationPlayerId = stepData.destinationUsesSelectedCardOwner === true ? sourceOwnerId : pid;
       const lib = (game as any).libraries?.get(destinationPlayerId) || [];
@@ -29987,6 +30139,21 @@ async function handleGraveyardSelectionResponse(
     });
   } catch (e) {
     debugWarn(1, 'appendEvent(confirmGraveyardTargets) failed:', e);
+  }
+
+  for (const entry of createdBattlefieldEntries) {
+    const ctx = {
+      state: game.state,
+      gameId,
+      libraries: (game as any).libraries,
+      commandZone: (game as any).commandZone,
+      bumpSeq: () => {
+        if (typeof (game as any).bumpSeq === 'function') {
+          (game as any).bumpSeq();
+        }
+      },
+    } as any;
+    triggerETBEffectsForPermanent(ctx, entry.permanent, entry.controllerId as PlayerID);
   }
 
   if (movedCards.length > 0) {
@@ -31054,6 +31221,28 @@ async function handleOptionalTriggeredAbilityChoiceResponse(
 
   if (!deferredTriggeredAbilityItem || typeof deferredTriggeredAbilityItem !== 'object') {
     debugWarn(1, `[Resolution] Missing deferred trigger payload for ${sourceName}`);
+    return;
+  }
+
+  const directEffectText = String(
+    stepData?.effectText
+    || (deferredTriggeredAbilityItem as any)?.effect
+    || stepData?.fullAbilityText
+    || (deferredTriggeredAbilityItem as any)?.description
+    || ''
+  ).trim();
+  const directlyApplied = applyGraveyardPermissionEffectsFromText(
+    game as GameContext,
+    playerId as PlayerID,
+    sourceName,
+    directEffectText,
+    deferredTriggeredAbilityItem,
+  );
+  if (directlyApplied > 0) {
+    if (typeof (game as any).bumpSeq === 'function') {
+      (game as any).bumpSeq();
+    }
+    debug(2, `[Resolution] Applied deferred optional graveyard permission effect directly for ${sourceName}`);
     return;
   }
 

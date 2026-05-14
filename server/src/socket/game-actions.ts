@@ -368,12 +368,8 @@ export function buildPendingCastCostMetadata(
   castSourceZone: SpellCastSourceZone,
   paymentCostAdjustment?: PaymentStepCostAdjustment,
 ): PendingCastCostMetadata {
-  const costReduction = castSourceZone === 'command'
-    ? createEmptyCostReduction()
-    : calculateCostReduction(game, playerId, card);
-  const staticCostTax = castSourceZone === 'command'
-    ? { generic: 0, messages: [] }
-    : calculateStaticSourceGenericTax(game, playerId, card);
+  const costReduction = calculateCostReduction(game, playerId, card);
+  const staticCostTax = calculateStaticSourceGenericTax(game, playerId, card);
 
   return {
     costReduction,
@@ -2524,6 +2520,25 @@ export function calculateCostReduction(
       if (totalManaValue > 0) {
         reduction.generic += totalManaValue;
         reduction.messages.push(`${cardName}: -{${totalManaValue}} (historic mana value)`);
+      }
+    }
+
+    const distinctGraveyardManaValueReduction = cardOracleText.match(/this spell costs \{1\} less to cast for each different mana value among cards in your graveyard/i);
+    if (distinctGraveyardManaValueReduction) {
+      const graveyard = Array.isArray(game.state?.zones?.[playerId]?.graveyard)
+        ? game.state.zones[playerId].graveyard
+        : [];
+      const distinctManaValues = new Set<number>();
+      for (const graveyardCard of graveyard) {
+        const manaValue = Number(cardManaValue(graveyardCard));
+        if (Number.isFinite(manaValue) && manaValue >= 0) {
+          distinctManaValues.add(manaValue);
+        }
+      }
+
+      if (distinctManaValues.size > 0) {
+        reduction.generic += distinctManaValues.size;
+        reduction.messages.push(`${cardName}: -{${distinctManaValues.size}} (${distinctManaValues.size} different mana value${distinctManaValues.size === 1 ? '' : 's'} in graveyard)`);
       }
     }
     

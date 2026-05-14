@@ -52,7 +52,7 @@ import { buildEmbalmOrEternalizeTokenPermanent } from "./graveyard-tokens.js";
 import { clearPreparedPermanent, syncPreparedPermanentAfterControlChange } from "./prepared.js";
 import { applyMyriadTokenCopies, pushStack, resolveTopOfStack, playLand, castSpell, triggerETBEffectsForToken } from "./stack";
 import { exileEntireStack } from "./stack";
-import { applyTemporaryGraveyardKeywordGrantFromText } from "./graveyard-permissions.js";
+import { applyGraveyardPermissionEffectsFromText, applyTemporaryGraveyardKeywordGrantFromText } from "./graveyard-permissions.js";
 import { permanentHasKeyword } from "./keyword-handlers";
 import { nextTurn, nextStep, passPriority } from "./turn";
 import {
@@ -72,6 +72,82 @@ function getReplayOpeningHandBattlefieldCounters(state: any, card: any, playerId
     return { luck: 1 };
   }
   return {};
+}
+
+function replayAddCreatureType(permanent: any, typeToAdd: string): void {
+  if (!permanent?.card) {
+    permanent.card = permanent.card || {};
+  }
+  const formattedType = String(typeToAdd || '').trim().replace(/^./, (char) => char.toUpperCase());
+  if (!formattedType) return;
+  const currentTypeLine = String(permanent.card.type_line || '');
+  if (currentTypeLine.toLowerCase().includes(formattedType.toLowerCase())) {
+    return;
+  }
+  permanent.card.type_line = currentTypeLine.includes('—')
+    ? `${currentTypeLine} ${formattedType}`
+    : `${currentTypeLine} — ${formattedType}`;
+}
+
+function markReplayPermanentEnteredFromZone(permanent: any, zone: string): void {
+  const normalizedZone = String(zone || '').trim().toLowerCase();
+  if (!permanent || !normalizedZone) return;
+
+  permanent.enteredFromZone = normalizedZone;
+  if (normalizedZone === 'graveyard') {
+    permanent.enteredFromGraveyard = true;
+  }
+
+  if (permanent.card && typeof permanent.card === 'object') {
+    permanent.card = {
+      ...(permanent.card as any),
+      enteredFromZone: normalizedZone,
+      ...(normalizedZone === 'graveyard' ? { enteredFromGraveyard: true } : null),
+    };
+  }
+
+  if (permanent.faceUpCard && typeof permanent.faceUpCard === 'object') {
+    permanent.faceUpCard = {
+      ...(permanent.faceUpCard as any),
+      enteredFromZone: normalizedZone,
+      ...(normalizedZone === 'graveyard' ? { enteredFromGraveyard: true } : null),
+    };
+  }
+}
+
+function applyReplayBattlefieldReturnCharacteristics(permanent: any, metadata: any): void {
+  if (!permanent || !metadata) return;
+
+  const setTypeLine = String(metadata?.battlefieldSetTypeLine || '').trim();
+  if (setTypeLine) {
+    permanent.card = { ...(permanent.card || {}), type_line: setTypeLine };
+    const isCreature = setTypeLine.toLowerCase().includes('creature');
+    if (isCreature) {
+      permanent.basePower = parsePT(permanent.card?.power);
+      permanent.baseToughness = parsePT(permanent.card?.toughness);
+      permanent.summoningSickness = true;
+    } else {
+      delete permanent.basePower;
+      delete permanent.baseToughness;
+      delete permanent.summoningSickness;
+      delete permanent.card.power;
+      delete permanent.card.toughness;
+    }
+  }
+
+  if (typeof metadata?.battlefieldSetOracleText === 'string') {
+    permanent.card = { ...(permanent.card || {}), oracle_text: String(metadata.battlefieldSetOracleText) };
+  }
+
+  if (metadata?.battlefieldLoseAllOtherTypes === true && setTypeLine) {
+    delete permanent.addedTypes;
+    delete permanent.grantedTypes;
+  }
+
+  const grantedTypes = Array.isArray(metadata?.battlefieldGrantedTypes) ? metadata.battlefieldGrantedTypes : [];
+  for (const typeName of grantedTypes) {
+    replayAddCreatureType(permanent, String(typeName || ''));
+  }
 }
 
 function resolveReplayCommanderId(ctx: any, event: any): string {
@@ -2977,6 +3053,26 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
             break;
           }
 
+          const directEffectText = String(
+            (deferredTriggeredAbilityItem as any)?.effect
+            || (deferredTriggeredAbilityItem as any)?.description
+            || ''
+          ).trim();
+          const controllerId = String((deferredTriggeredAbilityItem as any)?.controller || (e as any)?.playerId || '').trim();
+          if (
+            controllerId &&
+            applyGraveyardPermissionEffectsFromText(
+              ctx as any,
+              controllerId as PlayerID,
+              sourceName,
+              directEffectText,
+              deferredTriggeredAbilityItem,
+            ) > 0
+          ) {
+            ctx.bumpSeq();
+            break;
+          }
+
           ctx.state.stack = Array.isArray(ctx.state.stack) ? ctx.state.stack : [];
           (ctx.state.stack as any[]).push({
             ...(deferredTriggeredAbilityItem as any),
@@ -3150,6 +3246,37 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           ctx.bumpSeq();
         } catch (err) {
           debugWarn(1, 'applyEvent(castFromExilePromptResolve): failed', err);
+        }
+        break;
+      }
+
+      case "castFromGraveyardPromptResolve": {
+        try {
+          const replayGameId = String((ctx as any).gameId || '').trim();
+          const sourceId = String((e as any).sourceId || '').trim();
+          const resolvedStepId = String((e as any).resolvedStepId || '').trim();
+          const cardId = String((e as any).cardId || '').trim();
+
+          if (replayGameId) {
+            clearReplayQueuedSteps(replayGameId, (step: any) => {
+              if (!step) return false;
+              const stepId = String((step as any)?.id || '').trim();
+              if (resolvedStepId && stepId === resolvedStepId) {
+                return true;
+              }
+
+              return (
+                String((step as any)?.type || '') === String(ResolutionStepType.OPTION_CHOICE) &&
+                cardId.length > 0 &&
+                String((step as any)?.castFromGraveyardCardId || '').trim() === cardId &&
+                (!sourceId || String((step as any)?.sourceId || '').trim() === sourceId)
+              );
+            });
+          }
+
+          ctx.bumpSeq();
+        } catch (err) {
+          debugWarn(1, 'applyEvent(castFromGraveyardPromptResolve): failed', err);
         }
         break;
       }
@@ -7762,7 +7889,16 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
                   wasUnearthed: true,
                   unearthed: true,
                   counters: {},
-                  card: { ...card, zone: 'battlefield', unearth: true, wasUnearthed: true },
+                  leaveBattlefieldReplacementDestination: 'exile',
+                  leaveBattlefieldReplacementSourceName: String(card?.name || 'Unearth'),
+                  card: {
+                    ...card,
+                    zone: 'battlefield',
+                    unearth: true,
+                    wasUnearthed: true,
+                    leaveBattlefieldReplacementDestination: 'exile',
+                    leaveBattlefieldReplacementSourceName: String(card?.name || 'Unearth'),
+                  },
                 });
                 stateAny.pendingExileAtNextEndStep = Array.isArray(stateAny.pendingExileAtNextEndStep)
                   ? stateAny.pendingExileAtNextEndStep
@@ -9692,6 +9828,10 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
         const battlefieldFaceDown = (e as any).battlefieldFaceDown;
         const battlefieldTurnFaceUp = (e as any).battlefieldTurnFaceUp;
         const battlefieldSuspected = (e as any).battlefieldSuspected;
+        const battlefieldSetTypeLine = (e as any).battlefieldSetTypeLine;
+        const battlefieldSetOracleText = (e as any).battlefieldSetOracleText;
+        const battlefieldLoseAllOtherTypes = (e as any).battlefieldLoseAllOtherTypes;
+        const battlefieldGrantedTypes = (e as any).battlefieldGrantedTypes;
         const isModal = (e as any).isModal;
         const modalOptions = (e as any).modalOptions;
         const targetPlayer = (e as any).targetPlayer;
@@ -9700,6 +9840,8 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
         const activatedAbilityIsManaAbility = (e as any).activatedAbilityIsManaAbility;
         const triggeringStackItemId = (e as any).triggeringStackItemId;
         const triggeringPermanentId = (e as any).triggeringPermanentId;
+        const interveningIfSubjectPermanentId = (e as any).interveningIfSubjectPermanentId;
+        const interveningIfSubjectSnapshot = (e as any).interveningIfSubjectSnapshot;
         const effectData = (e as any).effectData;
         const targets = Array.isArray((e as any).targets)
           ? (e as any).targets.map((entry: any) => String(entry || '')).filter(Boolean)
@@ -9761,6 +9903,10 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
             ...(battlefieldFaceDown === true ? { battlefieldFaceDown: true } : null),
             ...(battlefieldTurnFaceUp === true ? { battlefieldTurnFaceUp: true } : null),
             ...(battlefieldSuspected === true ? { battlefieldSuspected: true } : null),
+            ...(battlefieldSetTypeLine ? { battlefieldSetTypeLine } : null),
+            ...(typeof battlefieldSetOracleText === 'string' ? { battlefieldSetOracleText } : null),
+            ...(battlefieldLoseAllOtherTypes === true ? { battlefieldLoseAllOtherTypes: true } : null),
+            ...(Array.isArray(battlefieldGrantedTypes) ? { battlefieldGrantedTypes } : null),
             ...(typeof isModal === 'boolean' ? { isModal } : null),
             ...(Array.isArray(modalOptions) ? { modalOptions } : null),
             ...(targetPlayer ? { targetPlayer } : null),
@@ -9769,6 +9915,8 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
             ...(typeof activatedAbilityIsManaAbility === 'boolean' ? { activatedAbilityIsManaAbility } : null),
             ...(triggeringStackItemId ? { triggeringStackItemId } : null),
             ...(triggeringPermanentId ? { triggeringPermanentId } : null),
+            ...(interveningIfSubjectPermanentId ? { interveningIfSubjectPermanentId } : null),
+            ...(interveningIfSubjectSnapshot && typeof interveningIfSubjectSnapshot === 'object' ? { interveningIfSubjectSnapshot } : null),
             ...(effectData && typeof effectData === 'object' ? { effectData } : null),
             ...(Array.isArray(targets) ? { targets } : null),
             ...(card && typeof card === 'object' ? { card } : null),
@@ -11039,6 +11187,14 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
         const battlefieldFaceDown = (e as any).battlefieldFaceDown === true;
         const battlefieldTurnFaceUp = (e as any).battlefieldTurnFaceUp === true;
         const battlefieldSuspected = (e as any).battlefieldSuspected === true;
+        const battlefieldSetTypeLine = String((e as any).battlefieldSetTypeLine || '').trim();
+        const battlefieldSetOracleText = typeof (e as any).battlefieldSetOracleText === 'string'
+          ? String((e as any).battlefieldSetOracleText)
+          : undefined;
+        const battlefieldLoseAllOtherTypes = (e as any).battlefieldLoseAllOtherTypes === true;
+        const battlefieldGrantedTypes = Array.isArray((e as any).battlefieldGrantedTypes)
+          ? ((e as any).battlefieldGrantedTypes as any[]).map((value: any) => String(value || '').trim()).filter(Boolean)
+          : [];
         
         try {
           const zones = ctx.state.zones || {};
@@ -11158,6 +11314,13 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
                     delete permanent.faceUpCard;
                     delete permanent.canTurnFaceUp;
                   }
+                  applyReplayBattlefieldReturnCharacteristics(permanent, {
+                    battlefieldSetTypeLine,
+                    battlefieldSetOracleText,
+                    battlefieldLoseAllOtherTypes,
+                    battlefieldGrantedTypes,
+                  });
+                  markReplayPermanentEnteredFromZone(permanent, 'graveyard');
                   ctx.state.battlefield.push(permanent as any);
                 }
                 break;

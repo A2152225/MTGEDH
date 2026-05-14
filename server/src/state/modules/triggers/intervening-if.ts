@@ -2881,9 +2881,9 @@ function evaluateInterveningIfClauseInternal(
       if (sourceZone && sourceZone !== 'graveyard') return false;
       const active = getActivePlayerId(ctx);
       if (!active) return null;
-      if (sourceZone === 'graveyard') return active === controllerId;
-      // If zone unknown, we can't guarantee the card is in graveyard.
-      return null;
+      const found = findSourceInGraveyard();
+      if (!found) return false;
+      return active === controllerId;
     }
 
     // "if this card is in your graveyard with a creature card directly above it"

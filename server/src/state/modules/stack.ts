@@ -91,7 +91,7 @@ import {
   applyAutomaticDungeonRoomTokenEffects,
   buildDungeonRoomPromptSteps,
 } from "./dungeon-effects.js";
-import { applyTemporaryGraveyardKeywordGrantFromText } from "./graveyard-permissions.js";
+import { applyGraveyardPermissionEffectsFromText } from "./graveyard-permissions.js";
 
 function removeReplayDuplicateCardEntries(cards: any, cardId: string): number {
   if (!Array.isArray(cards) || !cardId) return 0;
@@ -472,6 +472,18 @@ function queueOptionalTriggeredAbilityEffectProgram(
       }
 
       const ctxState = (ctx as any).state || state;
+      const directlyApplied = applyGraveyardPermissionEffectsFromText(
+        ctx,
+        triggerController,
+        sourceName,
+        effectText || description,
+        deferredTriggeredAbilityItem,
+      );
+      if (directlyApplied > 0) {
+        debug(2, `[resolveTopOfStack] Applied deferred optional graveyard permission effect directly for ${sourceName}`);
+        return ctxState;
+      }
+
       ctxState.stack = Array.isArray(ctxState.stack) ? ctxState.stack : [];
       ctxState.stack.push(deferredTriggeredAbilityItem);
 
@@ -757,6 +769,88 @@ function getNextUpkeepNotBeforeTurnNumber(state: any): number {
   return currentTurn + 1;
 }
 
+function splitRulesTextIntoSentences(text: string): string[] {
+  return String(text || '')
+    .replace(/\s+/g, ' ')
+    .split(/(?<=\.)\s+/)
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+}
+
+function extractGraveyardZoneChangeSentence(text: string, destination: 'battlefield' | 'hand'): string {
+  const normalizedText = String(text || '').replace(/\s+/g, ' ').trim();
+  const clausePattern = destination === 'battlefield'
+    ? /(?:return|put)\s+.+?\s+from\s+(?:your|a|any|an\s+opponent['’]?s?)\s+graveyard\s+(?:to|onto)\s+the\s+battlefield(?:\s+tapped)?(?:\s+under\s+(?:your|its owner['’]s)\s+control)?(?:\s+with\s+[^.]+?\s+counters?\s+on\s+it)?(?:\s+attached\s+to\s+[^.]+?)?(?:\s+and\s+attach\s+[^.]+?\s+to\s+it)?/i
+    : /(?:return|put)\s+.+?\s+from\s+(?:your|a|any|an\s+opponent['’]?s?)\s+graveyard\s+to\s+(?:your\s+hand|its\s+owner['’]s\s+hand)/i;
+  const clauseMatch = normalizedText.match(clausePattern);
+  if (clauseMatch) {
+    return clauseMatch[0];
+  }
+
+  const destinationPattern = destination === 'battlefield'
+    ? /\b(?:to|onto)\s+the\s+battlefield\b/i
+    : /\bto\s+(?:your\s+hand|its\s+owner['’]s\s+hand)\b/i;
+
+  const matchedSentence = splitRulesTextIntoSentences(text).find((sentence) => (
+    /^(?:return|put)\b/i.test(sentence)
+    && /\bgraveyard\b/i.test(sentence)
+    && destinationPattern.test(sentence)
+  ));
+
+  return matchedSentence || normalizedText;
+}
+
+function applyReanimatedPermanentLeaveBattlefieldRiders(
+  ctx: GameContext,
+  permanent: any,
+  sourceName: string,
+  controller: PlayerID,
+  fullText: string,
+): void {
+  const normalizedText = String(fullText || '')
+    .replace(/[’]/g, "'")
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+  if (!normalizedText || !permanent) {
+    return;
+  }
+
+  const stateAny = (ctx as any).state as any;
+  if (!stateAny) {
+    return;
+  }
+
+  if (/\bexile\s+(?:it|that creature|that permanent)\s+at\s+the\s+beginning\s+of\s+the\s+next\s+end\s+step\b/i.test(normalizedText)) {
+    stateAny.pendingExileAtNextEndStep = Array.isArray(stateAny.pendingExileAtNextEndStep)
+      ? stateAny.pendingExileAtNextEndStep
+      : [];
+    const pendingExileAtNextEndStep = stateAny.pendingExileAtNextEndStep as any[];
+    if (!pendingExileAtNextEndStep.some((entry: any) => String(entry?.permanentId || '') === String(permanent.id || ''))) {
+      pendingExileAtNextEndStep.push({
+        permanentId: String(permanent.id || ''),
+        fireAtTurnNumber: getNextEndStepFireTurnNumber(stateAny),
+        sourceName: String(sourceName || 'Delayed trigger'),
+        createdBy: String(controller || permanent?.controller || permanent?.owner || ''),
+      });
+    }
+  }
+
+  if (/\bif\s+it\s+would\s+leave\s+the\s+battlefield,\s*exile\s+it\s+instead\s+of\s+putting\s+it\s+anywhere\s+else\b/i.test(normalizedText)) {
+    permanent.leaveBattlefieldReplacementDestination = 'exile';
+    if (String(sourceName || '').trim()) {
+      permanent.leaveBattlefieldReplacementSourceName = String(sourceName).trim();
+    }
+    permanent.card = {
+      ...(permanent.card || {}),
+      leaveBattlefieldReplacementDestination: 'exile',
+      ...(String(sourceName || '').trim()
+        ? { leaveBattlefieldReplacementSourceName: String(sourceName).trim() }
+        : {}),
+    };
+  }
+}
+
 function scheduleDelayedGraveyardReturn(ctx: GameContext, options: {
   playerId: string;
   sourceName: string;
@@ -867,6 +961,89 @@ function turnReturnedPermanentFaceUp(permanent: any): void {
   delete (permanent as any).canTurnFaceUp;
 }
 
+function applyBattlefieldReturnCharacteristicMetadata(permanent: any, metadata: any): void {
+  if (!permanent || !metadata) {
+    return;
+  }
+
+  const setTypeLine = String(metadata?.battlefieldSetTypeLine || '').trim();
+  if (setTypeLine) {
+    permanent.card = { ...(permanent.card || {}), type_line: setTypeLine };
+    const isCreature = setTypeLine.toLowerCase().includes('creature');
+    if (isCreature) {
+      permanent.basePower = parsePT(permanent.card?.power);
+      permanent.baseToughness = parsePT(permanent.card?.toughness);
+      permanent.summoningSickness = true;
+    } else {
+      delete permanent.basePower;
+      delete permanent.baseToughness;
+      delete permanent.summoningSickness;
+      delete permanent.card.power;
+      delete permanent.card.toughness;
+    }
+  }
+
+  if (typeof metadata?.battlefieldSetOracleText === 'string') {
+    permanent.card = { ...(permanent.card || {}), oracle_text: String(metadata.battlefieldSetOracleText) };
+  }
+
+  if (metadata?.battlefieldLoseAllOtherTypes === true && setTypeLine) {
+    delete permanent.addedTypes;
+    delete permanent.grantedTypes;
+  }
+
+  const grantedTypes = Array.isArray(metadata?.battlefieldGrantedTypes)
+    ? metadata.battlefieldGrantedTypes
+    : [];
+  for (const typeName of grantedTypes) {
+    const formattedTypeName = String(typeName || '').trim().replace(/^./, (char) => char.toUpperCase());
+    if (formattedTypeName) {
+      addCreatureType(permanent, formattedTypeName);
+    }
+  }
+}
+
+function markPermanentEnteredFromZone(permanent: any, zone: string): void {
+  const normalizedZone = String(zone || '').trim().toLowerCase();
+  if (!permanent || !normalizedZone) return;
+
+  permanent.enteredFromZone = normalizedZone;
+  if (normalizedZone === 'graveyard') {
+    permanent.enteredFromGraveyard = true;
+  }
+
+  if (permanent.card && typeof permanent.card === 'object') {
+    permanent.card = {
+      ...(permanent.card as any),
+      enteredFromZone: normalizedZone,
+      ...(normalizedZone === 'graveyard' ? { enteredFromGraveyard: true } : null),
+    };
+  }
+
+  if (permanent.faceUpCard && typeof permanent.faceUpCard === 'object') {
+    permanent.faceUpCard = {
+      ...(permanent.faceUpCard as any),
+      enteredFromZone: normalizedZone,
+      ...(normalizedZone === 'graveyard' ? { enteredFromGraveyard: true } : null),
+    };
+  }
+}
+
+function buildInterveningIfSubjectSnapshot(permanent: any): any | undefined {
+  if (!permanent || typeof permanent !== 'object') return undefined;
+  return {
+    id: permanent.id,
+    controller: permanent.controller,
+    owner: permanent.owner,
+    enteredFromZone: permanent.enteredFromZone,
+    enteredFromGraveyard: permanent.enteredFromGraveyard,
+    enteredFromCast: permanent.enteredFromCast,
+    castSourceZone: permanent.castSourceZone,
+    castFromHand: permanent.castFromHand,
+    card: permanent.card && typeof permanent.card === 'object' ? { ...(permanent.card as any) } : undefined,
+  };
+}
+
 function resolveBoundGraveyardReturnEffect(
   ctx: GameContext,
   state: any,
@@ -951,6 +1128,7 @@ function resolveBoundGraveyardReturnEffect(
 
   recordCardLeftGraveyardThisTurn(ctx, sourceOwnerId, boundCard);
   const createdPermanentIds: string[] = [];
+  const createdBattlefieldEntries: Array<{ permanent: any; controllerId: string }> = [];
 
   if (boundTargetDestination === 'hand') {
     const destinationPlayerId = (triggerItem as any).destinationUsesSelectedCardOwner === true ? sourceOwnerId : String(controller);
@@ -1013,8 +1191,11 @@ function resolveBoundGraveyardReturnEffect(
     if ((triggerItem as any).battlefieldTurnFaceUp === true) {
       turnReturnedPermanentFaceUp(permanent);
     }
+    applyBattlefieldReturnCharacteristicMetadata(permanent, triggerItem);
+    markPermanentEnteredFromZone(permanent, 'graveyard');
     battlefield.push(permanent as any);
     createdPermanentIds.push(permanentId);
+    createdBattlefieldEntries.push({ permanent, controllerId: battlefieldControllerId });
   }
 
   try {
@@ -1036,10 +1217,24 @@ function resolveBoundGraveyardReturnEffect(
         battlefieldFaceDown: (triggerItem as any).battlefieldFaceDown === true ? true : undefined,
         battlefieldTurnFaceUp: (triggerItem as any).battlefieldTurnFaceUp === true ? true : undefined,
         battlefieldSuspected: (triggerItem as any).battlefieldSuspected === true ? true : undefined,
+        battlefieldSetTypeLine: String((triggerItem as any).battlefieldSetTypeLine || '').trim() || undefined,
+        battlefieldSetOracleText: typeof (triggerItem as any).battlefieldSetOracleText === 'string'
+          ? String((triggerItem as any).battlefieldSetOracleText)
+          : undefined,
+        battlefieldLoseAllOtherTypes: (triggerItem as any).battlefieldLoseAllOtherTypes === true ? true : undefined,
+        battlefieldGrantedTypes: Array.isArray((triggerItem as any).battlefieldGrantedTypes)
+          ? [...((triggerItem as any).battlefieldGrantedTypes as string[])]
+          : undefined,
       });
     }
   } catch (err) {
     debugWarn(1, '[executeTriggerEffect] appendEvent(confirmGraveyardTargets bound) failed:', err);
+  }
+
+  if (!(ctx as any).isReplaying) {
+    for (const entry of createdBattlefieldEntries) {
+      triggerETBEffectsForPermanent(ctx, entry.permanent, entry.controllerId as PlayerID);
+    }
   }
 
   debug(2, `[executeTriggerEffect] ${sourceName} returned ${boundCard?.name || boundGraveyardCardId} from ${sourceOwnerId}'s graveyard to ${boundTargetDestination}`);
@@ -1432,10 +1627,28 @@ function matchesTriggeredGraveyardTarget(card: any, metadata: {
   targetFilterExactManaValue?: number;
   targetFilterMinManaValue?: number;
   targetFilterMaxManaValue?: number;
+  rawEffectText?: string;
 }): boolean {
   const typeLine = String(card?.type_line || '').toLowerCase();
   if (!typeLine) {
     return false;
+  }
+
+  const rawEffectText = String(metadata.rawEffectText || '').replace(/[’]/g, "'").toLowerCase();
+  const artifactOrManaValueMatch = rawEffectText.match(
+    /target\s+creature\s+card\s+in\s+your\s+graveyard\s+that'?s\s+an?\s+artifact\s+or\s+that\s+has\s+mana\s+value\s+(\d+)\s+or\s+less/
+  );
+  if (artifactOrManaValueMatch) {
+    const maxManaValue = Number.parseInt(String(artifactOrManaValueMatch[1] || ''), 10);
+    if (!typeLine.includes('creature')) {
+      return false;
+    }
+    if (typeLine.includes('artifact')) {
+      return true;
+    }
+    if (Number.isFinite(maxManaValue)) {
+      return cardManaValue(card) <= maxManaValue;
+    }
   }
 
   if (metadata.targetFilterPermanentOnly === true && !isPermanentTypeLine(typeLine)) {
@@ -2465,6 +2678,25 @@ function applySupplementalOracleIRForResolvedSpell(
     const referenceSpellName = normalizeOracleResolutionText(String(options?.referenceSpellName || ''));
     let lastNumericResult: number | null = null;
     let applied = 0;
+    const randomChoiceTextMatch = text.match(/\bchoose\s+(\d+)\s*,\s*(\d+)\s*,\s*or\s+(\d+)\s+at\s+random\b/i);
+    const chooseRandomNumberIfNeeded = (): boolean => {
+      if (lastNumericResult !== null) return true;
+      if (!randomChoiceTextMatch) return false;
+
+      const choices = randomChoiceTextMatch
+        .slice(1)
+        .map(value => Number.parseInt(String(value || ''), 10))
+        .filter(Number.isFinite);
+      if (choices.length === 0) return false;
+
+      const choiceIndex = Math.floor(Math.max(0, Math.min(0.999999, rng())) * choices.length);
+      lastNumericResult = choices[Math.min(choiceIndex, choices.length - 1)] ?? null;
+      if (lastNumericResult === null) return false;
+
+      debug(2, `[oracleIR] ${spellName}: chose ${lastNumericResult} at random`);
+      applied += 1;
+      return true;
+    };
 
     for (const step of steps) {
       if (!step) continue;
@@ -2500,6 +2732,22 @@ function applySupplementalOracleIRForResolvedSpell(
           continue;
         }
 
+        continue;
+      }
+
+      const millStep = step as any;
+      const millsThatManyStep =
+        millStep.kind === 'mill' &&
+        normalizeOracleResolutionText(String(millStep?.amount?.raw || '')) === 'that many';
+      if (millsThatManyStep && options?.targetPlayerId && chooseRandomNumberIfNeeded() && lastNumericResult && lastNumericResult > 0) {
+        const milled = millCardsFromLibrary(stateAny, options.targetPlayerId, lastNumericResult);
+        if (milled > 0) {
+          debug(2, `[oracleIR] ${spellName}: ${options.targetPlayerId} milled ${milled} card(s)`);
+          if (typeof (ctx as any).bumpSeq === 'function') {
+            (ctx as any).bumpSeq();
+          }
+          applied += 1;
+        }
         continue;
       }
 
@@ -2847,6 +3095,7 @@ function applyOracleIRFallbackForTriggeredEffect(
 }
 
 const OPTIONAL_COPY_ABILITY_PAYMENT_PATTERN = /^you may pay (\{[^}]+\}(?:\{[^}]+\})*)\.\s*if you do,\s*copy that ability(?:\.|(?:\.\s*you may choose new targets for the copy\.))?$/i;
+const OPTIONAL_TRIGGER_MANA_PAYMENT_PATTERN = /^you may pay (\{[^}]+\}(?:\{[^}]+\})*)\.\s*if you do,?\s*([\s\S]+)$/i;
 const DIRECT_COPY_ABILITY_PATTERN = /^copy that ability(?:\.|(?:\.\s*you may choose new targets for the copy\.))?$/i;
 const OPPONENT_MAY_PAY_SPELL_CAST_TRIGGER_TYPES = new Set([
   'rhystic_study',
@@ -3050,6 +3299,102 @@ function maybeQueueOpponentMayPaySpellCastTrigger(
     },
     onDecline: async () => {
       finalizeOutcome(false);
+    },
+  });
+
+  return true;
+}
+
+function maybeQueueControllerMayPayTriggeredAbility(
+  ctx: GameContext,
+  item: any,
+  triggerController: PlayerID,
+  sourceName: string,
+  sourceId: string,
+  description: string,
+): boolean {
+  const match = String(description || '').trim().match(OPTIONAL_TRIGGER_MANA_PAYMENT_PATTERN);
+  if (!match) {
+    return false;
+  }
+
+  const manaCost = String(match[1] || '').trim();
+  const paidEffect = String(match[2] || '').trim();
+  const gameId = String((ctx as any).gameId || '').trim();
+  if (!manaCost || !paidEffect) {
+    return false;
+  }
+
+  const hasBoundGraveyardReturn =
+    String((item as any)?.boundGraveyardCardId || '').trim().length > 0 &&
+    String((item as any)?.targetDestination || '').trim().toLowerCase() === 'battlefield' &&
+    (!String((item as any)?.targetZone || '').trim() || String((item as any)?.targetZone || '').trim().toLowerCase() === 'graveyard') &&
+    /\breturn\b[\s\S]*\b(?:that card|it)\b[\s\S]*\bto the battlefield\b/i.test(paidEffect);
+  if (!hasBoundGraveyardReturn) {
+    return false;
+  }
+
+  if ((ctx as any).isReplaying) {
+    return true;
+  }
+
+  if (!gameId || gameId === 'unknown') {
+    return false;
+  }
+
+  queueOptionalPaymentStep(gameId, {
+    playerId: triggerController,
+    sourceName,
+    sourceId: String((item as any).source || sourceId || '').trim() || undefined,
+    sourceImage: (item as any).sourceImage,
+    description: `${sourceName}: ${String(description || '').trim()}`,
+    mandatory: false,
+    minSelections: 0,
+    maxSelections: 1,
+    priority: -1,
+    payChoiceId: 'pay_mana',
+    payLabel: `Pay ${manaCost}`,
+    payDescription: `If you do: ${paidEffect}`,
+    declineChoiceId: 'decline',
+    declineLabel: 'Decline',
+    declineDescription: 'Do not pay the optional cost.',
+    validationKind: 'mana',
+    manaCost,
+    stepData: {
+      triggeredAbilityManaPaymentChoice: true,
+      triggerStackItemId: String((item as any).id || '').trim() || undefined,
+      permanentId: String((item as any).source || sourceId || '').trim() || undefined,
+      cardName: sourceName,
+      manaCost,
+      effect: paidEffect,
+      triggerDescription: String(description || '').trim(),
+    },
+    onPay: async () => {
+      const parsedCost = parseManaCost(manaCost);
+      const pool = getOrInitManaPool((ctx as any).state as any, triggerController);
+      consumeManaFromPool(pool as any, parsedCost.colors, parsedCost.generic, `[triggerManaPayment:${sourceName}]`);
+      executeTriggerEffect(ctx, triggerController, sourceName, paidEffect, {
+        ...(item as any),
+        description: paidEffect,
+        effect: paidEffect,
+        optionalPaymentResolved: true,
+      });
+      if (typeof (ctx as any).bumpSeq === 'function') {
+        (ctx as any).bumpSeq();
+      }
+      const io = (ctx as any).io;
+      if (io) {
+        broadcastGame(io as any, ctx as any, gameId);
+      }
+    },
+    onDecline: async () => {
+      if (typeof (ctx as any).bumpSeq === 'function') {
+        (ctx as any).bumpSeq();
+      }
+      const io = (ctx as any).io;
+      if (io) {
+        broadcastGame(io as any, ctx as any, gameId);
+      }
     },
   });
 
@@ -5623,6 +5968,93 @@ function matchesRequiredTypePhrase(typeLine: string, requiredPhrase: string, isT
   return typeLineHasAllWords(typeLine, phrase);
 }
 
+function queueGraveyardResidentCreatureEntryTriggers(
+  ctx: GameContext,
+  enteringPermanent: any,
+  enteringController: PlayerID,
+  enteringIsCreature: boolean,
+): void {
+  if (!enteringIsCreature || (ctx as any).isReplaying) return;
+
+  const state = (ctx as any).state;
+  const zones = state?.zones || {};
+  const enteredFrom = String(
+    enteringPermanent?.enteredFromZone ??
+    enteringPermanent?.card?.enteredFromZone ??
+    ''
+  ).toLowerCase();
+  const castFrom = String(
+    enteringPermanent?.castSourceZone ??
+    enteringPermanent?.card?.castSourceZone ??
+    enteringPermanent?.source ??
+    enteringPermanent?.card?.source ??
+    ''
+  ).toLowerCase();
+  if (enteredFrom !== 'graveyard' && castFrom !== 'graveyard') {
+    return;
+  }
+
+  for (const [zoneOwnerId, playerZones] of Object.entries(zones as Record<string, any>)) {
+    const graveyard = Array.isArray(playerZones?.graveyard) ? playerZones.graveyard : [];
+    for (const card of graveyard) {
+      const oracle = String(card?.oracle_text || '').replace(/[’]/g, "'");
+      if (!oracle) continue;
+
+      const effectMatch = oracle.match(
+        /whenever\s+a\s+creature(\s+you\s+control)?\s+enters(?:\s+the\s+battlefield)?,?\s*(if\s+it\s+entered\s+from\s+your\s+graveyard\s+or\s+you\s+cast\s+it\s+from\s+your\s+graveyard,\s*return\s+(?:this\s+card|~|[^.]+?)\s+from\s+your\s+graveyard\s+to\s+the\s+battlefield\s+tapped\s+at\s+the\s+beginning\s+of\s+the\s+next\s+end\s+step)\.?/i
+      );
+      if (!effectMatch) continue;
+
+      const requiresController = Boolean(effectMatch[1]);
+      if (requiresController && String(enteringController) !== String(zoneOwnerId)) {
+        continue;
+      }
+
+      const effectText = String(effectMatch[2] || '').trim();
+      try {
+        const fullText = `Whenever a creature${requiresController ? ' you control' : ''} enters the battlefield, ${effectText}`;
+        const satisfied = isInterveningIfSatisfied(ctx as any, String(zoneOwnerId), fullText, enteringPermanent);
+        if (satisfied === false) {
+          continue;
+        }
+      } catch {
+        // Keep the trigger if the generic evaluator cannot decide.
+      }
+
+      const triggerId = uid('trigger');
+      const stackItem = {
+        id: triggerId,
+        type: 'triggered_ability',
+        controller: String(zoneOwnerId),
+        source: String(card?.id || triggerId),
+        permanentId: String(card?.id || triggerId),
+        sourceName: String(card?.name || 'Graveyard trigger'),
+        description: effectText,
+        effect: effectText,
+        triggerType: 'creature_etb',
+        mandatory: true,
+        card: { ...(card as any) },
+        targetZone: 'graveyard',
+        targetDestination: 'battlefield',
+        targetGraveyardScope: 'your',
+        destinationUsesSelectedCardOwner: true,
+        battlefieldControllerMode: 'owner',
+        battlefieldTapped: true,
+        delayedReturnAt: 'next_end_step',
+        boundGraveyardCardId: String(card?.id || ''),
+        boundGraveyardOwnerId: String(zoneOwnerId),
+        interveningIfSubjectPermanentId: enteringPermanent?.id,
+        interveningIfSubjectSnapshot: buildInterveningIfSubjectSnapshot(enteringPermanent),
+      } as any;
+
+      state.stack = state.stack || [];
+      state.stack.push(stackItem);
+      persistTriggeredAbilityPush(ctx, stackItem);
+      debug(2, `[triggerETBEffectsForPermanent] ${stackItem.sourceName} triggered from graveyard: ${effectText}`);
+    }
+  }
+}
+
 /**
  * Check for ETB triggers from other permanents when a token enters the battlefield.
  * This handles effects like Cathars' Crusade, Soul Warden, etc. that trigger
@@ -5660,8 +6092,22 @@ function persistTriggeredAbilityPush(ctx: GameContext, stackItem: any): void {
       ...(stackItem.targetPlayer ? { targetPlayer: stackItem.targetPlayer } : null),
       ...(stackItem.defendingPlayer ? { defendingPlayer: stackItem.defendingPlayer } : null),
       ...(stackItem.triggeringPlayer != null ? { triggeringPlayer: stackItem.triggeringPlayer } : null),
+      ...(stackItem.targetZone ? { targetZone: stackItem.targetZone } : null),
+      ...(stackItem.targetDestination ? { targetDestination: stackItem.targetDestination } : null),
+      ...(stackItem.targetGraveyardScope ? { targetGraveyardScope: stackItem.targetGraveyardScope } : null),
+      ...(stackItem.destinationUsesSelectedCardOwner === true ? { destinationUsesSelectedCardOwner: true } : null),
+      ...(stackItem.battlefieldControllerMode ? { battlefieldControllerMode: stackItem.battlefieldControllerMode } : null),
+      ...(stackItem.delayedReturnAt ? { delayedReturnAt: stackItem.delayedReturnAt } : null),
+      ...(stackItem.battlefieldTapped === true ? { battlefieldTapped: true } : null),
+      ...(stackItem.boundGraveyardCardId ? { boundGraveyardCardId: stackItem.boundGraveyardCardId } : null),
+      ...(stackItem.boundGraveyardOwnerId ? { boundGraveyardOwnerId: stackItem.boundGraveyardOwnerId } : null),
+      ...(stackItem.interveningIfSubjectPermanentId ? { interveningIfSubjectPermanentId: stackItem.interveningIfSubjectPermanentId } : null),
+      ...(stackItem.interveningIfSubjectSnapshot && typeof stackItem.interveningIfSubjectSnapshot === 'object'
+        ? { interveningIfSubjectSnapshot: stackItem.interveningIfSubjectSnapshot }
+        : null),
       ...(typeof stackItem.value !== 'undefined' ? { value: stackItem.value } : null),
       ...(stackItem.effectData && typeof stackItem.effectData === 'object' ? { effectData: stackItem.effectData } : null),
+      ...(stackItem.card && typeof stackItem.card === 'object' ? { card: stackItem.card } : null),
     });
   } catch (err) {
     debugWarn(1, '[persistTriggeredAbilityPush] appendEvent(pushTriggeredAbility) failed:', err);
@@ -5817,7 +6263,7 @@ export function triggerETBEffectsForToken(
             ctx as any,
             String(triggerController),
             textForEval,
-            perm,
+            token,
             triggeringPlayerForStack
               ? {
                   thatPlayerId: triggeringPlayerForStack,
@@ -5847,6 +6293,8 @@ export function triggerETBEffectsForToken(
           description: trigger.description,
           triggerType: trigger.triggerType,
           mandatory: trigger.mandatory,
+          interveningIfSubjectPermanentId: token.id,
+          interveningIfSubjectSnapshot: buildInterveningIfSubjectSnapshot(token),
           ...(triggeringPlayerForStack ? { triggeringPlayer: triggeringPlayerForStack } : {}),
         } as any;
         state.stack.push(stackItem);
@@ -5884,7 +6332,7 @@ export function triggerETBEffectsForToken(
             ctx as any,
             String(triggerController),
             textForEval,
-            perm,
+            token,
             triggeringPlayerForStack
               ? {
                   thatPlayerId: triggeringPlayerForStack,
@@ -5913,6 +6361,8 @@ export function triggerETBEffectsForToken(
           description: trigger.description,
           triggerType: trigger.triggerType,
           mandatory: trigger.mandatory,
+          interveningIfSubjectPermanentId: token.id,
+          interveningIfSubjectSnapshot: buildInterveningIfSubjectSnapshot(token),
           ...(triggeringPlayerForStack ? { triggeringPlayer: triggeringPlayerForStack } : {}),
         } as any;
         state.stack.push(stackItem);
@@ -5936,7 +6386,7 @@ export function triggerETBEffectsForToken(
             ctx as any,
             String(triggerController),
             textForEval,
-            perm,
+            token,
             /\bthat player\b/i.test(textForEval) && String(controller || '')
               ? {
                   thatPlayerId: String(controller),
@@ -5965,6 +6415,8 @@ export function triggerETBEffectsForToken(
           description: trigger.description,
           triggerType: trigger.triggerType,
           mandatory: trigger.mandatory,
+          interveningIfSubjectPermanentId: token.id,
+          interveningIfSubjectSnapshot: buildInterveningIfSubjectSnapshot(token),
         } as any;
         state.stack.push(stackItem);
         persistTriggeredAbilityPush(ctx, stackItem);
@@ -5990,7 +6442,7 @@ export function triggerETBEffectsForToken(
               ctx as any,
               String(triggerController),
               textForEval,
-              perm,
+              token,
               needsThatPlayerRef && String(controller || '')
                 ? {
                     thatPlayerId: String(controller),
@@ -6021,6 +6473,8 @@ export function triggerETBEffectsForToken(
             mandatory: trigger.mandatory,
             // Store the entering creature's controller for effects like "that player loses 1 life"
             targetPlayer: controller,
+            interveningIfSubjectPermanentId: token.id,
+            interveningIfSubjectSnapshot: buildInterveningIfSubjectSnapshot(token),
           } as any;
           state.stack.push(stackItem);
           persistTriggeredAbilityPush(ctx, stackItem);
@@ -6262,7 +6716,7 @@ export function triggerETBEffectsForPermanent(
             ctx as any,
             String(triggerController),
             textForEval,
-            perm,
+            permanent,
             triggeringPlayerForStack
               ? {
                   thatPlayerId: triggeringPlayerForStack,
@@ -6288,6 +6742,8 @@ export function triggerETBEffectsForPermanent(
           description: trigger.description,
           triggerType: trigger.triggerType,
           mandatory: trigger.mandatory,
+          interveningIfSubjectPermanentId: permanent.id,
+          interveningIfSubjectSnapshot: buildInterveningIfSubjectSnapshot(permanent),
           ...(triggeringPlayerForStack ? { triggeringPlayer: triggeringPlayerForStack } : {}),
         } as any;
         state.stack.push(stackItem);
@@ -6325,7 +6781,7 @@ export function triggerETBEffectsForPermanent(
             ctx as any,
             String(triggerController),
             textForEval,
-            perm,
+            permanent,
             triggeringPlayerForStack
               ? {
                   thatPlayerId: triggeringPlayerForStack,
@@ -6354,6 +6810,8 @@ export function triggerETBEffectsForPermanent(
           description: trigger.description,
           triggerType: trigger.triggerType,
           mandatory: trigger.mandatory,
+          interveningIfSubjectPermanentId: permanent.id,
+          interveningIfSubjectSnapshot: buildInterveningIfSubjectSnapshot(permanent),
           ...(triggeringPlayerForStack ? { triggeringPlayer: triggeringPlayerForStack } : {}),
         } as any;
         state.stack.push(stackItem);
@@ -6380,7 +6838,7 @@ export function triggerETBEffectsForPermanent(
             ctx as any,
             String(triggerController),
             textForEval,
-            perm,
+            permanent,
             triggeringPlayerForStack
               ? {
                   thatPlayerId: triggeringPlayerForStack,
@@ -6408,6 +6866,8 @@ export function triggerETBEffectsForPermanent(
           description: trigger.description,
           triggerType: trigger.triggerType,
           mandatory: trigger.mandatory,
+          interveningIfSubjectPermanentId: permanent.id,
+          interveningIfSubjectSnapshot: buildInterveningIfSubjectSnapshot(permanent),
           ...(triggeringPlayerForStack ? { triggeringPlayer: triggeringPlayerForStack } : {}),
         } as any;
         state.stack.push(stackItem);
@@ -6434,7 +6894,7 @@ export function triggerETBEffectsForPermanent(
               ctx as any,
               String(triggerController),
               textForEval,
-              perm,
+              permanent,
               needsThatPlayerRef && String(controller || '')
                 ? {
                     thatPlayerId: String(controller),
@@ -6465,6 +6925,8 @@ export function triggerETBEffectsForPermanent(
             mandatory: trigger.mandatory,
             // Store the entering creature's controller for effects like "that player loses 1 life"
             targetPlayer: controller,
+            interveningIfSubjectPermanentId: permanent.id,
+            interveningIfSubjectSnapshot: buildInterveningIfSubjectSnapshot(permanent),
           } as any;
           state.stack.push(stackItem);
           persistTriggeredAbilityPush(ctx, stackItem);
@@ -6474,6 +6936,8 @@ export function triggerETBEffectsForPermanent(
       }
     }
   }
+
+  queueGraveyardResidentCreatureEntryTriggers(ctx, permanent, controller, isCreature);
   
   // Also check if the permanent itself has ETB triggers
   const selfTriggers = includeSelfTriggers ? getETBTriggersForPermanent(permanent.card, permanent) : [];
@@ -6696,7 +7160,46 @@ export function executeTriggerEffect(
   if (!state) return;
   const triggerCard = (triggerItem as any)?.card || {};
 
-  if (applyTemporaryGraveyardKeywordGrantFromText(ctx, controller, sourceName, description, triggerItem) > 0) {
+  const directGraveyardPermissionEffectsApplied = applyGraveyardPermissionEffectsFromText(ctx, controller, sourceName, description, triggerItem);
+  if (directGraveyardPermissionEffectsApplied > 0) {
+    return;
+  }
+
+  const discardTriggeredCastData = ((triggerItem as any)?.effectData && typeof (triggerItem as any).effectData === 'object')
+    ? (triggerItem as any).effectData
+    : undefined;
+  if (discardTriggeredCastData?.discardTriggeredCastFromGraveyard === true) {
+    const isReplaying = !!(ctx as any).isReplaying;
+    const discardedCardId = String(discardTriggeredCastData.discardedCardId || '').trim();
+    const playerZones = ((state as any).zones || {})[controller];
+    const graveyard = Array.isArray(playerZones?.graveyard) ? playerZones.graveyard : [];
+    const graveyardCard = graveyard.find((card: any) => card && String(card.id || '').trim() === discardedCardId);
+
+    if (!graveyardCard) {
+      return;
+    }
+
+    if (!isReplaying) {
+      const promptSourceId = String((triggerItem as any)?.source || (triggerItem as any)?.permanentId || '').trim();
+      queueResolveTopOfStackPrompt(ctx, {
+        type: ResolutionStepType.OPTION_CHOICE,
+        playerId: controller as PlayerID,
+        sourceId: promptSourceId,
+        sourceName,
+        sourceImage: triggerCard?.image_uris?.small || triggerCard?.image_uris?.normal,
+        description: `${sourceName}: You may cast ${graveyardCard?.name || discardTriggeredCastData.discardedCardName || 'that card'} from your graveyard.`,
+        mandatory: false,
+        options: [
+          { id: 'cast', label: `Cast ${graveyardCard?.name || discardTriggeredCastData.discardedCardName || 'that card'}` },
+          { id: 'decline', label: 'Decline' },
+        ],
+        minSelections: 1,
+        maxSelections: 1,
+        castFromGraveyardCardId: discardedCardId,
+        castFromGraveyardCard: { ...(graveyardCard as any) },
+      } as any);
+    }
+
     return;
   }
 
@@ -6825,7 +7328,11 @@ export function executeTriggerEffect(
         if (rawEntry?.battlefieldTurnFaceUp === true) {
           turnReturnedPermanentFaceUp(permanent);
         }
+        markPermanentEnteredFromZone(permanent, 'graveyard');
         battlefield.push(permanent);
+        if (!(ctx as any).isReplaying) {
+          triggerETBEffectsForPermanent(ctx, permanent, battlefieldControllerId as PlayerID);
+        }
       }
 
       return;
@@ -6883,7 +7390,72 @@ export function executeTriggerEffect(
     // Fall through to normal effect parsing.
   }
 
-  if (resolveBoundGraveyardReturnEffect(ctx, state, controller, sourceName, triggerItem)) {
+  const resolvedBoundGraveyardReturn = resolveBoundGraveyardReturnEffect(ctx, state, controller, sourceName, triggerItem);
+  if (resolvedBoundGraveyardReturn) {
+    return;
+  }
+
+  const sourcePermanentIdForSelf = String(
+    (triggerItem as any)?.source ||
+    (triggerItem as any)?.permanentId ||
+    (triggerItem as any)?.sourceId ||
+    ''
+  ).trim();
+
+  const selfExileCreateTokenMatch = desc.match(
+    /^exile\s+(?:it|this(?:\s+(?:permanent|creature|card))?)\.\s*if\s+you\s+do,\s*create\s+(?:a|an|one)\s+(\d+)\/(\d+)\s+(?:(white|blue|black|red|green|colorless)\s+)?([a-z][a-z\s-]*?)\s+creature\s+token(?:\s+with\s+([^.]+))?\.?$/i
+  );
+  if (selfExileCreateTokenMatch && sourcePermanentIdForSelf) {
+    const sourcePermanent = Array.isArray(state.battlefield)
+      ? state.battlefield.find((permanent: any) => String(permanent?.id || '') === sourcePermanentIdForSelf)
+      : null;
+    if (!sourcePermanent) {
+      return;
+    }
+
+    movePermanentToExile(ctx, sourcePermanentIdForSelf);
+    const stillOnBattlefield = Array.isArray(state.battlefield)
+      ? state.battlefield.some((permanent: any) => String(permanent?.id || '') === sourcePermanentIdForSelf)
+      : false;
+    if (stillOnBattlefield) {
+      return;
+    }
+
+    const power = Number.parseInt(String(selfExileCreateTokenMatch[1] || '0'), 10);
+    const toughness = Number.parseInt(String(selfExileCreateTokenMatch[2] || '0'), 10);
+    const colorWord = String(selfExileCreateTokenMatch[3] || '').trim().toLowerCase();
+    const tokenSubtypeRaw = String(selfExileCreateTokenMatch[4] || 'Creature').trim();
+    const tokenSubtype = tokenSubtypeRaw.replace(/\b\w/g, (char) => char.toUpperCase());
+    const abilityText = String(selfExileCreateTokenMatch[5] || '').trim();
+    const colorMap: Record<string, string> = { white: 'W', blue: 'U', black: 'B', red: 'R', green: 'G' };
+    const abilities = abilityText
+      ? abilityText
+          .split(/\s*(?:,|and)\s+/i)
+          .map((ability) => ability.trim().replace(/\b\w/g, (char) => char.toUpperCase()))
+          .filter(Boolean)
+      : [];
+
+    createToken(ctx, controller, tokenSubtype, 1, power, toughness, {
+      colors: colorMap[colorWord] ? [colorMap[colorWord]] : [],
+      typeLine: `Token Creature — ${tokenSubtype}`,
+      abilities,
+    });
+    return;
+  }
+
+  if (/^attach\s+(?:it|this\s+(?:equipment|artifact)|~)\s+to\s+target\s+creature\s+you\s+control\b/i.test(desc) && sourcePermanentIdForSelf) {
+    const targetCreatureId = Array.isArray((triggerItem as any)?.targets)
+      ? String((triggerItem as any).targets[0] || '').trim()
+      : '';
+    if (!targetCreatureId) {
+      return;
+    }
+    attachEquipmentToCreature(ctx, state, controller, {
+      equipmentId: sourcePermanentIdForSelf,
+      targetCreatureId,
+      sourceName,
+      equipmentName: sourceName,
+    });
     return;
   }
 
@@ -10687,7 +11259,10 @@ export function executeTriggerEffect(
   }
   
   // Pattern: "exile target creature" or "exile it" (simple exile, no return)
-  const exileMatch = desc.match(/exile (?:target (?:creature|permanent)|it|that creature)/i);
+  const simpleExileSentence = splitRulesTextIntoSentences(desc).find((sentence) => /^exile\b/i.test(sentence)) || desc;
+  const exileMatch = /\bat\s+the\s+beginning\s+of\s+the\s+next\s+end\s+step\b/i.test(simpleExileSentence)
+    ? null
+    : simpleExileSentence.match(/^exile\s+(?:target\s+(?:creature|permanent)|it|that creature)\.?$/i);
   if (exileMatch) {
     const targets = triggerItem.targets || [];
     if (targets.length > 0) {
@@ -10824,7 +11399,8 @@ export function executeTriggerEffect(
   }
 
     // Pattern: "return any number of target [type] cards with total power N or less from a graveyard to the battlefield"
-    const graveyardMultiToBattlefieldMatch = desc.match(/^(?:return|put)\s+any\s+number\s+of\s+target\s+(?:(?:creature|artifact|enchantment|land|instant|sorcery|planeswalker|nonland|noncreature)\s+)?cards?\s+with\s+total\s+power\s+\d+\s+or\s+less\s+from\s+(?:your|a|any|an\s+opponent['’]?s?)\s+graveyard\s+(?:to|onto)\s+the\s+battlefield(?:\s+tapped)?(?:\s+under\s+(your|its owner['’]s)\s+control)?(?:\s+with\s+[^.]+?\s+counters?\s+on\s+it)?\.?$/i);
+    const graveyardBattlefieldSentence = extractGraveyardZoneChangeSentence(desc, 'battlefield');
+    const graveyardMultiToBattlefieldMatch = graveyardBattlefieldSentence.match(/^(?:return|put)\s+any\s+number\s+of\s+target\s+(?:(?:creature|artifact|enchantment|land|instant|sorcery|planeswalker|nonland|noncreature)\s+)?cards?\s+with\s+total\s+power\s+\d+\s+or\s+less\s+from\s+(?:your|a|any|an\s+opponent['’]?s?)\s+graveyard\s+(?:to|onto)\s+the\s+battlefield(?:\s+tapped)?(?:\s+under\s+(your|its owner['’]s)\s+control)?(?:\s+with\s+[^.]+?\s+counters?\s+on\s+it)?\.?$/i);
     if (graveyardMultiToBattlefieldMatch) {
       const targetIds = Array.isArray(triggerItem.targets)
         ? triggerItem.targets.map((value: any) => String(value || '').trim()).filter(Boolean)
@@ -10889,15 +11465,20 @@ export function executeTriggerEffect(
           }
         }
 
+        markPermanentEnteredFromZone(permanent, 'graveyard');
         battlefield.push(permanent);
+        if (!(ctx as any).isReplaying) {
+          triggerETBEffectsForPermanent(ctx, permanent, battlefieldControllerId as PlayerID);
+        }
         debug(2, `[executeTriggerEffect] ${sourceName} returned ${card?.name || targetId} from ${sourceOwnerId}'s graveyard to the battlefield under ${battlefieldControllerId}'s control`);
       }
       return;
     }
 
     // Pattern: "return target [type] card from a graveyard to the battlefield"
-    const graveyardToBattlefieldMatch = desc.match(/^(?:return|put)\s+(?:up\s+to\s+one\s+)?target\s+(?:(?:[^.]+?)\s+)?card(?:\s+with\s+mana\s+value\s+.+?)?\s+from\s+(?:your|a|any|an\s+opponent['’]?s?)\s+graveyard\s+(?:to|onto)\s+the\s+battlefield(?:\s+tapped)?(?:\s+under\s+(your|its owner['’]s)\s+control)?(?:\s+with\s+[^.]+?\s+counters?\s+on\s+it)?(?:\s+attached\s+to\s+[^.]+?)?(?:\s+and\s+attach\s+[^.]+?\s+to\s+it)?\.?$/i);
-    if (graveyardToBattlefieldMatch) {
+    const graveyardToBattlefieldMatch = graveyardBattlefieldSentence.match(/^(?:return|put)\s+(?:up\s+to\s+one\s+)?target\s+(?:(?:[^.]+?)\s+)?card(?:\s+with\s+mana\s+value\s+.+?)?\s+from\s+(?:your|a|any|an\s+opponent['’]?s?)\s+graveyard\s+(?:to|onto)\s+the\s+battlefield(?:\s+tapped)?(?:\s+under\s+(your|its owner['’]s)\s+control)?(?:\s+with\s+[^.]+?\s+counters?\s+on\s+it)?(?:\s+attached\s+to\s+[^.]+?)?(?:\s+and\s+attach\s+[^.]+?\s+to\s+it)?\.?$/i);
+    const hasSingleTargetGraveyardToBattlefieldEffect = /\b(?:return|put)\s+(?:up\s+to\s+one\s+)?target\b[\s\S]*?\bfrom\s+(?:your|a|any|an\s+opponent['’]?s?)\s+graveyard\b[\s\S]*?\b(?:to|onto)\s+the\s+battlefield\b/i.test(desc);
+    if (graveyardToBattlefieldMatch || hasSingleTargetGraveyardToBattlefieldEffect) {
       const targets = Array.isArray(triggerItem.targets) ? triggerItem.targets : [];
       const targetId = String(targets[0] || '').trim();
       if (!targetId) {
@@ -10932,8 +11513,10 @@ export function executeTriggerEffect(
       const hasHaste =
         String(card?.oracle_text || '').toLowerCase().includes('haste') ||
         (Array.isArray(card?.keywords) && card.keywords.some((keyword: any) => String(keyword || '').toLowerCase() === 'haste'));
-      const entersTapped = /\bthe\s+battlefield\s+tapped\b/i.test(String(graveyardToBattlefieldMatch[0] || ''));
-      const controllerMode = String(graveyardToBattlefieldMatch[1] || '').toLowerCase();
+      const entersTapped = /\bthe\s+battlefield\s+tapped\b/i.test(String(graveyardToBattlefieldMatch?.[0] || graveyardBattlefieldSentence || desc));
+      const controllerModeMatch = String(graveyardToBattlefieldMatch?.[1] || '').trim()
+        || String(graveyardBattlefieldSentence.match(/\bunder\s+(your|its owner['’]s)\s+control\b/i)?.[1] || '').trim();
+      const controllerMode = controllerModeMatch.toLowerCase();
       const battlefieldControllerId = controllerMode.includes('owner') ? sourceOwnerId : String(controller);
       const battlefieldCounters = parseBattlefieldCounterClause(desc) || {};
 
@@ -10958,8 +11541,10 @@ export function executeTriggerEffect(
         }
       }
 
+      markPermanentEnteredFromZone(permanent, 'graveyard');
       battlefield.push(permanent);
       debug(2, `[executeTriggerEffect] ${sourceName} returned ${card?.name || targetId} from ${sourceOwnerId}'s graveyard to the battlefield under ${battlefieldControllerId}'s control`);
+      applyReanimatedPermanentLeaveBattlefieldRiders(ctx, permanent, sourceName, battlefieldControllerId as PlayerID, desc);
 
       // Trailing keyword-grant rider on trigger/activated graveyard reanimation —
       // "It gains haste.", "That creature gains indestructible.", etc.
@@ -11158,6 +11743,10 @@ export function executeTriggerEffect(
         }
       } catch (err) {
         debugWarn(1, '[executeTriggerEffect] trigger-side source enchantment attach rider failed:', err);
+      }
+
+      if (!(ctx as any).isReplaying) {
+        triggerETBEffectsForPermanent(ctx, permanent, battlefieldControllerId as PlayerID);
       }
 
       return;
@@ -13275,6 +13864,14 @@ export function resolveTopOfStack(ctx: GameContext) {
 
       const battlefield = (ctx as any).state?.battlefield || [];
       const sourcePerm = battlefield.find((p: any) => p?.id === (item as any).source);
+      const interveningSubjectPermanentId = String((item as any)?.interveningIfSubjectPermanentId || '').trim();
+      const interveningSubjectPermanent = interveningSubjectPermanentId
+        ? battlefield.find((p: any) => String(p?.id || '') === interveningSubjectPermanentId)
+        : null;
+      const interveningSubjectSnapshot = (item as any)?.interveningIfSubjectSnapshot && typeof (item as any).interveningIfSubjectSnapshot === 'object'
+        ? (item as any).interveningIfSubjectSnapshot
+        : null;
+      const sourcePermanentForInterveningIf = interveningSubjectPermanent || interveningSubjectSnapshot || sourcePerm;
       const refs = (needsThatPlayerRef || needsTheirTurnRef || needsManaAbilityRef || needsSingleTargetRef || needsCardTypeShareRef || wantsDamageSourceRefs)
         ? {
             ...(thatPlayerId && (needsThatPlayerRef || needsTheirTurnRef)
@@ -13306,7 +13903,7 @@ export function resolveTopOfStack(ctx: GameContext) {
         ctx as any,
         String(triggerController),
         textForEval,
-        sourcePerm,
+        sourcePermanentForInterveningIf,
         refs as any
       );
       if (satisfied === false) {
@@ -13403,6 +14000,11 @@ export function resolveTopOfStack(ctx: GameContext) {
       if (copiedItem && allowsRetargetingCopy) {
         queueAbilityCopyRetargetPrompt(ctx, sourceName, triggerController as PlayerID, copiedItem);
       }
+      return;
+    }
+
+    if (maybeQueueControllerMayPayTriggeredAbility(ctx, item, triggerController as PlayerID, sourceName, sourceId, trimmedDescription)) {
+      debug(2, `[resolveTopOfStack] Deferred controller-pay trigger for ${sourceName} (${triggerController})`);
       return;
     }
 
@@ -13912,6 +14514,7 @@ export function resolveTopOfStack(ctx: GameContext) {
                 targetFilterExactManaValue,
                 targetFilterMinManaValue,
                 targetFilterMaxManaValue,
+                rawEffectText: String((item as any).effect || description || ''),
               }))
               .map((card: any) => ({
                 id: String(card?.id || ''),
@@ -14035,7 +14638,7 @@ export function resolveTopOfStack(ctx: GameContext) {
     
     // Execute the triggered ability effect based on description
     debug(2, `[resolveTopOfStack] Executing trigger effect: controller=${triggerController}, sourceName=${sourceName}, triggerType=${triggerType}`);
-    executeTriggerEffect(ctx, triggerController, sourceName, description, item);
+    executeTriggerEffect(ctx, triggerController, sourceName, effectText || description, item);
     
     bumpSeq();
     return;
@@ -14886,6 +15489,8 @@ export function resolveTopOfStack(ctx: GameContext) {
           }
         }
       }
+
+      queueGraveyardResidentCreatureEntryTriggers(ctx, newPermanent, controller, isCreature);
       
       if (etbTriggers.length > 0) {
         debug(2, `[resolveTopOfStack] Found ${etbTriggers.length} ETB trigger(s) for ${effectiveCard.name || 'permanent'}`);
@@ -14974,6 +15579,9 @@ export function resolveTopOfStack(ctx: GameContext) {
             }
             const battlefield = (ctx as any).state?.battlefield || [];
             const sourcePerm = battlefield.find((p: any) => p?.id === trigger.permanentId);
+            const sourcePermanentForInterveningIf = trigger.permanentId && trigger.permanentId !== newPermId
+              ? newPermanent
+              : sourcePerm;
             const enteringControllerId = String(controller || '').trim();
             const needsThatPlayerRef = /\bthat player\b/i.test(desc);
             const refs =
@@ -14984,7 +15592,7 @@ export function resolveTopOfStack(ctx: GameContext) {
                     theirPlayerId: enteringControllerId,
                   }
                 : undefined;
-            const satisfied = isInterveningIfSatisfied(ctx as any, String(triggerController), desc, sourcePerm, refs);
+            const satisfied = isInterveningIfSatisfied(ctx as any, String(triggerController), desc, sourcePermanentForInterveningIf, refs);
             if (satisfied === false) {
               debug(2, `[resolveTopOfStack] Skipping ETB trigger due to unmet intervening-if: ${trigger.cardName} - ${desc}`);
               continue;
@@ -15000,8 +15608,15 @@ export function resolveTopOfStack(ctx: GameContext) {
             source: trigger.permanentId,
             sourceName: trigger.cardName,
             description: trigger.description,
+            effect: (trigger as any).effect || trigger.description,
             triggerType: trigger.triggerType,
             mandatory: trigger.mandatory,
+            requiresTarget: (trigger as any).requiresTarget || false,
+            targetType: (trigger as any).targetType,
+            targetConstraint: (trigger as any).targetConstraint,
+            needsTargetSelection: (trigger as any).requiresTarget || false,
+            interveningIfSubjectPermanentId: newPermanent.id,
+            interveningIfSubjectSnapshot: buildInterveningIfSubjectSnapshot(newPermanent),
           } as any);
           
           debug(2, `[resolveTopOfStack] ⚡ ${trigger.cardName}'s triggered ability (controlled by ${triggerController}): ${trigger.description}`);
@@ -19476,7 +20091,13 @@ export function playLand(ctx: GameContext, playerId: PlayerID, cardOrId: any) {
         // Intervening-if (Rule 603.4): if recognized and false at trigger time, do not trigger.
         // Landfall triggers are sourced from existing permanents; use that permanent as source context.
         try {
-          const sourcePerm = state.battlefield?.find((p: any) => p?.id === trigger.permanentId);
+          const triggerSourceId = String(trigger.sourceId || trigger.permanentId || '').trim();
+          const sourcePerm = trigger.sourceZone === 'battlefield'
+            ? state.battlefield?.find((p: any) => p?.id === triggerSourceId)
+            : undefined;
+          const sourceSubjectSnapshot = trigger.interveningIfSubjectSnapshot && typeof trigger.interveningIfSubjectSnapshot === 'object'
+            ? { ...(trigger.interveningIfSubjectSnapshot as any) }
+            : undefined;
           const raw = String(trigger.effect || '').trim();
           let text = raw;
           if (text && !/^(?:when|whenever|at)\b/i.test(text)) {
@@ -19486,7 +20107,7 @@ export function playLand(ctx: GameContext, playerId: PlayerID, cardOrId: any) {
             ctx as any,
             String(playerId),
             text,
-            sourcePerm,
+            sourceSubjectSnapshot || sourcePerm,
             /\bthat player\b/i.test(text)
               ? {
                   thatPlayerId: String(playerId),
@@ -19504,13 +20125,19 @@ export function playLand(ctx: GameContext, playerId: PlayerID, cardOrId: any) {
         }
 
         const triggerId = uid("trigger");
+        const stackedSourceId = String(trigger.sourceId || trigger.permanentId || '').trim();
         state.stack.push({
           id: triggerId,
           type: 'triggered_ability',
           controller: playerId,
-          source: trigger.permanentId,
-          permanentId: trigger.permanentId,
+          source: stackedSourceId,
+          ...(trigger.permanentId ? { permanentId: trigger.permanentId } : {}),
           sourceName: trigger.cardName,
+          ...(trigger.sourceZone ? { sourceZone: trigger.sourceZone } : {}),
+          ...(trigger.sourceCard ? { card: { ...(trigger.sourceCard as any) } } : {}),
+          ...(trigger.interveningIfSubjectSnapshot
+            ? { interveningIfSubjectSnapshot: { ...(trigger.interveningIfSubjectSnapshot as any) } }
+            : {}),
           description: `Landfall - ${trigger.effect}`,
           triggerType: 'landfall',
           mandatory: trigger.mandatory,

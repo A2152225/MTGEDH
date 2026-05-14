@@ -755,6 +755,34 @@ export function getCombatDamageTriggersForCreature(
   return detectCombatDamageTriggers(attackingPermanent.card, attackingPermanent);
 }
 
+function collectDeathTriggerEffectText(oracleText: string, match: RegExpMatchArray, effectCaptureIndex: number): string {
+  const effect = String(match?.[effectCaptureIndex] || '').trim();
+  if (!effect) {
+    return effect;
+  }
+
+  if (!/^you may pay\s+\{[^}]+\}(?:\{[^}]+\})*$/i.test(effect)) {
+    return effect;
+  }
+
+  const matchText = String(match?.[0] || '');
+  const matchStart = typeof match?.index === 'number'
+    ? match.index
+    : String(oracleText || '').indexOf(matchText);
+  if (matchStart < 0 || !matchText) {
+    return effect;
+  }
+
+  const sameLineTail = String(oracleText || '')
+    .slice(matchStart + matchText.length)
+    .split(/\r?\n/)[0] || '';
+  const continuationMatch = sameLineTail.match(
+    /^\s*\.\s*((?:if\s+you\s+do,?\s+[^.]+\.)(?:\s+(?:if\s+it['’]?s|it['’]?s|then)\b[^.]+\.)*)/i
+  );
+  const continuation = String(continuationMatch?.[1] || '').trim();
+  return continuation ? `${effect}. ${continuation}` : effect;
+}
+
 /**
  * Detect death triggers from a permanent's abilities.
  * 
@@ -1214,7 +1242,10 @@ const ETB_STATIC_ALTERNATIVES = [
   'this permanent',
   'this land',
   'this enchantment',
-  'this artifact'
+  'this artifact',
+  'this equipment',
+  'this planeswalker',
+  'this battle'
 ];
 
 /**
@@ -1291,18 +1322,26 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
   const etbMatch = oracleText.match(etbPattern);
   if (etbMatch && !triggers.some(t => t.triggerType === 'etb' || t.triggerType === 'etb_sacrifice_unless_pay')) {
     let effectText = etbMatch[1].trim();
+    const fullMatchText = String(etbMatch[0] || '');
+    const matchIndex = typeof etbMatch.index === 'number' ? etbMatch.index : oracleText.indexOf(fullMatchText);
+    const remainder = matchIndex >= 0 ? oracleText.slice(matchIndex + fullMatchText.length).trim() : '';
 
     // Necromancy-style ETB abilities can span multiple sentences:
     // the first sentence turns the source into an Aura, and the next sentence
     // contains the actual graveyard target clause. Preserve that continuation so
     // target metadata inference can see the graveyard target.
     if (!/\btarget\b/i.test(effectText) && /\bbecomes an aura\b/i.test(effectText)) {
-      const fullMatchText = String(etbMatch[0] || '');
-      const matchIndex = typeof etbMatch.index === 'number' ? etbMatch.index : oracleText.indexOf(fullMatchText);
-      const remainder = matchIndex >= 0 ? oracleText.slice(matchIndex + fullMatchText.length).trim() : '';
       const continuationMatch = remainder.match(/^[.?!]\s*((?:put|return)\s+target\s+[^.?!]+(?:[.?!]|$))/i);
       if (continuationMatch) {
         effectText = `${effectText}. ${String(continuationMatch[1] || '').trim().replace(/[.?!]\s*$/, '')}`;
+      }
+    }
+
+    const ifYouDoContinuationMatch = remainder.match(/^[.?!]\s*(if\s+you\s+do,\s+[^.?!]+(?:[.?!]|$))/i);
+    if (ifYouDoContinuationMatch) {
+      const continuation = String(ifYouDoContinuationMatch[1] || '').trim().replace(/[.?!]\s*$/, '');
+      if (continuation && !new RegExp(`${continuation.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i').test(effectText)) {
+        effectText = `${effectText}. ${continuation}`;
       }
     }
     
@@ -2556,7 +2595,7 @@ function deathTriggerPermanentHasKeyword(perm: any, keywordLower: string): boole
     }
   }
 
-  return getPermanentRulesTextFragments(perm).some((text) => text.includes(wanted));
+  return getPermanentRulesTextFragments(perm).some((text) => text.toLowerCase().includes(wanted));
 }
 
 function getPermanentSubtypeWords(typeLineValue: string): string[] {
@@ -2711,7 +2750,7 @@ export function getDeathTriggers(
   for (const rulesText of getPermanentRulesTextFragments(dyingCreature)) {
     const matches = rulesText.matchAll(selfDiesPattern);
     for (const match of matches) {
-      let effect = String(match?.[1] || '').trim();
+      let effect = collectDeathTriggerEffectText(rulesText, match as RegExpMatchArray, 1);
       if (/^choose one\b/i.test(effect)) {
         const matchText = String(match?.[0] || '');
         const matchIndex = typeof match?.index === 'number' ? match.index : -1;
@@ -2781,16 +2820,17 @@ export function getDeathTriggers(
     
     const cardName = (card.name || '').toLowerCase();
     const oracleText = getPermanentRulesTextFragments(permanent).join('\n');
+    const lowerOracleText = oracleText.toLowerCase();
     const permanentController = permanent.controller;
     const attachedTo = String((permanent as any)?.attachedTo || '').trim();
     
     // ===== DYNAMIC DETECTION (Primary) =====
 
-    if ((oracleText.includes('when enchanted creature dies') || oracleText.includes('whenever enchanted creature dies')) &&
+    if ((lowerOracleText.includes('when enchanted creature dies') || lowerOracleText.includes('whenever enchanted creature dies')) &&
         attachedTo && attachedTo === String(dyingCreature?.id || '')) {
       const effectMatch = oracleText.match(/when(?:ever)? enchanted creature dies,?\s*([^.]+)/i);
       if (effectMatch && !results.some(r => r.source.permanentId === permanent.id)) {
-        const effect = effectMatch[1].trim();
+        const effect = collectDeathTriggerEffectText(oracleText, effectMatch, 1);
         results.push({
           source: {
             permanentId: permanent.id,
@@ -2804,11 +2844,11 @@ export function getDeathTriggers(
       }
     }
 
-    else if ((oracleText.includes('when equipped creature dies') || oracleText.includes('whenever equipped creature dies')) &&
+    else if ((lowerOracleText.includes('when equipped creature dies') || lowerOracleText.includes('whenever equipped creature dies')) &&
         attachedTo && attachedTo === String(dyingCreature?.id || '')) {
       const effectMatch = oracleText.match(/when(?:ever)? equipped creature dies,?\s*([^.]+)/i);
       if (effectMatch && !results.some(r => r.source.permanentId === permanent.id)) {
-        const effect = effectMatch[1].trim();
+        const effect = collectDeathTriggerEffectText(oracleText, effectMatch, 1);
         results.push({
           source: {
             permanentId: permanent.id,
@@ -2829,7 +2869,7 @@ export function getDeathTriggers(
         deathTriggerClauseMatchesDyingCreature(ctx, genericDiesMatch[1], permanent, dyingCreature, dyingCreatureController) &&
         !results.some(r => r.source.permanentId === permanent.id)
       ) {
-        const effect = genericDiesMatch[2].trim();
+        const effect = collectDeathTriggerEffectText(oracleText, genericDiesMatch, 2);
         const returnsUnderControl = effect.toLowerCase().includes('return') &&
           effect.toLowerCase().includes('under your control');
         results.push({
@@ -2847,14 +2887,14 @@ export function getDeathTriggers(
     }
     
     // "Whenever a creature you control dies" or "Whenever another creature you control dies"
-    if ((oracleText.includes('whenever a creature you control dies') ||
-         oracleText.includes('whenever another creature you control dies') ||
-         oracleText.includes('whenever a nontoken creature you control dies') ||
-         oracleText.includes('whenever another nontoken creature you control dies')) && 
+        if ((lowerOracleText.includes('whenever a creature you control dies') ||
+          lowerOracleText.includes('whenever another creature you control dies') ||
+          lowerOracleText.includes('whenever a nontoken creature you control dies') ||
+          lowerOracleText.includes('whenever another nontoken creature you control dies')) && 
         dyingCreatureController === permanentController) {
       const effectMatch = oracleText.match(/whenever (?:a|another) (?:nontoken )?creature you control dies,?\s*([^.]+)/i);
       if (effectMatch && !results.some(r => r.source.permanentId === permanent.id)) {
-        const effect = effectMatch[1].trim();
+        const effect = collectDeathTriggerEffectText(oracleText, effectMatch, 1);
         results.push({
           source: {
             permanentId: permanent.id,
@@ -2868,13 +2908,13 @@ export function getDeathTriggers(
     }
     
     // "Whenever a creature dies" (any creature, not specific to controller)
-    else if (oracleText.includes('whenever a creature dies') && 
-        !oracleText.includes('whenever a creature you control dies') &&
-        !oracleText.includes("whenever a creature you don't control dies") &&
-        !oracleText.includes("whenever a creature an opponent controls dies")) {
+    else if (lowerOracleText.includes('whenever a creature dies') && 
+      !lowerOracleText.includes('whenever a creature you control dies') &&
+      !lowerOracleText.includes("whenever a creature you don't control dies") &&
+      !lowerOracleText.includes("whenever a creature an opponent controls dies")) {
       const effectMatch = oracleText.match(/whenever a creature dies,?\s*([^.]+)/i);
       if (effectMatch && !results.some(r => r.source.permanentId === permanent.id)) {
-        const effect = effectMatch[1].trim();
+        const effect = collectDeathTriggerEffectText(oracleText, effectMatch, 1);
         results.push({
           source: {
             permanentId: permanent.id,
@@ -2888,12 +2928,12 @@ export function getDeathTriggers(
     }
     
     // "Whenever a creature you don't control dies" or "Whenever a creature an opponent controls dies"
-    else if ((oracleText.includes("whenever a creature you don't control dies") ||
-         oracleText.includes("whenever a creature an opponent controls dies")) &&
+        else if ((lowerOracleText.includes("whenever a creature you don't control dies") ||
+          lowerOracleText.includes("whenever a creature an opponent controls dies")) &&
         dyingCreatureController !== permanentController) {
       const effectMatch = oracleText.match(/whenever (?:a|another) (?:nontoken )?creature (?:you don't control|an opponent controls) dies,?\s*([^.]+)/i);
       if (effectMatch && !results.some(r => r.source.permanentId === permanent.id)) {
-        const effect = effectMatch[1].trim();
+        const effect = collectDeathTriggerEffectText(oracleText, effectMatch, 1);
         const returnsUnderControl = effect.toLowerCase().includes('return') && 
                                     effect.toLowerCase().includes('under your control');
         results.push({

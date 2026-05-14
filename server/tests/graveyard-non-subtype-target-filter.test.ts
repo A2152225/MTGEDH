@@ -9,6 +9,9 @@ describe('matchesGraveyardCardTargetType: non-<subtype> exclusion', () => {
   const zombieCreature = { id: 'd', name: 'Doomed Zombie', type_line: 'Creature \u2014 Zombie' };
   const humanWizard = { id: 'e', name: 'Sage of Mysteries', type_line: 'Creature \u2014 Human Wizard' };
   const sorceryCard = { id: 'f', name: 'Lightning Bolt Style', type_line: 'Sorcery' };
+  const legendaryCreature = { id: 'g', name: 'Captain Sisay Style', type_line: 'Legendary Creature \u2014 Human Soldier' };
+  const artifactCreature = { id: 'h', name: 'Steel Golem Style', type_line: 'Artifact Creature \u2014 Golem' };
+  const artifactOnly = { id: 'i', name: 'Mana Rock Style', type_line: 'Artifact' };
 
   it("excludes Dragon creatures when target type is graveyard_non-dragon_creature_card", () => {
     expect(matchesGraveyardCardTargetType(dragonCreature, 'graveyard_non-dragon_creature_card')).toBe(false);
@@ -32,5 +35,20 @@ describe('matchesGraveyardCardTargetType: non-<subtype> exclusion', () => {
     expect(reqs.targetTypes).toContain('graveyard_non-dragon_creature_card');
     expect(reqs.graveyardScope).toBe('your');
     expect((reqs as any).targetFilterMaxManaValue).toBe(4);
+  });
+
+  it('matches compound graveyard target types like legendary creature and artifact creature', () => {
+    expect(matchesGraveyardCardTargetType(legendaryCreature, 'graveyard_legendary_creature_card')).toBe(true);
+    expect(matchesGraveyardCardTargetType(humanKnight, 'graveyard_legendary_creature_card')).toBe(false);
+    expect(matchesGraveyardCardTargetType(artifactCreature, 'graveyard_artifact_creature_card')).toBe(true);
+    expect(matchesGraveyardCardTargetType(artifactOnly, 'graveyard_artifact_creature_card')).toBe(false);
+  });
+
+  it('parseTargetRequirements preserves compound graveyard targets from Confession Dial text', () => {
+    const reqs = parseTargetRequirements(
+      'Target legendary creature card in your graveyard gains escape until end of turn. The escape cost is equal to its mana cost plus exile three other cards from your graveyard.'
+    );
+    expect(reqs.targetTypes).toContain('graveyard_legendary_creature_card');
+    expect(reqs.graveyardScope).toBe('your');
   });
 });
