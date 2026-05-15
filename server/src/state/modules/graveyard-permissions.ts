@@ -24,6 +24,12 @@ export interface GrantedGraveyardKeywordInfo {
   sourceName?: string;
 }
 
+export interface PrintedSelfCastPermissionInfo {
+  hasIt: boolean;
+  cost?: string;
+  fromExile?: boolean;
+}
+
 export interface TemporaryGraveyardKeywordGrant {
   playerId: string;
   cardId: string;
@@ -36,7 +42,52 @@ export interface TemporaryGraveyardKeywordGrant {
   turnApplied?: number;
 }
 
-export type GraveyardGrantKeyword = 'flashback' | 'unearth' | 'jump-start' | 'retrace' | 'escape' | 'embalm';
+export interface TemporaryPlayableFromGraveyardPermission {
+  playerId: string;
+  permission: 'play' | 'cast';
+  qualifier: string;
+  sourceId?: string;
+  sourceName?: string;
+  expiresAt: 'end_of_turn' | 'this_turn';
+  turnApplied?: number;
+}
+
+export type GraveyardCastingPermissionKind = 'play' | 'cast';
+export type GraveyardCastingPermissionDuration = 'this_turn' | 'end_of_turn' | 'until_end_of_next_turn' | 'static';
+export type GraveyardCastingPermissionCostMode = 'normal' | 'alternate' | 'without_paying_mana_cost';
+
+export interface GraveyardCastingPermissionCardFilter {
+  qualifier?: string;
+  cardIds?: string[];
+}
+
+export interface GraveyardCastingPermissionUsageLimit {
+  type: 'once' | 'once_per_turn' | 'one_per_permanent_type';
+  maxUses?: number;
+}
+
+export interface GraveyardCastingPermissionReplacement {
+  exileAfterResolution?: boolean;
+  leaveBattlefieldDestination?: 'exile';
+  sourceName?: string;
+}
+
+export interface GraveyardCastingPermission {
+  id: string;
+  playerId: string;
+  permission: GraveyardCastingPermissionKind;
+  sourceZone: 'graveyard';
+  cardFilter: GraveyardCastingPermissionCardFilter;
+  costMode: GraveyardCastingPermissionCostMode;
+  duration: GraveyardCastingPermissionDuration;
+  turnApplied?: number;
+  sourceId?: string;
+  sourceName?: string;
+  usageLimit?: GraveyardCastingPermissionUsageLimit;
+  replacement?: GraveyardCastingPermissionReplacement;
+}
+
+export type GraveyardGrantKeyword = 'flashback' | 'unearth' | 'jump-start' | 'retrace' | 'escape' | 'harmonize' | 'embalm';
 
 function normalizeText(value: unknown): string {
   return String(value || '').toLowerCase().replace(/[\u2018\u2019]/g, "'");
@@ -77,6 +128,247 @@ function getManaCost(card: any): string {
 
 function getCardId(card: any): string {
   return String(card?.id || '').trim();
+}
+
+function getCurrentTurn(state: any): number {
+  return Number(state?.turnNumber ?? state?.turn ?? 0) || 0;
+}
+
+function sanitizePermissionIdPart(value: unknown): string {
+  return normalizeText(value)
+    .replace(/[^a-z0-9_-]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 80);
+}
+
+function getGraveyardCastingPermissions(state: any): GraveyardCastingPermission[] {
+  return Array.isArray(state?.graveyardCastingPermissions)
+    ? state.graveyardCastingPermissions
+    : [];
+}
+
+function normalizeGraveyardPermissionDuration(value: unknown): GraveyardCastingPermissionDuration {
+  const normalized = String(value || '').trim().toLowerCase();
+  if (normalized === 'until_end_of_next_turn') return 'until_end_of_next_turn';
+  if (normalized === 'static' || normalized === 'permanent') return 'static';
+  if (normalized === 'end_of_turn' || normalized === 'eot') return 'end_of_turn';
+  return 'this_turn';
+}
+
+export function buildGraveyardCastingPermissionId(permission: Omit<GraveyardCastingPermission, 'id'> & { id?: string }): string {
+  const sourcePart = sanitizePermissionIdPart(permission.sourceId || permission.sourceName || 'source');
+  const qualifierPart = sanitizePermissionIdPart(
+    permission.cardFilter?.qualifier || permission.cardFilter?.cardIds?.join('_') || 'cards'
+  );
+  const turnPart = Number(permission.turnApplied ?? 0) || 0;
+  return [
+    'graveyard-permission',
+    permission.playerId,
+    permission.permission,
+    sourcePart || 'source',
+    qualifierPart || 'cards',
+    turnPart,
+  ].map(sanitizePermissionIdPart).filter(Boolean).join(':');
+}
+
+function graveyardCastingPermissionIsActive(state: any, permission: GraveyardCastingPermission): boolean {
+  if (!permission || permission.sourceZone !== 'graveyard') return false;
+  const duration = normalizeGraveyardPermissionDuration(permission.duration);
+  if (duration === 'static') return true;
+
+  const turnApplied = Number(permission.turnApplied ?? getCurrentTurn(state)) || 0;
+  const currentTurn = getCurrentTurn(state);
+  if (duration === 'until_end_of_next_turn') {
+    return currentTurn <= turnApplied + 1;
+  }
+
+  return turnApplied >= currentTurn;
+}
+
+export function addGraveyardCastingPermission(
+  state: any,
+  permission: Omit<GraveyardCastingPermission, 'id' | 'sourceZone'> & { id?: string; sourceZone?: 'graveyard' },
+): GraveyardCastingPermission | undefined {
+  if (!state || !permission?.playerId || !permission.permission) return undefined;
+
+  const cardIds = Array.isArray(permission.cardFilter?.cardIds)
+    ? permission.cardFilter.cardIds.map((cardId) => String(cardId || '').trim()).filter(Boolean)
+    : [];
+  const qualifier = String(permission.cardFilter?.qualifier || '').trim();
+  if (cardIds.length === 0 && !qualifier) return undefined;
+
+  const turnApplied = Number(permission.turnApplied ?? getCurrentTurn(state)) || 0;
+  const entry: GraveyardCastingPermission = {
+    id: String(permission.id || buildGraveyardCastingPermissionId({
+      ...permission,
+      id: undefined,
+      sourceZone: 'graveyard',
+      cardFilter: {
+        ...(qualifier ? { qualifier } : {}),
+        ...(cardIds.length > 0 ? { cardIds } : {}),
+      },
+      turnApplied,
+    } as any)).trim(),
+    playerId: String(permission.playerId),
+    permission: permission.permission === 'play' ? 'play' : 'cast',
+    sourceZone: 'graveyard',
+    cardFilter: {
+      ...(qualifier ? { qualifier } : {}),
+      ...(cardIds.length > 0 ? { cardIds } : {}),
+    },
+    costMode: permission.costMode || 'normal',
+    duration: normalizeGraveyardPermissionDuration(permission.duration),
+    turnApplied,
+    ...(permission.sourceId ? { sourceId: String(permission.sourceId) } : {}),
+    ...(permission.sourceName ? { sourceName: String(permission.sourceName) } : {}),
+    ...(permission.usageLimit ? { usageLimit: { ...permission.usageLimit } } : {}),
+    ...(permission.replacement ? { replacement: { ...permission.replacement } } : {}),
+  };
+
+  state.graveyardCastingPermissions = getGraveyardCastingPermissions(state).filter((existing) => existing?.id !== entry.id);
+  state.graveyardCastingPermissions.push(entry);
+  return entry;
+}
+
+export function getActiveGraveyardCastingPermissions(
+  state: any,
+  playerId: PlayerID,
+  options?: { permission?: GraveyardCastingPermissionKind },
+): GraveyardCastingPermission[] {
+  const expectedPermission = options?.permission;
+  return getGraveyardCastingPermissions(state).filter((permission) => {
+    if (String(permission?.playerId || '') !== String(playerId || '')) return false;
+    if (expectedPermission && permission.permission !== expectedPermission) return false;
+    return graveyardCastingPermissionIsActive(state, permission);
+  });
+}
+
+function getCollapsedOracleText(card: any): string {
+  return normalizeText(card?.oracle_text || card?.oracleText || '').replace(/\s+/g, ' ').trim();
+}
+
+function getSelfReferenceNames(card: any): string[] {
+  const names = new Set<string>();
+  const fullName = normalizeText(card?.name || '').trim();
+  if (fullName) {
+    names.add(fullName);
+    const shortName = fullName.split(',')[0]?.trim();
+    if (shortName) {
+      names.add(shortName);
+    }
+  }
+
+  return [...names];
+}
+
+function hasSelfCastReference(text: string, selfNames: string[]): boolean {
+  if (text.includes('you may cast this card')) {
+    return true;
+  }
+
+  return selfNames.some((name) => name && text.includes(`you may cast ${name}`));
+}
+
+function singularizeTypeWord(value: string): string {
+  const normalized = normalizeText(value).trim();
+  if (normalized.endsWith('ies') && normalized.length > 3) {
+    return `${normalized.slice(0, -3)}y`;
+  }
+  if (normalized.endsWith('s') && !normalized.endsWith('ss') && normalized.length > 3) {
+    return normalized.slice(0, -1);
+  }
+  return normalized;
+}
+
+function getTypeQualifierWords(value: string): string[] {
+  return normalizeText(value)
+    .replace(/\band\/or\b/g, ' ')
+    .replace(/\band\b/g, ' ')
+    .replace(/\bor\b/g, ' ')
+    .replace(/[^a-z0-9' -]+/g, ' ')
+    .split(/\s+/)
+    .map((word) => singularizeTypeWord(word))
+    .filter(Boolean);
+}
+
+function countControlledPermanentsMatchingQualifier(
+  state: any,
+  playerId: PlayerID,
+  qualifier: string,
+  options?: { tappedOnly?: boolean },
+): number {
+  const typeWords = getTypeQualifierWords(qualifier);
+  if (typeWords.length === 0) {
+    return 0;
+  }
+
+  const battlefield = Array.isArray(state?.battlefield) ? state.battlefield : [];
+  return battlefield.filter((permanent: any) => {
+    if (!permanent || permanent.phasedOut) return false;
+    if (String(permanent.controller || permanent.owner || '') !== String(playerId || '')) {
+      return false;
+    }
+    if (options?.tappedOnly && permanent.tapped !== true) {
+      return false;
+    }
+
+    const permanentTypeWords = getTypeQualifierWords(getTypeLine(permanent?.card || permanent));
+    return typeWords.some((word) => permanentTypeWords.includes(word));
+  }).length;
+}
+
+function playerControlsTypeLineWord(state: any, playerId: PlayerID, word: string): boolean {
+  const normalizedWord = normalizeText(word).trim();
+  if (!normalizedWord) return false;
+
+  return countControlledPermanentsMatchingQualifier(state, playerId, normalizedWord) > 0;
+}
+
+export function getPrintedSelfCastPermissionInfo(
+  state: any,
+  playerId: PlayerID,
+  card: any,
+  sourceZone: 'graveyard' | 'exile' = 'graveyard',
+): PrintedSelfCastPermissionInfo {
+  const oracleText = getCollapsedOracleText(card);
+  if (!oracleText.includes('you may cast')) {
+    return { hasIt: false };
+  }
+
+  const selfNames = getSelfReferenceNames(card);
+  if (!hasSelfCastReference(oracleText, selfNames)) {
+    return { hasIt: false };
+  }
+
+  const canCastFromGraveyard = oracleText.includes('from your graveyard');
+  const canCastFromExile = oracleText.includes('from exile');
+  if ((sourceZone === 'graveyard' && !canCastFromGraveyard) || (sourceZone === 'exile' && !canCastFromExile)) {
+    return { hasIt: false };
+  }
+
+  if (/\bduring your turn\b/.test(oracleText) && !isPlayersTurn(state, playerId)) {
+    return { hasIt: false };
+  }
+
+  const multiTappedControlMatch = oracleText.match(/\bas long as you control (one|two|three|four|five|six|seven|eight|nine|ten|\d+) or more tapped ([a-z0-9'/ -]+?)(?:[.,]|$)/i);
+  if (multiTappedControlMatch) {
+    const requiredCount = parseSmallNumber(multiTappedControlMatch[1]);
+    const availableCount = countControlledPermanentsMatchingQualifier(state, playerId, multiTappedControlMatch[2], { tappedOnly: true });
+    if (requiredCount > 0 && availableCount < requiredCount) {
+      return { hasIt: false };
+    }
+  }
+
+  const controlMatch = oracleText.match(/\bas long as you control (?:a|an)\s+([a-z0-9'-]+)/i);
+  if (controlMatch && !playerControlsTypeLineWord(state, playerId, controlMatch[1])) {
+    return { hasIt: false };
+  }
+
+  return {
+    hasIt: true,
+    ...(getManaCost(card) ? { cost: getManaCost(card) } : {}),
+    ...(canCastFromExile ? { fromExile: true } : {}),
+  };
 }
 
 function getPlayerGraveyardCollections(state: any, playerId: PlayerID): any[][] {
@@ -130,6 +422,7 @@ function markSourceCardPlayableFromGraveyardThisTurn(
   playerId: PlayerID,
   sourceCard: any,
   permission: 'play' | 'cast',
+  options?: { sourceId?: string; sourceName?: string; costMode?: GraveyardCastingPermissionCostMode },
 ): number {
   const cardId = getCardId(sourceCard);
   if (!state || !playerId || !cardId) return 0;
@@ -163,6 +456,21 @@ function markSourceCardPlayableFromGraveyardThisTurn(
   const playerEntry = state.playableFromGraveyard[String(playerId)] = state.playableFromGraveyard[String(playerId)] || {};
   playerEntry[cardId] = playableUntilTurn;
 
+  addGraveyardCastingPermission(state, {
+    playerId: String(playerId),
+    permission,
+    sourceId: options?.sourceId || cardId,
+    sourceName: options?.sourceName || String(sourceCard?.name || ''),
+    cardFilter: {
+      qualifier: 'this card',
+      cardIds: [cardId],
+    },
+    costMode: options?.costMode || 'normal',
+    duration: 'this_turn',
+    turnApplied: playableUntilTurn,
+    usageLimit: { type: 'once', maxUses: 1 },
+  });
+
   return 1;
 }
 
@@ -188,6 +496,7 @@ function qualifierMatchesCard(qualifier: string, card: any): boolean {
   const normalized = normalizeText(qualifier).replace(/non\s*-/g, 'non-');
   const typeLine = getTypeLine(card);
   const lesson = isLesson(card);
+  const typeWords = ['artifact', 'creature', 'enchantment', 'land', 'planeswalker', 'battle'];
 
   if (/\bnon-lesson\b/.test(normalized) && lesson) {
     return false;
@@ -201,9 +510,21 @@ function qualifierMatchesCard(qualifier: string, card: any): boolean {
     return false;
   }
 
-  const typeWords = ['artifact', 'creature', 'enchantment', 'land', 'planeswalker', 'battle'];
+  if (/\bpermanent\b/.test(normalized) && isInstantOrSorcery(card)) {
+    return false;
+  }
+
   for (const typeWord of typeWords) {
-    if (new RegExp(`\\b${typeWord}\\b`).test(normalized) && !new RegExp(`\\b${typeWord}\\b`).test(typeLine)) {
+    const typePattern = new RegExp(`\\b${typeWord}\\b`);
+    const nonTypePattern = new RegExp(`\\bnon-?${typeWord}\\b`);
+    if (nonTypePattern.test(normalized)) {
+      if (typePattern.test(typeLine)) {
+        return false;
+      }
+      continue;
+    }
+
+    if (typePattern.test(normalized) && !typePattern.test(typeLine)) {
       return false;
     }
   }
@@ -233,10 +554,12 @@ function qualifierMatchesCard(qualifier: string, card: any): boolean {
     }
   }
 
-  const baseQualifier = normalized.replace(/\bthat(?:'s| is)\s+(?:an?\s+)?.+$/, '');
+  const baseQualifier = normalized
+    .replace(/\bthat(?:'s| is)\s+(?:an?\s+)?.+$/, '')
+    .replace(/\bnon-?(?:artifact|creature|enchantment|land|planeswalker|battle)\b/g, '');
   const leadingQualifier = baseQualifier
     .replace(/\bnon-lesson\b/g, '')
-    .replace(/\b(?:instant|sorcery|artifact|creature|enchantment|land|planeswalker|battle|card|cards|each|exactly|one|two|three|four|five|colors?)\b/g, ' ')
+    .replace(/\b(?:instant|sorcery|artifact|creature|enchantment|land|planeswalker|battle|permanent|spell|spells|card|cards|each|exactly|one|two|three|four|five|colors?)\b/g, ' ')
     .replace(/\b(?:white|blue|black|red|green)\b/g, ' ')
     .replace(/\b(?:and|or|and\/or|a|an)\b/g, ' ')
     .replace(/[^a-z0-9' -]+/g, ' ')
@@ -316,6 +639,60 @@ function getTemporaryGraveyardKeywordGrants(state: any): TemporaryGraveyardKeywo
     : [];
 }
 
+function getTemporaryPlayableFromGraveyardPermissions(state: any): TemporaryPlayableFromGraveyardPermission[] {
+  return Array.isArray(state?.temporaryPlayableFromGraveyardPermissions)
+    ? state.temporaryPlayableFromGraveyardPermissions
+    : [];
+}
+
+function addTemporaryPlayableFromGraveyardPermission(
+  state: any,
+  playerId: PlayerID,
+  qualifier: string,
+  permission: 'play' | 'cast',
+  options: {
+    sourceId?: string;
+    sourceName?: string;
+    costMode?: GraveyardCastingPermissionCostMode;
+    usageLimit?: GraveyardCastingPermissionUsageLimit;
+  },
+): boolean {
+  const normalizedQualifier = String(qualifier || '').trim();
+  if (!state || !playerId || !normalizedQualifier) return false;
+
+  const sourceId = String(options.sourceId || '').trim();
+  state.temporaryPlayableFromGraveyardPermissions = getTemporaryPlayableFromGraveyardPermissions(state).filter((entry) => !(
+    String(entry?.playerId || '') === String(playerId || '')
+    && String(entry?.permission || '') === String(permission)
+    && normalizeText(entry?.qualifier || '') === normalizeText(normalizedQualifier)
+    && String(entry?.sourceId || '') === sourceId
+  ));
+
+  state.temporaryPlayableFromGraveyardPermissions.push({
+    playerId: String(playerId),
+    permission,
+    qualifier: normalizedQualifier,
+    ...(sourceId ? { sourceId } : {}),
+    ...(options.sourceName ? { sourceName: String(options.sourceName) } : {}),
+    expiresAt: 'end_of_turn',
+    turnApplied: Number(state.turnNumber ?? state.turn ?? 0) || 0,
+  });
+
+  addGraveyardCastingPermission(state, {
+    playerId: String(playerId),
+    permission,
+    sourceId,
+    ...(options.sourceName ? { sourceName: String(options.sourceName) } : {}),
+    cardFilter: { qualifier: normalizedQualifier },
+    costMode: options.costMode || 'normal',
+    duration: 'this_turn',
+    turnApplied: Number(state.turnNumber ?? state.turn ?? 0) || 0,
+    ...(options.usageLimit ? { usageLimit: options.usageLimit } : {}),
+  });
+
+  return true;
+}
+
 function findTemporaryGrantedKeywordInfo(
   state: any,
   playerId: PlayerID,
@@ -345,7 +722,7 @@ function findTemporaryGrantedKeywordInfo(
 
 function normalizeGrantKeyword(value: string): GraveyardGrantKeyword | undefined {
   const normalized = normalizeText(value).replace(/\s+/g, '-');
-  if (['flashback', 'unearth', 'jump-start', 'retrace', 'escape', 'embalm'].includes(normalized)) {
+  if (['flashback', 'unearth', 'jump-start', 'retrace', 'escape', 'harmonize', 'embalm'].includes(normalized)) {
     return normalized as GraveyardGrantKeyword;
   }
   return undefined;
@@ -355,7 +732,7 @@ function extractKeywordGrantFromAbilityText(rawAbilityText: string): { keyword?:
   const text = String(rawAbilityText || '').trim();
   if (!text) return { remainder: '' };
 
-  const match = text.match(/\b(flashback|unearth|jump-start|retrace|escape|embalm)\b\s*[—-]?\s*([^.]*)/i);
+  const match = text.match(/\b(flashback|unearth|jump-start|retrace|escape|harmonize|embalm)\b\s*[—-]?\s*([^.]*)/i);
   const keyword = match?.[1] ? normalizeGrantKeyword(match[1]) : undefined;
   return {
     keyword,
@@ -433,6 +810,42 @@ export function clearTemporaryGraveyardKeywordGrants(state: any): number {
   }
 
   return before - (Array.isArray(state.temporaryGraveyardKeywordGrants) ? state.temporaryGraveyardKeywordGrants.length : 0);
+}
+
+export function clearTemporaryPlayableFromGraveyardPermissions(state: any): number {
+  if (!state) return 0;
+
+  let cleared = 0;
+
+  if (Array.isArray(state.temporaryPlayableFromGraveyardPermissions)) {
+    const before = state.temporaryPlayableFromGraveyardPermissions.length;
+    state.temporaryPlayableFromGraveyardPermissions = state.temporaryPlayableFromGraveyardPermissions.filter((entry: any) => {
+      const expiresAt = String(entry?.expiresAt || '').trim().toLowerCase();
+      return expiresAt !== 'end_of_turn' && expiresAt !== 'this_turn';
+    });
+
+    if (state.temporaryPlayableFromGraveyardPermissions.length === 0) {
+      delete state.temporaryPlayableFromGraveyardPermissions;
+    }
+
+    cleared += before - (Array.isArray(state.temporaryPlayableFromGraveyardPermissions) ? state.temporaryPlayableFromGraveyardPermissions.length : 0);
+  }
+
+  if (Array.isArray(state.graveyardCastingPermissions)) {
+    const before = state.graveyardCastingPermissions.length;
+    state.graveyardCastingPermissions = state.graveyardCastingPermissions.filter((permission: GraveyardCastingPermission) => {
+      const duration = normalizeGraveyardPermissionDuration(permission?.duration);
+      return duration !== 'end_of_turn' && duration !== 'this_turn';
+    });
+
+    if (state.graveyardCastingPermissions.length === 0) {
+      delete state.graveyardCastingPermissions;
+    }
+
+    cleared += before - (Array.isArray(state.graveyardCastingPermissions) ? state.graveyardCastingPermissions.length : 0);
+  }
+
+  return cleared;
 }
 
 export function applyTemporaryGraveyardKeywordGrantFromText(
@@ -523,14 +936,20 @@ export function applyPlayableFromGraveyardPermissionFromText(
       .trim();
     if (!text || !/\bgraveyard\b/i.test(text)) return 0;
 
-    const grantsCastPermission = /\byou may cast (?:it|this card) from your graveyard this turn\b/i.test(text);
-    const grantsPlayPermission = !grantsCastPermission
-      && /\byou may play (?:it|this card) from your graveyard this turn\b/i.test(text);
-    if (!grantsCastPermission && !grantsPlayPermission) return 0;
+    const hasTemporaryWindow = /\bthis turn\b/i.test(text)
+      || /^\s*until end of turn\b/i.test(text)
+      || /^\s*until end of your next turn\b/i.test(text);
 
     if (/\bit'?s your turn\b/i.test(text) && !isPlayersTurn(state, playerId)) {
       return 0;
     }
+
+    const grantsCastPermission = /\byou may cast (?:it|this card) from your graveyard this turn\b/i.test(text);
+    const grantsPlayPermission = !grantsCastPermission
+      && /\byou may play (?:it|this card) from your graveyard this turn\b/i.test(text);
+    const costMode: GraveyardCastingPermissionCostMode = /\bwithout paying (?:its|their|that spell's) mana cost\b/i.test(text)
+      ? 'without_paying_mana_cost'
+      : 'normal';
 
     const sourceCardId = String(
       triggerItem?.interveningIfSubjectSnapshot?.id
@@ -545,17 +964,79 @@ export function applyPlayableFromGraveyardPermissionFromText(
       || sourceName
       || ''
     ).trim();
-    const sourceCard = findCardInPlayerGraveyard(state, playerId, {
-      cardId: sourceCardId,
-      cardName: sourceCardName,
-    });
-    if (!sourceCard) return 0;
 
-    return markSourceCardPlayableFromGraveyardThisTurn(
-      state,
-      playerId,
-      sourceCard,
-      grantsPlayPermission ? 'play' : 'cast',
+    const addQualifierPermission = (
+      permission: 'play' | 'cast',
+      qualifier: string,
+      limiterText?: string,
+    ): number => {
+      const normalizedQualifier = String(qualifier || '').trim();
+      if (!normalizedQualifier || /^(?:it|this card)$/i.test(normalizedQualifier)) {
+        return 0;
+      }
+
+      const normalizedLimiterText = String(limiterText || '').trim().toLowerCase();
+      const usageLimit = /^(?:a|an|one)$/.test(normalizedLimiterText)
+        ? { type: 'once' as const, maxUses: 1 }
+        : undefined;
+
+      return addTemporaryPlayableFromGraveyardPermission(
+        state,
+        playerId,
+        normalizedQualifier,
+        permission,
+        {
+          ...(sourceCardId ? { sourceId: sourceCardId } : {}),
+          ...(sourceCardName ? { sourceName: sourceCardName } : {}),
+          costMode,
+          ...(usageLimit ? { usageLimit } : {}),
+        },
+      ) ? 1 : 0;
+    };
+
+    if (grantsCastPermission || grantsPlayPermission) {
+      const sourceCard = findCardInPlayerGraveyard(state, playerId, {
+        cardId: sourceCardId,
+        cardName: sourceCardName,
+      });
+      if (!sourceCard) return 0;
+
+      return markSourceCardPlayableFromGraveyardThisTurn(
+        state,
+        playerId,
+        sourceCard,
+        grantsPlayPermission ? 'play' : 'cast',
+        {
+          ...(sourceCardId ? { sourceId: sourceCardId } : {}),
+          ...(sourceCardName ? { sourceName: sourceCardName } : {}),
+          costMode,
+        },
+      );
+    }
+
+    const mixedPlayCastMatch = hasTemporaryWindow
+      ? text.match(/\byou may play\s+((?:an?|one)\s+)?(.+?)\s+and cast\s+((?:an?|one)\s+)?(.+?)\s+from your graveyard(?:\s+this turn)?\b/i)
+      : undefined;
+    if (mixedPlayCastMatch) {
+      return addQualifierPermission('play', String(mixedPlayCastMatch[2] || '').trim(), String(mixedPlayCastMatch[1] || '').trim())
+        + addQualifierPermission('cast', String(mixedPlayCastMatch[4] || '').trim(), String(mixedPlayCastMatch[3] || '').trim());
+    }
+
+    const castQualifierMatch = hasTemporaryWindow
+      ? text.match(/\byou may cast\s+((?:an?|one)\s+)?(.+?)\s+from your graveyard(?:\s+this turn)?\b/i)
+      : undefined;
+    const playQualifierMatch = !castQualifierMatch
+      ? (hasTemporaryWindow
+          ? text.match(/\byou may play\s+((?:an?|one)\s+)?(.+?)\s+from your graveyard(?:\s+this turn)?\b/i)
+          : undefined)
+      : undefined;
+    const qualifier = String(castQualifierMatch?.[2] || playQualifierMatch?.[2] || '').trim();
+    if (!qualifier) return 0;
+
+    return addQualifierPermission(
+      castQualifierMatch ? 'cast' : 'play',
+      qualifier,
+      String(castQualifierMatch?.[1] || playQualifierMatch?.[1] || '').trim(),
     );
   } catch {
     return 0;
@@ -599,13 +1080,14 @@ function findGrantedKeywordInfo(
 
       const lines = oracleText.split(/\r?\n/);
       for (const line of lines) {
-        if (/\bgains?\b/i.test(line)) continue;
+        const normalizedLine = line.replace(/^\s*during\s+your\s+turn,\s*/i, '').trim();
+        if (/\bgains?\b/i.test(normalizedLine)) continue;
 
         const grantPatterns = [
           new RegExp(`\\beach\\s+(.+?)\\s+cards?\\s+in\\s+(?:your\\s+)?graveyards?(?:\\s+that(?:'s| is)\\s+(.+?))?\\s+ha(?:s|ve)\\s+${keywordPattern}\\b([^.]*)`, 'i'),
           new RegExp(`^\\s*(.+?)\\s+cards?\\s+in\\s+(?:your\\s+)?graveyards?(?:\\s+that(?:'s| is)\\s+(.+?))?\\s+ha(?:s|ve)\\s+${keywordPattern}\\b([^.]*)`, 'i'),
         ];
-        const grantMatch = grantPatterns.map((pattern) => line.match(pattern)).find(Boolean);
+        const grantMatch = grantPatterns.map((pattern) => normalizedLine.match(pattern)).find(Boolean);
         if (!grantMatch) continue;
 
         const qualifier = grantMatch[2]
@@ -661,7 +1143,7 @@ export function getGrantedCastFromGraveyardKeywordInfo(
   ctx: GameContext,
   playerId: PlayerID,
   card: any,
-  keyword: 'flashback' | 'jump-start' | 'retrace' | 'escape',
+  keyword: 'flashback' | 'jump-start' | 'retrace' | 'escape' | 'harmonize',
 ): GrantedGraveyardKeywordInfo {
   return findGrantedKeywordInfo(ctx, playerId, card, keyword);
 }

@@ -479,15 +479,17 @@ export interface AdditionalCostPaymentStep extends BaseResolutionStep {
   readonly type: ResolutionStepType.ADDITIONAL_COST_PAYMENT;
   readonly cardId: string;
   readonly cardName: string;
-  readonly costType: 'discard' | 'sacrifice';
+  readonly costType: 'discard' | 'sacrifice' | 'remove_counters';
   readonly amount: number;
   readonly filter?: string;
+  readonly counterType?: string;
   /** Optional keyword identifier for additional-cost-like prompts (e.g. 'bargain'). */
   readonly additionalCostKeyword?: string;
   readonly title: string;
   readonly imageUrl?: string;
   readonly availableCards?: readonly { id: string; name: string; imageUrl?: string; typeLine?: string }[];
   readonly availableTargets?: readonly { id: string; name: string; imageUrl?: string; typeLine?: string }[];
+  readonly availableCounters?: readonly { id: string; permanentId: string; permanentName: string; counterType: string; counterIndex: number; name: string; imageUrl?: string; typeLine?: string }[];
 
   /** Optional continuation context so the server can resume castSpellFromHand. */
   readonly castSpellFromHandArgs?: {

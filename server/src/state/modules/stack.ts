@@ -74,6 +74,7 @@ import { parseCreateTokenDescriptor } from "../planeswalker/templates/utils.js";
 import { buildOpponentMayPayRecordedOutcome } from "./opponent-may-pay-utils.js";
 import { resolveGiftAwareOracleText } from "../../utils/gift.js";
 import { castCommander } from "./commander.js";
+import { markEchoPaid, sacrificePermanent, stampPermanentControlEntryForEcho } from "./upkeep-triggers.js";
 import {
   createMutatedPermanent,
   getMutatedPermanentAbilities,
@@ -424,6 +425,57 @@ function appendQueuedResolutionPromptEvent(
   } catch (err) {
     debugWarn(1, '[resolveTopOfStack] appendEvent(resolveTopOfStackPrompt) failed:', err);
   }
+}
+
+function queueLandPlayFromHandPrompt(
+  ctx: GameContext,
+  controller: PlayerID,
+  sourceName: string,
+  triggerItem?: any,
+): boolean {
+  const hand = Array.isArray((ctx.state as any)?.zones?.[controller]?.hand)
+    ? ((ctx.state as any).zones[controller].hand as any[])
+    : [];
+  const landsInHand = hand.filter((card: any) =>
+    card && String(card?.type_line || '').toLowerCase().includes('land')
+  );
+
+  if (landsInHand.length === 0) {
+    return false;
+  }
+
+  const options = ['play_land', 'decline'] as const;
+  queueResolveTopOfStackPrompt(ctx, {
+    type: ResolutionStepType.KYNAIOS_CHOICE,
+    playerId: controller as any,
+    description: `${sourceName}: You may put a land card from your hand onto the battlefield.`,
+    mandatory: false,
+    sourceId: triggerItem?.permanentId || triggerItem?.sourceId,
+    sourceName,
+    sourceImage: triggerItem?.card?.image_uris?.small,
+    kynaiosBatchId: String((triggerItem as any)?.id || `land_play_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`),
+    isController: true,
+    sourceController: controller,
+    canPlayLand: true,
+    landsInHand: landsInHand.map((card: any) => ({
+      id: String(card?.id || ''),
+      name: String(card?.name || ''),
+      imageUrl: card?.image_uris?.small || card?.image_uris?.normal,
+    })),
+    options,
+    landPlayOrFallbackIsController: true,
+    landPlayOrFallbackSourceController: controller,
+    landPlayOrFallbackCanPlayLand: true,
+    landPlayOrFallbackLandsInHand: landsInHand.map((card: any) => ({
+      id: String(card?.id || ''),
+      name: String(card?.name || ''),
+      imageUrl: card?.image_uris?.small || card?.image_uris?.normal,
+    })),
+    landPlayOrFallbackOptions: options,
+    landPlayOrFallbackSkipFinalize: true,
+  } as any);
+
+  return true;
 }
 
 function queueOptionalTriggeredAbilityEffectProgram(
@@ -904,6 +956,17 @@ export function applyTriggeredReanimationEntryRiders(
 ): void {
   applyReanimatedPermanentLeaveBattlefieldRiders(ctx, permanent, sourceName, controller, fullText);
 
+  applyPermanentKeywordGrantFromText(permanent, sourceName, fullText, targetLabel);
+}
+
+function applyPermanentKeywordGrantFromText(
+  permanent: any,
+  sourceName: string,
+  fullText: string,
+  targetLabel?: string,
+): boolean {
+  if (!permanent) return false;
+
   try {
     const KEYWORD_GRANT_VOCAB_TRIG = [
       'indestructible','haste','flying','trample','lifelink','deathtouch',
@@ -930,11 +993,14 @@ export function applyTriggeredReanimationEntryRiders(
       if (granted.includes('haste')) {
         permanent.summoningSickness = false;
       }
-      debug(2, `[applyTriggeredReanimationEntryRiders] ${sourceName} granted [${granted.join(', ')}] to ${targetLabel || permanent.card?.name || permanent.id}`);
+      debug(2, `[applyPermanentKeywordGrantFromText] ${sourceName} granted [${granted.join(', ')}] to ${targetLabel || permanent.card?.name || permanent.id}`);
+      return true;
     }
   } catch (err) {
-    debugWarn(1, '[applyTriggeredReanimationEntryRiders] keyword-grant rider failed:', err);
+    debugWarn(1, '[applyPermanentKeywordGrantFromText] keyword-grant rider failed:', err);
   }
+
+  return false;
 }
 
 function getEnteringPlaneswalkerLoyaltyValue(
@@ -1597,6 +1663,10 @@ export function inferTriggeredAbilityTargetMetadata(effectText: string, context?
         if (!Array.isArray(targetFilterRequiredTypeWords) || targetFilterRequiredTypeWords.length === 0) {
           if (/target\s+noncreature\s*,\s*nonland\s+card/.test(lower) || /target\s+nonland\s*,\s*noncreature\s+card/.test(lower)) {
             targetFilterExcludeTypes = ['creature', 'land'];
+          } else if (lower.includes('target instant card')) {
+            targetFilterTypes = ['instant'];
+          } else if (lower.includes('target sorcery card')) {
+            targetFilterTypes = ['sorcery'];
           } else if (lower.includes('target instant or sorcery card')) {
             targetFilterTypes = ['instant', 'sorcery'];
           } else if (lower.includes('target creature card')) {
@@ -3214,6 +3284,7 @@ function applyOracleIRFallbackForTriggeredEffect(
 
 const OPTIONAL_COPY_ABILITY_PAYMENT_PATTERN = /^you may pay (\{[^}]+\}(?:\{[^}]+\})*)\.\s*if you do,\s*copy that ability(?:\.|(?:\.\s*you may choose new targets for the copy\.))?$/i;
 const OPTIONAL_TRIGGER_MANA_PAYMENT_PATTERN = /^you may pay (\{[^}]+\}(?:\{[^}]+\})*)\.\s*if you do,?\s*([\s\S]+)$/i;
+const ECHO_TRIGGER_MANA_PAYMENT_PATTERN = /^pay (\{[^}]+\}(?:\{[^}]+\})*) or sacrifice(?:\b|$)/i;
 const DIRECT_COPY_ABILITY_PATTERN = /^copy that ability(?:\.|(?:\.\s*you may choose new targets for the copy\.))?$/i;
 const OPPONENT_MAY_PAY_SPELL_CAST_TRIGGER_TYPES = new Set([
   'rhystic_study',
@@ -3557,6 +3628,80 @@ function maybeQueueControllerMayPayTriggeredAbility(
       if (typeof (ctx as any).bumpSeq === 'function') {
         (ctx as any).bumpSeq();
       }
+      const io = (ctx as any).io;
+      if (io) {
+        broadcastGame(io as any, ctx as any, gameId);
+      }
+    },
+  });
+
+  return true;
+}
+
+function maybeQueueEchoTriggeredAbility(
+  ctx: GameContext,
+  item: any,
+  triggerController: PlayerID,
+  sourceName: string,
+  sourceId: string,
+  description: string,
+): boolean {
+  const match = String(description || '').trim().match(ECHO_TRIGGER_MANA_PAYMENT_PATTERN);
+  if (!match) {
+    return false;
+  }
+
+  const manaCost = String(match[1] || '').trim();
+  const gameId = String((ctx as any).gameId || '').trim();
+  const permanentId = String((item as any).source || sourceId || '').trim();
+  if (!manaCost || !permanentId) {
+    return false;
+  }
+
+  if ((ctx as any).isReplaying) {
+    return true;
+  }
+
+  if (!gameId || gameId === 'unknown') {
+    return false;
+  }
+
+  queueOptionalPaymentStep(gameId, {
+    playerId: triggerController,
+    sourceName,
+    sourceId: permanentId,
+    sourceImage: (item as any).sourceImage,
+    description: `${sourceName}: ${String(description || '').trim()}`,
+    mandatory: true,
+    payChoiceId: 'pay_echo',
+    payLabel: `Pay ${manaCost}`,
+    payDescription: `Pay ${manaCost} to keep ${sourceName}.`,
+    declineChoiceId: 'decline',
+    declineLabel: 'Sacrifice it',
+    declineDescription: `Sacrifice ${sourceName}.`,
+    validationKind: 'mana',
+    manaCost,
+    stepData: {
+      echoChoice: true,
+      permanentId,
+      cardName: sourceName,
+      manaCost,
+      triggerDescription: String(description || '').trim(),
+    },
+    onPay: async () => {
+      const parsedCost = parseManaCost(manaCost);
+      const pool = getOrInitManaPool((ctx as any).state as any, triggerController);
+      consumeManaFromPool(pool as any, parsedCost.colors, parsedCost.generic, `[echo:${sourceName}]`);
+      markEchoPaid(ctx, permanentId);
+
+      const io = (ctx as any).io;
+      if (io) {
+        broadcastGame(io as any, ctx as any, gameId);
+      }
+    },
+    onDecline: async () => {
+      sacrificePermanent(ctx, permanentId, triggerController);
+
       const io = (ctx as any).io;
       if (io) {
         broadcastGame(io as any, ctx as any, gameId);
@@ -4909,7 +5054,7 @@ function shouldQueueResolvedSpellCopyChoice(item: any, oracleText: string): bool
     (item as any).castFromGraveyard === true
     || (item as any).card?.castFromGraveyard === true
     || String((item as any).castSourceZone || (item as any).card?.castSourceZone || '').trim().toLowerCase() === 'graveyard'
-    || ['flashback', 'jump-start', 'retrace', 'escape', 'disturb'].includes(castWithAbility);
+    || ['flashback', 'jump-start', 'retrace', 'escape', 'disturb', 'harmonize', 'graveyard-cast'].includes(castWithAbility);
   if (!castFromGraveyard) {
     return false;
   }
@@ -6423,6 +6568,20 @@ function persistTriggeredAbilityPush(ctx: GameContext, stackItem: any): void {
       ...(stackItem.targetGraveyardScope ? { targetGraveyardScope: stackItem.targetGraveyardScope } : null),
       ...(stackItem.destinationUsesSelectedCardOwner === true ? { destinationUsesSelectedCardOwner: true } : null),
       ...(stackItem.battlefieldControllerMode ? { battlefieldControllerMode: stackItem.battlefieldControllerMode } : null),
+      ...(stackItem.battlefieldCounters && typeof stackItem.battlefieldCounters === 'object' ? { battlefieldCounters: stackItem.battlefieldCounters } : null),
+      ...(stackItem.targetAction ? { targetAction: stackItem.targetAction } : null),
+      ...(Array.isArray(stackItem.targetFilterTypes) ? { targetFilterTypes: stackItem.targetFilterTypes } : null),
+      ...(Array.isArray(stackItem.targetFilterRequiredTypeWords) ? { targetFilterRequiredTypeWords: stackItem.targetFilterRequiredTypeWords } : null),
+      ...(Array.isArray(stackItem.targetFilterExcludeTypes) ? { targetFilterExcludeTypes: stackItem.targetFilterExcludeTypes } : null),
+      ...(stackItem.targetFilterPermanentOnly === true ? { targetFilterPermanentOnly: true } : null),
+      ...(typeof stackItem.targetFilterExactManaValue === 'number' ? { targetFilterExactManaValue: stackItem.targetFilterExactManaValue } : null),
+      ...(typeof stackItem.targetFilterMinManaValue === 'number' ? { targetFilterMinManaValue: stackItem.targetFilterMinManaValue } : null),
+      ...(typeof stackItem.targetFilterMaxManaValue === 'number' ? { targetFilterMaxManaValue: stackItem.targetFilterMaxManaValue } : null),
+      ...(typeof stackItem.targetTotalPowerLimit === 'number' ? { targetTotalPowerLimit: stackItem.targetTotalPowerLimit } : null),
+      ...(stackItem.targetCastWithoutPayingManaCost === true ? { targetCastWithoutPayingManaCost: true } : null),
+      ...(stackItem.targetCastIsOptional === true ? { targetCastIsOptional: true } : null),
+      ...(typeof stackItem.minTargets === 'number' ? { minTargets: stackItem.minTargets } : null),
+      ...(typeof stackItem.maxTargets === 'number' ? { maxTargets: stackItem.maxTargets } : null),
       ...(stackItem.delayedReturnAt ? { delayedReturnAt: stackItem.delayedReturnAt } : null),
       ...(stackItem.battlefieldTapped === true ? { battlefieldTapped: true } : null),
       ...(stackItem.boundGraveyardCardId ? { boundGraveyardCardId: stackItem.boundGraveyardCardId } : null),
@@ -6447,6 +6606,8 @@ export function triggerETBEffectsForToken(
 ): void {
   const state = (ctx as any).state;
   if (!state?.battlefield) return;
+
+  stampPermanentControlEntryForEcho(state, token, String(controller));
   
   const isCreature = (token.card?.type_line || '').toLowerCase().includes('creature');
   const isLand = (token.card?.type_line || '').toLowerCase().includes('land');
@@ -6826,6 +6987,8 @@ export function triggerETBEffectsForPermanent(
 ): void {
   const state = (ctx as any).state;
   if (!state?.battlefield) return;
+
+  stampPermanentControlEntryForEcho(state, permanent, String(controller));
 
   // Day/Night: ensure the game gains a designation when a daybound/nightbound permanent is present.
   try {
@@ -7555,6 +7718,24 @@ export function executeTriggerEffect(
       // Avoid stripping effect-only conditionals we intentionally *don't* treat as intervening-if.
       if (!/^if\s+you\s+do\b/.test(maybeClause)) {
         desc = desc.slice(commaIndex + 1).trim();
+      }
+    }
+  }
+
+  const interveningSubjectPermanentId = String((triggerItem as any)?.interveningIfSubjectPermanentId || '').trim();
+  if (interveningSubjectPermanentId) {
+    const battlefield = Array.isArray(state.battlefield) ? state.battlefield : [];
+    const subjectPermanent = battlefield.find((permanent: any) => String(permanent?.id || '') === interveningSubjectPermanentId);
+    const isDirectSubjectKeywordGrant = /^(?:it|that\s+(?:creature|permanent|card))\s+gains?\s+[^.]+\.?$/i.test(desc)
+      && !/\buntil end of turn\b/i.test(desc);
+    if (subjectPermanent && isDirectSubjectKeywordGrant) {
+      if (applyPermanentKeywordGrantFromText(
+        subjectPermanent,
+        sourceName,
+        desc,
+        String(subjectPermanent.card?.name || subjectPermanent.id || interveningSubjectPermanentId),
+      )) {
+        return;
       }
     }
   }
@@ -9061,6 +9242,10 @@ export function executeTriggerEffect(
     modifyLife(controller, amount);
     debug(2, `[executeTriggerEffect] ${controller} gains ${amount} life from ${sourceName}`);
     handled = true;
+  }
+
+  if (/you may put a land card from your hand onto the battlefield/i.test(desc)) {
+    queueLandPlayFromHandPrompt(ctx, controller as any, sourceName, triggerItem);
   }
   
   // If we handled any combined effects, we're done
@@ -10987,6 +11172,31 @@ export function executeTriggerEffect(
   // - (?: and gains (.+?))? - Optional ability granting (captured as group 3)
   // - (?: until end of turn)?\.?$ - Optional trailing duration, then end of sentence/text
   // ========================================================================
+  const doubleCreaturePowerMatch = desc.match(/double (?:another\s+)?(?:up to (?:one|two|three|four|five|\d+) )?target creature(?: you control)?'s power until end of turn\.?$/i);
+  if (doubleCreaturePowerMatch && (triggerItem as any).targets?.length > 0) {
+    const targets = (triggerItem as any).targets || [];
+    const battlefield = state.battlefield || [];
+
+    for (const targetRef of targets) {
+      const targetId = typeof targetRef === 'string' ? targetRef : targetRef?.id;
+      const targetCreature = battlefield.find((p: any) => p.id === targetId);
+      if (!targetCreature) continue;
+
+      const currentPower = Math.max(0, Number(getEffectivePower(targetCreature as any) || 0));
+      targetCreature.temporaryPTMods = targetCreature.temporaryPTMods || [];
+      targetCreature.temporaryPTMods.push({
+        power: currentPower,
+        toughness: 0,
+        source: sourceName,
+        expiresAt: 'end_of_turn',
+        turnApplied: state.turnNumber || 0,
+      });
+
+      debug(2, `[executeTriggerEffect] ${targetCreature.card?.name || targetId} gets +${currentPower}/+0 until end of turn`);
+    }
+    return;
+  }
+
   const creatureGetsMatch = desc.match(/(?:until end of turn,?\s*)?(?:another\s+)?(?:up to (?:one|two|three|four|five|\d+) )?target creatures?(?: you control)? gets? ([+-]\d+)\/([+-]\d+)(?: and gains (.+?))?(?: until end of turn)?\.?$/i);
   if (creatureGetsMatch && (triggerItem as any).targets?.length > 0) {
     const powerMod = parseInt(creatureGetsMatch[1], 10);
@@ -14291,6 +14501,11 @@ export function resolveTopOfStack(ctx: GameContext) {
       return;
     }
 
+    if (maybeQueueEchoTriggeredAbility(ctx, item, triggerController as PlayerID, sourceName, sourceId, trimmedDescription)) {
+      debug(2, `[resolveTopOfStack] Deferred echo payment trigger for ${sourceName} (${triggerController})`);
+      return;
+    }
+
     if (maybeQueueControllerMayPayTriggeredAbility(ctx, item, triggerController as PlayerID, sourceName, sourceId, trimmedDescription)) {
       debug(2, `[resolveTopOfStack] Deferred controller-pay trigger for ${sourceName} (${triggerController})`);
       return;
@@ -15018,6 +15233,21 @@ export function resolveTopOfStack(ctx: GameContext) {
       initialCounters[counterType] = (initialCounters[counterType] || 0) + count;
       debug(2, `[resolveTopOfStack] ${effectiveCard.name} enters with ${count} ${counterType} counter(s)`);
     }
+
+    const explicitEntryCounters = ((item as any).entersBattlefieldWithCounters && typeof (item as any).entersBattlefieldWithCounters === 'object')
+      ? (item as any).entersBattlefieldWithCounters as Record<string, number>
+      : ((effectiveCard as any)?.entersBattlefieldWithCounters && typeof (effectiveCard as any).entersBattlefieldWithCounters === 'object')
+        ? (effectiveCard as any).entersBattlefieldWithCounters as Record<string, number>
+        : undefined;
+    if (explicitEntryCounters) {
+      for (const [counterType, rawCount] of Object.entries(explicitEntryCounters)) {
+        const count = Number(rawCount || 0);
+        if (!Number.isFinite(count) || count <= 0) continue;
+        // Cast-time metadata like escape counters may also be recognizable from Oracle text.
+        // Merge by max so a duplicated source does not double-count on entry.
+        initialCounters[counterType] = Math.max(Number(initialCounters[counterType] || 0), count);
+      }
+    }
     
     // Yuna, Grand Summoner: "When you next cast a creature spell this turn, that creature enters with two additional +1/+1 counters on it."
     if (isCreature && (state as any).yunaNextCreatureFlags?.[controller]) {
@@ -15074,6 +15304,21 @@ export function resolveTopOfStack(ctx: GameContext) {
 
     if (copiedPermanentSpellBecomesToken && newPermanent.card) {
       (newPermanent.card as any).isToken = true;
+    }
+
+    const leaveBattlefieldReplacementDestination = String(
+      (effectiveCard as any)?.leaveBattlefieldReplacementDestination || (item as any)?.card?.leaveBattlefieldReplacementDestination || ''
+    ).trim().toLowerCase();
+    const leaveBattlefieldReplacementSourceName = String(
+      (effectiveCard as any)?.leaveBattlefieldReplacementSourceName || (item as any)?.card?.leaveBattlefieldReplacementSourceName || ''
+    ).trim();
+    if (leaveBattlefieldReplacementDestination === 'exile') {
+      (newPermanent as any).leaveBattlefieldReplacementDestination = 'exile';
+      (newPermanent.card as any).leaveBattlefieldReplacementDestination = 'exile';
+      if (leaveBattlefieldReplacementSourceName) {
+        (newPermanent as any).leaveBattlefieldReplacementSourceName = leaveBattlefieldReplacementSourceName;
+        (newPermanent.card as any).leaveBattlefieldReplacementSourceName = leaveBattlefieldReplacementSourceName;
+      }
     }
 
     // Propagate relevant cast metadata from the stack item onto the permanent/card.
@@ -15900,8 +16145,25 @@ export function resolveTopOfStack(ctx: GameContext) {
           } catch {
             // If evaluation fails, be conservative and keep the trigger.
           }
+
+          const triggerEffectText = String((trigger as any).effect || trigger.description || '');
+          const enrichedMetadata = (
+            (trigger as any).requiresTarget === true
+            || /\btarget\b/i.test(triggerEffectText)
+            || String((trigger as any).targetZone || '').trim().length > 0
+          )
+            ? inferTriggeredAbilityTargetMetadata(triggerEffectText, {
+                gameState: (ctx as any).state,
+                controllerId: String(triggerController),
+                sourceName: String(trigger.cardName || newPermanent?.card?.name || ''),
+                sourcePermanent: newPermanent,
+              } as any)
+            : ({} as ReturnType<typeof inferTriggeredAbilityTargetMetadata>);
+          const effectiveRequiresTarget = (trigger as any).requiresTarget === true
+            || Boolean(enrichedMetadata.targetZone)
+            || Boolean(enrichedMetadata.targetType);
           
-          state.stack.push({
+          const stackItem = {
             id: triggerId,
             type: 'triggered_ability',
             controller: triggerController,
@@ -15911,13 +16173,35 @@ export function resolveTopOfStack(ctx: GameContext) {
             effect: (trigger as any).effect || trigger.description,
             triggerType: trigger.triggerType,
             mandatory: trigger.mandatory,
-            requiresTarget: (trigger as any).requiresTarget || false,
-            targetType: (trigger as any).targetType,
-            targetConstraint: (trigger as any).targetConstraint,
-            needsTargetSelection: (trigger as any).requiresTarget || false,
+            requiresTarget: effectiveRequiresTarget,
+            targetType: enrichedMetadata.targetType || (trigger as any).targetType,
+            targetConstraint: enrichedMetadata.targetConstraint || (trigger as any).targetConstraint,
+            needsTargetSelection: effectiveRequiresTarget,
+            ...(enrichedMetadata.targetZone ? { targetZone: enrichedMetadata.targetZone } : null),
+            ...(enrichedMetadata.targetDestination ? { targetDestination: enrichedMetadata.targetDestination } : null),
+            ...(enrichedMetadata.targetGraveyardScope ? { targetGraveyardScope: enrichedMetadata.targetGraveyardScope } : null),
+            ...(enrichedMetadata.destinationUsesSelectedCardOwner === true ? { destinationUsesSelectedCardOwner: true } : null),
+            ...(enrichedMetadata.battlefieldControllerMode ? { battlefieldControllerMode: enrichedMetadata.battlefieldControllerMode } : null),
+            ...(enrichedMetadata.battlefieldCounters ? { battlefieldCounters: enrichedMetadata.battlefieldCounters } : null),
+            ...(enrichedMetadata.targetAction ? { targetAction: enrichedMetadata.targetAction } : null),
+            ...(Array.isArray(enrichedMetadata.targetFilterTypes) ? { targetFilterTypes: enrichedMetadata.targetFilterTypes } : null),
+            ...(Array.isArray(enrichedMetadata.targetFilterRequiredTypeWords) ? { targetFilterRequiredTypeWords: enrichedMetadata.targetFilterRequiredTypeWords } : null),
+            ...(Array.isArray(enrichedMetadata.targetFilterExcludeTypes) ? { targetFilterExcludeTypes: enrichedMetadata.targetFilterExcludeTypes } : null),
+            ...(enrichedMetadata.targetFilterPermanentOnly === true ? { targetFilterPermanentOnly: true } : null),
+            ...(typeof enrichedMetadata.targetFilterExactManaValue === 'number' ? { targetFilterExactManaValue: enrichedMetadata.targetFilterExactManaValue } : null),
+            ...(typeof enrichedMetadata.targetFilterMinManaValue === 'number' ? { targetFilterMinManaValue: enrichedMetadata.targetFilterMinManaValue } : null),
+            ...(typeof enrichedMetadata.targetFilterMaxManaValue === 'number' ? { targetFilterMaxManaValue: enrichedMetadata.targetFilterMaxManaValue } : null),
+            ...(typeof enrichedMetadata.targetTotalPowerLimit === 'number' ? { targetTotalPowerLimit: enrichedMetadata.targetTotalPowerLimit } : null),
+            ...(enrichedMetadata.targetCastWithoutPayingManaCost === true ? { targetCastWithoutPayingManaCost: true } : null),
+            ...(enrichedMetadata.targetCastIsOptional === true ? { targetCastIsOptional: true } : null),
+            ...(typeof enrichedMetadata.minTargets === 'number' ? { minTargets: enrichedMetadata.minTargets } : null),
+            ...(typeof enrichedMetadata.maxTargets === 'number' ? { maxTargets: enrichedMetadata.maxTargets } : null),
             interveningIfSubjectPermanentId: newPermanent.id,
             interveningIfSubjectSnapshot: buildInterveningIfSubjectSnapshot(newPermanent),
-          } as any);
+          } as any;
+
+          state.stack.push(stackItem);
+          persistTriggeredAbilityPush(ctx, stackItem);
           
           debug(2, `[resolveTopOfStack] ⚡ ${trigger.cardName}'s triggered ability (controlled by ${triggerController}): ${trigger.description}`);
         }
@@ -16325,6 +16609,28 @@ export function resolveTopOfStack(ctx: GameContext) {
           String((item as any).source || (item as any).permanentId || ''),
           String((item as any).id || (card as any)?.id || '')
         );
+      }
+
+      if (targets.length > 0 && /double (?:another\s+)?(?:up to (?:one|two|three|four|five|\d+) )?target creature(?: you control)?'s power until end of turn\b/i.test(oracleText)) {
+        const battlefield = state.battlefield || [];
+        for (const targetRef of targets) {
+          const targetId = typeof targetRef === 'string' ? targetRef : targetRef?.id;
+          const targetCreature = battlefield.find((permanent: any) => String(permanent?.id || '') === String(targetId || ''));
+          if (!targetCreature) continue;
+
+          const currentPower = Math.max(0, Number(getEffectivePower(targetCreature as any) || 0));
+          const targetCreatureRuntime = targetCreature as any;
+          targetCreatureRuntime.temporaryPTMods = Array.isArray(targetCreatureRuntime.temporaryPTMods) ? targetCreatureRuntime.temporaryPTMods : [];
+          targetCreatureRuntime.temporaryPTMods.push({
+            power: currentPower,
+            toughness: 0,
+            source: effectiveCard.name || 'spell',
+            expiresAt: 'end_of_turn',
+            turnApplied: state.turnNumber || 0,
+          });
+
+          debug(2, `[resolveTopOfStack] ${effectiveCard.name || 'spell'} gave ${targetCreature.card?.name || targetId} +${currentPower}/+0 until end of turn`);
+        }
       }
       
       // Check for temporary land play effects (Summer Bloom, Explore, etc.)
@@ -18699,7 +19005,10 @@ export function resolveTopOfStack(ctx: GameContext) {
       const wasCastFromHand = (item as any).castFromHand === true || (item as any).source === 'hand';
       const wasCastFromRebound = (item as any).castFromRebound === true;
       const castWithAbility = String((item as any).card?.castWithAbility || '').trim().toLowerCase();
-      const shouldExileAfterResolutionFromGraveyardAbility = ['flashback', 'jump-start', 'escape', 'disturb'].includes(castWithAbility);
+      const shouldExileAfterResolutionFromGraveyardAbility =
+        (item as any).exileAfterResolution === true
+        || (item as any).card?.exileAfterResolution === true
+        || ['flashback', 'jump-start', 'escape', 'disturb', 'harmonize'].includes(castWithAbility);
       
       const hasParadigm = /\bparadigm\b/i.test(oracleText);
       const stateAny = state as any;

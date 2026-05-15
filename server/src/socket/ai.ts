@@ -9293,9 +9293,11 @@ async function handleAIResolutionStep(
       case 'additional_cost_payment': {
         const amount = Math.max(0, Number((step as any)?.amount ?? 0));
         const costType = String((step as any)?.costType || 'discard');
-        const pool = costType === 'sacrifice'
-          ? (Array.isArray((step as any)?.availableTargets) ? (step as any).availableTargets : [])
-          : (Array.isArray((step as any)?.availableCards) ? (step as any).availableCards : []);
+        const pool = costType === 'remove_counters'
+          ? (Array.isArray((step as any)?.availableCounters) ? (step as any).availableCounters : [])
+          : (costType === 'sacrifice'
+            ? (Array.isArray((step as any)?.availableTargets) ? (step as any).availableTargets : [])
+            : (Array.isArray((step as any)?.availableCards) ? (step as any).availableCards : []));
         const selectedIds = pool
           .slice(0, amount)
           .map((entry: any) => String(entry?.id || ''))

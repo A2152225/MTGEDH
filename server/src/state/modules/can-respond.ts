@@ -20,7 +20,7 @@ import { parseManaCost, canPayManaCostWithAvailableSources, getManaPoolFromState
 import { hasPayableAlternateCost } from "./alternate-costs";
 import { hasValidTargetsForSpell } from "../../rules-engine/target-availability.js";
 import { calculateMaxLandsPerTurn, canCastFromTop, canPlayLandsFromTop, getActiveAbilityConditions } from "./game-state-effects";
-import { getGrantedCastFromGraveyardKeywordInfo, getGrantedEmbalmInfo, getGrantedFlashbackInfo, getGrantedUnearthInfo, getPrintedUnearthInfo } from "./graveyard-permissions";
+import { buildGraveyardCastingPermissionId, getActiveGraveyardCastingPermissions, getGrantedCastFromGraveyardKeywordInfo, getGrantedEmbalmInfo, getGrantedFlashbackInfo, getGrantedUnearthInfo, getPrintedSelfCastPermissionInfo, getPrintedUnearthInfo, type GraveyardCastingPermission, type GraveyardCastingPermissionCostMode } from "./graveyard-permissions";
 import { detectActivatedAbilityConditionRequirement } from "./activated-ability-conditions";
 import { applyCostAdjustmentToParsedCost, buildCostAdjustmentPlan, getCostAdjustmentForCard as getSharedCostAdjustmentForCard, type CostAdjustmentPlan } from "./cost-adjustments";
 import { collectStaticEffectSources } from "./static-effect-sources";
@@ -30,6 +30,7 @@ import { cardManaValue } from "../utils";
 import { getCurrentGoaders } from "./goad-effects.js";
 import { isAbilityActivationProhibitedByChosenName, isSpellCastingProhibitedByChosenName } from "./chosen-name-restrictions.js";
 import { canActivateLoyaltyAtInstantSpeed } from "./triggered-abilities.js";
+import { canPayCounterRemovalCost } from "./counter-removal-costs.js";
 
 function cardHasSplitSecond(card: any): boolean {
   if (!card) return false;
@@ -117,8 +118,16 @@ export function getHandCastEvaluationCards(card: any): any[] {
 export type SharedSpellSourceZone = 'hand' | 'graveyard' | 'exile' | 'library';
 export type SharedSpellCandidateMode = 'main' | 'response' | 'sorcery';
 export type SharedSpellCandidatePayability = 'normal' | 'alternate' | 'assumed';
-export type SharedSpellCastMethod = 'normal' | 'flashback' | 'jump-start' | 'retrace' | 'escape' | 'foretell' | 'playable_from_exile' | 'graveyard_permanent';
+export type SharedSpellCastMethod = 'normal' | 'flashback' | 'jump-start' | 'retrace' | 'escape' | 'harmonize' | 'foretell' | 'playable_from_exile' | 'graveyard_permanent';
 export type SharedLandSourceZone = SharedSpellSourceZone;
+
+export interface SharedSourceGrantedAdditionalCost {
+  type: 'discard' | 'sacrifice' | 'remove_counters';
+  amount: number;
+  filter?: string;
+  counterType?: string;
+  distributed?: boolean;
+}
 
 export interface SharedSpellCastCandidate {
   card: any;
@@ -129,12 +138,21 @@ export interface SharedSpellCastCandidate {
   manaCost?: string;
   cost?: ReturnType<typeof parseManaCost>;
   grantsFlash?: boolean;
+  exileAfterResolution?: boolean;
+  leaveBattlefieldReplacementDestination?: 'exile';
+  leaveBattlefieldReplacementSourceName?: string;
+  sourceGrantedAdditionalCost?: SharedSourceGrantedAdditionalCost;
+  graveyardPermissionId?: string;
+  graveyardPermissionSourceName?: string;
+  graveyardPermissionCostMode?: GraveyardCastingPermissionCostMode;
 }
 
 export interface SharedPlayableLandCandidate {
   card: any;
   sourceZone: SharedLandSourceZone;
   selectedFaceIndex?: number;
+  graveyardPermissionId?: string;
+  graveyardPermissionSourceName?: string;
 }
 
 export type SharedCommanderParsedCost = ReturnType<typeof parseManaCost> & {
@@ -344,6 +362,137 @@ function getNormalizedTypeLine(card: any): string {
   return normalizeRuleText(card?.type_line || card?.typeLine);
 }
 
+function graveyardPermissionCardIds(permission: GraveyardCastingPermission): Set<string> {
+  const ids = Array.isArray(permission?.cardFilter?.cardIds)
+    ? permission.cardFilter.cardIds
+    : [];
+  return new Set(ids.map((cardId) => String(cardId || '').trim()).filter(Boolean));
+}
+
+function firstClassGraveyardPermissionUseAvailable(
+  state: any,
+  playerId: PlayerID,
+  permission: GraveyardCastingPermission,
+  card: any,
+): boolean {
+  const limitType = String(permission?.usageLimit?.type || '').trim().toLowerCase();
+  if (!limitType) return true;
+
+  if (limitType === 'once' || limitType === 'once_per_turn') {
+    if (permission.permission === 'play') {
+      return !Boolean((state as any)?.playedLandFromGraveyardThisTurn?.[playerId]);
+    }
+    return !Boolean((state as any)?.castFromGraveyardThisTurn?.[playerId]);
+  }
+
+  if (limitType === 'one_per_permanent_type') {
+    const usedPermanentTypes = getGraveyardPermanentTypesUsedThisTurn(state, playerId);
+    if (permission.permission === 'play') {
+      return !usedPermanentTypes.has('land');
+    }
+
+    const cardTypes = getPermanentSpellTypes(card);
+    if (cardTypes.length === 0) return false;
+    return cardTypes.every((typeWord) => !usedPermanentTypes.has(typeWord));
+  }
+
+  return true;
+}
+
+function findMatchingFirstClassGraveyardPermission(
+  state: any,
+  playerId: PlayerID,
+  card: any,
+  permissionKind: 'play' | 'cast',
+  usedPermanentTypes: Set<string> = new Set<string>(),
+): GraveyardCastingPermission | undefined {
+  if (!state || !card || typeof card === 'string') return undefined;
+
+  const cardId = String(card?.id || '').trim();
+  for (const permission of getActiveGraveyardCastingPermissions(state, playerId, { permission: permissionKind })) {
+    if (!firstClassGraveyardPermissionUseAvailable(state, playerId, permission, card)) continue;
+
+    const cardIds = graveyardPermissionCardIds(permission);
+    if (cardId && cardIds.has(cardId)) {
+      return permission;
+    }
+
+    const qualifier = String(permission?.cardFilter?.qualifier || '').trim();
+    if (!qualifier) continue;
+
+    if (permissionKind === 'play') {
+      if (landQualifierMatchesCard(card, qualifier)) {
+        return permission;
+      }
+      continue;
+    }
+
+    if (spellQualifierMatchesCard(card, qualifier, usedPermanentTypes)) {
+      return permission;
+    }
+  }
+
+  return undefined;
+}
+
+function firstClassPermissionExilesSpell(permission: GraveyardCastingPermission | undefined): boolean {
+  return permission?.replacement?.exileAfterResolution === true;
+}
+
+function firstClassPermissionLeaveBattlefieldDestination(permission: GraveyardCastingPermission | undefined): 'exile' | undefined {
+  return permission?.replacement?.leaveBattlefieldDestination === 'exile' ? 'exile' : undefined;
+}
+
+function getGraveyardPermissionCostModeFromText(text: unknown): GraveyardCastingPermissionCostMode {
+  const normalized = normalizeRuleText(text).replace(/\s+/g, ' ').trim();
+  return /\bwithout paying (?:its|their|that spell's) mana cost\b/.test(normalized)
+    ? 'without_paying_mana_cost'
+    : 'normal';
+}
+
+function buildSyntheticGraveyardPermissionMetadata(
+  playerId: PlayerID,
+  permission: 'play' | 'cast',
+  options: {
+    sourceId?: string;
+    sourceName?: string;
+    qualifier?: string;
+    cardId?: string;
+    costMode?: GraveyardCastingPermissionCostMode;
+    replacement?: { exileAfterResolution?: boolean; leaveBattlefieldDestination?: 'exile'; sourceName?: string };
+  },
+): {
+  graveyardPermissionId: string;
+  graveyardPermissionSourceName?: string;
+  graveyardPermissionCostMode: GraveyardCastingPermissionCostMode;
+} {
+  const sourceId = String(options.sourceId || options.cardId || options.sourceName || 'graveyard_source').trim();
+  const sourceName = String(options.sourceName || '').trim();
+  const cardId = String(options.cardId || '').trim();
+  const qualifier = String(options.qualifier || '').trim();
+  const costMode = options.costMode || 'normal';
+  const graveyardPermissionId = buildGraveyardCastingPermissionId({
+    playerId: String(playerId || ''),
+    permission,
+    sourceZone: 'graveyard',
+    cardFilter: {
+      ...(cardId ? { cardIds: [cardId] } : {}),
+      ...(qualifier ? { qualifier } : {}),
+    },
+    costMode,
+    duration: 'static',
+    sourceId,
+    ...(sourceName ? { sourceName } : {}),
+    ...(options.replacement ? { replacement: { ...options.replacement } } : {}),
+  });
+
+  return {
+    graveyardPermissionId,
+    ...(sourceName ? { graveyardPermissionSourceName: sourceName } : {}),
+    graveyardPermissionCostMode: costMode,
+  };
+}
+
 function hasMarkedGraveyardPermission(state: any, playerId: PlayerID, card: any): boolean {
   const cardId = String(card?.id || '').trim();
   if (!cardId) return false;
@@ -364,19 +513,52 @@ function hasMarkedGraveyardPermission(state: any, playerId: PlayerID, card: any)
         : Boolean(card?.playableUntilTurn)
     );
 
-  return stateAllows || cardAllows;
+  const firstClassSpecificAllows = getActiveGraveyardCastingPermissions(state, playerId).some((permission) =>
+    graveyardPermissionCardIds(permission).has(cardId)
+    && firstClassGraveyardPermissionUseAvailable(state, playerId, permission, card)
+  );
+
+  const temporaryAllows = Array.isArray((state as any)?.temporaryPlayableFromGraveyardPermissions)
+    && (state as any).temporaryPlayableFromGraveyardPermissions.some((entry: any) => {
+      if (String(entry?.playerId || '') !== String(playerId || '')) return false;
+
+      const expiresAt = String(entry?.expiresAt || '').trim().toLowerCase();
+      const turnApplied = Number(entry?.turnApplied ?? currentTurn) || 0;
+      if ((expiresAt === 'end_of_turn' || expiresAt === 'this_turn') && turnApplied < currentTurn) {
+        return false;
+      }
+
+      const qualifier = String(entry?.qualifier || '').trim();
+      if (!qualifier) return false;
+
+      const typeLine = getNormalizedTypeLine(card);
+      const permission = String(entry?.permission || '').trim().toLowerCase();
+      if (permission === 'play' && /\bland\b/.test(typeLine)) {
+        return landQualifierMatchesCard(card, qualifier);
+      }
+
+      if ((permission === 'cast' || permission === 'play') && !/\bland\b/.test(typeLine)) {
+        return spellQualifierMatchesCard(card, qualifier, new Set<string>());
+      }
+
+      return false;
+    });
+
+  return stateAllows || cardAllows || firstClassSpecificAllows || temporaryAllows;
 }
 
 function isPlayersTurnForPermission(state: any, playerId: PlayerID): boolean {
   return String(state?.turnPlayer || state?.activePlayer || '') === String(playerId || '');
 }
 
-function getGraveyardPermissionTextSources(state: any, playerId: PlayerID): Array<{ oracleText: string; typeLine: string; counters?: any }> {
+function getGraveyardPermissionTextSources(state: any, playerId: PlayerID): Array<{ sourceId: string; oracleText: string; typeLine: string; sourceName: string; counters?: any }> {
   return collectStaticEffectSources(state)
     .filter((source) => !source.phasedOut && (source.affectsAllPlayers || source.controller === String(playerId || '')))
     .map((source) => ({
+      sourceId: String(source.sourceId || '').trim(),
       oracleText: String(source.oracleText || ''),
       typeLine: normalizeRuleText(source.typeLine || ''),
+      sourceName: String(source.sourceName || '').trim(),
       ...(source.counters ? { counters: source.counters } : {}),
     }));
 }
@@ -414,6 +596,14 @@ function getGraveyardPermanentTypesCastThisTurn(state: any, playerId: PlayerID):
   }
 
   return new Set<string>();
+}
+
+function getGraveyardPermanentTypesUsedThisTurn(state: any, playerId: PlayerID): Set<string> {
+  const usedTypes = getGraveyardPermanentTypesCastThisTurn(state, playerId);
+  if (Boolean((state as any)?.playedLandFromGraveyardThisTurn?.[playerId])) {
+    usedTypes.add('land');
+  }
+  return usedTypes;
 }
 
 function isStaticGraveyardPermissionLine(line: string): boolean {
@@ -523,17 +713,30 @@ function spellQualifierMatchesCard(card: any, qualifier: string, usedPermanentTy
     .every((word) => typeLineHasWord(card, word));
 }
 
-function canPlaySpecificLandFromGraveyard(ctx: GameContext, playerId: PlayerID, card: any): boolean {
+function getSpecificLandFromGraveyardPermission(
+  ctx: GameContext,
+  playerId: PlayerID,
+  card: any,
+): {
+  allowed: boolean;
+  graveyardPermissionId?: string;
+  graveyardPermissionSourceName?: string;
+} {
   try {
     const state = ctx?.state as any;
-    if (!state || !card || typeof card === 'string') return false;
+    if (!state || !card || typeof card === 'string') return { allowed: false };
 
-    if (hasMarkedGraveyardPermission(state, playerId, card)) {
-      return true;
+    const firstClassPermission = findMatchingFirstClassGraveyardPermission(state, playerId, card, 'play');
+    if (firstClassPermission) {
+      return {
+        allowed: true,
+        graveyardPermissionId: firstClassPermission.id,
+        ...(firstClassPermission.sourceName ? { graveyardPermissionSourceName: firstClassPermission.sourceName } : {}),
+      };
     }
 
-    if (Array.isArray(state?.landPlayPermissions?.[playerId]) && state.landPlayPermissions[playerId].includes('graveyard')) {
-      return true;
+    if (hasMarkedGraveyardPermission(state, playerId, card)) {
+      return { allowed: true };
     }
 
     const alreadyPlayedLandFromGraveyard = Boolean((state as any)?.playedLandFromGraveyardThisTurn?.[playerId]);
@@ -555,38 +758,226 @@ function canPlaySpecificLandFromGraveyard(ctx: GameContext, playerId: PlayerID, 
           if (oncePerTurn && alreadyPlayedLandFromGraveyard) continue;
           if (eachPermanentTypePermission && alreadyPlayedLandFromGraveyard) continue;
           if (landQualifierMatchesCard(card, qualifier)) {
-            return true;
+            const syntheticPermission = buildSyntheticGraveyardPermissionMetadata(playerId, 'play', {
+              sourceId: source.sourceId,
+              sourceName: source.sourceName,
+              cardId: String(card?.id || '').trim(),
+              qualifier,
+            });
+            return {
+              allowed: true,
+              graveyardPermissionId: syntheticPermission.graveyardPermissionId,
+              ...(syntheticPermission.graveyardPermissionSourceName
+                ? { graveyardPermissionSourceName: syntheticPermission.graveyardPermissionSourceName }
+                : {}),
+            };
           }
         }
       }
     }
 
-    return false;
+    if (Array.isArray(state?.landPlayPermissions?.[playerId]) && state.landPlayPermissions[playerId].includes('graveyard')) {
+      return { allowed: true };
+    }
+
+    return { allowed: false };
   } catch (err) {
-    debugWarn(1, '[canPlaySpecificLandFromGraveyard] Error:', err);
-    return false;
+    debugWarn(1, '[getSpecificLandFromGraveyardPermission] Error:', err);
+    return { allowed: false };
   }
 }
 
-function canCastSpecificSpellFromGraveyard(ctx: GameContext, playerId: PlayerID, card: any): boolean {
+function canPlaySpecificLandFromGraveyard(ctx: GameContext, playerId: PlayerID, card: any): boolean {
+  return getSpecificLandFromGraveyardPermission(ctx, playerId, card).allowed;
+}
+
+function sourceExilesSpellCastThisWay(oracleText: string): boolean {
+  const normalized = normalizeRuleText(oracleText).replace(/\s+/g, ' ').trim();
+  return /\bif\s+(?:a|that|this)\s+(?:card|spell)\s+cast\s+this\s+way\s+would\s+be\s+put\s+into\s+your\s+graveyard\s*,?\s*exile\s+it\s+instead\b/.test(normalized);
+}
+
+function sourceExilesCreatureCastThisWayWhenItDies(oracleText: string): boolean {
+  const normalized = normalizeRuleText(oracleText)
+    .replace(/["“”]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return /\bwhenever\s+you\s+cast\s+.+?\s+from\s+your\s+graveyard,\s*it\s+gains\b.*\bwhen\s+this\s+creature\s+dies,\s*exile\s+it\b/.test(normalized);
+}
+
+function getSourceGrantedAdditionalCost(oracleText: string): SharedSourceGrantedAdditionalCost | undefined {
+  const normalized = normalizeRuleText(oracleText).replace(/\s+/g, ' ').trim();
+  const removeCountersMatch = normalized.match(/\bby\s+removing\s+(a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+(.+?)\s+from\s+among\s+(.+?)\s+you\s+control\s+in\s+addition\s+to\s+paying\s+(?:its|their|that spell's)\s+other\s+costs\b/i);
+  if (removeCountersMatch) {
+    const amount = parseWordNumberForGraveyardCost(String(removeCountersMatch[1] || ''));
+    if (amount <= 0) return undefined;
+
+    const rawCounterPhrase = String(removeCountersMatch[2] || '')
+      .replace(/\bcounters?\b/gi, ' ')
+      .replace(/\b(?:a|an)\b/gi, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    const rawFilter = String(removeCountersMatch[3] || '')
+      .replace(/\bpermanents?\b/gi, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .toLowerCase();
+    const filter = rawFilter ? rawFilter.replace(/\b([a-z]+)s\b/g, '$1').trim() : 'creature';
+
+    return {
+      type: 'remove_counters',
+      amount,
+      filter: filter || 'creature',
+      distributed: true,
+      ...(rawCounterPhrase ? { counterType: rawCounterPhrase } : {}),
+    };
+  }
+
+  const match = normalized.match(/\bby\s+(discarding|sacrificing)\s+(a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+(.+?)\s+in\s+addition\s+to\s+paying\s+(?:its|their|that spell's)\s+other\s+costs\b/i);
+  if (!match) return undefined;
+
+  const action = String(match[1] || '').trim().toLowerCase();
+  const amount = parseWordNumberForGraveyardCost(String(match[2] || ''));
+  if (amount <= 0) return undefined;
+
+  const rawFilter = String(match[3] || '')
+    .replace(/\bcards?\b/gi, ' ')
+    .replace(/\bpermanents?\b/gi, ' ')
+    .replace(/\bspells?\b/gi, ' ')
+    .replace(/\b(?:a|an)\b/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+  const filter = rawFilter ? rawFilter.replace(/\b([a-z]+)s\b/g, '$1').trim() : undefined;
+
+  if (action === 'discarding') {
+    return {
+      type: 'discard',
+      amount,
+      ...(filter ? { filter } : {}),
+    };
+  }
+
+  if (action === 'sacrificing') {
+    return {
+      type: 'sacrifice',
+      amount,
+      ...(filter ? { filter } : {}),
+    };
+  }
+
+  return undefined;
+}
+
+function canPaySourceGrantedAdditionalCost(state: any, playerId: PlayerID, card: any, cost: SharedSourceGrantedAdditionalCost): boolean {
+  const amount = Math.max(0, Number(cost?.amount || 0));
+  if (amount <= 0) return true;
+
+  const alreadyPaid = (card as any)?.additionalCostPaid === true;
+  const paidMethod = String((card as any)?.additionalCostMethod || '').trim().toLowerCase();
+  if (alreadyPaid && (!paidMethod || paidMethod === String(cost.type || '').toLowerCase())) {
+    return true;
+  }
+
+  if (cost.type === 'discard') {
+    const hand = Array.isArray(state?.zones?.[playerId]?.hand) ? state.zones[playerId].hand : [];
+    const eligible = cost.filter
+      ? hand.filter((entry: any) => String(entry?.type_line || entry?.typeLine || '').toLowerCase().includes(String(cost.filter).toLowerCase()))
+      : hand;
+    return eligible.length >= amount;
+  }
+
+  if (cost.type === 'sacrifice') {
+    const battlefield = Array.isArray(state?.battlefield) ? state.battlefield : [];
+    const eligible = battlefield.filter((permanent: any) => {
+      if (!permanent || String(permanent.controller || '') !== String(playerId || '')) return false;
+      if (!cost.filter) return true;
+      return String(permanent?.card?.type_line || '').toLowerCase().includes(String(cost.filter).toLowerCase());
+    });
+    return eligible.length >= amount;
+  }
+
+  if (cost.type === 'remove_counters') {
+    return canPayCounterRemovalCost(state, String(playerId), {
+      amount,
+      filter: cost.filter || 'creature',
+      counterType: cost.counterType,
+      distributed: cost.distributed,
+    });
+  }
+
+  return true;
+}
+
+function getSpecificSpellFromGraveyardPermission(
+  ctx: GameContext,
+  playerId: PlayerID,
+  card: any,
+): {
+  allowed: boolean;
+  exileAfterResolution?: boolean;
+  leaveBattlefieldReplacementDestination?: 'exile';
+  leaveBattlefieldReplacementSourceName?: string;
+  sourceGrantedAdditionalCost?: SharedSourceGrantedAdditionalCost;
+  graveyardPermissionId?: string;
+  graveyardPermissionSourceName?: string;
+  graveyardPermissionCostMode?: GraveyardCastingPermissionCostMode;
+} {
   try {
     const state = ctx?.state as any;
-    if (!state || !card || typeof card === 'string') return false;
-
-    if (hasMarkedGraveyardPermission(state, playerId, card)) {
-      return true;
-    }
+    if (!state || !card || typeof card === 'string') return { allowed: false };
 
     const alreadyCastFromGraveyard = Boolean((state as any)?.castFromGraveyardThisTurn?.[playerId]);
     const usedPermanentTypes = getGraveyardPermanentTypesCastThisTurn(state, playerId);
+    const firstClassPermission = findMatchingFirstClassGraveyardPermission(state, playerId, card, 'cast', usedPermanentTypes);
+    if (firstClassPermission) {
+      return {
+        allowed: true,
+        ...(firstClassPermissionExilesSpell(firstClassPermission) ? { exileAfterResolution: true } : {}),
+        ...(firstClassPermissionLeaveBattlefieldDestination(firstClassPermission) ? { leaveBattlefieldReplacementDestination: 'exile' as const } : {}),
+        ...(firstClassPermission.replacement?.sourceName || firstClassPermission.sourceName
+          ? { leaveBattlefieldReplacementSourceName: firstClassPermission.replacement?.sourceName || firstClassPermission.sourceName }
+          : {}),
+        graveyardPermissionId: firstClassPermission.id,
+        ...(firstClassPermission.sourceName ? { graveyardPermissionSourceName: firstClassPermission.sourceName } : {}),
+        graveyardPermissionCostMode: firstClassPermission.costMode || 'normal',
+      };
+    }
+
+    if (hasMarkedGraveyardPermission(state, playerId, card)) {
+      return { allowed: true };
+    }
+
+    const printedSelfCastInfo = getPrintedSelfCastPermissionInfo(state, playerId, card, 'graveyard');
+    if (printedSelfCastInfo.hasIt) {
+      const sourceGrantedAdditionalCost = getSourceGrantedAdditionalCost(String(card?.oracle_text || card?.oracleText || ''));
+      if (sourceGrantedAdditionalCost && !canPaySourceGrantedAdditionalCost(state, playerId, card, sourceGrantedAdditionalCost)) {
+        return { allowed: false };
+      }
+      const printedCostMode = getGraveyardPermissionCostModeFromText(String(card?.oracle_text || card?.oracleText || ''));
+      return {
+        allowed: true,
+        ...(sourceGrantedAdditionalCost ? { sourceGrantedAdditionalCost } : {}),
+        ...buildSyntheticGraveyardPermissionMetadata(playerId, 'cast', {
+          sourceId: String(card?.id || '').trim(),
+          sourceName: String(card?.name || '').trim(),
+          cardId: String(card?.id || '').trim(),
+          qualifier: 'this card',
+          costMode: printedCostMode,
+        }),
+      };
+    }
 
     for (const source of getGraveyardPermissionTextSources(state, playerId)) {
       const permanentTypeLine = source.typeLine;
       const oracleText = source.oracleText;
+      const exileAfterResolution = sourceExilesSpellCastThisWay(oracleText);
+      const exileWhenThisDies = sourceExilesCreatureCastThisWayWhenItDies(oracleText);
       const lines = oracleText.split(/\r?\n/);
 
       for (const rawLine of lines) {
         const line = normalizeRuleText(rawLine);
+        const sourceGrantedAdditionalCost = getSourceGrantedAdditionalCost(line) || getSourceGrantedAdditionalCost(oracleText);
+        const sourceCostMode = getGraveyardPermissionCostModeFromText(line || oracleText);
         if (!isStaticGraveyardPermissionLine(line)) continue;
         if (/\bduring your turn\b/.test(line) && !isPlayersTurnForPermission(state, playerId)) continue;
 
@@ -595,7 +986,27 @@ function canCastSpecificSpellFromGraveyard(ctx: GameContext, playerId: PlayerID,
           const qualifier = String(combinedPlayCastMatch[2] || '').trim();
           const oncePerTurn = /\bonce during each of your turns\b/.test(line);
           if (!(oncePerTurn && alreadyCastFromGraveyard) && qualifier && spellQualifierMatchesCard(card, qualifier, usedPermanentTypes)) {
-            return true;
+            if (sourceGrantedAdditionalCost && !canPaySourceGrantedAdditionalCost(state, playerId, card, sourceGrantedAdditionalCost)) {
+              continue;
+            }
+            return {
+              allowed: true,
+              ...(exileAfterResolution ? { exileAfterResolution: true } : {}),
+              ...(exileWhenThisDies ? { leaveBattlefieldReplacementDestination: 'exile' as const } : {}),
+              ...(exileWhenThisDies && source.sourceName ? { leaveBattlefieldReplacementSourceName: source.sourceName } : {}),
+              ...(sourceGrantedAdditionalCost ? { sourceGrantedAdditionalCost } : {}),
+              ...buildSyntheticGraveyardPermissionMetadata(playerId, 'cast', {
+                sourceId: source.sourceId,
+                sourceName: source.sourceName,
+                qualifier,
+                costMode: sourceCostMode,
+                replacement: {
+                  ...(exileAfterResolution ? { exileAfterResolution: true } : {}),
+                  ...(exileWhenThisDies ? { leaveBattlefieldDestination: 'exile' as const } : {}),
+                  ...((exileWhenThisDies && source.sourceName) ? { sourceName: source.sourceName } : {}),
+                },
+              }),
+            };
           }
         }
 
@@ -617,17 +1028,41 @@ function canCastSpecificSpellFromGraveyard(ctx: GameContext, playerId: PlayerID,
           const oncePerTurn = /\bonce during each of your turns\b/.test(line);
           if (oncePerTurn && alreadyCastFromGraveyard) continue;
           if (spellQualifierMatchesCard(card, qualifier, usedPermanentTypes)) {
-            return true;
+            if (sourceGrantedAdditionalCost && !canPaySourceGrantedAdditionalCost(state, playerId, card, sourceGrantedAdditionalCost)) {
+              continue;
+            }
+            return {
+              allowed: true,
+              ...(exileAfterResolution ? { exileAfterResolution: true } : {}),
+              ...(exileWhenThisDies ? { leaveBattlefieldReplacementDestination: 'exile' as const } : {}),
+              ...(exileWhenThisDies && source.sourceName ? { leaveBattlefieldReplacementSourceName: source.sourceName } : {}),
+              ...(sourceGrantedAdditionalCost ? { sourceGrantedAdditionalCost } : {}),
+              ...buildSyntheticGraveyardPermissionMetadata(playerId, 'cast', {
+                sourceId: source.sourceId,
+                sourceName: source.sourceName,
+                qualifier,
+                costMode: sourceCostMode,
+                replacement: {
+                  ...(exileAfterResolution ? { exileAfterResolution: true } : {}),
+                  ...(exileWhenThisDies ? { leaveBattlefieldDestination: 'exile' as const } : {}),
+                  ...((exileWhenThisDies && source.sourceName) ? { sourceName: source.sourceName } : {}),
+                },
+              }),
+            };
           }
         }
       }
     }
 
-    return false;
+    return { allowed: false };
   } catch (err) {
     debugWarn(1, '[canCastSpecificSpellFromGraveyard] Error:', err);
-    return false;
+    return { allowed: false };
   }
+}
+
+function canCastSpecificSpellFromGraveyard(ctx: GameContext, playerId: PlayerID, card: any): boolean {
+  return getSpecificSpellFromGraveyardPermission(ctx, playerId, card).allowed;
 }
 
 function spellMatchesCandidateMode(card: any, mode: SharedSpellCandidateMode, grantsFlash: boolean): boolean {
@@ -655,7 +1090,7 @@ function canUseAlternateCostForSpellCandidate(sourceZone: SharedSpellSourceZone,
   return false;
 }
 
-type GraveyardCastKeyword = 'jump-start' | 'retrace' | 'escape';
+type GraveyardCastKeyword = 'jump-start' | 'retrace' | 'escape' | 'harmonize';
 
 function getPrintedGraveyardCastKeywordInfo(card: any, keyword: GraveyardCastKeyword): { hasIt: boolean; cost?: string; additionalExileCount?: number } {
   const oracleText = String(card?.oracle_text || card?.oracleText || '');
@@ -669,6 +1104,15 @@ function getPrintedGraveyardCastKeywordInfo(card: any, keyword: GraveyardCastKey
 
   if (keyword === 'retrace') {
     return /\bretrace\b/i.test(oracleText) ? { hasIt: true, cost: manaCost || undefined } : { hasIt: false };
+  }
+
+  if (keyword === 'harmonize') {
+    const harmonizeMatch = oracleText.match(/harmonize\s*[—-]?\s*(\{[^}]+\}(?:\s*\{[^}]+\})*)/i);
+    if (!harmonizeMatch && !/\bharmonize\b/i.test(oracleText)) return { hasIt: false };
+    return {
+      hasIt: true,
+      ...(harmonizeMatch?.[1] ? { cost: harmonizeMatch[1].trim() } : {}),
+    };
   }
 
   const escapeMatch = oracleText.match(/escape\s*[—-]?\s*(\{[^}]+\}(?:\s*\{[^}]+\})*)/i);
@@ -685,7 +1129,7 @@ function getPrintedGraveyardCastKeywordInfo(card: any, keyword: GraveyardCastKey
 
 function parseWordNumberForGraveyardCost(value: string): number {
   const normalized = String(value || '').trim().toLowerCase();
-  const words: Record<string, number> = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10 };
+  const words: Record<string, number> = { a: 1, an: 1, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10 };
   if (words[normalized]) return words[normalized];
   const parsed = Number.parseInt(normalized, 10);
   return Number.isFinite(parsed) ? parsed : 0;
@@ -696,7 +1140,7 @@ function getAvailableGraveyardCastKeywordInfo(
   playerId: PlayerID,
   card: any,
 ): { keyword: GraveyardCastKeyword; cost?: string; additionalExileCount?: number } | undefined {
-  for (const keyword of ['jump-start', 'retrace', 'escape'] as GraveyardCastKeyword[]) {
+  for (const keyword of ['jump-start', 'retrace', 'escape', 'harmonize'] as GraveyardCastKeyword[]) {
     const printedInfo = getPrintedGraveyardCastKeywordInfo(card, keyword);
     if (printedInfo.hasIt) {
       return { keyword, cost: printedInfo.cost, additionalExileCount: printedInfo.additionalExileCount };
@@ -728,6 +1172,10 @@ function canPayGraveyardCastKeywordAdditionalCost(state: any, playerId: PlayerID
     if (requiredExileCount <= 0) return true;
     return Array.isArray(zones.graveyard)
       && zones.graveyard.filter((entry: any) => entry && String(entry.id || '') !== String(card?.id || '')).length >= requiredExileCount;
+  }
+
+  if (keywordInfo.keyword === 'harmonize') {
+    return true;
   }
 
   return true;
@@ -790,6 +1238,13 @@ export function getCastableSpellCandidates(
         let manaCost = String(castCard?.mana_cost || castCard?.manaCost || '');
         let grantsFlash = false;
         let unknownCostFallback = false;
+        let exileAfterResolution = false;
+        let leaveBattlefieldReplacementDestination: 'exile' | undefined;
+        let leaveBattlefieldReplacementSourceName: string | undefined;
+        let sourceGrantedAdditionalCost: SharedSourceGrantedAdditionalCost | undefined;
+        let graveyardPermissionId: string | undefined;
+        let graveyardPermissionSourceName: string | undefined;
+        let graveyardPermissionCostMode: GraveyardCastingPermissionCostMode | undefined;
 
         if (sourceZone === 'library') {
           const topSpellPermission = getTopLibrarySpellPermission(ctx, playerId, castCard);
@@ -802,6 +1257,7 @@ export function getCastableSpellCandidates(
           const grantedFlashbackInfo = flashbackInfo.hasIt ? { hasIt: false } : getGrantedFlashbackInfo(ctx, playerId, castCard);
           if (flashbackInfo.hasIt) {
             castMethod = 'flashback';
+            exileAfterResolution = true;
             if (flashbackInfo.cost) {
               manaCost = flashbackInfo.cost;
             } else {
@@ -809,6 +1265,7 @@ export function getCastableSpellCandidates(
             }
           } else if (grantedFlashbackInfo.hasIt) {
             castMethod = 'flashback';
+            exileAfterResolution = true;
             if (grantedFlashbackInfo.cost) {
               manaCost = grantedFlashbackInfo.cost;
             } else {
@@ -821,15 +1278,28 @@ export function getCastableSpellCandidates(
                 continue;
               }
               castMethod = graveyardKeywordInfo.keyword;
+              exileAfterResolution = graveyardKeywordInfo.keyword === 'jump-start' || graveyardKeywordInfo.keyword === 'escape' || graveyardKeywordInfo.keyword === 'harmonize';
               if (graveyardKeywordInfo.cost) {
                 manaCost = graveyardKeywordInfo.cost;
               } else {
                 unknownCostFallback = true;
               }
-            } else if (canCastSpecificSpellFromGraveyard(ctx, playerId, castCard)) {
-              castMethod = 'graveyard_permanent';
             } else {
-              continue;
+              const specificPermission = getSpecificSpellFromGraveyardPermission(ctx, playerId, castCard);
+              if (!specificPermission.allowed) {
+                continue;
+              }
+              castMethod = 'graveyard_permanent';
+              exileAfterResolution = specificPermission.exileAfterResolution === true;
+              leaveBattlefieldReplacementDestination = specificPermission.leaveBattlefieldReplacementDestination;
+              leaveBattlefieldReplacementSourceName = specificPermission.leaveBattlefieldReplacementSourceName;
+              sourceGrantedAdditionalCost = specificPermission.sourceGrantedAdditionalCost;
+              graveyardPermissionId = specificPermission.graveyardPermissionId;
+              graveyardPermissionSourceName = specificPermission.graveyardPermissionSourceName;
+              graveyardPermissionCostMode = specificPermission.graveyardPermissionCostMode;
+              if (graveyardPermissionCostMode === 'without_paying_mana_cost') {
+                manaCost = '';
+              }
             }
           }
         } else if (sourceZone === 'exile') {
@@ -872,6 +1342,13 @@ export function getCastableSpellCandidates(
             castMethod,
             payability: 'assumed',
             grantsFlash,
+            ...(exileAfterResolution ? { exileAfterResolution: true } : {}),
+            ...(leaveBattlefieldReplacementDestination ? { leaveBattlefieldReplacementDestination } : {}),
+            ...(leaveBattlefieldReplacementSourceName ? { leaveBattlefieldReplacementSourceName } : {}),
+            ...(sourceGrantedAdditionalCost ? { sourceGrantedAdditionalCost } : {}),
+            ...(graveyardPermissionId ? { graveyardPermissionId } : {}),
+            ...(graveyardPermissionSourceName ? { graveyardPermissionSourceName } : {}),
+            ...(graveyardPermissionCostMode ? { graveyardPermissionCostMode } : {}),
           });
           continue;
         }
@@ -890,6 +1367,13 @@ export function getCastableSpellCandidates(
             manaCost,
             cost: adjustedCost,
             grantsFlash,
+            ...(exileAfterResolution ? { exileAfterResolution: true } : {}),
+            ...(leaveBattlefieldReplacementDestination ? { leaveBattlefieldReplacementDestination } : {}),
+            ...(leaveBattlefieldReplacementSourceName ? { leaveBattlefieldReplacementSourceName } : {}),
+            ...(sourceGrantedAdditionalCost ? { sourceGrantedAdditionalCost } : {}),
+            ...(graveyardPermissionId ? { graveyardPermissionId } : {}),
+            ...(graveyardPermissionSourceName ? { graveyardPermissionSourceName } : {}),
+            ...(graveyardPermissionCostMode ? { graveyardPermissionCostMode } : {}),
           });
           continue;
         }
@@ -1814,6 +2298,20 @@ function isInMainPhase(ctx: GameContext): boolean {
   }
 }
 
+function isLandPlayTimingWindowOpen(ctx: GameContext, playerId: PlayerID): boolean {
+  const state = ctx?.state as any;
+  const turnPlayer = String(state?.turnPlayer || state?.activePlayer || '').trim();
+  const hasTurnPlayer = turnPlayer.length > 0;
+  const isTurnPlayer = !hasTurnPlayer || turnPlayer === String(playerId || '');
+  const stackEmpty = !Array.isArray(state?.stack) || state.stack.length === 0;
+  const rawStep = String(state?.step || '').trim();
+  const phase = String(state?.phase || '').toUpperCase();
+  const hasTimingMarker = rawStep.length > 0 || phase.length > 0;
+  const inMainPhase = !hasTimingMarker || isInMainPhase(ctx) || phase.includes('MAIN');
+
+  return isTurnPlayer && stackEmpty && inMainPhase;
+}
+
 /**
  * Check if a card is a transform back face (not playable from hand)
  * 
@@ -1901,6 +2399,10 @@ export function getPlayableLandCandidates(
     const zones = state.zones?.[playerId];
     if (!zones) return [];
 
+    if (!isLandPlayTimingWindowOpen(ctx, playerId)) {
+      return [];
+    }
+
     if (!hasRemainingLandPlay(ctx, playerId)) {
       return [];
     }
@@ -1916,7 +2418,14 @@ export function getPlayableLandCandidates(
       : new Set<string>();
     const candidates: SharedPlayableLandCandidate[] = [];
 
-    const pushCandidate = (card: any, sourceZone: SharedLandSourceZone) => {
+    const pushCandidate = (
+      card: any,
+      sourceZone: SharedLandSourceZone,
+      options?: {
+        graveyardPermissionId?: string;
+        graveyardPermissionSourceName?: string;
+      },
+    ) => {
       if (!card || typeof card === 'string') return;
       if (!isCardPlayableAsLandFromHand(card)) return;
 
@@ -1929,6 +2438,8 @@ export function getPlayableLandCandidates(
         card,
         sourceZone,
         selectedFaceIndex: getPlayableLandFaceIndex(card),
+        ...(options?.graveyardPermissionId ? { graveyardPermissionId: options.graveyardPermissionId } : {}),
+        ...(options?.graveyardPermissionSourceName ? { graveyardPermissionSourceName: options.graveyardPermissionSourceName } : {}),
       });
     };
 
@@ -1939,10 +2450,11 @@ export function getPlayableLandCandidates(
 
     if (Array.isArray(zones.graveyard)) {
       for (const card of zones.graveyard as any[]) {
-        if (!canPlaySpecificLandFromGraveyard(ctx, playerId, card)) {
+        const specificPermission = getSpecificLandFromGraveyardPermission(ctx, playerId, card);
+        if (!specificPermission.allowed) {
           continue;
         }
-        pushCandidate(card, 'graveyard');
+        pushCandidate(card, 'graveyard', specificPermission);
       }
     }
 
@@ -1991,6 +2503,15 @@ export function canPlayLand(ctx: GameContext, playerId: PlayerID): boolean {
     const zones = state.zones?.[playerId];
     if (!zones) {
       debug(2, `[canPlayLand] ${playerId}: No zones found`);
+      return false;
+    }
+
+    if (!isLandPlayTimingWindowOpen(ctx, playerId)) {
+      const currentStep = String((state as any)?.step || '').toUpperCase();
+      const currentPhase = String((state as any)?.phase || '').toUpperCase();
+      const stackSize = Array.isArray((state as any)?.stack) ? (state as any).stack.length : 0;
+      const turnPlayer = String((state as any)?.turnPlayer || (state as any)?.activePlayer || '');
+      debug(2, `[canPlayLand] ${playerId}: Land timing window closed (step=${currentStep}, phase=${currentPhase}, stack=${stackSize}, turnPlayer=${turnPlayer})`);
       return false;
     }
 

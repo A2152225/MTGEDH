@@ -308,9 +308,14 @@ export function getSupportedExertAttackReward(card: any): string | null {
 }
 
 function findGenericAttackTriggerLine(oracleText: string, cardName: string): RegExpMatchArray | null {
-  const cardNamePatternEscaped = escapeCardNameForRegex(cardName);
+  const oracleShortName = normalizeCardNameForOracleText(cardName);
+  const cardNameVariants = Array.from(new Set(
+    [oracleShortName, cardName]
+      .map((value) => String(value || '').trim())
+      .filter(Boolean)
+  )).map((value) => escapeCardNameForRegex(value));
   const attacksPattern = new RegExp(
-    `whenever\\s+(?:~|this (?:creature(?:\\s+or\\s+equipped creature)?|vehicle|artifact|permanent)|${cardNamePatternEscaped})\\s+attacks,?\\s*(.+)$`,
+    `whenever\\s+(?:~|this (?:creature(?:\\s+or\\s+equipped creature)?|vehicle|artifact|permanent)|${cardNameVariants.join('|')})\\s+(?:enters(?: the battlefield)?\\s+or\\s+)?attacks,?\\s*(.+)$`,
     'i'
   );
 

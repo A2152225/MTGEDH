@@ -1,6 +1,6 @@
 ﻿import type { Server, Socket } from "socket.io";
 import type { InMemoryGame } from "../state/types";
-import { ensureGame, broadcastGame, appendGameEvent, parseManaCost, getManaColorName, MANA_COLORS, MANA_COLOR_NAMES, applyManaSpendToCreatureSpellHasteManaLowerBound, consumeManaFromPool, deriveCreatureSpellHasteFromManaSpent, getOrInitManaPool, calculateTotalAvailableMana, validateManaPayment, getPlayerName, emitToPlayer, calculateManaProduction, broadcastManaPoolUpdate, millUntilLand, recordCreatureSpellHasteManaProduced, resolveActivatedAbilityLineById, snapshotCreatureSpellHasteManaLowerBound, suppressAutomationOnNextBroadcast, LAND_PLAY_AUTOMATION_SUPPRESSION_MS, clearHumanAutoPassPauseOnAction } from "./util";
+import { ensureGame, broadcastGame, appendGameEvent, parseManaCost, getManaColorName, MANA_COLORS, MANA_COLOR_NAMES, applyManaSpendToCreatureSpellHasteManaLowerBound, consumeManaFromPool, deriveCreatureSpellHasteFromManaSpent, getOrInitManaPool, calculateTotalAvailableMana, validateManaPayment, getPlayerName, emitToPlayer, calculateManaProduction, broadcastManaPoolUpdate, millUntilLand, recordCreatureSpellHasteManaProduced, resolveActivatedAbilityLineById, snapshotCreatureSpellHasteManaLowerBound, suppressAutomationOnNextBroadcast, LAND_PLAY_AUTOMATION_SUPPRESSION_MS, clearHumanAutoPassPauseOnAction, getEffectivePower } from "./util";
 import { emitResolutionStepPrompt, processPendingBottomOrder, processPendingCascades, processPendingDanceWithCalamity, processPendingLimDulsVault, processPendingPonder, processPendingProliferate, processPendingScry, processPendingSurveil, queueMayAbilityStep } from "./resolution.js";
 import { appendEvent, isGameCreator } from "../db";
 import { GameManager } from "../GameManager.js";
@@ -27,7 +27,7 @@ import { getUpkeepTriggersForPlayer, autoProcessCumulativeUpkeepMana, sacrificeP
 import { categorizeSpell, evaluateTargeting, matchesGraveyardCardTargetType as matchesSharedGraveyardCardTargetType, parseTargetRequirements, requiresTargeting } from "../rules-engine/targeting";
 import { recalculatePlayerEffects, hasMetalcraft, countArtifacts, calculateMaxLandsPerTurn, canPlayLandsFromTop, canCastFromTop } from "../state/modules/game-state-effects";
 import { PAY_X_LIFE_CARDS, cardManaValue, getMaxPayableLife, validateLifePayment, uid, oracleTextReferencesCard } from "../state/utils";
-import { detectTutorEffect, parseSearchCriteria, type TutorInfo } from "./interaction";
+import { continueCastFromGraveyardAbility, detectTutorEffect, parseSearchCriteria, type TutorInfo } from "./interaction";
 import { ResolutionQueueManager, ResolutionStepType, createResolutionStep } from "../state/resolution/index.js";
 import { extractModalModesFromOracleText } from "../utils/oraclePromptContext.js";
 import { enqueueEdictCreatureSacrificeStep } from "./sacrifice-resolution.js";
@@ -37,7 +37,8 @@ import { filterLibraryCardsForSearch } from "./library-search.js";
 import { queueShockLandPaymentStep } from "./optional-payment-prompts.js";
 import { shouldSuppressMandatoryTriggeredAbilityPrompt } from "./trigger-shortcuts.js";
 import { hasMutateAlternateCost, parseMadnessCost, parseMutateCost, getValidMutateTargets } from "../state/modules/alternate-costs.js";
-import { getCastableSpellCandidates, getCommandZoneCommanderCandidates, getPlayableLandCandidates, type SharedCommanderAvailabilityCandidate } from "../state/modules/can-respond.js";
+import { getCastableSpellCandidates, getCommandZoneCommanderCandidates, getPlayableLandCandidates, type SharedCommanderAvailabilityCandidate, type SharedPlayableLandCandidate, type SharedSpellCastCandidate } from "../state/modules/can-respond.js";
+import { buildCounterRemovalCostOptions } from "../state/modules/counter-removal-costs.js";
 import { cleanupCardLeavingExile } from "../state/modules/playable-from-exile.js";
 import { isPreparedCopyActive, syncPreparedPermanentAfterControlChange } from "../state/modules/prepared.js";
 import { getEffectiveBasicLandTypes } from "../state/modules/mana-abilities.js";
@@ -58,6 +59,7 @@ import {
   detectETBTappedPattern,
   evaluateConditionalLandETB,
   getLandSubtypes,
+  type AdditionalCostResult,
   detectAdditionalCost,
 } from "./land-helpers";
 
@@ -78,6 +80,31 @@ function getFloatingPaymentPoolKey(permanentId: string, mana: string): string | 
   return MANA_COLOR_NAMES[String(mana || '').toUpperCase()] || null;
 }
 
+function getRequestedLandPlayCandidate(
+  game: any,
+  playerId: string,
+  cardId: string,
+  sourceZone: 'hand' | 'graveyard' | 'exile' | 'library',
+  selectedFaceIndex?: number,
+): SharedPlayableLandCandidate | undefined {
+  const state = game?.state;
+  if (!state || !playerId || !cardId) return undefined;
+
+  const sharedCandidates = getPlayableLandCandidates({
+    state,
+    libraries: game?.libraries,
+  } as any, playerId as any);
+
+  return sharedCandidates.find((candidate) => {
+    if (candidate.sourceZone !== sourceZone) return false;
+    if (String(candidate.card?.id || '') !== String(cardId)) return false;
+    if (selectedFaceIndex !== undefined && Number(candidate.selectedFaceIndex ?? -1) !== Number(selectedFaceIndex)) {
+      return false;
+    }
+    return true;
+  });
+}
+
 function getPlayerLibraryCards(game: any, playerId: string): any[] {
   return Array.isArray((game.libraries as any)?.get?.(playerId))
     ? ((game.libraries as any).get(playerId) as any[])
@@ -88,10 +115,12 @@ function getPlayerLibraryCards(game: any, playerId: string): any[] {
 
 function getTopLibraryCard(game: any, playerId: string): any | null {
   const library = getPlayerLibraryCards(game, playerId);
-  return library.length > 0 ? library[0] : null;
 }
 
-export type SpellCastSourceZone = 'hand' | 'exile' | 'graveyard' | 'library' | 'command';
+export interface StaticCostTaxMetadata {
+  generic: number;
+  messages: string[];
+}
 
 export interface CostReductionMetadata {
   generic: number;
@@ -99,10 +128,7 @@ export interface CostReductionMetadata {
   messages: string[];
 }
 
-export interface StaticCostTaxMetadata {
-  generic: number;
-  messages: string[];
-}
+export type SpellCastSourceZone = 'hand' | 'exile' | 'graveyard' | 'library' | 'command';
 
 export interface PendingCastCostMetadata {
   costReduction: CostReductionMetadata;
@@ -163,8 +189,18 @@ function canCastRequestedSpellFromGraveyard(
   selectedSpellCard: any,
   selectedFaceIndex?: number,
 ): boolean {
+  return Boolean(getRequestedSpellCastCandidate(game, playerId, cardId, selectedSpellCard, selectedFaceIndex));
+}
+
+function getRequestedSpellCastCandidate(
+  game: any,
+  playerId: string,
+  cardId: string,
+  selectedSpellCard: any,
+  selectedFaceIndex?: number,
+): SharedSpellCastCandidate | undefined {
   const state = game?.state;
-  if (!state || !playerId || !cardId) return false;
+  if (!state || !playerId || !cardId) return undefined;
 
   const candidateMode = isMainPhaseForSharedSpellGate(state)
     && (!Array.isArray(state.stack) || state.stack.length === 0)
@@ -180,7 +216,7 @@ function canCastRequestedSpellFromGraveyard(
     allowUnknownCostFallback: false,
   });
 
-  return sharedCandidates.some((candidate) => {
+  return sharedCandidates.find((candidate) => {
     if (candidate.sourceZone !== 'graveyard') return false;
     if (String(candidate.card?.id || '') !== String(cardId)) return false;
     if (selectedFaceIndex !== undefined && Number(candidate.castCard?.faceIndex ?? -1) !== Number(selectedFaceIndex)) {
@@ -191,6 +227,176 @@ function canCastRequestedSpellFromGraveyard(
     }
     return true;
   });
+}
+
+function applySharedGraveyardCandidateMetadata(
+  sourceCard: any,
+  castCard: any,
+  candidate: SharedSpellCastCandidate,
+): void {
+  const targets = [sourceCard, castCard].filter((target) => target && typeof target === 'object');
+  const isKeywordGraveyardCast = candidate.sourceZone === 'graveyard'
+    && ['flashback', 'jump-start', 'retrace', 'escape', 'harmonize'].includes(String(candidate.castMethod || ''));
+
+  for (const target of targets) {
+    if (candidate.sourceZone === 'graveyard') {
+      (target as any).castFromGraveyard = true;
+    }
+
+    if (isKeywordGraveyardCast) {
+      (target as any).castWithAbility = candidate.castMethod;
+    } else {
+      delete (target as any).castWithAbility;
+    }
+
+    if (isKeywordGraveyardCast && candidate.manaCost) {
+      (target as any).graveyardCastManaCost = candidate.manaCost;
+    } else {
+      delete (target as any).graveyardCastManaCost;
+    }
+
+    if (candidate.exileAfterResolution === true) {
+      (target as any).exileAfterResolution = true;
+    } else {
+      delete (target as any).exileAfterResolution;
+    }
+
+    if (candidate.leaveBattlefieldReplacementDestination === 'exile') {
+      (target as any).leaveBattlefieldReplacementDestination = 'exile';
+    } else {
+      delete (target as any).leaveBattlefieldReplacementDestination;
+    }
+
+    if (candidate.leaveBattlefieldReplacementSourceName) {
+      (target as any).leaveBattlefieldReplacementSourceName = candidate.leaveBattlefieldReplacementSourceName;
+    } else {
+      delete (target as any).leaveBattlefieldReplacementSourceName;
+    }
+
+    if (candidate.sourceGrantedAdditionalCost) {
+      (target as any).sourceGrantedAdditionalCost = { ...candidate.sourceGrantedAdditionalCost };
+    } else {
+      delete (target as any).sourceGrantedAdditionalCost;
+    }
+
+    if (candidate.graveyardPermissionId) {
+      (target as any).graveyardPermissionId = candidate.graveyardPermissionId;
+    } else {
+      delete (target as any).graveyardPermissionId;
+    }
+
+    if (candidate.graveyardPermissionSourceName) {
+      (target as any).graveyardPermissionSourceName = candidate.graveyardPermissionSourceName;
+    } else {
+      delete (target as any).graveyardPermissionSourceName;
+    }
+
+    if (candidate.graveyardPermissionCostMode) {
+      (target as any).graveyardPermissionCostMode = candidate.graveyardPermissionCostMode;
+    } else {
+      delete (target as any).graveyardPermissionCostMode;
+    }
+
+    if (candidate.graveyardPermissionCostMode === 'without_paying_mana_cost') {
+      (target as any).castWithoutPayingManaCost = true;
+    } else {
+      delete (target as any).castWithoutPayingManaCost;
+    }
+  }
+}
+
+function getDelegatedGraveyardCastAbilityId(candidate?: SharedSpellCastCandidate): 'flashback' | 'jump-start' | 'retrace' | 'escape' | undefined {
+  if (!candidate || candidate.sourceZone !== 'graveyard') {
+    return undefined;
+  }
+
+  return candidate.castMethod === 'flashback'
+    || candidate.castMethod === 'jump-start'
+    || candidate.castMethod === 'retrace'
+    || candidate.castMethod === 'escape'
+    ? candidate.castMethod
+    : undefined;
+}
+
+export function calculateHarmonizeOptions(
+  game: any,
+  playerId: string,
+  card: any,
+): {
+  availableCreatures: Array<{
+    id: string;
+    name: string;
+    power: number;
+    imageUrl?: string;
+  }>;
+  messages: string[];
+} {
+  const options = {
+    availableCreatures: [] as Array<{
+      id: string;
+      name: string;
+      power: number;
+      imageUrl?: string;
+    }>,
+    messages: [] as string[],
+  };
+
+  try {
+    if (String((card as any)?.castWithAbility || '').trim().toLowerCase() !== 'harmonize') {
+      return options;
+    }
+
+    const battlefield = Array.isArray(game.state?.battlefield) ? game.state.battlefield : [];
+    for (const permanent of battlefield) {
+      if (!permanent || String(permanent.controller || '') !== String(playerId || '')) continue;
+      if ((permanent as any).tapped === true) continue;
+      if (!String(permanent?.card?.type_line || '').toLowerCase().includes('creature')) continue;
+
+      options.availableCreatures.push({
+        id: String(permanent.id || ''),
+        name: String(permanent?.card?.name || 'Creature'),
+        power: Math.max(0, Number(getEffectivePower(permanent) || 0)),
+        imageUrl: permanent?.card?.image_uris?.small || permanent?.card?.image_uris?.normal,
+      });
+    }
+
+    if (options.availableCreatures.length > 0) {
+      options.messages.push(`Harmonize available: ${options.availableCreatures.length} untapped creature(s)`);
+    }
+  } catch (error) {
+    debugError(1, '[calculateHarmonizeOptions] Error:', error);
+  }
+
+  return options;
+}
+
+function getEffectiveAdditionalCost(card: any, oracleText: string): AdditionalCostResult | null {
+  const sourceGrantedAdditionalCost = (card as any)?.sourceGrantedAdditionalCost;
+  if (sourceGrantedAdditionalCost && typeof sourceGrantedAdditionalCost === 'object') {
+    const type = String((sourceGrantedAdditionalCost as any).type || '').trim().toLowerCase();
+    const amount = Number((sourceGrantedAdditionalCost as any).amount || 0);
+    const filter = String((sourceGrantedAdditionalCost as any).filter || '').trim().toLowerCase();
+    if ((type === 'discard' || type === 'sacrifice') && amount > 0) {
+      return {
+        type: type as 'discard' | 'sacrifice',
+        amount,
+        ...(filter ? { filter } : {}),
+      };
+    }
+
+    if (type === 'remove_counters' && amount > 0) {
+      const counterType = String((sourceGrantedAdditionalCost as any).counterType || '').trim();
+      return {
+        type: 'remove_counters',
+        amount,
+        filter: filter || 'creature',
+        distributed: true,
+        ...(counterType ? { counterType } : {}),
+      };
+    }
+  }
+
+  return detectAdditionalCost(oracleText);
 }
 
 function createEmptyCostReduction(): CostReductionMetadata {
@@ -4378,6 +4584,24 @@ function checkMiracle(card: any): { hasMiracle: boolean; miracleCost: string | n
   return { hasMiracle: true, miracleCost: null };
 }
 
+function getSuspendCastInfo(card: any): { hasSuspend: boolean; suspendCost: string; timeCounters: number } {
+  const oracleText = String(card?.oracle_text || card?.oracleText || '');
+  const suspendMatch = oracleText.match(/\bsuspend\s+(\d+)[—\-]\s*(\{[^}]+\}(?:\s*\{[^}]+\})*)/i);
+  if (!suspendMatch) {
+    return {
+      hasSuspend: /\bsuspend\b/i.test(oracleText),
+      suspendCost: '',
+      timeCounters: 0,
+    };
+  }
+
+  return {
+    hasSuspend: true,
+    timeCounters: Math.max(0, Number.parseInt(String(suspendMatch[1] || '0'), 10) || 0),
+    suspendCost: String(suspendMatch[2] || '').replace(/\s+/g, ''),
+  };
+}
+
 /**
  * Check drawn cards for miracle ability and emit prompt to player
  * 
@@ -4514,6 +4738,7 @@ export async function requestCastSpellForSocket(
     forcedAlternateCostId?: string;
     skipMutateModePrompt?: boolean;
     castWithoutPayingManaCost?: boolean;
+    exileAfterResolution?: boolean;
     bypassExilePermissionCheck?: boolean;
     ignoreTimingRestrictions?: boolean;
     xValue?: number;
@@ -4588,7 +4813,7 @@ export async function requestCastSpellForSocket(
       ? ((game.libraries as any).get(playerId) as any[])
       : (Array.isArray((game.libraries as any)?.[playerId]) ? ((game.libraries as any)[playerId] as any[]) : []);
 
-    const isFreeCast = options?.castWithoutPayingManaCost === true || options?.forcedAlternateCostId === 'free';
+    let isFreeCast = options?.castWithoutPayingManaCost === true || options?.forcedAlternateCostId === 'free';
     const bypassExilePermissionCheck = options?.bypassExilePermissionCheck === true;
     const ignoreTimingRestrictions = options?.ignoreTimingRestrictions === true;
 
@@ -4714,20 +4939,45 @@ export async function requestCastSpellForSocket(
     const selectedSpell = resolveSelectedSpellCard(cardInHand, faceIndex);
     const cardForCast = selectedSpell.card;
     const selectedFaceIndex = selectedSpell.faceIndex;
+    if (options?.exileAfterResolution === true) {
+      (cardInHand as any).exileAfterResolution = true;
+      (cardForCast as any).exileAfterResolution = true;
+    }
     const effectiveTypeLine = String(cardForCast?.type_line || typeLine || '').toLowerCase();
+    const sharedGraveyardCandidate = castSourceZone === 'graveyard' && !ignoreTimingRestrictions && !isFreeCast
+      ? getRequestedSpellCastCandidate(game, String(playerId), String(cardId), cardForCast, selectedFaceIndex)
+      : undefined;
 
     if (castSourceZone === 'graveyard' && !ignoreTimingRestrictions && !isFreeCast) {
-      const hasSharedGraveyardPermission = canCastRequestedSpellFromGraveyard(
-        game,
-        String(playerId),
-        String(cardId),
-        cardForCast,
-        selectedFaceIndex,
-      );
-      if (!hasSharedGraveyardPermission) {
+      if (!sharedGraveyardCandidate) {
         socket.emit('error', {
           code: 'NO_PERMISSION',
           message: "You don't have permission to cast that card from your graveyard.",
+        });
+        return;
+      }
+
+      applySharedGraveyardCandidateMetadata(cardInHand, cardForCast, sharedGraveyardCandidate);
+
+      if (sharedGraveyardCandidate.graveyardPermissionCostMode === 'without_paying_mana_cost') {
+        options = {
+          ...options,
+          castWithoutPayingManaCost: true,
+          forcedAlternateCostId: options?.forcedAlternateCostId || 'free',
+        };
+        isFreeCast = true;
+      }
+
+      const delegatedGraveyardCastAbilityId = getDelegatedGraveyardCastAbilityId(sharedGraveyardCandidate);
+      if (delegatedGraveyardCastAbilityId) {
+        continueCastFromGraveyardAbility({
+          gameId,
+          game,
+          io,
+          playerId,
+          cardId,
+          abilityId: delegatedGraveyardCastAbilityId,
+          emitError: (payload) => socket.emit('error', payload),
         });
         return;
       }
@@ -4757,11 +5007,14 @@ export async function requestCastSpellForSocket(
 
     // Get oracle text (possibly from card face if split/adventure)
     let oracleTextRaw = cardForCast.oracle_text || "";
+    const sharedGraveyardManaCost = castSourceZone === 'graveyard'
+      ? String((cardForCast as any).graveyardCastManaCost || '')
+      : '';
     let manaCost = isFreeCast
       ? '{0}'
       : castSourceZone === 'command'
         ? buildCommandZoneCastManaCost(cardForCast, commanderCandidate)
-        : (cardForCast.mana_cost || "");
+        : (sharedGraveyardManaCost || cardForCast.mana_cost || "");
     let cardName = cardForCast.name || "Card";
     let faceTypeLine = effectiveTypeLine;
 
@@ -5235,6 +5488,7 @@ export async function requestCastSpellForSocket(
         ? buildCommandZonePaymentCostAdjustment(game, playerId, cardForCast, commanderCandidate, resolvedManaCost)
         : undefined;
       const convokeOptions = calculateConvokeOptions(game, playerId, cardForCast);
+      const harmonizeOptions = calculateHarmonizeOptions(game, playerId, cardForCast);
 
       (game.state as any).pendingSpellCasts = (game.state as any).pendingSpellCasts || {};
       (game.state as any).pendingSpellCasts[effectId] = {
@@ -5252,6 +5506,7 @@ export async function requestCastSpellForSocket(
         mutateCost: manaCost,
         ...getPendingCastPaymentFields(paymentMetadata, paymentCostAdjustment),
         convokeOptions: convokeOptions.availableCreatures.length > 0 ? convokeOptions : undefined,
+        harmonizeOptions: harmonizeOptions.availableCreatures.length > 0 ? harmonizeOptions.availableCreatures : undefined,
         ignoreTimingRestrictions,
         ...(giftInfo.hasGift
           ? {
@@ -5430,7 +5685,7 @@ export async function requestCastSpellForSocket(
         };
 
         const preTargetQueuedSteps: any[] = [];
-        const additionalCost = detectAdditionalCost(oracleText);
+        const additionalCost = getEffectiveAdditionalCost(cardInHand, oracleText);
         if (!requestCastAdditionalCostPaid && additionalCost?.type === 'pay_life') {
           const startingLife = game.state.startingLife || 40;
           const currentLife = game.state.life?.[playerId] ?? startingLife;
@@ -5563,6 +5818,53 @@ export async function requestCastSpellForSocket(
             },
           } as any);
           preTargetQueuedSteps.push({ ...(sacrificeCostStep as any) });
+        } else if (!requestCastAdditionalCostPaid && additionalCost?.type === 'remove_counters') {
+          const availableCounters = buildCounterRemovalCostOptions(game.state, String(playerId), {
+            amount: additionalCost.amount,
+            filter: additionalCost.filter || 'creature',
+            counterType: additionalCost.counterType,
+            distributed: true,
+          });
+
+          if (availableCounters.length < additionalCost.amount) {
+            delete (game.state as any).pendingSpellCasts[effectId];
+            socket.emit('error', {
+              code: 'CANNOT_PAY_COST',
+              message: `Cannot cast ${cardName}: You need to remove ${additionalCost.amount} counter${additionalCost.amount === 1 ? '' : 's'} from among ${additionalCost.filter || 'creature'}s you control.`,
+            });
+            return;
+          }
+
+          const counterRemovalCostStep = ResolutionQueueManager.addStep(gameId, {
+            type: ResolutionStepType.ADDITIONAL_COST_PAYMENT,
+            playerId: playerId as any,
+            sourceId: effectId,
+            sourceName: cardName,
+            sourceImage: cardForCast.image_uris?.small || cardForCast.image_uris?.normal || cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
+            description: `As an additional cost to cast ${cardName}, remove ${additionalCost.amount} counter${additionalCost.amount === 1 ? '' : 's'} from among ${additionalCost.filter || 'creature'}s you control.`,
+            mandatory: true,
+            cardId,
+            cardName,
+            costType: 'remove_counters',
+            amount: additionalCost.amount,
+            filter: additionalCost.filter || 'creature',
+            counterType: additionalCost.counterType,
+            title: `Remove ${additionalCost.amount} counter${additionalCost.amount === 1 ? '' : 's'} to cast ${cardName}`,
+            imageUrl: cardForCast.image_uris?.small || cardForCast.image_uris?.normal || cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
+            availableCounters,
+            castSpellFromHandArgs: {
+              cardId,
+              faceIndex: selectedFaceIndex,
+              fromZone: castSourceZone,
+              xValue: chosenXValue,
+              alternateCostId: options?.forcedAlternateCostId,
+              castWithoutPayingManaCost: isFreeCast,
+              bypassExilePermissionCheck,
+              ignoreTimingRestrictions,
+              skipPriorityCheck: true,
+            },
+          } as any);
+          preTargetQueuedSteps.push({ ...(counterRemovalCostStep as any) });
         } else if (additionalCost?.type === 'blight') {
           const pendingCast = (game.state as any).pendingSpellCasts?.[effectId];
           if (!pendingCast) {
@@ -5842,6 +6144,7 @@ export async function requestCastSpellForSocket(
     // No targets needed — still need to handle additional costs before payment.
     const paymentMetadata = buildPendingCastCostMetadata(game, playerId, cardForCast, castSourceZone);
     const convokeOptions = calculateConvokeOptions(game, playerId, cardForCast);
+    const harmonizeOptions = calculateHarmonizeOptions(game, playerId, cardForCast);
     const paymentManaCost = appendManaCost(
       formatManaCostWithCostAdjustment(resolvedManaCost, paymentMetadata.costReduction, chosenXValue, paymentMetadata.genericCostTax),
       spellModeAdditionalCost,
@@ -5881,6 +6184,7 @@ export async function requestCastSpellForSocket(
       pendingPaymentAfterAdditionalCost: false,
       ...getPendingCastPaymentFields(paymentMetadata, paymentCostAdjustment),
       convokeOptions: convokeOptions.availableCreatures.length > 0 ? convokeOptions : undefined,
+      harmonizeOptions: harmonizeOptions.availableCreatures.length > 0 ? harmonizeOptions.availableCreatures : undefined,
       forcedAlternateCostId: options?.forcedAlternateCostId,
       castWithoutPayingManaCost: isFreeCast,
       bypassExilePermissionCheck,
@@ -5897,7 +6201,7 @@ export async function requestCastSpellForSocket(
       ...(options?.librarySearchStepToResume ? { librarySearchStepToResume: options.librarySearchStepToResume } : {}),
     };
 
-    const additionalCost = detectAdditionalCost(oracleText);
+    const additionalCost = getEffectiveAdditionalCost(cardInHand, oracleText);
     if (!requestCastAdditionalCostPaid && additionalCost?.type === 'pay_life') {
       const startingLife = game.state.startingLife || 40;
       const currentLife = game.state.life?.[playerId] ?? startingLife;
@@ -6062,6 +6366,69 @@ export async function requestCastSpellForSocket(
       return;
     }
 
+    if (!requestCastAdditionalCostPaid && additionalCost?.type === 'remove_counters') {
+      const availableCounters = buildCounterRemovalCostOptions(game.state, String(playerId), {
+        amount: additionalCost.amount,
+        filter: additionalCost.filter || 'creature',
+        counterType: additionalCost.counterType,
+        distributed: true,
+      });
+
+      if (availableCounters.length < additionalCost.amount) {
+        delete (game.state as any).pendingSpellCasts[effectId];
+        socket.emit('error', {
+          code: 'CANNOT_PAY_COST',
+          message: `Cannot cast ${cardName}: You need to remove ${additionalCost.amount} counter${additionalCost.amount === 1 ? '' : 's'} from among ${additionalCost.filter || 'creature'}s you control.`,
+        });
+        return;
+      }
+
+      const counterRemovalCostStep = ResolutionQueueManager.addStep(gameId, {
+        type: ResolutionStepType.ADDITIONAL_COST_PAYMENT,
+        playerId: playerId as any,
+        sourceId: effectId,
+        sourceName: cardName,
+        sourceImage: cardForCast.image_uris?.small || cardForCast.image_uris?.normal || cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
+        description: `As an additional cost to cast ${cardName}, remove ${additionalCost.amount} counter${additionalCost.amount === 1 ? '' : 's'} from among ${additionalCost.filter || 'creature'}s you control.`,
+        mandatory: true,
+        cardId,
+        cardName,
+        costType: 'remove_counters',
+        amount: additionalCost.amount,
+        filter: additionalCost.filter || 'creature',
+        counterType: additionalCost.counterType,
+        title: `Remove ${additionalCost.amount} counter${additionalCost.amount === 1 ? '' : 's'} to cast ${cardName}`,
+        imageUrl: cardForCast.image_uris?.small || cardForCast.image_uris?.normal || cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
+        availableCounters,
+        castSpellFromHandArgs: {
+          cardId,
+          faceIndex: selectedFaceIndex,
+          fromZone: castSourceZone,
+          xValue: chosenXValue,
+          alternateCostId: options?.forcedAlternateCostId,
+          castWithoutPayingManaCost: isFreeCast,
+          bypassExilePermissionCheck,
+          ignoreTimingRestrictions,
+          skipPriorityCheck: true,
+        },
+      } as any);
+
+      persistQueuedSpellCastStepContinuation(gameId, game, {
+        playerId,
+        cardId,
+        effectId,
+        pendingSpellCast: {
+          ...((game.state as any).pendingSpellCasts?.[effectId] || {}),
+        },
+        queuedResolutionStep: {
+          ...(counterRemovalCostStep as any),
+        },
+      });
+
+      debug(2, `[requestCastSpell] Queued counter-removal additional-cost step for no-target spell ${cardName}`);
+      return;
+    }
+
     if (additionalCost?.type === 'blight') {
       const pendingCast = (game.state as any).pendingSpellCasts?.[effectId];
       pendingCast.pendingPaymentAfterAdditionalCost = true;
@@ -6217,6 +6584,7 @@ export async function requestCastSpellForSocket(
         costAdjustment: paymentCostAdjustment || buildPaymentCostAdjustmentPayload(resolvedManaCost, paymentManaCost, paymentMetadata.costReduction, paymentMetadata.genericCostTax, paymentMetadata.staticCostTax.messages),
         costReduction: paymentMetadata.costReduction.messages.length > 0 ? paymentMetadata.costReduction : undefined,
         convokeOptions: convokeOptions.availableCreatures.length > 0 ? convokeOptions : undefined,
+        harmonizeOptions: harmonizeOptions.availableCreatures.length > 0 ? harmonizeOptions.availableCreatures : undefined,
         forcedAlternateCostId: options?.forcedAlternateCostId,
       } as any);
 
@@ -6524,17 +6892,12 @@ export function handlePlayLandRequest(io: Server, socket: Socket, payload?: Play
     }
 
     const sourceZone = (fromZone as 'hand' | 'graveyard' | 'exile' | 'library' | undefined) || 'hand';
+    let requestedLandCandidate: SharedPlayableLandCandidate | undefined;
 
     if (sourceZone === 'graveyard') {
-      const graveyardLandCandidates = getPlayableLandCandidates({
-        state: game.state,
-        libraries: (game as any).libraries,
-      } as any, String(playerId));
-      const canPlayRequestedGraveyardLand = graveyardLandCandidates.some((candidate) =>
-        candidate.sourceZone === 'graveyard' && String(candidate.card?.id || '') === String(cardId)
-      );
+      requestedLandCandidate = getRequestedLandPlayCandidate(game, String(playerId), String(cardId), 'graveyard', selectedFaceIndex);
 
-      if (!canPlayRequestedGraveyardLand) {
+      if (!requestedLandCandidate) {
         socket.emit("error", {
           code: "NO_PERMISSION",
           message: "You don't have permission to play lands from your graveyard",
@@ -6593,6 +6956,13 @@ export function handlePlayLandRequest(io: Server, socket: Socket, payload?: Play
         message: `Card not found in ${sourceZone}. It may have already been played or moved.`,
       });
       return;
+    }
+
+    if (requestedLandCandidate?.graveyardPermissionId) {
+      (cardInZone as any).graveyardPermissionId = requestedLandCandidate.graveyardPermissionId;
+    }
+    if (requestedLandCandidate?.graveyardPermissionSourceName) {
+      (cardInZone as any).graveyardPermissionSourceName = requestedLandCandidate.graveyardPermissionSourceName;
     }
 
     let layout = (cardInZone as any)?.layout;
@@ -6762,7 +7132,25 @@ export function handlePlayLandRequest(io: Server, socket: Socket, payload?: Play
     }
 
     suppressAutomationOnNextBroadcast(game as any, LAND_PLAY_AUTOMATION_SUPPRESSION_MS);
-    finalizePlayedLand(io, game, gameId, String(playerId), cardId, cardInZone, sourceZone);
+    finalizePlayedLand(
+      io,
+      game,
+      gameId,
+      String(playerId),
+      cardId,
+      cardInZone,
+      sourceZone,
+      requestedLandCandidate
+        ? {
+            ...(requestedLandCandidate.graveyardPermissionId
+              ? { graveyardPermissionId: requestedLandCandidate.graveyardPermissionId }
+              : {}),
+            ...(requestedLandCandidate.graveyardPermissionSourceName
+              ? { graveyardPermissionSourceName: requestedLandCandidate.graveyardPermissionSourceName }
+              : {}),
+          }
+        : undefined,
+    );
 
     if (selectedFaceName) {
       io.to(gameId).emit('chat', {
@@ -6897,6 +7285,7 @@ export function registerGameActions(io: Server, socket: Socket) {
     alternateCostId?: unknown;
     selectedCastMode?: unknown;
     convokeTappedCreatures?: unknown;
+    harmonizeTappedCreatureId?: unknown;
     fromZone?: unknown;
     bypassExilePermissionCheck?: unknown;
     ignoreTimingRestrictions?: unknown;
@@ -6920,6 +7309,9 @@ export function registerGameActions(io: Server, socket: Socket) {
         : undefined;
       const convokeTappedCreatures = Array.isArray(payload?.convokeTappedCreatures)
         ? (payload.convokeTappedCreatures.filter((id): id is string => typeof id === 'string'))
+        : undefined;
+      const harmonizeTappedCreatureId = typeof payload?.harmonizeTappedCreatureId === 'string'
+        ? String(payload.harmonizeTappedCreatureId)
         : undefined;
       const fromZone = normalizeSpellCastSourceZone(payload?.fromZone);
       const bypassExilePermissionCheck = payload?.bypassExilePermissionCheck === true;
@@ -6955,6 +7347,9 @@ export function registerGameActions(io: Server, socket: Socket) {
       if (selectedCastMode) debug(2, `[handleCastSpellFromHand] selectedCastMode: ${selectedCastMode}`);
       if (convokeTappedCreatures && convokeTappedCreatures.length > 0) {
         debug(2, `[handleCastSpellFromHand] convokeTappedCreatures: ${JSON.stringify(convokeTappedCreatures)}`);
+      }
+      if (harmonizeTappedCreatureId) {
+        debug(2, `[handleCastSpellFromHand] harmonizeTappedCreatureId: ${harmonizeTappedCreatureId}`);
       }
       debug(2, `[handleCastSpellFromHand] priority: ${game.state.priority}`);
 
@@ -7096,22 +7491,20 @@ export function registerGameActions(io: Server, socket: Socket) {
       cardInHand = selectedSpell.card;
       const skipsSharedGraveyardPermissionCheck = alternateCostId === 'free'
         || (cardInHand as any).castWithoutPayingManaCost === true;
+      const sharedGraveyardCandidate = castSourceZone === 'graveyard' && !ignoreTimingRestrictions && !skipsSharedGraveyardPermissionCheck
+        ? getRequestedSpellCastCandidate(game, String(playerId), String(cardId), cardInHand, selectedFaceIndex)
+        : undefined;
 
       if (castSourceZone === 'graveyard' && !ignoreTimingRestrictions && !skipsSharedGraveyardPermissionCheck) {
-        const hasSharedGraveyardPermission = canCastRequestedSpellFromGraveyard(
-          game,
-          String(playerId),
-          String(cardId),
-          cardInHand,
-          selectedFaceIndex,
-        );
-        if (!hasSharedGraveyardPermission) {
+        if (!sharedGraveyardCandidate) {
           socket.emit('error', {
             code: 'NO_PERMISSION',
             message: "You don't have permission to cast that card from your graveyard.",
           });
           return;
         }
+
+        applySharedGraveyardCandidateMetadata(cardInHand, undefined, sharedGraveyardCandidate);
       }
 
       const commandZoneManaCost = castSourceZone === 'command'
@@ -7714,7 +8107,7 @@ export function registerGameActions(io: Server, socket: Socket) {
       
       // Check for additional costs (discard a card, sacrifice, etc.)
       // This handles cards like Seize the Spoils, Faithless Looting, etc.
-      const additionalCost = detectAdditionalCost(oracleText);
+      const additionalCost = getEffectiveAdditionalCost(cardInHand, oracleText);
       const additionalCostPaid = (payment as any[])?.some((p: any) => p && p.additionalCostPaid === true) ||
                                   (targets as any)?.additionalCostPaid === true;
 
@@ -8688,6 +9081,52 @@ export function registerGameActions(io: Server, socket: Socket) {
             return match ? `{${match[1]}}` : '';
           })()
         : '';
+      const suspendInfo = alternateCostId === 'suspend'
+        ? getSuspendCastInfo(cardInHand)
+        : { hasSuspend: false, suspendCost: '', timeCounters: 0 };
+      const resolvedSuspendCost = alternateCostId === 'suspend'
+        ? String(suspendInfo.suspendCost || '')
+        : '';
+
+      const battlefieldPermanents = Array.isArray(game.state?.battlefield) ? game.state.battlefield : [];
+      let selectedHarmonizeCreature: any | undefined;
+      let harmonizeGenericReduction = 0;
+      if (String((cardInHand as any).castWithAbility || '').trim().toLowerCase() === 'harmonize' && harmonizeTappedCreatureId) {
+        selectedHarmonizeCreature = battlefieldPermanents.find((permanent: any) =>
+          permanent
+          && String(permanent.id || '') === String(harmonizeTappedCreatureId)
+          && String(permanent.controller || '') === String(playerId)
+        );
+
+        if (!selectedHarmonizeCreature) {
+          socket.emit('error', {
+            code: 'HARMONIZE_CREATURE_NOT_FOUND',
+            message: 'Selected Harmonize creature not found on the battlefield.',
+          });
+          return;
+        }
+
+        if ((selectedHarmonizeCreature as any).tapped === true) {
+          socket.emit('error', {
+            code: 'HARMONIZE_CREATURE_TAPPED',
+            message: `${String(selectedHarmonizeCreature?.card?.name || 'Creature')} is already tapped.`,
+          });
+          return;
+        }
+
+        if (!String(selectedHarmonizeCreature?.card?.type_line || '').toLowerCase().includes('creature')) {
+          socket.emit('error', {
+            code: 'HARMONIZE_NOT_CREATURE',
+            message: `${String(selectedHarmonizeCreature?.card?.name || 'Permanent')} is not a creature.`,
+          });
+          return;
+        }
+
+        harmonizeGenericReduction = Math.max(0, Number(getEffectivePower(selectedHarmonizeCreature) || 0));
+        (cardInHand as any).harmonizeTappedCreatureId = String(harmonizeTappedCreatureId);
+        (cardInHand as any).harmonizeTappedCreatureName = String(selectedHarmonizeCreature?.card?.name || 'Creature');
+        (cardInHand as any).harmonizeGenericReduction = harmonizeGenericReduction;
+      }
 
       if (alternateCostId === 'miracle' && !resolvedMiracleCost) {
         socket.emit('error', { code: 'NO_MIRACLE', message: 'This card does not have miracle.' });
@@ -8701,11 +9140,26 @@ export function registerGameActions(io: Server, socket: Socket) {
         socket.emit('error', { code: 'NO_MUTATE', message: 'This card does not have mutate.' });
         return;
       }
+      if (alternateCostId === 'suspend') {
+        if (castSourceZone !== 'hand') {
+          socket.emit('error', { code: 'INVALID_SUSPEND_ZONE', message: 'You can only suspend a card from your hand.' });
+          return;
+        }
+        if (!suspendInfo.hasSuspend || !resolvedSuspendCost || suspendInfo.timeCounters <= 0) {
+          socket.emit('error', { code: 'NO_SUSPEND', message: 'This card does not have a valid suspend cost.' });
+          return;
+        }
+      }
 
       // Parse the mana cost to validate payment
+      const graveyardCastManaCost = castSourceZone === 'graveyard'
+        ? String((cardInHand as any).graveyardCastManaCost || '')
+        : '';
       const rawManaCost = appendManaCost(
         (isForceAltCostPaid || isFreeCast)
           ? ''
+          : resolvedSuspendCost
+            ? resolvedSuspendCost
           : usesWubrgAlternateCost
             ? '{W}{U}{B}{R}{G}'
             : resolvedMiracleCost
@@ -8716,7 +9170,7 @@ export function registerGameActions(io: Server, socket: Socket) {
                   ? resolvedMutateCost
                   : resolvedOverloadCost
                     ? resolvedOverloadCost
-                    : (castSourceZone === 'command' ? (commandZoneManaCost || '') : (cardInHand.mana_cost || "")),
+                    : (castSourceZone === 'command' ? (commandZoneManaCost || '') : (graveyardCastManaCost || cardInHand.mana_cost || "")),
         spellModeAdditionalCost,
       );
       const manaCost = expandManaCostWithChosenX(rawManaCost, xValue);
@@ -8726,6 +9180,10 @@ export function registerGameActions(io: Server, socket: Socket) {
       const paymentMetadata = buildPendingCastCostMetadata(game, playerId, cardInHand, castSourceZone);
       const costReduction = paymentMetadata.costReduction;
       const genericCostTax = paymentMetadata.genericCostTax;
+      if (harmonizeGenericReduction > 0) {
+        costReduction.generic += harmonizeGenericReduction;
+        costReduction.messages.push(`Harmonize: -{${harmonizeGenericReduction}} (${String((cardInHand as any).harmonizeTappedCreatureName || 'selected creature')})`);
+      }
       
       // Apply cost reduction
       const reducedCost = applyCostAdjustment(parsedCost, costReduction, genericCostTax);
@@ -8835,6 +9293,13 @@ export function registerGameActions(io: Server, socket: Socket) {
           });
           return;
         }
+      }
+
+      // ======================================================================
+      // HARMONIZE: Tap one creature to reduce only the generic portion of the cost
+      // ======================================================================
+      if (selectedHarmonizeCreature) {
+        (selectedHarmonizeCreature as any).tapped = true;
       }
 
       // ======================================================================
@@ -9639,6 +10104,65 @@ export function registerGameActions(io: Server, socket: Socket) {
         }
       }
       
+      if (alternateCostId === 'suspend') {
+        const handCards = Array.isArray((zones as any).hand) ? (zones as any).hand : [];
+        const cardIndex = handCards.findIndex((entry: any) => entry && String(entry.id || '') === String(cardId));
+        if (cardIndex === -1) {
+          socket.emit('error', { code: 'CARD_NOT_IN_HAND', message: 'Card not found in hand.' });
+          return;
+        }
+
+        const [removedCard] = handCards.splice(cardIndex, 1);
+        zones.handCount = handCards.length;
+        zones.exile = Array.isArray((zones as any).exile) ? (zones as any).exile : [];
+
+        const suspendedCard = {
+          ...removedCard,
+          zone: 'exile',
+          isSuspended: true,
+          timeCounters: suspendInfo.timeCounters,
+          suspendedBy: playerId,
+        };
+
+        (zones.exile as any[]).push(suspendedCard);
+        (zones as any).exileCount = (zones.exile as any[]).length;
+
+        try {
+          appendEvent(gameId, (game as any).seq ?? 0, 'suspendCard', {
+            playerId,
+            cardId,
+            cardName: cardInHand.name,
+            card: { ...suspendedCard },
+            suspendCost: resolvedSuspendCost,
+            timeCounters: suspendInfo.timeCounters,
+            ...(tappedPaymentPermanents.size > 0
+              ? { tappedPermanents: Array.from(tappedPaymentPermanents) }
+              : {}),
+            ...(sacrificedPaymentPermanents.size > 0
+              ? { sacrificedPermanents: Array.from(sacrificedPaymentPermanents) }
+              : {}),
+            ...(paymentManaDelta ? { paymentManaDelta } : {}),
+          });
+        } catch (eventError) {
+          debugWarn(1, 'appendEvent(suspendCard) failed:', eventError);
+        }
+
+        io.to(gameId).emit('chat', {
+          id: `m_${Date.now()}`,
+          gameId,
+          from: 'system',
+          message: `${getPlayerName(game, playerId)} suspended ${cardInHand.name} with ${suspendInfo.timeCounters} time counter${suspendInfo.timeCounters === 1 ? '' : 's'}.`,
+          ts: Date.now(),
+        });
+
+        if (typeof game.bumpSeq === 'function') {
+          game.bumpSeq();
+        }
+
+        broadcastGame(io, game, gameId);
+        return;
+      }
+
       // Always use applyEvent to properly route through state management system
       // This ensures ctx.state.zones is updated (which viewFor uses)
       // The RulesBridge above only validates - it does NOT modify the actual game state
@@ -9781,6 +10305,22 @@ export function registerGameActions(io: Server, socket: Socket) {
               // Provenance / replay-stable metadata for intervening-if templates.
               fromZone: castSourceZone,
               castFromHand: castSourceZone === 'hand',
+              ...(typeof (cardInHand as any).graveyardPermissionId === 'string' && (cardInHand as any).graveyardPermissionId
+                ? { graveyardPermissionId: String((cardInHand as any).graveyardPermissionId) }
+                : {}),
+              ...(typeof (cardInHand as any).graveyardPermissionSourceName === 'string' && (cardInHand as any).graveyardPermissionSourceName
+                ? { graveyardPermissionSourceName: String((cardInHand as any).graveyardPermissionSourceName) }
+                : {}),
+              ...(typeof (cardInHand as any).graveyardPermissionCostMode === 'string' && (cardInHand as any).graveyardPermissionCostMode
+                ? { graveyardPermissionCostMode: String((cardInHand as any).graveyardPermissionCostMode) }
+                : {}),
+              ...((cardInHand as any).exileAfterResolution === true ? { exileAfterResolution: true } : {}),
+              ...(String((cardInHand as any).leaveBattlefieldReplacementDestination || '') === 'exile'
+                ? { leaveBattlefieldReplacementDestination: 'exile' }
+                : {}),
+              ...(typeof (cardInHand as any).leaveBattlefieldReplacementSourceName === 'string' && (cardInHand as any).leaveBattlefieldReplacementSourceName
+                ? { leaveBattlefieldReplacementSourceName: String((cardInHand as any).leaveBattlefieldReplacementSourceName) }
+                : {}),
               manaSpentTotal,
               manaSpentBreakdown: { ...manaConsumption.consumed },
               ...(manaFromTreasureSpentKnown === true
@@ -9869,6 +10409,12 @@ export function registerGameActions(io: Server, socket: Socket) {
                 : {}),
               ...(spellCopyRetargetMetadata ? { ...spellCopyRetargetMetadata } : {}),
             };
+            if (alternateCostId === 'free' || (cardInHand as any).castWithoutPayingManaCost === true) {
+              castEv.castWithoutPayingManaCost = true;
+              if (castEv.card && typeof castEv.card === 'object') {
+                castEv.card.castWithoutPayingManaCost = true;
+              }
+            }
             if (manaFromTreasureSpent === true) {
               // Preserve positive-only evidence when we don't have a replay-stable known/boolean.
               if (manaFromTreasureSpentKnown !== true) {
@@ -10400,6 +10946,25 @@ export function registerGameActions(io: Server, socket: Socket) {
           alternateCostId,
           fromZone: castSourceZone,
           castFromHand: castSourceZone === 'hand',
+          ...(alternateCostId === 'free' || (cardInHand as any).castWithoutPayingManaCost === true
+            ? { castWithoutPayingManaCost: true }
+            : {}),
+          ...(typeof (cardInHand as any).graveyardPermissionId === 'string' && (cardInHand as any).graveyardPermissionId
+            ? { graveyardPermissionId: String((cardInHand as any).graveyardPermissionId) }
+            : {}),
+          ...(typeof (cardInHand as any).graveyardPermissionSourceName === 'string' && (cardInHand as any).graveyardPermissionSourceName
+            ? { graveyardPermissionSourceName: String((cardInHand as any).graveyardPermissionSourceName) }
+            : {}),
+          ...(typeof (cardInHand as any).graveyardPermissionCostMode === 'string' && (cardInHand as any).graveyardPermissionCostMode
+            ? { graveyardPermissionCostMode: String((cardInHand as any).graveyardPermissionCostMode) }
+            : {}),
+          ...((cardInHand as any).exileAfterResolution === true ? { exileAfterResolution: true } : {}),
+          ...(String((cardInHand as any).leaveBattlefieldReplacementDestination || '') === 'exile'
+            ? { leaveBattlefieldReplacementDestination: 'exile' }
+            : {}),
+          ...(typeof (cardInHand as any).leaveBattlefieldReplacementSourceName === 'string' && (cardInHand as any).leaveBattlefieldReplacementSourceName
+            ? { leaveBattlefieldReplacementSourceName: String((cardInHand as any).leaveBattlefieldReplacementSourceName) }
+            : {}),
           ...(giftPromisedForCast === true
             ? {
                 giftPromised: true,
@@ -10801,6 +11366,7 @@ export function registerGameActions(io: Server, socket: Socket) {
     xValue?: unknown;
     alternateCostId?: unknown;
     convokeTappedCreatures?: unknown;
+    harmonizeTappedCreatureId?: unknown;
   }) => {
     const gameId = payload?.gameId;
     const cardId = payload?.cardId;
@@ -10813,6 +11379,7 @@ export function registerGameActions(io: Server, socket: Socket) {
     const xValue = payload?.xValue;
     const alternateCostId = payload?.alternateCostId;
     const convokeTappedCreatures = payload?.convokeTappedCreatures;
+    const harmonizeTappedCreatureId = payload?.harmonizeTappedCreatureId;
 
     if (!gameId || typeof gameId !== 'string') return;
     if (!cardId || typeof cardId !== 'string') return;
@@ -10822,6 +11389,7 @@ export function registerGameActions(io: Server, socket: Socket) {
     if (!(xValue === undefined || typeof xValue === 'number')) return;
     if (!(alternateCostId === undefined || typeof alternateCostId === 'string')) return;
     if (!(convokeTappedCreatures === undefined || (Array.isArray(convokeTappedCreatures) && convokeTappedCreatures.every((id) => typeof id === 'string')))) return;
+    if (!(harmonizeTappedCreatureId === undefined || typeof harmonizeTappedCreatureId === 'string')) return;
 
     const effectIdStr = effectId as string | undefined;
     const convokeTapped = convokeTappedCreatures as string[] | undefined;
@@ -11059,6 +11627,7 @@ export function registerGameActions(io: Server, socket: Socket) {
         xValue: (xValue as number | undefined) ?? pendingXValue,
         alternateCostId: (alternateCostId as string | undefined) ?? pendingAlternateCostId,
         convokeTappedCreatures: convokeTapped,
+        harmonizeTappedCreatureId: harmonizeTappedCreatureId as string | undefined,
         fromZone: pendingFromZone,
         bypassExilePermissionCheck: pendingBypassExilePermissionCheck,
         ignoreTimingRestrictions: pendingIgnoreTimingRestrictions,

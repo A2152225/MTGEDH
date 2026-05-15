@@ -32,7 +32,7 @@ import {
   checkDamageReceivedTrigger
 } from "./triggered-abilities.js";
 import { dispatchDamageReceivedTrigger, processDamageReceivedTriggers } from "./triggers/damage-received.js";
-import { getUpkeepTriggersForPlayer, autoProcessCumulativeUpkeepMana } from "./upkeep-triggers.js";
+import { getUpkeepTriggersForPlayer, autoProcessCumulativeUpkeepMana, recordUpkeepBegan } from "./upkeep-triggers.js";
 import { isInterveningIfSatisfied } from "./triggers/intervening-if.js";
 import { parseCreatureKeywords } from "./combat-mechanics.js";
 import { runSBA, createToken, updateCounters } from "./counters_tokens.js";
@@ -47,7 +47,7 @@ import { tryAutoPass } from "./priority.js";
 import { ResolutionQueueManager, ResolutionStepType } from "../resolution/index.js";
 import { debug, debugWarn, debugError } from "../../utils/debug.js";
 import { ensureInitialDayNightDesignationFromBattlefield, setDayNightState } from "./day-night.js";
-import { clearTemporaryGraveyardKeywordGrants } from "./graveyard-permissions.js";
+import { clearTemporaryGraveyardKeywordGrants, clearTemporaryPlayableFromGraveyardPermissions } from "./graveyard-permissions.js";
 
 /** Small helper to prepend ISO timestamp to debug logs */
 function ts() {
@@ -2698,6 +2698,7 @@ function endTemporaryEffects(ctx: GameContext) {
     }
 
     endedCount += clearTemporaryGraveyardKeywordGrants(state);
+    endedCount += clearTemporaryPlayableFromGraveyardPermissions(state);
 
     // Revert temporary control changes recorded for cleanup.
     if (Array.isArray((state as any).controlChangeEffects) && (state as any).controlChangeEffects.length > 0) {
@@ -5042,6 +5043,7 @@ export function nextStep(ctx: GameContext) {
 
           const upkeepTriggers = getUpkeepTriggersForPlayer(ctx, turnPlayer);
           pushTriggersToStack(upkeepTriggers, 'upkeep', 'upkeep');
+          recordUpkeepBegan((ctx as any).state, String(turnPlayer));
         }
         
         // Rule 504.1 (Draw): "at the beginning of your draw step" triggers

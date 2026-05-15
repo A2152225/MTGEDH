@@ -74,7 +74,7 @@ describe('parseGraveyardAbilities', () => {
     expect(undyingAbility?.activatable).toBe(false);
   });
 
-  it('adds a cast action for playable instant and sorcery cards without printed graveyard text', () => {
+  it('adds a generic graveyard-cast action for playable nonland spells without printed graveyard text', () => {
     const card: KnownCardRef = {
       id: 'consider-1',
       name: 'Consider',
@@ -86,9 +86,9 @@ describe('parseGraveyardAbilities', () => {
     const inactiveAbilities = getGraveyardAbilitiesForCard(card, { isPlayable: false });
     const activeAbilities = getGraveyardAbilitiesForCard(card, { isPlayable: true });
 
-    expect(inactiveAbilities.some((entry) => entry.id === 'flashback')).toBe(false);
+    expect(inactiveAbilities.some((entry) => entry.id === 'graveyard-cast')).toBe(false);
     expect(activeAbilities).toContainEqual(expect.objectContaining({
-      id: 'flashback',
+      id: 'graveyard-cast',
       label: 'Cast',
       cost: '{U}',
     }));
@@ -117,11 +117,74 @@ describe('parseGraveyardAbilities', () => {
     });
 
     expect(playableWithoutHint.some((entry) => entry.id === 'unearth')).toBe(false);
-    expect(playableWithoutHint.some((entry) => entry.id === 'flashback')).toBe(false);
+    expect(playableWithoutHint.some((entry) => entry.id === 'graveyard-cast')).toBe(false);
     expect(withHint).toContainEqual(expect.objectContaining({
       id: 'unearth',
       label: 'Unearth',
       cost: '{1}{B}{R}',
+    }));
+  });
+
+  it('preserves source metadata on server-provided graveyard cast hints', () => {
+    const card: KnownCardRef = {
+      id: 'consider-1',
+      name: 'Consider',
+      type_line: 'Instant',
+      mana_cost: '{U}',
+      oracle_text: 'Surveil 1, then draw a card.',
+    };
+
+    const abilities = getGraveyardAbilitiesForCard(card, {
+      isPlayable: true,
+      abilityHints: [
+        {
+          id: 'graveyard-cast',
+          label: 'Cast',
+          description: 'Cast from graveyard for {U} via Kess, Dissident Mage',
+          cost: '{U}',
+          sourceName: 'Kess, Dissident Mage',
+          permissionId: 'perm-kess-cast',
+          costMode: 'normal',
+        },
+      ],
+    });
+
+    expect(abilities).toContainEqual(expect.objectContaining({
+      id: 'graveyard-cast',
+      sourceName: 'Kess, Dissident Mage',
+      permissionId: 'perm-kess-cast',
+      costMode: 'normal',
+    }));
+  });
+
+  it('suppresses generic graveyard-cast hints when the card already has a printed cast keyword', () => {
+    const card: KnownCardRef = {
+      id: 'radical-idea-1',
+      name: 'Radical Idea',
+      type_line: 'Instant',
+      mana_cost: '{1}{U}',
+      oracle_text: 'Draw a card.\nJump-start',
+    };
+
+    const abilities = getGraveyardAbilitiesForCard(card, {
+      isPlayable: true,
+      abilityHints: [
+        {
+          id: 'graveyard-cast',
+          label: 'Cast',
+          description: 'Cast from graveyard for {1}{U}',
+          cost: '{1}{U}',
+          sourceName: 'Kess, Dissident Mage',
+          permissionId: 'perm-kess-cast',
+          costMode: 'normal',
+        },
+      ],
+    });
+
+    expect(abilities.some((entry) => entry.id === 'graveyard-cast')).toBe(false);
+    expect(abilities).toContainEqual(expect.objectContaining({
+      id: 'jump-start',
+      label: 'Jump-start',
     }));
   });
 });

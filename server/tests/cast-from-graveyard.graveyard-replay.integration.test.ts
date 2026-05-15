@@ -5,7 +5,7 @@ import { registerGameActions } from '../src/socket/game-actions.js';
 import { registerInteractionHandlers } from '../src/socket/interaction.js';
 import { registerResolutionHandlers } from '../src/socket/resolution.js';
 import { games } from '../src/socket/socket.js';
-import { ensureGame } from '../src/socket/util.js';
+import { ensureGame, transformDbEventsForReplay } from '../src/socket/util.js';
 import { ResolutionQueueManager, ResolutionStepType } from '../src/state/resolution/index.js';
 
 async function resetGame(gameId: string) {
@@ -37,7 +37,7 @@ function createMockSocket(playerId: string, gameId: string, emitted: Array<{ roo
   return { socket, handlers };
 }
 
-async function seedGame(gameId: string, cardId: string, oracleText: string, options?: { manaCost?: string; manaPool?: any; life?: number; hand?: any[]; extraGraveyard?: any[] }) {
+async function seedGame(gameId: string, cardId: string, oracleText: string, options?: { manaCost?: string; manaPool?: any; life?: number; hand?: any[]; extraGraveyard?: any[]; name?: string; typeLine?: string }) {
   await resetGame(gameId);
   createGameIfNotExists(gameId, 'commander', 40);
   const game = ensureGame(gameId);
@@ -55,8 +55,8 @@ async function seedGame(gameId: string, cardId: string, oracleText: string, opti
       graveyard: [
         {
           id: cardId,
-          name: 'Grave Spell',
-          type_line: 'Sorcery',
+          name: options?.name || 'Grave Spell',
+          type_line: options?.typeLine || 'Sorcery',
           mana_cost: options?.manaCost,
           oracle_text: oracleText,
           zone: 'graveyard',
@@ -72,6 +72,141 @@ async function seedGame(gameId: string, cardId: string, oracleText: string, opti
   (game.state as any).manaPool = {
     [playerId]: options?.manaPool || { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
   };
+
+  return { game, playerId };
+}
+
+async function castWithTorrentialGearhulk(testGameId: string, spellId: string, drawCardId: string) {
+  const { game, playerId } = await seedGame(
+    testGameId,
+    spellId,
+    'Draw a card.',
+    {
+      manaCost: '{U}',
+      name: 'Think Twice',
+      typeLine: 'Instant',
+      extraGraveyard: [
+        {
+          id: `${spellId}_noninstant_1`,
+          name: 'Divination',
+          type_line: 'Sorcery',
+          mana_cost: '{2}{U}',
+          oracle_text: 'Draw two cards.',
+        },
+      ],
+    },
+  );
+
+  (game.state as any).phase = 'main';
+  (game.state as any).step = 'MAIN1';
+  (game.state as any).turnPlayer = playerId;
+  (game.state as any).activePlayer = playerId;
+  (game.state as any).priority = playerId;
+
+  const drawCard = {
+    id: drawCardId,
+    name: 'Island',
+    type_line: 'Basic Land - Island',
+    oracle_text: '',
+    zone: 'library',
+  };
+  (game.state as any).zones[playerId].library = [drawCard];
+  (game.state as any).zones[playerId].libraryCount = 1;
+  (game as any).libraries.set(playerId, [drawCard]);
+
+  (game.state as any).stack = [
+    {
+      id: `stack_${testGameId}_gearhulk`,
+      type: 'spell',
+      controller: playerId,
+      card: {
+        id: `torrential_gearhulk_${testGameId}`,
+        name: 'Torrential Gearhulk',
+        mana_cost: '{4}{U}{U}',
+        type_line: 'Artifact Creature - Construct',
+        oracle_text: 'Flash\nWhen this creature enters, you may cast target instant card from your graveyard without paying its mana cost. If that spell would be put into your graveyard, exile it instead.',
+        zone: 'stack',
+        power: '5',
+        toughness: '6',
+      },
+    },
+  ];
+
+  const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+  const io = createMockIo(emitted);
+  const { socket, handlers } = createMockSocket(playerId, testGameId, emitted);
+
+  registerInteractionHandlers(io as any, socket as any);
+  registerResolutionHandlers(io as any, socket as any);
+  registerGameActions(io as any, socket as any);
+
+  game.resolveTopOfStack();
+
+  const battlefield = (game.state as any).battlefield || [];
+  expect(battlefield.some((permanent: any) => String(permanent?.card?.name || '') === 'Torrential Gearhulk')).toBe(true);
+
+  const triggerStack = (game.state as any).stack || [];
+  expect(triggerStack).toHaveLength(1);
+  expect(triggerStack[0]).toMatchObject({
+    type: 'triggered_ability',
+    sourceName: 'Torrential Gearhulk',
+    targetZone: 'graveyard',
+    targetAction: 'cast',
+    targetCastWithoutPayingManaCost: true,
+    targetCastIsOptional: true,
+  });
+
+  game.resolveTopOfStack();
+
+  let targetStep = ResolutionQueueManager.getQueue(testGameId).steps[0] as any;
+  if (targetStep?.type === ResolutionStepType.OPTION_CHOICE) {
+    await handlers['submitResolutionResponse']({
+      gameId: testGameId,
+      stepId: String(targetStep.id),
+      selections: 'yes',
+    });
+    targetStep = ResolutionQueueManager.getQueue(testGameId).steps[0] as any;
+  }
+
+  expect(targetStep?.type).toBe(ResolutionStepType.GRAVEYARD_SELECTION);
+  expect(targetStep?.destination).toBe('cast');
+  expect((targetStep?.validTargets || []).map((target: any) => String(target.id))).toEqual([spellId]);
+
+  await handlers['submitResolutionResponse']({
+    gameId: testGameId,
+    stepId: String(targetStep.id),
+    selections: [spellId],
+  });
+
+  const castChoiceStep = ResolutionQueueManager.getQueue(testGameId).steps[0] as any;
+  expect(castChoiceStep?.type).toBe(ResolutionStepType.OPTION_CHOICE);
+  expect(String(castChoiceStep?.castFromGraveyardCardId || '')).toBe(spellId);
+  expect(castChoiceStep?.castFromGraveyardWithoutPayingManaCost).toBe(true);
+
+  await handlers['submitResolutionResponse']({
+    gameId: testGameId,
+    stepId: String(castChoiceStep.id),
+    selections: 'cast',
+  });
+
+  const paymentStep = ResolutionQueueManager
+    .getQueue(testGameId)
+    .steps
+    .find((entry: any) => entry.type === ResolutionStepType.MANA_PAYMENT_CHOICE && (entry as any).spellPaymentRequired === true) as any;
+  if (paymentStep) {
+    expect(String(paymentStep?.manaCost || '{0}')).toContain('0');
+
+    await handlers['submitResolutionResponse']({
+      gameId: testGameId,
+      stepId: String(paymentStep.id),
+      selections: { payment: [] },
+    });
+  }
+
+  const spellStackItem = (((game.state as any).stack || []) as any[]).find((entry: any) => String(entry?.card?.id || '') === spellId);
+  expect(spellStackItem).toBeDefined();
+  expect(spellStackItem?.castFromGraveyard).toBe(true);
+  expect(spellStackItem?.castWithoutPayingManaCost).toBe(true);
 
   return { game, playerId };
 }
@@ -98,8 +233,13 @@ describe('cast-from-graveyard replay semantics (integration)', () => {
     `${gameId}_escape_prompt_replay`,
     `${gameId}_escape_replay`,
     `${gameId}_uro_replay`,
+    `${gameId}_uro_value_live`,
     `${gameId}_woe_strider_replay`,
+    `${gameId}_torrential_live`,
+    `${gameId}_torrential_replay`,
     `${gameId}_granted_flashback_live`,
+    `${gameId}_granted_escape_live`,
+    `${gameId}_granted_escape_replay`,
     `${gameId}_granted_retrace_live`,
     `${gameId}_dread_return_live`,
     `${gameId}_dread_return_prompt_replay`,
@@ -113,6 +253,8 @@ describe('cast-from-graveyard replay semantics (integration)', () => {
     `${gameId}_cackling_replay`,
     `${gameId}_think_twice_live`,
     `${gameId}_think_twice_replay`,
+    `${gameId}_bulk_up_live`,
+    `${gameId}_bulk_up_replay`,
     `${gameId}_strike_it_rich_live`,
     `${gameId}_strike_it_rich_replay`,
     `${gameId}_deep_analysis_live`,
@@ -317,6 +459,133 @@ describe('cast-from-graveyard replay semantics (integration)', () => {
     const activateEvent = [...getEvents(retraceGameId)].reverse().find((event) => event.type === 'activateGraveyardAbility') as any;
     expect(activateEvent?.payload?.manaCost).toBe('{1}{G}');
     expect(activateEvent?.payload?.discardedCardIds).toEqual(['retrace_land_1']);
+  });
+
+  it('live granted escape activation uses Underworld Breach for nonland graveyard cards', async () => {
+    const grantedEscapeGameId = `${gameId}_granted_escape_live`;
+    const { game, playerId } = await seedGame(grantedEscapeGameId, 'granted_escape_spell_1', 'Draw two cards.', {
+      manaCost: '{1}{R}',
+      manaPool: { white: 0, blue: 0, black: 0, red: 1, green: 0, colorless: 1 },
+      extraGraveyard: [
+        { id: 'granted_escape_cost_1', name: 'Cost One', type_line: 'Instant', oracle_text: '' },
+        { id: 'granted_escape_cost_2', name: 'Cost Two', type_line: 'Sorcery', oracle_text: '' },
+        { id: 'granted_escape_cost_3', name: 'Cost Three', type_line: 'Creature - Human', oracle_text: '' },
+      ],
+    });
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).activePlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).step = 'MAIN1';
+    (game.state as any).battlefield = [
+      {
+        id: 'underworld_breach_1',
+        controller: playerId,
+        card: {
+          name: 'Underworld Breach',
+          type_line: 'Enchantment',
+          oracle_text: 'Each nonland card in your graveyard has escape. The escape cost is equal to the card\'s mana cost plus exile three other cards from your graveyard. At the beginning of the end step, sacrifice Underworld Breach.',
+        },
+      },
+    ];
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const io = createMockIo(emitted);
+    const { socket, handlers } = createMockSocket(playerId, grantedEscapeGameId, emitted);
+
+    registerInteractionHandlers(io as any, socket as any);
+    registerResolutionHandlers(io as any, socket as any);
+
+    await handlers['activateGraveyardAbility']({
+      gameId: grantedEscapeGameId,
+      cardId: 'granted_escape_spell_1',
+      abilityId: 'escape',
+    });
+
+    const exileStep = ResolutionQueueManager.getStepsForPlayer(grantedEscapeGameId, playerId)
+      .find((step) => step.type === ResolutionStepType.GRAVEYARD_SELECTION) as any;
+    expect(exileStep).toBeDefined();
+    expect((exileStep.validTargets || []).map((card: any) => card.id).sort()).toEqual([
+      'granted_escape_cost_1',
+      'granted_escape_cost_2',
+      'granted_escape_cost_3',
+    ]);
+
+    await handlers['submitResolutionResponse']({
+      gameId: grantedEscapeGameId,
+      stepId: String(exileStep.id),
+      selections: ['granted_escape_cost_1', 'granted_escape_cost_2', 'granted_escape_cost_3'],
+    });
+
+    const zones = (game.state as any).zones?.[playerId];
+    expect((zones?.graveyard || []).map((card: any) => card.id)).toEqual([]);
+    expect((zones?.exile || []).map((card: any) => card.id).sort()).toEqual([
+      'granted_escape_cost_1',
+      'granted_escape_cost_2',
+      'granted_escape_cost_3',
+    ]);
+    const stack = (game.state as any).stack || [];
+    expect(stack).toHaveLength(1);
+    expect(stack[0]?.card?.id).toBe('granted_escape_spell_1');
+    expect(stack[0]?.card?.castWithAbility).toBe('escape');
+    expect((game.state as any).manaPool?.[playerId]).toEqual({ white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 });
+
+    const activateEvent = [...getEvents(grantedEscapeGameId)].reverse().find(
+      (event) => event.type === 'activateGraveyardAbility' && Array.isArray((event as any)?.payload?.exiledCardIdsFromGraveyardForCost)
+    ) as any;
+    expect(activateEvent?.payload?.manaCost).toBe('{1}{R}');
+    expect(activateEvent?.payload?.exiledCardIdsFromGraveyardForCost).toEqual([
+      'granted_escape_cost_1',
+      'granted_escape_cost_2',
+      'granted_escape_cost_3',
+    ]);
+  });
+
+  it('replays granted escape activation from Underworld Breach using persisted cost evidence', async () => {
+    const replayGameId = `${gameId}_granted_escape_replay`;
+    const { game, playerId } = await seedGame(replayGameId, 'granted_escape_replay_spell_1', 'Draw two cards.', {
+      manaCost: '{1}{R}',
+      extraGraveyard: [
+        { id: 'granted_escape_replay_cost_1', name: 'Cost One', type_line: 'Instant', oracle_text: '' },
+        { id: 'granted_escape_replay_cost_2', name: 'Cost Two', type_line: 'Sorcery', oracle_text: '' },
+        { id: 'granted_escape_replay_cost_3', name: 'Cost Three', type_line: 'Creature - Human', oracle_text: '' },
+      ],
+    });
+    (game.state as any).battlefield = [
+      {
+        id: 'underworld_breach_replay_1',
+        controller: playerId,
+        card: {
+          name: 'Underworld Breach',
+          type_line: 'Enchantment',
+          oracle_text: 'Each nonland card in your graveyard has escape. The escape cost is equal to the card\'s mana cost plus exile three other cards from your graveyard. At the beginning of the end step, sacrifice Underworld Breach.',
+        },
+      },
+    ];
+
+    game.applyEvent({
+      type: 'activateGraveyardAbility',
+      playerId,
+      cardId: 'granted_escape_replay_spell_1',
+      abilityId: 'escape',
+      manaCost: '{1}{R}',
+      exiledCardIdsFromGraveyardForCost: [
+        'granted_escape_replay_cost_1',
+        'granted_escape_replay_cost_2',
+        'granted_escape_replay_cost_3',
+      ],
+    } as any);
+
+    const zones = (game.state as any).zones?.[playerId];
+    expect((zones?.graveyard || []).map((card: any) => card.id)).toEqual([]);
+    expect((zones?.exile || []).map((card: any) => card.id).sort()).toEqual([
+      'granted_escape_replay_cost_1',
+      'granted_escape_replay_cost_2',
+      'granted_escape_replay_cost_3',
+    ]);
+    const stack = (game.state as any).stack || [];
+    expect(stack).toHaveLength(1);
+    expect(stack[0]?.card?.id).toBe('granted_escape_replay_spell_1');
+    expect(stack[0]?.card?.castWithAbility).toBe('escape');
   });
 
   it('jump-start with a madness discard exiles the discarded card, persists split cost evidence, and replays the queued cast prompt', async () => {
@@ -705,7 +974,7 @@ describe('cast-from-graveyard replay semantics (integration)', () => {
     expect(goatToken).toBeDefined();
   });
 
-  it('live escaped Uro preserves the escape marker on the battlefield permanent', async () => {
+  it('live escaped Uro preserves the escape marker and queues its ETB value trigger', async () => {
     const uroGameId = `${gameId}_uro_live`;
     const { game, playerId } = await seedGame(
       uroGameId,
@@ -760,6 +1029,102 @@ describe('cast-from-graveyard replay semantics (integration)', () => {
     const uro = battlefield.find((permanent: any) => permanent?.card?.name === "Uro, Titan of Nature's Wrath");
     expect(uro).toBeDefined();
     expect(uro?.escapedFrom).toBe('graveyard');
+
+    const stack = (game.state as any).stack || [];
+    expect(stack).toHaveLength(1);
+    expect(String(stack[0]?.description || stack[0]?.effect || '')).toMatch(/gain 3 life and draw a card/i);
+  });
+
+  it('live escaped Uro resolves its value trigger and offers the land drop after drawing', async () => {
+    const uroValueGameId = `${gameId}_uro_value_live`;
+    const { game, playerId } = await seedGame(
+      uroValueGameId,
+      'uro_value_1',
+      "When Uro enters, sacrifice it unless it escaped.\nWhenever Uro enters or attacks, you gain 3 life and draw a card, then you may put a land card from your hand onto the battlefield.\nEscape—{G}{G}{U}{U}, Exile five other cards from your graveyard. (You may cast this card from your graveyard for its escape cost.)",
+      {
+        manaCost: '{1}{G}{U}',
+        manaPool: { white: 0, blue: 2, black: 0, red: 0, green: 2, colorless: 0 },
+        extraGraveyard: [
+          { id: 'uro_value_cost_1', name: 'Cost One', type_line: 'Instant', oracle_text: '' },
+          { id: 'uro_value_cost_2', name: 'Cost Two', type_line: 'Sorcery', oracle_text: '' },
+          { id: 'uro_value_cost_3', name: 'Cost Three', type_line: 'Creature - Human', oracle_text: '' },
+          { id: 'uro_value_cost_4', name: 'Cost Four', type_line: 'Enchantment', oracle_text: '' },
+          { id: 'uro_value_cost_5', name: 'Cost Five', type_line: 'Artifact', oracle_text: '' },
+        ],
+      },
+    );
+    Object.assign((game.state as any).zones?.[playerId]?.graveyard?.[0] || {}, {
+      name: "Uro, Titan of Nature's Wrath",
+      type_line: 'Legendary Creature — Elder Giant',
+      power: '6',
+      toughness: '6',
+    });
+    (game.state as any).zones[playerId].library = [
+      {
+        id: 'uro_value_drawn_forest',
+        name: 'Forest',
+        type_line: 'Basic Land — Forest',
+        oracle_text: '',
+        zone: 'library',
+      },
+    ];
+    (game.state as any).zones[playerId].libraryCount = 1;
+    game.libraries.set(playerId as any, [
+      {
+        id: 'uro_value_drawn_forest',
+        name: 'Forest',
+        type_line: 'Basic Land — Forest',
+        oracle_text: '',
+        zone: 'library',
+      },
+    ] as any);
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const io = createMockIo(emitted);
+    const { socket, handlers } = createMockSocket(playerId, uroValueGameId, emitted);
+
+    registerInteractionHandlers(io as any, socket as any);
+    registerResolutionHandlers(io as any, socket as any);
+
+    await handlers['activateGraveyardAbility']({
+      gameId: uroValueGameId,
+      cardId: 'uro_value_1',
+      abilityId: 'escape',
+    });
+
+    const exileCostStep = ResolutionQueueManager
+      .getStepsForPlayer(uroValueGameId, playerId)
+      .find((step) => step.type === ResolutionStepType.GRAVEYARD_SELECTION) as any;
+    expect(exileCostStep).toBeDefined();
+
+    await handlers['submitResolutionResponse']({
+      gameId: uroValueGameId,
+      stepId: String(exileCostStep.id),
+      selections: ['uro_value_cost_1', 'uro_value_cost_2', 'uro_value_cost_3', 'uro_value_cost_4', 'uro_value_cost_5'],
+    });
+
+    game.resolveTopOfStack();
+    game.resolveTopOfStack();
+
+    expect((game.state as any).life?.[playerId]).toBe(43);
+    expect(((game.state as any).zones?.[playerId]?.hand || []).map((card: any) => card?.id)).toEqual(['uro_value_drawn_forest']);
+
+    const landStep = ResolutionQueueManager
+      .getStepsForPlayer(uroValueGameId, playerId)
+      .find((step) => step.type === ResolutionStepType.KYNAIOS_CHOICE) as any;
+    expect(landStep).toBeDefined();
+    expect(String(landStep?.description || '')).toMatch(/put a land card from your hand onto the battlefield/i);
+    expect((landStep?.landPlayOrFallbackLandsInHand || []).map((card: any) => card.id)).toEqual(['uro_value_drawn_forest']);
+
+    await handlers['submitResolutionResponse']({
+      gameId: uroValueGameId,
+      stepId: String(landStep.id),
+      selections: { choice: 'play_land', landCardId: 'uro_value_drawn_forest' },
+    });
+
+    const battlefield = (game.state as any).battlefield || [];
+    expect(battlefield.some((permanent: any) => permanent?.card?.name === 'Forest')).toBe(true);
+    expect(((game.state as any).zones?.[playerId]?.hand || []).map((card: any) => card?.id)).toEqual([]);
   });
 
   it('live flashback activation queues the sacrifice cost and casts Dread Return after payment', async () => {
@@ -1103,6 +1468,297 @@ describe('cast-from-graveyard replay semantics (integration)', () => {
     expect(temporaryGrants.some((grant: any) => String(grant?.cardId || '') === 'past_in_flames_replay_bear_1')).toBe(false);
   });
 
+  it('live printed self graveyard-cast activation casts Squee for its mana cost without exile replacement', async () => {
+    const squeeGameId = `${gameId}_squee_live`;
+    const { game, playerId } = await seedGame(
+      squeeGameId,
+      'squee_1',
+      'You may cast this card from your graveyard or from exile.',
+      {
+        name: 'Squee, the Immortal',
+        typeLine: 'Legendary Creature - Goblin',
+        manaCost: '{1}{R}{R}',
+        manaPool: { white: 0, blue: 0, black: 0, red: 2, green: 0, colorless: 1 },
+      },
+    );
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const io = createMockIo(emitted);
+    const { socket, handlers } = createMockSocket(playerId, squeeGameId, emitted);
+
+    registerInteractionHandlers(io as any, socket as any);
+
+    await handlers['activateGraveyardAbility']({
+      gameId: squeeGameId,
+      cardId: 'squee_1',
+      abilityId: 'graveyard-cast',
+    });
+
+    const liveZones = (game.state as any).zones?.[playerId];
+    expect((liveZones?.graveyard || []).map((card: any) => card.id)).not.toContain('squee_1');
+    expect((game.state as any).stack || []).toHaveLength(1);
+    expect((game.state as any).stack[0]?.card?.castWithAbility).toBe('graveyard-cast');
+
+    const activateEvent = [...getEvents(squeeGameId)].reverse().find((event) =>
+      event.type === 'activateGraveyardAbility' && String((event as any)?.payload?.cardId || '') === 'squee_1'
+    ) as any;
+    expect(activateEvent?.payload?.abilityId).toBe('graveyard-cast');
+    expect(activateEvent?.payload?.manaCost).toBe('{1}{R}{R}');
+
+    game.resolveTopOfStack();
+
+    expect(((game.state as any).battlefield || []).some((permanent: any) => String(permanent?.card?.name || '') === 'Squee, the Immortal')).toBe(true);
+    expect((liveZones?.exile || []).map((card: any) => card.id)).not.toContain('squee_1');
+  });
+
+  it('replays printed self graveyard-cast activations for Squee', async () => {
+    const replayGameId = `${gameId}_squee_replay`;
+    const { game, playerId } = await seedGame(
+      replayGameId,
+      'squee_1',
+      'You may cast this card from your graveyard or from exile.',
+      {
+        name: 'Squee, the Immortal',
+        typeLine: 'Legendary Creature - Goblin',
+        manaCost: '{1}{R}{R}',
+        manaPool: { white: 0, blue: 0, black: 0, red: 2, green: 0, colorless: 1 },
+      },
+    );
+
+    game.applyEvent({
+      type: 'activateGraveyardAbility',
+      playerId,
+      cardId: 'squee_1',
+      abilityId: 'graveyard-cast',
+      stackId: 'stack_squee_replay_1',
+      manaCost: '{1}{R}{R}',
+    } as any);
+
+    const replayZones = (game.state as any).zones?.[playerId];
+    expect((replayZones?.graveyard || []).map((card: any) => card.id)).not.toContain('squee_1');
+    expect((game.state as any).stack || []).toHaveLength(1);
+    expect((game.state as any).stack[0]?.card?.castWithAbility).toBe('graveyard-cast');
+
+    game.resolveTopOfStack();
+
+    expect(((game.state as any).battlefield || []).some((permanent: any) => String(permanent?.card?.name || '') === 'Squee, the Immortal')).toBe(true);
+    expect((replayZones?.exile || []).map((card: any) => card.id)).not.toContain('squee_1');
+  });
+
+  it('replays printed self graveyard-cast permission metadata onto the stack item', async () => {
+    const replayGameId = `${gameId}_squee_permission_metadata_replay`;
+    const { game, playerId } = await seedGame(
+      replayGameId,
+      'squee_permission_1',
+      'You may cast this card from your graveyard or from exile.',
+      {
+        name: 'Squee, the Immortal',
+        typeLine: 'Legendary Creature - Goblin',
+        manaCost: '{1}{R}{R}',
+        manaPool: { white: 0, blue: 0, black: 0, red: 2, green: 0, colorless: 1 },
+      },
+    );
+
+    game.applyEvent({
+      type: 'activateGraveyardAbility',
+      playerId,
+      cardId: 'squee_permission_1',
+      abilityId: 'graveyard-cast',
+      stackId: 'stack_squee_permission_metadata_1',
+      manaCost: '{1}{R}{R}',
+      fromZone: 'graveyard',
+      graveyardPermissionId: 'perm-squee-self',
+      graveyardPermissionSourceName: 'Squee, the Immortal',
+      graveyardPermissionCostMode: 'normal',
+    } as any);
+
+    const stackItem = (((game.state as any).stack || []) as any[])[0];
+    expect(stackItem?.fromZone).toBe('graveyard');
+    expect(stackItem?.graveyardPermissionId).toBe('perm-squee-self');
+    expect(stackItem?.graveyardPermissionSourceName).toBe('Squee, the Immortal');
+    expect(stackItem?.graveyardPermissionCostMode).toBe('normal');
+    expect(stackItem?.card?.graveyardPermissionId).toBe('perm-squee-self');
+    expect(stackItem?.card?.graveyardPermissionSourceName).toBe('Squee, the Immortal');
+    expect(stackItem?.card?.graveyardPermissionCostMode).toBe('normal');
+  });
+
+  it('replays castSpell graveyard permission metadata and exile replacement from persisted events', async () => {
+    const replayGameId = `${gameId}_cast_spell_permission_metadata_replay`;
+    const { game, playerId } = await seedGame(
+      replayGameId,
+      'kess_consider_1',
+      'Draw a card.',
+      {
+        name: 'Consider',
+        typeLine: 'Instant',
+        manaCost: '{U}',
+      },
+    );
+
+    game.applyEvent({
+      type: 'castSpell',
+      playerId,
+      cardId: 'kess_consider_1',
+      stackItemId: 'stack_kess_permission_1',
+      card: {
+        id: 'kess_consider_1',
+        name: 'Consider',
+        type_line: 'Instant',
+        mana_cost: '{U}',
+        oracle_text: 'Draw a card.',
+        zone: 'stack',
+      },
+      fromZone: 'graveyard',
+      alternateCostId: 'free',
+      castWithoutPayingManaCost: true,
+      graveyardPermissionId: 'perm-kess-free',
+      graveyardPermissionSourceName: 'Kess, Dissident Mage',
+      graveyardPermissionCostMode: 'without_paying_mana_cost',
+      exileAfterResolution: true,
+    } as any);
+
+    const replayZones = (game.state as any).zones?.[playerId];
+    const stackItem = (((game.state as any).stack || []) as any[])[0];
+    expect((replayZones?.graveyard || []).map((card: any) => card.id)).not.toContain('kess_consider_1');
+    expect(stackItem?.fromZone).toBe('graveyard');
+    expect(stackItem?.alternateCostId).toBe('free');
+    expect(stackItem?.castWithoutPayingManaCost).toBe(true);
+    expect(stackItem?.graveyardPermissionId).toBe('perm-kess-free');
+    expect(stackItem?.graveyardPermissionSourceName).toBe('Kess, Dissident Mage');
+    expect(stackItem?.graveyardPermissionCostMode).toBe('without_paying_mana_cost');
+    expect(stackItem?.exileAfterResolution).toBe(true);
+    expect(stackItem?.card?.graveyardPermissionId).toBe('perm-kess-free');
+    expect(stackItem?.card?.graveyardPermissionSourceName).toBe('Kess, Dissident Mage');
+    expect(stackItem?.card?.graveyardPermissionCostMode).toBe('without_paying_mana_cost');
+    expect(stackItem?.card?.exileAfterResolution).toBe(true);
+  });
+
+  it('live printed self graveyard-cast activation casts Gravecrawler only while you control a Zombie', async () => {
+    const gravecrawlerGameId = `${gameId}_gravecrawler_live`;
+    const { game, playerId } = await seedGame(
+      gravecrawlerGameId,
+      'gravecrawler_1',
+      "This creature can't block.\nYou may cast this card from your graveyard as long as you control a Zombie.",
+      {
+        name: 'Gravecrawler',
+        typeLine: 'Creature - Zombie',
+        manaCost: '{B}',
+        manaPool: { white: 0, blue: 0, black: 1, red: 0, green: 0, colorless: 0 },
+      },
+    );
+    (game.state as any).battlefield = [
+      {
+        id: 'support_zombie_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        card: {
+          id: 'support_zombie_card_1',
+          name: 'Diregraf Ghoul',
+          type_line: 'Creature - Zombie',
+          oracle_text: '',
+        },
+      },
+    ];
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const io = createMockIo(emitted);
+    const { socket, handlers } = createMockSocket(playerId, gravecrawlerGameId, emitted);
+
+    registerInteractionHandlers(io as any, socket as any);
+
+    await handlers['activateGraveyardAbility']({
+      gameId: gravecrawlerGameId,
+      cardId: 'gravecrawler_1',
+      abilityId: 'graveyard-cast',
+    });
+
+    const zones = (game.state as any).zones?.[playerId];
+    expect((zones?.graveyard || []).map((card: any) => card.id)).not.toContain('gravecrawler_1');
+    expect((game.state as any).stack || []).toHaveLength(1);
+    expect((game.state as any).stack[0]?.card?.castWithAbility).toBe('graveyard-cast');
+
+    game.resolveTopOfStack();
+
+    expect(((game.state as any).battlefield || []).some((permanent: any) => String(permanent?.card?.name || '') === 'Gravecrawler')).toBe(true);
+    expect((zones?.exile || []).map((card: any) => card.id)).not.toContain('gravecrawler_1');
+  });
+
+  it('live printed self graveyard-cast activation casts The Indomitable when you control three tapped Pirates and/or Vehicles', async () => {
+    const indomitableGameId = `${gameId}_indomitable_live`;
+    const { game, playerId } = await seedGame(
+      indomitableGameId,
+      'indomitable_1',
+      'Trample\nWhenever a creature you control deals combat damage to a player, draw a card.\nCrew 3\nYou may cast this card from your graveyard as long as you control three or more tapped Pirates and/or Vehicles.',
+      {
+        name: 'The Indomitable',
+        typeLine: 'Legendary Artifact - Vehicle',
+        manaCost: '{2}{U}{U}',
+        manaPool: { white: 0, blue: 2, black: 0, red: 0, green: 0, colorless: 2 },
+      },
+    );
+    (game.state as any).battlefield = [
+      {
+        id: 'support_pirate_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: true,
+        card: {
+          id: 'support_pirate_card_1',
+          name: 'Captain Lannery Storm',
+          type_line: 'Legendary Creature - Human Pirate',
+          oracle_text: '',
+        },
+      },
+      {
+        id: 'support_vehicle_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: true,
+        card: {
+          id: 'support_vehicle_card_1',
+          name: 'Smuggler\'s Copter',
+          type_line: 'Artifact - Vehicle',
+          oracle_text: '',
+        },
+      },
+      {
+        id: 'support_pirate_2',
+        controller: playerId,
+        owner: playerId,
+        tapped: true,
+        card: {
+          id: 'support_pirate_card_2',
+          name: 'Sailor of Means',
+          type_line: 'Creature - Human Pirate',
+          oracle_text: '',
+        },
+      },
+    ];
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const io = createMockIo(emitted);
+    const { socket, handlers } = createMockSocket(playerId, indomitableGameId, emitted);
+
+    registerInteractionHandlers(io as any, socket as any);
+
+    await handlers['activateGraveyardAbility']({
+      gameId: indomitableGameId,
+      cardId: 'indomitable_1',
+      abilityId: 'graveyard-cast',
+    });
+
+    const zones = (game.state as any).zones?.[playerId];
+    expect((zones?.graveyard || []).map((card: any) => card.id)).not.toContain('indomitable_1');
+    expect((game.state as any).stack || []).toHaveLength(1);
+    expect((game.state as any).stack[0]?.card?.castWithAbility).toBe('graveyard-cast');
+
+    game.resolveTopOfStack();
+
+    expect(((game.state as any).battlefield || []).some((permanent: any) => String(permanent?.card?.name || '') === 'The Indomitable')).toBe(true);
+    expect((zones?.exile || []).map((card: any) => card.id)).not.toContain('indomitable_1');
+  });
+
   it('live flashback Momentary Blink flickers the targeted creature you control', async () => {
     const blinkGameId = `${gameId}_momentary_blink_live`;
     const { game, playerId } = await seedGame(
@@ -1431,6 +2087,128 @@ describe('cast-from-graveyard replay semantics (integration)', () => {
     expect((zones?.hand || []).map((card: any) => card.id)).toEqual(['think_twice_replay_draw_1']);
     expect((zones?.exile || []).map((card: any) => card.id)).toContain('think_twice_replay_1');
     expect((((game as any).libraries.get(playerId) || []) as any[]).map((card: any) => card.id)).toEqual([]);
+  });
+
+  it('live flashback Bulk Up doubles the target creature\'s power and exiles itself on resolution', async () => {
+    const bulkUpGameId = `${gameId}_bulk_up_live`;
+    const { game, playerId } = await seedGame(
+      bulkUpGameId,
+      'bulk_up_1',
+      "Double target creature's power until end of turn.\nFlashback {4}{R}{R} (You may cast this card from your graveyard for its flashback cost. Then exile it.)",
+      {
+        manaPool: { white: 0, blue: 0, black: 0, red: 2, green: 0, colorless: 4 },
+        name: 'Bulk Up',
+        typeLine: 'Instant',
+      },
+    );
+    (game.state as any).battlefield = [
+      {
+        id: 'bulk_up_target_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        counters: {},
+        temporaryPTMods: [],
+        temporaryAbilities: [],
+        card: {
+          id: 'bulk_up_target_card_1',
+          name: 'Runeclaw Bear',
+          type_line: 'Creature - Bear',
+          oracle_text: '',
+          power: '3',
+          toughness: '3',
+        },
+      },
+    ];
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const io = createMockIo(emitted);
+    const { socket, handlers } = createMockSocket(playerId, bulkUpGameId, emitted);
+
+    registerInteractionHandlers(io as any, socket as any);
+    registerResolutionHandlers(io as any, socket as any);
+
+    await handlers['activateGraveyardAbility']({
+      gameId: bulkUpGameId,
+      cardId: 'bulk_up_1',
+      abilityId: 'flashback',
+      targets: ['bulk_up_target_1'],
+    });
+
+    game.resolveTopOfStack();
+
+    const creature = ((game.state as any).battlefield || []).find((entry: any) => entry.id === 'bulk_up_target_1');
+    const temporaryPTMods = Array.isArray(creature?.temporaryPTMods) ? creature.temporaryPTMods : [];
+    const zones = (game.state as any).zones?.[playerId];
+
+    expect(temporaryPTMods).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          power: 3,
+          toughness: 0,
+        }),
+      ]),
+    );
+    expect((zones?.exile || []).map((card: any) => card.id)).toContain('bulk_up_1');
+  });
+
+  it('replay resolveTopOfStack restores Bulk Up\'s doubled-power modifier and exile result', async () => {
+    const replayGameId = `${gameId}_bulk_up_replay`;
+    const { game, playerId } = await seedGame(
+      replayGameId,
+      'bulk_up_replay_1',
+      "Double target creature's power until end of turn.\nFlashback {4}{R}{R} (You may cast this card from your graveyard for its flashback cost. Then exile it.)",
+      {
+        manaPool: { white: 0, blue: 0, black: 0, red: 2, green: 0, colorless: 4 },
+        name: 'Bulk Up',
+        typeLine: 'Instant',
+      },
+    );
+    (game.state as any).battlefield = [
+      {
+        id: 'bulk_up_replay_target_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        counters: {},
+        temporaryPTMods: [],
+        temporaryAbilities: [],
+        card: {
+          id: 'bulk_up_replay_target_card_1',
+          name: 'Runeclaw Bear',
+          type_line: 'Creature - Bear',
+          oracle_text: '',
+          power: '3',
+          toughness: '3',
+        },
+      },
+    ];
+
+    game.applyEvent({
+      type: 'activateGraveyardAbility',
+      playerId,
+      cardId: 'bulk_up_replay_1',
+      abilityId: 'flashback',
+      stackId: 'stack_bulk_up_replay_1',
+      manaCost: '{4}{R}{R}',
+      targets: ['bulk_up_replay_target_1'],
+    } as any);
+
+    game.applyEvent({ type: 'resolveTopOfStack' } as any);
+
+    const creature = ((game.state as any).battlefield || []).find((entry: any) => entry.id === 'bulk_up_replay_target_1');
+    const temporaryPTMods = Array.isArray(creature?.temporaryPTMods) ? creature.temporaryPTMods : [];
+    const zones = (game.state as any).zones?.[playerId];
+
+    expect(temporaryPTMods).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          power: 3,
+          toughness: 0,
+        }),
+      ]),
+    );
+    expect((zones?.exile || []).map((card: any) => card.id)).toContain('bulk_up_replay_1');
   });
 
   it('live flashback Strike It Rich creates a Treasure token and exiles itself on resolution', async () => {
@@ -2776,7 +3554,7 @@ describe('cast-from-graveyard replay semantics (integration)', () => {
     expect(woeStrider?.counters?.['+1/+1']).toBe(2);
   });
 
-  it('replays escaped Uro with the escape marker preserved on the battlefield permanent', async () => {
+  it('replays escaped Uro with the escape marker preserved and its ETB value trigger queued', async () => {
     const replayGameId = `${gameId}_uro_replay`;
     const { game, playerId } = await seedGame(
       replayGameId,
@@ -2816,6 +3594,165 @@ describe('cast-from-graveyard replay semantics (integration)', () => {
     const uro = battlefield.find((permanent: any) => permanent?.card?.name === "Uro, Titan of Nature's Wrath");
     expect(uro).toBeDefined();
     expect(uro?.escapedFrom).toBe('graveyard');
+
+    const stack = (game.state as any).stack || [];
+    expect(stack).toHaveLength(1);
+    expect(String(stack[0]?.description || stack[0]?.effect || '')).toMatch(/gain 3 life and draw a card/i);
+  });
+
+  it('live Torrential Gearhulk casts a targeted instant from graveyard for free and exiles it on resolution', async () => {
+    const torrentialGameId = `${gameId}_torrential_live`;
+    const { game, playerId } = await castWithTorrentialGearhulk(
+      torrentialGameId,
+      'torrential_instant_1',
+      'torrential_draw_1',
+    );
+
+    game.resolveTopOfStack();
+
+    const zones = (game.state as any).zones?.[playerId];
+    expect((zones?.hand || []).map((card: any) => card.id)).toEqual(['torrential_draw_1']);
+    expect((zones?.exile || []).map((card: any) => card.id)).toContain('torrential_instant_1');
+    expect((zones?.graveyard || []).map((card: any) => card.id)).not.toContain('torrential_instant_1');
+  });
+
+  it('declining an optional Torrential Gearhulk graveyard cast leaves the card in the graveyard', async () => {
+    const torrentialGameId = `${gameId}_torrential_decline`;
+    const { game, playerId } = await seedGame(
+      torrentialGameId,
+      'torrential_decline_instant_1',
+      'Draw a card.',
+      {
+        manaCost: '{U}',
+        name: 'Think Twice',
+        typeLine: 'Instant',
+        extraGraveyard: [
+          {
+            id: 'torrential_decline_noninstant_1',
+            name: 'Divination',
+            type_line: 'Sorcery',
+            mana_cost: '{2}{U}',
+            oracle_text: 'Draw two cards.',
+          },
+        ],
+      },
+    );
+
+    (game.state as any).phase = 'main';
+    (game.state as any).step = 'MAIN1';
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).activePlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).stack = [
+      {
+        id: `stack_${torrentialGameId}_gearhulk`,
+        type: 'spell',
+        controller: playerId,
+        card: {
+          id: `torrential_gearhulk_${torrentialGameId}`,
+          name: 'Torrential Gearhulk',
+          mana_cost: '{4}{U}{U}',
+          type_line: 'Artifact Creature - Construct',
+          oracle_text: 'Flash\nWhen this creature enters, you may cast target instant card from your graveyard without paying its mana cost. If that spell would be put into your graveyard, exile it instead.',
+          zone: 'stack',
+          power: '5',
+          toughness: '6',
+        },
+      },
+    ];
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const io = createMockIo(emitted);
+    const { socket, handlers } = createMockSocket(playerId, torrentialGameId, emitted);
+
+    registerInteractionHandlers(io as any, socket as any);
+    registerResolutionHandlers(io as any, socket as any);
+    registerGameActions(io as any, socket as any);
+
+    game.resolveTopOfStack();
+    game.resolveTopOfStack();
+
+    let targetStep = ResolutionQueueManager.getQueue(torrentialGameId).steps[0] as any;
+    if (targetStep?.type === ResolutionStepType.OPTION_CHOICE) {
+      await handlers['submitResolutionResponse']({
+        gameId: torrentialGameId,
+        stepId: String(targetStep.id),
+        selections: 'yes',
+      });
+      targetStep = ResolutionQueueManager.getQueue(torrentialGameId).steps[0] as any;
+    }
+
+    expect(targetStep?.type).toBe(ResolutionStepType.GRAVEYARD_SELECTION);
+
+    await handlers['submitResolutionResponse']({
+      gameId: torrentialGameId,
+      stepId: String(targetStep.id),
+      selections: ['torrential_decline_instant_1'],
+    });
+
+    const castChoiceStep = ResolutionQueueManager.getQueue(torrentialGameId).steps[0] as any;
+    expect(castChoiceStep?.type).toBe(ResolutionStepType.OPTION_CHOICE);
+
+    await handlers['submitResolutionResponse']({
+      gameId: torrentialGameId,
+      stepId: String(castChoiceStep.id),
+      selections: 'decline',
+    });
+
+    const zones = (game.state as any).zones?.[playerId];
+    expect((zones?.graveyard || []).map((card: any) => card.id)).toContain('torrential_decline_instant_1');
+    expect(((game.state as any).stack || []).some((entry: any) => String(entry?.card?.id || '') === 'torrential_decline_instant_1')).toBe(false);
+    expect(ResolutionQueueManager.getStepsForPlayer(torrentialGameId, playerId).some((step: any) => String((step as any)?.castFromGraveyardCardId || '') === 'torrential_decline_instant_1')).toBe(false);
+  });
+
+  it('replays Torrential Gearhulk free graveyard casts with exile replacement after resolution', async () => {
+    const replayGameId = `${gameId}_torrential_replay`;
+    const { game, playerId } = await castWithTorrentialGearhulk(
+      replayGameId,
+      'torrential_replay_instant_1',
+      'torrential_replay_draw_1',
+    );
+
+    game.resolveTopOfStack();
+
+    const persistedEvents = getEvents(replayGameId);
+    game.reset!(true);
+    (game.state as any).phase = 'main';
+    (game.state as any).step = 'MAIN1';
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).activePlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).zones[playerId].library = [
+      {
+        id: 'torrential_replay_draw_1',
+        name: 'Island',
+        type_line: 'Basic Land - Island',
+        oracle_text: '',
+        zone: 'library',
+      },
+    ];
+    (game.state as any).zones[playerId].libraryCount = 1;
+    (game as any).libraries.set(playerId, [
+      {
+        id: 'torrential_replay_draw_1',
+        name: 'Island',
+        type_line: 'Basic Land - Island',
+        oracle_text: '',
+        zone: 'library',
+      },
+    ]);
+    game.replay!(transformDbEventsForReplay(persistedEvents as any));
+
+    const replayedStackItem = (((game.state as any).stack || []) as any[]).find((entry: any) => String(entry?.card?.id || '') === 'torrential_replay_instant_1');
+    expect(replayedStackItem).toBeDefined();
+    expect(replayedStackItem?.castFromGraveyard).toBe(true);
+
+    game.applyEvent({ type: 'resolveTopOfStack' } as any);
+
+    const replayZones = (game.state as any).zones?.[playerId];
+    expect((replayZones?.exile || []).map((card: any) => card.id)).toContain('torrential_replay_instant_1');
+    expect((replayZones?.graveyard || []).map((card: any) => card.id)).not.toContain('torrential_replay_instant_1');
+    expect(ResolutionQueueManager.getStepsForPlayer(replayGameId, playerId).some((step: any) => String((step as any)?.castFromGraveyardCardId || '') === 'torrential_replay_instant_1')).toBe(false);
   });
 
   it('replays cast-from-graveyard abilities using the persisted live stack id when present', async () => {

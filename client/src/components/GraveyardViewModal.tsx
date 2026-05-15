@@ -17,6 +17,9 @@ export interface GraveyardAbility {
   description: string;
   cost?: string;
   activatable?: boolean;
+  permissionId?: string;
+  sourceName?: string;
+  costMode?: 'normal' | 'without_paying_mana_cost';
 }
 
 export interface GraveyardViewModalProps {
@@ -250,18 +253,20 @@ function isInstantOrSorcery(card: KnownCardRef): boolean {
 
 export function getGraveyardAbilitiesForCard(card: KnownCardRef, options?: { isPlayable?: boolean; abilityHints?: GraveyardAbility[] }): GraveyardAbility[] {
   const abilities = parseGraveyardAbilities(card);
+  const hasPrintedCastKeywordAbility = abilities.some((ability) => ['flashback', 'jump-start', 'retrace', 'escape', 'disturb'].includes(ability.id));
   for (const hint of options?.abilityHints || []) {
+    if (hint?.id === 'graveyard-cast' && hasPrintedCastKeywordAbility) continue;
     if (!hint?.id || abilities.some((ability) => ability.id === hint.id)) continue;
     abilities.push(hint);
   }
-  const hasCastFromGraveyardAbility = abilities.some((ability) => ['flashback', 'jump-start', 'retrace', 'escape', 'disturb'].includes(ability.id));
+  const hasCastFromGraveyardAbility = abilities.some((ability) => ['flashback', 'jump-start', 'retrace', 'escape', 'disturb', 'graveyard-cast'].includes(ability.id));
 
   if (options?.isPlayable && !hasCastFromGraveyardAbility && isInstantOrSorcery(card)) {
     const cost = String(card.mana_cost || '').trim() || 'available cost';
     return [
       ...abilities,
       {
-        id: 'flashback',
+        id: 'graveyard-cast',
         label: 'Cast',
         description: `Cast from graveyard for ${cost}`,
         cost,
@@ -270,6 +275,25 @@ export function getGraveyardAbilitiesForCard(card: KnownCardRef, options?: { isP
   }
 
   return abilities;
+}
+
+function getGraveyardAbilityButtonLabel(ability: GraveyardAbility): string {
+  if (ability.activatable === false) return ability.label;
+  if (ability.costMode === 'without_paying_mana_cost') return `${ability.label}: free`;
+  return ability.cost ? `${ability.label}: ${ability.cost}` : ability.label;
+}
+
+function getGraveyardAbilitySupportText(ability: GraveyardAbility): string | undefined {
+  if (ability.sourceName && ability.costMode === 'without_paying_mana_cost') {
+    return `via ${ability.sourceName} · no mana cost`;
+  }
+  if (ability.sourceName) {
+    return `via ${ability.sourceName}`;
+  }
+  if (ability.costMode === 'without_paying_mana_cost') {
+    return 'no mana cost';
+  }
+  return undefined;
 }
 
 export function GraveyardViewModal({
@@ -315,6 +339,12 @@ export function GraveyardViewModal({
   const activatableCards = useMemo(() => {
     return filteredCards.filter(({ abilities }) => abilities.length > 0);
   }, [filteredCards]);
+  const selectedCardAbilities = selectedCard
+    ? getGraveyardAbilitiesForCard(selectedCard, {
+        isPlayable: playableCardIdSet.has(selectedCard.id),
+        abilityHints: graveyardAbilityHints[selectedCard.id],
+      })
+    : [];
   
   if (!open) return null;
   
@@ -604,9 +634,11 @@ export function GraveyardViewModal({
             <div style={{ fontSize: 12, color: '#aaa', marginBottom: 8 }}>
               {selectedCard.type_line}
             </div>
-            {getGraveyardAbilitiesForCard(selectedCard, { isPlayable: playableCardIdSet.has(selectedCard.id), abilityHints: graveyardAbilityHints[selectedCard.id] }).length > 0 ? (
+            {selectedCardAbilities.length > 0 ? (
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                {getGraveyardAbilitiesForCard(selectedCard, { isPlayable: playableCardIdSet.has(selectedCard.id), abilityHints: graveyardAbilityHints[selectedCard.id] }).map((ability) => (
+                {selectedCardAbilities.map((ability) => {
+                  const supportText = getGraveyardAbilitySupportText(ability);
+                  return (
                   <button
                     key={ability.id}
                     onClick={() => canActivate && ability.activatable !== false && handleActivate(selectedCard, ability.id)}
@@ -620,12 +652,21 @@ export function GraveyardViewModal({
                       fontSize: 13,
                       cursor: canActivate && ability.activatable !== false ? 'pointer' : 'not-allowed',
                       fontWeight: 500,
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'flex-start',
+                      gap: 2,
                     }}
                     title={ability.description}
                   >
-                    {ability.activatable === false ? ability.label : `${ability.label}: ${ability.cost}`}
+                    <span>{getGraveyardAbilityButtonLabel(ability)}</span>
+                    {supportText ? (
+                      <span style={{ fontSize: 11, opacity: 0.85, fontWeight: 400 }}>
+                        {supportText}
+                      </span>
+                    ) : null}
                   </button>
-                ))}
+                )})}
               </div>
             ) : (
               <div style={{ fontSize: 12, color: '#666' }}>

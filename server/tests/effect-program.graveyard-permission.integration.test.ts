@@ -182,6 +182,26 @@ describe('effect-program graveyard permission bridge (integration)', () => {
     expect(started.status).toBe('completed');
     expect((game.state as any).playableFromGraveyard?.[playerId]?.forest_1).toBe(4);
     expect((game.state as any).playableFromGraveyard?.[playerId]?.consider_1).toBe(4);
+    expect((game.state as any).graveyardCastingPermissions).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        playerId,
+        permission: 'play',
+        sourceZone: 'graveyard',
+        sourceId: 'gaea_will_1',
+        sourceName: "Gaea's Will",
+        cardFilter: { qualifier: 'lands' },
+        duration: 'this_turn',
+      }),
+      expect.objectContaining({
+        playerId,
+        permission: 'cast',
+        sourceZone: 'graveyard',
+        sourceId: 'gaea_will_1',
+        sourceName: "Gaea's Will",
+        cardFilter: { qualifier: 'spells' },
+        duration: 'this_turn',
+      }),
+    ]));
 
     const emitted: Array<{ room?: string; event: string; payload: any }> = [];
     const { socket, handlers } = createMockSocket({ playerId, gameId }, emitted);

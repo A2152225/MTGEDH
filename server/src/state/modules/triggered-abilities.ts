@@ -33,7 +33,7 @@
  */
 
 import type { GameContext } from "../context.js";
-import { calculateVariablePT, getActualPowerToughness } from "../utils.js";
+import { calculateVariablePT, getActualPowerToughness, normalizeCardNameForOracleText } from "../utils.js";
 import { handleEldraziShuffle } from "./zone-manipulation.js";
 
 // Import card data tables from modularized submodule
@@ -1342,10 +1342,15 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
   // The ~ is used in some oracle text, but the actual card name is also used
   // Note: New Bloomburrow template uses "enters" instead of "enters the battlefield"
   // Use shared utility function for regex escaping
-  const etbCardNameEscaped = escapeCardNameForRegex(cardName);
-  // Combine static alternatives with dynamic card name
-  const etbAlternatives = [...ETB_STATIC_ALTERNATIVES, etbCardNameEscaped];
-  const etbPattern = new RegExp(`when\\s+(?:${etbAlternatives.join('|')})\\s+enters(?: the battlefield)?,?\\s*([^.]+)`, 'i');
+  const etbOracleShortName = normalizeCardNameForOracleText(cardName);
+  const etbNameVariants = Array.from(new Set(
+    [etbOracleShortName, cardName]
+      .map((value) => String(value || '').trim())
+      .filter(Boolean)
+  )).map((value) => escapeCardNameForRegex(value));
+  // Combine static alternatives with dynamic card name variants
+  const etbAlternatives = [...ETB_STATIC_ALTERNATIVES, ...etbNameVariants];
+  const etbPattern = new RegExp(`when(?:ever)?\\s+(?:${etbAlternatives.join('|')})\\s+enters(?: the battlefield)?(?:\\s+or\\s+attacks)?[,]?\\s*([^.]+)`, 'i');
   const etbMatch = oracleText.match(etbPattern);
   if (etbMatch && !triggers.some(t => t.triggerType === 'etb' || t.triggerType === 'etb_sacrifice_unless_pay')) {
     let effectText = etbMatch[1].trim();
@@ -1364,6 +1369,14 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
       }
     }
 
+    const exileReplacementContinuationMatch = remainder.match(/^[.?!]\s*(if\s+(?:a|that|this)\s+(?:card|spell)(?:\s+cast\s+this\s+way)?\s+would\s+be\s+put\s+into\s+your\s+graveyard\s*,?\s*exile\s+it\s+instead(?:[.?!]|$))/i);
+    if (exileReplacementContinuationMatch) {
+      const continuation = String(exileReplacementContinuationMatch[1] || '').trim().replace(/[.?!]\s*$/, '');
+      if (continuation && !new RegExp(`${continuation.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i').test(effectText)) {
+        effectText = `${effectText}. ${continuation}`;
+      }
+    }
+
     const ifYouDoContinuationMatch = remainder.match(/^[.?!]\s*(if\s+you\s+do,\s+[^.?!]+(?:[.?!]|$))/i);
     if (ifYouDoContinuationMatch) {
       const continuation = String(ifYouDoContinuationMatch[1] || '').trim().replace(/[.?!]\s*$/, '');
@@ -1371,10 +1384,20 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
         effectText = `${effectText}. ${continuation}`;
       }
     }
+
+    const isEscapedSelfSacrificeTrigger = /sacrifice\s+(?:~|it|this\s+\w+)\s+unless\s+it\s+escaped/i.test(effectText);
+    if (isEscapedSelfSacrificeTrigger && permanent?.escapedFrom) {
+      effectText = '';
+    }
+
+    if (!effectText) {
+      // Skip ETB self-sacrifice lines that no longer apply because the permanent already escaped.
+    }
     
     // Check for "sacrifice ~ unless you pay" pattern (Transguild Promenade, Gateway Plaza, Rupture Spire)
-    const sacrificeUnlessPayMatch = effectText.match(/sacrifice\s+(?:~|it|this\s+\w+)\s+unless\s+you\s+pay\s+(\{[^}]+\})/i);
-    if (sacrificeUnlessPayMatch) {
+    else {
+      const sacrificeUnlessPayMatch = effectText.match(/sacrifice\s+(?:~|it|this\s+\w+)\s+unless\s+you\s+pay\s+(\{[^}]+\})/i);
+      if (sacrificeUnlessPayMatch) {
       triggers.push({
         permanentId,
         cardName,
@@ -1385,9 +1408,9 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
         mandatory: true,
         requiresChoice: true,
       });
-    } 
+      } 
     // Check for bounce land pattern - "return a land you control to its owner's hand"
-    else if (/return\s+a\s+land\s+you\s+control\s+to\s+its\s+owner's\s+hand/i.test(effectText)) {
+      else if (/return\s+a\s+land\s+you\s+control\s+to\s+its\s+owner's\s+hand/i.test(effectText)) {
       triggers.push({
         permanentId,
         cardName,
@@ -1397,11 +1420,11 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
         mandatory: true,
         requiresChoice: true,
       });
-    }
-    else {
+      }
+      else {
       // Detect if this trigger requires targeting
       const targetType = detectTargetType(effectText);
-      const requiresTarget = !!targetType;
+      const requiresTarget = /\btarget\b/i.test(effectText) || !!targetType;
       
       // Detect targeting constraint (e.g., "opponent controls" or "you control")
       let targetConstraint: 'opponent' | 'you' | undefined = undefined;
@@ -1414,6 +1437,43 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
         }
       }
       
+      triggers.push({
+        permanentId,
+        cardName,
+        triggerType: 'etb',
+        description: effectText,
+        effect: effectText,
+        mandatory: true,
+        requiresTarget,
+        targetType,
+        targetConstraint,
+      });
+      }
+    }
+  }
+
+  const etbOrAttackPattern = new RegExp(`whenever\\s+(?:${etbAlternatives.join('|')})\\s+enters(?: the battlefield)?\\s+or\\s+attacks[,]?\\s*([^.]+)`, 'i');
+  const etbOrAttackMatch = oracleText.match(etbOrAttackPattern);
+  if (etbOrAttackMatch) {
+    const effectText = String(etbOrAttackMatch[1] || '').trim();
+    const hasMatchingEtbEffect = triggers.some((trigger) =>
+      trigger.triggerType === 'etb' &&
+      String(trigger.effect || trigger.description || '').trim().toLowerCase() === effectText.toLowerCase()
+    );
+
+    if (effectText && !hasMatchingEtbEffect) {
+      const targetType = detectTargetType(effectText);
+      const requiresTarget = !!targetType;
+      let targetConstraint: 'opponent' | 'you' | undefined = undefined;
+      if (requiresTarget) {
+        const lowerEffect = effectText.toLowerCase();
+        if (lowerEffect.includes('an opponent controls') || lowerEffect.includes('opponent controls')) {
+          targetConstraint = 'opponent';
+        } else if (lowerEffect.includes('you control')) {
+          targetConstraint = 'you';
+        }
+      }
+
       triggers.push({
         permanentId,
         cardName,

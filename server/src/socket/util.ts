@@ -18,7 +18,7 @@ import { GameManager } from "../GameManager.js";
 import type { CardCostAdjustment, GameID, PlayerID, ManaPool, RestrictedManaEntry, ManaRestrictionType } from "../../../shared/src/index.js";
 import { getActualPowerToughness, uid, cardManaValue } from "../state/utils.js";
 import { getDevotionManaAmount, getCreatureCountManaAmount, getManaAbilitiesForPermanent, getMoxAmberAvailableColors, isMoxAmberConditionalManaSource } from "../state/modules/mana-abilities.js";
-import { canRespond, canAct, getCastableCommanderCandidates, getCastableSpellCandidates, getCostAdjustmentInfo, getHandCastEvaluationCards, getPlayableLandCandidates, isTransformBackFace } from "../state/modules/can-respond.js";
+import { canRespond, canAct, getCastableCommanderCandidates, getCastableSpellCandidates, getCostAdjustmentInfo, getHandCastEvaluationCards, getPlayableLandCandidates, isTransformBackFace, type SharedSpellCastCandidate } from "../state/modules/can-respond.js";
 import { getGrantedCastFromGraveyardKeywordInfo, getGrantedEmbalmInfo, getGrantedFlashbackInfo, getGrantedUnearthInfo, getPrintedUnearthInfo } from "../state/modules/graveyard-permissions.js";
 import { parseManaCost as parseManaFromString, canPayManaCostWithAvailableSources, getManaPoolFromState, getAvailableMana, getTotalManaFromPool } from "../state/modules/mana-check.js";
 import { hasPayableAlternateCost } from "../state/modules/alternate-costs.js";
@@ -739,6 +739,34 @@ function canPayGrantedGraveyardCastKeywordAdditionalCost(state: any, playerId: P
   return true;
 }
 
+function buildGraveyardCastHintFromCandidate(candidate: SharedSpellCastCandidate): any {
+  const costMode = String(candidate?.graveyardPermissionCostMode || 'normal').trim();
+  const sourceName = String(candidate?.graveyardPermissionSourceName || '').trim();
+  const cost = costMode === 'without_paying_mana_cost'
+    ? ''
+    : String(candidate?.manaCost || candidate?.card?.mana_cost || candidate?.castCard?.mana_cost || '').trim();
+
+  let description = costMode === 'without_paying_mana_cost'
+    ? 'Cast from graveyard without paying its mana cost'
+    : cost
+    ? `Cast from graveyard for ${cost}`
+    : 'Cast from graveyard';
+
+  if (sourceName) {
+    description = `${description} via ${sourceName}`;
+  }
+
+  return {
+    id: 'graveyard-cast',
+    label: 'Cast',
+    description,
+    ...(cost ? { cost } : {}),
+    ...(String(candidate?.graveyardPermissionId || '').trim() ? { permissionId: candidate.graveyardPermissionId } : {}),
+    ...(sourceName ? { sourceName } : {}),
+    costMode,
+  };
+}
+
 function getGraveyardAbilityHints(game: InMemoryGame, playerId: PlayerID): Record<string, any[]> {
   const hints: Record<string, any[]> = {};
 
@@ -750,6 +778,23 @@ function getGraveyardAbilityHints(game: InMemoryGame, playerId: PlayerID): Recor
     const isMainPhase = isInMainPhase(state);
     const stackIsEmpty = !state.stack || state.stack.length === 0;
     const isMyTurn = state.turnPlayer === playerId;
+    const spellCandidateMode = isMainPhase && stackIsEmpty && isMyTurn ? 'main' : 'response';
+    const graveyardSpellCandidates = getCastableSpellCandidates({ state, libraries: (game as any).libraries } as any, playerId, {
+      mode: spellCandidateMode,
+      allowUnknownCostFallback: false,
+    }).filter((candidate) => String(candidate.sourceZone || '') === 'graveyard');
+    const genericGraveyardCastableIds = new Set(
+      graveyardSpellCandidates
+        .map((candidate) => String(candidate.card?.id || candidate.castCard?.id || '').trim())
+        .filter(Boolean),
+    );
+    const graveyardPermanentCandidatesByCardId = new Map<string, SharedSpellCastCandidate>();
+    for (const candidate of graveyardSpellCandidates) {
+      if (candidate.castMethod !== 'graveyard_permanent') continue;
+      const cardId = String(candidate.card?.id || candidate.castCard?.id || '').trim();
+      if (!cardId || graveyardPermanentCandidatesByCardId.has(cardId)) continue;
+      graveyardPermanentCandidatesByCardId.set(cardId, candidate);
+    }
 
     const addHint = (cardId: string, hint: any) => {
       if (!cardId) return;
@@ -836,6 +881,24 @@ function getGraveyardAbilityHints(game: InMemoryGame, playerId: PlayerID): Recor
             cost: grantedCastKeywordInfo.cost,
           });
         }
+      }
+
+      const graveyardPermanentCandidate = graveyardPermanentCandidatesByCardId.get(cardId);
+      if (graveyardPermanentCandidate) {
+        addHint(cardId, buildGraveyardCastHintFromCandidate(graveyardPermanentCandidate));
+      }
+
+      if (
+        genericGraveyardCastableIds.has(cardId)
+        && !/\bland\b/i.test(String(card.type_line || ''))
+      ) {
+        const cost = String(card.mana_cost || '').trim();
+        addHint(cardId, {
+          id: 'graveyard-cast',
+          label: 'Cast',
+          description: cost ? `Cast from graveyard for ${cost}` : 'Cast from graveyard',
+          ...(cost ? { cost } : {}),
+        });
       }
     }
   } catch (err) {

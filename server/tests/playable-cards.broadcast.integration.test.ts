@@ -692,6 +692,131 @@ describe('broadcastGame playable card refresh', () => {
     expect(stateEvent).toBeDefined();
     expect(stateEvent?.payload?.view?.playableCards).toContain('consider_1');
     expect(stateEvent?.payload?.view?.playableCards).not.toContain('runeclaw_1');
+    expect(stateEvent?.payload?.view?.graveyardAbilityHints?.p1?.consider_1).toContainEqual(expect.objectContaining({
+      id: 'graveyard-cast',
+      cost: '{U}',
+      sourceName: 'Kess, Dissident Mage',
+      costMode: 'normal',
+      permissionId: expect.any(String),
+    }));
+  });
+
+  it('highlights Lurrus-style graveyard permanent permissions through the broadcast surface', () => {
+    const gameId = 'playable_cards_lurrus_graveyard_permanent';
+    const ctx = createContext(gameId);
+
+    Object.assign(ctx.state as any, {
+      active: true,
+      phase: 'precombatMain',
+      step: 'MAIN1',
+      turnDirection: 1,
+      turnPlayer: 'p1',
+      priority: 'p1',
+      players: [
+        { id: 'p1', seat: 1, name: 'Player 1' },
+        { id: 'p2', seat: 2, name: 'Player 2' },
+      ],
+      stack: [],
+      battlefield: [
+        {
+          id: 'lurrus_1',
+          controller: 'p1',
+          tapped: false,
+          card: {
+            name: 'Lurrus of the Dream-Den',
+            type_line: 'Legendary Creature — Cat Nightmare',
+            oracle_text: 'Lifelink\nOnce during each of your turns, you may cast a permanent spell with mana value 2 or less from your graveyard.',
+          },
+        },
+      ],
+      zones: {
+        p1: {
+          hand: [],
+          graveyard: [
+            {
+              id: 'mind_stone_1',
+              name: 'Mind Stone',
+              type_line: 'Artifact',
+              mana_cost: '{2}',
+              oracle_text: '{T}: Add {C}.',
+            },
+            {
+              id: 'hedron_archive_1',
+              name: 'Hedron Archive',
+              type_line: 'Artifact',
+              mana_cost: '{4}',
+              oracle_text: '{T}: Add {C}{C}.',
+            },
+          ],
+          library: [],
+          exile: [],
+          handCount: 0,
+          graveyardCount: 2,
+          exileCount: 0,
+        },
+        p2: {
+          hand: [],
+          graveyard: [],
+          library: [],
+          exile: [],
+          handCount: 0,
+          graveyardCount: 0,
+          exileCount: 0,
+        },
+      },
+      life: { p1: 40, p2: 40 },
+      manaPool: {
+        p1: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 2 },
+        p2: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+      },
+      landsPlayedThisTurn: { p1: 0, p2: 0 },
+      playableCards: [],
+      canAct: true,
+      canRespond: true,
+    });
+
+    const game: any = {
+      gameId,
+      state: ctx.state,
+      inactive: ctx.inactive,
+      passesInRow: ctx.passesInRow,
+      libraries: ctx.libraries,
+      life: ctx.life,
+      commandZone: ctx.commandZone,
+      manaPool: ctx.manaPool,
+      get seq() {
+        return ctx.seq.value;
+      },
+      set seq(value: number) {
+        ctx.seq.value = value;
+      },
+      bumpSeq: ctx.bumpSeq,
+      participants: () => [{ socketId: 'sock_1', playerId: 'p1', spectator: false }],
+      viewFor: () => ({
+        ...ctx.state,
+        viewer: 'p1',
+        playableCards: [],
+        canAct: true,
+        canRespond: true,
+      }),
+    };
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const io = createMockIo(emitted);
+
+    broadcastGame(io, game, gameId);
+
+    const stateEvent = emitted.find((entry) => entry.room === 'sock_1' && entry.event === 'state');
+    expect(stateEvent).toBeDefined();
+    expect(stateEvent?.payload?.view?.playableCards).toContain('mind_stone_1');
+    expect(stateEvent?.payload?.view?.playableCards).not.toContain('hedron_archive_1');
+    expect(stateEvent?.payload?.view?.graveyardAbilityHints?.p1?.mind_stone_1).toContainEqual(expect.objectContaining({
+      id: 'graveyard-cast',
+      cost: '{2}',
+      sourceName: 'Lurrus of the Dream-Den',
+      costMode: 'normal',
+      permissionId: expect.any(String),
+    }));
   });
 
   it('highlights a reduced-cost commander from the shared commander surface', () => {
@@ -1559,6 +1684,328 @@ describe('broadcastGame playable card refresh', () => {
     expect(stateEvent?.payload?.view?.graveyardAbilityHints?.p1?.embalm_candidate_1).toContainEqual(expect.objectContaining({
       id: 'embalm',
       cost: '{2}{W}',
+    }));
+  });
+
+  it('emits printed self graveyard-cast hints for Squee', () => {
+    const gameId = 'playable_cards_squee_graveyard_cast';
+    const ctx = createContext(gameId);
+
+    Object.assign(ctx.state as any, {
+      active: true,
+      phase: 'precombatMain',
+      step: 'MAIN1',
+      turnDirection: 1,
+      turnPlayer: 'p1',
+      priority: 'p1',
+      players: [
+        { id: 'p1', seat: 1, name: 'Player 1' },
+        { id: 'p2', seat: 2, name: 'Player 2' },
+      ],
+      stack: [],
+      battlefield: [],
+      zones: {
+        p1: {
+          hand: [],
+          graveyard: [
+            {
+              id: 'squee_1',
+              name: 'Squee, the Immortal',
+              mana_cost: '{1}{R}{R}',
+              type_line: 'Legendary Creature - Goblin',
+              oracle_text: 'You may cast this card from your graveyard or from exile.',
+            },
+          ],
+          library: [],
+          exile: [],
+          handCount: 0,
+          graveyardCount: 1,
+          exileCount: 0,
+        },
+        p2: {
+          hand: [],
+          graveyard: [],
+          library: [],
+          exile: [],
+          handCount: 0,
+          graveyardCount: 0,
+          exileCount: 0,
+        },
+      },
+      life: { p1: 40, p2: 40 },
+      manaPool: {
+        p1: { white: 0, blue: 0, black: 0, red: 2, green: 0, colorless: 1 },
+        p2: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+      },
+      playableCards: [],
+      canAct: true,
+      canRespond: true,
+    });
+
+    const game: any = {
+      gameId,
+      state: ctx.state,
+      inactive: ctx.inactive,
+      passesInRow: ctx.passesInRow,
+      libraries: ctx.libraries,
+      life: ctx.life,
+      commandZone: ctx.commandZone,
+      manaPool: ctx.manaPool,
+      get seq() {
+        return ctx.seq.value;
+      },
+      set seq(value: number) {
+        ctx.seq.value = value;
+      },
+      bumpSeq: ctx.bumpSeq,
+      participants: () => [{ socketId: 'sock_1', playerId: 'p1', spectator: false }],
+      viewFor: () => ({
+        ...ctx.state,
+        viewer: 'p1',
+        playableCards: [],
+        canAct: true,
+        canRespond: true,
+      }),
+    };
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const io = createMockIo(emitted);
+
+    broadcastGame(io, game, gameId);
+
+    const stateEvent = emitted.find((entry) => entry.room === 'sock_1' && entry.event === 'state');
+    expect(stateEvent).toBeDefined();
+    expect(stateEvent?.payload?.view?.playableCards).toContain('squee_1');
+    expect(stateEvent?.payload?.view?.graveyardAbilityHints?.p1?.squee_1).toContainEqual(expect.objectContaining({
+      id: 'graveyard-cast',
+      cost: '{1}{R}{R}',
+      sourceName: 'Squee, the Immortal',
+      costMode: 'normal',
+      permissionId: expect.any(String),
+    }));
+  });
+
+  it('does not emit Gravecrawler graveyard-cast hints without another Zombie', () => {
+    const gameId = 'playable_cards_gravecrawler_requires_zombie';
+    const ctx = createContext(gameId);
+
+    Object.assign(ctx.state as any, {
+      active: true,
+      phase: 'precombatMain',
+      step: 'MAIN1',
+      turnDirection: 1,
+      turnPlayer: 'p1',
+      priority: 'p1',
+      players: [
+        { id: 'p1', seat: 1, name: 'Player 1' },
+        { id: 'p2', seat: 2, name: 'Player 2' },
+      ],
+      stack: [],
+      battlefield: [],
+      zones: {
+        p1: {
+          hand: [],
+          graveyard: [
+            {
+              id: 'gravecrawler_1',
+              name: 'Gravecrawler',
+              mana_cost: '{B}',
+              type_line: 'Creature - Zombie',
+              oracle_text: "This creature can't block. You may cast this card from your graveyard as long as you control a Zombie.",
+            },
+          ],
+          library: [],
+          exile: [],
+          handCount: 0,
+          graveyardCount: 1,
+          exileCount: 0,
+        },
+        p2: {
+          hand: [],
+          graveyard: [],
+          library: [],
+          exile: [],
+          handCount: 0,
+          graveyardCount: 0,
+          exileCount: 0,
+        },
+      },
+      life: { p1: 40, p2: 40 },
+      manaPool: {
+        p1: { white: 0, blue: 0, black: 1, red: 0, green: 0, colorless: 0 },
+        p2: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+      },
+      playableCards: [],
+      canAct: true,
+      canRespond: true,
+    });
+
+    const game: any = {
+      gameId,
+      state: ctx.state,
+      inactive: ctx.inactive,
+      passesInRow: ctx.passesInRow,
+      libraries: ctx.libraries,
+      life: ctx.life,
+      commandZone: ctx.commandZone,
+      manaPool: ctx.manaPool,
+      get seq() {
+        return ctx.seq.value;
+      },
+      set seq(value: number) {
+        ctx.seq.value = value;
+      },
+      bumpSeq: ctx.bumpSeq,
+      participants: () => [{ socketId: 'sock_1', playerId: 'p1', spectator: false }],
+      viewFor: () => ({
+        ...ctx.state,
+        viewer: 'p1',
+        playableCards: [],
+        canAct: true,
+        canRespond: true,
+      }),
+    };
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const io = createMockIo(emitted);
+
+    broadcastGame(io, game, gameId);
+
+    const stateEvent = emitted.find((entry) => entry.room === 'sock_1' && entry.event === 'state');
+    expect(stateEvent).toBeDefined();
+    expect(stateEvent?.payload?.view?.playableCards).not.toContain('gravecrawler_1');
+    expect(stateEvent?.payload?.view?.graveyardAbilityHints?.p1?.gravecrawler_1).toBeUndefined();
+  });
+
+  it('emits The Indomitable graveyard-cast hints when you control three tapped Pirates and/or Vehicles', () => {
+    const gameId = 'playable_cards_indomitable_graveyard_cast';
+    const ctx = createContext(gameId);
+
+    Object.assign(ctx.state as any, {
+      active: true,
+      phase: 'precombatMain',
+      step: 'MAIN1',
+      turnDirection: 1,
+      turnPlayer: 'p1',
+      priority: 'p1',
+      players: [
+        { id: 'p1', seat: 1, name: 'Player 1' },
+        { id: 'p2', seat: 2, name: 'Player 2' },
+      ],
+      stack: [],
+      battlefield: [
+        {
+          id: 'indomitable_support_pirate_1',
+          controller: 'p1',
+          owner: 'p1',
+          tapped: true,
+          card: {
+            name: 'Captain Lannery Storm',
+            type_line: 'Legendary Creature - Human Pirate',
+            oracle_text: '',
+          },
+        },
+        {
+          id: 'indomitable_support_vehicle_1',
+          controller: 'p1',
+          owner: 'p1',
+          tapped: true,
+          card: {
+            name: 'Smuggler\'s Copter',
+            type_line: 'Artifact - Vehicle',
+            oracle_text: '',
+          },
+        },
+        {
+          id: 'indomitable_support_pirate_2',
+          controller: 'p1',
+          owner: 'p1',
+          tapped: true,
+          card: {
+            name: 'Sailor of Means',
+            type_line: 'Creature - Human Pirate',
+            oracle_text: '',
+          },
+        },
+      ],
+      zones: {
+        p1: {
+          hand: [],
+          graveyard: [
+            {
+              id: 'indomitable_1',
+              name: 'The Indomitable',
+              mana_cost: '{2}{U}{U}',
+              type_line: 'Legendary Artifact - Vehicle',
+              oracle_text: 'Trample Whenever a creature you control deals combat damage to a player, draw a card. Crew 3 You may cast this card from your graveyard as long as you control three or more tapped Pirates and/or Vehicles.',
+            },
+          ],
+          library: [],
+          exile: [],
+          handCount: 0,
+          graveyardCount: 1,
+          exileCount: 0,
+        },
+        p2: {
+          hand: [],
+          graveyard: [],
+          library: [],
+          exile: [],
+          handCount: 0,
+          graveyardCount: 0,
+          exileCount: 0,
+        },
+      },
+      life: { p1: 40, p2: 40 },
+      manaPool: {
+        p1: { white: 0, blue: 2, black: 0, red: 0, green: 0, colorless: 2 },
+        p2: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+      },
+      playableCards: [],
+      canAct: true,
+      canRespond: true,
+    });
+
+    const game: any = {
+      gameId,
+      state: ctx.state,
+      inactive: ctx.inactive,
+      passesInRow: ctx.passesInRow,
+      libraries: ctx.libraries,
+      life: ctx.life,
+      commandZone: ctx.commandZone,
+      manaPool: ctx.manaPool,
+      get seq() {
+        return ctx.seq.value;
+      },
+      set seq(value: number) {
+        ctx.seq.value = value;
+      },
+      bumpSeq: ctx.bumpSeq,
+      participants: () => [{ socketId: 'sock_1', playerId: 'p1', spectator: false }],
+      viewFor: () => ({
+        ...ctx.state,
+        viewer: 'p1',
+        playableCards: [],
+        canAct: true,
+        canRespond: true,
+      }),
+    };
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const io = createMockIo(emitted);
+
+    broadcastGame(io, game, gameId);
+
+    const stateEvent = emitted.find((entry) => entry.room === 'sock_1' && entry.event === 'state');
+    expect(stateEvent).toBeDefined();
+    expect(stateEvent?.payload?.view?.playableCards).toContain('indomitable_1');
+    expect(stateEvent?.payload?.view?.graveyardAbilityHints?.p1?.indomitable_1).toContainEqual(expect.objectContaining({
+      id: 'graveyard-cast',
+      cost: '{2}{U}{U}',
+      sourceName: 'The Indomitable',
+      costMode: 'normal',
+      permissionId: expect.any(String),
     }));
   });
 });

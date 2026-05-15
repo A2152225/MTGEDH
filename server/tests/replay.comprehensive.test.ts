@@ -49,6 +49,15 @@ function mkForetellCard(id: string, name: string): Pick<KnownCardRef, 'id' | 'na
   };
 }
 
+function mkSuspendCard(id: string, name: string): Pick<KnownCardRef, 'id' | 'name' | 'type_line' | 'oracle_text'> {
+  return {
+    id,
+    name,
+    type_line: 'Sorcery',
+    oracle_text: 'Suspend 2-{1}{W}'
+  };
+}
+
 describe('Enhanced Replay System', () => {
   describe('Equipment events replay', () => {
     it('should correctly replay equipment attachment', () => {
@@ -169,6 +178,61 @@ describe('Enhanced Replay System', () => {
       
       debug('Foretell card in exile:', zones.exile[0].name);
     });
+
+          it('should correctly replay suspend action', () => {
+            const gameId = 'suspend_replay_test';
+            const p1 = 'p_test' as PlayerID;
+            const seed = 333333333;
+
+            const game = createInitialGameState(gameId);
+            game.applyEvent({ type: 'rngSeed', seed });
+
+            const suspendCard = {
+              ...mkSuspendCard('suspend_1', 'Resurgent Belief'),
+              zone: 'hand',
+            };
+
+            (game.state as any).zones = {
+              [p1]: {
+                hand: [suspendCard],
+                handCount: 1,
+                libraryCount: 0,
+                graveyard: [],
+                graveyardCount: 0,
+                exile: [],
+                exileCount: 0,
+              }
+            };
+            (game.state as any).manaPool = {
+              [p1]: { white: 1, blue: 0, black: 0, red: 0, green: 0, colorless: 1 },
+            };
+
+            const suspendedCardData = {
+              ...suspendCard,
+              zone: 'exile',
+              isSuspended: true,
+              timeCounters: 2,
+              suspendedBy: p1,
+            };
+
+            game.applyEvent({
+              type: 'suspendCard',
+              playerId: p1,
+              cardId: 'suspend_1',
+              cardName: 'Resurgent Belief',
+              card: suspendedCardData,
+              paymentManaDelta: { white: -1, colorless: -1 },
+            } as any);
+
+            const zones = (game.state as any).zones[p1];
+            expect(zones.hand.length).toBe(0);
+            expect(zones.handCount).toBe(0);
+            expect(zones.exile.length).toBe(1);
+            expect(zones.exile[0].isSuspended).toBe(true);
+            expect(zones.exile[0].timeCounters).toBe(2);
+            expect((game.state as any).manaPool[p1].white).toBe(0);
+            expect((game.state as any).manaPool[p1].colorless).toBe(0);
+          });
   });
 
   describe('Phase out events replay', () => {
@@ -338,6 +402,7 @@ describe('Enhanced Replay System', () => {
         { type: 'rngSeed', payload: { seed: 12345 } },
         { type: 'equipPermanent', payload: { playerId: 'p1', equipmentId: 'eq1', targetCreatureId: 'c1' } },
         { type: 'foretellCard', payload: { playerId: 'p1', cardId: 'f1', card: { name: 'Test' } } },
+        { type: 'suspendCard', payload: { playerId: 'p1', cardId: 's1', cardName: 'Resurgent Belief', card: { name: 'Test Suspend' } } },
         { type: 'phaseOutPermanents', payload: { playerId: 'p1', permanentIds: ['p1', 'p2'] } },
         { type: 'concede', payload: { playerId: 'p1', playerName: 'Player 1' } },
       ];
@@ -347,8 +412,9 @@ describe('Enhanced Replay System', () => {
       expect(replayEvents[0]).toEqual({ type: 'rngSeed', seed: 12345 });
       expect(replayEvents[1]).toEqual({ type: 'equipPermanent', playerId: 'p1', equipmentId: 'eq1', targetCreatureId: 'c1' });
       expect(replayEvents[2]).toEqual({ type: 'foretellCard', playerId: 'p1', cardId: 'f1', card: { name: 'Test' } });
-      expect(replayEvents[3]).toEqual({ type: 'phaseOutPermanents', playerId: 'p1', permanentIds: ['p1', 'p2'] });
-      expect(replayEvents[4]).toEqual({ type: 'concede', playerId: 'p1', playerName: 'Player 1' });
+      expect(replayEvents[3]).toEqual({ type: 'suspendCard', playerId: 'p1', cardId: 's1', cardName: 'Resurgent Belief', card: { name: 'Test Suspend' } });
+      expect(replayEvents[4]).toEqual({ type: 'phaseOutPermanents', playerId: 'p1', permanentIds: ['p1', 'p2'] });
+      expect(replayEvents[5]).toEqual({ type: 'concede', playerId: 'p1', playerName: 'Player 1' });
     });
     
     it('should correctly transform additional cost events', () => {

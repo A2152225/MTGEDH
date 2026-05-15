@@ -526,6 +526,7 @@ export function applyOracleIRStepsToGameStateImpl(
   let lastExiledCardCount = 0;
   let lastExiledCards: any[] = Array.isArray(ctx.lastExiledCards) ? [...ctx.lastExiledCards] : [];
   let lastGrantedGraveyardCards: any[] = [];
+  let lastGrantedGraveyardPermissionIds: string[] = [];
   let lastMovedCards: any[] = Array.isArray(ctx.lastMovedCards) ? [...ctx.lastMovedCards] : [];
   let lastMovedBattlefieldPermanentIds: string[] = Array.isArray(ctx.lastMovedBattlefieldPermanentIds)
     ? [...ctx.lastMovedBattlefieldPermanentIds]
@@ -1342,6 +1343,9 @@ export function applyOracleIRStepsToGameStateImpl(
           lastGrantedGraveyardCards = Array.isArray(appliedResult.lastGrantedGraveyardCards)
             ? [...appliedResult.lastGrantedGraveyardCards]
             : [];
+          lastGrantedGraveyardPermissionIds = Array.isArray(appliedResult.lastGrantedGraveyardPermissionIds)
+            ? [...appliedResult.lastGrantedGraveyardPermissionIds]
+            : [];
         });
         break;
       }
@@ -1353,6 +1357,7 @@ export function applyOracleIRStepsToGameStateImpl(
       case 'modify_graveyard_permissions': {
         const result = applyModifyGraveyardPermissionsStep(nextState, step, {
           lastGrantedGraveyardCards,
+          lastGrantedGraveyardPermissionIds,
         });
         applyHandledStepResult(step, result);
         break;

@@ -99,6 +99,7 @@ import { cleanupCardLeavingExile } from "../state/modules/playable-from-exile.js
 import { movePermanentToExile } from "../state/modules/counters_tokens.js";
 import { trackCountersPlacedThisTurn } from "../state/modules/counters_tokens.js";
 import { updateCounters } from "../state/modules/counters_tokens.js";
+import { isRemovableCounterType, permanentMatchesCounterRemovalFilter } from "../state/modules/counter-removal-costs.js";
 import { recordCardLeftGraveyardThisTurn, recordCardPutIntoGraveyardThisTurn } from "../state/modules/turn-tracking.js";
 import { canPermanentBeTargetedByPlayer, categorizeSpell, evaluateTargeting, matchesGraveyardCardTargetType as matchesSharedGraveyardCardTargetType, parseTargetRequirements, permanentsShareCardType, selectionRequiresSharedCardType, type SpellSpec } from "../rules-engine/targeting";
 import { getWardCost, counterStackItem } from "../state/modules/stack-mechanics.js";
@@ -1078,6 +1079,7 @@ async function resumeAISpellCastAfterPayment(
     xValue?: number;
     alternateCostId?: string;
     convokeTappedCreatures?: string[];
+    harmonizeTappedCreatureId?: string;
   },
 ): Promise<void> {
   const { socket, handlers } = createSyntheticAIGameActionSocket(gameId, playerId);
@@ -1097,6 +1099,7 @@ async function resumeAISpellCastAfterPayment(
     xValue: payload.xValue,
     alternateCostId: payload.alternateCostId,
     convokeTappedCreatures: payload.convokeTappedCreatures,
+    harmonizeTappedCreatureId: payload.harmonizeTappedCreatureId,
   });
 }
 
@@ -1112,6 +1115,7 @@ async function resumePlayerSpellCastAfterPayment(
     xValue?: number;
     alternateCostId?: string;
     convokeTappedCreatures?: string[];
+    harmonizeTappedCreatureId?: string;
   },
 ): Promise<void> {
   const { socket, handlers } = createForwardingGameActionSocket(io, gameId, playerId);
@@ -1131,6 +1135,7 @@ async function resumePlayerSpellCastAfterPayment(
     xValue: payload.xValue,
     alternateCostId: payload.alternateCostId,
     convokeTappedCreatures: payload.convokeTappedCreatures,
+    harmonizeTappedCreatureId: payload.harmonizeTappedCreatureId,
   });
 }
 
@@ -1987,6 +1992,133 @@ function appendCastSpellContinuationEvent(
   }
 }
 
+type NormalizedCounterRemovalPayment = Array<{ permanentId: string; counterType: string; count: number }>;
+
+function normalizeCounterRemovalPaymentSelections(rawSelections: any, stepData: any): { selections: NormalizedCounterRemovalPayment; error?: string } {
+  const raw = rawSelections && typeof rawSelections === 'object' && !Array.isArray(rawSelections) && Array.isArray(rawSelections.counterSelections)
+    ? rawSelections.counterSelections
+    : rawSelections;
+  const entries = Array.isArray(raw) ? raw : [raw].filter((entry) => entry != null);
+  const availableCounters = Array.isArray(stepData?.availableCounters) ? stepData.availableCounters : [];
+  const availableById = new Map<string, any>(
+    availableCounters
+      .map((entry: any) => [String(entry?.id || ''), entry] as const)
+      .filter(([id]) => Boolean(id)),
+  );
+  const grouped = new Map<string, { permanentId: string; counterType: string; count: number }>();
+
+  const addSelection = (permanentIdRaw: unknown, counterTypeRaw: unknown, countRaw: unknown): string | undefined => {
+    const permanentId = String(permanentIdRaw || '').trim();
+    const counterType = String(counterTypeRaw || '').trim();
+    const count = Math.floor(Number(countRaw ?? 1));
+    if (!permanentId || !counterType) return 'Missing counter selection details';
+    if (!Number.isInteger(count) || count <= 0) return 'Counter selection counts must be positive integers';
+
+    const key = `${permanentId}\u0000${counterType.toLowerCase()}`;
+    const current = grouped.get(key);
+    if (current) {
+      current.count += count;
+    } else {
+      grouped.set(key, { permanentId, counterType, count });
+    }
+    return undefined;
+  };
+
+  for (const entry of entries) {
+    if (typeof entry === 'string') {
+      const option = availableById.get(String(entry || ''));
+      if (!option) return { selections: [], error: 'Selected counter is not a valid choice' };
+      const error = addSelection(option.permanentId, option.counterType, 1);
+      if (error) return { selections: [], error };
+      continue;
+    }
+
+    if (entry && typeof entry === 'object' && !Array.isArray(entry)) {
+      const optionId = String((entry as any).id || '').trim();
+      if (optionId && availableById.has(optionId)) {
+        const option = availableById.get(optionId);
+        const error = addSelection(option.permanentId, option.counterType, Number((entry as any).count ?? 1));
+        if (error) return { selections: [], error };
+        continue;
+      }
+
+      const error = addSelection(
+        (entry as any).permanentId ?? (entry as any).permanent,
+        (entry as any).counterType ?? (entry as any).type,
+        (entry as any).count ?? (entry as any).amount ?? 1,
+      );
+      if (error) return { selections: [], error };
+      continue;
+    }
+
+    return { selections: [], error: 'Invalid counter selection format' };
+  }
+
+  return { selections: Array.from(grouped.values()) };
+}
+
+function validateCounterRemovalPaymentSelection(
+  game: any,
+  playerId: string,
+  stepData: any,
+  rawSelections: any,
+): { ok: true; selections: NormalizedCounterRemovalPayment } | { ok: false; code: string; message: string } {
+  const amount = Math.max(0, Math.floor(Number(stepData?.amount || 0)));
+  if (!Number.isFinite(amount) || amount <= 0) {
+    return { ok: false, code: 'INVALID_STEP', message: 'Invalid counter-removal cost amount' };
+  }
+
+  const normalized = normalizeCounterRemovalPaymentSelections(rawSelections, stepData);
+  if (normalized.error) {
+    return { ok: false, code: 'INVALID_SELECTION', message: normalized.error };
+  }
+
+  const total = normalized.selections.reduce((sum, entry) => sum + Math.max(0, Number(entry.count || 0)), 0);
+  if (total !== amount) {
+    return { ok: false, code: 'INVALID_SELECTION', message: `Must remove exactly ${amount} counter${amount === 1 ? '' : 's'}.` };
+  }
+
+  const requiredCounterType = String(stepData?.counterType || '').trim().toLowerCase();
+  const filter = String(stepData?.filter || 'creature').trim() || 'creature';
+  const battlefield: any[] = Array.isArray((game.state as any)?.battlefield) ? (game.state as any).battlefield : [];
+  const resolved: NormalizedCounterRemovalPayment = [];
+
+  for (const selection of normalized.selections) {
+    const permanent = battlefield.find((entry: any) => entry && String(entry.id || '') === String(selection.permanentId));
+    if (!permanent || String(permanent.controller || '') !== String(playerId)) {
+      return { ok: false, code: 'INVALID_SELECTION', message: 'Selected permanent is not a valid counter source' };
+    }
+    if (!permanentMatchesCounterRemovalFilter(permanent, filter)) {
+      return { ok: false, code: 'INVALID_SELECTION', message: 'Selected permanent does not match the counter-removal requirement' };
+    }
+
+    const counters = permanent.counters && typeof permanent.counters === 'object' && !Array.isArray(permanent.counters)
+      ? permanent.counters as Record<string, unknown>
+      : {};
+    const actualCounterType = Object.keys(counters).find((key) => key === selection.counterType)
+      || Object.keys(counters).find((key) => key.toLowerCase() === selection.counterType.toLowerCase());
+    if (!actualCounterType || !isRemovableCounterType(actualCounterType)) {
+      return { ok: false, code: 'INVALID_SELECTION', message: 'Selected counter type is not available' };
+    }
+    if (requiredCounterType && actualCounterType.toLowerCase() !== requiredCounterType) {
+      return { ok: false, code: 'INVALID_SELECTION', message: 'Selected counter type does not match the cost' };
+    }
+
+    const availableCount = Math.floor(Number(counters[actualCounterType] || 0));
+    if (availableCount < selection.count) {
+      return { ok: false, code: 'INSUFFICIENT_COUNTERS', message: 'Selected permanents no longer have enough counters' };
+    }
+
+    resolved.push({
+      permanentId: String(selection.permanentId),
+      counterType: actualCounterType,
+      count: selection.count,
+    });
+  }
+
+  return { ok: true, selections: resolved };
+}
+
 function appendCastFromExilePromptResolveEvent(
   gameId: string,
   game: any,
@@ -2009,6 +2141,17 @@ function appendCastFromGraveyardPromptResolveEvent(
   } catch (err) {
     debugWarn(1, '[Resolution] appendEvent(castFromGraveyardPromptResolve) failed:', err);
   }
+}
+
+function triggeredSourceExilesSpellCastThisWay(effectText: string): boolean {
+  const normalized = String(effectText || '')
+    .toLowerCase()
+    .replace(/[\u2018\u2019]/g, "'")
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  return /\bif\s+(?:a|that|this)\s+(?:card|spell)\s+would\s+be\s+put\s+into\s+your\s+graveyard\s*,?\s*exile\s+it\s+instead\b/.test(normalized)
+    || /\bif\s+(?:a|that|this)\s+(?:card|spell)\s+cast\s+this\s+way\s+would\s+be\s+put\s+into\s+your\s+graveyard\s*,?\s*exile\s+it\s+instead\b/.test(normalized);
 }
 
 const DISCARD_TRIGGERED_GRAVEYARD_CAST_ORACLE = 'whenever you discard a nonland card, you may cast it from your graveyard.';
@@ -4859,12 +5002,18 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
     if (step.type === ResolutionStepType.ADDITIONAL_COST_PAYMENT) {
       const stepAny = step as any;
       const mandatory = Boolean(stepAny.mandatory);
-      const costType = String(stepAny.costType || 'discard') as 'discard' | 'sacrifice';
+      const costType = String(stepAny.costType || 'discard') as 'discard' | 'sacrifice' | 'remove_counters';
       const amount = Math.max(0, Number(stepAny.amount ?? 0));
 
       if (cancelled) {
         if (mandatory) {
           socket.emit('error', { code: 'STEP_MANDATORY', message: 'This step is mandatory and cannot be cancelled' });
+          return;
+        }
+      } else if (costType === 'remove_counters') {
+        const validation = validateCounterRemovalPaymentSelection(game, String(pid), stepAny, response.selections);
+        if (validation.ok === false) {
+          socket.emit('error', { code: validation.code, message: validation.message });
           return;
         }
       } else {
@@ -8176,10 +8325,12 @@ function getTypeSpecificFields(step: ResolutionStep): Record<string, any> {
       if ('costType' in step) fields.costType = (step as any).costType;
       if ('amount' in step) fields.amount = (step as any).amount;
       if ('filter' in step) fields.filter = (step as any).filter;
+      if ('counterType' in step) fields.counterType = (step as any).counterType;
       if ('title' in step) fields.title = (step as any).title;
       if ('imageUrl' in step) fields.imageUrl = (step as any).imageUrl;
       if ('availableCards' in step) fields.availableCards = (step as any).availableCards;
       if ('availableTargets' in step) fields.availableTargets = (step as any).availableTargets;
+      if ('availableCounters' in step) fields.availableCounters = (step as any).availableCounters;
       break;
 
     case ResolutionStepType.SQUAD_COST_PAYMENT:
@@ -8270,6 +8421,7 @@ function getTypeSpecificFields(step: ResolutionStep): Record<string, any> {
       if ('costAdjustment' in step) fields.costAdjustment = (step as any).costAdjustment;
       if ('costReduction' in step) fields.costReduction = (step as any).costReduction;
       if ('convokeOptions' in step) fields.convokeOptions = (step as any).convokeOptions;
+      if ('harmonizeOptions' in step) fields.harmonizeOptions = (step as any).harmonizeOptions;
       if ('forcedAlternateCostId' in step) fields.forcedAlternateCostId = (step as any).forcedAlternateCostId;
       break;
 
@@ -11199,6 +11351,9 @@ async function handleStepResponse(
         const convokeTappedCreatures = Array.isArray(selections.convokeTappedCreatures)
           ? selections.convokeTappedCreatures.map((x: any) => String(x))
           : undefined;
+        const harmonizeTappedCreatureId = typeof selections.harmonizeTappedCreatureId === 'string'
+          ? String(selections.harmonizeTappedCreatureId)
+          : undefined;
 
         await resumePlayerSpellCastAfterPayment(io, gameId, String(pid), {
           cardId,
@@ -11208,6 +11363,7 @@ async function handleStepResponse(
           xValue,
           alternateCostId,
           convokeTappedCreatures,
+          harmonizeTappedCreatureId,
         });
 
         debug(2, `[Resolution] Spell payment complete for ${cardName}; completed cast server-side (effectId='${effectId}')`);
@@ -12554,7 +12710,7 @@ async function handleStepResponse(
       const castArgs = stepData.castSpellFromHandArgs as any;
       const cardId = String(stepData.cardId || stepData.sourceId || castArgs?.cardId || '');
       const cardName = String(stepData.cardName || stepData.sourceName || 'Spell');
-      const costType = String(stepData.costType || 'discard') as 'discard' | 'sacrifice';
+      const costType = String(stepData.costType || 'discard') as 'discard' | 'sacrifice' | 'remove_counters';
       const additionalCostKeyword = String(stepData.additionalCostKeyword || '').toLowerCase().trim();
       const isBargain = additionalCostKeyword === 'bargain';
 
@@ -12607,13 +12763,27 @@ async function handleStepResponse(
         break;
       }
 
-      const selectedIds = (Array.isArray(response.selections) ? response.selections : [response.selections])
-        .map((x: any) => String(x ?? ''))
-        .filter(Boolean);
+      let selectedIds: string[] = [];
+      let removedCountersForCost: NormalizedCounterRemovalPayment = [];
+      if (costType === 'remove_counters') {
+        const validation = validateCounterRemovalPaymentSelection(game, String(pid), stepData, response.selections);
+        if (validation.ok === false) {
+          emitToPlayer(io, pid as any, 'error', { code: validation.code, message: validation.message });
+          break;
+        }
+        removedCountersForCost = validation.selections;
+      } else {
+        selectedIds = (Array.isArray(response.selections) ? response.selections : [response.selections])
+          .map((x: any) => String(x ?? ''))
+          .filter(Boolean);
+      }
 
       // Optional steps can be declined (empty selection or cancel) without error.
       // Currently only used for Bargain.
-      if ((response.cancelled || selectedIds.length === 0) && !mandatory) {
+      const noSelectionsProvided = costType === 'remove_counters'
+        ? removedCountersForCost.length === 0
+        : selectedIds.length === 0;
+      if ((response.cancelled || noSelectionsProvided) && !mandatory) {
         if (!isBargain) break;
         // Mark Bargain as resolved (declined).
         (spellCard as any).bargainResolved = true;
@@ -12678,13 +12848,14 @@ async function handleStepResponse(
 
       if (response.cancelled) break;
 
-      if (selectedIds.length === 0) {
+      if (costType !== 'remove_counters' && selectedIds.length === 0) {
         emitToPlayer(io, pid as any, 'error', { code: 'INVALID_SELECTION', message: 'No selections provided' });
         break;
       }
 
       let discardedNames: string[] = [];
       let sacrificedNames: string[] = [];
+      let removedCounterDescriptions: string[] = [];
       const movedDiscardedCardsToGraveyard: any[] = [];
       const movedDiscardedCardsToExile: any[] = [];
       const deferredMadnessPrompts: any[] = [];
@@ -12776,7 +12947,7 @@ async function handleStepResponse(
           message: `${getPlayerName(game, pid)} discards ${discardedNames.join(', ')} as an additional cost to cast ${cardName}.`,
           ts: Date.now(),
         });
-      } else {
+      } else if (costType === 'sacrifice') {
         const battlefield = (game.state as any).battlefield || [];
         for (const permId of selectedIds) {
           const permIndex = battlefield.findIndex((p: any) => p && p.id === permId);
@@ -12798,6 +12969,22 @@ async function handleStepResponse(
           gameId,
           from: 'system',
           message: `${getPlayerName(game, pid)} sacrifices ${sacrificedNames.join(', ')} as an additional cost to cast ${cardName}.`,
+          ts: Date.now(),
+        });
+      } else if (costType === 'remove_counters') {
+        const battlefield = Array.isArray((game.state as any).battlefield) ? (game.state as any).battlefield : [];
+        for (const selection of removedCountersForCost) {
+          const permanent = battlefield.find((entry: any) => entry && String(entry.id || '') === String(selection.permanentId));
+          const permanentName = String(permanent?.card?.name || 'permanent');
+          updateCounters(game as any, selection.permanentId, { [selection.counterType]: -selection.count });
+          removedCounterDescriptions.push(`${selection.count} ${selection.counterType} from ${permanentName}`);
+        }
+
+        io.to(gameId).emit('chat', {
+          id: `m_${Date.now()}`,
+          gameId,
+          from: 'system',
+          message: `${getPlayerName(game, pid)} removes ${removedCounterDescriptions.join(', ')} as an additional cost to cast ${cardName}.`,
           ts: Date.now(),
         });
       }
@@ -12845,6 +13032,7 @@ async function handleStepResponse(
         playerId: pid,
         cardId,
         sacrificedPermanentIds: costType === 'sacrifice' ? selectedIds : [],
+        removedCountersForCost: costType === 'remove_counters' ? removedCountersForCost : [],
         ...(spellSourceZone === 'hand'
           ? {
               cardUpdates: isBargain
@@ -25619,6 +25807,7 @@ async function handleOptionChoiceResponse(
         sourceId: String(stepData?.sourceId || step.sourceId || '').trim() || undefined,
         resolvedStepId: String(step.id || '').trim() || undefined,
         choiceId: String(choiceId || '').trim() || undefined,
+        echoChoice: stepData?.echoChoice === true || undefined,
         optionalPaymentValidationKind: String(stepData?.optionalPaymentValidationKind || '').trim() || undefined,
         manaCost: String(stepData?.optionalPaymentManaCost || stepData?.manaCost || '').trim() || undefined,
         energyCost: Number(stepData?.optionalPaymentEnergyAmount || stepData?.energyCost || 0) || undefined,
@@ -26992,6 +27181,8 @@ async function handleOptionChoiceResponse(
 
       if (choiceId === 'cast') {
         const castWithoutPayingManaCost = stepData.castFromGraveyardWithoutPayingManaCost === true;
+        const exileAfterResolution = stepData.castFromGraveyardExileAfterResolution === true
+          || stepData.castFromGraveyardCard?.exileAfterResolution === true;
         if (!zones || !Array.isArray(zones.graveyard)) {
           debugWarn(2, `[Resolution] Cast-from-graveyard: No graveyard found for player ${playerId}`);
         } else if (cardIndex === -1) {
@@ -27012,6 +27203,7 @@ async function handleOptionChoiceResponse(
               skipPriorityCheck: true,
               forcedAlternateCostId: castWithoutPayingManaCost ? 'free' : undefined,
               castWithoutPayingManaCost,
+              exileAfterResolution,
               ignoreTimingRestrictions: true,
             }
           );
@@ -30143,6 +30335,7 @@ async function handleGraveyardSelectionResponse(
     const sourceName = String(step.sourceName || cardName || 'Ability');
     const castWithoutPayingManaCost = (step as any)?.triggeredAbilityCastWithoutPayingManaCost === true;
     const mayCast = (step as any)?.triggeredAbilityMayCastFromGraveyard !== false;
+    const exileAfterResolution = triggeredSourceExilesSpellCastThisWay(String((step as any)?.triggeredAbilityEffectText || ''));
 
     if (mayCast) {
       ResolutionQueueManager.addStep(gameId, {
@@ -30162,8 +30355,12 @@ async function handleGraveyardSelectionResponse(
         minSelections: 1,
         maxSelections: 1,
         castFromGraveyardCardId: selectedCardId,
-        castFromGraveyardCard: { ...(selectedCard as any) },
+        castFromGraveyardCard: {
+          ...(selectedCard as any),
+          ...(exileAfterResolution ? { exileAfterResolution: true } : null),
+        },
         castFromGraveyardWithoutPayingManaCost: castWithoutPayingManaCost,
+        ...(exileAfterResolution ? { castFromGraveyardExileAfterResolution: true } : null),
       } as any);
     } else {
       const fakeSocket: any = {
@@ -30181,6 +30378,7 @@ async function handleGraveyardSelectionResponse(
           skipPriorityCheck: true,
           forcedAlternateCostId: castWithoutPayingManaCost ? 'free' : undefined,
           castWithoutPayingManaCost: castWithoutPayingManaCost,
+          exileAfterResolution,
           ignoreTimingRestrictions: true,
         }
       );
@@ -31032,12 +31230,57 @@ async function handleModalChoiceResponse(
     }
     return;
   }
+
+  const triggerData = (modalStep as any).triggerData;
+  if (triggerData && String(triggerData.triggerType || '') === 'etb_modal_choice') {
+    const permanentId = String(triggerData.sourceId || modalStep.sourceId || modalStep.permanentId || '').trim();
+    const battlefield = Array.isArray(game.state?.battlefield) ? (game.state.battlefield as any[]) : [];
+    const permanent = battlefield.find((entry: any) => String(entry?.id || '') === permanentId);
+    const stepOptions = Array.isArray((modalStep as any).options) ? ((modalStep as any).options as any[]) : [];
+    const selectedOption = stepOptions.find((option: any) => String(option?.id || '').trim() === String(selectedId || '').trim());
+    const selectedMode = selectedOption
+      ? {
+          id: String(selectedOption.id || selectedId || '').trim(),
+          label: String(selectedOption.label || selectedOption.name || selectedOption.description || selectedId || '').trim(),
+          description: String(selectedOption.description || selectedOption.label || selectedId || '').trim(),
+        }
+      : null;
+
+    if (permanent && selectedMode) {
+      permanent.selectedMode = { ...selectedMode };
+      permanent.card = {
+        ...(permanent.card || {}),
+        selectedMode: { ...selectedMode },
+      };
+
+      try {
+        appendEvent(gameId, (game as any).seq ?? 0, 'setPermanentSelectedMode', {
+          permanentId,
+          selectedMode: { ...selectedMode },
+        });
+      } catch (err) {
+        debugWarn(1, '[Resolution] appendEvent(setPermanentSelectedMode) failed:', err);
+      }
+
+      io.to(gameId).emit('chat', {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: 'system',
+        message: `${getPlayerName(game, pid)} chose ${selectedMode.label} for ${String(modalStep.sourceName || 'this permanent')}.`,
+        ts: Date.now(),
+      });
+    }
+
+    if (typeof game.bumpSeq === 'function') {
+      game.bumpSeq();
+    }
+    return;
+  }
   
   // Generic modal choice handling (fallback for other modal choices)
   debug(2, `[Resolution] Generic modal choice: ${step.description}, selected: ${selectedId || 'none'}`);
   
   // Check if this is a trigger modal choice (e.g., SOLDIER Military Program)
-  const triggerData = (modalStep as any).triggerData;
   if (triggerData && triggerData.isSoldierProgram) {
     // Normalize selections to array of strings
     let choiceIds: string[] = [];

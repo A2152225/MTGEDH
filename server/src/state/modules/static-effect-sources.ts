@@ -12,6 +12,67 @@ export interface StaticEffectSource {
   counters?: any;
 }
 
+function normalizeModeLabel(label: string): string {
+  return String(label || '')
+    .trim()
+    .toLowerCase()
+    .replace(/^[^a-z0-9]+|[^a-z0-9]+$/g, '')
+    .replace(/\s+/g, ' ');
+}
+
+function getPermanentSelectedModeLabel(permanent: any): string {
+  const selectedMode = (permanent as any)?.selectedMode ?? (permanent as any)?.card?.selectedMode;
+  if (selectedMode && typeof selectedMode === 'object') {
+    const label = String((selectedMode as any).label || (selectedMode as any).description || '').trim();
+    if (label) return label;
+  }
+
+  if (typeof selectedMode === 'string') {
+    return String(selectedMode).trim();
+  }
+
+  return '';
+}
+
+function scopeOracleTextToSelectedMode(oracleText: string, selectedModeLabel: string): string {
+  const chosenLabel = normalizeModeLabel(selectedModeLabel);
+  if (!oracleText || !chosenLabel) {
+    return oracleText;
+  }
+
+  const lines = String(oracleText || '').split(/\r?\n/);
+  let sawModalBullet = false;
+  let keptChosenBullet = false;
+
+  const scopedLines = lines.filter((line) => {
+    const bulletMatch = line.match(/^\s*(?:\u2022|\*)\s*(.+?)\s*(?:\u2014|-)\s*(.+?)\s*$/);
+    if (!bulletMatch) {
+      return true;
+    }
+
+    sawModalBullet = true;
+    const bulletLabel = normalizeModeLabel(bulletMatch[1]);
+    if (bulletLabel === chosenLabel) {
+      keptChosenBullet = true;
+      return true;
+    }
+
+    return false;
+  });
+
+  if (!sawModalBullet || !keptChosenBullet) {
+    return oracleText;
+  }
+
+  return scopedLines.join('\n');
+}
+
+function getBattlefieldStaticOracleText(permanent: any): string {
+  const oracleText = String(permanent?.card?.oracle_text || permanent?.card?.oracleText || '');
+  const selectedModeLabel = getPermanentSelectedModeLabel(permanent);
+  return scopeOracleTextToSelectedMode(oracleText, selectedModeLabel);
+}
+
 export function collectStaticEffectSources(
   state: any,
   options?: { sourceTypes?: StaticEffectSourceType[] },
@@ -33,7 +94,7 @@ export function collectStaticEffectSources(
         controller: String(permanent.controller || ''),
         sourceId: String(permanent.id || permanent.card?.id || ''),
         sourceName: String(permanent.card?.name || permanent.name || 'Unknown'),
-        oracleText: String(permanent.card?.oracle_text || permanent.card?.oracleText || ''),
+        oracleText: getBattlefieldStaticOracleText(permanent),
         typeLine: String(permanent.card?.type_line || permanent.card?.typeLine || ''),
         phasedOut: Boolean(permanent.phasedOut),
         counters: (permanent as any)?.counters,

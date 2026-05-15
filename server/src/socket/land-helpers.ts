@@ -23,7 +23,7 @@ import { debug, debugWarn, debugError } from "../utils/debug.js";
  * Examples include discarding cards (Faithless Looting), sacrificing permanents,
  * or paying life.
  * 
- * @property type - The type of additional cost required ('discard', 'sacrifice', 'pay_life', 'squad', or 'strive')
+ * @property type - The type of additional cost required ('discard', 'sacrifice', 'pay_life', 'remove_counters', 'squad', or 'strive')
  * @property amount - How many of the cost type must be paid (e.g., 1 card, 2 life)
  * @property filter - Optional filter for sacrifice costs (e.g., "creature", "artifact")
  * @property cost - For squad/strive: the mana cost to pay per copy/target (e.g., "{1}{W}")
@@ -31,9 +31,11 @@ import { debug, debugWarn, debugError } from "../utils/debug.js";
  * @property costPerTarget - For strive: indicates this cost is per additional target beyond the first
  */
 export interface AdditionalCostResult {
-  type: 'discard' | 'sacrifice' | 'pay_life' | 'squad' | 'strive' | 'blight' | 'collect_evidence';
+  type: 'discard' | 'sacrifice' | 'pay_life' | 'remove_counters' | 'squad' | 'strive' | 'blight' | 'collect_evidence';
   amount: number;
   filter?: string;
+  counterType?: string;
+  distributed?: boolean;
   cost?: string;
   canPayMultipleTimes?: boolean;
   costPerTarget?: boolean;  // For strive - indicates cost is per target beyond first

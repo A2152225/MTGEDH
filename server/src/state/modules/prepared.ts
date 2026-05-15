@@ -1,6 +1,7 @@
 import { uid } from '../utils.js';
 
 import { cleanupCardLeavingExile } from './playable-from-exile.js';
+import { stampPermanentControlEntryForEcho } from './upkeep-triggers.js';
 
 function getCardFaces(card: any): any[] {
   return Array.isArray(card?.card_faces) ? card.card_faces : [];
@@ -189,6 +190,8 @@ export function syncPreparedPermanentAfterControlChange(
   const oldController = String(previousControllerId || '').trim();
   const copyId = getPreparedCopyId(permanent);
   const prepared = isPermanentPrepared(permanent);
+
+  stampPermanentControlEntryForEcho(state, permanent, newController);
 
   if (!newController || (!prepared && !copyId) || !canPermanentBePrepared(permanent)) {
     return null;

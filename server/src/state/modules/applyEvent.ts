@@ -260,7 +260,7 @@ import { debug, debugWarn, debugError } from "../../utils/debug.js";
 import { checkGraveyardTrigger, parsePlaneswalkerAbilities } from "./triggered-abilities.js";
 import { dispatchDamageReceivedTrigger, processDamageReceivedTriggers } from "./triggers/damage-received.js";
 import { processLifeChange } from "./game-state-effects";
-import { sacrificePermanent } from "./upkeep-triggers";
+import { markEchoPaid, sacrificePermanent } from "./upkeep-triggers";
 import { ResolutionQueueManager, ResolutionStepType } from "../resolution/index.js";
 import { parseManaCost } from "./mana-check.js";
 import { calculateManaProduction, consumeManaFromPool, getOrInitManaPool, recordCreatureSpellHasteManaProduced, resolveManaCostForPoolPayment } from "../../socket/util.js";
@@ -858,6 +858,8 @@ function applyRecordedPlayLandReplayState(ctx: GameContext, event: any): void {
   const playerId = String(event?.playerId || '').trim();
   const cardId = String(event?.card?.id || event?.cardId || '').trim();
   const persistedPermanentId = String(event?.permanentId || '').trim();
+  const graveyardPermissionId = String(event?.graveyardPermissionId || event?.card?.graveyardPermissionId || '').trim();
+  const graveyardPermissionSourceName = String(event?.graveyardPermissionSourceName || event?.card?.graveyardPermissionSourceName || '').trim();
   if (!playerId || !cardId) return;
 
   const battlefield = Array.isArray((ctx.state as any)?.battlefield) ? ((ctx.state as any).battlefield as any[]) : [];
@@ -867,6 +869,20 @@ function applyRecordedPlayLandReplayState(ctx: GameContext, event: any): void {
   if (!permanent) return;
   if (persistedPermanentId) {
     permanent.id = persistedPermanentId;
+  }
+
+  if (graveyardPermissionId) {
+    permanent.graveyardPermissionId = graveyardPermissionId;
+    if (permanent.card && typeof permanent.card === 'object') {
+      permanent.card.graveyardPermissionId = graveyardPermissionId;
+    }
+  }
+
+  if (graveyardPermissionSourceName) {
+    permanent.graveyardPermissionSourceName = graveyardPermissionSourceName;
+    if (permanent.card && typeof permanent.card === 'object') {
+      permanent.card.graveyardPermissionSourceName = graveyardPermissionSourceName;
+    }
   }
 
   if (typeof event?.entersTapped === 'boolean') {
@@ -2619,6 +2635,47 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
             if ((e as any).castWithoutPayingManaCost === true) {
               applyToStackItem('castWithoutPayingManaCost', true);
             }
+            const graveyardPermissionId =
+              (e as any).graveyardPermissionId ??
+              (e as any).card?.graveyardPermissionId ??
+              (e as any).card?.card?.graveyardPermissionId;
+            if (graveyardPermissionId) {
+              applyToStackItem('graveyardPermissionId', String(graveyardPermissionId));
+            }
+            const graveyardPermissionSourceName =
+              (e as any).graveyardPermissionSourceName ??
+              (e as any).card?.graveyardPermissionSourceName ??
+              (e as any).card?.card?.graveyardPermissionSourceName;
+            if (graveyardPermissionSourceName) {
+              applyToStackItem('graveyardPermissionSourceName', String(graveyardPermissionSourceName));
+            }
+            const graveyardPermissionCostMode =
+              (e as any).graveyardPermissionCostMode ??
+              (e as any).card?.graveyardPermissionCostMode ??
+              (e as any).card?.card?.graveyardPermissionCostMode;
+            if (graveyardPermissionCostMode) {
+              applyToStackItem('graveyardPermissionCostMode', String(graveyardPermissionCostMode));
+              if (String(graveyardPermissionCostMode) === 'without_paying_mana_cost') {
+                applyToStackItem('castWithoutPayingManaCost', true);
+              }
+            }
+            if ((e as any).exileAfterResolution === true || (e as any).card?.exileAfterResolution === true || (e as any).card?.card?.exileAfterResolution === true) {
+              applyToStackItem('exileAfterResolution', true);
+            }
+            const leaveBattlefieldReplacementDestination =
+              (e as any).leaveBattlefieldReplacementDestination ??
+              (e as any).card?.leaveBattlefieldReplacementDestination ??
+              (e as any).card?.card?.leaveBattlefieldReplacementDestination;
+            if (String(leaveBattlefieldReplacementDestination || '') === 'exile') {
+              applyToStackItem('leaveBattlefieldReplacementDestination', 'exile');
+            }
+            const leaveBattlefieldReplacementSourceName =
+              (e as any).leaveBattlefieldReplacementSourceName ??
+              (e as any).card?.leaveBattlefieldReplacementSourceName ??
+              (e as any).card?.card?.leaveBattlefieldReplacementSourceName;
+            if (leaveBattlefieldReplacementSourceName) {
+              applyToStackItem('leaveBattlefieldReplacementSourceName', String(leaveBattlefieldReplacementSourceName));
+            }
             if (typeof (e as any).faceIndex === 'number') {
               applyToStackItem('faceIndex', Number((e as any).faceIndex));
             }
@@ -2897,6 +2954,15 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
             applyReplaySacrificedPermanent(ctx, String(permanentId || ''));
           }
 
+          const removedCountersForCost = Array.isArray((e as any).removedCountersForCost) ? (e as any).removedCountersForCost : [];
+          for (const entry of removedCountersForCost) {
+            const permanentId = String(entry?.permanentId || '').trim();
+            const counterType = String(entry?.counterType || '').trim();
+            const count = Number(entry?.count || 0);
+            if (!permanentId || !counterType || !Number.isFinite(count) || count <= 0) continue;
+            updateCounters(ctx as any, permanentId, { [counterType]: -count });
+          }
+
           ctx.bumpSeq();
         } catch (err) {
           debugWarn(1, 'applyEvent(castSpellContinuation): failed', err);
@@ -3114,6 +3180,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           const resolvedStepId = String((e as any).resolvedStepId || '').trim();
           const choiceId = String((e as any).choiceId || '').trim().toLowerCase();
           const paid = choiceId.startsWith('pay');
+          const echoChoice = (e as any).echoChoice === true;
 
           if (paid) {
             const playerId = String((e as any).playerId || '').trim();
@@ -3131,6 +3198,15 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
               stateAny.manaPool = stateAny.manaPool || {};
               stateAny.manaPool[playerId] = stateAny.manaPool[playerId] || { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 };
               consumeRecordedManaCostFromPool(stateAny.manaPool[playerId], manaCost);
+            }
+
+            if (echoChoice && sourceId) {
+              markEchoPaid({ ...(ctx as any), zones: ctx.state?.zones } as any, sourceId);
+            }
+          } else if (echoChoice && sourceId) {
+            const playerId = String((e as any).playerId || '').trim();
+            if (playerId) {
+              sacrificePermanent({ ...(ctx as any), zones: ctx.state?.zones } as any, sourceId, playerId);
             }
           }
 
@@ -6187,6 +6263,41 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
         break;
       }
 
+      case "setPermanentSelectedMode": {
+        const permanentId = String((e as any).permanentId || '').trim();
+        const rawSelectedMode = (e as any).selectedMode;
+        if (!permanentId || !rawSelectedMode) break;
+
+        try {
+          const battlefield = Array.isArray(ctx.state.battlefield) ? ctx.state.battlefield : [];
+          const permanent = battlefield.find((entry: any) => entry && String(entry.id || '') === permanentId) as any;
+          if (!permanent) break;
+
+          const nextSelectedMode = typeof rawSelectedMode === 'object'
+            ? {
+                id: String((rawSelectedMode as any).id || '').trim(),
+                label: String((rawSelectedMode as any).label || (rawSelectedMode as any).description || '').trim(),
+                description: String((rawSelectedMode as any).description || (rawSelectedMode as any).label || '').trim(),
+              }
+            : {
+                id: '',
+                label: String(rawSelectedMode || '').trim(),
+                description: String(rawSelectedMode || '').trim(),
+              };
+
+          permanent.selectedMode = nextSelectedMode;
+          permanent.card = {
+            ...(permanent.card || {}),
+            selectedMode: { ...nextSelectedMode },
+          };
+
+          ctx.bumpSeq();
+        } catch (err) {
+          debugWarn(1, 'applyEvent(setPermanentSelectedMode): failed', err);
+        }
+        break;
+      }
+
       case "spellBottomRevealUntilNonlandResolve": {
         const playerId = String((e as any).playerId || '').trim();
         const resolvedStepId = String((e as any).resolvedStepId || '').trim();
@@ -7829,7 +7940,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
             break;
           }
 
-          if (cardId && pid && ['flashback', 'jump-start', 'retrace', 'escape'].includes(String(abilityType))) {
+          if (cardId && pid && ['flashback', 'jump-start', 'retrace', 'escape', 'graveyard-cast'].includes(String(abilityType))) {
             const zones = ctx.state.zones || {};
             const z = zones[pid];
             if (z && Array.isArray(z.graveyard)) {
@@ -7927,12 +8038,34 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
                 const recordedTargets = Array.isArray((e as any).targets)
                   ? ((e as any).targets as any[]).map((targetId: any) => String(targetId || '').trim()).filter(Boolean)
                   : [];
+                const alternateCostId = String((e as any).alternateCostId || '').trim() || undefined;
+                const graveyardPermissionId = String((e as any).graveyardPermissionId || '').trim() || undefined;
+                const graveyardPermissionSourceName = String((e as any).graveyardPermissionSourceName || '').trim() || undefined;
+                const graveyardPermissionCostMode = String((e as any).graveyardPermissionCostMode || '').trim() || undefined;
                 ctx.state.stack = ctx.state.stack || [];
-                const graveyardCastCard = buildCastFromGraveyardCard(card, String(abilityType));
+                const graveyardCastCard = {
+                  ...buildCastFromGraveyardCard(card, String(abilityType)),
+                  castFromGraveyard: true,
+                  castSourceZone: 'graveyard',
+                  fromZone: 'graveyard',
+                  ...(alternateCostId ? { alternateCostId } : {}),
+                  ...((e as any).castWithoutPayingManaCost === true ? { castWithoutPayingManaCost: true } : {}),
+                  ...(graveyardPermissionId ? { graveyardPermissionId } : {}),
+                  ...(graveyardPermissionSourceName ? { graveyardPermissionSourceName } : {}),
+                  ...(graveyardPermissionCostMode ? { graveyardPermissionCostMode } : {}),
+                };
                 (ctx.state.stack as any[]).push({
                   id: stackId,
                   controller: pid,
                   card: graveyardCastCard,
+                  castFromGraveyard: true,
+                  castSourceZone: 'graveyard',
+                  fromZone: 'graveyard',
+                  ...(alternateCostId ? { alternateCostId } : {}),
+                  ...((e as any).castWithoutPayingManaCost === true ? { castWithoutPayingManaCost: true } : {}),
+                  ...(graveyardPermissionId ? { graveyardPermissionId } : {}),
+                  ...(graveyardPermissionSourceName ? { graveyardPermissionSourceName } : {}),
+                  ...(graveyardPermissionCostMode ? { graveyardPermissionCostMode } : {}),
                   targets: recordedTargets,
                   ...(graveyardCastCard?.entersBattlefieldWithCounters && typeof graveyardCastCard.entersBattlefieldWithCounters === 'object'
                     ? { entersBattlefieldWithCounters: { ...(graveyardCastCard.entersBattlefieldWithCounters as Record<string, number>) } }
@@ -10832,6 +10965,79 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           ctx.bumpSeq();
         } catch (err) {
           debugWarn(1, "applyEvent(foretellCard): failed", err);
+        }
+        break;
+      }
+
+      case "suspendCard": {
+        const pid = (e as any).playerId;
+        const cardId = (e as any).cardId;
+        const suspendedCardData = (e as any).card;
+
+        try {
+          const zones = ctx.state.zones || {};
+          const z = zones[pid] || { hand: [], handCount: 0, libraryCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0 };
+          zones[pid] = z;
+          ctx.state.zones = zones;
+
+          const hand = Array.isArray(z.hand) ? z.hand : [];
+          const cardIndex = hand.findIndex((c: any) => String(c?.id || '') === String(cardId || ''));
+          if (cardIndex !== -1) {
+            hand.splice(cardIndex, 1);
+          }
+          z.handCount = hand.length;
+
+          try {
+            const tappedPermanents = Array.isArray((e as any).tappedPermanents)
+              ? ((e as any).tappedPermanents as any[]).map((id: any) => String(id)).filter(Boolean)
+              : [];
+            if (tappedPermanents.length > 0) {
+              const battlefield = Array.isArray(ctx.state.battlefield) ? ctx.state.battlefield : [];
+              for (const permanentId of tappedPermanents) {
+                const permanent = battlefield.find((entry: any) => entry && String(entry.id || '') === permanentId);
+                if (permanent) {
+                  (permanent as any).tapped = true;
+                }
+              }
+            }
+          } catch {
+            // best-effort only
+          }
+
+          try {
+            const sacrificedPermanents = Array.isArray((e as any).sacrificedPermanents)
+              ? ((e as any).sacrificedPermanents as any[]).map((id: any) => String(id)).filter(Boolean)
+              : [];
+            for (const permanentId of sacrificedPermanents) {
+              applyReplaySacrificedPermanent(ctx, permanentId);
+            }
+          } catch {
+            // best-effort only
+          }
+
+          try {
+            const manaDelta = (e as any).paymentManaDelta;
+            if (pid && manaDelta && typeof manaDelta === 'object' && !Array.isArray(manaDelta)) {
+              const pool = getOrInitManaPool(ctx.state as any, pid as any) as any;
+              for (const [poolKey, rawAmount] of Object.entries(manaDelta as Record<string, unknown>)) {
+                const amount = Number(rawAmount || 0);
+                if (!Number.isFinite(amount) || amount === 0) continue;
+                pool[poolKey] = Number(pool[poolKey] || 0) + amount;
+              }
+            }
+          } catch {
+            // best-effort only
+          }
+
+          z.exile = z.exile || [];
+          if (suspendedCardData) {
+            (z.exile as any[]).push(suspendedCardData);
+          }
+          (z as any).exileCount = (z.exile as any[]).length;
+
+          ctx.bumpSeq();
+        } catch (err) {
+          debugWarn(1, "applyEvent(suspendCard): failed", err);
         }
         break;
       }

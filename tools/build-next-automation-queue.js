@@ -263,7 +263,7 @@ const familyConfigs = [
     notes: 'Useful for later test runs because these create lots of visible automation gaps when not modeled cleanly.',
     targetCount: 35,
     patterns: [
-      /you may cast .* from your graveyard/i,
+      /you may cast [^.]* from your graveyard/i,
       /you may cast this card from your graveyard/i,
     ],
   },
@@ -274,7 +274,7 @@ const familyConfigs = [
     notes: 'Covers lands and mixed play-permission text from graveyard.',
     targetCount: 25,
     patterns: [
-      /you may play .* from your graveyard/i,
+      /you may play [^.]* from your graveyard/i,
     ],
   },
   {

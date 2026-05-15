@@ -618,6 +618,8 @@ function getEventSummary(event: any): string {
       return `${event.playerName || event.playerId || 'Player'} conceded`;
     case "foretellCard":
       return `${event.playerId || 'Player'} foretold a card`;
+    case "suspendCard":
+      return `${event.playerId || 'Player'} suspended ${event.cardName || 'a card'}`;
     case "phaseOutPermanents":
       return `Permanents phased out`;
     case "equipPermanent":

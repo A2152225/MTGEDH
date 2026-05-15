@@ -97,6 +97,8 @@ function applyRecordedLifePayment(ctx: GameContext, playerId: string, rawAmount:
 function applyRecordedPlayLandReplayState(ctx: GameContext, event: any): void {
   const playerId = String(event?.playerId || '').trim();
   const cardId = String(event?.card?.id || event?.cardId || '').trim();
+  const graveyardPermissionId = String(event?.graveyardPermissionId || event?.card?.graveyardPermissionId || '').trim();
+  const graveyardPermissionSourceName = String(event?.graveyardPermissionSourceName || event?.card?.graveyardPermissionSourceName || '').trim();
   if (!playerId || !cardId) return;
 
   const battlefield = Array.isArray((ctx.state as any)?.battlefield) ? ((ctx.state as any).battlefield as any[]) : [];
@@ -104,6 +106,20 @@ function applyRecordedPlayLandReplayState(ctx: GameContext, event: any): void {
     String(entry?.controller || '') === playerId && String(entry?.card?.id || '') === cardId
   );
   if (!permanent) return;
+
+  if (graveyardPermissionId) {
+    permanent.graveyardPermissionId = graveyardPermissionId;
+    if (permanent.card && typeof permanent.card === 'object') {
+      permanent.card.graveyardPermissionId = graveyardPermissionId;
+    }
+  }
+
+  if (graveyardPermissionSourceName) {
+    permanent.graveyardPermissionSourceName = graveyardPermissionSourceName;
+    if (permanent.card && typeof permanent.card === 'object') {
+      permanent.card.graveyardPermissionSourceName = graveyardPermissionSourceName;
+    }
+  }
 
   if (typeof event?.entersTapped === 'boolean') {
     permanent.tapped = event.entersTapped;

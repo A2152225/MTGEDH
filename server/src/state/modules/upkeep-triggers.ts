@@ -120,6 +120,68 @@ export interface UpkeepTrigger {
   imageUrl?: string;
 }
 
+function getLastUpkeepMarker(state: any, playerId: string): number {
+  const markers = state?.lastUpkeepMarkerByPlayer;
+  const raw = markers && typeof markers === 'object' ? (markers as any)[String(playerId)] : undefined;
+  return Number.isFinite(Number(raw)) ? Number(raw) : 0;
+}
+
+export function recordUpkeepBegan(state: any, playerId: string): number {
+  const nextMarker = (Number(state?.upkeepMarkerCounter || 0) || 0) + 1;
+  state.upkeepMarkerCounter = nextMarker;
+  state.lastUpkeepMarkerByPlayer = state.lastUpkeepMarkerByPlayer || {};
+  state.lastUpkeepMarkerByPlayer[String(playerId)] = nextMarker;
+  return nextMarker;
+}
+
+export function stampPermanentControlEntryForEcho(state: any, permanent: any, controllerId: string): void {
+  if (!state || !permanent || !controllerId) {
+    return;
+  }
+
+  const lastUpkeepMarker = getLastUpkeepMarker(state, controllerId);
+  (permanent as any).echoControlUpkeepMarker = lastUpkeepMarker;
+  (permanent as any).echoPaid = false;
+
+  if (permanent.card && typeof permanent.card === 'object') {
+    (permanent.card as any).echoControlUpkeepMarker = lastUpkeepMarker;
+  }
+}
+
+function shouldTriggerEcho(state: any, permanent: any): boolean {
+  const controllerId = String(permanent?.controller || '').trim();
+  const entryMarkerRaw =
+    (permanent as any)?.echoControlUpkeepMarker ??
+    (permanent as any)?.card?.echoControlUpkeepMarker;
+  const entryMarker = Number(entryMarkerRaw);
+  if (controllerId && Number.isFinite(entryMarker)) {
+    return entryMarker === getLastUpkeepMarker(state, controllerId);
+  }
+
+  const recentControlFlags = [
+    (permanent as any)?.cameUnderYourControlThisTurn,
+    (permanent as any)?.gainedControlThisTurn,
+    (permanent as any)?.cameUnderControlThisTurn,
+    (permanent as any)?.enteredThisTurn,
+    (permanent as any)?.enteredBattlefieldThisTurn,
+    (permanent as any)?.card?.cameUnderYourControlThisTurn,
+    (permanent as any)?.card?.gainedControlThisTurn,
+    (permanent as any)?.card?.cameUnderControlThisTurn,
+    (permanent as any)?.card?.enteredThisTurn,
+    (permanent as any)?.card?.enteredBattlefieldThisTurn,
+  ];
+
+  if (recentControlFlags.some((flag) => flag === true)) {
+    return true;
+  }
+
+  if (recentControlFlags.some((flag) => typeof flag === 'boolean')) {
+    return false;
+  }
+
+  return false;
+}
+
 /**
  * Common upkeep trigger patterns and their effects
  */
@@ -235,7 +297,7 @@ const KNOWN_UPKEEP_CARDS: Record<string, { effect: string; mandatory: boolean; r
 /**
  * Detect upkeep triggers from a card's oracle text
  */
-export function detectUpkeepTriggers(card: any, permanent: any): UpkeepTrigger[] {
+export function detectUpkeepTriggers(card: any, permanent: any, state?: any): UpkeepTrigger[] {
   const triggers: UpkeepTrigger[] = [];
   const oracleText = (card?.oracle_text || "");
   const lowerOracle = oracleText.toLowerCase();
@@ -291,7 +353,7 @@ export function detectUpkeepTriggers(card: any, permanent: any): UpkeepTrigger[]
   }
   
   // Echo - pay echo cost on first upkeep after entering
-  if (lowerOracle.includes("echo") && !permanent?.echoPaid) {
+  if (lowerOracle.includes("echo") && !permanent?.echoPaid && shouldTriggerEcho(state, permanent)) {
     const echoMatch = oracleText.match(/echo\s*(\{[^}]+\}(?:\s*\{[^}]+\})*)/i);
     if (echoMatch) {
       triggers.push({
@@ -567,7 +629,7 @@ export function getUpkeepTriggersForPlayer(ctx: GameContext, activePlayerId: str
     if (!permanent) continue;
     
     const controller = permanent.controller;
-    const cardTriggers = detectUpkeepTriggers(permanent.card, permanent);
+    const cardTriggers = detectUpkeepTriggers(permanent.card, permanent, (ctx as any).state);
     
     for (const trigger of cardTriggers) {
       // Intervening-if (Rule 603.4): if the condition is false at the time the trigger

@@ -39,7 +39,7 @@ import { serializeAbilityActivatedTriggeredStackItem, triggerAbilityActivatedTri
 import { isCreatureNow } from "../state/creatureTypeNow.js";
 import { countArtifacts, getActiveAbilityConditions, getTotalCreaturePower } from "../state/modules/game-state-effects.js";
 import { detectActivatedAbilityConditionRequirement, type ActivatedAbilityConditionRequirement } from "../state/modules/activated-ability-conditions.js";
-import { buildCastFromGraveyardCard, getGrantedCastFromGraveyardKeywordInfo, getGrantedEmbalmInfo, getGrantedFlashbackInfo, getGrantedUnearthInfo, getPrintedUnearthInfo } from "../state/modules/graveyard-permissions.js";
+import { buildCastFromGraveyardCard, buildGraveyardCastingPermissionId, getGrantedCastFromGraveyardKeywordInfo, getGrantedEmbalmInfo, getGrantedFlashbackInfo, getGrantedUnearthInfo, getPrintedSelfCastPermissionInfo, getPrintedUnearthInfo } from "../state/modules/graveyard-permissions.js";
 import { detectAdditionalCost } from "./land-helpers.js";
 
 function cardHasSplitSecond(card: any): boolean {
@@ -1026,6 +1026,15 @@ function getCastFromGraveyardActivationCost(card: any, abilityId: string, contex
   const normalizedAbilityId = String(abilityId || '').trim().toLowerCase();
   const printedManaCost = String(card?.mana_cost || card?.manaCost || '').trim();
 
+  if (normalizedAbilityId === 'graveyard-cast') {
+    const printedSelfCastInfo = context?.game && context.playerId
+      ? getPrintedSelfCastPermissionInfo((context.game as any)?.state || context.game, context.playerId as any, card, 'graveyard')
+      : { hasIt: false };
+    return printedSelfCastInfo.hasIt
+      ? { manaCost: printedSelfCastInfo.cost || printedManaCost || undefined, hasAbility: true }
+      : { hasAbility: false };
+  }
+
   if (normalizedAbilityId === 'retrace') {
     if (/\bretrace\b/i.test(oracleText)) {
       return printedManaCost ? { manaCost: printedManaCost, hasAbility: true } : { hasAbility: true };
@@ -1106,6 +1115,58 @@ function getCastFromGraveyardActivationCost(card: any, abilityId: string, contex
     ...(manaCost ? { manaCost } : {}),
     ...(Number.isFinite(lifeCost) ? { lifeCost } : {}),
     hasAbility: Boolean(manaCost) || Boolean(keywordPatterns[normalizedAbilityId] && normalizedAbilityId && oracleText.toLowerCase().includes(normalizedAbilityId)),
+  };
+}
+
+function getDirectGraveyardCastReplayMetadata(
+  game: any,
+  playerId: string,
+  card: any,
+  abilityId: string,
+): {
+  fromZone?: 'graveyard';
+  graveyardPermissionId?: string;
+  graveyardPermissionSourceName?: string;
+  graveyardPermissionCostMode?: 'normal' | 'without_paying_mana_cost';
+  castWithoutPayingManaCost?: true;
+  alternateCostId?: 'free';
+} {
+  if (String(abilityId || '').trim().toLowerCase() !== 'graveyard-cast') {
+    return {};
+  }
+
+  const printedSelfCastInfo = getPrintedSelfCastPermissionInfo(game?.state || game, playerId as any, card, 'graveyard');
+  if (!printedSelfCastInfo.hasIt) {
+    return {};
+  }
+
+  const costMode: 'normal' | 'without_paying_mana_cost' = /\bwithout paying (?:its|their|that spell's) mana cost\b/i.test(String(card?.oracle_text || ''))
+    ? 'without_paying_mana_cost'
+    : 'normal';
+  const cardId = String(card?.id || '').trim();
+  const sourceName = String(card?.name || '').trim();
+  const permissionId = buildGraveyardCastingPermissionId({
+    playerId: String(playerId || ''),
+    permission: 'cast',
+    sourceZone: 'graveyard',
+    cardFilter: {
+      ...(cardId ? { cardIds: [cardId] } : {}),
+      qualifier: 'this card',
+    },
+    costMode,
+    duration: 'static',
+    sourceId: cardId || sourceName || 'graveyard_source',
+    ...(sourceName ? { sourceName } : {}),
+  });
+
+  return {
+    fromZone: 'graveyard',
+    graveyardPermissionId: permissionId,
+    ...(sourceName ? { graveyardPermissionSourceName: sourceName } : {}),
+    graveyardPermissionCostMode: costMode,
+    ...(costMode === 'without_paying_mana_cost'
+      ? { castWithoutPayingManaCost: true as const, alternateCostId: 'free' as const }
+      : {}),
   };
 }
 
@@ -1803,13 +1864,28 @@ export function finalizeGraveyardSpellCast(params: {
   zones.graveyardCount = graveyard.length;
   markCardLeftGraveyardLive(params.game, params.playerId, card);
   markCastFromGraveyardLive(params.game, params.playerId);
-  const spellCard = buildGraveyardCastSpellCard(card, params.abilityId);
+  const replayMetadata = getDirectGraveyardCastReplayMetadata(params.game, params.playerId, card, params.abilityId);
+  const spellCard = {
+    ...buildGraveyardCastSpellCard(card, params.abilityId),
+    ...replayMetadata,
+    castFromGraveyard: true,
+    castSourceZone: 'graveyard',
+    fromZone: 'graveyard',
+  };
 
   const stackId = String(params.stackId || '').trim() || generateId('stack');
   const stackItem = {
     id: stackId,
     controller: params.playerId,
     card: spellCard,
+    castFromGraveyard: true,
+    castSourceZone: 'graveyard',
+    fromZone: 'graveyard',
+    ...(replayMetadata.graveyardPermissionId ? { graveyardPermissionId: replayMetadata.graveyardPermissionId } : {}),
+    ...(replayMetadata.graveyardPermissionSourceName ? { graveyardPermissionSourceName: replayMetadata.graveyardPermissionSourceName } : {}),
+    ...(replayMetadata.graveyardPermissionCostMode ? { graveyardPermissionCostMode: replayMetadata.graveyardPermissionCostMode } : {}),
+    ...(replayMetadata.castWithoutPayingManaCost ? { castWithoutPayingManaCost: true } : {}),
+    ...(replayMetadata.alternateCostId ? { alternateCostId: replayMetadata.alternateCostId } : {}),
     targets: normalizedTargets,
     ...(spellCard?.entersBattlefieldWithCounters && typeof spellCard.entersBattlefieldWithCounters === 'object'
       ? { entersBattlefieldWithCounters: { ...(spellCard.entersBattlefieldWithCounters as Record<string, number>) } }
@@ -1836,7 +1912,13 @@ export function finalizeGraveyardSpellCast(params: {
       abilityId: params.abilityId,
       stackId,
       manaCost: params.manaCost || undefined,
+      fromZone: 'graveyard',
       lifePaidForCost: Number(params.lifePaidForCost || 0) > 0 ? Number(params.lifePaidForCost || 0) : undefined,
+      ...(replayMetadata.graveyardPermissionId ? { graveyardPermissionId: replayMetadata.graveyardPermissionId } : {}),
+      ...(replayMetadata.graveyardPermissionSourceName ? { graveyardPermissionSourceName: replayMetadata.graveyardPermissionSourceName } : {}),
+      ...(replayMetadata.graveyardPermissionCostMode ? { graveyardPermissionCostMode: replayMetadata.graveyardPermissionCostMode } : {}),
+      ...(replayMetadata.castWithoutPayingManaCost ? { castWithoutPayingManaCost: true } : {}),
+      ...(replayMetadata.alternateCostId ? { alternateCostId: replayMetadata.alternateCostId } : {}),
       discardedCardIds: Array.isArray(params.discardedCardIds) && params.discardedCardIds.length > 0 ? params.discardedCardIds.slice() : undefined,
       exiledCardIdsFromHandForCost: Array.isArray(params.exiledCardIdsFromHandForCost) && params.exiledCardIdsFromHandForCost.length > 0
         ? params.exiledCardIdsFromHandForCost.slice()
@@ -1909,7 +1991,7 @@ export function continueCastFromGraveyardAbility(params: {
   const normalizedTargets = normalizeSelectedTargetIds(params.targets);
   const activationCost = getCastFromGraveyardActivationCost(card, params.abilityId, { game: params.game, playerId: params.playerId });
   const normalizedAbilityId = String(params.abilityId || '').trim().toLowerCase();
-  if (['flashback', 'jump-start', 'retrace', 'escape', 'disturb'].includes(normalizedAbilityId) && activationCost.hasAbility === false) {
+  if (['flashback', 'jump-start', 'retrace', 'escape', 'disturb', 'graveyard-cast'].includes(normalizedAbilityId) && activationCost.hasAbility === false) {
     params.emitError({ code: 'ABILITY_NOT_AVAILABLE', message: `${cardName} does not currently have ${normalizedAbilityId}.` });
     return 'error';
   }
@@ -3408,7 +3490,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     const oracleText = (card?.oracle_text || "").toLowerCase();
     
     // Handle different graveyard abilities
-    if (abilityId === "flashback" || abilityId === "jump-start" || abilityId === "retrace" || abilityId === "escape") {
+    if (abilityId === "flashback" || abilityId === "jump-start" || abilityId === "retrace" || abilityId === "escape" || abilityId === "graveyard-cast") {
       const result = continueCastFromGraveyardAbility({
         gameId,
         game,

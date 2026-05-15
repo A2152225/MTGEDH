@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { canCastAnySpell, canActivateAnyAbility, canRespond, canAct, canPlayLand, getCastableCommanderCandidates, getCastableSpellCandidates, getPlayableLandCandidates } from '../src/state/modules/can-respond';
-import { applyTemporaryGraveyardKeywordGrantFromText, clearTemporaryGraveyardKeywordGrants } from '../src/state/modules/graveyard-permissions';
+import { applyPlayableFromGraveyardPermissionFromText, applyTemporaryGraveyardKeywordGrantFromText, clearTemporaryGraveyardKeywordGrants } from '../src/state/modules/graveyard-permissions';
 import type { GameContext } from '../src/state/context';
 import type { PlayerID } from '../../shared/src';
 
@@ -1139,7 +1139,12 @@ describe('canPlayLand', () => {
     const candidates = getPlayableLandCandidates(ctx, 'p1' as PlayerID);
 
     expect(candidates).toEqual([
-      expect.objectContaining({ card: expect.objectContaining({ id: 'forest_1' }), sourceZone: 'graveyard' }),
+      expect.objectContaining({
+        card: expect.objectContaining({ id: 'forest_1' }),
+        sourceZone: 'graveyard',
+        graveyardPermissionId: expect.any(String),
+        graveyardPermissionSourceName: "Titania, Nature's Force",
+      }),
     ]);
     expect(candidates.some((candidate) => candidate.card?.id === 'wasteland_1')).toBe(false);
     expect(canPlayLand(ctx, 'p1' as PlayerID)).toBe(true);
@@ -3496,10 +3501,69 @@ describe('canAct', () => {
       stack: [],
     });
 
+    const candidates = getPlayableLandCandidates(ctx, 'p1' as PlayerID);
+
+    expect(candidates).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        card: expect.objectContaining({ id: 'forest_1' }),
+        sourceZone: 'graveyard',
+        graveyardPermissionId: expect.any(String),
+        graveyardPermissionSourceName: 'Muldrotha, the Gravetide',
+      }),
+    ]));
+
+    (ctx.state as any).playedLandFromGraveyardThisTurn = { p1: true };
+
+    expect(getPlayableLandCandidates(ctx, 'p1' as PlayerID).some((candidate) => candidate.card?.id === 'forest_1')).toBe(false);
+  });
+
+  it('blocks first-class one-per-permanent-type graveyard land permissions after the land type is used', () => {
+    const ctx = createTestContext({
+      zones: {
+        p1: {
+          hand: [],
+          graveyard: [
+            {
+              id: 'forest_1',
+              name: 'Forest',
+              type_line: 'Basic Land — Forest',
+              oracle_text: '{T}: Add {G}.',
+            },
+          ],
+        },
+      },
+      battlefield: [],
+      graveyardCastingPermissions: [
+        {
+          id: 'muldrotha_first_class_land_1',
+          playerId: 'p1',
+          permission: 'play',
+          sourceZone: 'graveyard',
+          sourceId: 'muldrotha_1',
+          sourceName: 'Muldrotha, the Gravetide',
+          cardFilter: { qualifier: 'permanent cards of each permanent type' },
+          costMode: 'normal',
+          duration: 'static',
+          usageLimit: { type: 'one_per_permanent_type' },
+        },
+      ],
+      manaPool: {
+        p1: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+      },
+      landsPlayedThisTurn: { p1: 0 },
+      players: [{ id: 'p1' }, { id: 'p2' }],
+      step: 'MAIN1',
+      turnPlayer: 'p1',
+      priority: 'p1',
+      stack: [],
+    });
+
     expect(getPlayableLandCandidates(ctx, 'p1' as PlayerID)).toEqual(expect.arrayContaining([
       expect.objectContaining({
         card: expect.objectContaining({ id: 'forest_1' }),
         sourceZone: 'graveyard',
+        graveyardPermissionId: 'muldrotha_first_class_land_1',
+        graveyardPermissionSourceName: 'Muldrotha, the Gravetide',
       }),
     ]));
 
@@ -3568,6 +3632,80 @@ describe('canAct', () => {
     ]));
   });
 
+  it('surfaces first-class temporary graveyard cast permissions with source metadata', () => {
+    const ctx = createTestContext({
+      turnNumber: 7,
+      zones: {
+        p1: {
+          hand: [],
+          graveyard: [
+            {
+              id: 'sable_1',
+              name: 'Bronze Sable',
+              type_line: 'Artifact Creature — Sable',
+              mana_cost: '{2}',
+              oracle_text: '',
+            },
+            {
+              id: 'consider_1',
+              name: 'Consider',
+              type_line: 'Instant',
+              mana_cost: '{U}',
+              oracle_text: 'Surveil 1. Draw a card.',
+            },
+          ],
+        },
+      },
+      battlefield: [],
+      manaPool: {
+        p1: { white: 0, blue: 1, black: 0, red: 0, green: 0, colorless: 2 },
+      },
+      players: [{ id: 'p1' }, { id: 'p2' }],
+      step: 'MAIN1',
+      turnPlayer: 'p1',
+      priority: 'p1',
+      stack: [],
+    });
+
+    const applied = applyPlayableFromGraveyardPermissionFromText(
+      ctx,
+      'p1' as PlayerID,
+      'Chainer, Nightmare Adept',
+      'You may cast a creature spell from your graveyard this turn.',
+      { sourceId: 'chainer_1' },
+    );
+
+    expect(applied).toBe(1);
+    const permission = (ctx.state as any).graveyardCastingPermissions?.[0];
+    expect(permission).toMatchObject({
+      playerId: 'p1',
+      permission: 'cast',
+      sourceZone: 'graveyard',
+      sourceId: 'chainer_1',
+      sourceName: 'Chainer, Nightmare Adept',
+      cardFilter: { qualifier: 'creature spell' },
+      costMode: 'normal',
+      duration: 'this_turn',
+      usageLimit: { type: 'once', maxUses: 1 },
+    });
+
+    delete (ctx.state as any).temporaryPlayableFromGraveyardPermissions;
+
+    const candidates = getCastableSpellCandidates(ctx, 'p1' as PlayerID, { mode: 'main' });
+    expect(candidates.find((candidate: any) => candidate.card?.id === 'sable_1')).toMatchObject({
+      sourceZone: 'graveyard',
+      castMethod: 'graveyard_permanent',
+      graveyardPermissionId: permission.id,
+      graveyardPermissionSourceName: 'Chainer, Nightmare Adept',
+      graveyardPermissionCostMode: 'normal',
+    });
+    expect(candidates.some((candidate: any) => candidate.card?.id === 'consider_1')).toBe(false);
+
+    (ctx.state as any).castFromGraveyardThisTurn = { p1: true };
+    expect(getCastableSpellCandidates(ctx, 'p1' as PlayerID, { mode: 'main' })
+      .some((candidate: any) => candidate.card?.id === 'sable_1')).toBe(false);
+  });
+
   it('surfaces graveyard land and spell permissions granted by an emblem', () => {
     const ctx = createTestContext({
       zones: {
@@ -3620,6 +3758,91 @@ describe('canAct', () => {
       expect.objectContaining({
         card: expect.objectContaining({ id: 'consider_1' }),
         sourceZone: 'graveyard',
+      }),
+    ]));
+  });
+
+  it('splits temporary mixed graveyard play/cast text into separate permission entries', () => {
+    const ctx = createTestContext({
+      turnNumber: 4,
+      zones: {
+        p1: {
+          hand: [],
+          graveyard: [
+            {
+              id: 'forest_1',
+              name: 'Forest',
+              type_line: 'Basic Land — Forest',
+              oracle_text: '{T}: Add {G}.',
+            },
+            {
+              id: 'consider_1',
+              name: 'Consider',
+              type_line: 'Instant',
+              mana_cost: '{U}',
+              oracle_text: 'Draw a card.',
+            },
+          ],
+        },
+      },
+      battlefield: [],
+      manaPool: {
+        p1: { white: 0, blue: 1, black: 0, red: 0, green: 0, colorless: 0 },
+      },
+      landsPlayedThisTurn: { p1: 0 },
+      players: [{ id: 'p1' }, { id: 'p2' }],
+      step: 'MAIN1',
+      turnPlayer: 'p1',
+      priority: 'p1',
+      stack: [],
+    });
+
+    const applied = applyPlayableFromGraveyardPermissionFromText(
+      ctx,
+      'p1' as PlayerID,
+      "Gaea's Will",
+      'Until end of turn, you may play lands and cast spells from your graveyard.',
+      { sourceId: 'gaea_will_1' },
+    );
+
+    expect(applied).toBe(2);
+    expect((ctx.state as any).graveyardCastingPermissions).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        playerId: 'p1',
+        permission: 'play',
+        sourceZone: 'graveyard',
+        sourceId: 'gaea_will_1',
+        sourceName: "Gaea's Will",
+        cardFilter: { qualifier: 'lands' },
+        costMode: 'normal',
+        duration: 'this_turn',
+      }),
+      expect.objectContaining({
+        playerId: 'p1',
+        permission: 'cast',
+        sourceZone: 'graveyard',
+        sourceId: 'gaea_will_1',
+        sourceName: "Gaea's Will",
+        cardFilter: { qualifier: 'spells' },
+        costMode: 'normal',
+        duration: 'this_turn',
+      }),
+    ]));
+
+    delete (ctx.state as any).temporaryPlayableFromGraveyardPermissions;
+
+    expect(getPlayableLandCandidates(ctx, 'p1' as PlayerID)).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        card: expect.objectContaining({ id: 'forest_1' }),
+        sourceZone: 'graveyard',
+        graveyardPermissionSourceName: "Gaea's Will",
+      }),
+    ]));
+    expect(getCastableSpellCandidates(ctx, 'p1' as PlayerID, { mode: 'main' })).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        card: expect.objectContaining({ id: 'consider_1' }),
+        sourceZone: 'graveyard',
+        graveyardPermissionSourceName: "Gaea's Will",
       }),
     ]));
   });

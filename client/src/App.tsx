@@ -934,16 +934,18 @@ export function App() {
   const [additionalCostModalData, setAdditionalCostModalData] = useState<{
     cardId: string;
     cardName: string;
-    costType: 'discard' | 'sacrifice';
+    costType: 'discard' | 'sacrifice' | 'remove_counters';
     amount: number;
     title: string;
     description: string;
     imageUrl?: string;
     availableCards?: Array<{ id: string; name: string; imageUrl?: string }>;
     availableTargets?: Array<{ id: string; name: string; imageUrl?: string; typeLine?: string }>;
+    availableCounters?: Array<{ id: string; permanentId: string; permanentName: string; counterType: string; counterIndex: number; name: string; imageUrl?: string; typeLine?: string }>;
     effectId?: string;
     // If present, this modal is being used to answer a ResolutionQueue step.
     resolutionStepId?: string;
+    resolutionStepType?: string;
     // Whether the resolution step is mandatory (if false, cancel is allowed).
     resolutionStepMandatory?: boolean;
     // Special target id that represents "sacrifice the source" (if allowed by the step).
@@ -3321,15 +3323,17 @@ export function App() {
         setAdditionalCostModalData({
           cardId: String(step.cardId || step.sourceId || step.id),
           cardName: String(step.cardName || step.sourceName || 'Spell'),
-          costType: (step.costType === 'sacrifice' ? 'sacrifice' : 'discard'),
+          costType: (step.costType === 'remove_counters' ? 'remove_counters' : (step.costType === 'sacrifice' ? 'sacrifice' : 'discard')),
           amount: Number(step.amount || 0),
           title: String(step.title || step.description || 'Pay additional cost'),
           description: String(step.description || ''),
           imageUrl: step.imageUrl || step.sourceImage,
           availableCards: step.availableCards,
           availableTargets: step.availableTargets,
+          availableCounters: step.availableCounters,
           effectId: step.sourceId,
           resolutionStepId: String(step.id),
+          resolutionStepType: 'additional_cost_payment',
           resolutionStepMandatory: step.mandatory !== false,
         });
         setAdditionalCostModalOpen(true);
@@ -3456,6 +3460,7 @@ export function App() {
           availableTargets,
           effectId: step.id,
           resolutionStepId: step.id,
+          resolutionStepType: 'upkeep_sacrifice',
           resolutionStepMandatory: step.mandatory !== false,
           resolutionSourceChoiceId: allowSourceSacrifice && sourceToSacrifice ? resolutionSourceChoiceId : undefined,
         });
@@ -4684,6 +4689,16 @@ export function App() {
 
   const handleGraveyardAbility = (cardId: string, abilityId: string) => {
     if (!safeView?.id) return;
+
+    if (abilityId === 'graveyard-cast') {
+      socket.emit('requestCastSpell', {
+        gameId: safeView.id,
+        cardId,
+        fromZone: 'graveyard',
+      });
+      return;
+    }
+
     socket.emit('activateGraveyardAbility', {
       gameId: safeView.id,
       cardId,
@@ -7211,6 +7226,7 @@ export function App() {
         imageUrl={additionalCostModalData?.imageUrl}
         availableCards={additionalCostModalData?.availableCards}
         availableTargets={additionalCostModalData?.availableTargets}
+        availableCounters={additionalCostModalData?.availableCounters}
         effectId={additionalCostModalData?.effectId}
         canCancel={
           additionalCostModalData?.resolutionStepId
@@ -7224,7 +7240,7 @@ export function App() {
               const selections =
                 additionalCostModalData.resolutionSourceChoiceId && chosen === additionalCostModalData.resolutionSourceChoiceId
                   ? { type: 'source' }
-                  : chosen;
+                  : (additionalCostModalData.resolutionStepType === 'additional_cost_payment' ? selectedIds : chosen);
 
               socket.emit('submitResolutionResponse', {
                 gameId: safeView.id,

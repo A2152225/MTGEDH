@@ -61,6 +61,7 @@ interface DerivedOracleIRContextBindings {
 }
 
 const LAST_GRANTED_GRAVEYARD_CARDS_BINDING = '__oracleLastGrantedGraveyardCards';
+const LAST_GRANTED_GRAVEYARD_PERMISSION_IDS_BINDING = '__oracleLastGrantedGraveyardPermissionIds';
 
 export type OracleIREffectProgramHandlerOverrides = Omit<EffectProgramHandlers<GameState>, 'applyCommand'> & {
   readonly applyCommand?: EffectProgramHandlers<GameState>['applyCommand'];
@@ -146,6 +147,9 @@ function applyGraveyardPermissionGrantCommand(
       [LAST_GRANTED_GRAVEYARD_CARDS_BINDING]: Array.isArray(result.lastGrantedGraveyardCards)
         ? result.lastGrantedGraveyardCards
         : [],
+      [LAST_GRANTED_GRAVEYARD_PERMISSION_IDS_BINDING]: Array.isArray(result.lastGrantedGraveyardPermissionIds)
+        ? result.lastGrantedGraveyardPermissionIds
+        : [],
     },
     events: [createDirectOracleIRCommandExecutionEvent(commandStep.id, [oracleStep.kind], [])],
   };
@@ -160,9 +164,13 @@ function applyGraveyardPermissionModifierCommand(
   if (oracleStep.kind !== 'modify_graveyard_permissions') return undefined;
 
   const lastGrantedGraveyardCards = runtime.bindings[LAST_GRANTED_GRAVEYARD_CARDS_BINDING];
+  const lastGrantedGraveyardPermissionIds = runtime.bindings[LAST_GRANTED_GRAVEYARD_PERMISSION_IDS_BINDING];
   if (!Array.isArray(lastGrantedGraveyardCards)) return undefined;
 
-  const result = applyModifyGraveyardPermissionsStep(state, oracleStep, { lastGrantedGraveyardCards }) as any;
+  const result = applyModifyGraveyardPermissionsStep(state, oracleStep, {
+    lastGrantedGraveyardCards,
+    lastGrantedGraveyardPermissionIds: Array.isArray(lastGrantedGraveyardPermissionIds) ? lastGrantedGraveyardPermissionIds : [],
+  }) as any;
   if ('message' in result) {
     return {
       state,

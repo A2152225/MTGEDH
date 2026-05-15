@@ -272,6 +272,7 @@ export function handleKynaiosChoiceResponse(
   const landsInHand = stepData.landPlayOrFallbackLandsInHand || stepData.landsInHand || [];
   const options = stepData.landPlayOrFallbackOptions || stepData.options || ['play_land', 'draw_card', 'decline'];
   const batchId = String(stepData.kynaiosBatchId || step.id);
+  const skipFinalize = stepData.landPlayOrFallbackSkipFinalize === true;
   let createdPermanentId: string | undefined;
 
   if (!options.includes(choice as any)) {
@@ -328,17 +329,19 @@ export function handleKynaiosChoiceResponse(
     debugWarn(1, '[Resolution] appendEvent(kynaiosChoiceResponse) failed:', err);
   }
 
-  const drawnPlayerIds = maybeFinalizeKynaiosBatch(io, game, gameId, batchId, sourceController, sourceName, deps.getPlayerName);
-  if (drawnPlayerIds) {
-    try {
-      appendEvent(gameId, (game as any).seq ?? 0, 'kynaiosChoiceComplete', {
-        batchId,
-        sourceController,
-        sourceName,
-        drawnPlayerIds,
-      });
-    } catch (err) {
-      debugWarn(1, '[Resolution] appendEvent(kynaiosChoiceComplete) failed:', err);
+  if (!skipFinalize) {
+    const drawnPlayerIds = maybeFinalizeKynaiosBatch(io, game, gameId, batchId, sourceController, sourceName, deps.getPlayerName);
+    if (drawnPlayerIds) {
+      try {
+        appendEvent(gameId, (game as any).seq ?? 0, 'kynaiosChoiceComplete', {
+          batchId,
+          sourceController,
+          sourceName,
+          drawnPlayerIds,
+        });
+      } catch (err) {
+        debugWarn(1, '[Resolution] appendEvent(kynaiosChoiceComplete) failed:', err);
+      }
     }
   }
 }

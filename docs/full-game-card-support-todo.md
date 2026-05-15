@@ -1,6 +1,6 @@
 # Full-Game Card Support Todo
 
-Last updated: 2026-05-13
+Last updated: 2026-05-14
 
 Owner: Copilot + project maintainers
 
@@ -11,7 +11,7 @@ This is the working completion checklist. Existing queue files such as [oracle-a
 ## Current Baseline
 
 - [x] Latest known broad validation was green after the graveyard provenance work: `npm test`, `npm run build`, and `npm run typecheck --workspace=server` passed.
-- [x] Recent server work covered pay-to-return death recursion, graveyard provenance ETBs, replay restoration of graveyard entry metadata, Prized Amalgam-style delayed returns, Archfiend's Vessel-style self-exile/token creation, Rocket-Powered Goblin Glider-style graveyard-cast ETB targeting, and Tibalt's Trickery supplemental milling resolution.
+- [x] Recent server work covered pay-to-return death recursion, graveyard provenance ETBs, replay restoration of graveyard entry metadata, Prized Amalgam-style delayed returns, Archfiend's Vessel-style self-exile/token creation, Rocket-Powered Goblin Glider-style graveyard-cast ETB targeting, Tibalt's Trickery supplemental milling resolution, and Echo upkeep payment prompts with first-upkeep timing tracked across live resolution and replay.
 - [ ] Re-run broad validation after every implementation slice that changes server, client, shared, rules-engine, replay, or AI behavior.
 
 Validation commands must be run from the repository root:
@@ -144,38 +144,66 @@ Source: [oracle-automation-next-200-offset-200.md](./oracle-automation-next-200-
 - [x] Electroduplicate
   - Verified ordinary spell resolution now extends the targeted creature-copy spell path to the haste-plus-end-step-sacrifice rider, so flashback casts create the token copy, grant haste, schedule the delayed sacrifice, and exile themselves in both live play and replay.
 - [x] Flashback self-permission cards: Galvanic Iteration.
-- [ ] Escape cards and global escape grants: Underworld Breach, Uro.
-- [ ] Static self-cast cards: Gravecrawler, Squee, the Immortal, The Indomitable.
-- [ ] Static/granted creature or permanent graveyard casting: Six, Chainer, Exploration Broodship, Lurrus, Rivaz, Kess.
-- [ ] Special additional-cost or alternate-cost cards: Nature's Rhythm, Quilled Greatwurm, Bulk Up, Resurgent Belief, Torrential Gearhulk.
-- [ ] Non-graveyard false positives in this range: Primevals' Glorious Rebirth is a legendary-sorcery cast restriction plus mass return, not a graveyard cast permission item. Verify queue classification before implementing.
+- [x] Escape cards and global escape grants: Underworld Breach.
+  - Verified escape creature casts now preserve explicit cast-time entry counters through battlefield resolution in both live play and replay, covering Woe Strider-style `escapes with two +1/+1 counters on it` handling.
+- [x] Static self-cast cards: Gravecrawler, Squee, the Immortal, The Indomitable.
+- [x] Static/granted creature or permanent graveyard casting: Six, Chainer, Exploration Broodship, Lurrus, Rivaz, Kess.
+  - Verified Kess request-cast/live resolution now preserves the Oracle-text exile replacement, so spells cast through its graveyard permission are exiled on resolution in live play and replay.
+  - Verified Lurrus continues to gate the shared graveyard candidate surface to mana value two or less, so legal permanents enter request-cast while larger permanents stay rejected.
+  - Verified Rivaz request-cast/live resolution now preserves the Oracle-text death replacement, so Dragon creatures cast through its graveyard permission are exiled when they die instead of returning to the graveyard.
+  - Verified Six now resolves through the actual granted `retrace` path on request-cast: shared graveyard candidates classify `During your turn, nonland permanent cards in your graveyard have retrace` as a keyword grant, and the request-cast flow delegates keyword graveyard casts back into the existing discard/exile/sacrifice cost queue.
+  - Verified Chainer now creates a temporary qualifier-based graveyard cast permission for `You may cast a creature spell from your graveyard this turn`, the shared candidate surface sees it immediately, and the follow-up `if you didn't cast it from your hand, it gains haste` trigger grants haste to the entering permanent.
+  - Verified Exploration Broodship now preserves its source-text additional cost on request-cast: `Once during each of your turns, you may cast a permanent spell from your graveyard by sacrificing a land in addition to paying its other costs` now threads a land-sacrifice additional-cost payload through shared candidates into the standard additional-cost prompt flow.
+  - Verified the shared request-cast test cleanup for this slice now clears `GameManager` state as well as queue/db/socket maps, preventing stale graveyard-permission state from leaking across fixed-id cases.
+- [x] Special additional-cost or alternate-cost cards: Quilled Greatwurm.
+  - Verified Bulk Up now reuses the generic flashback activation/replay path for its reminder-bearing `Flashback {4}{R}{R}` line, and non-permanent spell resolution now applies the updated `Double target creature's power until end of turn` template in both live play and replay.
+  - Verified Torrential Gearhulk now carries its ETB-targeted graveyard free-cast metadata through live resolution, reconstructs the replayed cast onto the stack, and still exiles the cast instant on the follow-up replayed resolution step.
+  - Verified Nature's Rhythm now routes printed `Harmonize {X}{G}{G}{G}{G}` through the normal graveyard request-cast path: X selection, payment-step creature-choice reduction, live cast completion, and exile on resolution all work in focused request-cast coverage.
+  - Verified Resurgent Belief now treats `Suspend 2—{1}{W}` as a paid alternate action from hand rather than a failed zero-mana cast: the live hand-cast path spends the suspend cost, exiles the card with time counters instead of putting it on the stack, and replay reconstructs the suspended card state from a persisted `suspendCard` event.
+  - Verified Quilled Greatwurm now parses its printed graveyard self-permission as a distributed `remove_counters` additional cost, queues a counter-removal payment prompt, validates/removes six counters from among controlled creatures, persists the paid cost for replay, and resumes into normal mana payment and stack casting.
+- [x] Non-graveyard false positives in this range: Primevals' Glorious Rebirth is a legendary-sorcery cast restriction plus mass return, not a graveyard cast permission item. Verify queue classification before implementing.
+  - Verified current Scryfall text as a `Legendary Sorcery` with a legendary-sorcery cast restriction plus `Return all legendary permanent cards from your graveyard to the battlefield`; this is not a graveyard cast permission. Tightened the queue generator's graveyard cast/play permission regexes so `you may cast` / `you may play` cannot drift across later sentences containing `from your graveyard`.
 
 Required system work:
 
-- [ ] Represent graveyard casting permissions as first-class state with source, affected player, allowed card filters, cost mode, duration, usage limit, and replacement behavior.
-- [ ] Support self-permission printed on the card and battlefield-granted permissions from other sources.
-- [ ] Support alternate costs, additional costs, and `without paying its mana cost` without bypassing the normal casting pipeline.
-- [ ] Wire permissions into `canRespond`, playable highlights, graveyard modal actions, cast validation, and AI candidate generation.
-- [ ] Persist cast source zone, permission id, alternate cost id, and exile-after-cast replacement for replay.
-- [ ] Add tests for accept, decline, no mana, additional costs, invalid timing, permission expiration, and replay.
+- [x] Represent graveyard casting permissions as first-class state with source, affected player, allowed card filters, cost mode, duration, usage limit, and replacement behavior.
+  - Added `state.graveyardCastingPermissions` entries with deterministic ids, source metadata, affected player, graveyard card filters, cost mode, duration, usage limit, and replacement metadata. Temporary text-derived permissions now populate this first-class shape alongside the legacy compatibility markers, and focused `canRespond` coverage verifies cast candidates can be produced from first-class state alone.
+- [x] Support self-permission printed on the card and battlefield-granted permissions from other sources.
+  - Shared graveyard cast candidates now synthesize deterministic permission ids, source names, and cost modes for both printed self-permissions and battlefield-granted/static permissions. Broadcast `graveyardAbilityHints` and the graveyard modal surface that metadata so cards like Squee, Kess, Lurrus, and The Indomitable present the correct source-backed graveyard cast action.
+- [x] Support alternate costs, additional costs, and `without paying its mana cost` without bypassing the normal casting pipeline.
+  - Shared graveyard candidates now promote `without paying its mana cost` permissions into the live request-cast flow by stamping `castWithoutPayingManaCost` / `forcedAlternateCostId: 'free'` before payment steps are built. Existing source-granted discard/sacrifice/remove-counter additional costs stay on that same queue-backed path, so free-cast permissions still require and persist their non-mana payments.
+- [x] Wire permissions into `canRespond`, playable highlights, graveyard modal actions, cast validation, and AI candidate generation.
+  - `canRespond` / shared castability now emits permission metadata for first-class, printed, and static granted graveyard permissions; request-cast copies that metadata onto live casts; broadcast graveyard hints reuse the shared candidate surface; and the graveyard modal shows the active permission source and free-cast mode while suppressing duplicate generic cast rows when a printed keyword already explains the action.
+- [x] Persist cast source zone, permission id, alternate cost id, and exile-after-cast replacement for replay.
+  - Stored `castSpell` events now explicitly serialize graveyard permission id/source/cost-mode, `castWithoutPayingManaCost`, alternate cost id, and exile / leave-battlefield replacement metadata instead of relying on embedded card copies. Replay restoration in `applyEvent.ts` mirrors those fields back onto stack items, and direct `activateGraveyardAbility` graveyard-cast replays now carry the same provenance metadata for printed self-cast permissions.
+- [x] Add tests for accept, decline, no mana, additional costs, invalid timing, permission expiration, and replay.
+  - Focused coverage now includes no-mana free graveyard permissions, free graveyard permissions that still require additional costs, explicit invalid-timing and permission-expiration rejections on the live request-cast path, explicit decline coverage for optional Torrential Gearhulk graveyard casts, stored cast-event replay metadata, and replay restoration for both `castSpell` and `activateGraveyardAbility` graveyard-cast flows.
 
 ### 4. Complete Play-From-Graveyard Permission Windows
 
 Source: [oracle-automation-next-200-offset-200.md](./oracle-automation-next-200-offset-200.md), items 355-379.
 
 - [ ] Lands from graveyard: Ramunap Excavator, Conduit of Worlds, Crucible of Worlds, Ancient Greenwarden, Icetill Explorer, Perennial Behemoth, Szarel, Glacierwood Siege.
-- [ ] Restricted lands from graveyard: Titania, Nature's Force for Forests; Hazezon for Deserts; The Eighth Doctor for historic lands.
+  - Glacierwood Siege's Sultai/Temur ETB choice is now replay-safe and shared-surface-aware: the chosen mode persists on the permanent, `collectStaticEffectSources()` scopes the Oracle text to the chosen bullet line, and focused live coverage now proves only Sultai grants graveyard land plays. Guardrail: `server/tests/play-land.graveyard-permission.integration.test.ts`.
+- [x] Restricted lands from graveyard: Titania, Nature's Force for Forests; Hazezon for Deserts; The Eighth Doctor for historic lands.
+  - The shared graveyard land qualifier path now has live guardrails for subtype and historic restrictions: Titania/Forests, Hazezon/Deserts, and The Eighth Doctor/historic lands all route through the same `playLand` surface, which now rejects the non-matching land before allowing the matching replay target. Guardrail: `server/tests/play-land.graveyard-permission.integration.test.ts`.
 - [ ] Mixed play/cast permissions: Muldrotha, Wrenn and Realmbreaker emblem, Serra Paragon, Zask, Kethis, Horde of Notions, Gaea's Will, Magus of the Will.
 - [ ] Discard/impulse overlap: Oscorp Industries, Embrace the Unknown, Zenith Festival, Lidless Gaze, Mishra's Research Desk.
 - [ ] Cast-from-graveyard spells that also grant impulse play: Ignite the Future.
 
 Required system work:
 
-- [ ] Separate `play land` permissions from `cast spell` permissions while allowing cards that grant both.
-- [ ] Respect land-play limits, additional land-play effects, turn permissions, and timing restrictions.
-- [ ] Track once-per-turn and per-card-type limits for Muldrotha-style cards.
-- [ ] Persist land played from graveyard source metadata and replay it deterministically.
-- [ ] Ensure AI can evaluate land-from-graveyard choices without using illegal extra land plays.
+- [x] Separate `play land` permissions from `cast spell` permissions while allowing cards that grant both.
+  - Temporary text-derived mixed windows like `Until end of turn, you may play lands and cast spells from your graveyard` now split into separate first-class `play` and `cast` permission entries instead of collapsing into the `play` half. The rules-engine `grant_graveyard_permission` effect-program bridge now emits the same first-class entries alongside its legacy markers, so Gaea's Will / emblem-style mixed permissions stay visible to shared legality and metadata surfaces.
+  - Follow-up `modify_graveyard_permissions` steps now thread the exact ids of the permissions created by the immediately preceding grant through both the effect-program runner and the direct Oracle IR executor, so free-cast and exile-replacement modifiers update first-class `graveyardCastingPermissions` instead of only the legacy graveyard card tags. Focused guardrail: `rules-engine/test/graveyardPermissionExecutor.test.ts`.
+- [x] Respect land-play limits, additional land-play effects, turn permissions, and timing restrictions.
+  - Shared land candidate generation now reuses the normal land timing window: only the active player, during their main phase, with an empty stack, can surface playable lands from hand/library/exile/graveyard. Because the live `playLand` graveyard path, AI enumeration, and stack fallback all consume `getPlayableLandCandidates`, this closes the off-turn graveyard land loophole at the owning abstraction instead of only at the socket handler. Focused guardrails: `server/tests/play-land.graveyard-permission.integration.test.ts` and `server/tests/can-respond.test.ts`.
+- [x] Track once-per-turn and per-card-type limits for Muldrotha-style cards.
+  - Shared graveyard permission usage now treats `playedLandFromGraveyardThisTurn` as consuming the `land` permanent-type slot for first-class `one_per_permanent_type` land permissions, so Muldrotha-style limits work for both static text and first-class permission entries. Focused `canRespond` coverage now exercises both paths.
+- [x] Persist land played from graveyard source metadata and replay it deterministically.
+  - Shared graveyard land candidates now preserve permission id/source metadata for both static text permissions and first-class temporary permissions. The live `playLand` handler persists that provenance on stored `playLand` events, and replay reapplies it to the reconstructed permanent/card while still recording `fromZone=graveyard` turn tracking.
+- [x] Ensure AI can evaluate land-from-graveyard choices without using illegal extra land plays.
+  - AI land decisions already route through `getPlayableLandCandidates()` plus the normal `playLand` request path; focused `ai.shared-land-surface` coverage now verifies both halves explicitly: the AI declines an illegal second graveyard land when no extra land play remains, and it still takes a legal second graveyard land when `Exploration` raises the shared land cap.
 
 ### 5. Complete Flashback And Granted Flashback
 

@@ -4,6 +4,7 @@
  * Modal for selecting additional costs to cast a spell:
  * - Discard cards (e.g., Lightning Axe, Faithless Looting)
  * - Sacrifice permanents (e.g., Altar's Reap, Devastating Summons)
+ * - Remove counters from permanents (e.g., Quilled Greatwurm)
  * 
  * Features:
  * - Shows spell being cast and reason for cost
@@ -26,17 +27,29 @@ export interface AdditionalCostTarget {
   typeLine?: string;
 }
 
+export interface AdditionalCostCounter {
+  id: string;
+  permanentId: string;
+  permanentName: string;
+  counterType: string;
+  counterIndex: number;
+  name: string;
+  imageUrl?: string;
+  typeLine?: string;
+}
+
 export interface AdditionalCostModalProps {
   open: boolean;
   cardId: string;
   cardName: string;
-  costType: 'discard' | 'sacrifice';
+  costType: 'discard' | 'sacrifice' | 'remove_counters';
   amount: number;
   title: string;
   description: string;
   imageUrl?: string;
   availableCards?: AdditionalCostCard[];  // For discard
   availableTargets?: AdditionalCostTarget[];  // For sacrifice
+  availableCounters?: AdditionalCostCounter[];  // For remove counters
   effectId?: string;
   canCancel?: boolean;
   onConfirm: (selectedIds: string[]) => void;
@@ -54,6 +67,7 @@ export function AdditionalCostModal({
   imageUrl,
   availableCards = [],
   availableTargets = [],
+  availableCounters = [],
   effectId,
   canCancel = true,
   onConfirm,
@@ -92,8 +106,16 @@ export function AdditionalCostModal({
 
   if (!open) return null;
 
-  const options = costType === 'discard' ? availableCards : availableTargets;
+  const options = costType === 'discard'
+    ? availableCards
+    : (costType === 'remove_counters' ? availableCounters : availableTargets);
   const canConfirm = selectedIds.size === amount;
+  const costNoun = costType === 'discard'
+    ? 'card'
+    : (costType === 'remove_counters' ? 'counter' : 'permanent');
+  const costVerb = costType === 'discard'
+    ? 'Discard'
+    : (costType === 'remove_counters' ? 'Remove' : 'Sacrifice');
 
   return (
     <div
@@ -172,7 +194,7 @@ export function AdditionalCostModal({
               fontSize: 13,
               color: '#fca5a5',
             }}>
-              {costType === 'discard' ? '🎴' : '💀'} Select {amount} {costType === 'discard' ? 'card' : 'permanent'}{amount > 1 ? 's' : ''} ({selectedIds.size}/{amount})
+              Select {amount} {costNoun}{amount > 1 ? 's' : ''} ({selectedIds.size}/{amount})
             </div>
           </div>
         </div>
@@ -238,6 +260,11 @@ export function AdditionalCostModal({
                           {(option as AdditionalCostTarget).typeLine}
                         </div>
                       )}
+                      {costType === 'remove_counters' && (
+                        <div style={{ fontSize: 10, color: '#aaa', marginTop: 4 }}>
+                          {(option as AdditionalCostCounter).counterType} counter
+                        </div>
+                      )}
                     </div>
                   </div>
                 )}
@@ -296,7 +323,7 @@ export function AdditionalCostModal({
             textAlign: 'center',
             color: '#fca5a5',
           }}>
-            No {costType === 'discard' ? 'cards' : 'permanents'} available to {costType}.
+            No {costNoun}s available to {costVerb.toLowerCase()}.
           </div>
         )}
 
@@ -333,7 +360,7 @@ export function AdditionalCostModal({
               opacity: canConfirm ? 1 : 0.5,
             }}
           >
-            {costType === 'discard' ? 'Discard' : 'Sacrifice'} {amount} ({selectedIds.size}/{amount})
+            {costVerb} {amount} ({selectedIds.size}/{amount})
           </button>
         </div>
       </div>
