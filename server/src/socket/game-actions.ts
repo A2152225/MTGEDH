@@ -39,7 +39,7 @@ import { shouldSuppressMandatoryTriggeredAbilityPrompt } from "./trigger-shortcu
 import { hasMutateAlternateCost, parseMadnessCost, parseMutateCost, getValidMutateTargets } from "../state/modules/alternate-costs.js";
 import { getCastableSpellCandidates, getCommandZoneCommanderCandidates, getPlayableLandCandidates, type SharedCommanderAvailabilityCandidate, type SharedPlayableLandCandidate, type SharedSpellCastCandidate } from "../state/modules/can-respond.js";
 import { buildCounterRemovalCostOptions } from "../state/modules/counter-removal-costs.js";
-import { cleanupCardLeavingExile } from "../state/modules/playable-from-exile.js";
+import { cardAllowsPlayerToPlayFromExile, cleanupCardLeavingExile, findPlayableExileCardForPlayer, getPlayableExileCardsForPlayer } from "../state/modules/playable-from-exile.js";
 import { isPreparedCopyActive, syncPreparedPermanentAfterControlChange } from "../state/modules/prepared.js";
 import { getEffectiveBasicLandTypes } from "../state/modules/mana-abilities.js";
 import { buildCostAdjustmentPlan, buildLiveSpellCostAdjustment } from "../state/modules/cost-adjustments.js";
@@ -273,6 +273,12 @@ function applySharedGraveyardCandidateMetadata(
       delete (target as any).leaveBattlefieldReplacementSourceName;
     }
 
+    if (typeof candidate.leaveBattlefieldReplacementLifeGain === 'number' && candidate.leaveBattlefieldReplacementLifeGain > 0) {
+      (target as any).leaveBattlefieldReplacementLifeGain = candidate.leaveBattlefieldReplacementLifeGain;
+    } else {
+      delete (target as any).leaveBattlefieldReplacementLifeGain;
+    }
+
     if (candidate.sourceGrantedAdditionalCost) {
       (target as any).sourceGrantedAdditionalCost = { ...candidate.sourceGrantedAdditionalCost };
     } else {
@@ -491,7 +497,7 @@ function getPlayerSpellSourceCards(game: any, playerId: string, sourceZone: Spel
 
   switch (sourceZone) {
     case 'exile':
-      return Array.isArray((zones as any).exile) ? (zones as any).exile : [];
+      return getPlayableExileCardsForPlayer(game?.state, playerId as any);
     case 'graveyard':
       return Array.isArray((zones as any).graveyard) ? (zones as any).graveyard : [];
     case 'library':
@@ -817,6 +823,49 @@ function addCastSpellManaTotals(target: any, delta: any): void {
       target[key] = Number(target?.[key] || 0) + amount;
     }
   }
+}
+
+function cardCanSpendManaAsAnyType(card: any): boolean {
+  return Boolean((card as any)?.spendManaAsThoughAnyType === true);
+}
+
+function normalizeParsedSpellCostForAnyTypeManaSpending(
+  parsedCost: ReturnType<typeof parseManaCost>,
+): ReturnType<typeof parseManaCost> {
+  const colorCostTotal = Object.values(parsedCost.colors || {}).reduce(
+    (sum, value) => sum + Math.max(0, Number(value || 0)),
+    0,
+  );
+  const hybrids = Array.isArray(parsedCost.hybrids)
+    ? parsedCost.hybrids.map((options) => {
+        const normalizedOptions = Array.isArray(options)
+          ? options.map((option) => String(option || '').trim().toUpperCase()).filter(Boolean)
+          : [];
+        const lifeOptions = normalizedOptions.filter((option) => /^LIFE:\d+$/.test(option));
+        const genericOptions = normalizedOptions
+          .filter((option) => /^GENERIC:\d+$/.test(option))
+          .map((option) => Number(option.slice('GENERIC:'.length)))
+          .filter((value) => Number.isFinite(value) && value > 0);
+        const hasManaTypeOption = normalizedOptions.some((option) => /^[WUBRGC]$/.test(option));
+
+        if (hasManaTypeOption) {
+          return ['GENERIC:1', ...lifeOptions];
+        }
+
+        if (genericOptions.length > 0) {
+          return [`GENERIC:${Math.min(...genericOptions)}`, ...lifeOptions];
+        }
+
+        return lifeOptions;
+      })
+    : [];
+
+  return {
+    ...parsedCost,
+    colors: { W: 0, U: 0, B: 0, R: 0, G: 0, C: 0 },
+    generic: Math.max(0, Number(parsedCost.generic || 0)) + colorCostTotal,
+    hybrids,
+  };
 }
 
 function consumeExplicitSelectedCastSpellMana(
@@ -4071,11 +4120,11 @@ export function processHeroicTriggersForTargets(
   }
 }
 
-export function applyCostAdjustment(
-  parsedCost: { generic: number; colors: Record<string, number> },
+export function applyCostAdjustment<T extends { generic: number; colors: Record<string, number> }>(
+  parsedCost: T,
   reduction: { generic: number; colors: Record<string, number>; messages?: string[] },
   genericTax = 0,
-): { generic: number; colors: Record<string, number> } {
+): T {
   const colorNameToSymbol: Record<string, string> = {
     white: 'W',
     blue: 'U',
@@ -4092,9 +4141,10 @@ export function applyCostAdjustment(
   };
 
   const result = {
+    ...parsedCost,
     generic: Math.max(0, parsedCost.generic + Math.max(0, Number(genericTax || 0)) - reduction.generic),
     colors: { ...parsedCost.colors },
-  };
+  } as T;
   
   // Apply color reductions (can reduce to 0 but not below)
   for (const [reductionColor, amount] of Object.entries(reduction.colors || {})) {
@@ -4827,7 +4877,7 @@ export async function requestCastSpellForSocket(
 
     // Allow starting the cast pipeline from exile for impulse-style effects.
     if (!cardInHand && !fromZone) {
-      const exiled = exile.find((c: any) => c && c.id === cardId);
+      const exiled = findPlayableExileCardForPlayer(game.state, String(playerId) as any, String(cardId));
       if (exiled) {
         const stateAny: any = game.state as any;
         const turnNumber = Number(stateAny?.turnNumber ?? 0);
@@ -4836,8 +4886,7 @@ export async function requestCastSpellForSocket(
         const entry = Array.isArray(pfe) ? (pfe.includes(cardId) ? true : undefined) : pfe?.[cardId];
         const pfeAllows = typeof entry === 'number' ? entry >= turnNumber : Boolean(entry);
 
-        const cardAllows = String(exiled?.canBePlayedBy || '') === String(playerId) &&
-          (typeof exiled?.playableUntilTurn === 'number' ? exiled.playableUntilTurn >= turnNumber : Boolean(exiled?.playableUntilTurn));
+        const cardAllows = cardAllowsPlayerToPlayFromExile(exiled, String(playerId) as any, turnNumber);
 
         const isForetold = Boolean((exiled as any)?.foretold) || Boolean((exiled as any)?.foretellCost) || Boolean((exiled as any)?.faceDown);
         if (isForetold) {
@@ -4942,6 +4991,17 @@ export async function requestCastSpellForSocket(
     if (options?.exileAfterResolution === true) {
       (cardInHand as any).exileAfterResolution = true;
       (cardForCast as any).exileAfterResolution = true;
+    }
+    if (
+      !isFreeCast
+      && ((cardInHand as any).castWithoutPayingManaCost === true || (cardForCast as any).castWithoutPayingManaCost === true)
+    ) {
+      options = {
+        ...options,
+        castWithoutPayingManaCost: true,
+        forcedAlternateCostId: options?.forcedAlternateCostId || 'free',
+      };
+      isFreeCast = true;
     }
     const effectiveTypeLine = String(cardForCast?.type_line || typeLine || '').toLowerCase();
     const sharedGraveyardCandidate = castSourceZone === 'graveyard' && !ignoreTimingRestrictions && !isFreeCast
@@ -5394,7 +5454,9 @@ export async function requestCastSpellForSocket(
       return;
     }
 
-    const modalSpellInfo = isInstantOrSorcery ? extractModalModesFromOracleText(baseOracleText) : undefined;
+    const modalSpellInfo = isInstantOrSorcery
+      ? adjustModalSpellInfoForCurrentCast(extractModalModesFromOracleText(baseOracleText), game.state, String(playerId), baseOracleText)
+      : undefined;
     if (modalSpellInfo && (!Array.isArray(selectedModes) || selectedModes.length === 0)) {
       const existing = ResolutionQueueManager
         .getStepsForPlayer(gameId, playerId as any)
@@ -6634,6 +6696,54 @@ function getSelectedModalOracleText(oracleText: string, selectedModes?: unknown)
   return selectedOptions.map((option) => option.raw).join('\n');
 }
 
+function playerControlsCommanderForModalCast(state: any, playerId: string): boolean {
+  const normalizedPlayerId = String(playerId || '').trim();
+  if (!normalizedPlayerId) return false;
+
+  const commandZone = state?.commandZone?.[normalizedPlayerId];
+  const commanderIds = new Set<string>([
+    ...(Array.isArray(commandZone?.commanderIds) ? commandZone.commanderIds : []),
+    ...(Array.isArray(commandZone?.inCommandZone) ? commandZone.inCommandZone : []),
+  ].map((id: unknown) => String(id || '').trim()).filter(Boolean));
+
+  const battlefield = Array.isArray(state?.battlefield) ? state.battlefield : [];
+  return battlefield.some((permanent: any) => {
+    if (String(permanent?.controller || '') !== normalizedPlayerId) {
+      return false;
+    }
+
+    if ((permanent as any)?.isCommander === true || (permanent?.card as any)?.isCommander === true) {
+      return true;
+    }
+
+    const cardId = String(permanent?.card?.id || '').trim();
+    return cardId.length > 0 && commanderIds.has(cardId);
+  });
+}
+
+function adjustModalSpellInfoForCurrentCast(
+  modalSpellInfo: ReturnType<typeof extractModalModesFromOracleText>,
+  state: any,
+  playerId: string,
+  oracleText: string,
+): ReturnType<typeof extractModalModesFromOracleText> {
+  if (!modalSpellInfo) return modalSpellInfo;
+
+  const normalizedOracleText = String(oracleText || '').replace(/[’]/g, "'");
+  if (!/\bif you control a commander as you cast this spell, you may choose both instead\b/i.test(normalizedOracleText)) {
+    return modalSpellInfo;
+  }
+
+  if (!playerControlsCommanderForModalCast(state, playerId)) {
+    return modalSpellInfo;
+  }
+
+  return {
+    ...modalSpellInfo,
+    maxModes: Math.min(2, modalSpellInfo.options.length),
+  };
+}
+
 function extractAdditionalCostModesFromOracleText(oracleText: string): {
   purpose: 'spree' | 'tiered';
   minModes: number;
@@ -6835,6 +6945,7 @@ type PlayLandRequestPayload = {
   cardId?: unknown;
   selectedFace?: unknown;
   fromZone?: unknown;
+  bypassGraveyardPermissionCheck?: unknown;
 };
 
 export function handlePlayLandRequest(io: Server, socket: Socket, payload?: PlayLandRequestPayload): void {
@@ -6842,6 +6953,7 @@ export function handlePlayLandRequest(io: Server, socket: Socket, payload?: Play
   const cardId = payload?.cardId;
   const selectedFace = payload?.selectedFace;
   const fromZone = payload?.fromZone;
+  const bypassGraveyardPermissionCheck = payload?.bypassGraveyardPermissionCheck === true;
 
   if (!gameId || typeof gameId !== 'string') return;
   if (!cardId || typeof cardId !== 'string') return;
@@ -6897,7 +7009,7 @@ export function handlePlayLandRequest(io: Server, socket: Socket, payload?: Play
     if (sourceZone === 'graveyard') {
       requestedLandCandidate = getRequestedLandPlayCandidate(game, String(playerId), String(cardId), 'graveyard', selectedFaceIndex);
 
-      if (!requestedLandCandidate) {
+      if (!requestedLandCandidate && !bypassGraveyardPermissionCheck) {
         socket.emit("error", {
           code: "NO_PERMISSION",
           message: "You don't have permission to play lands from your graveyard",
@@ -6912,7 +7024,9 @@ export function handlePlayLandRequest(io: Server, socket: Socket, payload?: Play
       const pfe = stateAny?.playableFromExile?.[playerId];
       const entry = Array.isArray(pfe) ? (pfe.includes(cardId) ? true : undefined) : pfe?.[cardId];
       const pfeAllows = typeof entry === 'number' ? entry >= turnNumber : Boolean(entry);
-      if (!pfeAllows) {
+      const exiledCard = findPlayableExileCardForPlayer(game.state, String(playerId) as any, String(cardId));
+      const cardAllows = cardAllowsPlayerToPlayFromExile(exiledCard, String(playerId) as any, turnNumber);
+      if (!pfeAllows && !cardAllows) {
         socket.emit("error", {
           code: "NO_PERMISSION",
           message: "You don't have permission to play that land from exile",
@@ -6936,7 +7050,7 @@ export function handlePlayLandRequest(io: Server, socket: Socket, payload?: Play
     const zone = sourceZone === 'graveyard'
       ? (Array.isArray(zones?.graveyard) ? zones.graveyard : [])
       : sourceZone === 'exile'
-        ? (Array.isArray((zones as any)?.exile) ? (zones as any).exile : [])
+        ? getPlayableExileCardsForPlayer(game.state, String(playerId) as any)
         : sourceZone === 'library'
           ? getPlayerLibraryCards(game, String(playerId))
         : (Array.isArray(zones?.hand) ? zones.hand : []);
@@ -6963,6 +7077,15 @@ export function handlePlayLandRequest(io: Server, socket: Socket, payload?: Play
     }
     if (requestedLandCandidate?.graveyardPermissionSourceName) {
       (cardInZone as any).graveyardPermissionSourceName = requestedLandCandidate.graveyardPermissionSourceName;
+    }
+    if (requestedLandCandidate?.leaveBattlefieldReplacementDestination === 'exile') {
+      (cardInZone as any).leaveBattlefieldReplacementDestination = 'exile';
+    }
+    if (requestedLandCandidate?.leaveBattlefieldReplacementSourceName) {
+      (cardInZone as any).leaveBattlefieldReplacementSourceName = requestedLandCandidate.leaveBattlefieldReplacementSourceName;
+    }
+    if (typeof requestedLandCandidate?.leaveBattlefieldReplacementLifeGain === 'number' && requestedLandCandidate.leaveBattlefieldReplacementLifeGain > 0) {
+      (cardInZone as any).leaveBattlefieldReplacementLifeGain = requestedLandCandidate.leaveBattlefieldReplacementLifeGain;
     }
 
     let layout = (cardInZone as any)?.layout;
@@ -7461,8 +7584,7 @@ export function registerGameActions(io: Server, socket: Socket) {
         const entry = Array.isArray(pfe) ? (pfe.includes(cardId) ? true : undefined) : pfe?.[cardId];
         const pfeAllows = typeof entry === 'number' ? entry >= turnNumber : Boolean(entry);
 
-        const cardAllows = String(cardInHand?.canBePlayedBy || '') === String(playerId) &&
-          (typeof cardInHand?.playableUntilTurn === 'number' ? cardInHand.playableUntilTurn >= turnNumber : Boolean(cardInHand?.playableUntilTurn));
+        const cardAllows = cardAllowsPlayerToPlayFromExile(cardInHand, String(playerId) as any, turnNumber);
 
         const isForetold = Boolean((cardInHand as any)?.foretold) || Boolean((cardInHand as any)?.foretellCost) || Boolean((cardInHand as any)?.faceDown);
         if (isForetold) {
@@ -7859,7 +7981,9 @@ export function registerGameActions(io: Server, socket: Socket) {
       // Pattern: "Choose two ΓÇö" or "Choose one ΓÇö" followed by bullet points
       // IMPORTANT: Only apply to INSTANTS and SORCERIES, not to permanents with triggered abilities
       // Permanents like Glorious Sunrise have "At the beginning of combat on your turn, choose one ΓÇö" which is a TRIGGER, not a modal spell
-      const modalSpellInfo = isInstantOrSorcery ? extractModalModesFromOracleText(baseOracleText) : undefined;
+      const modalSpellInfo = isInstantOrSorcery
+        ? adjustModalSpellInfoForCurrentCast(extractModalModesFromOracleText(baseOracleText), game.state, String(playerId), baseOracleText)
+        : undefined;
       const modesAlreadySelected = (cardInHand as any).selectedModes || (targets as any)?.selectedModes;
       const additionalCostModeInfo = isInstantOrSorcery ? extractAdditionalCostModesFromOracleText(baseOracleText) : undefined;
       const additionalCostModesSelected = (cardInHand as any).selectedAdditionalCostModes
@@ -9187,6 +9311,9 @@ export function registerGameActions(io: Server, socket: Socket) {
       
       // Apply cost reduction
       const reducedCost = applyCostAdjustment(parsedCost, costReduction, genericCostTax);
+      const payableCost = cardCanSpendManaAsAnyType(cardInHand)
+        ? normalizeParsedSpellCostForAnyTypeManaSpending(reducedCost)
+        : reducedCost;
       
       // Log cost reduction if any
       if (costReduction.messages.length > 0) {
@@ -9195,8 +9322,8 @@ export function registerGameActions(io: Server, socket: Socket) {
       }
       
       // Calculate total mana cost for spell from hand (using reduced cost)
-      const totalGeneric = reducedCost.generic;
-      const totalColored = reducedCost.colors;
+      const totalGeneric = payableCost.generic;
+      const totalColored = payableCost.colors;
       
       // Get existing mana pool (floating mana from previous spells)
       const existingPool = getOrInitManaPool(game.state, playerId);
@@ -10321,6 +10448,9 @@ export function registerGameActions(io: Server, socket: Socket) {
               ...(typeof (cardInHand as any).leaveBattlefieldReplacementSourceName === 'string' && (cardInHand as any).leaveBattlefieldReplacementSourceName
                 ? { leaveBattlefieldReplacementSourceName: String((cardInHand as any).leaveBattlefieldReplacementSourceName) }
                 : {}),
+              ...(typeof (cardInHand as any).leaveBattlefieldReplacementLifeGain === 'number' && (cardInHand as any).leaveBattlefieldReplacementLifeGain > 0
+                ? { leaveBattlefieldReplacementLifeGain: Number((cardInHand as any).leaveBattlefieldReplacementLifeGain) }
+                : {}),
               manaSpentTotal,
               manaSpentBreakdown: { ...manaConsumption.consumed },
               ...(manaFromTreasureSpentKnown === true
@@ -10964,6 +11094,9 @@ export function registerGameActions(io: Server, socket: Socket) {
             : {}),
           ...(typeof (cardInHand as any).leaveBattlefieldReplacementSourceName === 'string' && (cardInHand as any).leaveBattlefieldReplacementSourceName
             ? { leaveBattlefieldReplacementSourceName: String((cardInHand as any).leaveBattlefieldReplacementSourceName) }
+            : {}),
+          ...(typeof (cardInHand as any).leaveBattlefieldReplacementLifeGain === 'number' && (cardInHand as any).leaveBattlefieldReplacementLifeGain > 0
+            ? { leaveBattlefieldReplacementLifeGain: Number((cardInHand as any).leaveBattlefieldReplacementLifeGain) }
             : {}),
           ...(giftPromisedForCast === true
             ? {

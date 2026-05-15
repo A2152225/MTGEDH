@@ -204,7 +204,17 @@ export function extractModalModesFromOracleText(oracleText: string): OracleModal
   // - "Choose one or both —"
   // - "Choose one or more —"
   // - "Choose any number —"
-  const headerIndex = lines.findIndex(l => /^choose\s+(one(?:\s+or\s+(?:both|more))?|two|three|four|any number)\b/i.test(l) && /-/.test(l));
+  const headerIndex = lines.findIndex((line, index) => {
+    if (!/^choose\s+(one(?:\s+or\s+(?:both|more))?|two|three|four|any number)\b/i.test(line)) {
+      return false;
+    }
+
+    if (/-/.test(line)) {
+      return true;
+    }
+
+    return lines.slice(index + 1).some((nextLine) => /^(?:•|\*|-)\s+/.test(nextLine));
+  });
   if (headerIndex === -1) return undefined;
 
   const header = lines[headerIndex];

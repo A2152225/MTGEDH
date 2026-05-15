@@ -10202,7 +10202,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
           /\bexile\s+(a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+cards?\s+from\s+your\s+graveyard\b/i
         );
         const exileTypedMatch = costStr.match(
-          /\bexile\s+(a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+(creature|artifact|enchantment|land|instant|sorcery|planeswalker|nonland|noncreature)\s+cards?\s+from\s+your\s+graveyard\b/i
+          /\bexile\s+(a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+(creature|artifact|enchantment|land|instant|sorcery|planeswalker|legendary|nonland|noncreature)\s+cards?\s+from\s+your\s+graveyard\b/i
         );
 
         if (exileMatch || exileTypedMatch) {
@@ -10260,7 +10260,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
             .replace(/\{[^}]+\}/g, ' ')
             .replace(/\bpay\s+(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+life\b/gi, ' ')
             .replace(
-              /\bexile\s+(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+(?:(?:creature|artifact|enchantment|land|instant|sorcery|planeswalker|nonland|noncreature)\s+)?cards?\s+from\s+your\s+graveyard\b/gi,
+              /\bexile\s+(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+(?:(?:creature|artifact|enchantment|land|instant|sorcery|planeswalker|legendary|nonland|noncreature)\s+)?cards?\s+from\s+your\s+graveyard\b/gi,
               ' '
             )
             .replace(/[\s,]+/g, ' ')
@@ -10303,6 +10303,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
                 case 'instant':
                 case 'sorcery':
                 case 'planeswalker':
+                case 'legendary':
                   return tl.includes(typedRestriction);
                 case 'nonland':
                   return !tl.includes('land');
@@ -11546,6 +11547,69 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       if (requiresTap && !(permanent as any).tapped) {
         (permanent as any).tapped = true;
         tappedPermanentsForCost.push(String(permanentId));
+      }
+
+      // Exile the source as part of the activation cost (e.g., "Exile this creature").
+      // Conservative: only support self-exile costs that don't include additional non-mana components.
+      {
+        const costStr = String(manaCost || '');
+        const selfExileMatch = costStr.match(/\bexile\s+(?:~|this)\b[^,]*/i);
+
+        if (selfExileMatch) {
+          const remainingNonManaCostText = costStr
+            .replace(/\{[^}]+\}/g, ' ')
+            .replace(/\bexile\s+(?:~|this)\b[^,]*/gi, ' ')
+            .replace(/[\s,]+/g, ' ')
+            .trim();
+
+          if (remainingNonManaCostText.length > 0) {
+            socket.emit('error', {
+              code: 'UNSUPPORTED_COST',
+              message: `Cannot activate ${cardName}: exile-self cost with additional non-mana components is not supported yet (${remainingNonManaCostText}).`,
+            });
+            return;
+          }
+
+          try {
+            const battlefield = Array.isArray(game.state?.battlefield) ? game.state.battlefield : [];
+            const sourcePermanent = battlefield.find((entry: any) => entry && String((entry as any).id || '') === String(permanentId)) as any;
+            if (!sourcePermanent) {
+              socket.emit('error', {
+                code: 'PERMANENT_NOT_FOUND',
+                message: 'Permanent no longer on battlefield',
+              });
+              return;
+            }
+
+            sourcePermanent.leaveBattlefieldReplacementDestination = 'exile';
+            if (sourcePermanent.card && typeof sourcePermanent.card === 'object') {
+              sourcePermanent.card.leaveBattlefieldReplacementDestination = 'exile';
+            }
+
+            const ctx = {
+              state: game.state,
+              libraries: (game as any).libraries,
+              bumpSeq: typeof (game as any).bumpSeq === 'function' ? (game as any).bumpSeq.bind(game) : (() => {}),
+              rng: (game as any).rng,
+              gameId,
+            } as any;
+            const { movePermanentToGraveyard } = await import('../state/modules/counters_tokens.js');
+            const moved = movePermanentToGraveyard(ctx, String(permanentId), true);
+            if (!moved) {
+              socket.emit('error', {
+                code: 'PERMANENT_NOT_FOUND',
+                message: 'Permanent no longer on battlefield',
+              });
+              return;
+            }
+          } catch {
+            socket.emit('error', {
+              code: 'EXILE_FAILED',
+              message: `Failed to exile ${cardName} as part of the activation cost.`,
+            });
+            return;
+          }
+        }
       }
 
       // Sacrifice the source as part of the activation cost (e.g., "Sacrifice this artifact").

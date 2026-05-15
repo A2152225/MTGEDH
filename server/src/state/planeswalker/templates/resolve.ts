@@ -2520,6 +2520,7 @@ export function tryResolvePlaneswalkerLoyaltyTemplate(
 
       const exiledCards: any[] = [];
       const exiledCardIds: string[] = [];
+      const currentTurn = Number((state as any).turnNumber ?? 0) || 0;
 
       const actual = Math.max(0, Math.min(2, lib.length));
       for (let i = 0; i < actual; i++) {
@@ -2530,8 +2531,6 @@ export function tryResolvePlaneswalkerLoyaltyTemplate(
           id: cardId,
           zone: "exile",
           exiledBy: sourceName,
-          canBePlayedBy: controller,
-          playableUntilTurn: (state as any).turnNumber ?? 0,
         };
         z.exile.push(exiled);
         exiledCards.push(exiled);
@@ -2561,6 +2560,8 @@ export function tryResolvePlaneswalkerLoyaltyTemplate(
         grantPlayableFromExileController: controller,
         grantPlayableFromExileSourceName: sourceName,
         grantPlayableFromExileCardIds: exiledCardIds,
+        grantPlayableFromExileUntilTurn: currentTurn,
+        grantPlayableFromExileWindowText: 'this turn',
       } as any);
 
       (ctx as any).bumpSeq?.();

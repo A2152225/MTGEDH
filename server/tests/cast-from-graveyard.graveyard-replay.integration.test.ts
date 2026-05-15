@@ -6,6 +6,7 @@ import { registerInteractionHandlers } from '../src/socket/interaction.js';
 import { registerResolutionHandlers } from '../src/socket/resolution.js';
 import { games } from '../src/socket/socket.js';
 import { ensureGame, transformDbEventsForReplay } from '../src/socket/util.js';
+import { getCastableSpellCandidates } from '../src/state/modules/can-respond.js';
 import { ResolutionQueueManager, ResolutionStepType } from '../src/state/resolution/index.js';
 
 async function resetGame(gameId: string) {
@@ -215,6 +216,7 @@ describe('cast-from-graveyard replay semantics (integration)', () => {
   const gameId = 'test_cast_from_graveyard_replay';
   const fixedGameIds = [
     gameId,
+    `${gameId}_embrace_live`,
     `${gameId}_retrace_live`,
     `${gameId}_escape_live`,
     `${gameId}_uro_live`,
@@ -388,6 +390,55 @@ describe('cast-from-graveyard replay semantics (integration)', () => {
     expect((game.state as any).manaPool?.[playerId]).toEqual({ white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 });
 
     const activateEvent = [...getEvents(grantedGameId)].reverse().find((event) => event.type === 'activateGraveyardAbility') as any;
+    expect(activateEvent?.payload?.manaCost).toBe('{U}');
+  });
+
+  it('live Lier, Disciple of the Drowned grants flashback to an instant in your graveyard', async () => {
+    const lierGameId = `${gameId}_lier_live`;
+    const { game, playerId } = await seedGame(lierGameId, 'lier_opt_1', 'Surveil 1, then draw a card.', {
+      name: 'Opt',
+      typeLine: 'Instant',
+      manaCost: '{U}',
+      manaPool: { white: 0, blue: 1, black: 0, red: 0, green: 0, colorless: 0 },
+    });
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).activePlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).step = 'MAIN1';
+    (game.state as any).battlefield = [
+      {
+        id: 'lier_1',
+        controller: playerId,
+        card: {
+          name: 'Lier, Disciple of the Drowned',
+          type_line: 'Legendary Creature — Human Wizard',
+          oracle_text: "Spells can't be countered.\nEach instant and sorcery card in your graveyard has flashback. The flashback cost is equal to that card's mana cost.",
+        },
+      },
+    ];
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const io = createMockIo(emitted);
+    const { socket, handlers } = createMockSocket(playerId, lierGameId, emitted);
+
+    registerInteractionHandlers(io as any, socket as any);
+    registerResolutionHandlers(io as any, socket as any);
+
+    await handlers['activateGraveyardAbility']({
+      gameId: lierGameId,
+      cardId: 'lier_opt_1',
+      abilityId: 'flashback',
+    });
+
+    const zones = (game.state as any).zones?.[playerId];
+    expect((zones?.graveyard || []).map((card: any) => card.id)).toEqual([]);
+    const stack = (game.state as any).stack || [];
+    expect(stack).toHaveLength(1);
+    expect(stack[0]?.card?.id).toBe('lier_opt_1');
+    expect(stack[0]?.card?.castWithAbility).toBe('flashback');
+    expect((game.state as any).manaPool?.[playerId]).toEqual({ white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 });
+
+    const activateEvent = [...getEvents(lierGameId)].reverse().find((event) => event.type === 'activateGraveyardAbility') as any;
     expect(activateEvent?.payload?.manaCost).toBe('{U}');
   });
 
@@ -843,6 +894,105 @@ describe('cast-from-graveyard replay semantics (integration)', () => {
     expect(stack[0]?.card?.id).toBe('retrace_1');
     expect(stack[0]?.card?.castWithAbility).toBe('retrace');
     expect(stack[0]?.targets).toEqual([retraceTargetId]);
+  });
+
+  it('live retrace Embrace the Unknown exiles normally payable cards for the shared exile cast path', async () => {
+    const embraceGameId = `${gameId}_embrace_live`;
+    const { game, playerId } = await seedGame(
+      embraceGameId,
+      'embrace_unknown_1',
+      'Exile the top two cards of your library. Until the end of your next turn, you may play those cards.\nRetrace (You may cast this card from your graveyard by discarding a land card in addition to paying its other costs.)',
+      {
+        manaCost: '{2}{R}',
+        manaPool: { white: 0, blue: 0, black: 0, red: 2, green: 0, colorless: 3 },
+        hand: [
+          {
+            id: 'embrace_land_1',
+            name: 'Mountain',
+            type_line: 'Basic Land - Mountain',
+            oracle_text: '',
+            zone: 'hand',
+          },
+        ],
+        name: 'Embrace the Unknown',
+      },
+    );
+
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).activePlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).step = 'MAIN1';
+
+    const exiledSpell = {
+      id: 'embrace_piker_1',
+      name: 'Goblin Piker',
+      type_line: 'Creature - Goblin Warrior',
+      mana_cost: '{1}{R}',
+      oracle_text: '',
+      zone: 'library',
+      power: '2',
+      toughness: '1',
+    };
+    const exiledLand = {
+      id: 'embrace_mountain_1',
+      name: 'Mountain',
+      type_line: 'Basic Land - Mountain',
+      oracle_text: '',
+      zone: 'library',
+    };
+
+    (game.state as any).zones[playerId].library = [exiledSpell, exiledLand];
+    (game.state as any).zones[playerId].libraryCount = 2;
+    (game as any).libraries.set(playerId, [exiledSpell, exiledLand]);
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const io = createMockIo(emitted);
+    const { socket, handlers } = createMockSocket(playerId, embraceGameId, emitted);
+
+    registerInteractionHandlers(io as any, socket as any);
+    registerResolutionHandlers(io as any, socket as any);
+    registerGameActions(io as any, socket as any);
+
+    await handlers['activateGraveyardAbility']({
+      gameId: embraceGameId,
+      cardId: 'embrace_unknown_1',
+      abilityId: 'retrace',
+    });
+
+    const discardStep = ResolutionQueueManager.getStepsForPlayer(embraceGameId, playerId)
+      .find((step) => step.type === ResolutionStepType.DISCARD_SELECTION) as any;
+    expect(discardStep).toBeDefined();
+    expect((discardStep.hand || []).map((card: any) => card.id)).toEqual(['embrace_land_1']);
+
+    await handlers['submitResolutionResponse']({
+      gameId: embraceGameId,
+      stepId: String(discardStep.id),
+      selections: ['embrace_land_1'],
+    });
+
+    const retraceStack = (game.state as any).stack || [];
+    expect(retraceStack).toHaveLength(1);
+    expect(retraceStack[0]?.card?.id).toBe('embrace_unknown_1');
+    expect(retraceStack[0]?.card?.castWithAbility).toBe('retrace');
+
+    (game as any).resolveTopOfStack();
+
+    const exileZone = ((game.state as any).zones?.[playerId]?.exile || []) as any[];
+    const exiledPiker = exileZone.find((card: any) => card?.id === 'embrace_piker_1');
+    expect(exiledPiker).toBeDefined();
+    expect(exiledPiker?.canBePlayedBy).toBe(playerId);
+    expect(exiledPiker?.castWithoutPayingManaCost).not.toBe(true);
+
+    const exileCandidate = getCastableSpellCandidates({ state: game.state, libraries: (game as any).libraries } as any, playerId as any, {
+      mode: 'main',
+      allowUnknownCostFallback: false,
+    }).find((candidate: any) => candidate?.card?.id === 'embrace_piker_1');
+
+    expect(exileCandidate).toEqual(expect.objectContaining({
+      sourceZone: 'exile',
+      castMethod: 'playable_from_exile',
+      manaCost: '{1}{R}',
+    }));
   });
 
   it('live escape activation requires exiling other cards from your graveyard', async () => {
@@ -1428,6 +1578,185 @@ describe('cast-from-graveyard replay semantics (integration)', () => {
     });
 
     expect(((game.state as any).stack || []).some((item: any) => String(item?.card?.id || '') === 'past_in_flames_opt_1')).toBe(true);
+  });
+
+  it('live Will of the Jeskai second mode grants flashback until end of turn', async () => {
+    const willGameId = `${gameId}_will_of_the_jeskai_live`;
+    const willOracleText = 'Choose one. If you control a commander as you cast this spell, you may choose both instead.\n• Each player may discard their hand and draw five cards.\n• Each instant and sorcery card in your graveyard gains flashback until end of turn. The flashback cost is equal to its mana cost.';
+    const { game, playerId } = await seedGame(
+      willGameId,
+      'will_opt_1',
+      'Surveil 1, then draw a card.',
+      {
+        name: 'Opt',
+        typeLine: 'Instant',
+        manaCost: '{U}',
+        manaPool: { white: 0, blue: 0, black: 0, red: 4, green: 0, colorless: 0 },
+        hand: [
+          {
+            id: 'will_of_the_jeskai_1',
+            name: 'Will of the Jeskai',
+            mana_cost: '{3}{R}',
+            manaCost: '{3}{R}',
+            type_line: 'Sorcery',
+            oracle_text: willOracleText,
+            zone: 'hand',
+          },
+        ],
+        extraGraveyard: [
+          {
+            id: 'will_bear_1',
+            name: 'Runeclaw Bear',
+            type_line: 'Creature - Bear',
+            mana_cost: '{1}{G}',
+            oracle_text: '',
+          },
+        ],
+      },
+    );
+    (game.state as any).phase = 'main';
+    (game.state as any).step = 'MAIN1';
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).activePlayer = playerId;
+    (game.state as any).priority = playerId;
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const io = createMockIo(emitted);
+    const { socket, handlers } = createMockSocket(playerId, willGameId, emitted);
+
+    registerGameActions(io as any, socket as any);
+    registerInteractionHandlers(io as any, socket as any);
+    registerResolutionHandlers(io as any, socket as any);
+
+    await handlers['castSpellFromHand']({ gameId: willGameId, cardId: 'will_of_the_jeskai_1' });
+
+    const modeStep = ResolutionQueueManager
+      .getQueue(willGameId)
+      .steps
+      .find((step: any) => step.type === ResolutionStepType.MODE_SELECTION && String((step as any).sourceId || '') === 'will_of_the_jeskai_1') as any;
+    expect(modeStep).toBeDefined();
+
+    await handlers['submitResolutionResponse']({
+      gameId: willGameId,
+      stepId: String(modeStep.id),
+      selections: 'mode_2',
+      cancelled: false,
+    });
+
+    const errorCodes = emitted.filter((event) => event.event === 'error').map((event) => event.payload?.code);
+    expect(emitted.some((event) => event.event === 'castSpellFromHandContinue')).toBe(false);
+    expect(errorCodes).toEqual([]);
+    expect(((game.state as any).stack || []).some((item: any) => String(item?.card?.id || '') === 'will_of_the_jeskai_1')).toBe(true);
+    expect((game.state as any).manaPool?.[playerId]).toEqual({ white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 });
+
+    game.resolveTopOfStack();
+
+    const temporaryGrants = Array.isArray((game.state as any).temporaryGraveyardKeywordGrants)
+      ? (game.state as any).temporaryGraveyardKeywordGrants
+      : [];
+    expect(temporaryGrants).toEqual(expect.arrayContaining([
+      expect.objectContaining({ cardId: 'will_opt_1', keyword: 'flashback', cost: '{U}' }),
+    ]));
+    expect(temporaryGrants.some((grant: any) => String(grant?.cardId || '') === 'will_bear_1')).toBe(false);
+
+    (game.state as any).manaPool[playerId] = { white: 0, blue: 1, black: 0, red: 0, green: 0, colorless: 0 };
+
+    await handlers['activateGraveyardAbility']({
+      gameId: willGameId,
+      cardId: 'will_opt_1',
+      abilityId: 'flashback',
+    });
+
+    expect(((game.state as any).stack || []).some((item: any) => String(item?.card?.id || '') === 'will_opt_1')).toBe(true);
+  });
+
+  it('live Will of the Jeskai allows choosing both modes while you control a commander', async () => {
+    const willGameId = `${gameId}_will_of_the_jeskai_commander_live`;
+    const willOracleText = 'Choose one. If you control a commander as you cast this spell, you may choose both instead.\n• Each player may discard their hand and draw five cards.\n• Each instant and sorcery card in your graveyard gains flashback until end of turn. The flashback cost is equal to its mana cost.';
+    const { game, playerId } = await seedGame(
+      willGameId,
+      'will_commander_opt_1',
+      'Surveil 1, then draw a card.',
+      {
+        name: 'Opt',
+        typeLine: 'Instant',
+        manaCost: '{U}',
+        manaPool: { white: 0, blue: 0, black: 0, red: 4, green: 0, colorless: 0 },
+        hand: [
+          {
+            id: 'will_of_the_jeskai_commander_1',
+            name: 'Will of the Jeskai',
+            mana_cost: '{3}{R}',
+            manaCost: '{3}{R}',
+            type_line: 'Sorcery',
+            oracle_text: willOracleText,
+            zone: 'hand',
+          },
+        ],
+      },
+    );
+    (game.state as any).phase = 'main';
+    (game.state as any).step = 'MAIN1';
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).activePlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).commandZone = {
+      [playerId]: {
+        commanderIds: ['will_test_commander_1'],
+        inCommandZone: [],
+      },
+    };
+    (game.state as any).battlefield = [
+      {
+        id: 'battlefield_will_test_commander_1',
+        controller: playerId,
+        isCommander: true,
+        card: {
+          id: 'will_test_commander_1',
+          name: 'Test Commander',
+          type_line: 'Legendary Creature - Advisor',
+          oracle_text: '',
+          isCommander: true,
+        },
+      },
+    ];
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const io = createMockIo(emitted);
+    const { socket, handlers } = createMockSocket(playerId, willGameId, emitted);
+
+    registerGameActions(io as any, socket as any);
+    registerInteractionHandlers(io as any, socket as any);
+    registerResolutionHandlers(io as any, socket as any);
+
+    await handlers['castSpellFromHand']({ gameId: willGameId, cardId: 'will_of_the_jeskai_commander_1' });
+
+    const modeStep = ResolutionQueueManager
+      .getQueue(willGameId)
+      .steps
+      .find((step: any) => step.type === ResolutionStepType.MODE_SELECTION && String((step as any).sourceId || '') === 'will_of_the_jeskai_commander_1') as any;
+    expect(modeStep).toBeDefined();
+    expect(modeStep.maxModes).toBe(2);
+    expect(modeStep.normalMaxModes).toBe(1);
+
+    await handlers['submitResolutionResponse']({
+      gameId: willGameId,
+      stepId: String(modeStep.id),
+      selections: ['mode_1', 'mode_2'],
+      cancelled: false,
+    });
+
+    const errorCodes = emitted.filter((event) => event.event === 'error').map((event) => event.payload?.code);
+    expect(errorCodes).toEqual([]);
+
+    const willStackItem = (((game.state as any).stack || []) as any[])
+      .find((item: any) => String(item?.card?.id || '') === 'will_of_the_jeskai_commander_1');
+    expect(willStackItem).toBeDefined();
+    expect(willStackItem?.selectedModes).toEqual(['mode_1', 'mode_2']);
+    expect(willStackItem?.selectedModeDescriptions).toEqual(expect.arrayContaining([
+      'Each player may discard their hand and draw five cards.',
+      'Each instant and sorcery card in your graveyard gains flashback until end of turn. The flashback cost is equal to its mana cost.',
+    ]));
   });
 
   it('replay resolveTopOfStack restores Past in Flames temporary flashback grants', async () => {
@@ -2211,6 +2540,69 @@ describe('cast-from-graveyard replay semantics (integration)', () => {
     expect((zones?.exile || []).map((card: any) => card.id)).toContain('bulk_up_replay_1');
   });
 
+  it('live flashback Artful Dodge gives the targeted creature unblockable and exiles itself on resolution', async () => {
+    const artfulDodgeGameId = `${gameId}_artful_dodge_live`;
+    const { game, playerId } = await seedGame(
+      artfulDodgeGameId,
+      'artful_dodge_1',
+      "Target creature can't be blocked this turn.\nFlashback {U}",
+      {
+        manaPool: { white: 0, blue: 1, black: 0, red: 0, green: 0, colorless: 0 },
+        name: 'Artful Dodge',
+        typeLine: 'Sorcery',
+      },
+    );
+    (game.state as any).battlefield = [
+      {
+        id: 'artful_dodge_target_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        counters: {},
+        temporaryPTMods: [],
+        temporaryAbilities: [],
+        card: {
+          id: 'artful_dodge_target_card_1',
+          name: 'Merfolk Looter',
+          type_line: 'Creature - Merfolk Rogue',
+          oracle_text: '',
+          power: '1',
+          toughness: '1',
+        },
+      },
+    ];
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const io = createMockIo(emitted);
+    const { socket, handlers } = createMockSocket(playerId, artfulDodgeGameId, emitted);
+
+    registerInteractionHandlers(io as any, socket as any);
+    registerResolutionHandlers(io as any, socket as any);
+
+    await handlers['activateGraveyardAbility']({
+      gameId: artfulDodgeGameId,
+      cardId: 'artful_dodge_1',
+      abilityId: 'flashback',
+      targets: ['artful_dodge_target_1'],
+    });
+
+    game.resolveTopOfStack();
+
+    const creature = ((game.state as any).battlefield || []).find((entry: any) => entry.id === 'artful_dodge_target_1');
+    const temporaryAbilities = Array.isArray(creature?.temporaryAbilities) ? creature.temporaryAbilities : [];
+    const zones = (game.state as any).zones?.[playerId];
+
+    expect(temporaryAbilities).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          ability: "can't be blocked",
+          expiresAt: 'end_of_turn',
+        }),
+      ]),
+    );
+    expect((zones?.exile || []).map((card: any) => card.id)).toContain('artful_dodge_1');
+  });
+
   it('live flashback Strike It Rich creates a Treasure token and exiles itself on resolution', async () => {
     const strikeGameId = `${gameId}_strike_it_rich_live`;
     const { game, playerId } = await seedGame(
@@ -2740,6 +3132,151 @@ describe('cast-from-graveyard replay semantics (integration)', () => {
       'faithless_replay_draw_2',
     ]);
     expect((zonesAfterResolve?.exile || []).map((card: any) => card.id)).toContain('faithless_looting_replay_1');
+  });
+
+  it('live flashback Faithful Mending gains life, queues discard, and exiles itself on resolution', async () => {
+    const faithfulMendingGameId = `${gameId}_faithful_mending_live`;
+    const { game, playerId } = await seedGame(
+      faithfulMendingGameId,
+      'faithful_mending_1',
+      'You gain 2 life, draw two cards, then discard two cards.\nFlashback {1}{W}{U}',
+      {
+        manaCost: '{W}{U}',
+        manaPool: { white: 1, blue: 1, black: 0, red: 0, green: 0, colorless: 1 },
+        life: 10,
+        hand: [
+          {
+            id: 'faithful_keep_1',
+            name: 'Consider',
+            type_line: 'Instant',
+            oracle_text: 'Look at the top card of your library. You may put that card into your graveyard. Draw a card.',
+            zone: 'hand',
+          },
+        ],
+      },
+    );
+    (game.state as any).zones[playerId].graveyard[0].name = 'Faithful Mending';
+    (game.state as any).zones[playerId].graveyard[0].type_line = 'Instant';
+    const libraryCards = [
+      { id: 'faithful_draw_1', name: 'Plains', type_line: 'Basic Land - Plains', oracle_text: '', zone: 'library' },
+      { id: 'faithful_draw_2', name: 'Ponder', type_line: 'Sorcery', oracle_text: 'Look at the top three cards of your library, then put them back in any order. You may shuffle. Draw a card.', zone: 'library' },
+    ];
+    (game.state as any).zones[playerId].library = libraryCards.map((card) => ({ ...card }));
+    (game.state as any).zones[playerId].libraryCount = libraryCards.length;
+    (game as any).libraries.set(playerId, libraryCards.map((card) => ({ ...card })));
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const io = createMockIo(emitted);
+    const { socket, handlers } = createMockSocket(playerId, faithfulMendingGameId, emitted);
+
+    registerInteractionHandlers(io as any, socket as any);
+    registerResolutionHandlers(io as any, socket as any);
+
+    await handlers['activateGraveyardAbility']({
+      gameId: faithfulMendingGameId,
+      cardId: 'faithful_mending_1',
+      abilityId: 'flashback',
+    });
+
+    game.resolveTopOfStack();
+
+    const discardStep = ResolutionQueueManager
+      .getStepsForPlayer(faithfulMendingGameId, playerId)
+      .find((step: any) => step?.type === ResolutionStepType.DISCARD_SELECTION) as any;
+    expect(discardStep).toBeDefined();
+    expect(Number(discardStep?.discardCount || 0)).toBe(2);
+    expect((discardStep?.hand || []).map((card: any) => card.id)).toEqual([
+      'faithful_keep_1',
+      'faithful_draw_1',
+      'faithful_draw_2',
+    ]);
+
+    const zonesAfterResolve = (game.state as any).zones?.[playerId];
+    expect((game.state as any).life?.[playerId]).toBe(12);
+    expect((zonesAfterResolve?.hand || []).map((card: any) => card.id)).toEqual([
+      'faithful_keep_1',
+      'faithful_draw_1',
+      'faithful_draw_2',
+    ]);
+    expect((zonesAfterResolve?.exile || []).map((card: any) => card.id)).toContain('faithful_mending_1');
+
+    await handlers['submitResolutionResponse']({
+      gameId: faithfulMendingGameId,
+      stepId: String(discardStep.id),
+      selections: ['faithful_draw_1', 'faithful_draw_2'],
+    });
+
+    const zonesAfterDiscard = (game.state as any).zones?.[playerId];
+    expect((game.state as any).life?.[playerId]).toBe(12);
+    expect((zonesAfterDiscard?.hand || []).map((card: any) => card.id)).toEqual(['faithful_keep_1']);
+    expect((zonesAfterDiscard?.graveyard || []).map((card: any) => card.id)).toEqual([
+      'faithful_draw_1',
+      'faithful_draw_2',
+    ]);
+    expect((zonesAfterDiscard?.exile || []).map((card: any) => card.id)).toContain('faithful_mending_1');
+  });
+
+  it('replay resolveTopOfStack restores Faithful Mending life gain and discard prompt state', async () => {
+    const replayGameId = `${gameId}_faithful_mending_replay`;
+    const { game, playerId } = await seedGame(
+      replayGameId,
+      'faithful_mending_replay_1',
+      'You gain 2 life, draw two cards, then discard two cards.\nFlashback {1}{W}{U}',
+      {
+        manaCost: '{W}{U}',
+        manaPool: { white: 1, blue: 1, black: 0, red: 0, green: 0, colorless: 1 },
+        life: 10,
+        hand: [
+          {
+            id: 'faithful_replay_keep_1',
+            name: 'Consider',
+            type_line: 'Instant',
+            oracle_text: 'Look at the top card of your library. You may put that card into your graveyard. Draw a card.',
+            zone: 'hand',
+          },
+        ],
+      },
+    );
+    (game.state as any).zones[playerId].graveyard[0].name = 'Faithful Mending';
+    (game.state as any).zones[playerId].graveyard[0].type_line = 'Instant';
+    const libraryCards = [
+      { id: 'faithful_replay_draw_1', name: 'Plains', type_line: 'Basic Land - Plains', oracle_text: '', zone: 'library' },
+      { id: 'faithful_replay_draw_2', name: 'Ponder', type_line: 'Sorcery', oracle_text: 'Look at the top three cards of your library, then put them back in any order. You may shuffle. Draw a card.', zone: 'library' },
+    ];
+    (game.state as any).zones[playerId].library = libraryCards.map((card) => ({ ...card }));
+    (game.state as any).zones[playerId].libraryCount = libraryCards.length;
+    (game as any).libraries.set(playerId, libraryCards.map((card) => ({ ...card })));
+
+    game.applyEvent({
+      type: 'activateGraveyardAbility',
+      playerId,
+      cardId: 'faithful_mending_replay_1',
+      abilityId: 'flashback',
+      stackId: 'stack_faithful_mending_replay_1',
+      manaCost: '{1}{W}{U}',
+    } as any);
+
+    game.applyEvent({ type: 'resolveTopOfStack' } as any);
+
+    const discardStep = ResolutionQueueManager
+      .getStepsForPlayer(replayGameId, playerId)
+      .find((step: any) => step?.type === ResolutionStepType.DISCARD_SELECTION) as any;
+    expect(discardStep).toBeDefined();
+    expect(Number(discardStep?.discardCount || 0)).toBe(2);
+    expect((discardStep?.hand || []).map((card: any) => card.id)).toEqual([
+      'faithful_replay_keep_1',
+      'faithful_replay_draw_1',
+      'faithful_replay_draw_2',
+    ]);
+
+    const zonesAfterResolve = (game.state as any).zones?.[playerId];
+    expect((game.state as any).life?.[playerId]).toBe(12);
+    expect((zonesAfterResolve?.hand || []).map((card: any) => card.id)).toEqual([
+      'faithful_replay_keep_1',
+      'faithful_replay_draw_1',
+      'faithful_replay_draw_2',
+    ]);
+    expect((zonesAfterResolve?.exile || []).map((card: any) => card.id)).toContain('faithful_mending_replay_1');
   });
 
   it('live flashback Laughing Mad pays the discard cost, draws two cards, and exiles itself on resolution', async () => {

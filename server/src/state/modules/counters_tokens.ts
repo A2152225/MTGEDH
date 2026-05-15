@@ -2,9 +2,9 @@ import type { PlayerID } from "../../../../shared/src";
 import { buildZoneObjectWithRetainedCounters } from "../../../../shared/src/zoneRetainedCounters";
 import type { GameContext } from "../context";
 import { applyStateBasedActions, evaluateAction } from "../../rules-engine";
-import { uid, parsePT, parseWordNumber } from "../utils";
+import { uid, parsePT, parseWordNumber, triggerLifeGainEffects } from "../utils";
 import { recalculatePlayerEffects } from "./game-state-effects.js";
-import { applyBeneficialReplacements, applyReplacementsCustomOrder, type ReplacementEffect } from "./game-state-effects.js";
+import { applyBeneficialReplacements, applyReplacementsCustomOrder, processLifeChange, type ReplacementEffect } from "./game-state-effects.js";
 import { getDeathTriggers, processLinkedExileReturns } from "./triggered-abilities.js";
 import { isInterveningIfSatisfied } from "./triggers/intervening-if.js";
 import { getTokenImageUrls } from "../../services/tokens.js";
@@ -62,6 +62,46 @@ type DeathTriggerStackMetadata = {
   boundGraveyardCardId?: string;
   boundGraveyardOwnerId?: string;
 };
+
+function applyProcessedLifeGain(ctx: GameContext, playerId: PlayerID, amount: number): number {
+  const numericAmount = Number(amount || 0);
+  if (numericAmount <= 0) {
+    return 0;
+  }
+
+  const state = (ctx as any).state;
+  const startingLife = state?.startingLife || 40;
+  const currentLife = state?.life?.[playerId] ?? startingLife;
+  const result = processLifeChange(ctx, playerId, numericAmount, true);
+  if (result.prevented || result.finalAmount === 0) {
+    return 0;
+  }
+
+  if (!state.life) state.life = {};
+  state.life[playerId] = currentLife + result.finalAmount;
+
+  const player = Array.isArray(state.players)
+    ? state.players.find((entry: any) => String(entry?.id || '') === String(playerId || ''))
+    : undefined;
+  if (player) {
+    player.life = state.life[playerId];
+  }
+
+  try {
+    if (result.finalAmount > 0) {
+      (state as any).lifeGainedThisTurn = (state as any).lifeGainedThisTurn || {};
+      (state as any).lifeGainedThisTurn[playerId] = ((state as any).lifeGainedThisTurn[playerId] || 0) + result.finalAmount;
+      triggerLifeGainEffects(state, playerId, result.finalAmount);
+    } else if (result.finalAmount < 0) {
+      (state as any).lifeLostThisTurn = (state as any).lifeLostThisTurn || {};
+      (state as any).lifeLostThisTurn[playerId] = ((state as any).lifeLostThisTurn[playerId] || 0) + Math.abs(result.finalAmount);
+    }
+  } catch {
+    // Best-effort tracking only.
+  }
+
+  return result.finalAmount;
+}
 
 function clearPreparedStateOnBattlefieldExit(state: any, permanent: any): void {
   if (!permanent) {
@@ -1243,6 +1283,16 @@ export function movePermanentToGraveyard(ctx: GameContext, permanentId: string, 
   const leaveReplacementDestination = getCounterLeaveBattlefieldReplacement(perm, 'graveyard');
   if (leaveReplacementDestination === 'exile') {
     moveRemovedPermanentToExile(ctx, perm, removedPermanentId);
+    const leaveBattlefieldReplacementLifeGain = Number(
+      (perm as any)?.leaveBattlefieldReplacementLifeGain || (perm as any)?.card?.leaveBattlefieldReplacementLifeGain || 0
+    );
+    if (leaveBattlefieldReplacementLifeGain > 0 && controller) {
+      try {
+        applyProcessedLifeGain(ctx, String(controller) as PlayerID, leaveBattlefieldReplacementLifeGain);
+      } catch (err) {
+        debugWarn(1, '[movePermanentToGraveyard] Failed to apply leave-battlefield life gain:', err);
+      }
+    }
     try {
       recalculatePlayerEffects(ctx);
     } catch (err) {

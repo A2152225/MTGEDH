@@ -95,7 +95,7 @@ import {
   type PendingCastCostMetadata,
 } from "./game-actions.js";
 import { buildOraclePromptContext, getOracleTextFromResolutionStep } from "../utils/oraclePromptContext.js";
-import { cleanupCardLeavingExile } from "../state/modules/playable-from-exile.js";
+import { cleanupCardLeavingExile, removePlayableFromExileForCard, stripPlayableFromExileTags } from "../state/modules/playable-from-exile.js";
 import { movePermanentToExile } from "../state/modules/counters_tokens.js";
 import { trackCountersPlacedThisTurn } from "../state/modules/counters_tokens.js";
 import { updateCounters } from "../state/modules/counters_tokens.js";
@@ -14669,6 +14669,7 @@ async function handleDiscardResponse(
   const shouldOfferMadnessPrompt =
     !isExileFromHandCostActivation &&
     destination === 'graveyard';
+  const currentTurn = Number((game.state as any).turnNumber ?? (game.state as any).turn ?? 0) || 0;
   
   for (const cardId of selections) {
     const cardIndex = zones.hand.findIndex((c: any) => c.id === cardId);
@@ -14681,6 +14682,8 @@ async function handleDiscardResponse(
           ...card,
           ...(exileTag ? { ...exileTag } : null),
           zone: 'exile',
+          discardedByPlayerId: String(pid),
+          discardedOnTurn: currentTurn,
         };
         zones.exile.push(exiledCard);
         movedCardsToExile.push(exiledCard);
@@ -14715,11 +14718,18 @@ async function handleDiscardResponse(
           ...card,
           ...(exileTag ? { ...exileTag } : null),
           zone: 'exile',
+          discardedByPlayerId: String(pid),
+          discardedOnTurn: currentTurn,
         };
         zones.exile.push(exiledCard);
         movedCardsToExile.push(exiledCard);
       } else {
-        const graveyardCard = { ...card, zone: 'graveyard' };
+        const graveyardCard = {
+          ...card,
+          zone: 'graveyard',
+          discardedByPlayerId: String(pid),
+          discardedOnTurn: currentTurn,
+        };
         zones.graveyard.push(graveyardCard);
         movedCardsToGraveyard.push(graveyardCard);
       }
@@ -27146,22 +27156,45 @@ async function handleOptionChoiceResponse(
     const cardIds: string[] = Array.isArray(stepData.grantPlayableFromExileCardIds)
       ? stepData.grantPlayableFromExileCardIds.map(String)
       : [];
+    const currentTurn = Number((game.state as any).turnNumber ?? 0) || 0;
+    const rawUntilTurn = Number(stepData.grantPlayableFromExileUntilTurn);
+    const playableUntilTurn = Number.isFinite(rawUntilTurn) ? rawUntilTurn : currentTurn;
+    const playWindowText = String(stepData.grantPlayableFromExileWindowText || '').trim() || 'this turn';
 
     if (!chosenCardId || cardIds.length === 0 || !cardIds.includes(String(chosenCardId))) {
       debugWarn(2, `[Resolution] grantPlayableFromExileChoice: invalid selection`);
       return;
     }
 
+    const allZones = ((game.state as any).zones || {}) as Record<string, any>;
+    for (const zoneOwner of Object.keys(allZones)) {
+      const exileZone = Array.isArray(allZones[zoneOwner]?.exile) ? allZones[zoneOwner].exile : [];
+      for (const exiledCard of exileZone) {
+        const exiledCardId = String(exiledCard?.id || '').trim();
+        if (!exiledCardId || !cardIds.includes(exiledCardId)) {
+          continue;
+        }
+
+        removePlayableFromExileForCard(game.state as any, exiledCardId);
+        stripPlayableFromExileTags(exiledCard);
+
+        if (exiledCardId === String(chosenCardId)) {
+          exiledCard.canBePlayedBy = controllerId;
+          exiledCard.playableUntilTurn = playableUntilTurn;
+        }
+      }
+    }
+
     ;(game.state as any).playableFromExile = (game.state as any).playableFromExile || {};
     const pfe = (((game.state as any).playableFromExile[controllerId] =
       (game.state as any).playableFromExile[controllerId] || {}) as any);
-    pfe[String(chosenCardId)] = (game.state as any).turnNumber ?? 0;
+    pfe[String(chosenCardId)] = playableUntilTurn;
 
     io.to(gameId).emit('chat', {
       id: `m_${Date.now()}`,
       gameId,
       from: 'system',
-      message: `${sourceName}: ${getPlayerName(game, controllerId)} chose an exiled card to play this turn.`,
+      message: `${sourceName}: ${getPlayerName(game, controllerId)} chose an exiled card to play ${playWindowText}.`,
       ts: Date.now(),
     });
 
@@ -27170,6 +27203,78 @@ async function handleOptionChoiceResponse(
     }
     return;
   }
+
+    // ===== GENERIC: "You may play <that card> from your graveyard." =====
+    if (stepData.playFromGraveyardCardId && stepData.playFromGraveyardCard) {
+      const choiceId = extractId(selectedOption) || 'decline';
+      const graveyardCardId = String(stepData.playFromGraveyardCardId);
+      const zones = game.state?.zones?.[playerId];
+      const graveyard = Array.isArray(zones?.graveyard) ? zones.graveyard : [];
+      const cardIndex = graveyard.findIndex((c: any) => c?.id === graveyardCardId);
+
+      if (choiceId === 'play') {
+        const cardSnapshot = stepData.playFromGraveyardCard;
+        const typeLine = String(cardSnapshot?.type_line || cardSnapshot?.typeLine || '').toLowerCase();
+        const isLandCard = /\bland\b/.test(typeLine);
+
+        if (!zones || !Array.isArray(zones.graveyard)) {
+          debugWarn(2, `[Resolution] Play-from-graveyard: No graveyard found for player ${playerId}`);
+        } else if (cardIndex === -1) {
+          debugWarn(2, `[Resolution] Play-from-graveyard: Card ${graveyardCardId} not found in graveyard`);
+        } else if (isLandCard) {
+          const fakeSocket: any = {
+            data: { playerId, spectator: false, gameId },
+            rooms: new Set([gameId]),
+            emit: (event: string, payload: unknown) => {
+              emitToPlayer(io, playerId as any, event as any, payload);
+            },
+          };
+
+          handlePlayLandRequest(io, fakeSocket, {
+            gameId,
+            cardId: graveyardCardId,
+            fromZone: 'graveyard',
+            bypassGraveyardPermissionCheck: true,
+          });
+        } else {
+          const castWithoutPayingManaCost = stepData.playFromGraveyardWithoutPayingManaCost === true;
+          const exileAfterResolution = stepData.playFromGraveyardExileAfterResolution === true
+            || stepData.playFromGraveyardCard?.exileAfterResolution === true;
+          const fakeSocket: any = {
+            data: { playerId, spectator: false },
+            emit: (event: string, payload: unknown) => {
+              emitToPlayer(io, playerId as any, event as any, payload);
+            },
+          };
+
+          await requestCastSpellForSocket(
+            io,
+            fakeSocket,
+            { gameId, cardId: graveyardCardId, fromZone: 'graveyard' },
+            {
+              skipPriorityCheck: true,
+              forcedAlternateCostId: castWithoutPayingManaCost ? 'free' : undefined,
+              castWithoutPayingManaCost,
+              exileAfterResolution,
+              ignoreTimingRestrictions: true,
+            }
+          );
+        }
+      }
+
+      appendCastFromGraveyardPromptResolveEvent(gameId, game, {
+        playerId,
+        sourceId: String((step as any).sourceId || '').trim(),
+        resolvedStepId: String((step as any).id || '').trim(),
+        cardId: graveyardCardId,
+        choice: choiceId === 'play' ? 'play' : 'decline',
+      });
+
+      if (typeof (game as any).bumpSeq === 'function') {
+        (game as any).bumpSeq();
+      }
+      return;
+    }
 
     // ===== GENERIC: "You may cast <that card> from your graveyard." =====
     if (stepData.castFromGraveyardCardId && stepData.castFromGraveyardCard) {
@@ -30216,7 +30321,7 @@ async function handleGraveyardSelectionResponse(
       .replace(/\{[^}]+\}/g, ' ')
       .replace(/\bpay\s+(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+life\b/gi, ' ')
       .replace(
-        /\bexile\s+(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+(?:(?:creature|artifact|enchantment|land|instant|sorcery|planeswalker|nonland|noncreature)\s+)?cards?\s+from\s+your\s+graveyard\b/gi,
+        /\bexile\s+(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+(?:(?:creature|artifact|enchantment|land|instant|sorcery|planeswalker|legendary|nonland|noncreature)\s+)?cards?\s+from\s+your\s+graveyard\b/gi,
         ' '
       )
       .replace(/[\s,]+/g, ' ')
@@ -30716,7 +30821,7 @@ async function handleGraveyardSelectionResponse(
         .replace(/\{[^}]+\}/g, ' ')
         .replace(/\bpay\s+(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+life\b/gi, ' ')
         .replace(
-          /\bexile\s+(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+(?:(?:creature|artifact|enchantment|land|instant|sorcery|planeswalker|nonland|noncreature)\s+)?cards?\s+from\s+your\s+graveyard\b/gi,
+          /\bexile\s+(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+(?:(?:creature|artifact|enchantment|land|instant|sorcery|planeswalker|legendary|nonland|noncreature)\s+)?cards?\s+from\s+your\s+graveyard\b/gi,
           ' '
         )
         .replace(/[\s,]+/g, ' ')

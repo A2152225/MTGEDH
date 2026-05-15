@@ -47,7 +47,7 @@ import { handleElixirShuffle, handleEldraziShuffle, shuffleZoneIntoLibrary } fro
 import { addExtraTurn, addExtraCombat } from "./turn.js";
 import { drawCards as drawCardsFromZone, movePermanentToHand } from "./zones.js";
 import { createToken, runSBA, applyCounterModifications, destroyPermanent, movePermanentToGraveyard, movePermanentToExile } from "./counters_tokens.js";
-import { cleanupCardLeavingExile } from "./playable-from-exile.js";
+import { cleanupCardLeavingExile, removeCardFromAnyPlayerExile } from "./playable-from-exile.js";
 import { recordCardLeftGraveyardThisTurn, recordCardPutIntoGraveyardThisTurn } from "./turn-tracking.js";
 import { applyGoadToCreature } from "./goad-effects.js";
 import { getEffectiveBasicLandTypes } from "./mana-abilities.js";
@@ -73,6 +73,7 @@ import { cardEntersPrepared, clearPreparedPermanent, setPermanentPrepared, syncP
 import { parseCreateTokenDescriptor } from "../planeswalker/templates/utils.js";
 import { buildOpponentMayPayRecordedOutcome } from "./opponent-may-pay-utils.js";
 import { resolveGiftAwareOracleText } from "../../utils/gift.js";
+import { extractModalModesFromOracleText } from "../../utils/oraclePromptContext.js";
 import { castCommander } from "./commander.js";
 import { markEchoPaid, sacrificePermanent, stampPermanentControlEntryForEcho } from "./upkeep-triggers.js";
 import {
@@ -3026,18 +3027,35 @@ function applySimpleTargetedTemporarySpellEffects(
   const text = String(oracleText || '').replace(/\u2019/g, "'").trim();
   if (!text || !Array.isArray(targets) || targets.length === 0) return 0;
 
-  const targetBuffMatch = text.match(
-    /(?:^|\.\s*)(?:until end of turn,?\s*)?(?:another\s+)?(?:up to (?:one|two|three|four|five|\d+)\s+)?target creatures?(?: you control)? gets? ([+-]\d+)\/([+-]\d+)(?: and gains? (.+?))?(?: until end of turn)?\.?$/i
-  );
-  const targetAbilityMatch =
-    text.match(
-      /(?:^|\.\s*)(?:another\s+)?(?:up to (?:one|two|three|four|five|\d+)\s+)?target creatures?(?: you control)? gains? (.+?) until end of turn\.?/i
-    ) ||
-    text.match(
-      /(?:^|\.\s*)until end of turn,?\s*(?:another\s+)?(?:up to (?:one|two|three|four|five|\d+)\s+)?target creatures?(?: you control)? gains? (.+?)\.?$/i
-    );
+  const clauses = text
+    .split(/\n+/)
+    .flatMap((entry) => entry.split(/(?<=\.)\s+/))
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+  const findClauseMatch = (patterns: readonly RegExp[]) => {
+    for (const clause of clauses) {
+      for (const pattern of patterns) {
+        const match = clause.match(pattern);
+        if (match) {
+          return match;
+        }
+      }
+    }
+    return null;
+  };
 
-  if (!targetBuffMatch && !targetAbilityMatch) return 0;
+  const targetBuffMatch = findClauseMatch([
+    /^(?:until end of turn,?\s*)?(?:another\s+)?(?:up to (?:one|two|three|four|five|\d+)\s+)?target creatures?(?: you control)? gets? ([+-]\d+)\/([+-]\d+)(?: and gains? (.+?))?(?: until end of turn)?\.?$/i,
+  ]);
+  const targetAbilityMatch = findClauseMatch([
+    /^(?:another\s+)?(?:up to (?:one|two|three|four|five|\d+)\s+)?target creatures?(?: you control)? gains? (.+?) until end of turn\.?$/i,
+    /^(?:until end of turn,?\s*)(?:another\s+)?(?:up to (?:one|two|three|four|five|\d+)\s+)?target creatures?(?: you control)? gains? (.+?)\.?$/i,
+  ]);
+  const targetCantBeBlockedMatch = findClauseMatch([
+    /^(?:until end of turn,?\s*)?(?:another\s+)?(?:up to (?:one|two|three|four|five|\d+)\s+)?target creatures?(?: you control| an opponent controls)? can't be blocked(?: by (.+?))? this turn\.?$/i,
+  ]);
+
+  if (!targetBuffMatch && !targetAbilityMatch && !targetCantBeBlockedMatch) return 0;
 
   const state = (ctx as any).state;
   const battlefield = Array.isArray(state?.battlefield) ? state.battlefield : [];
@@ -3045,6 +3063,14 @@ function applySimpleTargetedTemporarySpellEffects(
   const toughnessMod = targetBuffMatch ? parseInt(targetBuffMatch[2], 10) : null;
   const rawAbilityText = (targetBuffMatch?.[3] || targetAbilityMatch?.[1] || '').trim();
   const gainedAbilities = splitGrantedTemporaryAbilities(rawAbilityText);
+  if (targetCantBeBlockedMatch) {
+    const blockedByRestriction = String(targetCantBeBlockedMatch[1] || '').trim().toLowerCase();
+    gainedAbilities.push(
+      blockedByRestriction
+        ? `can't be blocked by ${blockedByRestriction} this turn`
+        : "can't be blocked"
+    );
+  }
 
   let applied = 0;
   for (const targetRef of targets) {
@@ -3138,11 +3164,10 @@ function applyOracleIRImpulseExileTopStep(
   spellName: string,
   step: any,
   xValue?: number,
+  options?: { castWithoutPayingManaCost?: boolean; spendManaAsThoughAnyType?: boolean },
 ): number {
   const count = resolveOracleQuantityToNumber((step as any).amount, xValue);
   if (!count || count <= 0) return 0;
-
-  if ((step as any)?.who?.kind && (step as any).who.kind !== 'you') return 0;
 
   const duration = (step as any).duration as 'this_turn' | 'until_end_of_next_turn' | undefined;
   if (!duration) return 0;
@@ -3159,10 +3184,13 @@ function applyOracleIRImpulseExileTopStep(
   const libraries: any = (ctx as any).libraries;
   if (!libraries || typeof libraries.get !== 'function' || typeof libraries.set !== 'function') return 0;
 
-  const playerIds = resolveOracleWhoToPlayerIds({ kind: 'you' } as any, caster, stateAny);
+  const playerIds = resolveOracleWhoToPlayerIds((step as any).who, caster, stateAny);
   if (playerIds.length === 0) return 0;
 
   let applied = 0;
+  const grantFreeCastsFromExile = options?.castWithoutPayingManaCost === true;
+  const grantFlexibleManaSpending = options?.spendManaAsThoughAnyType === true;
+  const permissionGrantee = String(caster || '');
 
   for (const pid of playerIds) {
     const lib = libraries.get(pid);
@@ -3182,11 +3210,11 @@ function applyOracleIRImpulseExileTopStep(
       zones.exile = Array.isArray((zones as any).exile) ? (zones as any).exile : ((zones as any).exile = []);
     }
 
-    stateAny.playableFromExile = stateAny.playableFromExile || {};
-    stateAny.playableFromExile[pid] = stateAny.playableFromExile[pid] || {};
+  stateAny.playableFromExile = stateAny.playableFromExile || {};
+  stateAny.playableFromExile[permissionGrantee] = stateAny.playableFromExile[permissionGrantee] || {};
 
     stateAny.pendingImpulseDraws = stateAny.pendingImpulseDraws || {};
-    stateAny.pendingImpulseDraws[pid] = stateAny.pendingImpulseDraws[pid] || [];
+  stateAny.pendingImpulseDraws[permissionGrantee] = stateAny.pendingImpulseDraws[permissionGrantee] || [];
 
     const playableUntilTurn =
       duration === 'this_turn'
@@ -3213,11 +3241,18 @@ function applyOracleIRImpulseExileTopStep(
       }
 
       const grantPermission = passesPermissionGate && passesConditionGate;
+      const grantFreeCast = grantPermission && grantFreeCastsFromExile && !isLand;
+      const grantAnyTypeManaSpending = grantPermission && grantFlexibleManaSpending && !isLand;
       const exiledCard = {
         ...c,
         zone: 'exile',
         exiledBy: spellName,
-        ...(grantPermission ? { canBePlayedBy: pid, playableUntilTurn } : {}),
+        ...(grantPermission ? {
+          canBePlayedBy: permissionGrantee,
+          playableUntilTurn,
+          ...(grantFreeCast ? { castWithoutPayingManaCost: true } : {}),
+          ...(grantAnyTypeManaSpending ? { spendManaAsThoughAnyType: true } : {}),
+        } : {}),
       };
 
       if (zones && Array.isArray((zones as any).exile)) {
@@ -3226,15 +3261,20 @@ function applyOracleIRImpulseExileTopStep(
       }
 
       if (grantPermission) {
-        stateAny.playableFromExile[pid][String(c?.id)] = playableUntilTurn;
+        stateAny.playableFromExile[permissionGrantee][String(c?.id)] = playableUntilTurn;
         grantedCount++;
       }
 
-      stateAny.pendingImpulseDraws[pid].push({
+      stateAny.pendingImpulseDraws[permissionGrantee].push({
         cardId: c?.id,
         cardName: c?.name,
+        exiledFromPlayerId: pid,
         exiledBy: spellName,
-        ...(grantPermission ? { playableUntilTurn } : {}),
+        ...(grantPermission ? {
+          playableUntilTurn,
+          ...(grantFreeCast ? { castWithoutPayingManaCost: true } : {}),
+          ...(grantAnyTypeManaSpending ? { spendManaAsThoughAnyType: true } : {}),
+        } : {}),
       });
       applied += 1;
     }
@@ -4401,7 +4441,8 @@ function applyOracleIRFallbackForUncategorizedSpell(
   spellName: string,
   xValue?: number,
   sourcePermanentId?: string,
-  sourceId?: string
+  sourceId?: string,
+  castFromGraveyard?: boolean,
 ): number {
   try {
     const text = String(oracleText || '').trim();
@@ -4427,6 +4468,12 @@ function applyOracleIRFallbackForUncategorizedSpell(
     if (!mightHaveSupported) return 0;
 
     const ir = parseOracleTextToIR(text);
+    const grantsFreeImpulseCasts = castFromGraveyard === true
+      && /if\s+this\s+spell\s+was\s+cast\s+from\s+a\s+graveyard/i.test(text)
+      && /you\s+may\s+play\s+cards\s+this\s+way\s+without\s+paying\s+their\s+mana\s+costs/i.test(text);
+    const grantsFlexibleImpulseManaSpending =
+      /mana\s+of\s+any\s+type\s+can\s+be\s+spent\s+to\s+cast\s+those\s+spells/i.test(text)
+      || /you\s+may\s+spend\s+mana\s+as\s+though\s+it\s+were\s+mana\s+of\s+any\s+(?:type|color)\s+to\s+cast\s+those\s+spells/i.test(text);
     const steps: OracleEffectStep[] = [];
     for (const ab of ir.abilities || []) {
       for (const s of ab.steps || []) steps.push(s as any);
@@ -4440,7 +4487,10 @@ function applyOracleIRFallbackForUncategorizedSpell(
 
       switch (step.kind) {
         case 'impulse_exile_top': {
-          applied += applyOracleIRImpulseExileTopStep(ctx, caster, spellName, step as any, xValue);
+          applied += applyOracleIRImpulseExileTopStep(ctx, caster, spellName, step as any, xValue, {
+            castWithoutPayingManaCost: grantsFreeImpulseCasts,
+            spendManaAsThoughAnyType: grantsFlexibleImpulseManaSpending,
+          });
           break;
         }
         case 'add_mana': {
@@ -5049,19 +5099,23 @@ function shouldQueueResolvedSpellCopyChoice(item: any, oracleText: string): bool
     return false;
   }
 
-  const castWithAbility = String((item as any).card?.castWithAbility || '').trim().toLowerCase();
-  const castFromGraveyard =
-    (item as any).castFromGraveyard === true
-    || (item as any).card?.castFromGraveyard === true
-    || String((item as any).castSourceZone || (item as any).card?.castSourceZone || '').trim().toLowerCase() === 'graveyard'
-    || ['flashback', 'jump-start', 'retrace', 'escape', 'disturb', 'harmonize', 'graveyard-cast'].includes(castWithAbility);
-  if (!castFromGraveyard) {
+  if (!wasSpellCastFromGraveyard(item)) {
     return false;
   }
 
   return /if\s+this\s+spell\s+was\s+cast\s+from\s+a\s+graveyard\s*,\s*you\s+may\s+copy\s+this\s+spell\s+and\s+may\s+choose\s+a\s+new\s+target\s+for\s+the\s+copy/i.test(
     String(oracleText || '').replace(/[\u2019]/g, "'")
   );
+}
+
+function wasSpellCastFromGraveyard(item: any): boolean {
+  if (!item) return false;
+
+  const castWithAbility = String((item as any).card?.castWithAbility || '').trim().toLowerCase();
+  return (item as any).castFromGraveyard === true
+    || (item as any).card?.castFromGraveyard === true
+    || String((item as any).castSourceZone || (item as any).card?.castSourceZone || '').trim().toLowerCase() === 'graveyard'
+    || ['flashback', 'jump-start', 'retrace', 'escape', 'disturb', 'harmonize', 'graveyard-cast'].includes(castWithAbility);
 }
 
 function buildResolvedSpellCopySnapshot(
@@ -7638,6 +7692,94 @@ function countOpponentsDealtCombatDamageBySourceOrSubtypeThisTurn(
  * Execute a triggered ability effect based on its description.
  * Handles common trigger effects like life gain/loss, counters, draw, etc.
  */
+function queuePlayableFromExileChoiceStep(
+  ctx: GameContext,
+  controller: string,
+  sourceName: string,
+  count: number,
+  options: {
+    playableUntilTurn: number;
+    playWindowText: string;
+  },
+): boolean {
+  const gameId = String((ctx as any).gameId || '').trim();
+  if (!gameId || gameId === 'unknown') {
+    return false;
+  }
+
+  const stateAny = (ctx.state || {}) as any;
+  const libraries = (ctx as any).libraries;
+  const lib = libraries?.get(controller);
+  if (!Array.isArray(lib) || lib.length === 0) {
+    return true;
+  }
+
+  const zones = stateAny.zones || (stateAny.zones = {});
+  const z = (zones[controller] = zones[controller] || {
+    hand: [],
+    handCount: 0,
+    library: [],
+    libraryCount: 0,
+    graveyard: [],
+    graveyardCount: 0,
+    exile: [],
+    exileCount: 0,
+  });
+  z.exile = Array.isArray(z.exile) ? z.exile : [];
+
+  const exiledCards: any[] = [];
+  const exiledCardIds: string[] = [];
+  const actual = Math.max(0, Math.min(count, lib.length));
+
+  for (let i = 0; i < actual; i++) {
+    const topCard = lib.shift();
+    const cardId = String((topCard as any)?.id || uid('c'));
+    const exiled = {
+      ...topCard,
+      id: cardId,
+      zone: 'exile',
+      exiledBy: sourceName,
+    };
+
+    z.exile.push(exiled);
+    exiledCards.push(exiled);
+    exiledCardIds.push(cardId);
+  }
+
+  libraries?.set(controller, lib);
+  z.libraryCount = lib.length;
+  z.exileCount = z.exile.length;
+
+  if (exiledCardIds.length === 0) {
+    return true;
+  }
+
+  ResolutionQueueManager.addStep(gameId, {
+    type: ResolutionStepType.OPTION_CHOICE,
+    playerId: controller,
+    description: `${sourceName}: Choose an exiled card. You may play it ${options.playWindowText}.`,
+    mandatory: true,
+    sourceName,
+    options: exiledCards.map((card: any) => ({
+      id: String(card.id),
+      label: String(card.name || 'Exiled card'),
+      description: String(card.type_line || ''),
+    })),
+    minSelections: 1,
+    maxSelections: 1,
+    grantPlayableFromExileChoice: true,
+    grantPlayableFromExileController: controller,
+    grantPlayableFromExileSourceName: sourceName,
+    grantPlayableFromExileCardIds: exiledCardIds,
+    grantPlayableFromExileUntilTurn: options.playableUntilTurn,
+    grantPlayableFromExileWindowText: options.playWindowText,
+  } as any);
+
+  (ctx as any).bumpSeq?.();
+  debug(2, `[executeTriggerEffect] ${sourceName}: exiled ${exiledCardIds.length} card(s) and queued a playable-from-exile choice (${options.playWindowText})`);
+  return true;
+}
+
 export function executeTriggerEffect(
   ctx: GameContext,
   controller: PlayerID,
@@ -7651,6 +7793,15 @@ export function executeTriggerEffect(
 
   const directGraveyardPermissionEffectsApplied = applyGraveyardPermissionEffectsFromText(ctx, controller, sourceName, description, triggerItem);
   if (directGraveyardPermissionEffectsApplied > 0) {
+    return;
+  }
+
+  const activatedAbilityText = String((triggerItem as any)?.activatedAbilityText || '').trim();
+  const activatedAbilityGraveyardPermissionEffectsApplied =
+    activatedAbilityText && activatedAbilityText !== description
+      ? applyGraveyardPermissionEffectsFromText(ctx, controller, sourceName, activatedAbilityText, triggerItem)
+      : 0;
+  if (activatedAbilityGraveyardPermissionEffectsApplied > 0) {
     return;
   }
 
@@ -7692,7 +7843,85 @@ export function executeTriggerEffect(
     return;
   }
 
+  const selectedGraveyardTargetId = Array.isArray((triggerItem as any)?.targets)
+    ? String((triggerItem as any).targets[0] || '').trim()
+    : '';
+  const targetedPlayFromGraveyardText = String(description || '').replace(/[’]/g, "'");
+  if (
+    selectedGraveyardTargetId
+    && /\byou may (?:play|cast) target\b/i.test(targetedPlayFromGraveyardText)
+    && /\bfrom your graveyard\b/i.test(targetedPlayFromGraveyardText)
+  ) {
+    const playerZones = ((state as any).zones || {})[controller];
+    const graveyard = Array.isArray(playerZones?.graveyard) ? playerZones.graveyard : [];
+    const graveyardCard = graveyard.find((card: any) => card && String(card.id || '').trim() === selectedGraveyardTargetId);
+
+    if (!graveyardCard) {
+      return;
+    }
+
+    const promptSourceId = String((triggerItem as any)?.source || (triggerItem as any)?.permanentId || '').trim();
+    const castWithoutPayingManaCost = /\bwithout paying its mana cost\b/i.test(targetedPlayFromGraveyardText);
+    const exileAfterResolution = /\bif\s+(?:a|that|this)\s+(?:card|spell)(?:\s+cast\s+this\s+way)?\s+would\s+be\s+put\s+into\s+your\s+graveyard\s*,?\s*exile\s+it\s+instead\b/i.test(targetedPlayFromGraveyardText);
+    const isLandCard = /\bland\b/i.test(String(graveyardCard?.type_line || ''));
+    const actionLabel = isLandCard ? 'Play' : 'Cast';
+    const promptDescription = isLandCard
+      ? `${sourceName}: You may play ${graveyardCard?.name || 'that card'} from your graveyard.`
+      : castWithoutPayingManaCost
+        ? `${sourceName}: You may cast ${graveyardCard?.name || 'that card'} from your graveyard without paying its mana cost.`
+        : `${sourceName}: You may cast ${graveyardCard?.name || 'that card'} from your graveyard.`;
+
+    queueResolveTopOfStackPrompt(ctx, {
+      type: ResolutionStepType.OPTION_CHOICE,
+      playerId: controller as PlayerID,
+      sourceId: promptSourceId,
+      sourceName,
+      sourceImage: triggerCard?.image_uris?.small || triggerCard?.image_uris?.normal,
+      description: promptDescription,
+      mandatory: false,
+      options: [
+        { id: 'play', label: `${actionLabel} ${graveyardCard?.name || 'that card'}` },
+        { id: 'decline', label: 'Decline' },
+      ],
+      minSelections: 1,
+      maxSelections: 1,
+      playFromGraveyardCardId: selectedGraveyardTargetId,
+      playFromGraveyardCard: {
+        ...(graveyardCard as any),
+        ...(exileAfterResolution ? { exileAfterResolution: true } : null),
+      },
+      playFromGraveyardWithoutPayingManaCost: castWithoutPayingManaCost,
+      ...(exileAfterResolution ? { playFromGraveyardExileAfterResolution: true } : null),
+    } as any);
+
+    return;
+  }
+
   let desc = String(description || "").replace(/[’]/g, "'").toLowerCase();
+  if (
+    /^exile the top two cards of your library\.\s*choose one of them\.\s*you may play that card this turn\.?$/i.test(desc)
+  ) {
+    const currentTurn = Number((state as any).turnNumber ?? 0) || 0;
+    if (queuePlayableFromExileChoiceStep(ctx, String(controller || ''), sourceName, 2, {
+      playableUntilTurn: currentTurn,
+      playWindowText: 'this turn',
+    })) {
+      return;
+    }
+  }
+
+  if (
+    /^exile the top two cards of your library\.\s*choose one of them\.\s*until the end of your next turn, you may play that card\.?$/i.test(desc)
+  ) {
+    const currentTurn = Number((state as any).turnNumber ?? 0) || 0;
+    if (queuePlayableFromExileChoiceStep(ctx, String(controller || ''), sourceName, 2, {
+      playableUntilTurn: currentTurn + 1,
+      playWindowText: 'until the end of your next turn',
+    })) {
+      return;
+    }
+  }
+
   const triggerSourceId = String(
     (triggerItem as any)?.id ||
     (triggerItem as any)?.sourceId ||
@@ -15312,12 +15541,19 @@ export function resolveTopOfStack(ctx: GameContext) {
     const leaveBattlefieldReplacementSourceName = String(
       (effectiveCard as any)?.leaveBattlefieldReplacementSourceName || (item as any)?.card?.leaveBattlefieldReplacementSourceName || ''
     ).trim();
+    const leaveBattlefieldReplacementLifeGain = Number(
+      (effectiveCard as any)?.leaveBattlefieldReplacementLifeGain || (item as any)?.card?.leaveBattlefieldReplacementLifeGain || 0
+    );
     if (leaveBattlefieldReplacementDestination === 'exile') {
       (newPermanent as any).leaveBattlefieldReplacementDestination = 'exile';
       (newPermanent.card as any).leaveBattlefieldReplacementDestination = 'exile';
       if (leaveBattlefieldReplacementSourceName) {
         (newPermanent as any).leaveBattlefieldReplacementSourceName = leaveBattlefieldReplacementSourceName;
         (newPermanent.card as any).leaveBattlefieldReplacementSourceName = leaveBattlefieldReplacementSourceName;
+      }
+      if (leaveBattlefieldReplacementLifeGain > 0) {
+        (newPermanent as any).leaveBattlefieldReplacementLifeGain = leaveBattlefieldReplacementLifeGain;
+        (newPermanent.card as any).leaveBattlefieldReplacementLifeGain = leaveBattlefieldReplacementLifeGain;
       }
     }
 
@@ -16691,7 +16927,8 @@ export function resolveTopOfStack(ctx: GameContext) {
         spellXValue,
         String((item as any).source || (item as any).permanentId || '')
         ,
-        String((item as any).id || (card as any)?.id || '')
+        String((item as any).id || (card as any)?.id || ''),
+        wasSpellCastFromGraveyard(item)
       );
     }
 
@@ -20581,11 +20818,9 @@ export function playLand(ctx: GameContext, playerId: PlayerID, cardOrId: any) {
       z.handCount = handCards.length;
     } else {
       // Fallback: allow playing lands from exile when an effect permits it.
-      const exileCards = Array.isArray((z as any).exile) ? ((z as any).exile as any[]) : null;
-      const exIdx = exileCards ? exileCards.findIndex((c: any) => c && c.id === cardOrId) : -1;
-      if (exileCards && exIdx !== -1) {
-        card = exileCards.splice(exIdx, 1)[0];
-        (z as any).exileCount = exileCards.length;
+      const removedExileCard = removeCardFromAnyPlayerExile(state, String(cardOrId));
+      if (removedExileCard) {
+        card = removedExileCard.card;
         playedFromExile = true;
       } else {
         // Fallback: allow playing lands from graveyard when an effect permits it (e.g., Crucible of Worlds).
@@ -20634,14 +20869,10 @@ export function playLand(ctx: GameContext, playerId: PlayerID, cardOrId: any) {
     }
 
     // Also try to remove from exile if it exists there (e.g., replay or exile-cast flows).
-    if (z && Array.isArray((z as any).exile)) {
-      const exileCards = (z as any).exile as any[];
-      const exIdx = exileCards.findIndex((c: any) => c && c.id === card.id);
-      if (exIdx !== -1) {
-        exileCards.splice(exIdx, 1);
-        (z as any).exileCount = exileCards.length;
-        playedFromExile = true;
-      }
+    const removedExileCard = removeCardFromAnyPlayerExile(state, String(card?.id || ''));
+    if (removedExileCard) {
+      card = removedExileCard.card;
+      playedFromExile = true;
     }
 
     // Also try to remove from graveyard if it exists there (e.g., Conduit/Crucible flows or replay).
@@ -20778,6 +21009,12 @@ export function playLand(ctx: GameContext, playerId: PlayerID, cardOrId: any) {
   // Check for ETB triggers on the land (e.g., Wind-Scarred Crag "you gain 1 life")
   // Get the newly created permanent from the battlefield
   const newPermanent = state.battlefield[state.battlefield.length - 1];
+  if (playedFromGraveyard) {
+    markPermanentEnteredFromZone(newPermanent, 'graveyard');
+  } else if (playedFromExile) {
+    markPermanentEnteredFromZone(newPermanent, 'exile');
+  }
+
   try {
     const etbTriggers = getETBTriggersForPermanent(card, newPermanent);
     
@@ -21077,11 +21314,9 @@ export function castSpell(
       z.handCount = handCards.length;
     } else {
       // Fallback: allow casting spells from exile when an effect permits it.
-      const exileCards = Array.isArray((z as any).exile) ? ((z as any).exile as any[]) : null;
-      const exIdx = exileCards ? exileCards.findIndex((c: any) => c && c.id === cardOrId) : -1;
-      if (exileCards && exIdx !== -1) {
-        card = exileCards.splice(exIdx, 1)[0];
-        (z as any).exileCount = exileCards.length;
+      const removedExileCard = removeCardFromAnyPlayerExile(state, String(cardOrId));
+      if (removedExileCard) {
+        card = removedExileCard.card;
         castFromExile = true;
       } else {
         // Fallback: allow casting spells from graveyard when an effect permits it (flashback, etc.).
@@ -21135,14 +21370,10 @@ export function castSpell(
     }
 
     // Also try to remove from exile if it exists there (e.g., replay or exile-cast flows).
-    if (z && Array.isArray((z as any).exile)) {
-      const exileCards = (z as any).exile as any[];
-      const exIdx = exileCards.findIndex((c: any) => c && c.id === card.id);
-      if (exIdx !== -1) {
-        exileCards.splice(exIdx, 1);
-        (z as any).exileCount = exileCards.length;
-        castFromExile = true;
-      }
+    const removedExileCard = removeCardFromAnyPlayerExile(state, String(card?.id || ''));
+    if (removedExileCard) {
+      card = removedExileCard.card;
+      castFromExile = true;
     }
 
     // Also try to remove from graveyard if it exists there (e.g., flashback-like flows).
@@ -21368,16 +21599,16 @@ export function castSpell(
   // This allows players to see which mode was chosen (e.g., flicker vs destroy for Getaway Glamer)
   if (card.selectedModes && Array.isArray(card.selectedModes)) {
     stackItem.selectedModes = card.selectedModes;
-    
-    // Also extract mode descriptions for display
+
+    // Preserve the chosen modal bullet text so downstream resolution can key off the selected mode only.
     const oracleText = card.oracle_text || '';
-    const modeOptionsMatch = oracleText.toLowerCase().match(/(?:choose\s+(?:one|two|three|four|any number)\s*(?:—|[-]))\s*((?:•[^•]+)+)/i);
-    if (modeOptionsMatch) {
-      const bullets = modeOptionsMatch[1].split('•').filter((s: string) => s.trim().length > 0);
+    const modalInfo = extractModalModesFromOracleText(oracleText);
+    if (modalInfo && Array.isArray(modalInfo.options)) {
       stackItem.selectedModeDescriptions = card.selectedModes.map((modeId: string) => {
         const modeNum = parseInt(modeId.replace('mode_', ''), 10);
-        if (bullets[modeNum - 1]) {
-          return bullets[modeNum - 1].trim();
+        const modeOption = modalInfo.options[modeNum - 1];
+        if (modeOption?.raw) {
+          return modeOption.raw.trim();
         }
         return `Mode ${modeNum}`;
       });

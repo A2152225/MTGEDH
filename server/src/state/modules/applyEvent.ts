@@ -2676,6 +2676,15 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
             if (leaveBattlefieldReplacementSourceName) {
               applyToStackItem('leaveBattlefieldReplacementSourceName', String(leaveBattlefieldReplacementSourceName));
             }
+            const leaveBattlefieldReplacementLifeGain = Number(
+              (e as any).leaveBattlefieldReplacementLifeGain ??
+              (e as any).card?.leaveBattlefieldReplacementLifeGain ??
+              (e as any).card?.card?.leaveBattlefieldReplacementLifeGain ??
+              0
+            );
+            if (leaveBattlefieldReplacementLifeGain > 0) {
+              applyToStackItem('leaveBattlefieldReplacementLifeGain', leaveBattlefieldReplacementLifeGain);
+            }
             if (typeof (e as any).faceIndex === 'number') {
               applyToStackItem('faceIndex', Number((e as any).faceIndex));
             }
@@ -5232,6 +5241,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           z.exile = Array.isArray(z.exile) ? z.exile : [];
           const graveyard = z.graveyard as any[];
           const exile = z.exile as any[];
+          const currentTurn = Number((ctx.state as any)?.turnNumber ?? (ctx.state as any)?.turn ?? 0) || 0;
           let movedCount = 0;
 
           for (const cardId of cardIds) {
@@ -5244,12 +5254,19 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
                 ...card,
                 ...(exileTag ? { ...exileTag } : null),
                 zone: 'exile',
+                discardedByPlayerId: pid,
+                discardedOnTurn: currentTurn,
               });
               movedCount++;
               continue;
             }
 
-            graveyard.push({ ...card, zone: 'graveyard' });
+            graveyard.push({
+              ...card,
+              zone: 'graveyard',
+              discardedByPlayerId: pid,
+              discardedOnTurn: currentTurn,
+            });
             recordCardPutIntoGraveyardThisTurn(ctx as any, pid, card, { fromBattlefield: false });
             movedCount++;
             if (checkGraveyardTrigger(ctx, card, pid)) {
