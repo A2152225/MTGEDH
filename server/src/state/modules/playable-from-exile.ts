@@ -1,4 +1,18 @@
 import type { PlayerID } from "../../../../shared/src/types.js";
+import {
+  getDurablePlayableFromExilePermissionForCard,
+  removeCardIdFromDurablePlayableFromExilePermissions,
+  type DurablePlayableFromExileAction,
+} from "./durable-permissions.js";
+
+export function getPlayableFromExileDurablePermissionForCard(
+  state: any,
+  playerId: PlayerID,
+  card: any,
+  action?: DurablePlayableFromExileAction,
+) {
+  return getDurablePlayableFromExilePermissionForCard(state, playerId, card, action);
+}
 
 function getPlayableFromExileEntry(state: any, playerId: PlayerID): any {
   const playableFromExile = (state as any)?.playableFromExile;
@@ -86,7 +100,8 @@ export function getPlayableExileCardsForPlayer(state: any, playerId: PlayerID): 
       if (!includeAll) {
         const hasMarker = isCardMarkedPlayableFromExile(state, playerId, cardId, currentTurn);
         const cardAllows = cardAllowsPlayerToPlayFromExile(card, playerId, currentTurn);
-        if (!hasMarker && !cardAllows) {
+        const durablePermission = getPlayableFromExileDurablePermissionForCard(state, playerId, card);
+        if (!hasMarker && !cardAllows && !durablePermission) {
           continue;
         }
       }
@@ -193,6 +208,7 @@ export function cleanupCardLeavingExile(state: any, card: any): void {
   const cardId = card?.id;
   if (typeof cardId === "string" && cardId.length > 0) {
     removePlayableFromExileForCard(state, cardId);
+    removeCardIdFromDurablePlayableFromExilePermissions(state, cardId);
   }
 
   stripPlayableFromExileTags(card);

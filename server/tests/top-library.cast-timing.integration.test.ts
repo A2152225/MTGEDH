@@ -3,8 +3,10 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { createGameIfNotExists, deleteGame, initDb } from '../src/db/index.js';
 import { registerGameActions } from '../src/socket/game-actions.js';
 import { ensureGame } from '../src/socket/util.js';
+import { buildDurableLibraryPermission } from '../src/state/modules/durable-permissions.js';
 import { ResolutionQueueManager, ResolutionStepType } from '../src/state/resolution/index.js';
 import { games } from '../src/socket/socket.js';
+import type { PlayerID } from '@mtgedh/shared';
 
 function createMockIo(emitted: Array<{ room?: string; event: string; payload: any }>) {
   return {
@@ -181,5 +183,100 @@ describe('top-library cast timing (integration)', () => {
 
     expect(paymentStep).toBeDefined();
     expect(paymentStep.cardName).toBe('Mind Stone');
+  });
+
+  it('lets durable top-library free-cast permissions bypass mana payment', async () => {
+    const game = setupGame();
+    (game.state as any).turnNumber = 1;
+    (game.state as any).battlefield = [];
+    (game.state as any).manaPool[playerId] = { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 };
+    (game.state as any).players[0].manaPool = { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 };
+    (game.state as any).durablePermissions = [
+      buildDurableLibraryPermission({
+        playerId: playerId as PlayerID,
+        action: 'cast',
+        duration: 'this_turn',
+        turnApplied: 1,
+        expiresAtTurn: 1,
+        sourceName: 'Future Freecast',
+        typeLineIncludes: ['artifact'],
+        costMode: 'without_paying_mana_cost',
+        grantsFlash: true,
+      }),
+    ];
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket({ playerId, gameId }, emitted);
+    socket.rooms.add(gameId);
+
+    const io = createMockIo(emitted);
+    registerGameActions(io as any, socket as any);
+
+    await handlers['requestCastSpell']({ gameId, cardId: 'mind_stone_top', fromZone: 'library' });
+
+    const errors = emitted.filter(entry => entry.event === 'error').map(entry => entry.payload?.code);
+    expect(errors).not.toContain('INSUFFICIENT_MANA');
+    expect(errors).not.toContain('SORCERY_TIMING');
+    expect(errors).not.toContain('NO_PERMISSION');
+
+    const queue = ResolutionQueueManager.getQueue(gameId);
+    const paymentStep = queue.steps.find((step: any) =>
+      step.type === ResolutionStepType.MANA_PAYMENT_CHOICE && step.spellPaymentRequired === true
+    ) as any;
+
+    expect(paymentStep).toEqual(expect.objectContaining({
+      cardName: 'Mind Stone',
+      manaCost: '{0}',
+      castWithoutPayingManaCost: true,
+    }));
+  });
+
+  it('lets durable top-library flexible mana permissions satisfy colored costs', async () => {
+    const game = setupGame();
+    (game.state as any).turnNumber = 1;
+    (game.state as any).battlefield = [];
+    const topCard = (game as any).libraries.get(playerId)[0];
+    topCard.name = 'White Widget';
+    topCard.mana_cost = '{W}';
+    topCard.manaCost = '{W}';
+    (game.state as any).manaPool[playerId] = { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 1 };
+    (game.state as any).players[0].manaPool = { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 1 };
+    (game.state as any).durablePermissions = [
+      buildDurableLibraryPermission({
+        playerId: playerId as PlayerID,
+        action: 'cast',
+        duration: 'this_turn',
+        turnApplied: 1,
+        expiresAtTurn: 1,
+        sourceName: 'Library Mana Lens',
+        typeLineIncludes: ['artifact'],
+        spendManaAsThoughAnyType: true,
+        grantsFlash: true,
+      }),
+    ];
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket({ playerId, gameId }, emitted);
+    socket.rooms.add(gameId);
+
+    const io = createMockIo(emitted);
+    registerGameActions(io as any, socket as any);
+
+    await handlers['requestCastSpell']({ gameId, cardId: 'mind_stone_top', fromZone: 'library' });
+
+    const errors = emitted.filter(entry => entry.event === 'error').map(entry => entry.payload?.code);
+    expect(errors).not.toContain('INSUFFICIENT_MANA');
+    expect(errors).not.toContain('SORCERY_TIMING');
+    expect(errors).not.toContain('NO_PERMISSION');
+
+    const queue = ResolutionQueueManager.getQueue(gameId);
+    const paymentStep = queue.steps.find((step: any) =>
+      step.type === ResolutionStepType.MANA_PAYMENT_CHOICE && step.spellPaymentRequired === true
+    ) as any;
+
+    expect(paymentStep).toEqual(expect.objectContaining({
+      cardName: 'White Widget',
+      manaCost: '{W}',
+    }));
   });
 });

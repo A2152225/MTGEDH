@@ -3,6 +3,7 @@ import { createInitialGameState } from '../src/state/gameState';
 import { createContext } from '../src/state/context';
 import { processLinkedExileReturns } from '../src/state/modules/triggers/linked-exile';
 import { movePermanentToHand } from '../src/state/modules/zones';
+import { buildDurablePlayableFromExilePermission } from '../src/state/modules/durable-permissions';
 import type { PlayerID } from '../../shared/src';
 import { GamePhase } from '../../shared/src';
 
@@ -23,6 +24,17 @@ describe('playableFromExile lifecycle (server)', () => {
 
     const cardId = 'spell_exile_1';
     (g.state as any).playableFromExile = { [p1]: { [cardId]: 999 } };
+    (g.state as any).durablePermissions = [
+      buildDurablePlayableFromExilePermission({
+        playerId: p1,
+        cardIds: [cardId],
+        action: 'cast',
+        duration: 'until_end_of_next_turn',
+        turnApplied: 1,
+        expiresAtTurn: 999,
+        sourceName: 'Impulse Source',
+      }),
+    ];
 
     (g.state as any).zones = {
       [p1]: {
@@ -50,6 +62,7 @@ describe('playableFromExile lifecycle (server)', () => {
     g.applyEvent({ type: 'castSpell', playerId: p1, cardId, targets: [] });
 
     expect((g.state as any).playableFromExile?.[p1]?.[cardId]).toBeUndefined();
+  expect((g.state as any).durablePermissions || []).toHaveLength(0);
 
     const stackItem = (g.state as any).stack?.find((s: any) => s?.card?.id === cardId);
     expect(stackItem).toBeTruthy();

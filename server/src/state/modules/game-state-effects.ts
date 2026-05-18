@@ -45,6 +45,7 @@
 import type { GameContext } from "../context.js";
 import type { PlayerID } from "../../../../shared/src/index.js";
 import { grantTelepathyForPlayer, revokeTelepathyForPlayer } from "./telepathy.js";
+import { getDurableLibraryPermissionForCard } from "./durable-permissions.js";
 import { debug, debugWarn, debugError } from "../../utils/debug.js";
 
 /**
@@ -1542,7 +1543,7 @@ export function canLookAtTopOfLibrary(ctx: GameContext, playerId: string): { can
 /**
  * Check if a player can play lands from the top of their library
  */
-export function canPlayLandsFromTop(ctx: GameContext, playerId: string): { canPlay: boolean; sources: string[] } {
+export function canPlayLandsFromTop(ctx: GameContext, playerId: string, card?: TopOfLibraryCardInput): { canPlay: boolean; sources: string[] } {
   const sources: string[] = [];
   const battlefield = getActivePermanents(ctx);
   
@@ -1565,6 +1566,11 @@ export function canPlayLandsFromTop(ctx: GameContext, playerId: string): { canPl
       sources.push(perm.card?.name || 'Top-of-library effect');
     }
   }
+
+  const durablePermission = getDurableLibraryPermissionForCard(ctx.state, playerId as PlayerID, card, 'play');
+  if (durablePermission) {
+    sources.push(durablePermission.sourceName || 'Top-of-library permission');
+  }
   
   return { canPlay: sources.length > 0, sources };
 }
@@ -1576,10 +1582,12 @@ export function canCastFromTop(
   ctx: GameContext, 
   playerId: string, 
   card?: TopOfLibraryCardInput
-): { canCast: boolean; sources: string[]; restrictions: string[]; grantsFlash: boolean; flashSources: string[] } {
+): { canCast: boolean; sources: string[]; restrictions: string[]; grantsFlash: boolean; flashSources: string[]; costMode?: string; spendManaAsThoughAnyType?: boolean } {
   const sources: string[] = [];
   const restrictions: string[] = [];
   const flashSources: string[] = [];
+  let costMode: string | undefined;
+  let spendManaAsThoughAnyType = false;
   const battlefield = getActivePermanents(ctx);
   
   const typeLine = getTopLibraryTypeLine(card);
@@ -1666,6 +1674,16 @@ export function canCastFromTop(
       sources.push(perm.card?.name || 'Top-of-library effect');
     }
   }
+
+  const durablePermission = getDurableLibraryPermissionForCard(ctx.state, playerId as PlayerID, card, 'cast');
+  if (durablePermission) {
+    sources.push(durablePermission.sourceName || 'Top-of-library permission');
+    costMode = String(durablePermission.costMode || '').trim() || undefined;
+    spendManaAsThoughAnyType = (durablePermission.metadata as any)?.spendManaAsThoughAnyType === true;
+    if (durablePermission.timingOverride?.asThoughFlash === true) {
+      flashSources.push(durablePermission.sourceName || 'Top-of-library permission');
+    }
+  }
   
   return {
     canCast: sources.length > 0,
@@ -1673,6 +1691,8 @@ export function canCastFromTop(
     restrictions,
     grantsFlash: flashSources.length > 0,
     flashSources,
+    ...(costMode ? { costMode } : {}),
+    ...(spendManaAsThoughAnyType ? { spendManaAsThoughAnyType: true } : {}),
   };
 }
 

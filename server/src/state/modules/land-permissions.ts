@@ -16,6 +16,12 @@
  */
 
 import { debug } from "../../utils/debug.js";
+import {
+  buildDurableLandPlayPermission,
+  clearDurableLandPlayPermissionsForPlayer,
+  upsertDurablePermission,
+  type DurableLandPlayZone,
+} from "./durable-permissions";
 
 /**
  * Detect if a permanent grants permission to play lands from graveyard
@@ -97,6 +103,22 @@ export function updateLandPlayPermissions(game: any, playerId: string) {
   
   // Clear current permissions and rebuild from scratch
   game.state.landPlayPermissions[playerId] = [];
+  clearDurableLandPlayPermissionsForPlayer(game.state, playerId);
+
+  const grantLandPermission = (zone: DurableLandPlayZone, permanent: any, card: any) => {
+    if (!game.state.landPlayPermissions[playerId].includes(zone)) {
+      game.state.landPlayPermissions[playerId].push(zone);
+    }
+    upsertDurablePermission(game.state, buildDurableLandPlayPermission({
+      playerId,
+      zone,
+      sourceId: String(card?.id || permanent?.id || '').trim() || undefined,
+      sourceObjectId: String(permanent?.id || '').trim() || undefined,
+      sourceName: String(card?.name || '').trim() || undefined,
+      sourceText: String(card?.oracle_text || card?.oracleText || '').trim() || undefined,
+      turnApplied: Number(game.state?.turnNumber ?? game.state?.turn ?? 0) || undefined,
+    }));
+  };
   
   // Check each permanent controlled by this player
   for (const permanent of battlefield) {
@@ -105,18 +127,14 @@ export function updateLandPlayPermissions(game: any, playerId: string) {
       
       // Check for graveyard land permission
       if (grantsGraveyardLandPermission(card)) {
-        if (!game.state.landPlayPermissions[playerId].includes('graveyard')) {
-          game.state.landPlayPermissions[playerId].push('graveyard');
-          debug(3, `[updateLandPlayPermissions] ${card.name} grants graveyard land permission to ${playerId}`);
-        }
+        grantLandPermission('graveyard', permanent, card);
+        debug(3, `[updateLandPlayPermissions] ${card.name} grants graveyard land permission to ${playerId}`);
       }
       
       // Check for exile land permission (future expansion)
       if (grantsExileLandPermission(card)) {
-        if (!game.state.landPlayPermissions[playerId].includes('exile')) {
-          game.state.landPlayPermissions[playerId].push('exile');
-          debug(3, `[updateLandPlayPermissions] ${card.name} grants exile land permission to ${playerId}`);
-        }
+        grantLandPermission('exile', permanent, card);
+        debug(3, `[updateLandPlayPermissions] ${card.name} grants exile land permission to ${playerId}`);
       }
     }
   }

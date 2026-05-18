@@ -10,7 +10,7 @@ This is the working completion checklist. Existing queue files such as [oracle-a
 
 ## Current Baseline
 
-- [x] Latest known broad validation was green after the graveyard provenance work: `npm test`, `npm run build`, and `npm run typecheck --workspace=server` passed.
+- [x] Latest known broad validation was green after durable command-zone permission metadata propagation: `git diff --check`, `npm test`, `npm run build`, and focused shared/server typechecks passed.
 - [x] Recent server work covered pay-to-return death recursion, graveyard provenance ETBs, replay restoration of graveyard entry metadata, Prized Amalgam-style delayed returns, Archfiend's Vessel-style self-exile/token creation, Rocket-Powered Goblin Glider-style graveyard-cast ETB targeting, Tibalt's Trickery supplemental milling resolution, and Echo upkeep payment prompts with first-upkeep timing tracked across live resolution and replay.
 - [ ] Re-run broad validation after every implementation slice that changes server, client, shared, rules-engine, replay, or AI behavior.
 
@@ -277,16 +277,22 @@ The following workstreams are needed for the larger goal of nearly all cards wor
 
 Cards frequently grant permission to cast, play, activate, or spend resources from unusual zones or under unusual timing. These should converge into one permission model.
 
-- [ ] Define a durable permission shape for server state.
+- [x] Define a durable permission shape for server state.
   - Include source id, source zone, granted-to player, affected card ids or filters, allowed source zones, allowed destination/action, duration, usage limit, cost mode, timing override, and replacement behavior.
   - Include whether the permission is self-granted, static battlefield-granted, emblem-granted, delayed, or one-shot.
   - Include enough data to replay and debug why an action was legal.
+  - Initial shape now lives on `GameState.durablePermissions`, with focused adapters for static battlefield land-play permissions and first-class graveyard play/cast permissions. These mirrors preserve source, allowed action/source zone, filters, duration, usage limit, cost mode, replacement behavior, and debug metadata. Guardrail: `server/tests/durable-permissions.test.ts`.
 
 - [ ] Integrate permissions with legal action generation.
   - `canRespond` should see cast/play permissions.
   - Client playable highlights should show legal graveyard/exile/library actions.
   - Socket cast/play handlers should validate against the permission object.
   - AI should generate candidate actions from the same permission object.
+  - Initial land-play bridge is in place: durable graveyard land permissions feed shared playable-land candidates, client playable-card highlights, the live `playLand` socket handler, and AI land-play discovery. Guardrails: `server/tests/durable-permissions.test.ts`, `server/tests/playable-cards.broadcast.integration.test.ts`, `server/tests/play-land.graveyard-permission.integration.test.ts`, `server/tests/ai.shared-land-surface.integration.test.ts`.
+  - Durable first-class graveyard play/cast permissions now feed the existing shared graveyard permission reader, so durable-only permissions are visible to legal land and spell candidate generation while legacy permissions still win on duplicate ids. Guardrails: `server/tests/can-respond.test.ts`, `server/tests/durable-permissions.test.ts`.
+  - Durable exact-card playable-from-exile permissions now feed the shared exile reader, spell candidate generation, land candidate generation, and live `requestCastSpell` / `playLand` exile permission checks. Central Oracle IR impulse exile and library-search exile grants now mirror their legacy `playableFromExile` markers into durable records, and cleanup removes durable entries when the card leaves exile. Guardrails: `server/tests/durable-permissions.test.ts`, `server/tests/can-respond.test.ts`, `server/tests/playable-from-exile.lifecycle.test.ts`.
+  - Durable top-library play/cast permissions now feed the existing `canPlayLandsFromTop` / `canCastFromTop` readers, so shared land/spell candidates and live top-library `playLand` / `requestCastSpell` validation can consume durable-only library permissions. Durable library `without_paying_mana_cost` grants now flow through shared spell candidates and live top-library cast payment setup as `{0}` free-cast prompts, and durable library flexible-mana metadata now lets shared/live top-library casts satisfy colored costs with any mana type. Guardrails: `server/tests/durable-permissions.test.ts`, `server/tests/can-respond.test.ts`, `server/tests/top-library.cast-timing.integration.test.ts`.
+  - Durable command-zone permission metadata now augments existing command-zone commander candidates without broadening who can cast from command zone: durable records can grant flash timing, tax-aware `without_paying_mana_cost` handling, and flexible mana spending to commanders already in the command zone. The same slice fixed command-zone payment prompts/completion so shared static command-zone adjustments are not double-applied after target selection or no-target payment setup. Guardrails: `server/tests/durable-permissions.test.ts`, `server/tests/can-respond.test.ts`, `server/tests/commander.shared-surface.integration.test.ts`.
 
 - [ ] Support common permission families.
   - Cast from graveyard.
@@ -297,6 +303,7 @@ Cards frequently grant permission to cast, play, activate, or spend resources fr
   - Cast without paying mana cost.
   - Spend mana as though it were mana of any color/type.
   - Activate abilities from unusual zones if product scope includes them.
+  - Initial durable mirrors now cover play lands from graveyard, first-class cast/play-from-graveyard permissions, exact-card playable-from-exile grants produced by the central impulse/library-search paths, durable-only top-library play/cast permissions, and metadata augmentation for existing commander command-zone casts; the shared graveyard, exile, top-library, and command-zone commander readers can consume durable-only entries, including free-cast cost modes for exile/library/command metadata and flexible-mana metadata for exile/library/command casts, while legacy permission entries still win on duplicate ids. Guardrails: `server/tests/durable-permissions.test.ts`, `server/tests/can-respond.test.ts`, `server/tests/effect-program.graveyard-permission.integration.test.ts`, `server/tests/playable-from-exile.lifecycle.test.ts`, `server/tests/top-library.cast-timing.integration.test.ts`, `server/tests/commander.shared-surface.integration.test.ts`.
 
 - [ ] Support permission expiration.
   - Until end of turn.

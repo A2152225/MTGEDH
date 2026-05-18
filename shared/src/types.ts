@@ -540,6 +540,71 @@ export interface OracleAutomationGap {
   metadata?: Record<string, string | number | boolean | null | readonly string[]>;
 }
 
+export type DurablePermissionZone = 'hand' | 'library' | 'graveyard' | 'exile' | 'battlefield' | 'command' | 'stack' | 'mana_pool' | string;
+export type DurablePermissionAction = 'play' | 'cast' | 'activate' | 'spend_mana' | string;
+export type DurablePermissionOrigin = 'self' | 'static_battlefield' | 'emblem' | 'delayed' | 'one_shot' | 'temporary' | string;
+export type DurablePermissionDuration = 'this_turn' | 'end_of_turn' | 'until_end_of_next_turn' | 'while_source_remains' | 'static' | 'one_shot' | string;
+export type DurablePermissionCostMode = 'normal' | 'alternate' | 'without_paying_mana_cost' | 'additional_only' | string;
+
+export interface DurablePermissionCardFilter {
+  affectedCardIds?: readonly string[];
+  qualifier?: string;
+  typeLineIncludes?: readonly string[];
+  oracleTextIncludes?: readonly string[];
+}
+
+export interface DurablePermissionUsageLimit {
+  type: 'once' | 'once_per_turn' | 'one_per_permanent_type' | 'unlimited' | string;
+  maxUses?: number;
+  used?: number;
+  usedThisTurn?: number;
+}
+
+export interface DurablePermissionTimingOverride {
+  asThoughFlash?: boolean;
+  sorcerySpeedOnly?: boolean;
+  duringYourTurnOnly?: boolean;
+  ignoreTiming?: boolean;
+}
+
+export interface DurablePermissionReplacementBehavior {
+  exileAfterResolution?: boolean;
+  leaveBattlefieldDestination?: DurablePermissionZone;
+  leaveBattlefieldLifeGain?: number;
+  sourceName?: string;
+}
+
+export interface DurablePermissionDebugEvidence {
+  sourceText?: string;
+  reason?: string;
+  createdByEventId?: string;
+  notes?: readonly string[];
+}
+
+export interface DurablePermission {
+  id: string;
+  kind: string;
+  grantedTo: PlayerID;
+  allowedAction: DurablePermissionAction;
+  origin: DurablePermissionOrigin;
+  duration: DurablePermissionDuration;
+  sourceId?: string;
+  sourceName?: string;
+  sourceZone?: DurablePermissionZone;
+  sourceObjectId?: string;
+  allowedSourceZones?: readonly DurablePermissionZone[];
+  allowedDestination?: DurablePermissionZone;
+  cardFilter?: DurablePermissionCardFilter;
+  usageLimit?: DurablePermissionUsageLimit;
+  costMode?: DurablePermissionCostMode;
+  timingOverride?: DurablePermissionTimingOverride;
+  replacement?: DurablePermissionReplacementBehavior;
+  turnApplied?: number;
+  expiresAtTurn?: number;
+  metadata?: Record<string, unknown>;
+  debug?: DurablePermissionDebugEvidence;
+}
+
 /* Game state authoritative snapshot */
 export interface GameState {
   id: GameID;
@@ -743,6 +808,8 @@ export interface GameState {
   skipNextTurnEffects?: readonly SkipNextTurnEffect[];
   /** One-shot "skip your next draw step" effects waiting to be consumed. */
   skipNextDrawStepEffects?: readonly SkipNextDrawStepEffect[];
+  /** Durable action permissions used to unify cast/play/activate/spend exceptions. */
+  durablePermissions?: readonly DurablePermission[];
 }
 
 /* Player protection state for effects like Teferi's Protection */

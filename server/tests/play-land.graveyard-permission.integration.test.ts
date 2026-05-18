@@ -7,6 +7,7 @@ import { registerInteractionHandlers } from '../src/socket/interaction.js';
 import { registerResolutionHandlers } from '../src/socket/resolution.js';
 import { ensureGame, transformDbEventsForReplay } from '../src/socket/util.js';
 import { movePermanentToGraveyard } from '../src/state/modules/counters_tokens.js';
+import { buildDurableLandPlayPermission } from '../src/state/modules/durable-permissions.js';
 import { addGraveyardCastingPermission } from '../src/state/modules/graveyard-permissions.js';
 import { ResolutionQueueManager } from '../src/state/resolution/index.js';
 import { ResolutionStepType } from '../src/state/resolution/types.js';
@@ -160,6 +161,95 @@ describe('playLand graveyard permission windows (integration)', () => {
     expect(battlefield.some((permanent: any) => permanent?.card?.name === 'Forest')).toBe(true);
     expect(graveyard.some((card: any) => card?.id === 'forest_1')).toBe(false);
     expect(graveyard.some((card: any) => card?.id === 'wasteland_1')).toBe(true);
+  });
+
+  it('allows durable graveyard land permissions through the live playLand handler', async () => {
+    createGameIfNotExists(gameId, 'commander', 40, undefined, playerId);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    Object.assign(game.state as any, {
+      players: [
+        { id: playerId, name: 'P1', spectator: false, life: 40, isAI: false },
+        { id: opponentId, name: 'P2', spectator: false, life: 40, isAI: false },
+      ],
+      startingLife: 40,
+      life: { [playerId]: 40, [opponentId]: 40 },
+      phase: 'precombatMain',
+      step: 'MAIN1',
+      turnNumber: 7,
+      turnPlayer: playerId,
+      priority: playerId,
+      stack: [],
+      battlefield: [],
+      manaPool: {
+        [playerId]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+        [opponentId]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+      },
+      landsPlayedThisTurn: { [playerId]: 0, [opponentId]: 0 },
+      durablePermissions: [
+        buildDurableLandPlayPermission({
+          playerId,
+          zone: 'graveyard',
+          sourceId: 'crucible_card_1',
+          sourceObjectId: 'crucible_perm_1',
+          sourceName: 'Crucible of Worlds',
+          sourceText: 'You may play lands from your graveyard.',
+          turnApplied: 7,
+        }),
+      ],
+      zones: {
+        [playerId]: {
+          hand: [],
+          handCount: 0,
+          graveyard: [
+            {
+              id: 'forest_1',
+              name: 'Forest',
+              type_line: 'Basic Land — Forest',
+              oracle_text: '{T}: Add {G}.',
+              image_uris: { small: 'https://example.com/forest.jpg' },
+            },
+          ],
+          graveyardCount: 1,
+          exile: [],
+          exileCount: 0,
+          library: [],
+          libraryCount: 0,
+        },
+        [opponentId]: {
+          hand: [],
+          handCount: 0,
+          graveyard: [],
+          graveyardCount: 0,
+          exile: [],
+          exileCount: 0,
+          library: [],
+          libraryCount: 0,
+        },
+      },
+    });
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(playerId, emitted);
+    socket.data.gameId = gameId;
+    socket.rooms.add(gameId);
+    const io = createMockIo(emitted, [socket]);
+
+    registerGameActions(io as any, socket as any);
+
+    await handlers['playLand']({ gameId, cardId: 'forest_1', fromZone: 'graveyard' });
+
+    const errorCodes = emitted
+      .filter((entry) => entry.event === 'error')
+      .map((entry) => entry.payload?.code);
+    expect(errorCodes).not.toContain('NO_PERMISSION');
+
+    const battlefield = (game.state as any).battlefield || [];
+    const graveyard = (game.state as any).zones?.[playerId]?.graveyard || [];
+    expect(battlefield.some((permanent: any) => permanent?.card?.id === 'forest_1')).toBe(true);
+    expect(graveyard.some((card: any) => card?.id === 'forest_1')).toBe(false);
+    expect((game.state as any).landsPlayedThisTurn?.[playerId]).toBe(1);
   });
 
   it('requires Hazezon to replay only Desert lands from the graveyard', async () => {

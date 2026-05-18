@@ -1,7 +1,8 @@
 import type { GameContext } from "../context";
-import type { PlayerID } from "../../../../shared/src";
+import type { DurablePermission, PlayerID } from "../../../../shared/src";
 import { collectStaticEffectSources } from "./static-effect-sources";
 import { cardManaValue } from "../utils";
+import { buildDurableGraveyardPermission, clearTemporaryDurableGraveyardPermissions, getActiveDurablePermissions, upsertDurablePermission } from "./durable-permissions";
 
 export interface GrantedFlashbackInfo {
   hasIt: boolean;
@@ -168,6 +169,13 @@ function getGraveyardCastingPermissions(state: any): GraveyardCastingPermission[
     : [];
 }
 
+function normalizeGraveyardPermissionCostMode(value: unknown): GraveyardCastingPermissionCostMode {
+  const normalized = String(value || '').trim().toLowerCase();
+  if (normalized === 'alternate') return 'alternate';
+  if (normalized === 'without_paying_mana_cost') return 'without_paying_mana_cost';
+  return 'normal';
+}
+
 function normalizeGraveyardPermissionDuration(value: unknown): GraveyardCastingPermissionDuration {
   const normalized = String(value || '').trim().toLowerCase();
   if (normalized === 'until_end_of_next_turn') return 'until_end_of_next_turn';
@@ -204,6 +212,57 @@ function graveyardCastingPermissionIsActive(state: any, permission: GraveyardCas
   }
 
   return turnApplied >= currentTurn;
+}
+
+function durablePermissionToGraveyardCastingPermission(permission: DurablePermission): GraveyardCastingPermission | undefined {
+  if (!permission || String(permission.kind || '') !== 'graveyard_permission') return undefined;
+  if (permission.allowedAction !== 'play' && permission.allowedAction !== 'cast') return undefined;
+
+  const allowedSourceZones = Array.isArray(permission.allowedSourceZones)
+    ? permission.allowedSourceZones.map((zone) => String(zone || '').trim().toLowerCase())
+    : [];
+  if (allowedSourceZones.length > 0 && !allowedSourceZones.includes('graveyard')) return undefined;
+
+  const cardIds = Array.isArray(permission.cardFilter?.affectedCardIds)
+    ? permission.cardFilter.affectedCardIds.map((cardId) => String(cardId || '').trim()).filter(Boolean)
+    : [];
+  const qualifier = String(permission.cardFilter?.qualifier || '').trim();
+  if (cardIds.length === 0 && !qualifier) return undefined;
+
+  const leaveBattlefieldDestination = permission.replacement?.leaveBattlefieldDestination === 'exile'
+    ? 'exile'
+    : undefined;
+
+  return {
+    id: String(permission.id || '').trim(),
+    playerId: String(permission.grantedTo || '').trim(),
+    permission: permission.allowedAction,
+    sourceZone: 'graveyard',
+    cardFilter: {
+      ...(qualifier ? { qualifier } : {}),
+      ...(cardIds.length > 0 ? { cardIds } : {}),
+    },
+    costMode: normalizeGraveyardPermissionCostMode(permission.costMode),
+    duration: normalizeGraveyardPermissionDuration(permission.duration),
+    ...(typeof permission.turnApplied === 'number' ? { turnApplied: permission.turnApplied } : {}),
+    ...(permission.sourceId ? { sourceId: String(permission.sourceId) } : {}),
+    ...(permission.sourceName ? { sourceName: String(permission.sourceName) } : {}),
+    ...(permission.usageLimit ? { usageLimit: { ...permission.usageLimit } as GraveyardCastingPermissionUsageLimit } : {}),
+    ...(permission.replacement ? {
+      replacement: {
+        ...(permission.replacement.exileAfterResolution ? { exileAfterResolution: true } : {}),
+        ...(leaveBattlefieldDestination ? { leaveBattlefieldDestination } : {}),
+        ...(typeof permission.replacement.leaveBattlefieldLifeGain === 'number' ? { leaveBattlefieldLifeGain: permission.replacement.leaveBattlefieldLifeGain } : {}),
+        ...(permission.replacement.sourceName ? { sourceName: permission.replacement.sourceName } : {}),
+      },
+    } : {}),
+  };
+}
+
+function getDurableGraveyardCastingPermissions(state: any, playerId: PlayerID): GraveyardCastingPermission[] {
+  return getActiveDurablePermissions(state, { playerId, kind: 'graveyard_permission' })
+    .map((permission) => durablePermissionToGraveyardCastingPermission(permission))
+    .filter((permission): permission is GraveyardCastingPermission => Boolean(permission));
 }
 
 export function addGraveyardCastingPermission(
@@ -248,6 +307,19 @@ export function addGraveyardCastingPermission(
 
   state.graveyardCastingPermissions = getGraveyardCastingPermissions(state).filter((existing) => existing?.id !== entry.id);
   state.graveyardCastingPermissions.push(entry);
+  upsertDurablePermission(state, buildDurableGraveyardPermission({
+    id: entry.id,
+    playerId: entry.playerId,
+    permission: entry.permission,
+    cardFilter: entry.cardFilter,
+    costMode: entry.costMode,
+    duration: entry.duration,
+    turnApplied: entry.turnApplied,
+    sourceId: entry.sourceId,
+    sourceName: entry.sourceName,
+    usageLimit: entry.usageLimit,
+    replacement: entry.replacement,
+  }));
   return entry;
 }
 
@@ -257,7 +329,17 @@ export function getActiveGraveyardCastingPermissions(
   options?: { permission?: GraveyardCastingPermissionKind },
 ): GraveyardCastingPermission[] {
   const expectedPermission = options?.permission;
-  return getGraveyardCastingPermissions(state).filter((permission) => {
+  const permissionsById = new Map<string, GraveyardCastingPermission>();
+  for (const permission of [
+    ...getGraveyardCastingPermissions(state),
+    ...getDurableGraveyardCastingPermissions(state, playerId),
+  ]) {
+    const permissionId = String(permission?.id || '').trim();
+    if (!permissionId || permissionsById.has(permissionId)) continue;
+    permissionsById.set(permissionId, permission);
+  }
+
+  return [...permissionsById.values()].filter((permission) => {
     if (String(permission?.playerId || '') !== String(playerId || '')) return false;
     if (expectedPermission && permission.permission !== expectedPermission) return false;
     return graveyardCastingPermissionIsActive(state, permission);
@@ -896,6 +978,8 @@ export function clearTemporaryPlayableFromGraveyardPermissions(state: any): numb
 
     cleared += before - (Array.isArray(state.graveyardCastingPermissions) ? state.graveyardCastingPermissions.length : 0);
   }
+
+  clearTemporaryDurableGraveyardPermissions(state);
 
   return cleared;
 }

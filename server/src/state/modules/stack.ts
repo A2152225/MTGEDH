@@ -95,6 +95,7 @@ import {
 } from "./dungeon-effects.js";
 import { applyGraveyardPermissionEffectsFromText } from "./graveyard-permissions.js";
 import { shouldExileStackCardInsteadOfGraveyard } from "./stack-zone-replacements.js";
+import { buildDurablePlayableFromExilePermission, upsertDurablePermission } from "./durable-permissions.js";
 
 function removeReplayDuplicateCardEntries(cards: any, cardId: string): number {
   if (!Array.isArray(cards) || !cardId) return 0;
@@ -3226,6 +3227,7 @@ function applyOracleIRImpulseExileTopStep(
         : (stateAny.turnNumber || 0) + 1;
 
     let grantedCount = 0;
+    const grantedCardIds: string[] = [];
 
     for (const c of exiledCards) {
       const typeLineLower = String((c as any)?.type_line || '').toLowerCase();
@@ -3266,6 +3268,7 @@ function applyOracleIRImpulseExileTopStep(
 
       if (grantPermission) {
         stateAny.playableFromExile[permissionGrantee][String(c?.id)] = playableUntilTurn;
+        grantedCardIds.push(String(c?.id || '').trim());
         grantedCount++;
       }
 
@@ -3281,6 +3284,20 @@ function applyOracleIRImpulseExileTopStep(
         } : {}),
       });
       applied += 1;
+    }
+
+    if (grantedCardIds.length > 0) {
+      upsertDurablePermission(stateAny, buildDurablePlayableFromExilePermission({
+        playerId: permissionGrantee as PlayerID,
+        cardIds: grantedCardIds.filter(Boolean),
+        action: permission,
+        duration,
+        turnApplied: Number(stateAny.turnNumber || 0),
+        expiresAtTurn: playableUntilTurn,
+        sourceName: spellName,
+        costMode: grantFreeCastsFromExile ? 'without_paying_mana_cost' : 'normal',
+        spendManaAsThoughAnyType: grantFlexibleManaSpending,
+      }));
     }
 
     if (typeof (ctx as any).bumpSeq === 'function') {

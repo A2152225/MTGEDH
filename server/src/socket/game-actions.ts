@@ -39,7 +39,7 @@ import { shouldSuppressMandatoryTriggeredAbilityPrompt } from "./trigger-shortcu
 import { hasMutateAlternateCost, parseMadnessCost, parseMutateCost, getValidMutateTargets } from "../state/modules/alternate-costs.js";
 import { getCastableSpellCandidates, getCommandZoneCommanderCandidates, getPlayableLandCandidates, type SharedCommanderAvailabilityCandidate, type SharedPlayableLandCandidate, type SharedSpellCastCandidate } from "../state/modules/can-respond.js";
 import { buildCounterRemovalCostOptions } from "../state/modules/counter-removal-costs.js";
-import { cardAllowsPlayerToPlayFromExile, cleanupCardLeavingExile, findPlayableExileCardForPlayer, getPlayableExileCardsForPlayer } from "../state/modules/playable-from-exile.js";
+import { cardAllowsPlayerToPlayFromExile, cleanupCardLeavingExile, findPlayableExileCardForPlayer, getPlayableExileCardsForPlayer, getPlayableFromExileDurablePermissionForCard } from "../state/modules/playable-from-exile.js";
 import { isPreparedCopyActive, syncPreparedPermanentAfterControlChange } from "../state/modules/prepared.js";
 import { getEffectiveBasicLandTypes } from "../state/modules/mana-abilities.js";
 import { buildCostAdjustmentPlan, buildLiveSpellCostAdjustment } from "../state/modules/cost-adjustments.js";
@@ -626,7 +626,7 @@ function validateTopOfLibraryLandAccess(
     };
   }
 
-  const topLandPermission = canPlayLandsFromTop({ state: game.state } as any, playerId);
+  const topLandPermission = canPlayLandsFromTop({ state: game.state } as any, playerId, topCard);
   if (!topLandPermission.canPlay) {
     return {
       ok: false,
@@ -668,7 +668,10 @@ function validateLibrarySpellCastAccess(
     };
   }
 
-  const topSpellPermission = canCastFromTop({ state: game.state } as any, playerId, spellCard);
+  const spellCardForPermission = typeof spellCard === 'string'
+    ? { ...cardInLibrary, type_line: spellCard, typeLine: spellCard }
+    : spellCard;
+  const topSpellPermission = canCastFromTop({ state: game.state } as any, playerId, spellCardForPermission);
   if (!topSpellPermission.canCast) {
     return {
       ok: false,
@@ -4875,6 +4878,15 @@ export async function requestCastSpellForSocket(
       ? commanderCandidate?.card
       : getPlayerSpellSourceCards(game, String(playerId), castSourceZone).find((c: any) => c && c.id === cardId);
 
+    if (castSourceZone === 'command' && cardInHand && commanderCandidate) {
+      if (commanderCandidate.commandZonePermissionCostMode) {
+        (cardInHand as any).commandZonePermissionCostMode = commanderCandidate.commandZonePermissionCostMode;
+      }
+      if (commanderCandidate.spendManaAsThoughAnyType === true) {
+        (cardInHand as any).spendManaAsThoughAnyType = true;
+      }
+    }
+
     // Allow starting the cast pipeline from exile for impulse-style effects.
     if (!cardInHand && !fromZone) {
       const exiled = findPlayableExileCardForPlayer(game.state, String(playerId) as any, String(cardId));
@@ -4887,6 +4899,15 @@ export async function requestCastSpellForSocket(
         const pfeAllows = typeof entry === 'number' ? entry >= turnNumber : Boolean(entry);
 
         const cardAllows = cardAllowsPlayerToPlayFromExile(exiled, String(playerId) as any, turnNumber);
+        const durablePermission = getPlayableFromExileDurablePermissionForCard(game.state, String(playerId) as any, exiled, 'cast');
+        const durableAllows = Boolean(durablePermission);
+
+        if (durableAllows && String(durablePermission?.costMode || '') === 'without_paying_mana_cost') {
+          (exiled as any).castWithoutPayingManaCost = true;
+        }
+        if (durableAllows && (durablePermission?.metadata as any)?.spendManaAsThoughAnyType === true) {
+          (exiled as any).spendManaAsThoughAnyType = true;
+        }
 
         const isForetold = Boolean((exiled as any)?.foretold)
           || Boolean((exiled as any)?.foretellCost)
@@ -4913,7 +4934,7 @@ export async function requestCastSpellForSocket(
           }
         }
 
-        if (!bypassExilePermissionCheck && !pfeAllows && !cardAllows) {
+        if (!bypassExilePermissionCheck && !pfeAllows && !cardAllows && !durableAllows) {
           socket.emit("error", { code: "NO_PERMISSION", message: "You don't have permission to cast that card from exile." });
           return;
         }
@@ -5064,6 +5085,22 @@ export async function requestCastSpellForSocket(
           message: validation.message,
         });
         return;
+      }
+
+      const topLibraryPermission = canCastFromTop({ state: game.state } as any, String(playerId), cardForCast);
+      if (String((topLibraryPermission as any)?.costMode || '') === 'without_paying_mana_cost') {
+        (cardInHand as any).castWithoutPayingManaCost = true;
+        (cardForCast as any).castWithoutPayingManaCost = true;
+        options = {
+          ...options,
+          castWithoutPayingManaCost: true,
+          forcedAlternateCostId: options?.forcedAlternateCostId || 'free',
+        };
+        isFreeCast = true;
+      }
+      if ((topLibraryPermission as any)?.spendManaAsThoughAnyType === true) {
+        (cardInHand as any).spendManaAsThoughAnyType = true;
+        (cardForCast as any).spendManaAsThoughAnyType = true;
       }
     }
 
@@ -6210,7 +6247,9 @@ export async function requestCastSpellForSocket(
     const convokeOptions = calculateConvokeOptions(game, playerId, cardForCast);
     const harmonizeOptions = calculateHarmonizeOptions(game, playerId, cardForCast);
     const paymentManaCost = appendManaCost(
-      formatManaCostWithCostAdjustment(resolvedManaCost, paymentMetadata.costReduction, chosenXValue, paymentMetadata.genericCostTax),
+      castSourceZone === 'command'
+        ? resolvedManaCost
+        : formatManaCostWithCostAdjustment(resolvedManaCost, paymentMetadata.costReduction, chosenXValue, paymentMetadata.genericCostTax),
       spellModeAdditionalCost,
     );
     const paymentCostAdjustment = castSourceZone === 'command'
@@ -6650,6 +6689,7 @@ export async function requestCastSpellForSocket(
         convokeOptions: convokeOptions.availableCreatures.length > 0 ? convokeOptions : undefined,
         harmonizeOptions: harmonizeOptions.availableCreatures.length > 0 ? harmonizeOptions.availableCreatures : undefined,
         forcedAlternateCostId: options?.forcedAlternateCostId,
+        castWithoutPayingManaCost: isFreeCast ? true : undefined,
       } as any);
 
       persistQueuedSpellCastStepContinuation(gameId, game, {
@@ -7028,7 +7068,8 @@ export function handlePlayLandRequest(io: Server, socket: Socket, payload?: Play
       const pfeAllows = typeof entry === 'number' ? entry >= turnNumber : Boolean(entry);
       const exiledCard = findPlayableExileCardForPlayer(game.state, String(playerId) as any, String(cardId));
       const cardAllows = cardAllowsPlayerToPlayFromExile(exiledCard, String(playerId) as any, turnNumber);
-      if (!pfeAllows && !cardAllows) {
+      const durablePermission = getPlayableFromExileDurablePermissionForCard(game.state, String(playerId) as any, exiledCard, 'play');
+      if (!pfeAllows && !cardAllows && !durablePermission) {
         socket.emit("error", {
           code: "NO_PERMISSION",
           message: "You don't have permission to play that land from exile",
@@ -7538,6 +7579,15 @@ export function registerGameActions(io: Server, socket: Socket) {
         ? commandZoneCandidate?.card
         : sourceArr.find((c: any) => c && c.id === cardId);
 
+      if (castSourceZone === 'command' && cardInHand && commandZoneCandidate) {
+        if (commandZoneCandidate.commandZonePermissionCostMode) {
+          (cardInHand as any).commandZonePermissionCostMode = commandZoneCandidate.commandZonePermissionCostMode;
+        }
+        if (commandZoneCandidate.spendManaAsThoughAnyType === true) {
+          (cardInHand as any).spendManaAsThoughAnyType = true;
+        }
+      }
+
       if (!cardInHand && castSourceZone === 'exile') {
         const exiled = findPlayableExileCardForPlayer(game.state, String(playerId) as any, String(cardId));
         if (exiled) {
@@ -7594,6 +7644,15 @@ export function registerGameActions(io: Server, socket: Socket) {
         const pfeAllows = typeof entry === 'number' ? entry >= turnNumber : Boolean(entry);
 
         const cardAllows = cardAllowsPlayerToPlayFromExile(cardInHand, String(playerId) as any, turnNumber);
+        const durablePermission = getPlayableFromExileDurablePermissionForCard(game.state, String(playerId) as any, cardInHand, 'cast');
+        const durableAllows = Boolean(durablePermission);
+
+        if (durableAllows && String(durablePermission?.costMode || '') === 'without_paying_mana_cost') {
+          (cardInHand as any).castWithoutPayingManaCost = true;
+        }
+        if (durableAllows && (durablePermission?.metadata as any)?.spendManaAsThoughAnyType === true) {
+          (cardInHand as any).spendManaAsThoughAnyType = true;
+        }
 
         const isForetold = Boolean((cardInHand as any)?.foretold)
           || Boolean((cardInHand as any)?.foretellCost)
@@ -7603,7 +7662,7 @@ export function registerGameActions(io: Server, socket: Socket) {
           return;
         }
 
-        if (!bypassExilePermissionCheck && !pfeAllows && !cardAllows) {
+        if (!bypassExilePermissionCheck && !pfeAllows && !cardAllows && !durableAllows) {
           socket.emit("error", { code: "NO_PERMISSION", message: "You don't have permission to cast that card from exile." });
           return;
         }
@@ -7668,6 +7727,14 @@ export function registerGameActions(io: Server, socket: Socket) {
             message: validation.message,
           });
           return;
+        }
+
+        const topLibraryPermission = canCastFromTop({ state: game.state } as any, String(playerId), cardInHand);
+        if (String((topLibraryPermission as any)?.costMode || '') === 'without_paying_mana_cost') {
+          (cardInHand as any).castWithoutPayingManaCost = true;
+        }
+        if ((topLibraryPermission as any)?.spendManaAsThoughAnyType === true) {
+          (cardInHand as any).spendManaAsThoughAnyType = true;
         }
       }
 
@@ -9321,7 +9388,9 @@ export function registerGameActions(io: Server, socket: Socket) {
       }
       
       // Apply cost reduction
-      const reducedCost = applyCostAdjustment(parsedCost, costReduction, genericCostTax);
+      const reducedCost = castSourceZone === 'command'
+        ? parsedCost
+        : applyCostAdjustment(parsedCost, costReduction, genericCostTax);
       const payableCost = cardCanSpendManaAsAnyType(cardInHand)
         ? normalizeParsedSpellCostForAnyTypeManaSpending(reducedCost)
         : reducedCost;

@@ -69,6 +69,7 @@ import {
 import { exileEntireStack } from "./stack";
 import { applyGraveyardPermissionEffectsFromText, applyTemporaryGraveyardKeywordGrantFromText, buildCastFromGraveyardCard } from "./graveyard-permissions.js";
 import { shouldExileStackCardInsteadOfGraveyard } from "./stack-zone-replacements.js";
+import { buildDurablePlayableFromExilePermission, upsertDurablePermission } from "./durable-permissions.js";
 import { permanentHasKeyword } from "./keyword-handlers";
 import { nextTurn, nextStep, passPriority } from "./turn";
 import {
@@ -9308,6 +9309,16 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
                 stateAny.playableFromExile = stateAny.playableFromExile || {};
                 const entry = (stateAny.playableFromExile[grantPlayableFromExileControllerId] = stateAny.playableFromExile[grantPlayableFromExileControllerId] || {});
                 entry[String(exiledCard.id)] = true;
+                upsertDurablePermission(stateAny, buildDurablePlayableFromExilePermission({
+                  playerId: grantPlayableFromExileControllerId as PlayerID,
+                  cardIds: [String(exiledCard.id)],
+                  action: 'play',
+                  duration: 'static',
+                  turnApplied: Number(stateAny.turnNumber || 0),
+                  sourceId,
+                  sourceName,
+                  spendManaAsThoughAnyType: grantPlayableFromExileSpendManaAsThoughAnyType,
+                }));
               }
             }
           };
@@ -11056,8 +11067,22 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
                 const stateAny = ctx.state as any;
                 stateAny.playableFromExile = stateAny.playableFromExile || {};
                 const entry = (stateAny.playableFromExile[controllerId] = stateAny.playableFromExile[controllerId] || {});
+                const grantedCardIds: string[] = [];
                 for (const card of exiledCards) {
-                  entry[String(card?.id || '')] = true;
+                  const grantedCardId = String(card?.id || '').trim();
+                  if (!grantedCardId) continue;
+                  entry[grantedCardId] = true;
+                  grantedCardIds.push(grantedCardId);
+                }
+                if (grantedCardIds.length > 0) {
+                  upsertDurablePermission(stateAny, buildDurablePlayableFromExilePermission({
+                    playerId: controllerId as PlayerID,
+                    cardIds: grantedCardIds,
+                    action: 'play',
+                    duration: 'static',
+                    turnApplied: Number(stateAny.turnNumber || 0),
+                    sourceName: String((e as any).sourceName || 'Dungeon').trim() || 'Dungeon',
+                  }));
                 }
               }
               break;

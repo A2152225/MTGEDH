@@ -6,6 +6,7 @@ import { registerGameActions } from '../src/socket/game-actions.js';
 import { registerResolutionHandlers } from '../src/socket/resolution.js';
 import { games } from '../src/socket/socket.js';
 import { ensureGame } from '../src/socket/util.js';
+import { buildDurableCommandZonePermission } from '../src/state/modules/durable-permissions.js';
 import { ResolutionQueueManager } from '../src/state/resolution/index.js';
 
 function createMockIo(emitted: Array<{ room?: string; event: string; payload: any }>) {
@@ -184,6 +185,193 @@ describe('commander shared-surface integration', () => {
     expect((game.state.stack || []).some((item: any) => String(item?.card?.id || '') === 'cmd_red')).toBe(true);
     expect(((game.state.commandZone as any)?.[p1]?.inCommandZone || [])).not.toContain('cmd_red');
     expect((game.state.commandZone as any)?.[p1]?.taxById?.cmd_red).toBe(2);
+  });
+
+  it('casts a commander with durable command-zone free-cost metadata while preserving commander tax', async () => {
+    const gameId = createTestGameId('durable_command_free_tax');
+    const p1 = 'p1';
+    const p2 = 'p2';
+
+    createGameIfNotExists(gameId, 'commander', 40, undefined, p1);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    Object.assign(game.state as any, {
+      active: true,
+      phase: 'combat',
+      step: 'DECLARE_ATTACKERS',
+      turnPlayer: p2,
+      priority: p1,
+      players: [
+        { id: p1, name: 'Player 1', spectator: false, life: 40 },
+        { id: p2, name: 'Player 2', spectator: false, life: 40 },
+      ],
+      battlefield: [],
+      stack: [{ id: 'spell_on_stack', controller: p2, card: { name: 'Test Spell' } }],
+      zones: {
+        [p1]: { hand: [], graveyard: [], exile: [], library: [], handCount: 0, graveyardCount: 0, exileCount: 0, libraryCount: 0 },
+        [p2]: { hand: [], graveyard: [], exile: [], library: [], handCount: 0, graveyardCount: 0, exileCount: 0, libraryCount: 0 },
+      },
+      manaPool: {
+        [p1]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 2 },
+        [p2]: createEmptyManaPool(),
+      },
+      commandZone: {
+        [p1]: {
+          commanderIds: ['cmd_free_taxed'],
+          commanderNames: ['Free Taxed Commander'],
+          commanderCards: [
+            {
+              id: 'cmd_free_taxed',
+              name: 'Free Taxed Commander',
+              type_line: 'Legendary Creature — Wizard',
+              mana_cost: '{3}{U}',
+              oracle_text: '',
+            },
+          ],
+          inCommandZone: ['cmd_free_taxed'],
+          taxById: { cmd_free_taxed: 2 },
+        },
+        [p2]: {
+          commanderIds: [],
+          commanderNames: [],
+          commanderCards: [],
+          inCommandZone: [],
+          taxById: {},
+        },
+      },
+      durablePermissions: [
+        buildDurableCommandZonePermission({
+          playerId: p1 as any,
+          action: 'cast',
+          duration: 'this_turn',
+          turnApplied: 1,
+          expiresAtTurn: 1,
+          sourceName: 'Command Beacon Emblem',
+          cardIds: ['cmd_free_taxed'],
+          costMode: 'without_paying_mana_cost',
+          grantsFlash: true,
+        }),
+      ],
+      turnNumber: 1,
+    });
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket({ playerId: p1, spectator: false, gameId }, emitted);
+    socket.rooms.add(gameId);
+
+    const io = createMockIo(emitted);
+    registerGameActions(io as any, socket as any);
+    registerCommanderHandlers(io as any, socket as any);
+
+    await handlers['castCommander']({ gameId, commanderId: 'cmd_free_taxed' });
+
+    expect(emitted.find((entry) => entry.event === 'error')).toBeUndefined();
+    const paymentStep = ResolutionQueueManager.getQueue(gameId).steps[0] as any;
+    expect(paymentStep).toEqual(expect.objectContaining({
+      type: 'mana_payment_choice',
+      cardName: 'Free Taxed Commander',
+      manaCost: '{2}',
+    }));
+    expect(paymentStep?.costAdjustment?.taxMessages).toContain('Commander tax: +{2}');
+  });
+
+  it('completes a commander cast using durable command-zone flexible mana metadata', async () => {
+    const gameId = createTestGameId('durable_command_flexible_mana');
+    const p1 = 'p1';
+    const p2 = 'p2';
+
+    createGameIfNotExists(gameId, 'commander', 40, undefined, p1);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    Object.assign(game.state as any, {
+      active: true,
+      phase: 'main',
+      step: 'MAIN1',
+      turnPlayer: p1,
+      priority: p1,
+      players: [
+        { id: p1, name: 'Player 1', spectator: false, life: 40 },
+        { id: p2, name: 'Player 2', spectator: false, life: 40 },
+      ],
+      battlefield: [],
+      stack: [],
+      zones: {
+        [p1]: { hand: [], graveyard: [], exile: [], library: [], handCount: 0, graveyardCount: 0, exileCount: 0, libraryCount: 0 },
+        [p2]: { hand: [], graveyard: [], exile: [], library: [], handCount: 0, graveyardCount: 0, exileCount: 0, libraryCount: 0 },
+      },
+      manaPool: {
+        [p1]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 1 },
+        [p2]: createEmptyManaPool(),
+      },
+      commandZone: {
+        [p1]: {
+          commanderIds: ['cmd_white'],
+          commanderNames: ['White Commander'],
+          commanderCards: [
+            {
+              id: 'cmd_white',
+              name: 'White Commander',
+              type_line: 'Legendary Creature — Soldier',
+              mana_cost: '{W}',
+              oracle_text: '',
+            },
+          ],
+          inCommandZone: ['cmd_white'],
+          taxById: { cmd_white: 0 },
+        },
+        [p2]: {
+          commanderIds: [],
+          commanderNames: [],
+          commanderCards: [],
+          inCommandZone: [],
+          taxById: {},
+        },
+      },
+      durablePermissions: [
+        buildDurableCommandZonePermission({
+          playerId: p1 as any,
+          action: 'cast',
+          duration: 'while_source_remains',
+          turnApplied: 1,
+          sourceName: 'Command Mana Lens',
+          cardIds: ['cmd_white'],
+          spendManaAsThoughAnyType: true,
+        }),
+      ],
+      turnNumber: 1,
+    });
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket({ playerId: p1, spectator: false, gameId }, emitted);
+    socket.rooms.add(gameId);
+
+    const io = createMockIo(emitted);
+    registerGameActions(io as any, socket as any);
+    registerCommanderHandlers(io as any, socket as any);
+
+    await handlers['castCommander']({ gameId, commanderId: 'cmd_white' });
+
+    const pendingCasts = Object.entries((game.state as any).pendingSpellCasts || {});
+    expect(pendingCasts).toHaveLength(1);
+    const [effectId] = pendingCasts[0] as [string, any];
+    const paymentStep = ResolutionQueueManager.getQueue(gameId).steps[0] as any;
+    expect(paymentStep).toEqual(expect.objectContaining({
+      type: 'mana_payment_choice',
+      cardName: 'White Commander',
+      manaCost: '{W}',
+    }));
+
+    await handlers['completeCastSpell']({
+      gameId,
+      cardId: 'cmd_white',
+      effectId,
+      payment: [{ permanentId: '__pool__:colorless', mana: 'C', count: 1 }],
+    });
+
+    expect(emitted.find((entry) => entry.event === 'error')).toBeUndefined();
+    expect((game.state.stack || []).some((item: any) => String(item?.card?.id || '') === 'cmd_white')).toBe(true);
   });
 
   it('casts a command-zone commander through non-battlefield cost adjustments on the shared surface', async () => {

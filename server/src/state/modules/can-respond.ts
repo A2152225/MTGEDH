@@ -31,7 +31,8 @@ import { getCurrentGoaders } from "./goad-effects.js";
 import { isAbilityActivationProhibitedByChosenName, isSpellCastingProhibitedByChosenName } from "./chosen-name-restrictions.js";
 import { canActivateLoyaltyAtInstantSpeed } from "./triggered-abilities.js";
 import { canPayCounterRemovalCost } from "./counter-removal-costs.js";
-import { cardAllowsPlayerToPlayFromExile, getPlayableExileCardsForPlayer } from "./playable-from-exile.js";
+import { cardAllowsPlayerToPlayFromExile, getPlayableExileCardsForPlayer, getPlayableFromExileDurablePermissionForCard } from "./playable-from-exile.js";
+import { getDurableCommandZonePermissionForCard, playerHasDurableLandPlayPermission } from "./durable-permissions";
 
 function cardHasSplitSecond(card: any): boolean {
   if (!card) return false;
@@ -184,6 +185,7 @@ export interface SharedSpellCastCandidate {
   graveyardPermissionId?: string;
   graveyardPermissionSourceName?: string;
   graveyardPermissionCostMode?: GraveyardCastingPermissionCostMode;
+  libraryPermissionCostMode?: string;
 }
 
 export interface SharedPlayableLandCandidate {
@@ -210,6 +212,8 @@ export interface SharedCommanderBaseCandidate {
   isBackground: boolean;
   commanderTax: number;
   costAdjustment: number;
+  commandZonePermissionCostMode?: string;
+  spendManaAsThoughAnyType?: boolean;
 }
 
 export interface SharedCommanderAvailabilityCandidate extends SharedCommanderBaseCandidate {
@@ -303,12 +307,18 @@ export function getCommandZoneCommanderCandidates(
       const manaCost = String(commander?.mana_cost || commander?.manaCost || '').trim();
       if (!manaCost) continue;
 
-      const parsedCost = parseManaCost(manaCost);
+      const durableCommandPermission = getDurableCommandZonePermissionForCard(state, playerId, commander, 'cast');
+      const commandZonePermissionCostMode = String(durableCommandPermission?.costMode || '').trim() || undefined;
+      const spendManaAsThoughAnyType = (durableCommandPermission?.metadata as any)?.spendManaAsThoughAnyType === true;
+      const parsedCost = parseManaCost(commandZonePermissionCostMode === 'without_paying_mana_cost' ? '' : manaCost);
       const commanderTax = Number((commandZone as any).taxById?.[commanderId] ?? (commandZone as any).taxById?.[commanderKey] ?? 0) || 0;
       const costAdjustmentPlan = buildCostAdjustmentPlan(state, playerId, commander);
       const costAdjustment = costAdjustmentPlan.totalAdjustment;
       const adjustedCost = applyCostAdjustmentToParsedCost(parsedCost, costAdjustmentPlan, commanderTax);
-      const canPayCost = canPayManaCostWithAvailableSources(state, playerId, adjustedCost);
+      const payableCost = spendManaAsThoughAnyType
+        ? normalizeParsedCostForAnyTypeManaSpending(adjustedCost)
+        : adjustedCost;
+      const canPayCost = canPayManaCostWithAvailableSources(state, playerId, payableCost);
 
       const typeLine = String(commander?.type_line || commander?.typeLine || '').toLowerCase();
       const cmc = adjustedCost.generic + Object.values(adjustedCost.colors).reduce((sum, value) => sum + value, 0);
@@ -321,11 +331,13 @@ export function getCommandZoneCommanderCandidates(
           ...adjustedCost,
           cmc,
         },
-        grantsFlash: hasFlashOrInstant(commander),
+        grantsFlash: hasFlashOrInstant(commander) || durableCommandPermission?.timingOverride?.asThoughFlash === true,
         isBackground: typeLine.includes('background'),
         commanderTax,
         costAdjustment,
         canPayCost,
+        ...(commandZonePermissionCostMode ? { commandZonePermissionCostMode } : {}),
+        ...(spendManaAsThoughAnyType ? { spendManaAsThoughAnyType: true } : {}),
       });
     }
 
@@ -857,7 +869,10 @@ function getSpecificLandFromGraveyardPermission(
       }
     }
 
-    if (Array.isArray(state?.landPlayPermissions?.[playerId]) && state.landPlayPermissions[playerId].includes('graveyard')) {
+    if (
+      (Array.isArray(state?.landPlayPermissions?.[playerId]) && state.landPlayPermissions[playerId].includes('graveyard'))
+      || playerHasDurableLandPlayPermission(state, playerId, 'graveyard')
+    ) {
       return { allowed: true };
     }
 
@@ -1365,6 +1380,8 @@ export function getCastableSpellCandidates(
         let graveyardPermissionId: string | undefined;
         let graveyardPermissionSourceName: string | undefined;
         let graveyardPermissionCostMode: GraveyardCastingPermissionCostMode | undefined;
+        let libraryPermissionCostMode: string | undefined;
+        let spendManaAsThoughAnyType = false;
 
         if (sourceZone === 'library') {
           const topSpellPermission = getTopLibrarySpellPermission(ctx, playerId, castCard);
@@ -1372,6 +1389,11 @@ export function getCastableSpellCandidates(
             continue;
           }
           grantsFlash = topSpellPermission.grantsFlash === true;
+          libraryPermissionCostMode = String((topSpellPermission as any).costMode || '').trim() || undefined;
+          spendManaAsThoughAnyType = (topSpellPermission as any).spendManaAsThoughAnyType === true;
+          if (libraryPermissionCostMode === 'without_paying_mana_cost') {
+            manaCost = '';
+          }
         } else if (sourceZone === 'graveyard') {
           const graveyardKeywordInfo = getAvailableGraveyardCastKeywordInfo(ctx, playerId, castCard);
           if (graveyardKeywordInfo) {
@@ -1408,17 +1430,23 @@ export function getCastableSpellCandidates(
           const exileCardId = String(card?.id || castCard?.id || castCard?.name || '');
           const playableFromExile = isCardPlayableFromExile(exilePermissions, exileCardId, currentTurn);
           const cardAllows = cardAllowsPlayerToPlayFromExile(card, playerId, currentTurn);
-          const castWithoutPayingManaCost = (card as any)?.castWithoutPayingManaCost === true;
+          const durablePermission = getPlayableFromExileDurablePermissionForCard(state, playerId, card, 'cast');
+          const durablePermissionAllows = Boolean(durablePermission);
+          const durableCostMode = String(durablePermission?.costMode || '').trim();
+          const castWithoutPayingManaCost = (card as any)?.castWithoutPayingManaCost === true
+            || durableCostMode === 'without_paying_mana_cost';
+          spendManaAsThoughAnyType = (card as any)?.spendManaAsThoughAnyType === true
+            || (durablePermission?.metadata as any)?.spendManaAsThoughAnyType === true;
 
           if (exileInfo.hasIt) {
             if (exileInfo.cost && !castWithoutPayingManaCost) {
               castMethod = 'foretell';
               manaCost = exileInfo.cost;
             } else {
-              castMethod = playableFromExile ? 'playable_from_exile' : 'normal';
+              castMethod = playableFromExile || durablePermissionAllows ? 'playable_from_exile' : 'normal';
               manaCost = castWithoutPayingManaCost ? '' : String(castCard?.mana_cost || castCard?.manaCost || '');
             }
-          } else if (playableFromExile || cardAllows) {
+          } else if (playableFromExile || cardAllows || durablePermissionAllows) {
             castMethod = 'playable_from_exile';
             if (castWithoutPayingManaCost) {
               manaCost = '';
@@ -1456,6 +1484,7 @@ export function getCastableSpellCandidates(
             ...(graveyardPermissionId ? { graveyardPermissionId } : {}),
             ...(graveyardPermissionSourceName ? { graveyardPermissionSourceName } : {}),
             ...(graveyardPermissionCostMode ? { graveyardPermissionCostMode } : {}),
+            ...(libraryPermissionCostMode ? { libraryPermissionCostMode } : {}),
           });
           continue;
         }
@@ -1463,7 +1492,7 @@ export function getCastableSpellCandidates(
         const parsedCost = parseManaCost(manaCost);
         const costAdjustmentPlan = buildCostAdjustmentPlan(state, playerId, castCard);
         const adjustedCost = applyCostAdjustmentToParsedCost(parsedCost, costAdjustmentPlan);
-        const payableCost = sourceZone === 'exile' && (card as any)?.spendManaAsThoughAnyType === true
+        const payableCost = spendManaAsThoughAnyType
           ? normalizeParsedCostForAnyTypeManaSpending(adjustedCost)
           : adjustedCost;
 
@@ -1485,6 +1514,7 @@ export function getCastableSpellCandidates(
             ...(graveyardPermissionId ? { graveyardPermissionId } : {}),
             ...(graveyardPermissionSourceName ? { graveyardPermissionSourceName } : {}),
             ...(graveyardPermissionCostMode ? { graveyardPermissionCostMode } : {}),
+            ...(libraryPermissionCostMode ? { libraryPermissionCostMode } : {}),
           });
           continue;
         }
@@ -1502,6 +1532,7 @@ export function getCastableSpellCandidates(
             payability: 'alternate',
             manaCost,
             grantsFlash,
+            ...(libraryPermissionCostMode ? { libraryPermissionCostMode } : {}),
           });
         }
       }
@@ -1549,8 +1580,8 @@ function getTopLibraryCard(ctx: GameContext, playerId: PlayerID): any | null {
   return library[0] ?? null;
 }
 
-function hasGenericTopLibraryLandPermission(ctx: GameContext, playerId: PlayerID): boolean {
-  return canPlayLandsFromTop(ctx, playerId).canPlay;
+function hasGenericTopLibraryLandPermission(ctx: GameContext, playerId: PlayerID, card?: any): boolean {
+  return canPlayLandsFromTop(ctx, playerId, card).canPlay;
 }
 
 function getTopLibrarySpellPermission(ctx: GameContext, playerId: PlayerID, card: any) {
@@ -1561,8 +1592,8 @@ function canPlayTopLibraryLand(ctx: GameContext, playerId: PlayerID, card: any):
   if (!card || typeof card === 'string') return false;
   if (!isLandTypeLine(card?.type_line || card?.typeLine)) return false;
 
-  const topLandPermission = canPlayLandsFromTop(ctx, playerId);
-  return topLandPermission.canPlay || hasGenericTopLibraryLandPermission(ctx, playerId);
+  const topLandPermission = canPlayLandsFromTop(ctx, playerId, card);
+  return topLandPermission.canPlay || hasGenericTopLibraryLandPermission(ctx, playerId, card);
 }
 
 function canCastTopLibrarySpell(ctx: GameContext, playerId: PlayerID, card: any): boolean {
@@ -2493,7 +2524,8 @@ function isLandPlayableFromExile(state: any, playerId: PlayerID, card: any): boo
   const currentTurn = Number((state as any)?.turnNumber ?? 0);
   const cardId = String(card?.id || card?.name || '');
   return isCardPlayableFromExile(playableCards, cardId, currentTurn)
-    || cardAllowsPlayerToPlayFromExile(card, playerId, currentTurn);
+    || cardAllowsPlayerToPlayFromExile(card, playerId, currentTurn)
+    || Boolean(getPlayableFromExileDurablePermissionForCard(state, playerId, card, 'play'));
 }
 
 export function getPlayableLandCandidates(

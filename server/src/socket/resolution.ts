@@ -102,6 +102,7 @@ import {
 } from "./game-actions.js";
 import { buildOraclePromptContext, getOracleTextFromResolutionStep } from "../utils/oraclePromptContext.js";
 import { cleanupCardLeavingExile, removePlayableFromExileForCard, stripPlayableFromExileTags } from "../state/modules/playable-from-exile.js";
+import { buildDurablePlayableFromExilePermission, upsertDurablePermission } from "../state/modules/durable-permissions.js";
 import { movePermanentToExile } from "../state/modules/counters_tokens.js";
 import { trackCountersPlacedThisTurn } from "../state/modules/counters_tokens.js";
 import { updateCounters } from "../state/modules/counters_tokens.js";
@@ -594,12 +595,15 @@ function buildPendingCastPaymentStepCostFields(
 
 function buildPendingCastPaymentManaCost(pendingCast: any): string {
   const costMetadata = ensurePendingCastCostMetadata(pendingCast);
-  const baseManaCost = formatManaCostWithCostAdjustment(
-    String(pendingCast?.manaCost || ''),
-    costMetadata.costReduction,
-    pendingCast?.xValue,
-    costMetadata.genericCostTax,
-  );
+  const commandAdjustedManaCost = String(costMetadata.paymentCostAdjustment?.adjustedManaCost || '').trim();
+  const baseManaCost = String(pendingCast?.fromZone || '') === 'command' && commandAdjustedManaCost
+    ? commandAdjustedManaCost
+    : formatManaCostWithCostAdjustment(
+        String(pendingCast?.manaCost || ''),
+        costMetadata.costReduction,
+        pendingCast?.xValue,
+        costMetadata.genericCostTax,
+      );
   const spellModeAdditionalCost = getSpellModeAdditionalCost(
     String(pendingCast?.card?.oracle_text || ''),
     pendingCast?.selectedModes,
@@ -23112,6 +23116,15 @@ async function handleLibrarySearchResponse(
             stateAny.playableFromExile = stateAny.playableFromExile || {};
             const entry = (stateAny.playableFromExile[grantPlayableFromExileControllerId] = stateAny.playableFromExile[grantPlayableFromExileControllerId] || {});
             entry[exiledCard.id] = true;
+            upsertDurablePermission(stateAny, buildDurablePlayableFromExilePermission({
+              playerId: grantPlayableFromExileControllerId as PlayerID,
+              cardIds: [String(exiledCard.id)],
+              action: 'play',
+              duration: 'static',
+              turnApplied: Number(stateAny.turnNumber || 0),
+              sourceName,
+              spendManaAsThoughAnyType: grantPlayableFromExileSpendManaAsThoughAnyType,
+            }));
           }
         }
       } else if (destination === 'top') {
@@ -27470,6 +27483,15 @@ async function handleOptionChoiceResponse(
     const pfe = (((game.state as any).playableFromExile[controllerId] =
       (game.state as any).playableFromExile[controllerId] || {}) as any);
     pfe[String(chosenCardId)] = playableUntilTurn;
+    upsertDurablePermission(game.state as any, buildDurablePlayableFromExilePermission({
+      playerId: controllerId as PlayerID,
+      cardIds: [String(chosenCardId)],
+      action: 'play',
+      duration: playableUntilTurn > currentTurn ? 'until_end_of_next_turn' : 'this_turn',
+      turnApplied: currentTurn,
+      expiresAtTurn: playableUntilTurn,
+      sourceName,
+    }));
 
     io.to(gameId).emit('chat', {
       id: `m_${Date.now()}`,

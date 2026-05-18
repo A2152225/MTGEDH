@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { canCastAnySpell, canActivateAnyAbility, canRespond, canAct, canPlayLand, getCastableCommanderCandidates, getCastableSpellCandidates, getPlayableLandCandidates } from '../src/state/modules/can-respond';
+import { buildDurableCommandZonePermission, buildDurableGraveyardPermission, buildDurableLibraryPermission, buildDurablePlayableFromExilePermission } from '../src/state/modules/durable-permissions';
 import { applyPlayableFromGraveyardPermissionFromText, applyTemporaryGraveyardKeywordGrantFromText, clearTemporaryGraveyardKeywordGrants } from '../src/state/modules/graveyard-permissions';
 import type { GameContext } from '../src/state/context';
 import type { PlayerID } from '../../shared/src';
@@ -2787,6 +2788,122 @@ describe('canAct', () => {
     expect(candidates[0]?.cost.colors.R).toBe(1);
   });
 
+  it('applies durable command-zone free-cost metadata while preserving commander tax', () => {
+    const ctx = createTestContext({
+      zones: {
+        p1: {
+          hand: [],
+          graveyard: [],
+          exile: [],
+          handCount: 0,
+          graveyardCount: 0,
+          exileCount: 0,
+        },
+      },
+      commandZone: {
+        p1: {
+          commanderIds: ['cmd_taxed_free'],
+          commanderCards: [
+            {
+              id: 'cmd_taxed_free',
+              name: 'Taxed Free Commander',
+              type_line: 'Legendary Creature — Wizard',
+              mana_cost: '{3}{U}',
+              oracle_text: '',
+            },
+          ],
+          inCommandZone: ['cmd_taxed_free'],
+          taxById: { cmd_taxed_free: 2 },
+        },
+      },
+      durablePermissions: [
+        buildDurableCommandZonePermission({
+          playerId: 'p1' as PlayerID,
+          action: 'cast',
+          duration: 'this_turn',
+          turnApplied: 3,
+          expiresAtTurn: 3,
+          sourceName: 'Command Beacon Emblem',
+          cardIds: ['cmd_taxed_free'],
+          costMode: 'without_paying_mana_cost',
+          grantsFlash: true,
+        }),
+      ],
+      manaPool: {
+        p1: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 2 },
+      },
+      turnNumber: 3,
+      stack: [{ id: 'existing_spell' }],
+    });
+
+    const candidates = getCastableCommanderCandidates(ctx, 'p1' as PlayerID);
+
+    expect(candidates).toEqual([
+      expect.objectContaining({
+        commanderId: 'cmd_taxed_free',
+        commandZonePermissionCostMode: 'without_paying_mana_cost',
+        grantsFlash: true,
+        commanderTax: 2,
+        cost: expect.objectContaining({ generic: 2 }),
+      }),
+    ]);
+  });
+
+  it('applies durable command-zone flexible mana metadata to commander payability', () => {
+    const ctx = createTestContext({
+      zones: {
+        p1: {
+          hand: [],
+          graveyard: [],
+          exile: [],
+          handCount: 0,
+          graveyardCount: 0,
+          exileCount: 0,
+        },
+      },
+      commandZone: {
+        p1: {
+          commanderIds: ['cmd_white'],
+          commanderCards: [
+            {
+              id: 'cmd_white',
+              name: 'White Commander',
+              type_line: 'Legendary Creature — Soldier',
+              mana_cost: '{W}',
+              oracle_text: '',
+            },
+          ],
+          inCommandZone: ['cmd_white'],
+          taxById: { cmd_white: 0 },
+        },
+      },
+      durablePermissions: [
+        buildDurableCommandZonePermission({
+          playerId: 'p1' as PlayerID,
+          action: 'cast',
+          duration: 'while_source_remains',
+          turnApplied: 4,
+          sourceName: 'Command Mana Lens',
+          cardIds: ['cmd_white'],
+          spendManaAsThoughAnyType: true,
+        }),
+      ],
+      manaPool: {
+        p1: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 1 },
+      },
+      turnNumber: 4,
+      stack: [],
+    });
+
+    expect(getCastableCommanderCandidates(ctx, 'p1' as PlayerID)).toEqual([
+      expect.objectContaining({
+        commanderId: 'cmd_white',
+        spendManaAsThoughAnyType: true,
+        cost: expect.objectContaining({ colors: expect.objectContaining({ W: 1 }) }),
+      }),
+    ]);
+  });
+
   it('should return true when a commander is only affordable through a shared command-zone cost adjustment', () => {
     const ctx = createTestContext({
       zones: {
@@ -3653,6 +3770,119 @@ describe('canAct', () => {
     expect(getPlayableLandCandidates(ctx, 'p1' as PlayerID).some((candidate) => candidate.card?.id === 'forest_1')).toBe(false);
   });
 
+  it('surfaces durable-only graveyard land play permissions through shared land candidates', () => {
+    const ctx = createTestContext({
+      turnNumber: 8,
+      zones: {
+        p1: {
+          hand: [],
+          graveyard: [
+            {
+              id: 'forest_1',
+              name: 'Forest',
+              type_line: 'Basic Land — Forest',
+              oracle_text: '{T}: Add {G}.',
+            },
+          ],
+        },
+      },
+      durablePermissions: [
+        buildDurableGraveyardPermission({
+          id: 'durable_muldrotha_land_1',
+          playerId: 'p1' as PlayerID,
+          permission: 'play',
+          cardFilter: { qualifier: 'permanent cards of each permanent type' },
+          costMode: 'normal',
+          duration: 'static',
+          turnApplied: 8,
+          sourceId: 'muldrotha_1',
+          sourceName: 'Muldrotha, the Gravetide',
+          usageLimit: { type: 'one_per_permanent_type' },
+        }),
+      ],
+      manaPool: {
+        p1: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+      },
+      landsPlayedThisTurn: { p1: 0 },
+      players: [{ id: 'p1' }, { id: 'p2' }],
+      step: 'MAIN1',
+      turnPlayer: 'p1',
+      priority: 'p1',
+      stack: [],
+    });
+
+    expect(getPlayableLandCandidates(ctx, 'p1' as PlayerID)).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        card: expect.objectContaining({ id: 'forest_1' }),
+        sourceZone: 'graveyard',
+        graveyardPermissionId: 'durable_muldrotha_land_1',
+        graveyardPermissionSourceName: 'Muldrotha, the Gravetide',
+      }),
+    ]));
+  });
+
+  it('surfaces durable-only graveyard spell cast permissions through shared spell candidates', () => {
+    const ctx = createTestContext({
+      turnNumber: 8,
+      zones: {
+        p1: {
+          hand: [],
+          graveyard: [
+            {
+              id: 'sable_1',
+              name: 'Bronze Sable',
+              type_line: 'Artifact Creature — Sable',
+              mana_cost: '{2}',
+              oracle_text: '',
+            },
+            {
+              id: 'consider_1',
+              name: 'Consider',
+              type_line: 'Instant',
+              mana_cost: '{U}',
+              oracle_text: 'Surveil 1. Draw a card.',
+            },
+          ],
+        },
+      },
+      durablePermissions: [
+        buildDurableGraveyardPermission({
+          id: 'durable_chainer_creature_1',
+          playerId: 'p1' as PlayerID,
+          permission: 'cast',
+          cardFilter: { qualifier: 'creature spell' },
+          costMode: 'without_paying_mana_cost',
+          duration: 'this_turn',
+          turnApplied: 8,
+          sourceId: 'chainer_1',
+          sourceName: 'Chainer, Nightmare Adept',
+          usageLimit: { type: 'once', maxUses: 1 },
+          replacement: { exileAfterResolution: true, sourceName: 'Chainer, Nightmare Adept' },
+        }),
+      ],
+      battlefield: [],
+      manaPool: {
+        p1: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+      },
+      players: [{ id: 'p1' }, { id: 'p2' }],
+      step: 'MAIN1',
+      turnPlayer: 'p1',
+      priority: 'p1',
+      stack: [],
+    });
+
+    const candidates = getCastableSpellCandidates(ctx, 'p1' as PlayerID, { mode: 'main' });
+    expect(candidates.find((candidate: any) => candidate.card?.id === 'sable_1')).toMatchObject({
+      sourceZone: 'graveyard',
+      castMethod: 'graveyard_permanent',
+      graveyardPermissionId: 'durable_chainer_creature_1',
+      graveyardPermissionSourceName: 'Chainer, Nightmare Adept',
+      graveyardPermissionCostMode: 'without_paying_mana_cost',
+      exileAfterResolution: true,
+    });
+    expect(candidates.some((candidate: any) => candidate.card?.id === 'consider_1')).toBe(false);
+  });
+
   it('surfaces graveyard cards marked playable by effect-program permissions', () => {
     const ctx = createTestContext({
       turnNumber: 4,
@@ -4273,5 +4503,293 @@ describe('canAct', () => {
     });
 
     expect(canAct(ctx, 'p1' as PlayerID)).toBe(false);
+  });
+
+  it('surfaces durable-only playable-from-exile spell permissions through shared spell candidates', () => {
+    const ctx = createTestContext({
+      turnNumber: 7,
+      zones: {
+        p1: {
+          hand: [],
+          exile: [],
+          graveyard: [],
+          handCount: 0,
+          exileCount: 0,
+          graveyardCount: 0,
+          libraryCount: 0,
+        },
+        p2: {
+          hand: [],
+          graveyard: [],
+          exile: [
+            {
+              id: 'durable_exiled_bolt_1',
+              name: 'Lightning Bolt',
+              type_line: 'Instant',
+              mana_cost: '{R}',
+              oracle_text: 'Lightning Bolt deals 3 damage to any target.',
+            },
+          ],
+          handCount: 0,
+          graveyardCount: 0,
+          exileCount: 1,
+          libraryCount: 0,
+        },
+      },
+      durablePermissions: [
+        buildDurablePlayableFromExilePermission({
+          playerId: 'p1' as PlayerID,
+          cardIds: ['durable_exiled_bolt_1'],
+          action: 'cast',
+          duration: 'until_end_of_next_turn',
+          turnApplied: 6,
+          expiresAtTurn: 7,
+          sourceName: 'Siphon Insight',
+          costMode: 'without_paying_mana_cost',
+          spendManaAsThoughAnyType: true,
+        }),
+      ],
+      battlefield: [],
+      manaPool: {
+        p1: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+      },
+      players: [{ id: 'p1' }, { id: 'p2' }],
+      step: 'MAIN1',
+      turnPlayer: 'p1',
+      priority: 'p1',
+      stack: [],
+    });
+
+    expect(getCastableSpellCandidates(ctx, 'p1' as PlayerID, { mode: 'main' })).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        sourceZone: 'exile',
+        castMethod: 'playable_from_exile',
+        manaCost: '',
+        card: expect.objectContaining({ id: 'durable_exiled_bolt_1' }),
+      }),
+    ]));
+  });
+
+  it('surfaces durable-only playable-from-exile land permissions through shared land candidates', () => {
+    const ctx = createTestContext({
+      turnNumber: 7,
+      zones: {
+        p1: {
+          hand: [],
+          exile: [
+            {
+              id: 'durable_exiled_forest_1',
+              name: 'Forest',
+              type_line: 'Basic Land — Forest',
+              oracle_text: '{T}: Add {G}.',
+            },
+          ],
+          graveyard: [],
+          handCount: 0,
+          exileCount: 1,
+          graveyardCount: 0,
+          libraryCount: 0,
+        },
+      },
+      durablePermissions: [
+        buildDurablePlayableFromExilePermission({
+          playerId: 'p1' as PlayerID,
+          cardIds: ['durable_exiled_forest_1'],
+          action: 'play',
+          duration: 'this_turn',
+          turnApplied: 7,
+          expiresAtTurn: 7,
+          sourceName: 'Impulse Source',
+        }),
+      ],
+      battlefield: [],
+      manaPool: {
+        p1: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+      },
+      landsPlayedThisTurn: { p1: 0 },
+      step: 'MAIN1',
+      turnPlayer: 'p1',
+      priority: 'p1',
+      stack: [],
+    });
+
+    expect(getPlayableLandCandidates(ctx, 'p1' as PlayerID)).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        sourceZone: 'exile',
+        card: expect.objectContaining({ id: 'durable_exiled_forest_1' }),
+      }),
+    ]));
+  });
+
+  it('surfaces durable-only top-library spell permissions through shared spell candidates', () => {
+    const ctx = createTestContext({
+      turnNumber: 9,
+      zones: {
+        p1: {
+          hand: [],
+          graveyard: [],
+          exile: [],
+          handCount: 0,
+          graveyardCount: 0,
+          exileCount: 0,
+          libraryCount: 1,
+        },
+      },
+      durablePermissions: [
+        buildDurableLibraryPermission({
+          playerId: 'p1' as PlayerID,
+          action: 'cast',
+          duration: 'while_source_remains',
+          turnApplied: 9,
+          sourceId: 'mystic_forge_card_1',
+          sourceObjectId: 'mystic_forge_perm_1',
+          sourceName: 'Mystic Forge',
+          typeLineIncludes: ['artifact'],
+          costMode: 'without_paying_mana_cost',
+        }),
+      ],
+      battlefield: [],
+      manaPool: {
+        p1: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+      },
+      step: 'MAIN1',
+      turnPlayer: 'p1',
+      priority: 'p1',
+      stack: [],
+    });
+    (ctx as any).libraries = new Map([
+      ['p1', [
+        {
+          id: 'top_artifact_1',
+          name: 'Mind Stone',
+          type_line: 'Artifact',
+          mana_cost: '{2}',
+          oracle_text: '{T}: Add {C}.',
+        },
+      ]],
+    ]);
+
+    expect(getCastableSpellCandidates(ctx, 'p1' as PlayerID, { mode: 'main' })).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        sourceZone: 'library',
+        castMethod: 'normal',
+        manaCost: '',
+        libraryPermissionCostMode: 'without_paying_mana_cost',
+        card: expect.objectContaining({ id: 'top_artifact_1' }),
+      }),
+    ]));
+  });
+
+  it('applies durable top-library flexible mana spending to shared spell candidates', () => {
+    const ctx = createTestContext({
+      turnNumber: 9,
+      zones: {
+        p1: {
+          hand: [],
+          graveyard: [],
+          exile: [],
+          handCount: 0,
+          graveyardCount: 0,
+          exileCount: 0,
+          libraryCount: 1,
+        },
+      },
+      durablePermissions: [
+        buildDurableLibraryPermission({
+          playerId: 'p1' as PlayerID,
+          action: 'cast',
+          duration: 'while_source_remains',
+          turnApplied: 9,
+          sourceId: 'mana_lens_card_1',
+          sourceObjectId: 'mana_lens_perm_1',
+          sourceName: 'Library Mana Lens',
+          typeLineIncludes: ['artifact'],
+          spendManaAsThoughAnyType: true,
+        }),
+      ],
+      battlefield: [],
+      manaPool: {
+        p1: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 1 },
+      },
+      step: 'MAIN1',
+      turnPlayer: 'p1',
+      priority: 'p1',
+      stack: [],
+    });
+    (ctx as any).libraries = new Map([
+      ['p1', [
+        {
+          id: 'top_white_artifact_1',
+          name: 'White Widget',
+          type_line: 'Artifact',
+          mana_cost: '{W}',
+          oracle_text: '',
+        },
+      ]],
+    ]);
+
+    expect(getCastableSpellCandidates(ctx, 'p1' as PlayerID, { mode: 'main' })).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        sourceZone: 'library',
+        castMethod: 'normal',
+        manaCost: '{W}',
+        card: expect.objectContaining({ id: 'top_white_artifact_1' }),
+      }),
+    ]));
+  });
+
+  it('surfaces durable-only top-library land permissions through shared land candidates', () => {
+    const ctx = createTestContext({
+      turnNumber: 9,
+      zones: {
+        p1: {
+          hand: [],
+          graveyard: [],
+          exile: [],
+          handCount: 0,
+          graveyardCount: 0,
+          exileCount: 0,
+          libraryCount: 1,
+        },
+      },
+      durablePermissions: [
+        buildDurableLibraryPermission({
+          playerId: 'p1' as PlayerID,
+          action: 'play',
+          duration: 'while_source_remains',
+          turnApplied: 9,
+          sourceId: 'future_sight_card_1',
+          sourceObjectId: 'future_sight_perm_1',
+          sourceName: 'Future Sight',
+          typeLineIncludes: ['land'],
+        }),
+      ],
+      battlefield: [],
+      landsPlayedThisTurn: { p1: 0 },
+      manaPool: {
+        p1: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+      },
+      step: 'MAIN1',
+      turnPlayer: 'p1',
+      priority: 'p1',
+      stack: [],
+    });
+    (ctx as any).libraries = new Map([
+      ['p1', [
+        {
+          id: 'top_forest_1',
+          name: 'Forest',
+          type_line: 'Basic Land — Forest',
+          oracle_text: '{T}: Add {G}.',
+        },
+      ]],
+    ]);
+
+    expect(getPlayableLandCandidates(ctx, 'p1' as PlayerID)).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        sourceZone: 'library',
+        card: expect.objectContaining({ id: 'top_forest_1' }),
+      }),
+    ]));
   });
 });
