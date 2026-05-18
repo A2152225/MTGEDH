@@ -4868,7 +4868,7 @@ export async function requestCastSpellForSocket(
 
     let isFreeCast = options?.castWithoutPayingManaCost === true || options?.forcedAlternateCostId === 'free';
     const bypassExilePermissionCheck = options?.bypassExilePermissionCheck === true;
-    const ignoreTimingRestrictions = options?.ignoreTimingRestrictions === true;
+    let ignoreTimingRestrictions = options?.ignoreTimingRestrictions === true;
 
     let castSourceZone: SpellCastSourceZone = fromZone || 'hand';
     let commanderCandidate = castSourceZone === 'command'
@@ -4907,6 +4907,12 @@ export async function requestCastSpellForSocket(
         }
         if (durableAllows && (durablePermission?.metadata as any)?.spendManaAsThoughAnyType === true) {
           (exiled as any).spendManaAsThoughAnyType = true;
+        }
+        if (durableAllows && (
+          durablePermission?.timingOverride?.asThoughFlash === true
+          || durablePermission?.timingOverride?.ignoreTiming === true
+        )) {
+          ignoreTimingRestrictions = true;
         }
 
         const isForetold = Boolean((exiled as any)?.foretold)
@@ -7481,7 +7487,7 @@ export function registerGameActions(io: Server, socket: Socket) {
         : undefined;
       const fromZone = normalizeSpellCastSourceZone(payload?.fromZone);
       const bypassExilePermissionCheck = payload?.bypassExilePermissionCheck === true;
-      const ignoreTimingRestrictions = payload?.ignoreTimingRestrictions === true;
+      let ignoreTimingRestrictions = payload?.ignoreTimingRestrictions === true;
       const allowLibrarySearchCast = payload?.allowLibrarySearchCast === true;
 
       if (!gameId || typeof gameId !== 'string') return;
@@ -7652,6 +7658,12 @@ export function registerGameActions(io: Server, socket: Socket) {
         }
         if (durableAllows && (durablePermission?.metadata as any)?.spendManaAsThoughAnyType === true) {
           (cardInHand as any).spendManaAsThoughAnyType = true;
+        }
+        if (durableAllows && (
+          durablePermission?.timingOverride?.asThoughFlash === true
+          || durablePermission?.timingOverride?.ignoreTiming === true
+        )) {
+          ignoreTimingRestrictions = true;
         }
 
         const isForetold = Boolean((cardInHand as any)?.foretold)

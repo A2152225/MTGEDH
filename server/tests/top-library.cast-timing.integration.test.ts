@@ -279,4 +279,34 @@ describe('top-library cast timing (integration)', () => {
       manaCost: '{W}',
     }));
   });
+
+  it('rejects durable top-library permissions that are limited to your turn', async () => {
+    const game = setupGame();
+    (game.state as any).turnNumber = 1;
+    (game.state as any).battlefield = [];
+    (game.state as any).durablePermissions = [
+      buildDurableLibraryPermission({
+        playerId: playerId as PlayerID,
+        action: 'cast',
+        duration: 'this_turn',
+        turnApplied: 1,
+        expiresAtTurn: 1,
+        sourceName: 'Your Turn Only Source',
+        typeLineIncludes: ['artifact'],
+        timingOverride: { duringYourTurnOnly: true },
+      }),
+    ];
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket({ playerId, gameId }, emitted);
+    socket.rooms.add(gameId);
+
+    const io = createMockIo(emitted);
+    registerGameActions(io as any, socket as any);
+
+    await handlers['requestCastSpell']({ gameId, cardId: 'mind_stone_top', fromZone: 'library' });
+
+    const errors = emitted.filter(entry => entry.event === 'error').map(entry => entry.payload?.code);
+    expect(errors).toContain('NO_PERMISSION');
+  });
 });

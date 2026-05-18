@@ -331,7 +331,9 @@ export function getCommandZoneCommanderCandidates(
           ...adjustedCost,
           cmc,
         },
-        grantsFlash: hasFlashOrInstant(commander) || durableCommandPermission?.timingOverride?.asThoughFlash === true,
+        grantsFlash: hasFlashOrInstant(commander)
+          || durableCommandPermission?.timingOverride?.asThoughFlash === true
+          || durableCommandPermission?.timingOverride?.ignoreTiming === true,
         isBackground: typeLine.includes('background'),
         commanderTax,
         costAdjustment,
@@ -1433,10 +1435,13 @@ export function getCastableSpellCandidates(
           const durablePermission = getPlayableFromExileDurablePermissionForCard(state, playerId, card, 'cast');
           const durablePermissionAllows = Boolean(durablePermission);
           const durableCostMode = String(durablePermission?.costMode || '').trim();
+          const durableGrantsFlash = durablePermission?.timingOverride?.asThoughFlash === true
+            || durablePermission?.timingOverride?.ignoreTiming === true;
           const castWithoutPayingManaCost = (card as any)?.castWithoutPayingManaCost === true
             || durableCostMode === 'without_paying_mana_cost';
           spendManaAsThoughAnyType = (card as any)?.spendManaAsThoughAnyType === true
             || (durablePermission?.metadata as any)?.spendManaAsThoughAnyType === true;
+          grantsFlash = durableGrantsFlash;
 
           if (exileInfo.hasIt) {
             if (exileInfo.cost && !castWithoutPayingManaCost) {

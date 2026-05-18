@@ -1589,6 +1589,11 @@ export function canCastFromTop(
   let costMode: string | undefined;
   let spendManaAsThoughAnyType = false;
   const battlefield = getActivePermanents(ctx);
+  const step = String(ctx.state?.step || '').toUpperCase();
+  const phase = String(ctx.state?.phase || '').toUpperCase();
+  const isMainPhase = step === 'MAIN1' || step === 'MAIN2' || step === 'MAIN' || step === 'MAIN_1' || step === 'MAIN_2' || step.includes('MAIN') || phase.includes('MAIN');
+  const isYourTurn = String((ctx.state as any)?.turnPlayer || '') === String(playerId || '');
+  const stackEmpty = !ctx.state?.stack || ctx.state.stack.length === 0;
   
   const typeLine = getTopLibraryTypeLine(card);
   const hasCardContext = Boolean(card);
@@ -1677,11 +1682,23 @@ export function canCastFromTop(
 
   const durablePermission = getDurableLibraryPermissionForCard(ctx.state, playerId as PlayerID, card, 'cast');
   if (durablePermission) {
-    sources.push(durablePermission.sourceName || 'Top-of-library permission');
-    costMode = String(durablePermission.costMode || '').trim() || undefined;
-    spendManaAsThoughAnyType = (durablePermission.metadata as any)?.spendManaAsThoughAnyType === true;
-    if (durablePermission.timingOverride?.asThoughFlash === true) {
-      flashSources.push(durablePermission.sourceName || 'Top-of-library permission');
+    const sourceName = durablePermission.sourceName || 'Top-of-library permission';
+    const timingOverride = durablePermission.timingOverride || {};
+    const grantsTimingFreedom = timingOverride.asThoughFlash === true || timingOverride.ignoreTiming === true;
+    const timingRestrictedToYourTurn = timingOverride.duringYourTurnOnly === true && !isYourTurn;
+    const timingRequiresSorcerySpeed = timingOverride.sorcerySpeedOnly === true && (!isYourTurn || !isMainPhase || !stackEmpty);
+
+    if (!timingRestrictedToYourTurn && !timingRequiresSorcerySpeed) {
+      sources.push(sourceName);
+      costMode = String(durablePermission.costMode || '').trim() || undefined;
+      spendManaAsThoughAnyType = (durablePermission.metadata as any)?.spendManaAsThoughAnyType === true;
+      if (grantsTimingFreedom) {
+        flashSources.push(sourceName);
+      }
+    } else if (timingRestrictedToYourTurn) {
+      restrictions.push(`${sourceName} only allows casts during your turn`);
+    } else if (timingRequiresSorcerySpeed) {
+      restrictions.push(`${sourceName} only allows casts at sorcery speed`);
     }
   }
   

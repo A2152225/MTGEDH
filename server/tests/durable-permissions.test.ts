@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 
+import { applyEvent } from '../src/state/modules/applyEvent';
 import { getPlayableLandCandidates } from '../src/state/modules/can-respond';
+import { nextTurn } from '../src/state/modules/turn';
 import {
   buildDurableLandPlayPermission,
   buildDurableCommandZonePermission,
@@ -20,6 +22,8 @@ import type { PlayerID } from '../../shared/src';
 function createTestContext(state: any): GameContext {
   return {
     state,
+    commandZone: state.commandZone || {},
+    libraries: new Map(),
     inactive: new Set(),
     passesInRow: { value: 0 },
     bumpSeq: () => {},
@@ -165,6 +169,252 @@ describe('durable permissions', () => {
     ]);
   });
 
+  it('filters exhausted durable permissions by usage counters', () => {
+    const state: any = {
+      turnNumber: 10,
+      durablePermissions: [
+        buildDurablePlayableFromExilePermission({
+          playerId: 'p1' as PlayerID,
+          cardIds: ['spent_exile_spell'],
+          action: 'cast',
+          duration: 'this_turn',
+          turnApplied: 10,
+          expiresAtTurn: 10,
+          sourceName: 'Spent Impulse',
+          usageLimit: { type: 'once', maxUses: 1, used: 1 },
+        }),
+        buildDurableLibraryPermission({
+          playerId: 'p1' as PlayerID,
+          action: 'cast',
+          duration: 'this_turn',
+          turnApplied: 10,
+          expiresAtTurn: 10,
+          sourceName: 'Spent Library Window',
+          typeLineIncludes: ['artifact'],
+          usageLimit: { type: 'once_per_turn', usedThisTurn: 1 },
+        }),
+        buildDurableCommandZonePermission({
+          playerId: 'p1' as PlayerID,
+          action: 'cast',
+          duration: 'this_turn',
+          turnApplied: 10,
+          expiresAtTurn: 10,
+          sourceName: 'Partial Command Window',
+          cardIds: ['available_commander'],
+          usageLimit: { type: 'limited', maxUses: 2, used: 1 },
+        }),
+      ],
+    };
+
+    expect(getDurablePlayableFromExilePermissionForCard(state, 'p1' as PlayerID, {
+      id: 'spent_exile_spell',
+      name: 'Spent Spell',
+      type_line: 'Sorcery',
+    }, 'cast')).toBeUndefined();
+    expect(getDurableLibraryPermissionForCard(state, 'p1' as PlayerID, {
+      id: 'spent_top_spell',
+      name: 'Spent Artifact',
+      type_line: 'Artifact',
+    }, 'cast')).toBeUndefined();
+    expect(getDurableCommandZonePermissionForCard(state, 'p1' as PlayerID, {
+      id: 'available_commander',
+      name: 'Available Commander',
+      type_line: 'Legendary Creature — Wizard',
+    }, 'cast')).toEqual(expect.objectContaining({
+      kind: 'command_zone_permission',
+      usageLimit: { type: 'limited', maxUses: 2, used: 1 },
+    }));
+  });
+
+  it('resets durable once-per-turn usage counters on nextTurn', () => {
+    const topSpell = {
+      id: 'top_artifact_once_each_turn',
+      name: 'Mind Stone',
+      type_line: 'Artifact',
+      mana_cost: '{2}',
+      oracle_text: '{T}: Add {C}.',
+    };
+    const permission = buildDurableLibraryPermission({
+      playerId: 'p1' as PlayerID,
+      action: 'cast',
+      duration: 'static',
+      turnApplied: 5,
+      sourceName: 'Per-Turn Top Cast',
+      typeLineIncludes: ['artifact'],
+      usageLimit: { type: 'once_per_turn', used: 2, usedThisTurn: 1 },
+    });
+    const ctx = createTestContext({
+      turnNumber: 5,
+      turnPlayer: 'p1',
+      players: [{ id: 'p1' }, { id: 'p2' }],
+      stack: [],
+      battlefield: [],
+      durablePermissions: [permission],
+    }) as any;
+
+    expect(getDurableLibraryPermissionForCard(ctx.state, 'p1' as PlayerID, topSpell, 'cast')).toBeUndefined();
+
+    nextTurn(ctx);
+
+    expect(ctx.state.durablePermissions[0].usageLimit).toEqual({
+      type: 'once_per_turn',
+      used: 2,
+      usedThisTurn: 0,
+    });
+    expect(getDurableLibraryPermissionForCard(ctx.state, 'p1' as PlayerID, topSpell, 'cast')).toEqual(expect.objectContaining({
+      id: permission.id,
+    }));
+  });
+
+  it('records durable top-library cast permission usage after a successful replayed cast', () => {
+    const topSpell = {
+      id: 'top_mind_stone_once',
+      name: 'Mind Stone',
+      type_line: 'Artifact',
+      mana_cost: '{2}',
+      oracle_text: '{T}: Add {C}.',
+    };
+    const permission = buildDurableLibraryPermission({
+      playerId: 'p1' as PlayerID,
+      action: 'cast',
+      duration: 'this_turn',
+      turnApplied: 10,
+      expiresAtTurn: 10,
+      sourceName: 'One Top Cast',
+      typeLineIncludes: ['artifact'],
+      usageLimit: { type: 'once', maxUses: 1 },
+    });
+    const ctx = createTestContext({
+      turnNumber: 10,
+      stack: [],
+      battlefield: [],
+      zones: {
+        p1: { hand: [], handCount: 0, graveyard: [], graveyardCount: 0, exile: [], libraryCount: 1 },
+      },
+      durablePermissions: [permission],
+    }) as any;
+    ctx.libraries.set('p1', [topSpell]);
+
+    applyEvent(ctx, {
+      type: 'castSpell',
+      playerId: 'p1',
+      cardId: topSpell.id,
+      fromZone: 'library',
+    } as any);
+
+    expect(ctx.state.stack).toHaveLength(1);
+    expect(ctx.state.durablePermissions[0].usageLimit).toEqual({
+      type: 'once',
+      maxUses: 1,
+      used: 1,
+      usedThisTurn: 1,
+    });
+    expect(getDurableLibraryPermissionForCard(ctx.state, 'p1' as PlayerID, topSpell, 'cast')).toBeUndefined();
+  });
+
+  it('records durable command-zone cast permission usage after a successful replayed commander cast', () => {
+    const commander = {
+      id: 'command_once_1',
+      name: 'Tatyova, Benthic Druid',
+      type_line: 'Legendary Creature — Merfolk Druid',
+      mana_cost: '{3}{G}{U}',
+      oracle_text: 'Whenever a land enters the battlefield under your control, you gain 1 life and draw a card.',
+    };
+    const permission = buildDurableCommandZonePermission({
+      playerId: 'p1' as PlayerID,
+      action: 'cast',
+      duration: 'this_turn',
+      turnApplied: 10,
+      expiresAtTurn: 10,
+      sourceName: 'One Command Cast',
+      cardIds: [commander.id],
+      usageLimit: { type: 'once', maxUses: 1 },
+    });
+    const ctx = createTestContext({
+      turnNumber: 10,
+      stack: [],
+      battlefield: [],
+      zones: {
+        p1: { hand: [], handCount: 0, graveyard: [], graveyardCount: 0, exile: [], libraryCount: 0 },
+      },
+      commandZone: {
+        p1: {
+          commanderIds: [commander.id],
+          commanderCards: [commander],
+          inCommandZone: [commander.id],
+          taxById: { [commander.id]: 0 },
+        },
+      },
+      durablePermissions: [permission],
+    }) as any;
+
+    applyEvent(ctx, {
+      type: 'castSpell',
+      playerId: 'p1',
+      cardId: commander.id,
+      fromZone: 'command',
+    } as any);
+
+    expect(ctx.state.stack).toHaveLength(1);
+    expect(ctx.state.durablePermissions[0].usageLimit).toEqual({
+      type: 'once',
+      maxUses: 1,
+      used: 1,
+      usedThisTurn: 1,
+    });
+    expect(getDurableCommandZonePermissionForCard(ctx.state, 'p1' as PlayerID, commander, 'cast')).toBeUndefined();
+  });
+
+  it('records durable top-library land permission usage after a successful replayed land play', () => {
+    const topLand = {
+      id: 'top_forest_once',
+      name: 'Forest',
+      type_line: 'Basic Land — Forest',
+      oracle_text: '({T}: Add {G}.)',
+    };
+    const permission = buildDurableLibraryPermission({
+      playerId: 'p1' as PlayerID,
+      action: 'play',
+      duration: 'this_turn',
+      turnApplied: 10,
+      expiresAtTurn: 10,
+      sourceName: 'One Top Land',
+      typeLineIncludes: ['land'],
+      usageLimit: { type: 'once', maxUses: 1 },
+    });
+    const ctx = createTestContext({
+      turnNumber: 10,
+      stack: [],
+      battlefield: [],
+      zones: {
+        p1: { hand: [], handCount: 0, graveyard: [], graveyardCount: 0, exile: [], libraryCount: 1 },
+      },
+      durablePermissions: [permission],
+    }) as any;
+    ctx.libraries.set('p1', [topLand]);
+
+    applyEvent(ctx, {
+      type: 'playLand',
+      playerId: 'p1',
+      cardId: topLand.id,
+      fromZone: 'library',
+    } as any);
+
+    expect(ctx.state.battlefield).toEqual([
+      expect.objectContaining({
+        controller: 'p1',
+        card: expect.objectContaining({ id: topLand.id }),
+      }),
+    ]);
+    expect(ctx.state.durablePermissions[0].usageLimit).toEqual({
+      type: 'once',
+      maxUses: 1,
+      used: 1,
+      usedThisTurn: 1,
+    });
+    expect(getDurableLibraryPermissionForCard(ctx.state, 'p1' as PlayerID, topLand, 'play')).toBeUndefined();
+  });
+
   it('clears temporary durable graveyard permissions with the legacy temporary cleanup', () => {
     const state: any = { turnNumber: 9 };
 
@@ -216,6 +466,8 @@ describe('durable permissions', () => {
           sourceName: 'Siphon Insight',
           costMode: 'without_paying_mana_cost',
           spendManaAsThoughAnyType: true,
+          grantsFlash: true,
+          timingOverride: { ignoreTiming: true },
         }),
       ],
     };
@@ -232,6 +484,7 @@ describe('durable permissions', () => {
       cardFilter: { affectedCardIds: ['exiled_spell_1'] },
       costMode: 'without_paying_mana_cost',
       metadata: expect.objectContaining({ spendManaAsThoughAnyType: true }),
+      timingOverride: { asThoughFlash: true, ignoreTiming: true },
     }));
     expect(getDurablePlayableFromExilePermissionForCard(state, 'p1' as PlayerID, {
       id: 'other_exiled_spell_1',
@@ -283,6 +536,26 @@ describe('durable permissions', () => {
     }, 'cast')).toBeUndefined();
   });
 
+  it('merges durable top-library timing overrides with flash grants', () => {
+    const permission = buildDurableLibraryPermission({
+      playerId: 'p1' as PlayerID,
+      action: 'cast',
+      duration: 'this_turn',
+      turnApplied: 15,
+      expiresAtTurn: 15,
+      sourceName: 'Timed Library Window',
+      typeLineIncludes: ['artifact'],
+      grantsFlash: true,
+      timingOverride: { duringYourTurnOnly: true, sorcerySpeedOnly: false },
+    });
+
+    expect(permission.timingOverride).toEqual({
+      asThoughFlash: true,
+      duringYourTurnOnly: true,
+      sorcerySpeedOnly: false,
+    });
+  });
+
   it('builds active durable command-zone permissions for commander metadata', () => {
     const state: any = {
       turnNumber: 15,
@@ -298,6 +571,7 @@ describe('durable permissions', () => {
           costMode: 'without_paying_mana_cost',
           spendManaAsThoughAnyType: true,
           grantsFlash: true,
+          timingOverride: { ignoreTiming: true },
         }),
       ],
     };
@@ -316,7 +590,7 @@ describe('durable permissions', () => {
       cardFilter: { affectedCardIds: ['commander_1'] },
       costMode: 'without_paying_mana_cost',
       metadata: expect.objectContaining({ spendManaAsThoughAnyType: true }),
-      timingOverride: { asThoughFlash: true },
+      timingOverride: { asThoughFlash: true, ignoreTiming: true },
     }));
     expect(getDurableCommandZonePermissionForCard(state, 'p1' as PlayerID, {
       id: 'other_commander_1',

@@ -1,4 +1,4 @@
-import type { DurablePermission, DurablePermissionZone, PlayerID } from "../../../../shared/src";
+import type { DurablePermission, DurablePermissionTimingOverride, DurablePermissionZone, PlayerID } from "../../../../shared/src";
 
 export type DurableLandPlayZone = 'graveyard' | 'exile';
 export type DurableGraveyardPermissionAction = 'play' | 'cast';
@@ -41,6 +41,36 @@ function normalizeStringArray(value: unknown): string[] {
   return Array.isArray(value)
     ? value.map((entry) => String(entry || '').trim()).filter(Boolean)
     : [];
+}
+
+function normalizeUsageCount(value: unknown): number {
+  const count = Number(value ?? 0);
+  return Number.isFinite(count) && count > 0 ? count : 0;
+}
+
+function durablePermissionUsageAvailable(permission: DurablePermission): boolean {
+  const usageLimit = permission?.usageLimit;
+  if (!usageLimit) return true;
+
+  const limitType = String(usageLimit.type || '').trim().toLowerCase();
+  if (!limitType || limitType === 'unlimited') return true;
+
+  const used = normalizeUsageCount(usageLimit.used);
+  const usedThisTurn = normalizeUsageCount(usageLimit.usedThisTurn);
+  const maxUses = Number(usageLimit.maxUses);
+  if (Number.isFinite(maxUses) && maxUses >= 0 && used >= maxUses) {
+    return false;
+  }
+
+  if ((limitType === 'once' || limitType === 'one_shot') && used > 0) {
+    return false;
+  }
+
+  if (limitType === 'once_per_turn' && usedThisTurn > 0) {
+    return false;
+  }
+
+  return true;
 }
 
 function typeLineIncludesAll(card: any, includes: readonly string[] | undefined): boolean {
@@ -125,6 +155,8 @@ export function getDurablePermissions(state: any): DurablePermission[] {
 }
 
 export function isDurablePermissionActive(state: any, permission: DurablePermission): boolean {
+  if (!durablePermissionUsageAvailable(permission)) return false;
+
   const duration = String(permission?.duration || 'static');
   if (duration === 'static' || duration === 'while_source_remains') return true;
 
@@ -156,6 +188,43 @@ export function upsertDurablePermission(state: any, permission: DurablePermissio
   return permission;
 }
 
+export function recordDurablePermissionUse(state: any, permissionOrId: DurablePermission | string | undefined): DurablePermission | undefined {
+  if (!state || !permissionOrId || !Array.isArray(state.durablePermissions)) return undefined;
+
+  const permissionId = typeof permissionOrId === 'string'
+    ? String(permissionOrId || '').trim()
+    : String(permissionOrId.id || '').trim();
+  if (!permissionId) return undefined;
+
+  const permission = (state.durablePermissions as DurablePermission[])
+    .find((entry) => String(entry?.id || '').trim() === permissionId);
+  if (!permission?.usageLimit) return permission;
+
+  permission.usageLimit = {
+    ...permission.usageLimit,
+    used: normalizeUsageCount(permission.usageLimit.used) + 1,
+    usedThisTurn: normalizeUsageCount(permission.usageLimit.usedThisTurn) + 1,
+  };
+  return permission;
+}
+
+export function resetDurablePermissionUsageForTurn(state: any): number {
+  if (!state || !Array.isArray(state.durablePermissions)) return 0;
+
+  let resetCount = 0;
+  for (const permission of state.durablePermissions as DurablePermission[]) {
+    if (!permission?.usageLimit) continue;
+    if (normalizeUsageCount(permission.usageLimit.usedThisTurn) <= 0) continue;
+    permission.usageLimit = {
+      ...permission.usageLimit,
+      usedThisTurn: 0,
+    };
+    resetCount += 1;
+  }
+
+  return resetCount;
+}
+
 export function removeDurablePermissionsWhere(state: any, predicate: (permission: DurablePermission) => boolean): void {
   if (!state || !Array.isArray(state.durablePermissions)) return;
   state.durablePermissions = state.durablePermissions.filter((permission: DurablePermission) => !predicate(permission));
@@ -169,6 +238,7 @@ export function buildDurableLandPlayPermission(args: {
   sourceName?: string;
   sourceText?: string;
   turnApplied?: number;
+  usageLimit?: DurablePermission['usageLimit'];
 }): DurablePermission {
   const sourcePart = sanitizeIdPart(args.sourceObjectId || args.sourceId || args.sourceName || 'source');
   const playerPart = sanitizeIdPart(args.playerId);
@@ -188,6 +258,7 @@ export function buildDurableLandPlayPermission(args: {
     allowedDestination: 'battlefield',
     cardFilter: { typeLineIncludes: ['land'] },
     costMode: 'normal',
+    ...(args.usageLimit ? { usageLimit: { ...args.usageLimit } } : {}),
     turnApplied: args.turnApplied,
     metadata: { legacyLandPlayZone: args.zone },
     debug: {
@@ -210,10 +281,7 @@ export function buildDurableGraveyardPermission(args: {
   turnApplied?: number;
   sourceId?: string;
   sourceName?: string;
-  usageLimit?: {
-    type: string;
-    maxUses?: number;
-  };
+  usageLimit?: DurablePermission['usageLimit'];
   replacement?: {
     exileAfterResolution?: boolean;
     leaveBattlefieldDestination?: DurablePermissionZone;
@@ -266,6 +334,9 @@ export function buildDurablePlayableFromExilePermission(args: {
   sourceText?: string;
   costMode?: string;
   spendManaAsThoughAnyType?: boolean;
+  grantsFlash?: boolean;
+  timingOverride?: DurablePermissionTimingOverride;
+  usageLimit?: DurablePermission['usageLimit'];
   typeLineIncludes?: readonly string[];
   oracleTextIncludes?: readonly string[];
 }): DurablePermission {
@@ -293,6 +364,13 @@ export function buildDurablePlayableFromExilePermission(args: {
       ...(Array.isArray(args.oracleTextIncludes) && args.oracleTextIncludes.length > 0 ? { oracleTextIncludes: [...args.oracleTextIncludes] } : {}),
     },
     costMode: args.costMode || 'normal',
+    ...((args.grantsFlash === true || args.timingOverride) ? {
+      timingOverride: {
+        ...(args.timingOverride || {}),
+        ...(args.grantsFlash === true ? { asThoughFlash: true } : {}),
+      },
+    } : {}),
+    ...(args.usageLimit ? { usageLimit: { ...args.usageLimit } } : {}),
     ...(typeof args.turnApplied === 'number' ? { turnApplied: args.turnApplied } : {}),
     ...(typeof args.expiresAtTurn === 'number' ? { expiresAtTurn: args.expiresAtTurn } : {}),
     metadata: {
@@ -320,6 +398,8 @@ export function buildDurableLibraryPermission(args: {
   costMode?: string;
   spendManaAsThoughAnyType?: boolean;
   grantsFlash?: boolean;
+  timingOverride?: DurablePermissionTimingOverride;
+  usageLimit?: DurablePermission['usageLimit'];
   typeLineIncludes?: readonly string[];
   oracleTextIncludes?: readonly string[];
 }): DurablePermission {
@@ -345,7 +425,13 @@ export function buildDurableLibraryPermission(args: {
       ...(Array.isArray(args.oracleTextIncludes) && args.oracleTextIncludes.length > 0 ? { oracleTextIncludes: [...args.oracleTextIncludes] } : {}),
     },
     costMode: args.costMode || 'normal',
-    ...(args.grantsFlash === true ? { timingOverride: { asThoughFlash: true } } : {}),
+    ...((args.grantsFlash === true || args.timingOverride) ? {
+      timingOverride: {
+        ...(args.timingOverride || {}),
+        ...(args.grantsFlash === true ? { asThoughFlash: true } : {}),
+      },
+    } : {}),
+    ...(args.usageLimit ? { usageLimit: { ...args.usageLimit } } : {}),
     ...(typeof args.turnApplied === 'number' ? { turnApplied: args.turnApplied } : {}),
     ...(typeof args.expiresAtTurn === 'number' ? { expiresAtTurn: args.expiresAtTurn } : {}),
     metadata: {
@@ -373,6 +459,8 @@ export function buildDurableCommandZonePermission(args: {
   costMode?: string;
   spendManaAsThoughAnyType?: boolean;
   grantsFlash?: boolean;
+  timingOverride?: DurablePermissionTimingOverride;
+  usageLimit?: DurablePermission['usageLimit'];
   cardIds?: readonly string[];
   typeLineIncludes?: readonly string[];
   oracleTextIncludes?: readonly string[];
@@ -401,7 +489,13 @@ export function buildDurableCommandZonePermission(args: {
       ...(Array.isArray(args.oracleTextIncludes) && args.oracleTextIncludes.length > 0 ? { oracleTextIncludes: [...args.oracleTextIncludes] } : {}),
     },
     costMode: args.costMode || 'normal',
-    ...(args.grantsFlash === true ? { timingOverride: { asThoughFlash: true } } : {}),
+    ...((args.grantsFlash === true || args.timingOverride) ? {
+      timingOverride: {
+        ...(args.timingOverride || {}),
+        ...(args.grantsFlash === true ? { asThoughFlash: true } : {}),
+      },
+    } : {}),
+    ...(args.usageLimit ? { usageLimit: { ...args.usageLimit } } : {}),
     ...(typeof args.turnApplied === 'number' ? { turnApplied: args.turnApplied } : {}),
     ...(typeof args.expiresAtTurn === 'number' ? { expiresAtTurn: args.expiresAtTurn } : {}),
     metadata: {

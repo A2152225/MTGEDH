@@ -48,6 +48,7 @@ import { ResolutionQueueManager, ResolutionStepType } from "../resolution/index.
 import { debug, debugWarn, debugError } from "../../utils/debug.js";
 import { ensureInitialDayNightDesignationFromBattlefield, setDayNightState } from "./day-night.js";
 import { clearTemporaryGraveyardKeywordGrants, clearTemporaryPlayableFromGraveyardPermissions } from "./graveyard-permissions.js";
+import { resetDurablePermissionUsageForTurn } from "./durable-permissions.js";
 
 /** Small helper to prepend ISO timestamp to debug logs */
 function ts() {
@@ -3663,6 +3664,15 @@ export function nextTurn(ctx: GameContext) {
       stateAny.playedLandFromExileThisTurn = {};
       stateAny.playedFromExileThisTurn = {};
       stateAny.cardsPlayedFromExileThisTurn = {};
+    } catch {
+      // best-effort only
+    }
+
+    try {
+      const resetCount = resetDurablePermissionUsageForTurn((ctx as any).state as any);
+      if (resetCount > 0) {
+        debug(2, `${ts()} [nextTurn] Reset durable permission per-turn usage counters (${resetCount})`);
+      }
     } catch {
       // best-effort only
     }

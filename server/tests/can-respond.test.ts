@@ -2849,6 +2849,64 @@ describe('canAct', () => {
     ]);
   });
 
+  it('treats durable command-zone ignore-timing metadata as response-speed commander access', () => {
+    const ctx = createTestContext({
+      zones: {
+        p1: {
+          hand: [],
+          graveyard: [],
+          exile: [],
+          handCount: 0,
+          graveyardCount: 0,
+          exileCount: 0,
+        },
+      },
+      commandZone: {
+        p1: {
+          commanderIds: ['cmd_ignore_timing'],
+          commanderCards: [
+            {
+              id: 'cmd_ignore_timing',
+              name: 'Timingless Commander',
+              type_line: 'Legendary Creature — Wizard',
+              mana_cost: '{2}{U}',
+              oracle_text: '',
+            },
+          ],
+          inCommandZone: ['cmd_ignore_timing'],
+          taxById: { cmd_ignore_timing: 0 },
+        },
+      },
+      durablePermissions: [
+        buildDurableCommandZonePermission({
+          playerId: 'p1' as PlayerID,
+          action: 'cast',
+          duration: 'this_turn',
+          turnApplied: 5,
+          expiresAtTurn: 5,
+          sourceName: 'Command Timing Window',
+          cardIds: ['cmd_ignore_timing'],
+          timingOverride: { ignoreTiming: true },
+        }),
+      ],
+      manaPool: {
+        p1: { white: 0, blue: 1, black: 0, red: 0, green: 0, colorless: 2 },
+      },
+      turnNumber: 5,
+      turnPlayer: 'p2',
+      priority: 'p1',
+      step: 'DECLARE_ATTACKERS',
+      stack: [{ id: 'existing_spell' }],
+    });
+
+    expect(getCastableCommanderCandidates(ctx, 'p1' as PlayerID)).toEqual([
+      expect.objectContaining({
+        commanderId: 'cmd_ignore_timing',
+        grantsFlash: true,
+      }),
+    ]);
+  });
+
   it('applies durable command-zone flexible mana metadata to commander payability', () => {
     const ctx = createTestContext({
       zones: {
@@ -4570,6 +4628,108 @@ describe('canAct', () => {
     ]));
   });
 
+  it('filters exhausted durable-only playable-from-exile spell permissions from shared candidates', () => {
+    const ctx = createTestContext({
+      turnNumber: 7,
+      zones: {
+        p1: {
+          hand: [],
+          graveyard: [],
+          exile: [
+            {
+              id: 'spent_durable_exiled_spell_1',
+              name: 'Divination',
+              type_line: 'Sorcery',
+              mana_cost: '{2}{U}',
+              oracle_text: 'Draw two cards.',
+            },
+          ],
+          handCount: 0,
+          graveyardCount: 0,
+          exileCount: 1,
+          libraryCount: 0,
+        },
+      },
+      durablePermissions: [
+        buildDurablePlayableFromExilePermission({
+          playerId: 'p1' as PlayerID,
+          cardIds: ['spent_durable_exiled_spell_1'],
+          action: 'cast',
+          duration: 'this_turn',
+          turnApplied: 7,
+          expiresAtTurn: 7,
+          sourceName: 'Spent Impulse',
+          usageLimit: { type: 'once', maxUses: 1, used: 1 },
+        }),
+      ],
+      battlefield: [],
+      manaPool: {
+        p1: { white: 0, blue: 1, black: 0, red: 0, green: 0, colorless: 2 },
+      },
+      players: [{ id: 'p1' }],
+      step: 'MAIN1',
+      turnPlayer: 'p1',
+      priority: 'p1',
+      stack: [],
+    });
+
+    expect(getCastableSpellCandidates(ctx, 'p1' as PlayerID, { mode: 'main' })).toEqual([]);
+  });
+
+  it('surfaces durable playable-from-exile flash grants in response-speed spell candidates', () => {
+    const ctx = createTestContext({
+      turnNumber: 7,
+      zones: {
+        p1: {
+          hand: [],
+          exile: [
+            {
+              id: 'durable_exiled_divination_1',
+              name: 'Divination',
+              type_line: 'Sorcery',
+              mana_cost: '{2}{U}',
+              oracle_text: 'Draw two cards.',
+            },
+          ],
+          graveyard: [],
+          handCount: 0,
+          exileCount: 1,
+          graveyardCount: 0,
+          libraryCount: 0,
+        },
+      },
+      durablePermissions: [
+        buildDurablePlayableFromExilePermission({
+          playerId: 'p1' as PlayerID,
+          cardIds: ['durable_exiled_divination_1'],
+          action: 'cast',
+          duration: 'this_turn',
+          turnApplied: 7,
+          expiresAtTurn: 7,
+          sourceName: 'Flash Impulse',
+          grantsFlash: true,
+        }),
+      ],
+      battlefield: [],
+      manaPool: {
+        p1: { white: 0, blue: 1, black: 0, red: 0, green: 0, colorless: 2 },
+      },
+      players: [{ id: 'p1' }],
+      step: 'DECLARE_ATTACKERS',
+      turnPlayer: 'p2',
+      priority: 'p1',
+      stack: [],
+    });
+
+    expect(getCastableSpellCandidates(ctx, 'p1' as PlayerID, { mode: 'response' })).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        sourceZone: 'exile',
+        castMethod: 'playable_from_exile',
+        card: expect.objectContaining({ id: 'durable_exiled_divination_1' }),
+      }),
+    ]));
+  });
+
   it('surfaces durable-only playable-from-exile land permissions through shared land candidates', () => {
     const ctx = createTestContext({
       turnNumber: 7,
@@ -4678,6 +4838,56 @@ describe('canAct', () => {
         card: expect.objectContaining({ id: 'top_artifact_1' }),
       }),
     ]));
+  });
+
+  it('blocks durable top-library permissions with during-your-turn timing outside your turn', () => {
+    const ctx = createTestContext({
+      turnNumber: 9,
+      zones: {
+        p1: {
+          hand: [],
+          graveyard: [],
+          exile: [],
+          handCount: 0,
+          graveyardCount: 0,
+          exileCount: 0,
+          libraryCount: 1,
+        },
+      },
+      durablePermissions: [
+        buildDurableLibraryPermission({
+          playerId: 'p1' as PlayerID,
+          action: 'cast',
+          duration: 'this_turn',
+          turnApplied: 9,
+          expiresAtTurn: 9,
+          sourceName: 'Your Turn Only Source',
+          typeLineIncludes: ['artifact'],
+          timingOverride: { duringYourTurnOnly: true },
+        }),
+      ],
+      battlefield: [],
+      manaPool: {
+        p1: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 2 },
+      },
+      step: 'DECLARE_ATTACKERS',
+      turnPlayer: 'p2',
+      priority: 'p1',
+      stack: [],
+    });
+    (ctx as any).libraries = new Map([
+      ['p1', [
+        {
+          id: 'top_artifact_turn_locked',
+          name: 'Mind Stone',
+          type_line: 'Artifact',
+          mana_cost: '{2}',
+          oracle_text: '{T}: Add {C}.',
+        },
+      ]],
+    ]);
+
+    expect(getCastableSpellCandidates(ctx, 'p1' as PlayerID, { mode: 'response' })).toEqual([]);
   });
 
   it('applies durable top-library flexible mana spending to shared spell candidates', () => {

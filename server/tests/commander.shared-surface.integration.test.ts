@@ -709,4 +709,93 @@ describe('commander shared-surface integration', () => {
     const err = emitted.find((entry) => entry.event === 'error');
     expect(err?.payload?.code).toBe('SORCERY_TIMING');
   });
+
+  it('allows durable command-zone ignore-timing metadata outside sorcery timing', async () => {
+    const gameId = createTestGameId('durable_ignore_timing');
+    const p1 = 'p1';
+    const p2 = 'p2';
+
+    createGameIfNotExists(gameId, 'commander', 40, undefined, p1);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    Object.assign(game.state as any, {
+      active: true,
+      phase: 'combat',
+      step: 'DECLARE_ATTACKERS',
+      turnPlayer: p2,
+      priority: p1,
+      players: [
+        { id: p1, name: 'Player 1', spectator: false, life: 40 },
+        { id: p2, name: 'Player 2', spectator: false, life: 40 },
+      ],
+      battlefield: [],
+      stack: [],
+      zones: {
+        [p1]: { hand: [], graveyard: [], exile: [], library: [], handCount: 0, graveyardCount: 0, exileCount: 0, libraryCount: 0 },
+        [p2]: { hand: [], graveyard: [], exile: [], library: [], handCount: 0, graveyardCount: 0, exileCount: 0, libraryCount: 0 },
+      },
+      manaPool: {
+        [p1]: { white: 0, blue: 0, black: 0, red: 1, green: 0, colorless: 1 },
+        [p2]: createEmptyManaPool(),
+      },
+      commandZone: {
+        [p1]: {
+          commanderIds: ['cmd_ignore_timing'],
+          commanderNames: ['Timingless Commander'],
+          commanderCards: [
+            {
+              id: 'cmd_ignore_timing',
+              name: 'Timingless Commander',
+              type_line: 'Legendary Creature — Warrior',
+              mana_cost: '{1}{R}',
+              oracle_text: '',
+            },
+          ],
+          inCommandZone: ['cmd_ignore_timing'],
+          taxById: { cmd_ignore_timing: 0 },
+        },
+        [p2]: {
+          commanderIds: [],
+          commanderNames: [],
+          commanderCards: [],
+          inCommandZone: [],
+          taxById: {},
+        },
+      },
+      durablePermissions: [
+        buildDurableCommandZonePermission({
+          playerId: p1 as any,
+          action: 'cast',
+          duration: 'this_turn',
+          turnApplied: 1,
+          expiresAtTurn: 1,
+          sourceName: 'Command Timing Window',
+          cardIds: ['cmd_ignore_timing'],
+          timingOverride: { ignoreTiming: true },
+        }),
+      ],
+      turnNumber: 1,
+    });
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket({ playerId: p1, spectator: false, gameId }, emitted);
+    socket.rooms.add(gameId);
+
+    const io = createMockIo(emitted);
+    registerGameActions(io as any, socket as any);
+    registerCommanderHandlers(io as any, socket as any);
+
+    await handlers['castCommander']({ gameId, commanderId: 'cmd_ignore_timing' });
+
+    const errors = emitted.filter((entry) => entry.event === 'error').map((entry) => entry.payload?.code);
+    expect(errors).not.toContain('SORCERY_TIMING');
+
+    const paymentStep = ResolutionQueueManager.getQueue(gameId).steps[0] as any;
+    expect(paymentStep).toEqual(expect.objectContaining({
+      type: 'mana_payment_choice',
+      cardName: 'Timingless Commander',
+      manaCost: '{1}{R}',
+    }));
+  });
 });

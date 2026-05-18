@@ -69,7 +69,13 @@ import {
 import { exileEntireStack } from "./stack";
 import { applyGraveyardPermissionEffectsFromText, applyTemporaryGraveyardKeywordGrantFromText, buildCastFromGraveyardCard } from "./graveyard-permissions.js";
 import { shouldExileStackCardInsteadOfGraveyard } from "./stack-zone-replacements.js";
-import { buildDurablePlayableFromExilePermission, upsertDurablePermission } from "./durable-permissions.js";
+import {
+  buildDurablePlayableFromExilePermission,
+  getDurableCommandZonePermissionForCard,
+  getDurableLibraryPermissionForCard,
+  recordDurablePermissionUse,
+  upsertDurablePermission,
+} from "./durable-permissions.js";
 import { permanentHasKeyword } from "./keyword-handlers";
 import { nextTurn, nextStep, passPriority } from "./turn";
 import {
@@ -2444,12 +2450,30 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
         // Prefer full card object for replay (contains all card data)
         // Fall back to cardId for backward compatibility with old events
         const cardData = (e as any).card || (e as any).cardId;
+        const fromZone = String((e as any).fromZone || '').toLowerCase().trim();
+        const playerId = String((e as any).playerId || '').trim();
+        const cardForPermission = (() => {
+          if (cardData && typeof cardData === 'object') return cardData;
+          if (fromZone !== 'library' || !playerId) return cardData;
+          const library = Array.isArray((ctx as any).libraries?.get?.(playerId))
+            ? (ctx as any).libraries.get(playerId)
+            : (Array.isArray((ctx as any).libraries?.[playerId]) ? (ctx as any).libraries[playerId] : []);
+          return library.find((card: any) => String(card?.id || '') === String(cardData || '')) || cardData;
+        })();
+        const battlefieldLengthBefore = Array.isArray(ctx.state.battlefield) ? ctx.state.battlefield.length : 0;
+        const durablePermissionToRecord = fromZone === 'library' && playerId
+          ? getDurableLibraryPermissionForCard(
+              ctx.state as any,
+              playerId as any,
+              typeof cardForPermission === 'object' && cardForPermission ? cardForPermission : { id: cardForPermission },
+              'play',
+            )
+          : undefined;
 
         // Defensive replay hardening: if the persisted event indicates the land
         // was played from true exile, ensure any impulse-style tags/permissions
         // are cleaned up even if playLand can't infer the source from current zones.
         try {
-          const fromZone = String((e as any).fromZone || '').toLowerCase().trim();
           if (fromZone === 'exile') {
             const cardObj = typeof cardData === 'string' ? { id: cardData } : cardData;
             cleanupCardLeavingExile((ctx.state as any) as any, cardObj);
@@ -2458,6 +2482,14 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           // best-effort only
         }
         playLand(ctx as any, (e as any).playerId, cardData);
+        try {
+          const battlefieldLengthAfter = Array.isArray(ctx.state.battlefield) ? ctx.state.battlefield.length : 0;
+          if (fromZone === 'library' && playerId && battlefieldLengthAfter > battlefieldLengthBefore) {
+            recordDurablePermissionUse(ctx.state as any, durablePermissionToRecord);
+          }
+        } catch {
+          // best-effort only
+        }
         applyRecordedPlayLandReplayState(ctx, e);
         break;
       }
@@ -2574,6 +2606,18 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           }
         }
 
+        const playerIdForDurablePermissionUse = String((e as any).playerId || '').trim();
+        const cardForDurablePermissionUse = typeof spellCardData === 'object' && spellCardData
+          ? spellCardData
+          : { id: spellCardData };
+        const durablePermissionToRecord = playerIdForDurablePermissionUse
+          ? fromZone === 'library'
+            ? getDurableLibraryPermissionForCard(ctx.state as any, playerIdForDurablePermissionUse as any, cardForDurablePermissionUse, 'cast')
+            : fromZone === 'command'
+              ? getDurableCommandZonePermissionForCard(ctx.state as any, playerIdForDurablePermissionUse as any, cardForDurablePermissionUse, 'cast')
+              : undefined
+          : undefined;
+
         if (fromZone === 'library') {
           const library = Array.isArray((ctx as any).libraries?.get?.((e as any).playerId))
             ? (ctx as any).libraries.get((e as any).playerId)
@@ -2620,6 +2664,15 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           (e as any).targets,
           (e as any).xValue
         );
+
+        try {
+          const stackLengthAfter = ctx.state.stack?.length || 0;
+          if (playerIdForDurablePermissionUse && stackLengthAfter > stackLengthBefore) {
+            recordDurablePermissionUse(ctx.state as any, durablePermissionToRecord);
+          }
+        } catch {
+          // best-effort only
+        }
 
         // Intervening-if support: persist replay-stable cast/payment metadata onto the new stack item.
         try {
