@@ -33,6 +33,7 @@ import type { GameContext } from "../context.js";
 import { debug } from "../../utils/debug.js";
 import { checkGraveyardTrigger } from "./triggered-abilities.js";
 import { recordCardPutIntoGraveyardThisTurn } from "./turn-tracking.js";
+import { shouldExileStackCardInsteadOfGraveyard } from "./stack-zone-replacements.js";
 
 export interface StackItem {
   id: string;
@@ -332,18 +333,26 @@ export function counterStackItem(
   // Remove from stack
   stack.splice(idx, 1);
   
-  // Move spell card to graveyard if it was a spell
+  // Move spell card to its replacement destination if it was a spell
   if (item.type === 'spell' && item.card) {
     const zones = (ctx as any).zones?.[item.controller];
     if (zones) {
-      zones.graveyard = zones.graveyard || [];
-      zones.graveyard.push({ ...item.card, zone: 'graveyard' });
-      recordCardPutIntoGraveyardThisTurn(ctx, String(item.controller), item.card, { fromBattlefield: false });
-      zones.graveyardCount = zones.graveyard.length;
-      
-      // Check for graveyard triggers (Eldrazi shuffle)
-      if (checkGraveyardTrigger(ctx, item.card, item.controller)) {
-        debug(2, `[counterSpell] ${item.card?.name} triggered graveyard shuffle for ${item.controller}`);
+      if ((item.card as any)?.ceaseOnCounter === true) {
+        debug(2, `[counterSpell] Countered copied spell ${item.card?.name || 'spell'} ceased to exist`);
+      } else if (shouldExileStackCardInsteadOfGraveyard(item)) {
+        zones.exile = zones.exile || [];
+        zones.exile.push({ ...item.card, zone: 'exile' });
+        zones.exileCount = zones.exile.length;
+      } else {
+        zones.graveyard = zones.graveyard || [];
+        zones.graveyard.push({ ...item.card, zone: 'graveyard' });
+        recordCardPutIntoGraveyardThisTurn(ctx, String(item.controller), item.card, { fromBattlefield: false });
+        zones.graveyardCount = zones.graveyard.length;
+
+        // Check for graveyard triggers (Eldrazi shuffle)
+        if (checkGraveyardTrigger(ctx, item.card, item.controller)) {
+          debug(2, `[counterSpell] ${item.card?.name} triggered graveyard shuffle for ${item.controller}`);
+        }
       }
     }
   }

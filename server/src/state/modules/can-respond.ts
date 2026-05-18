@@ -20,7 +20,7 @@ import { parseManaCost, canPayManaCostWithAvailableSources, getManaPoolFromState
 import { hasPayableAlternateCost } from "./alternate-costs";
 import { hasValidTargetsForSpell } from "../../rules-engine/target-availability.js";
 import { calculateMaxLandsPerTurn, canCastFromTop, canPlayLandsFromTop, getActiveAbilityConditions } from "./game-state-effects";
-import { buildGraveyardCastingPermissionId, getActiveGraveyardCastingPermissions, getGrantedCastFromGraveyardKeywordInfo, getGrantedEmbalmInfo, getGrantedFlashbackInfo, getGrantedUnearthInfo, getPrintedSelfCastPermissionInfo, getPrintedUnearthInfo, type GraveyardCastingPermission, type GraveyardCastingPermissionCostMode } from "./graveyard-permissions";
+import { buildGraveyardCastingPermissionId, getActiveGraveyardCastingPermissions, getGrantedCastFromGraveyardKeywordInfo, getGrantedEmbalmInfo, getGrantedUnearthInfo, getPrintedSelfCastPermissionInfo, getPrintedUnearthInfo, type GraveyardCastingPermission, type GraveyardCastingPermissionCostMode } from "./graveyard-permissions";
 import { detectActivatedAbilityConditionRequirement } from "./activated-ability-conditions";
 import { applyCostAdjustmentToParsedCost, buildCostAdjustmentPlan, getCostAdjustmentForCard as getSharedCostAdjustmentForCard, type CostAdjustmentPlan } from "./cost-adjustments";
 import { collectStaticEffectSources } from "./static-effect-sources";
@@ -1203,11 +1203,17 @@ function canUseAlternateCostForSpellCandidate(sourceZone: SharedSpellSourceZone,
   return false;
 }
 
-type GraveyardCastKeyword = 'jump-start' | 'retrace' | 'escape' | 'harmonize';
+type GraveyardCastKeyword = 'flashback' | 'jump-start' | 'retrace' | 'escape' | 'harmonize';
 
 function getPrintedGraveyardCastKeywordInfo(card: any, keyword: GraveyardCastKeyword): { hasIt: boolean; cost?: string; additionalExileCount?: number } {
   const oracleText = String(card?.oracle_text || card?.oracleText || '');
   const manaCost = String(card?.mana_cost || card?.manaCost || '').trim();
+
+  if (keyword === 'flashback') {
+    if (!/\bflashback\b/i.test(oracleText)) return { hasIt: false };
+    const flashbackCost = oracleText.match(/flashback\s*[—-]?\s*(\{[^}]+\}(?:\s*\{[^}]+\})*)/i)?.[1]?.trim();
+    return { hasIt: true, ...(flashbackCost ? { cost: flashbackCost } : {}) };
+  }
 
   if (keyword === 'jump-start') {
     if (!/\bjump-start\b/i.test(oracleText)) return { hasIt: false };
@@ -1253,7 +1259,7 @@ function getAvailableGraveyardCastKeywordInfo(
   playerId: PlayerID,
   card: any,
 ): { keyword: GraveyardCastKeyword; cost?: string; additionalExileCount?: number } | undefined {
-  for (const keyword of ['jump-start', 'retrace', 'escape', 'harmonize'] as GraveyardCastKeyword[]) {
+  for (const keyword of ['flashback', 'jump-start', 'retrace', 'escape', 'harmonize'] as GraveyardCastKeyword[]) {
     const printedInfo = getPrintedGraveyardCastKeywordInfo(card, keyword);
     if (printedInfo.hasIt) {
       return { keyword, cost: printedInfo.cost, additionalExileCount: printedInfo.additionalExileCount };
@@ -1367,54 +1373,34 @@ export function getCastableSpellCandidates(
           }
           grantsFlash = topSpellPermission.grantsFlash === true;
         } else if (sourceZone === 'graveyard') {
-          const flashbackInfo = hasFlashback(card);
-          const grantedFlashbackInfo = flashbackInfo.hasIt ? { hasIt: false } : getGrantedFlashbackInfo(ctx, playerId, castCard);
-          if (flashbackInfo.hasIt) {
-            castMethod = 'flashback';
-            exileAfterResolution = true;
-            if (flashbackInfo.cost) {
-              manaCost = flashbackInfo.cost;
-            } else {
-              unknownCostFallback = true;
+          const graveyardKeywordInfo = getAvailableGraveyardCastKeywordInfo(ctx, playerId, castCard);
+          if (graveyardKeywordInfo) {
+            if (!canPayGraveyardCastKeywordAdditionalCost(state, playerId, card, graveyardKeywordInfo)) {
+              continue;
             }
-          } else if (grantedFlashbackInfo.hasIt) {
-            castMethod = 'flashback';
-            exileAfterResolution = true;
-            if (grantedFlashbackInfo.cost) {
-              manaCost = grantedFlashbackInfo.cost;
+            castMethod = graveyardKeywordInfo.keyword;
+            exileAfterResolution = ['flashback', 'jump-start', 'escape', 'harmonize'].includes(graveyardKeywordInfo.keyword);
+            if (graveyardKeywordInfo.cost) {
+              manaCost = graveyardKeywordInfo.cost;
             } else {
               unknownCostFallback = true;
             }
           } else {
-            const graveyardKeywordInfo = getAvailableGraveyardCastKeywordInfo(ctx, playerId, castCard);
-            if (graveyardKeywordInfo) {
-              if (!canPayGraveyardCastKeywordAdditionalCost(state, playerId, card, graveyardKeywordInfo)) {
-                continue;
-              }
-              castMethod = graveyardKeywordInfo.keyword;
-              exileAfterResolution = graveyardKeywordInfo.keyword === 'jump-start' || graveyardKeywordInfo.keyword === 'escape' || graveyardKeywordInfo.keyword === 'harmonize';
-              if (graveyardKeywordInfo.cost) {
-                manaCost = graveyardKeywordInfo.cost;
-              } else {
-                unknownCostFallback = true;
-              }
-            } else {
-              const specificPermission = getSpecificSpellFromGraveyardPermission(ctx, playerId, castCard);
-              if (!specificPermission.allowed) {
-                continue;
-              }
-              castMethod = 'graveyard_permanent';
-              exileAfterResolution = specificPermission.exileAfterResolution === true;
-              leaveBattlefieldReplacementDestination = specificPermission.leaveBattlefieldReplacementDestination;
-              leaveBattlefieldReplacementSourceName = specificPermission.leaveBattlefieldReplacementSourceName;
-              leaveBattlefieldReplacementLifeGain = specificPermission.leaveBattlefieldReplacementLifeGain;
-              sourceGrantedAdditionalCost = specificPermission.sourceGrantedAdditionalCost;
-              graveyardPermissionId = specificPermission.graveyardPermissionId;
-              graveyardPermissionSourceName = specificPermission.graveyardPermissionSourceName;
-              graveyardPermissionCostMode = specificPermission.graveyardPermissionCostMode;
-              if (graveyardPermissionCostMode === 'without_paying_mana_cost') {
-                manaCost = '';
-              }
+            const specificPermission = getSpecificSpellFromGraveyardPermission(ctx, playerId, castCard);
+            if (!specificPermission.allowed) {
+              continue;
+            }
+            castMethod = 'graveyard_permanent';
+            exileAfterResolution = specificPermission.exileAfterResolution === true;
+            leaveBattlefieldReplacementDestination = specificPermission.leaveBattlefieldReplacementDestination;
+            leaveBattlefieldReplacementSourceName = specificPermission.leaveBattlefieldReplacementSourceName;
+            leaveBattlefieldReplacementLifeGain = specificPermission.leaveBattlefieldReplacementLifeGain;
+            sourceGrantedAdditionalCost = specificPermission.sourceGrantedAdditionalCost;
+            graveyardPermissionId = specificPermission.graveyardPermissionId;
+            graveyardPermissionSourceName = specificPermission.graveyardPermissionSourceName;
+            graveyardPermissionCostMode = specificPermission.graveyardPermissionCostMode;
+            if (graveyardPermissionCostMode === 'without_paying_mana_cost') {
+              manaCost = '';
             }
           }
         } else if (sourceZone === 'exile') {

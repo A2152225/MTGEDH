@@ -3,6 +3,7 @@
  * Provides mana parsing, payment calculation, and related functions
  */
 import type { PaymentItem, ManaColor } from '../../../shared/src';
+import type { SacrificeType } from '../../../shared/src/textUtils';
 
 export type Color = ManaColor;
 
@@ -25,7 +26,7 @@ export interface OtherCardInfo {
 
 export interface ManaSourceSacrificeCost {
   count: number;
-  permanentType: 'creature' | 'artifact' | 'enchantment' | 'land' | 'permanent' | 'artifact_or_creature';
+  permanentType: Exclude<SacrificeType, 'self'>;
   creatureSubtype?: string;
   mustBeOther?: boolean;
 }

@@ -1282,15 +1282,17 @@ describe('supported exert attack automation (integration)', () => {
         3,
         1,
       ),
+      createAttacker('defender_bear', defenderId, 'Defender Bear', '', 2, 2),
     ];
 
     const emitted: Array<{ room?: string; event: string; payload: any }> = [];
     const { socket: attackerSocket, handlers: attackerHandlers } = createMockSocket(attackerId, emitted, gameId);
-    const { socket: defenderSocket } = createMockSocket(defenderId, emitted, gameId);
+    const { socket: defenderSocket, handlers: defenderHandlers } = createMockSocket(defenderId, emitted, gameId);
     const io = createMockIo(emitted, [attackerSocket, defenderSocket]);
     registerResolutionHandlers(io as any, attackerSocket as any);
     registerResolutionHandlers(io as any, defenderSocket as any);
     registerCombatHandlers(io as any, attackerSocket as any);
+    registerCombatHandlers(io as any, defenderSocket as any);
 
     await attackerHandlers.declareAttackers({
       gameId,
@@ -1315,6 +1317,17 @@ describe('supported exert attack automation (integration)', () => {
       expect.objectContaining({ ability: "can't be blocked", expiresAt: 'end_of_turn' }),
     ]);
     expect((game.state as any).pendingScry?.[attackerId]).toBe(1);
+
+    (game.state as any).step = 'declareBlockers';
+    const emitStart = emitted.length;
+    await defenderHandlers.declareBlockers({
+      gameId,
+      blockers: [{ blockerId: 'defender_bear', attackerId: 'clockwork_droid' }],
+    });
+
+    const blockEmits = emitted.slice(emitStart);
+    expect(blockEmits.some((entry) => entry.event === 'error' && entry.payload?.code === 'CANT_BLOCK')).toBe(true);
+    expect(droid?.blockedBy).toBeUndefined();
   });
 
   it('queues graveyard selection for Devoted Crop-Mate and binds the selected card onto the reflexive trigger', async () => {

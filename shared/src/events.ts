@@ -200,7 +200,7 @@ export interface ClientToServerEvents {
   // ===== GRAVEYARD ABILITIES =====
   
   // Activate an ability from graveyard (e.g., Flashback)
-  activateGraveyardAbility: (payload: { gameId: GameID; cardId: string; abilityIndex?: number; abilityId?: string }) => void;
+  activateGraveyardAbility: (payload: { gameId: GameID; cardId: string; abilityIndex?: number; abilityId?: string; xValue?: number }) => void;
 
   // ===== COMBAT SKIP EVENTS =====
   

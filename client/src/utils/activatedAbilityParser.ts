@@ -29,7 +29,7 @@ export interface ParsedActivatedAbility {
   requiresTap: boolean;
   requiresUntap: boolean;  // For untap symbol costs like {Q}
   requiresSacrifice: boolean;
-  sacrificeType?: 'creature' | 'artifact' | 'enchantment' | 'land' | 'permanent' | 'self' | 'artifact_or_creature';  // What to sacrifice
+  sacrificeType?: SacrificeType;  // What to sacrifice
   sacrificeCount?: number;  // How many to sacrifice (default 1)
   mustBeOther?: boolean;  // Whether sacrifice must be "other" permanents (not the source)
   manaCost?: string;
@@ -397,7 +397,7 @@ function parseCostComponents(costStr: string): {
   requiresTap: boolean;
   requiresUntap: boolean;
   requiresSacrifice: boolean;
-  sacrificeType?: 'creature' | 'artifact' | 'enchantment' | 'land' | 'permanent' | 'self' | 'artifact_or_creature';
+  sacrificeType?: SacrificeType;
   sacrificeCount?: number;
   manaCost?: string;
   lifeCost?: number;
@@ -412,7 +412,7 @@ function parseCostComponents(costStr: string): {
     requiresTap: boolean;
     requiresUntap: boolean;
     requiresSacrifice: boolean;
-    sacrificeType?: 'creature' | 'artifact' | 'enchantment' | 'land' | 'permanent' | 'self' | 'artifact_or_creature';
+    sacrificeType?: SacrificeType;
     sacrificeCount?: number;
     manaCost?: string;
     lifeCost?: number;

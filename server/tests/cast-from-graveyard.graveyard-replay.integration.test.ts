@@ -7,6 +7,8 @@ import { registerResolutionHandlers } from '../src/socket/resolution.js';
 import { games } from '../src/socket/socket.js';
 import { ensureGame, transformDbEventsForReplay } from '../src/socket/util.js';
 import { getCastableSpellCandidates } from '../src/state/modules/can-respond.js';
+import { triggerETBEffectsForPermanent } from '../src/state/modules/stack.js';
+import { nextStep } from '../src/state/modules/turn.js';
 import { ResolutionQueueManager, ResolutionStepType } from '../src/state/resolution/index.js';
 
 async function resetGame(gameId: string) {
@@ -253,8 +255,12 @@ describe('cast-from-graveyard replay semantics (integration)', () => {
     `${gameId}_momentary_blink_replay`,
     `${gameId}_cackling_live`,
     `${gameId}_cackling_replay`,
+    `${gameId}_croaking_live`,
+    `${gameId}_croaking_replay`,
     `${gameId}_think_twice_live`,
     `${gameId}_think_twice_replay`,
+    `${gameId}_moments_peace_live`,
+    `${gameId}_moments_peace_replay`,
     `${gameId}_bulk_up_live`,
     `${gameId}_bulk_up_replay`,
     `${gameId}_strike_it_rich_live`,
@@ -265,6 +271,30 @@ describe('cast-from-graveyard replay semantics (integration)', () => {
     `${gameId}_army_replay`,
     `${gameId}_otherworldly_gaze_live`,
     `${gameId}_otherworldly_gaze_replay`,
+    `${gameId}_angelfire_ignition_live`,
+    `${gameId}_angelfire_ignition_replay`,
+    `${gameId}_forbidden_alchemy_live`,
+    `${gameId}_forbidden_alchemy_replay`,
+    `${gameId}_memory_deluge_live`,
+    `${gameId}_memory_deluge_replay`,
+    `${gameId}_siphon_insight_live`,
+    `${gameId}_siphon_insight_replay`,
+    `${gameId}_nibelheim_aflame_live`,
+    `${gameId}_nibelheim_aflame_replay`,
+    `${gameId}_rite_of_harmony_live`,
+    `${gameId}_rite_of_harmony_replay`,
+    `${gameId}_divine_reckoning_live`,
+    `${gameId}_divine_reckoning_replay`,
+    `${gameId}_prisoners_dilemma_live`,
+    `${gameId}_prisoners_dilemma_replay`,
+    `${gameId}_electric_revelation_live`,
+    `${gameId}_electric_revelation_replay`,
+    `${gameId}_eviscerators_insight_live`,
+    `${gameId}_eviscerators_insight_replay`,
+    `${gameId}_rite_of_oblivion_live`,
+    `${gameId}_rite_of_oblivion_replay`,
+    `${gameId}_summons_of_saruman_live`,
+    `${gameId}_summons_of_saruman_replay`,
     `${gameId}_faithless_looting_live`,
     `${gameId}_faithless_looting_replay`,
     `${gameId}_laughing_mad_live`,
@@ -1219,7 +1249,7 @@ describe('cast-from-graveyard replay semantics (integration)', () => {
       },
     ];
     (game.state as any).zones[playerId].libraryCount = 1;
-    game.libraries.set(playerId as any, [
+    (game as any).libraries.set(playerId, [
       {
         id: 'uro_value_drawn_forest',
         name: 'Forest',
@@ -1380,6 +1410,459 @@ describe('cast-from-graveyard replay semantics (integration)', () => {
     expect(stack[0]?.targets).toEqual(['dread_return_target_1']);
   });
 
+  it('live and replay Electric Revelation flashback pays the discard additional cost and draws two cards', async () => {
+    const electricGameId = `${gameId}_electric_revelation_live`;
+    const replayGameId = `${gameId}_electric_revelation_replay`;
+    const oracleText = 'As an additional cost to cast this spell, discard a card.\nDraw two cards.\nFlashback {3}{R}';
+    const discardCard = {
+      id: 'electric_revelation_discard_1',
+      name: 'Spare Spark',
+      type_line: 'Instant',
+      oracle_text: '',
+      zone: 'hand',
+    };
+    const libraryCards = [
+      { id: 'electric_revelation_draw_1', name: 'Mountain', type_line: 'Basic Land - Mountain', oracle_text: '', zone: 'library' },
+      { id: 'electric_revelation_draw_2', name: 'Lightning Bolt', type_line: 'Instant', oracle_text: 'Lightning Bolt deals 3 damage to any target.', zone: 'library' },
+    ];
+
+    const { game, playerId } = await seedGame(electricGameId, 'electric_revelation_1', oracleText, {
+      name: 'Electric Revelation',
+      manaPool: { white: 0, blue: 0, black: 0, red: 1, green: 0, colorless: 3 },
+      hand: [discardCard],
+    });
+    (game.state as any).zones[playerId].library = libraryCards.map((card) => ({ ...card }));
+    (game.state as any).zones[playerId].libraryCount = libraryCards.length;
+    (game as any).libraries.set(playerId, libraryCards.map((card) => ({ ...card })) as any);
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const io = createMockIo(emitted);
+    const { socket, handlers } = createMockSocket(playerId, electricGameId, emitted);
+
+    registerInteractionHandlers(io as any, socket as any);
+    registerResolutionHandlers(io as any, socket as any);
+
+    await handlers['activateGraveyardAbility']({
+      gameId: electricGameId,
+      cardId: 'electric_revelation_1',
+      abilityId: 'flashback',
+    });
+
+    const discardStep = ResolutionQueueManager
+      .getStepsForPlayer(electricGameId, playerId)
+      .find((step) => step.type === ResolutionStepType.DISCARD_SELECTION) as any;
+    expect(discardStep).toBeDefined();
+    expect(discardStep?.graveyardCastDiscardAsCost).toBe(true);
+    expect((discardStep.hand || []).map((card: any) => card.id)).toEqual(['electric_revelation_discard_1']);
+
+    await handlers['submitResolutionResponse']({
+      gameId: electricGameId,
+      stepId: String(discardStep.id),
+      selections: ['electric_revelation_discard_1'],
+    });
+
+    expect(((game.state as any).stack || []).map((item: any) => item?.card?.id)).toEqual(['electric_revelation_1']);
+
+    game.resolveTopOfStack();
+
+    const zones = (game.state as any).zones?.[playerId];
+    expect((zones?.graveyard || []).map((card: any) => card.id)).toContain('electric_revelation_discard_1');
+    expect((zones?.hand || []).map((card: any) => card.id)).toEqual(['electric_revelation_draw_1', 'electric_revelation_draw_2']);
+    expect((zones?.exile || []).map((card: any) => card.id)).toContain('electric_revelation_1');
+
+    const activateEvent = [...getEvents(electricGameId)].reverse().find((event) =>
+      event.type === 'activateGraveyardAbility'
+      && String((event as any)?.payload?.cardId || '') === 'electric_revelation_1'
+      && ((event as any)?.payload?.discardedCardIds || []).includes('electric_revelation_discard_1')
+    ) as any;
+    expect(activateEvent).toBeDefined();
+
+    const replay = await seedGame(replayGameId, 'electric_revelation_1', oracleText, {
+      name: 'Electric Revelation',
+      manaPool: { white: 0, blue: 0, black: 0, red: 1, green: 0, colorless: 3 },
+      hand: [discardCard],
+    });
+    (replay.game.state as any).zones[playerId].library = libraryCards.map((card) => ({ ...card }));
+    (replay.game.state as any).zones[playerId].libraryCount = libraryCards.length;
+    (replay.game as any).libraries.set(playerId, libraryCards.map((card) => ({ ...card })) as any);
+
+    replay.game.applyEvent({ type: 'activateGraveyardAbility', ...(activateEvent?.payload || {}) } as any);
+    replay.game.applyEvent({ type: 'resolveTopOfStack' } as any);
+
+    const replayZones = (replay.game.state as any).zones?.[playerId];
+    expect((replayZones?.graveyard || []).map((card: any) => card.id)).toContain('electric_revelation_discard_1');
+    expect((replayZones?.hand || []).map((card: any) => card.id)).toEqual(['electric_revelation_draw_1', 'electric_revelation_draw_2']);
+    expect((replayZones?.exile || []).map((card: any) => card.id)).toContain('electric_revelation_1');
+  });
+
+  it("live and replay Eviscerator's Insight flashback pays the artifact-or-creature sacrifice cost", async () => {
+    const insightGameId = `${gameId}_eviscerators_insight_live`;
+    const replayGameId = `${gameId}_eviscerators_insight_replay`;
+    const oracleText = 'As an additional cost to cast this spell, sacrifice an artifact or creature.\nDraw two cards.\nFlashback {4}{B}';
+    const libraryCards = [
+      { id: 'eviscerators_insight_draw_1', name: 'Swamp', type_line: 'Basic Land - Swamp', oracle_text: '', zone: 'library' },
+      { id: 'eviscerators_insight_draw_2', name: 'Village Rites', type_line: 'Instant', oracle_text: 'Draw two cards.', zone: 'library' },
+    ];
+    const battlefield = [
+      {
+        id: 'eviscerators_insight_sac_artifact_1',
+        controller: 'p1',
+        owner: 'p1',
+        tapped: false,
+        card: { id: 'eviscerators_insight_sac_artifact_card_1', name: 'Blood Token', type_line: 'Artifact - Blood', oracle_text: '' },
+      },
+      {
+        id: 'eviscerators_insight_sac_land_1',
+        controller: 'p1',
+        owner: 'p1',
+        tapped: false,
+        card: { id: 'eviscerators_insight_sac_land_card_1', name: 'Swamp', type_line: 'Basic Land - Swamp', oracle_text: '' },
+      },
+    ];
+
+    const { game, playerId } = await seedGame(insightGameId, 'eviscerators_insight_1', oracleText, {
+      name: "Eviscerator's Insight",
+      manaPool: { white: 0, blue: 0, black: 1, red: 0, green: 0, colorless: 4 },
+    });
+    (game.state as any).battlefield = battlefield.map((permanent) => ({ ...permanent, card: { ...permanent.card } }));
+    (game.state as any).zones[playerId].library = libraryCards.map((card) => ({ ...card }));
+    (game.state as any).zones[playerId].libraryCount = libraryCards.length;
+    (game as any).libraries.set(playerId, libraryCards.map((card) => ({ ...card })) as any);
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const io = createMockIo(emitted);
+    const { socket, handlers } = createMockSocket(playerId, insightGameId, emitted);
+
+    registerInteractionHandlers(io as any, socket as any);
+    registerResolutionHandlers(io as any, socket as any);
+
+    await handlers['activateGraveyardAbility']({
+      gameId: insightGameId,
+      cardId: 'eviscerators_insight_1',
+      abilityId: 'flashback',
+    });
+
+    const sacrificeStep = ResolutionQueueManager
+      .getStepsForPlayer(insightGameId, playerId)
+      .find((step) => (step as any)?.graveyardCastSacrificeAsCost === true) as any;
+    expect(sacrificeStep).toBeDefined();
+    expect((sacrificeStep.validTargets || []).map((target: any) => target.id)).toEqual(['eviscerators_insight_sac_artifact_1']);
+
+    await handlers['submitResolutionResponse']({
+      gameId: insightGameId,
+      stepId: String(sacrificeStep.id),
+      selections: ['eviscerators_insight_sac_artifact_1'],
+    });
+
+    expect(((game.state as any).stack || []).map((item: any) => item?.card?.id)).toEqual(['eviscerators_insight_1']);
+
+    game.resolveTopOfStack();
+
+    const zones = (game.state as any).zones?.[playerId];
+    expect((zones?.graveyard || []).map((card: any) => card.id)).toContain('eviscerators_insight_sac_artifact_card_1');
+    expect((zones?.hand || []).map((card: any) => card.id)).toEqual(['eviscerators_insight_draw_1', 'eviscerators_insight_draw_2']);
+    expect((zones?.exile || []).map((card: any) => card.id)).toContain('eviscerators_insight_1');
+    expect(((game.state as any).battlefield || []).map((permanent: any) => permanent.id)).toEqual(['eviscerators_insight_sac_land_1']);
+
+    const sacrificeEvent = [...getEvents(insightGameId)].reverse().find((event) =>
+      event.type === 'sacrificeSelectionResolve'
+      && ((event as any)?.payload?.permanentIds || []).includes('eviscerators_insight_sac_artifact_1')
+    ) as any;
+    const activateEvent = [...getEvents(insightGameId)].reverse().find((event) =>
+      event.type === 'activateGraveyardAbility'
+      && String((event as any)?.payload?.cardId || '') === 'eviscerators_insight_1'
+      && !(event as any)?.payload?.queuedResolutionStep
+    ) as any;
+    expect(sacrificeEvent).toBeDefined();
+    expect(activateEvent).toBeDefined();
+
+    const replay = await seedGame(replayGameId, 'eviscerators_insight_1', oracleText, {
+      name: "Eviscerator's Insight",
+      manaPool: { white: 0, blue: 0, black: 1, red: 0, green: 0, colorless: 4 },
+    });
+    (replay.game.state as any).battlefield = battlefield.map((permanent) => ({ ...permanent, card: { ...permanent.card } }));
+    (replay.game.state as any).zones[playerId].library = libraryCards.map((card) => ({ ...card }));
+    (replay.game.state as any).zones[playerId].libraryCount = libraryCards.length;
+    (replay.game as any).libraries.set(playerId, libraryCards.map((card) => ({ ...card })) as any);
+
+    replay.game.applyEvent({ type: 'sacrificeSelectionResolve', ...(sacrificeEvent?.payload || {}) } as any);
+    replay.game.applyEvent({ type: 'activateGraveyardAbility', ...(activateEvent?.payload || {}) } as any);
+    replay.game.applyEvent({ type: 'resolveTopOfStack' } as any);
+
+    const replayZones = (replay.game.state as any).zones?.[playerId];
+    expect((replayZones?.graveyard || []).map((card: any) => card.id)).toContain('eviscerators_insight_sac_artifact_card_1');
+    expect((replayZones?.hand || []).map((card: any) => card.id)).toEqual(['eviscerators_insight_draw_1', 'eviscerators_insight_draw_2']);
+    expect((replayZones?.exile || []).map((card: any) => card.id)).toContain('eviscerators_insight_1');
+    expect(((replay.game.state as any).battlefield || []).map((permanent: any) => permanent.id)).toEqual(['eviscerators_insight_sac_land_1']);
+  });
+
+  it('live and replay Rite of Oblivion flashback sacrifices a nonland permanent and exiles target nonland permanent', async () => {
+    const riteGameId = `${gameId}_rite_of_oblivion_live`;
+    const replayGameId = `${gameId}_rite_of_oblivion_replay`;
+    const oracleText = 'As an additional cost to cast this spell, sacrifice a nonland permanent.\nExile target nonland permanent.\nFlashback {2}{W}{B}';
+    const battlefield = [
+      {
+        id: 'rite_of_oblivion_cost_artifact_1',
+        controller: 'p1',
+        owner: 'p1',
+        tapped: false,
+        card: { id: 'rite_of_oblivion_cost_artifact_card_1', name: 'Clue Token', type_line: 'Artifact - Clue', oracle_text: '' },
+      },
+      {
+        id: 'rite_of_oblivion_cost_land_1',
+        controller: 'p1',
+        owner: 'p1',
+        tapped: false,
+        card: { id: 'rite_of_oblivion_cost_land_card_1', name: 'Plains', type_line: 'Basic Land - Plains', oracle_text: '' },
+      },
+      {
+        id: 'rite_of_oblivion_target_creature_1',
+        controller: 'p2',
+        owner: 'p2',
+        tapped: false,
+        card: { id: 'rite_of_oblivion_target_creature_card_1', name: 'Hill Giant', type_line: 'Creature - Giant', oracle_text: '' },
+      },
+      {
+        id: 'rite_of_oblivion_target_land_1',
+        controller: 'p2',
+        owner: 'p2',
+        tapped: false,
+        card: { id: 'rite_of_oblivion_target_land_card_1', name: 'Island', type_line: 'Basic Land - Island', oracle_text: '' },
+      },
+    ];
+    const addSecondPlayer = (targetGame: any) => {
+      (targetGame.state as any).players = [
+        { id: 'p1', name: 'P1', spectator: false, life: 40 },
+        { id: 'p2', name: 'P2', spectator: false, life: 40 },
+      ];
+      (targetGame.state as any).life = { p1: 40, p2: 40 };
+      (targetGame.state as any).zones.p2 = {
+        hand: [],
+        handCount: 0,
+        library: [],
+        libraryCount: 0,
+        graveyard: [],
+        graveyardCount: 0,
+        exile: [],
+        exileCount: 0,
+      };
+      (targetGame.state as any).battlefield = battlefield.map((permanent) => ({ ...permanent, card: { ...permanent.card } }));
+    };
+
+    const { game, playerId } = await seedGame(riteGameId, 'rite_of_oblivion_1', oracleText, {
+      name: 'Rite of Oblivion',
+      manaPool: { white: 1, blue: 0, black: 1, red: 0, green: 0, colorless: 2 },
+    });
+    addSecondPlayer(game);
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const io = createMockIo(emitted);
+    const { socket, handlers } = createMockSocket(playerId, riteGameId, emitted);
+
+    registerInteractionHandlers(io as any, socket as any);
+    registerResolutionHandlers(io as any, socket as any);
+
+    await handlers['activateGraveyardAbility']({
+      gameId: riteGameId,
+      cardId: 'rite_of_oblivion_1',
+      abilityId: 'flashback',
+    });
+
+    const sacrificeStep = ResolutionQueueManager
+      .getStepsForPlayer(riteGameId, playerId)
+      .find((step) => (step as any)?.graveyardCastSacrificeAsCost === true) as any;
+    expect(sacrificeStep).toBeDefined();
+    expect((sacrificeStep.validTargets || []).map((target: any) => target.id)).toEqual(['rite_of_oblivion_cost_artifact_1']);
+
+    await handlers['submitResolutionResponse']({
+      gameId: riteGameId,
+      stepId: String(sacrificeStep.id),
+      selections: ['rite_of_oblivion_cost_artifact_1'],
+    });
+
+    const targetStep = ResolutionQueueManager
+      .getStepsForPlayer(riteGameId, playerId)
+      .find((step) => (step as any)?.graveyardSpellCastTargetSelection === true) as any;
+    expect(targetStep).toBeDefined();
+    expect((targetStep.validTargets || []).map((target: any) => target.id).sort()).toEqual(['rite_of_oblivion_target_creature_1']);
+
+    await handlers['submitResolutionResponse']({
+      gameId: riteGameId,
+      stepId: String(targetStep.id),
+      selections: ['rite_of_oblivion_target_creature_1'],
+    });
+
+    expect(((game.state as any).stack || []).map((item: any) => item?.card?.id)).toEqual(['rite_of_oblivion_1']);
+
+    game.resolveTopOfStack();
+
+    const zones = (game.state as any).zones;
+    expect((zones?.p1?.graveyard || []).map((card: any) => card.id)).toContain('rite_of_oblivion_cost_artifact_card_1');
+    expect((zones?.p1?.exile || []).map((card: any) => card.id)).toContain('rite_of_oblivion_1');
+    expect((zones?.p2?.exile || []).map((card: any) => card.id)).toContain('rite_of_oblivion_target_creature_card_1');
+    expect(((game.state as any).battlefield || []).map((permanent: any) => permanent.id).sort()).toEqual([
+      'rite_of_oblivion_cost_land_1',
+      'rite_of_oblivion_target_land_1',
+    ]);
+
+    const sacrificeEvent = [...getEvents(riteGameId)].reverse().find((event) =>
+      event.type === 'sacrificeSelectionResolve'
+      && ((event as any)?.payload?.permanentIds || []).includes('rite_of_oblivion_cost_artifact_1')
+    ) as any;
+    const activateEvent = [...getEvents(riteGameId)].reverse().find((event) =>
+      event.type === 'activateGraveyardAbility'
+      && String((event as any)?.payload?.cardId || '') === 'rite_of_oblivion_1'
+      && ((event as any)?.payload?.targets || []).includes('rite_of_oblivion_target_creature_1')
+      && !(event as any)?.payload?.queuedResolutionStep
+    ) as any;
+    expect(sacrificeEvent).toBeDefined();
+    expect(activateEvent).toBeDefined();
+
+    const replay = await seedGame(replayGameId, 'rite_of_oblivion_1', oracleText, {
+      name: 'Rite of Oblivion',
+      manaPool: { white: 1, blue: 0, black: 1, red: 0, green: 0, colorless: 2 },
+    });
+    addSecondPlayer(replay.game);
+
+    replay.game.applyEvent({ type: 'sacrificeSelectionResolve', ...(sacrificeEvent?.payload || {}) } as any);
+    replay.game.applyEvent({ type: 'activateGraveyardAbility', ...(activateEvent?.payload || {}) } as any);
+    replay.game.applyEvent({ type: 'resolveTopOfStack' } as any);
+
+    const replayZones = (replay.game.state as any).zones;
+    expect((replayZones?.p1?.graveyard || []).map((card: any) => card.id)).toContain('rite_of_oblivion_cost_artifact_card_1');
+    expect((replayZones?.p1?.exile || []).map((card: any) => card.id)).toContain('rite_of_oblivion_1');
+    expect((replayZones?.p2?.exile || []).map((card: any) => card.id)).toContain('rite_of_oblivion_target_creature_card_1');
+    expect(((replay.game.state as any).battlefield || []).map((permanent: any) => permanent.id).sort()).toEqual([
+      'rite_of_oblivion_cost_land_1',
+      'rite_of_oblivion_target_land_1',
+    ]);
+  });
+
+  it('live and replay Summons of Saruman flashback uses exiled cards as X, amasses, mills, and offers a free spell cast', async () => {
+    const summonsGameId = `${gameId}_summons_of_saruman_live`;
+    const replayGameId = `${gameId}_summons_of_saruman_replay`;
+    const oracleText = 'Amass Orcs X, then mill X cards. You may cast an instant or sorcery spell with mana value X or less from among them without paying its mana cost.\nFlashback {3}{U}{R}, Exile X cards from your graveyard.';
+    const extraGraveyard = [
+      { id: 'summons_cost_card_1', name: 'Spare Land', type_line: 'Land', oracle_text: '', mana_value: 0, cmc: 0 },
+      { id: 'summons_cost_card_2', name: 'Spent Familiar', type_line: 'Creature - Bird', oracle_text: '', mana_value: 1, cmc: 1 },
+    ];
+    const libraryCards = [
+      { id: 'summons_milled_think_twice', name: 'Think Twice', type_line: 'Instant', mana_cost: '{1}{U}', oracle_text: 'Draw a card.', mana_value: 2, cmc: 2, zone: 'library' },
+      { id: 'summons_milled_expensive_spell', name: 'Expensive Insight', type_line: 'Sorcery', mana_cost: '{2}{U}', oracle_text: 'Draw two cards.', mana_value: 3, cmc: 3, zone: 'library' },
+    ];
+    const seedSummonsGame = async (targetGameId: string) => {
+      const seeded = await seedGame(targetGameId, 'summons_of_saruman_1', oracleText, {
+        name: 'Summons of Saruman',
+        manaCost: '{X}{U}{R}',
+        manaPool: { white: 0, blue: 1, black: 0, red: 1, green: 0, colorless: 3 },
+        extraGraveyard,
+      });
+      (seeded.game.state as any).zones[seeded.playerId].library = libraryCards.map((card) => ({ ...card }));
+      (seeded.game.state as any).zones[seeded.playerId].libraryCount = libraryCards.length;
+      (seeded.game as any).libraries.set(seeded.playerId, libraryCards.map((card) => ({ ...card })) as any);
+      return seeded;
+    };
+
+    const { game, playerId } = await seedSummonsGame(summonsGameId);
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const io = createMockIo(emitted);
+    const { socket, handlers } = createMockSocket(playerId, summonsGameId, emitted);
+
+    registerInteractionHandlers(io as any, socket as any);
+    registerResolutionHandlers(io as any, socket as any);
+
+    await handlers['activateGraveyardAbility']({
+      gameId: summonsGameId,
+      cardId: 'summons_of_saruman_1',
+      abilityId: 'flashback',
+    });
+
+    const exileCostStep = ResolutionQueueManager
+      .getStepsForPlayer(summonsGameId, playerId)
+      .find((step) => (step as any)?.graveyardCastExileAsCost === true) as any;
+    expect(exileCostStep).toBeDefined();
+    expect(exileCostStep?.exileCountIsX).toBe(true);
+    expect(exileCostStep?.minTargets).toBe(0);
+    expect(exileCostStep?.maxTargets).toBe(2);
+    expect((exileCostStep.validTargets || []).map((target: any) => target.id).sort()).toEqual(['summons_cost_card_1', 'summons_cost_card_2']);
+
+    await handlers['submitResolutionResponse']({
+      gameId: summonsGameId,
+      stepId: String(exileCostStep.id),
+      selections: ['summons_cost_card_1', 'summons_cost_card_2'],
+    });
+
+    const stack = ((game.state as any).stack || []) as any[];
+    expect(stack).toHaveLength(1);
+    expect(stack[0]?.card?.id).toBe('summons_of_saruman_1');
+    expect(stack[0]?.xValue).toBe(2);
+
+    game.resolveTopOfStack();
+
+    const zones = (game.state as any).zones?.[playerId];
+    expect((zones?.exile || []).map((card: any) => card.id).sort()).toEqual(['summons_cost_card_1', 'summons_cost_card_2', 'summons_of_saruman_1']);
+    expect((zones?.graveyard || []).map((card: any) => card.id).sort()).toEqual(['summons_milled_expensive_spell', 'summons_milled_think_twice']);
+    expect((zones?.library || [])).toHaveLength(0);
+
+    const army = (((game.state as any).battlefield || []) as any[]).find((permanent: any) =>
+      String(permanent?.card?.type_line || '').toLowerCase().includes('army')
+    );
+    expect(army).toBeDefined();
+    expect(String(army?.card?.type_line || '').toLowerCase()).toContain('orc');
+    expect(army?.counters?.['+1/+1']).toBe(2);
+
+    const freeCastSelectionStep = ResolutionQueueManager
+      .getStepsForPlayer(summonsGameId, playerId)
+      .find((step) => (step as any)?.triggeredAbilityCastFromGraveyard === true) as any;
+    expect(freeCastSelectionStep).toBeDefined();
+    expect(freeCastSelectionStep?.triggeredAbilityCastWithoutPayingManaCost).toBe(true);
+    expect((freeCastSelectionStep.validTargets || []).map((target: any) => target.id)).toEqual(['summons_milled_think_twice']);
+
+    await handlers['submitResolutionResponse']({
+      gameId: summonsGameId,
+      stepId: String(freeCastSelectionStep.id),
+      selections: ['summons_milled_think_twice'],
+    });
+
+    const castChoiceStep = ResolutionQueueManager
+      .getStepsForPlayer(summonsGameId, playerId)
+      .find((step) => (step as any)?.castFromGraveyardCardId === 'summons_milled_think_twice') as any;
+    expect(castChoiceStep).toBeDefined();
+    expect(castChoiceStep?.castFromGraveyardWithoutPayingManaCost).toBe(true);
+
+    const confirmEvent = [...getEvents(summonsGameId)].find((event) =>
+      event.type === 'confirmGraveyardTargets'
+      && ((event as any)?.payload?.selectedCardIds || []).includes('summons_cost_card_1')
+      && ((event as any)?.payload?.selectedCardIds || []).includes('summons_cost_card_2')
+      && String((event as any)?.payload?.destination || '') === 'exile'
+    ) as any;
+    const activateEvent = [...getEvents(summonsGameId)].reverse().find((event) =>
+      event.type === 'activateGraveyardAbility'
+      && String((event as any)?.payload?.cardId || '') === 'summons_of_saruman_1'
+      && Number((event as any)?.payload?.xValue) === 2
+      && !(event as any)?.payload?.queuedResolutionStep
+    ) as any;
+    expect(confirmEvent).toBeDefined();
+    expect(activateEvent).toBeDefined();
+
+    const replay = await seedSummonsGame(replayGameId);
+    replay.game.applyEvent({ type: 'confirmGraveyardTargets', ...(confirmEvent?.payload || {}) } as any);
+    replay.game.applyEvent({ type: 'activateGraveyardAbility', ...(activateEvent?.payload || {}) } as any);
+    replay.game.applyEvent({ type: 'resolveTopOfStack' } as any);
+
+    const replayZones = (replay.game.state as any).zones?.[playerId];
+    expect((replayZones?.exile || []).map((card: any) => card.id).sort()).toEqual(['summons_cost_card_1', 'summons_cost_card_2', 'summons_of_saruman_1']);
+    expect((replayZones?.graveyard || []).map((card: any) => card.id).sort()).toEqual(['summons_milled_expensive_spell', 'summons_milled_think_twice']);
+    expect((replayZones?.library || [])).toHaveLength(0);
+
+    const replayArmy = (((replay.game.state as any).battlefield || []) as any[]).find((permanent: any) =>
+      String(permanent?.card?.type_line || '').toLowerCase().includes('army')
+    );
+    expect(replayArmy).toBeDefined();
+    expect(String(replayArmy?.card?.type_line || '').toLowerCase()).toContain('orc');
+    expect(replayArmy?.counters?.['+1/+1']).toBe(2);
+  });
+
   it("live flashback Sevinne's Reclamation queues a post-resolution copy choice and retargets the copy", async () => {
     const sevinneGameId = `${gameId}_sevinne_live`;
     const { game, playerId } = await seedGame(
@@ -1526,6 +2009,111 @@ describe('cast-from-graveyard replay semantics (integration)', () => {
     expect(copyChoiceStep).toBeDefined();
     expect((copyChoiceStep.resolvedSpellCopyRetargetValidTargets || []).map((target: any) => target.id)).toEqual(['sevinne_replay_target_2']);
     expect(copyChoiceStep?.resolvedSpellCopySnapshot?.copiedFromStackItemId).toBe('stack_sevinne_replay_1');
+  });
+
+  it('live flashback Increasing Vengeance copies the targeted spell twice', async () => {
+    const increasingVengeanceGameId = `${gameId}_increasing_vengeance_live`;
+    const { game, playerId } = await seedGame(
+      increasingVengeanceGameId,
+      'increasing_vengeance_1',
+      'Copy target instant or sorcery spell you control. If this spell was cast from a graveyard, copy that spell twice instead. You may choose new targets for the copies.\nFlashback {3}{R}{R}',
+      {
+        manaPool: { white: 0, blue: 0, black: 0, red: 2, green: 0, colorless: 3 },
+        name: 'Increasing Vengeance',
+        typeLine: 'Instant',
+      },
+    );
+    (game.state as any).stack = [
+      {
+        id: 'stack_increasing_vengeance_target_1',
+        type: 'spell',
+        controller: playerId,
+        card: {
+          id: 'increasing_vengeance_target_1',
+          name: 'Opt',
+          type_line: 'Instant',
+          oracle_text: 'Draw a card.',
+          zone: 'stack',
+        },
+        targets: [],
+      },
+    ];
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const io = createMockIo(emitted);
+    const { socket, handlers } = createMockSocket(playerId, increasingVengeanceGameId, emitted);
+
+    registerInteractionHandlers(io as any, socket as any);
+
+    await handlers['activateGraveyardAbility']({
+      gameId: increasingVengeanceGameId,
+      cardId: 'increasing_vengeance_1',
+      abilityId: 'flashback',
+      targets: ['stack_increasing_vengeance_target_1'],
+    });
+
+    game.resolveTopOfStack();
+
+    const stack = (game.state as any).stack || [];
+    const copiedSpells = stack.filter((item: any) => item?.copiedFromStackItemId === 'stack_increasing_vengeance_target_1');
+    const zones = (game.state as any).zones?.[playerId];
+
+    expect(stack.some((item: any) => item?.id === 'stack_increasing_vengeance_target_1')).toBe(true);
+    expect(copiedSpells).toHaveLength(2);
+    expect(copiedSpells.every((item: any) => item?.isCopy === true && item?.copiedBySourceName === 'Increasing Vengeance')).toBe(true);
+    expect(copiedSpells.map((item: any) => item?.card?.id)).toEqual(['increasing_vengeance_target_1', 'increasing_vengeance_target_1']);
+    expect((zones?.exile || []).map((card: any) => card.id)).toContain('increasing_vengeance_1');
+  });
+
+  it('replay resolveTopOfStack restores Increasing Vengeance flashback double copies', async () => {
+    const replayGameId = `${gameId}_increasing_vengeance_replay`;
+    const { game, playerId } = await seedGame(
+      replayGameId,
+      'increasing_vengeance_replay_1',
+      'Copy target instant or sorcery spell you control. If this spell was cast from a graveyard, copy that spell twice instead. You may choose new targets for the copies.\nFlashback {3}{R}{R}',
+      {
+        manaPool: { white: 0, blue: 0, black: 0, red: 2, green: 0, colorless: 3 },
+        name: 'Increasing Vengeance',
+        typeLine: 'Instant',
+      },
+    );
+    (game.state as any).stack = [
+      {
+        id: 'stack_increasing_vengeance_replay_target_1',
+        type: 'spell',
+        controller: playerId,
+        card: {
+          id: 'increasing_vengeance_replay_target_1',
+          name: 'Opt',
+          type_line: 'Instant',
+          oracle_text: 'Draw a card.',
+          zone: 'stack',
+        },
+        targets: [],
+      },
+    ];
+
+    game.applyEvent({
+      type: 'activateGraveyardAbility',
+      playerId,
+      cardId: 'increasing_vengeance_replay_1',
+      abilityId: 'flashback',
+      stackId: 'stack_increasing_vengeance_replay_1',
+      manaCost: '{3}{R}{R}',
+      targets: ['stack_increasing_vengeance_replay_target_1'],
+    } as any);
+
+    game.applyEvent({ type: 'resolveTopOfStack' } as any);
+
+    const stack = (game.state as any).stack || [];
+    const copiedSpells = stack.filter((item: any) => item?.copiedFromStackItemId === 'stack_increasing_vengeance_replay_target_1');
+    const zones = (game.state as any).zones?.[playerId];
+
+    expect(stack.some((item: any) => item?.id === 'stack_increasing_vengeance_replay_target_1')).toBe(true);
+    expect(copiedSpells).toHaveLength(2);
+    expect(copiedSpells.every((item: any) => item?.isCopy === true && item?.copiedBySourceName === 'Increasing Vengeance')).toBe(true);
+    expect(copiedSpells.map((item: any) => item?.card?.id)).toEqual(['increasing_vengeance_replay_target_1', 'increasing_vengeance_replay_target_1']);
+    expect((zones?.exile || []).map((card: any) => card.id)).toContain('increasing_vengeance_replay_1');
   });
 
   it('live flashback Past in Flames grants flashback to other instants and sorceries in your graveyard', async () => {
@@ -2316,6 +2904,162 @@ describe('cast-from-graveyard replay semantics (integration)', () => {
     expect(Number(tokenCopy?.baseToughness || 0)).toBe(2);
   });
 
+  it('live flashback Croaking Counterpart targets only non-Frogs and creates a 1/1 green Frog copy', async () => {
+    const counterpartGameId = `${gameId}_croaking_live`;
+    const { game, playerId } = await seedGame(
+      counterpartGameId,
+      'croaking_counterpart_1',
+      "Create a token that's a copy of target non-Frog creature, except it's a 1/1 green Frog.\nFlashback {3}{G}{U}",
+      {
+        manaPool: { white: 0, blue: 1, black: 0, red: 0, green: 1, colorless: 3 },
+        name: 'Croaking Counterpart',
+        typeLine: 'Sorcery',
+      },
+    );
+    (game.state as any).battlefield = [
+      {
+        id: 'croaking_target_1',
+        controller: 'p2',
+        owner: 'p2',
+        tapped: false,
+        basePower: 2,
+        baseToughness: 1,
+        counters: {},
+        card: {
+          id: 'croaking_target_card_1',
+          name: 'Goblin Piker',
+          type_line: 'Creature - Goblin Warrior',
+          power: '2',
+          toughness: '1',
+          colors: ['R'],
+          color_identity: ['R'],
+          oracle_text: '',
+        },
+      },
+      {
+        id: 'croaking_frog_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        basePower: 1,
+        baseToughness: 1,
+        counters: {},
+        card: {
+          id: 'croaking_frog_card_1',
+          name: 'Frog Token',
+          type_line: 'Creature - Frog',
+          power: '1',
+          toughness: '1',
+          colors: ['G'],
+          color_identity: ['G'],
+          oracle_text: '',
+        },
+      },
+    ];
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const io = createMockIo(emitted);
+    const { socket, handlers } = createMockSocket(playerId, counterpartGameId, emitted);
+
+    registerInteractionHandlers(io as any, socket as any);
+    registerResolutionHandlers(io as any, socket as any);
+
+    await handlers['activateGraveyardAbility']({
+      gameId: counterpartGameId,
+      cardId: 'croaking_counterpart_1',
+      abilityId: 'flashback',
+    });
+
+    const targetStep = ResolutionQueueManager
+      .getStepsForPlayer(counterpartGameId, playerId)
+      .find((step: any) => (step as any)?.graveyardSpellCastTargetSelection === true) as any;
+    expect(targetStep).toBeDefined();
+    expect((targetStep.validTargets || []).map((target: any) => target.id)).toEqual(['croaking_target_1']);
+
+    await handlers['submitResolutionResponse']({
+      gameId: counterpartGameId,
+      stepId: String(targetStep.id),
+      selections: ['croaking_target_1'],
+    });
+
+    game.resolveTopOfStack();
+
+    const battlefield = (game.state as any).battlefield || [];
+    const tokenCopy = battlefield.find((perm: any) => perm?.isToken === true && String(perm?.copiedFromPermanentId || '') === 'croaking_target_1');
+    const tokenTypeLine = String(tokenCopy?.card?.type_line || '').toLowerCase();
+    expect(tokenCopy).toBeDefined();
+    expect(String(tokenCopy?.controller || '')).toBe(playerId);
+    expect(Number(tokenCopy?.basePower || 0)).toBe(1);
+    expect(Number(tokenCopy?.baseToughness || 0)).toBe(1);
+    expect(tokenCopy?.card?.colors || []).toEqual(['G']);
+    expect(tokenTypeLine).toContain('frog');
+    expect(tokenTypeLine).not.toContain('goblin');
+
+    const zones = (game.state as any).zones?.[playerId];
+    expect((zones?.exile || []).map((card: any) => card.id)).toContain('croaking_counterpart_1');
+  });
+
+  it('replay resolveTopOfStack restores Croaking Counterpart as a 1/1 green Frog copy', async () => {
+    const replayGameId = `${gameId}_croaking_replay`;
+    const { game, playerId } = await seedGame(
+      replayGameId,
+      'croaking_counterpart_replay_1',
+      "Create a token that's a copy of target non-Frog creature, except it's a 1/1 green Frog.\nFlashback {3}{G}{U}",
+      {
+        manaPool: { white: 0, blue: 1, black: 0, red: 0, green: 1, colorless: 3 },
+        name: 'Croaking Counterpart',
+        typeLine: 'Sorcery',
+      },
+    );
+    (game.state as any).battlefield = [
+      {
+        id: 'croaking_replay_target_1',
+        controller: 'p2',
+        owner: 'p2',
+        tapped: false,
+        basePower: 2,
+        baseToughness: 1,
+        counters: {},
+        card: {
+          id: 'croaking_replay_target_card_1',
+          name: 'Goblin Piker',
+          type_line: 'Creature - Goblin Warrior',
+          power: '2',
+          toughness: '1',
+          colors: ['R'],
+          color_identity: ['R'],
+          oracle_text: '',
+        },
+      },
+    ];
+
+    game.applyEvent({
+      type: 'activateGraveyardAbility',
+      playerId,
+      cardId: 'croaking_counterpart_replay_1',
+      abilityId: 'flashback',
+      stackId: 'stack_croaking_counterpart_replay_1',
+      manaCost: '{3}{G}{U}',
+      targets: ['croaking_replay_target_1'],
+    } as any);
+
+    game.applyEvent({ type: 'resolveTopOfStack' } as any);
+
+    const battlefield = (game.state as any).battlefield || [];
+    const tokenCopy = battlefield.find((perm: any) => perm?.isToken === true && String(perm?.copiedFromPermanentId || '') === 'croaking_replay_target_1');
+    const tokenTypeLine = String(tokenCopy?.card?.type_line || '').toLowerCase();
+    expect(tokenCopy).toBeDefined();
+    expect(String(tokenCopy?.controller || '')).toBe(playerId);
+    expect(Number(tokenCopy?.basePower || 0)).toBe(1);
+    expect(Number(tokenCopy?.baseToughness || 0)).toBe(1);
+    expect(tokenCopy?.card?.colors || []).toEqual(['G']);
+    expect(tokenTypeLine).toContain('frog');
+    expect(tokenTypeLine).not.toContain('goblin');
+
+    const zones = (game.state as any).zones?.[playerId];
+    expect((zones?.exile || []).map((card: any) => card.id)).toContain('croaking_counterpart_replay_1');
+  });
+
   it('live flashback Think Twice draws a card and exiles itself on resolution', async () => {
     const thinkTwiceGameId = `${gameId}_think_twice_live`;
     const { game, playerId } = await seedGame(
@@ -2416,6 +3160,152 @@ describe('cast-from-graveyard replay semantics (integration)', () => {
     expect((zones?.hand || []).map((card: any) => card.id)).toEqual(['think_twice_replay_draw_1']);
     expect((zones?.exile || []).map((card: any) => card.id)).toContain('think_twice_replay_1');
     expect((((game as any).libraries.get(playerId) || []) as any[]).map((card: any) => card.id)).toEqual([]);
+  });
+
+  it("live flashback Moment's Peace prevents combat damage and exiles itself", async () => {
+    const momentsPeaceGameId = `${gameId}_moments_peace_live`;
+    const { game, playerId } = await seedGame(
+      momentsPeaceGameId,
+      'moments_peace_1',
+      'Prevent all combat damage that would be dealt this turn.\nFlashback {2}{G} (You may cast this card from your graveyard for its flashback cost. Then exile it.)',
+      {
+        manaPool: { white: 0, blue: 0, black: 0, red: 0, green: 1, colorless: 2 },
+        name: "Moment's Peace",
+        typeLine: 'Instant',
+      },
+    );
+    const attackingPlayerId = 'p2';
+    (game.state as any).players = [
+      { id: playerId, name: 'P1', spectator: false, life: 40 },
+      { id: attackingPlayerId, name: 'P2', spectator: false, life: 40 },
+    ];
+    (game.state as any).life = { [playerId]: 40, [attackingPlayerId]: 40 };
+    (game.state as any).zones[attackingPlayerId] = { hand: [], handCount: 0, library: [], libraryCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0 };
+    (game.state as any).manaPool[attackingPlayerId] = { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 };
+    (game.state as any).turnPlayer = attackingPlayerId;
+    (game.state as any).activePlayer = attackingPlayerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).phase = 'combat';
+    (game.state as any).step = 'DECLARE_BLOCKERS';
+    (game.state as any).turn = 1;
+    (game.state as any).turnNumber = 1;
+    (game.state as any).blockersDeclaredBy = [playerId];
+    (game.state as any).battlefield = [
+      {
+        id: 'moments_peace_attacker_1',
+        owner: attackingPlayerId,
+        controller: attackingPlayerId,
+        tapped: true,
+        attacking: playerId,
+        blockedBy: [],
+        basePower: 4,
+        baseToughness: 4,
+        card: {
+          id: 'moments_peace_attacker_card_1',
+          name: 'Hill Giant',
+          type_line: 'Creature - Giant',
+          power: '4',
+          toughness: '4',
+          oracle_text: '',
+        },
+      },
+    ];
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const io = createMockIo(emitted);
+    const { socket, handlers } = createMockSocket(playerId, momentsPeaceGameId, emitted);
+
+    registerInteractionHandlers(io as any, socket as any);
+    registerResolutionHandlers(io as any, socket as any);
+
+    await handlers['activateGraveyardAbility']({
+      gameId: momentsPeaceGameId,
+      cardId: 'moments_peace_1',
+      abilityId: 'flashback',
+    });
+
+    game.resolveTopOfStack();
+
+    const zones = (game.state as any).zones?.[playerId];
+    expect((zones?.exile || []).map((card: any) => card.id)).toContain('moments_peace_1');
+    expect(((game.state as any).damagePreventionEffects || []).some((effect: any) => effect?.combatOnly === true && effect?.targetSourceId === '*')).toBe(true);
+
+    (game as any).nextStep();
+
+    expect((game.state as any).step).toBe('DAMAGE');
+    expect((game.state as any).life[playerId]).toBe(40);
+    expect(((game.state as any).damageTakenThisTurnByPlayer || {})[playerId] || 0).toBe(0);
+  });
+
+  it("replay resolveTopOfStack restores Moment's Peace prevention-and-exile results", async () => {
+    const replayGameId = `${gameId}_moments_peace_replay`;
+    const { game, playerId } = await seedGame(
+      replayGameId,
+      'moments_peace_replay_1',
+      'Prevent all combat damage that would be dealt this turn.\nFlashback {2}{G} (You may cast this card from your graveyard for its flashback cost. Then exile it.)',
+      {
+        manaPool: { white: 0, blue: 0, black: 0, red: 0, green: 1, colorless: 2 },
+        name: "Moment's Peace",
+        typeLine: 'Instant',
+      },
+    );
+    const attackingPlayerId = 'p2';
+    (game.state as any).players = [
+      { id: playerId, name: 'P1', spectator: false, life: 40 },
+      { id: attackingPlayerId, name: 'P2', spectator: false, life: 40 },
+    ];
+    (game.state as any).life = { [playerId]: 40, [attackingPlayerId]: 40 };
+    (game.state as any).zones[attackingPlayerId] = { hand: [], handCount: 0, library: [], libraryCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0 };
+    (game.state as any).manaPool[attackingPlayerId] = { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 };
+    (game.state as any).turnPlayer = attackingPlayerId;
+    (game.state as any).activePlayer = attackingPlayerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).phase = 'combat';
+    (game.state as any).step = 'DECLARE_BLOCKERS';
+    (game.state as any).turn = 1;
+    (game.state as any).turnNumber = 1;
+    (game.state as any).blockersDeclaredBy = [playerId];
+    (game.state as any).battlefield = [
+      {
+        id: 'moments_peace_replay_attacker_1',
+        owner: attackingPlayerId,
+        controller: attackingPlayerId,
+        tapped: true,
+        attacking: playerId,
+        blockedBy: [],
+        basePower: 4,
+        baseToughness: 4,
+        card: {
+          id: 'moments_peace_replay_attacker_card_1',
+          name: 'Hill Giant',
+          type_line: 'Creature - Giant',
+          power: '4',
+          toughness: '4',
+          oracle_text: '',
+        },
+      },
+    ];
+
+    game.applyEvent({
+      type: 'activateGraveyardAbility',
+      playerId,
+      cardId: 'moments_peace_replay_1',
+      abilityId: 'flashback',
+      stackId: 'stack_moments_peace_replay_1',
+      manaCost: '{2}{G}',
+    } as any);
+
+    game.applyEvent({ type: 'resolveTopOfStack' } as any);
+
+    const zones = (game.state as any).zones?.[playerId];
+    expect((zones?.exile || []).map((card: any) => card.id)).toContain('moments_peace_replay_1');
+    expect(((game.state as any).damagePreventionEffects || []).some((effect: any) => effect?.combatOnly === true && effect?.targetSourceId === '*')).toBe(true);
+
+    (game as any).nextStep();
+
+    expect((game.state as any).step).toBe('DAMAGE');
+    expect((game.state as any).life[playerId]).toBe(40);
+    expect(((game.state as any).damageTakenThisTurnByPlayer || {})[playerId] || 0).toBe(0);
   });
 
   it('live flashback Bulk Up doubles the target creature\'s power and exiles itself on resolution', async () => {
@@ -2540,12 +3430,12 @@ describe('cast-from-graveyard replay semantics (integration)', () => {
     expect((zones?.exile || []).map((card: any) => card.id)).toContain('bulk_up_replay_1');
   });
 
-  it('live flashback Artful Dodge gives the targeted creature unblockable and exiles itself on resolution', async () => {
+  it('live flashback Artful Dodge makes the target creature unblockable and exiles itself', async () => {
     const artfulDodgeGameId = `${gameId}_artful_dodge_live`;
     const { game, playerId } = await seedGame(
       artfulDodgeGameId,
       'artful_dodge_1',
-      "Target creature can't be blocked this turn.\nFlashback {U}",
+      "Target creature can't be blocked this turn.\nFlashback {U} (You may cast this card from your graveyard for its flashback cost. Then exile it.)",
       {
         manaPool: { white: 0, blue: 1, black: 0, red: 0, green: 0, colorless: 0 },
         name: 'Artful Dodge',
@@ -2563,11 +3453,11 @@ describe('cast-from-graveyard replay semantics (integration)', () => {
         temporaryAbilities: [],
         card: {
           id: 'artful_dodge_target_card_1',
-          name: 'Merfolk Looter',
-          type_line: 'Creature - Merfolk Rogue',
+          name: 'Runeclaw Bear',
+          type_line: 'Creature - Bear',
           oracle_text: '',
-          power: '1',
-          toughness: '1',
+          power: '2',
+          toughness: '2',
         },
       },
     ];
@@ -2601,6 +3491,65 @@ describe('cast-from-graveyard replay semantics (integration)', () => {
       ]),
     );
     expect((zones?.exile || []).map((card: any) => card.id)).toContain('artful_dodge_1');
+  });
+
+  it('replay resolveTopOfStack restores Artful Dodge\'s unblockable modifier and exile result', async () => {
+    const replayGameId = `${gameId}_artful_dodge_replay`;
+    const { game, playerId } = await seedGame(
+      replayGameId,
+      'artful_dodge_replay_1',
+      "Target creature can't be blocked this turn.\nFlashback {U} (You may cast this card from your graveyard for its flashback cost. Then exile it.)",
+      {
+        manaPool: { white: 0, blue: 1, black: 0, red: 0, green: 0, colorless: 0 },
+        name: 'Artful Dodge',
+        typeLine: 'Sorcery',
+      },
+    );
+    (game.state as any).battlefield = [
+      {
+        id: 'artful_dodge_replay_target_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        counters: {},
+        temporaryPTMods: [],
+        temporaryAbilities: [],
+        card: {
+          id: 'artful_dodge_replay_target_card_1',
+          name: 'Runeclaw Bear',
+          type_line: 'Creature - Bear',
+          oracle_text: '',
+          power: '2',
+          toughness: '2',
+        },
+      },
+    ];
+
+    game.applyEvent({
+      type: 'activateGraveyardAbility',
+      playerId,
+      cardId: 'artful_dodge_replay_1',
+      abilityId: 'flashback',
+      stackId: 'stack_artful_dodge_replay_1',
+      manaCost: '{U}',
+      targets: ['artful_dodge_replay_target_1'],
+    } as any);
+
+    game.applyEvent({ type: 'resolveTopOfStack' } as any);
+
+    const creature = ((game.state as any).battlefield || []).find((entry: any) => entry.id === 'artful_dodge_replay_target_1');
+    const temporaryAbilities = Array.isArray(creature?.temporaryAbilities) ? creature.temporaryAbilities : [];
+    const zones = (game.state as any).zones?.[playerId];
+
+    expect(temporaryAbilities).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          ability: "can't be blocked",
+          expiresAt: 'end_of_turn',
+        }),
+      ]),
+    );
+    expect((zones?.exile || []).map((card: any) => card.id)).toContain('artful_dodge_replay_1');
   });
 
   it('live flashback Strike It Rich creates a Treasure token and exiles itself on resolution', async () => {
@@ -2820,6 +3769,88 @@ describe('cast-from-graveyard replay semantics (integration)', () => {
     expect((game.state as any).life?.[playerId]).toBe(17);
   });
 
+  it('live flashback Increasing Devotion creates ten Human tokens and exiles itself', async () => {
+    const devotionGameId = `${gameId}_increasing_devotion_live`;
+    const { game, playerId } = await seedGame(
+      devotionGameId,
+      'increasing_devotion_1',
+      'Create five 1/1 white Human creature tokens. If this spell was cast from a graveyard, create ten of those tokens instead.\nFlashback {7}{W}{W}',
+      {
+        manaPool: { white: 2, blue: 0, black: 0, red: 0, green: 0, colorless: 7 },
+        name: 'Increasing Devotion',
+        typeLine: 'Sorcery',
+      },
+    );
+    (game.state as any).battlefield = [];
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const io = createMockIo(emitted);
+    const { socket, handlers } = createMockSocket(playerId, devotionGameId, emitted);
+
+    registerInteractionHandlers(io as any, socket as any);
+    registerResolutionHandlers(io as any, socket as any);
+
+    await handlers['activateGraveyardAbility']({
+      gameId: devotionGameId,
+      cardId: 'increasing_devotion_1',
+      abilityId: 'flashback',
+    });
+
+    game.resolveTopOfStack();
+
+    const battlefield = (game.state as any).battlefield || [];
+    const humanTokens = battlefield.filter((perm: any) => perm?.isToken === true && String(perm?.card?.type_line || '').includes('Human'));
+    const zones = (game.state as any).zones?.[playerId];
+
+    expect(humanTokens).toHaveLength(10);
+    expect(humanTokens.every((perm: any) => Number(perm?.basePower || 0) === 1)).toBe(true);
+    expect(humanTokens.every((perm: any) => Number(perm?.baseToughness || 0) === 1)).toBe(true);
+    expect(humanTokens.every((perm: any) => {
+      const colors = perm?.card?.colors || [];
+      return colors.includes('W') || colors.includes('white');
+    })).toBe(true);
+    expect((zones?.exile || []).map((card: any) => card.id)).toContain('increasing_devotion_1');
+  });
+
+  it('replay resolveTopOfStack restores Increasing Devotion token-and-exile results', async () => {
+    const replayGameId = `${gameId}_increasing_devotion_replay`;
+    const { game, playerId } = await seedGame(
+      replayGameId,
+      'increasing_devotion_replay_1',
+      'Create five 1/1 white Human creature tokens. If this spell was cast from a graveyard, create ten of those tokens instead.\nFlashback {7}{W}{W}',
+      {
+        manaPool: { white: 2, blue: 0, black: 0, red: 0, green: 0, colorless: 7 },
+        name: 'Increasing Devotion',
+        typeLine: 'Sorcery',
+      },
+    );
+    (game.state as any).battlefield = [];
+
+    game.applyEvent({
+      type: 'activateGraveyardAbility',
+      playerId,
+      cardId: 'increasing_devotion_replay_1',
+      abilityId: 'flashback',
+      stackId: 'stack_increasing_devotion_replay_1',
+      manaCost: '{7}{W}{W}',
+    } as any);
+
+    game.applyEvent({ type: 'resolveTopOfStack' } as any);
+
+    const battlefield = (game.state as any).battlefield || [];
+    const humanTokens = battlefield.filter((perm: any) => perm?.isToken === true && String(perm?.card?.type_line || '').includes('Human'));
+    const zones = (game.state as any).zones?.[playerId];
+
+    expect(humanTokens).toHaveLength(10);
+    expect(humanTokens.every((perm: any) => Number(perm?.basePower || 0) === 1)).toBe(true);
+    expect(humanTokens.every((perm: any) => Number(perm?.baseToughness || 0) === 1)).toBe(true);
+    expect(humanTokens.every((perm: any) => {
+      const colors = perm?.card?.colors || [];
+      return colors.includes('W') || colors.includes('white');
+    })).toBe(true);
+    expect((zones?.exile || []).map((card: any) => card.id)).toContain('increasing_devotion_replay_1');
+  });
+
   it('live flashback Army of the Damned creates thirteen tapped 2/2 black Zombie tokens and exiles itself on resolution', async () => {
     const armyGameId = `${gameId}_army_live`;
     const { game, playerId } = await seedGame(
@@ -2992,6 +4023,1575 @@ describe('cast-from-graveyard replay semantics (integration)', () => {
 
     const zones = (game.state as any).zones?.[playerId];
     expect((zones?.exile || []).map((card: any) => card.id)).toContain('otherworldly_gaze_replay_1');
+  });
+
+  it('live flashback Forbidden Alchemy queues a top-four selection, moves the chosen card to hand, and exiles itself', async () => {
+    const alchemyGameId = `${gameId}_forbidden_alchemy_live`;
+    const { game, playerId } = await seedGame(
+      alchemyGameId,
+      'forbidden_alchemy_1',
+      'Look at the top four cards of your library. Put one of them into your hand and the rest into your graveyard.\nFlashback {6}{B}',
+      {
+        manaPool: { white: 0, blue: 0, black: 1, red: 0, green: 0, colorless: 6 },
+        name: 'Forbidden Alchemy',
+        typeLine: 'Instant',
+      },
+    );
+    const libraryCards = [
+      { id: 'forbidden_alchemy_top_1', name: 'Island', type_line: 'Basic Land - Island', oracle_text: '', zone: 'library' },
+      { id: 'forbidden_alchemy_top_2', name: 'Go for the Throat', type_line: 'Instant', oracle_text: 'Destroy target nonartifact creature.', zone: 'library' },
+      { id: 'forbidden_alchemy_top_3', name: 'Swamp', type_line: 'Basic Land - Swamp', oracle_text: '', zone: 'library' },
+      { id: 'forbidden_alchemy_top_4', name: 'Think Twice', type_line: 'Instant', oracle_text: 'Draw a card.\nFlashback {2}{U}', zone: 'library' },
+      { id: 'forbidden_alchemy_bottom_1', name: 'Ponder', type_line: 'Sorcery', oracle_text: 'Look at the top three cards of your library, then put them back in any order. You may shuffle. Draw a card.', zone: 'library' },
+    ];
+    (game.state as any).zones[playerId].library = libraryCards.map((card) => ({ ...card }));
+    (game.state as any).zones[playerId].libraryCount = libraryCards.length;
+    (game as any).libraries.set(playerId, libraryCards.map((card) => ({ ...card })));
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const io = createMockIo(emitted);
+    const { socket, handlers } = createMockSocket(playerId, alchemyGameId, emitted);
+
+    registerInteractionHandlers(io as any, socket as any);
+    registerResolutionHandlers(io as any, socket as any);
+
+    await handlers['activateGraveyardAbility']({
+      gameId: alchemyGameId,
+      cardId: 'forbidden_alchemy_1',
+      abilityId: 'flashback',
+    });
+
+    game.resolveTopOfStack();
+
+    const searchStep = ResolutionQueueManager
+      .getStepsForPlayer(alchemyGameId, playerId)
+      .find((step: any) => step?.type === ResolutionStepType.LIBRARY_SEARCH) as any;
+    expect(searchStep).toBeDefined();
+    expect(Number(searchStep?.minSelections || 0)).toBe(1);
+    expect(Number(searchStep?.maxSelections || 0)).toBe(1);
+    expect(String(searchStep?.destination || '')).toBe('hand');
+    expect(String(searchStep?.remainderDestination || '')).toBe('graveyard');
+    expect(Boolean(searchStep?.reveal)).toBe(false);
+    expect((searchStep?.availableCards || []).map((card: any) => card.id)).toEqual([
+      'forbidden_alchemy_top_1',
+      'forbidden_alchemy_top_2',
+      'forbidden_alchemy_top_3',
+      'forbidden_alchemy_top_4',
+    ]);
+
+    await handlers['submitResolutionResponse']({
+      gameId: alchemyGameId,
+      stepId: String(searchStep.id),
+      selections: ['forbidden_alchemy_top_2'],
+    });
+
+    const zones = (game.state as any).zones?.[playerId];
+    expect((zones?.hand || []).map((card: any) => card.id)).toEqual(['forbidden_alchemy_top_2']);
+    expect((zones?.graveyard || []).map((card: any) => card.id)).toEqual([
+      'forbidden_alchemy_top_1',
+      'forbidden_alchemy_top_3',
+      'forbidden_alchemy_top_4',
+    ]);
+    expect(Number(zones?.libraryCount || 0)).toBe(1);
+    expect((((game as any).libraries.get(playerId) || []) as any[]).map((card: any) => card.id)).toEqual(['forbidden_alchemy_bottom_1']);
+    expect((zones?.exile || []).map((card: any) => card.id)).toContain('forbidden_alchemy_1');
+  });
+
+  it('replay resolveTopOfStack restores Forbidden Alchemy top-four selection prompt state', async () => {
+    const replayGameId = `${gameId}_forbidden_alchemy_replay`;
+    const { game, playerId } = await seedGame(
+      replayGameId,
+      'forbidden_alchemy_replay_1',
+      'Look at the top four cards of your library. Put one of them into your hand and the rest into your graveyard.\nFlashback {6}{B}',
+      {
+        manaPool: { white: 0, blue: 0, black: 1, red: 0, green: 0, colorless: 6 },
+        name: 'Forbidden Alchemy',
+        typeLine: 'Instant',
+      },
+    );
+    const libraryCards = [
+      { id: 'forbidden_alchemy_replay_top_1', name: 'Island', type_line: 'Basic Land - Island', oracle_text: '', zone: 'library' },
+      { id: 'forbidden_alchemy_replay_top_2', name: 'Go for the Throat', type_line: 'Instant', oracle_text: 'Destroy target nonartifact creature.', zone: 'library' },
+      { id: 'forbidden_alchemy_replay_top_3', name: 'Swamp', type_line: 'Basic Land - Swamp', oracle_text: '', zone: 'library' },
+      { id: 'forbidden_alchemy_replay_top_4', name: 'Think Twice', type_line: 'Instant', oracle_text: 'Draw a card.\nFlashback {2}{U}', zone: 'library' },
+      { id: 'forbidden_alchemy_replay_bottom_1', name: 'Ponder', type_line: 'Sorcery', oracle_text: 'Look at the top three cards of your library, then put them back in any order. You may shuffle. Draw a card.', zone: 'library' },
+    ];
+    (game.state as any).zones[playerId].library = libraryCards.map((card) => ({ ...card }));
+    (game.state as any).zones[playerId].libraryCount = libraryCards.length;
+    (game as any).libraries.set(playerId, libraryCards.map((card) => ({ ...card })));
+
+    game.applyEvent({
+      type: 'activateGraveyardAbility',
+      playerId,
+      cardId: 'forbidden_alchemy_replay_1',
+      abilityId: 'flashback',
+      stackId: 'stack_forbidden_alchemy_replay_1',
+      manaCost: '{6}{B}',
+    } as any);
+
+    game.applyEvent({ type: 'resolveTopOfStack' } as any);
+
+    const searchStep = ResolutionQueueManager
+      .getStepsForPlayer(replayGameId, playerId)
+      .find((step: any) => step?.type === ResolutionStepType.LIBRARY_SEARCH) as any;
+    expect(searchStep).toBeDefined();
+    expect(Number(searchStep?.minSelections || 0)).toBe(1);
+    expect(Number(searchStep?.maxSelections || 0)).toBe(1);
+    expect(String(searchStep?.remainderDestination || '')).toBe('graveyard');
+    expect((searchStep?.availableCards || []).map((card: any) => card.id)).toEqual([
+      'forbidden_alchemy_replay_top_1',
+      'forbidden_alchemy_replay_top_2',
+      'forbidden_alchemy_replay_top_3',
+      'forbidden_alchemy_replay_top_4',
+    ]);
+
+    const zones = (game.state as any).zones?.[playerId];
+    expect((zones?.exile || []).map((card: any) => card.id)).toContain('forbidden_alchemy_replay_1');
+  });
+
+  it('live flashback Memory Deluge uses the paid flashback cost for X, resolves a top-seven selection, and exiles itself', async () => {
+    const delugeGameId = `${gameId}_memory_deluge_live`;
+    const { game, playerId } = await seedGame(
+      delugeGameId,
+      'memory_deluge_1',
+      'Look at the top X cards of your library, where X is the amount of mana spent to cast this spell. Put two of them into your hand and the rest on the bottom of your library in a random order.\nFlashback {5}{U}{U}',
+      {
+        manaPool: { white: 0, blue: 2, black: 0, red: 0, green: 0, colorless: 5 },
+        name: 'Memory Deluge',
+        typeLine: 'Instant',
+      },
+    );
+    const libraryCards = [
+      { id: 'memory_deluge_top_1', name: 'Island', type_line: 'Basic Land - Island', oracle_text: '', zone: 'library' },
+      { id: 'memory_deluge_top_2', name: 'Impulse', type_line: 'Instant', oracle_text: 'Look at the top four cards of your library. Put one of them into your hand and the rest on the bottom of your library in any order.', zone: 'library' },
+      { id: 'memory_deluge_top_3', name: 'Consider', type_line: 'Instant', oracle_text: 'Surveil 1, then draw a card.', zone: 'library' },
+      { id: 'memory_deluge_top_4', name: 'Swamp', type_line: 'Basic Land - Swamp', oracle_text: '', zone: 'library' },
+      { id: 'memory_deluge_top_5', name: 'Arcane Signet', type_line: 'Artifact', oracle_text: '{T}: Add one mana of any color in your commander\'s color identity.', zone: 'library' },
+      { id: 'memory_deluge_top_6', name: 'Fact or Fiction', type_line: 'Instant', oracle_text: 'Reveal the top five cards of your library. An opponent separates those cards into two piles. Put one pile into your hand and the other into your graveyard.', zone: 'library' },
+      { id: 'memory_deluge_top_7', name: 'Plains', type_line: 'Basic Land - Plains', oracle_text: '', zone: 'library' },
+      { id: 'memory_deluge_bottom_1', name: 'Opt', type_line: 'Instant', oracle_text: 'Scry 1, then draw a card.', zone: 'library' },
+    ];
+    (game.state as any).zones[playerId].library = libraryCards.map((card) => ({ ...card }));
+    (game.state as any).zones[playerId].libraryCount = libraryCards.length;
+    (game as any).libraries.set(playerId, libraryCards.map((card) => ({ ...card })));
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const io = createMockIo(emitted);
+    const { socket, handlers } = createMockSocket(playerId, delugeGameId, emitted);
+
+    registerInteractionHandlers(io as any, socket as any);
+    registerResolutionHandlers(io as any, socket as any);
+
+    await handlers['activateGraveyardAbility']({
+      gameId: delugeGameId,
+      cardId: 'memory_deluge_1',
+      abilityId: 'flashback',
+    });
+
+    game.resolveTopOfStack();
+
+    const searchStep = ResolutionQueueManager
+      .getStepsForPlayer(delugeGameId, playerId)
+      .find((step: any) => step?.type === ResolutionStepType.LIBRARY_SEARCH) as any;
+    expect(searchStep).toBeDefined();
+    expect(Number(searchStep?.contextValue || 0)).toBe(7);
+    expect(Number(searchStep?.minSelections || 0)).toBe(2);
+    expect(Number(searchStep?.maxSelections || 0)).toBe(2);
+    expect(String(searchStep?.remainderDestination || '')).toBe('bottom');
+    expect(Boolean(searchStep?.remainderRandomOrder)).toBe(true);
+    expect((searchStep?.availableCards || []).map((card: any) => card.id)).toEqual([
+      'memory_deluge_top_1',
+      'memory_deluge_top_2',
+      'memory_deluge_top_3',
+      'memory_deluge_top_4',
+      'memory_deluge_top_5',
+      'memory_deluge_top_6',
+      'memory_deluge_top_7',
+    ]);
+
+    await handlers['submitResolutionResponse']({
+      gameId: delugeGameId,
+      stepId: String(searchStep.id),
+      selections: ['memory_deluge_top_2', 'memory_deluge_top_6'],
+    });
+
+    const zones = (game.state as any).zones?.[playerId];
+    expect((zones?.hand || []).map((card: any) => card.id).sort()).toEqual([
+      'memory_deluge_top_2',
+      'memory_deluge_top_6',
+    ]);
+    expect(Number(zones?.libraryCount || 0)).toBe(6);
+    expect((((game as any).libraries.get(playerId) || []) as any[]).map((card: any) => card.id).sort()).toEqual([
+      'memory_deluge_bottom_1',
+      'memory_deluge_top_1',
+      'memory_deluge_top_3',
+      'memory_deluge_top_4',
+      'memory_deluge_top_5',
+      'memory_deluge_top_7',
+    ]);
+    expect((zones?.exile || []).map((card: any) => card.id)).toContain('memory_deluge_1');
+  });
+
+  it('replay resolveTopOfStack restores Memory Deluge top-seven selection prompt state from its flashback cost', async () => {
+    const replayGameId = `${gameId}_memory_deluge_replay`;
+    const { game, playerId } = await seedGame(
+      replayGameId,
+      'memory_deluge_replay_1',
+      'Look at the top X cards of your library, where X is the amount of mana spent to cast this spell. Put two of them into your hand and the rest on the bottom of your library in a random order.\nFlashback {5}{U}{U}',
+      {
+        manaPool: { white: 0, blue: 2, black: 0, red: 0, green: 0, colorless: 5 },
+        name: 'Memory Deluge',
+        typeLine: 'Instant',
+      },
+    );
+    const libraryCards = [
+      { id: 'memory_deluge_replay_top_1', name: 'Island', type_line: 'Basic Land - Island', oracle_text: '', zone: 'library' },
+      { id: 'memory_deluge_replay_top_2', name: 'Impulse', type_line: 'Instant', oracle_text: 'Look at the top four cards of your library. Put one of them into your hand and the rest on the bottom of your library in any order.', zone: 'library' },
+      { id: 'memory_deluge_replay_top_3', name: 'Consider', type_line: 'Instant', oracle_text: 'Surveil 1, then draw a card.', zone: 'library' },
+      { id: 'memory_deluge_replay_top_4', name: 'Swamp', type_line: 'Basic Land - Swamp', oracle_text: '', zone: 'library' },
+      { id: 'memory_deluge_replay_top_5', name: 'Arcane Signet', type_line: 'Artifact', oracle_text: '{T}: Add one mana of any color in your commander\'s color identity.', zone: 'library' },
+      { id: 'memory_deluge_replay_top_6', name: 'Fact or Fiction', type_line: 'Instant', oracle_text: 'Reveal the top five cards of your library. An opponent separates those cards into two piles. Put one pile into your hand and the other into your graveyard.', zone: 'library' },
+      { id: 'memory_deluge_replay_top_7', name: 'Plains', type_line: 'Basic Land - Plains', oracle_text: '', zone: 'library' },
+      { id: 'memory_deluge_replay_bottom_1', name: 'Opt', type_line: 'Instant', oracle_text: 'Scry 1, then draw a card.', zone: 'library' },
+    ];
+    (game.state as any).zones[playerId].library = libraryCards.map((card) => ({ ...card }));
+    (game.state as any).zones[playerId].libraryCount = libraryCards.length;
+    (game as any).libraries.set(playerId, libraryCards.map((card) => ({ ...card })));
+
+    game.applyEvent({
+      type: 'activateGraveyardAbility',
+      playerId,
+      cardId: 'memory_deluge_replay_1',
+      abilityId: 'flashback',
+      stackId: 'stack_memory_deluge_replay_1',
+      manaCost: '{5}{U}{U}',
+    } as any);
+
+    game.applyEvent({ type: 'resolveTopOfStack' } as any);
+
+    const searchStep = ResolutionQueueManager
+      .getStepsForPlayer(replayGameId, playerId)
+      .find((step: any) => step?.type === ResolutionStepType.LIBRARY_SEARCH) as any;
+    expect(searchStep).toBeDefined();
+    expect(Number(searchStep?.contextValue || 0)).toBe(7);
+    expect(Number(searchStep?.minSelections || 0)).toBe(2);
+    expect(Number(searchStep?.maxSelections || 0)).toBe(2);
+    expect(String(searchStep?.remainderDestination || '')).toBe('bottom');
+    expect(Boolean(searchStep?.remainderRandomOrder)).toBe(true);
+    expect((searchStep?.availableCards || []).map((card: any) => card.id)).toEqual([
+      'memory_deluge_replay_top_1',
+      'memory_deluge_replay_top_2',
+      'memory_deluge_replay_top_3',
+      'memory_deluge_replay_top_4',
+      'memory_deluge_replay_top_5',
+      'memory_deluge_replay_top_6',
+      'memory_deluge_replay_top_7',
+    ]);
+
+    const zones = (game.state as any).zones?.[playerId];
+    expect((zones?.exile || []).map((card: any) => card.id)).toContain('memory_deluge_replay_1');
+  });
+
+  it('live flashback Siphon Insight exiles a face-down card from target opponent\'s library and lets it be cast with off-color mana', async () => {
+    const siphonGameId = `${gameId}_siphon_insight_live`;
+    const { game, playerId } = await seedGame(
+      siphonGameId,
+      'siphon_insight_1',
+      "Look at the top two cards of target opponent's library. Exile one of them face down and put the other on the bottom of that library. You may play the exiled card for as long as it remains exiled, and you may spend mana as though it were mana of any color to cast that spell.\nFlashback {1}{U}{B}",
+      {
+        manaPool: { white: 0, blue: 1, black: 2, red: 0, green: 0, colorless: 0 },
+        name: 'Siphon Insight',
+        typeLine: 'Instant',
+      },
+    );
+    const opponentId = 'p2';
+    (game.state as any).players = [
+      { id: playerId, name: 'P1', spectator: false, life: 40 },
+      { id: opponentId, name: 'P2', spectator: false, life: 40 },
+    ];
+    (game.state as any).life = { [playerId]: 40, [opponentId]: 40 };
+    (game.state as any).phase = 'main';
+    (game.state as any).step = 'MAIN1';
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).activePlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).zones[opponentId] = {
+      hand: [],
+      handCount: 0,
+      library: [],
+      libraryCount: 2,
+      graveyard: [],
+      graveyardCount: 0,
+      exile: [],
+      exileCount: 0,
+    };
+    const opponentLibrary = [
+      {
+        id: 'siphon_opponent_top_1',
+        name: 'Consider',
+        type_line: 'Instant',
+        mana_cost: '{U}',
+        oracle_text: 'Surveil 1, then draw a card.',
+        zone: 'library',
+      },
+      {
+        id: 'siphon_opponent_top_2',
+        name: 'Mountain',
+        type_line: 'Basic Land - Mountain',
+        oracle_text: '',
+        zone: 'library',
+      },
+    ];
+    (game.state as any).zones[opponentId].library = opponentLibrary.map((card) => ({ ...card }));
+    (game as any).libraries.set(opponentId, opponentLibrary.map((card) => ({ ...card })));
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const io = createMockIo(emitted);
+    const { socket, handlers } = createMockSocket(playerId, siphonGameId, emitted);
+
+    registerInteractionHandlers(io as any, socket as any);
+    registerResolutionHandlers(io as any, socket as any);
+    registerGameActions(io as any, socket as any);
+
+    await handlers['activateGraveyardAbility']({
+      gameId: siphonGameId,
+      cardId: 'siphon_insight_1',
+      abilityId: 'flashback',
+    });
+
+    const targetStep = ResolutionQueueManager
+      .getStepsForPlayer(siphonGameId, playerId)
+      .find((step: any) => (step as any)?.graveyardSpellCastTargetSelection === true) as any;
+    expect(targetStep).toBeDefined();
+    expect((targetStep.validTargets || []).map((target: any) => String(target.id || ''))).toContain(opponentId);
+
+    await handlers['submitResolutionResponse']({
+      gameId: siphonGameId,
+      stepId: String(targetStep.id),
+      selections: [opponentId],
+    });
+
+    game.resolveTopOfStack();
+
+    const searchStep = ResolutionQueueManager
+      .getStepsForPlayer(siphonGameId, playerId)
+      .find((step: any) => step?.type === ResolutionStepType.LIBRARY_SEARCH) as any;
+    expect(searchStep).toBeDefined();
+    expect(String(searchStep?.searchOwnerId || '')).toBe(opponentId);
+    expect(String(searchStep?.destination || '')).toBe('exile');
+    expect(String(searchStep?.remainderDestination || '')).toBe('bottom');
+    expect(Boolean(searchStep?.destinationFaceDown)).toBe(true);
+    expect(Boolean(searchStep?.grantPlayableFromExileToController)).toBe(true);
+    expect(String(searchStep?.grantPlayableFromExileControllerId || '')).toBe(playerId);
+    expect(Boolean(searchStep?.grantPlayableFromExileSpendManaAsThoughAnyType)).toBe(true);
+    expect((searchStep?.availableCards || []).map((card: any) => card.id)).toEqual([
+      'siphon_opponent_top_1',
+      'siphon_opponent_top_2',
+    ]);
+
+    await handlers['submitResolutionResponse']({
+      gameId: siphonGameId,
+      stepId: String(searchStep.id),
+      selections: ['siphon_opponent_top_1'],
+    });
+
+    const opponentZones = (game.state as any).zones?.[opponentId];
+    const exiledCard = (opponentZones?.exile || []).find((card: any) => String(card?.id || '') === 'siphon_opponent_top_1');
+    expect(exiledCard).toBeDefined();
+    expect(exiledCard?.faceDown).toBe(true);
+    expect(exiledCard?.spendManaAsThoughAnyType).toBe(true);
+    expect((game.state as any).playableFromExile?.[playerId]?.siphon_opponent_top_1).toBe(true);
+    expect(Number(opponentZones?.libraryCount || 0)).toBe(1);
+    expect((((game as any).libraries.get(opponentId) || []) as any[]).map((card: any) => card.id)).toEqual(['siphon_opponent_top_2']);
+
+    (game.state as any).manaPool[playerId] = { white: 0, blue: 0, black: 1, red: 0, green: 0, colorless: 0 };
+
+    const exileCandidate = getCastableSpellCandidates({ state: game.state, libraries: (game as any).libraries } as any, playerId as any, {
+      mode: 'main',
+      allowUnknownCostFallback: false,
+    }).find((candidate: any) => String(candidate?.card?.id || '') === 'siphon_opponent_top_1');
+    expect(exileCandidate).toEqual(expect.objectContaining({
+      sourceZone: 'exile',
+      castMethod: 'playable_from_exile',
+      manaCost: '{U}',
+    }));
+
+    await handlers['requestCastSpell']({ gameId: siphonGameId, cardId: 'siphon_opponent_top_1', fromZone: 'exile' });
+
+    const errors = emitted.filter((entry) => entry.event === 'error').map((entry) => entry.payload?.code);
+    expect(errors).not.toContain('NO_PERMISSION');
+    expect(errors).not.toContain('INSUFFICIENT_MANA');
+
+    const paymentStep = ResolutionQueueManager.getQueue(siphonGameId).steps.find((step: any) =>
+      step.type === ResolutionStepType.MANA_PAYMENT_CHOICE && step.cardId === 'siphon_opponent_top_1'
+    ) as any;
+    expect(paymentStep).toBeDefined();
+
+    await handlers['submitResolutionResponse']({
+      gameId: siphonGameId,
+      stepId: String(paymentStep.id),
+      selections: {
+        payment: [
+          { permanentId: '__pool__:black', mana: 'B', count: 1 },
+        ],
+      },
+      cancelled: false,
+    });
+
+    const castStackItem = (((game.state as any).stack || []) as any[]).find((entry: any) =>
+      String(entry?.card?.id || '') === 'siphon_opponent_top_1'
+    );
+    expect(castStackItem).toBeDefined();
+    expect(String(castStackItem?.castSourceZone || castStackItem?.fromZone || '')).toBe('exile');
+
+    const controllerZones = (game.state as any).zones?.[playerId];
+    expect((controllerZones?.exile || []).map((card: any) => card.id)).toContain('siphon_insight_1');
+  });
+
+  it('replay resolveTopOfStack restores Siphon Insight target-opponent library search prompt state', async () => {
+    const replayGameId = `${gameId}_siphon_insight_replay`;
+    const { game, playerId } = await seedGame(
+      replayGameId,
+      'siphon_insight_replay_1',
+      "Look at the top two cards of target opponent's library. Exile one of them face down and put the other on the bottom of that library. You may play the exiled card for as long as it remains exiled, and you may spend mana as though it were mana of any color to cast that spell.\nFlashback {1}{U}{B}",
+      {
+        manaPool: { white: 0, blue: 1, black: 1, red: 0, green: 0, colorless: 1 },
+        name: 'Siphon Insight',
+        typeLine: 'Instant',
+      },
+    );
+    const opponentId = 'p2';
+    (game.state as any).players = [
+      { id: playerId, name: 'P1', spectator: false, life: 40 },
+      { id: opponentId, name: 'P2', spectator: false, life: 40 },
+    ];
+    (game.state as any).life = { [playerId]: 40, [opponentId]: 40 };
+    (game.state as any).zones[opponentId] = {
+      hand: [],
+      handCount: 0,
+      library: [],
+      libraryCount: 2,
+      graveyard: [],
+      graveyardCount: 0,
+      exile: [],
+      exileCount: 0,
+    };
+    const opponentLibrary = [
+      {
+        id: 'siphon_replay_top_1',
+        name: 'Consider',
+        type_line: 'Instant',
+        mana_cost: '{U}',
+        oracle_text: 'Surveil 1, then draw a card.',
+        zone: 'library',
+      },
+      {
+        id: 'siphon_replay_top_2',
+        name: 'Mountain',
+        type_line: 'Basic Land - Mountain',
+        oracle_text: '',
+        zone: 'library',
+      },
+    ];
+    (game.state as any).zones[opponentId].library = opponentLibrary.map((card) => ({ ...card }));
+    (game as any).libraries.set(opponentId, opponentLibrary.map((card) => ({ ...card })));
+
+    game.applyEvent({
+      type: 'activateGraveyardAbility',
+      playerId,
+      cardId: 'siphon_insight_replay_1',
+      abilityId: 'flashback',
+      stackId: 'stack_siphon_insight_replay_1',
+      manaCost: '{1}{U}{B}',
+      targets: [opponentId],
+    } as any);
+
+    game.applyEvent({ type: 'resolveTopOfStack' } as any);
+
+    const searchStep = ResolutionQueueManager
+      .getStepsForPlayer(replayGameId, playerId)
+      .find((step: any) => step?.type === ResolutionStepType.LIBRARY_SEARCH) as any;
+    expect(searchStep).toBeDefined();
+    expect(String(searchStep?.searchOwnerId || '')).toBe(opponentId);
+    expect(String(searchStep?.destination || '')).toBe('exile');
+    expect(String(searchStep?.remainderDestination || '')).toBe('bottom');
+    expect(Boolean(searchStep?.destinationFaceDown)).toBe(true);
+    expect(Boolean(searchStep?.grantPlayableFromExileToController)).toBe(true);
+    expect(String(searchStep?.grantPlayableFromExileControllerId || '')).toBe(playerId);
+    expect(Boolean(searchStep?.grantPlayableFromExileSpendManaAsThoughAnyType)).toBe(true);
+    expect((searchStep?.availableCards || []).map((card: any) => card.id)).toEqual([
+      'siphon_replay_top_1',
+      'siphon_replay_top_2',
+    ]);
+
+    const controllerZones = (game.state as any).zones?.[playerId];
+    expect((controllerZones?.exile || []).map((card: any) => card.id)).toContain('siphon_insight_replay_1');
+  });
+
+  it('live flashback Nibelheim Aflame damages each other creature and applies its graveyard rider', async () => {
+    const nibelheimGameId = `${gameId}_nibelheim_aflame_live`;
+    const { game, playerId } = await seedGame(
+      nibelheimGameId,
+      'nibelheim_aflame_1',
+      'Choose target creature you control. It deals damage equal to its power to each other creature. If this spell was cast from a graveyard, discard your hand and draw four cards.\nFlashback {5}{R}{R}',
+      {
+        manaPool: { white: 0, blue: 0, black: 0, red: 2, green: 0, colorless: 5 },
+        name: 'Nibelheim Aflame',
+        typeLine: 'Sorcery',
+        hand: [
+          {
+            id: 'nibelheim_hand_1',
+            name: 'Spare Mountain',
+            type_line: 'Basic Land - Mountain',
+            oracle_text: '',
+            zone: 'hand',
+          },
+          {
+            id: 'nibelheim_hand_2',
+            name: 'Spare Bolt',
+            type_line: 'Instant',
+            oracle_text: 'Lightning Bolt deals 3 damage to any target.',
+            zone: 'hand',
+          },
+        ],
+      },
+    );
+    const opponentId = 'p2';
+    (game.state as any).players = [
+      { id: playerId, name: 'P1', spectator: false, life: 40 },
+      { id: opponentId, name: 'P2', spectator: false, life: 40 },
+    ];
+    (game.state as any).life = { [playerId]: 40, [opponentId]: 40 };
+    (game.state as any).turnNumber = 7;
+    (game.state as any).zones[opponentId] = {
+      hand: [],
+      handCount: 0,
+      library: [],
+      libraryCount: 0,
+      graveyard: [],
+      graveyardCount: 0,
+      exile: [],
+      exileCount: 0,
+    };
+    (game.state as any).battlefield = [
+      {
+        id: 'nibelheim_target_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        damageMarked: 0,
+        card: {
+          id: 'nibelheim_target_card_1',
+          name: 'Ifrit',
+          type_line: 'Creature - Elemental',
+          oracle_text: '',
+          power: '3',
+          toughness: '3',
+        },
+      },
+      {
+        id: 'nibelheim_other_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        damageMarked: 0,
+        card: {
+          id: 'nibelheim_other_card_1',
+          name: 'Allied Giant',
+          type_line: 'Creature - Giant',
+          oracle_text: '',
+          power: '5',
+          toughness: '5',
+        },
+      },
+      {
+        id: 'nibelheim_other_2',
+        controller: opponentId,
+        owner: opponentId,
+        tapped: false,
+        damageMarked: 0,
+        card: {
+          id: 'nibelheim_other_card_2',
+          name: 'Enemy Beast',
+          type_line: 'Creature - Beast',
+          oracle_text: '',
+          power: '4',
+          toughness: '4',
+        },
+      },
+    ];
+    const libraryCards = [
+      { id: 'nibelheim_draw_1', name: 'Mountain', type_line: 'Basic Land - Mountain', oracle_text: '', zone: 'library' },
+      { id: 'nibelheim_draw_2', name: 'Shock', type_line: 'Instant', oracle_text: 'Shock deals 2 damage to any target.', zone: 'library' },
+      { id: 'nibelheim_draw_3', name: 'Faithless Looting', type_line: 'Sorcery', oracle_text: 'Draw two cards, then discard two cards.\nFlashback {2}{R}', zone: 'library' },
+      { id: 'nibelheim_draw_4', name: 'Tormenting Voice', type_line: 'Sorcery', oracle_text: 'As an additional cost to cast this spell, discard a card. Draw two cards.', zone: 'library' },
+    ];
+    (game.state as any).zones[playerId].library = libraryCards.map((card) => ({ ...card }));
+    (game.state as any).zones[playerId].libraryCount = libraryCards.length;
+    (game as any).libraries.set(playerId, libraryCards.map((card) => ({ ...card })));
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const io = createMockIo(emitted);
+    const { socket, handlers } = createMockSocket(playerId, nibelheimGameId, emitted);
+
+    registerInteractionHandlers(io as any, socket as any);
+
+    await handlers['activateGraveyardAbility']({
+      gameId: nibelheimGameId,
+      cardId: 'nibelheim_aflame_1',
+      abilityId: 'flashback',
+      targets: ['nibelheim_target_1'],
+    });
+
+    game.resolveTopOfStack();
+
+    const battlefield = ((game.state as any).battlefield || []) as any[];
+    const targetCreature = battlefield.find((entry: any) => entry.id === 'nibelheim_target_1');
+    const alliedCreature = battlefield.find((entry: any) => entry.id === 'nibelheim_other_1');
+    const opposingCreature = battlefield.find((entry: any) => entry.id === 'nibelheim_other_2');
+    const zones = (game.state as any).zones?.[playerId];
+
+    expect(Number(targetCreature?.damageMarked || 0)).toBe(0);
+    expect(Number(alliedCreature?.damageMarked || 0)).toBe(3);
+    expect(Number(opposingCreature?.damageMarked || 0)).toBe(3);
+    expect((zones?.hand || []).map((card: any) => card.id)).toEqual([
+      'nibelheim_draw_1',
+      'nibelheim_draw_2',
+      'nibelheim_draw_3',
+      'nibelheim_draw_4',
+    ]);
+    const discardedCards = (zones?.graveyard || []).filter((card: any) => String(card?.id || '').startsWith('nibelheim_hand_'));
+    expect(discardedCards.map((card: any) => card.id).sort()).toEqual(['nibelheim_hand_1', 'nibelheim_hand_2']);
+    expect(discardedCards.every((card: any) => String(card?.discardedByPlayerId || '') === playerId)).toBe(true);
+    expect(discardedCards.every((card: any) => Number(card?.discardedOnTurn || 0) === 7)).toBe(true);
+    expect(Number(zones?.libraryCount || 0)).toBe(0);
+    expect((zones?.exile || []).map((card: any) => card.id)).toContain('nibelheim_aflame_1');
+  });
+
+  it('replay resolveTopOfStack restores Nibelheim Aflame damage and graveyard rider results', async () => {
+    const replayGameId = `${gameId}_nibelheim_aflame_replay`;
+    const { game, playerId } = await seedGame(
+      replayGameId,
+      'nibelheim_aflame_replay_1',
+      'Choose target creature you control. It deals damage equal to its power to each other creature. If this spell was cast from a graveyard, discard your hand and draw four cards.\nFlashback {5}{R}{R}',
+      {
+        manaPool: { white: 0, blue: 0, black: 0, red: 2, green: 0, colorless: 5 },
+        name: 'Nibelheim Aflame',
+        typeLine: 'Sorcery',
+        hand: [
+          {
+            id: 'nibelheim_replay_hand_1',
+            name: 'Spare Mountain',
+            type_line: 'Basic Land - Mountain',
+            oracle_text: '',
+            zone: 'hand',
+          },
+          {
+            id: 'nibelheim_replay_hand_2',
+            name: 'Spare Bolt',
+            type_line: 'Instant',
+            oracle_text: 'Lightning Bolt deals 3 damage to any target.',
+            zone: 'hand',
+          },
+        ],
+      },
+    );
+    const opponentId = 'p2';
+    (game.state as any).players = [
+      { id: playerId, name: 'P1', spectator: false, life: 40 },
+      { id: opponentId, name: 'P2', spectator: false, life: 40 },
+    ];
+    (game.state as any).life = { [playerId]: 40, [opponentId]: 40 };
+    (game.state as any).turnNumber = 9;
+    (game.state as any).zones[opponentId] = {
+      hand: [],
+      handCount: 0,
+      library: [],
+      libraryCount: 0,
+      graveyard: [],
+      graveyardCount: 0,
+      exile: [],
+      exileCount: 0,
+    };
+    (game.state as any).battlefield = [
+      {
+        id: 'nibelheim_replay_target_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        damageMarked: 0,
+        card: {
+          id: 'nibelheim_replay_target_card_1',
+          name: 'Ifrit',
+          type_line: 'Creature - Elemental',
+          oracle_text: '',
+          power: '3',
+          toughness: '3',
+        },
+      },
+      {
+        id: 'nibelheim_replay_other_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        damageMarked: 0,
+        card: {
+          id: 'nibelheim_replay_other_card_1',
+          name: 'Allied Giant',
+          type_line: 'Creature - Giant',
+          oracle_text: '',
+          power: '5',
+          toughness: '5',
+        },
+      },
+      {
+        id: 'nibelheim_replay_other_2',
+        controller: opponentId,
+        owner: opponentId,
+        tapped: false,
+        damageMarked: 0,
+        card: {
+          id: 'nibelheim_replay_other_card_2',
+          name: 'Enemy Beast',
+          type_line: 'Creature - Beast',
+          oracle_text: '',
+          power: '4',
+          toughness: '4',
+        },
+      },
+    ];
+    const libraryCards = [
+      { id: 'nibelheim_replay_draw_1', name: 'Mountain', type_line: 'Basic Land - Mountain', oracle_text: '', zone: 'library' },
+      { id: 'nibelheim_replay_draw_2', name: 'Shock', type_line: 'Instant', oracle_text: 'Shock deals 2 damage to any target.', zone: 'library' },
+      { id: 'nibelheim_replay_draw_3', name: 'Faithless Looting', type_line: 'Sorcery', oracle_text: 'Draw two cards, then discard two cards.\nFlashback {2}{R}', zone: 'library' },
+      { id: 'nibelheim_replay_draw_4', name: 'Tormenting Voice', type_line: 'Sorcery', oracle_text: 'As an additional cost to cast this spell, discard a card. Draw two cards.', zone: 'library' },
+    ];
+    (game.state as any).zones[playerId].library = libraryCards.map((card) => ({ ...card }));
+    (game.state as any).zones[playerId].libraryCount = libraryCards.length;
+    (game as any).libraries.set(playerId, libraryCards.map((card) => ({ ...card })));
+
+    game.applyEvent({
+      type: 'activateGraveyardAbility',
+      playerId,
+      cardId: 'nibelheim_aflame_replay_1',
+      abilityId: 'flashback',
+      stackId: 'stack_nibelheim_aflame_replay_1',
+      manaCost: '{5}{R}{R}',
+      targets: ['nibelheim_replay_target_1'],
+    } as any);
+
+    game.applyEvent({ type: 'resolveTopOfStack' } as any);
+
+    const battlefield = ((game.state as any).battlefield || []) as any[];
+    const targetCreature = battlefield.find((entry: any) => entry.id === 'nibelheim_replay_target_1');
+    const alliedCreature = battlefield.find((entry: any) => entry.id === 'nibelheim_replay_other_1');
+    const opposingCreature = battlefield.find((entry: any) => entry.id === 'nibelheim_replay_other_2');
+    const zones = (game.state as any).zones?.[playerId];
+
+    expect(Number(targetCreature?.damageMarked || 0)).toBe(0);
+    expect(Number(alliedCreature?.damageMarked || 0)).toBe(3);
+    expect(Number(opposingCreature?.damageMarked || 0)).toBe(3);
+    expect((zones?.hand || []).map((card: any) => card.id)).toEqual([
+      'nibelheim_replay_draw_1',
+      'nibelheim_replay_draw_2',
+      'nibelheim_replay_draw_3',
+      'nibelheim_replay_draw_4',
+    ]);
+    const discardedCards = (zones?.graveyard || []).filter((card: any) => String(card?.id || '').startsWith('nibelheim_replay_hand_'));
+    expect(discardedCards.map((card: any) => card.id).sort()).toEqual(['nibelheim_replay_hand_1', 'nibelheim_replay_hand_2']);
+    expect(discardedCards.every((card: any) => String(card?.discardedByPlayerId || '') === playerId)).toBe(true);
+    expect(discardedCards.every((card: any) => Number(card?.discardedOnTurn || 0) === 9)).toBe(true);
+    expect(Number(zones?.libraryCount || 0)).toBe(0);
+    expect((zones?.exile || []).map((card: any) => card.id)).toContain('nibelheim_aflame_replay_1');
+  });
+
+  it('live flashback Rite of Harmony draws for a creature ETB this turn and expires at cleanup', async () => {
+    const riteGameId = `${gameId}_rite_of_harmony_live`;
+    const { game, playerId } = await seedGame(
+      riteGameId,
+      'rite_of_harmony_1',
+      'Whenever a creature or enchantment you control enters this turn, draw a card.\nFlashback {2}{G}{W}',
+      {
+        manaPool: { white: 1, blue: 0, black: 0, red: 0, green: 1, colorless: 2 },
+        name: 'Rite of Harmony',
+        typeLine: 'Instant',
+      },
+    );
+
+    (game.state as any).turnNumber = 11;
+    (game.state as any).phase = 'main';
+    (game.state as any).step = 'MAIN1';
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).activePlayer = playerId;
+    (game.state as any).priority = playerId;
+
+    const libraryCards = [
+      { id: 'rite_draw_1', name: 'Plains', type_line: 'Basic Land - Plains', oracle_text: '', zone: 'library' },
+      { id: 'rite_draw_2', name: 'Forest', type_line: 'Basic Land - Forest', oracle_text: '', zone: 'library' },
+    ];
+    (game.state as any).zones[playerId].library = libraryCards.map((card) => ({ ...card }));
+    (game.state as any).zones[playerId].libraryCount = libraryCards.length;
+    (game as any).libraries.set(playerId, libraryCards.map((card) => ({ ...card })));
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const io = createMockIo(emitted);
+    const { socket, handlers } = createMockSocket(playerId, riteGameId, emitted);
+
+    registerInteractionHandlers(io as any, socket as any);
+
+    await handlers['activateGraveyardAbility']({
+      gameId: riteGameId,
+      cardId: 'rite_of_harmony_1',
+      abilityId: 'flashback',
+    });
+
+    game.resolveTopOfStack();
+
+    expect((((game.state as any).zones?.[playerId]?.hand || []) as any[]).map((card: any) => card.id)).toEqual([]);
+
+    expect(Array.isArray((game.state as any).temporaryEtbTriggers)).toBe(true);
+    expect((game.state as any).temporaryEtbTriggers).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        controller: playerId,
+        sourceName: 'Rite of Harmony',
+        description: 'draw a card',
+        watchTypes: ['creature', 'enchantment'],
+      }),
+    ]));
+
+    const enteringCreature = {
+      id: 'rite_creature_1',
+      controller: playerId,
+      owner: playerId,
+      tapped: false,
+      damageMarked: 0,
+      card: {
+        id: 'rite_creature_card_1',
+        name: 'Harmony Bear',
+        type_line: 'Creature - Bear',
+        oracle_text: '',
+        power: '2',
+        toughness: '2',
+      },
+    };
+    (game.state as any).battlefield = [...(((game.state as any).battlefield || []) as any[]), enteringCreature];
+
+    triggerETBEffectsForPermanent(game as any, enteringCreature, playerId as any);
+
+    const triggerStack = ((game.state as any).stack || []) as any[];
+    expect(triggerStack).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: 'triggered_ability',
+        sourceName: 'Rite of Harmony',
+        description: 'draw a card',
+      }),
+    ]));
+
+    game.resolveTopOfStack();
+
+    const zones = (game.state as any).zones?.[playerId];
+    expect((zones?.hand || []).map((card: any) => card.id)).toEqual(['rite_draw_1']);
+    expect(Number(zones?.libraryCount || 0)).toBe(1);
+    expect((zones?.exile || []).map((card: any) => card.id)).toContain('rite_of_harmony_1');
+
+    (game.state as any).phase = 'ending';
+    (game.state as any).step = 'CLEANUP';
+    (game.state as any).stack = [];
+    nextStep(game as any);
+
+    expect(Array.isArray((game.state as any).temporaryEtbTriggers)).toBe(false);
+
+    const laterCreature = {
+      id: 'rite_creature_2',
+      controller: playerId,
+      owner: playerId,
+      tapped: false,
+      damageMarked: 0,
+      card: {
+        id: 'rite_creature_card_2',
+        name: 'Afterglow Cub',
+        type_line: 'Creature - Cat',
+        oracle_text: '',
+        power: '1',
+        toughness: '1',
+      },
+    };
+    (game.state as any).battlefield = [...(((game.state as any).battlefield || []) as any[]), laterCreature];
+
+    triggerETBEffectsForPermanent(game as any, laterCreature, playerId as any);
+
+    expect((((game.state as any).stack || []) as any[]).some((entry: any) => String(entry?.sourceName || '') === 'Rite of Harmony')).toBe(false);
+  });
+
+  it('replay resolveTopOfStack restores Rite of Harmony draw window for an enchantment ETB', async () => {
+    const replayGameId = `${gameId}_rite_of_harmony_replay`;
+    const { game, playerId } = await seedGame(
+      replayGameId,
+      'rite_of_harmony_replay_1',
+      'Whenever a creature or enchantment you control enters this turn, draw a card.\nFlashback {2}{G}{W}',
+      {
+        manaPool: { white: 1, blue: 0, black: 0, red: 0, green: 1, colorless: 2 },
+        name: 'Rite of Harmony',
+        typeLine: 'Instant',
+      },
+    );
+
+    (game.state as any).turnNumber = 13;
+    (game.state as any).phase = 'main';
+    (game.state as any).step = 'MAIN1';
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).activePlayer = playerId;
+    (game.state as any).priority = playerId;
+
+    const libraryCards = [
+      { id: 'rite_replay_draw_1', name: 'Temple Garden', type_line: 'Land - Forest Plains', oracle_text: '', zone: 'library' },
+    ];
+    (game.state as any).zones[playerId].library = libraryCards.map((card) => ({ ...card }));
+    (game.state as any).zones[playerId].libraryCount = libraryCards.length;
+    (game as any).libraries.set(playerId, libraryCards.map((card) => ({ ...card })));
+
+    game.applyEvent({
+      type: 'activateGraveyardAbility',
+      playerId,
+      cardId: 'rite_of_harmony_replay_1',
+      abilityId: 'flashback',
+      stackId: 'stack_rite_of_harmony_replay_1',
+      manaCost: '{2}{G}{W}',
+    } as any);
+
+    game.applyEvent({ type: 'resolveTopOfStack' } as any);
+
+    expect((((game.state as any).zones?.[playerId]?.hand || []) as any[]).map((card: any) => card.id)).toEqual([]);
+
+    expect(Array.isArray((game.state as any).temporaryEtbTriggers)).toBe(true);
+    expect((game.state as any).temporaryEtbTriggers).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        controller: playerId,
+        sourceName: 'Rite of Harmony',
+        watchTypes: ['creature', 'enchantment'],
+      }),
+    ]));
+
+    const enteringEnchantment = {
+      id: 'rite_enchantment_1',
+      controller: playerId,
+      owner: playerId,
+      tapped: false,
+      damageMarked: 0,
+      card: {
+        id: 'rite_enchantment_card_1',
+        name: 'Harmony Sigil',
+        type_line: 'Enchantment',
+        oracle_text: '',
+      },
+    };
+    (game.state as any).battlefield = [...(((game.state as any).battlefield || []) as any[]), enteringEnchantment];
+
+    triggerETBEffectsForPermanent(game as any, enteringEnchantment, playerId as any);
+
+    const triggerStack = ((game.state as any).stack || []) as any[];
+    expect(triggerStack).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: 'triggered_ability',
+        sourceName: 'Rite of Harmony',
+        description: 'draw a card',
+      }),
+    ]));
+
+    game.resolveTopOfStack();
+
+    const zones = (game.state as any).zones?.[playerId];
+    expect((zones?.hand || []).map((card: any) => card.id)).toEqual(['rite_replay_draw_1']);
+    expect(Number(zones?.libraryCount || 0)).toBe(0);
+    expect((zones?.exile || []).map((card: any) => card.id)).toContain('rite_of_harmony_replay_1');
+  });
+
+  it('live flashback Divine Reckoning lets each player choose a creature and destroys the rest', async () => {
+    const divineGameId = `${gameId}_divine_reckoning_live`;
+    const { game, playerId } = await seedGame(
+      divineGameId,
+      'divine_reckoning_1',
+      'Each player chooses a creature they control. Destroy the rest.\nFlashback {5}{W}{W}',
+      {
+        manaPool: { white: 2, blue: 0, black: 0, red: 0, green: 0, colorless: 5 },
+        name: 'Divine Reckoning',
+        typeLine: 'Sorcery',
+      },
+    );
+    const opponentId = 'p2';
+    (game.state as any).players = [
+      { id: playerId, name: 'P1', spectator: false, life: 40 },
+      { id: opponentId, name: 'P2', spectator: false, life: 40 },
+    ];
+    (game.state as any).life = { [playerId]: 40, [opponentId]: 40 };
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).activePlayer = playerId;
+    (game.state as any).zones[opponentId] = {
+      hand: [],
+      handCount: 0,
+      library: [],
+      libraryCount: 0,
+      graveyard: [],
+      graveyardCount: 0,
+      exile: [],
+      exileCount: 0,
+    };
+    (game.state as any).battlefield = [
+      {
+        id: 'divine_p1_keep',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        counters: {},
+        card: {
+          id: 'divine_p1_keep_card',
+          name: 'Faithful Knight',
+          type_line: 'Creature - Human Knight',
+          oracle_text: '',
+          power: '2',
+          toughness: '2',
+        },
+      },
+      {
+        id: 'divine_p1_destroy',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        counters: {},
+        card: {
+          id: 'divine_p1_destroy_card',
+          name: 'Devout Soldier',
+          type_line: 'Creature - Human Soldier',
+          oracle_text: '',
+          power: '1',
+          toughness: '1',
+        },
+      },
+      {
+        id: 'divine_p2_keep',
+        controller: opponentId,
+        owner: opponentId,
+        tapped: false,
+        counters: {},
+        card: {
+          id: 'divine_p2_keep_card',
+          name: 'Watchful Griffin',
+          type_line: 'Creature - Griffin',
+          oracle_text: '',
+          power: '2',
+          toughness: '3',
+        },
+      },
+      {
+        id: 'divine_p2_destroy',
+        controller: opponentId,
+        owner: opponentId,
+        tapped: false,
+        counters: {},
+        card: {
+          id: 'divine_p2_destroy_card',
+          name: 'Silent Monk',
+          type_line: 'Creature - Monk',
+          oracle_text: '',
+          power: '1',
+          toughness: '2',
+        },
+      },
+      {
+        id: 'divine_artifact_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        card: {
+          id: 'divine_artifact_card_1',
+          name: 'Marble Diamond',
+          type_line: 'Artifact',
+          oracle_text: '{T}: Add {W}.',
+        },
+      },
+    ];
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const io = createMockIo(emitted);
+    const { socket: controllerSocket, handlers: controllerHandlers } = createMockSocket(playerId, divineGameId, emitted);
+    const { socket: opponentSocket, handlers: opponentHandlers } = createMockSocket(opponentId, divineGameId, emitted);
+
+    registerInteractionHandlers(io as any, controllerSocket as any);
+    registerResolutionHandlers(io as any, controllerSocket as any);
+    registerResolutionHandlers(io as any, opponentSocket as any);
+
+    await controllerHandlers['activateGraveyardAbility']({
+      gameId: divineGameId,
+      cardId: 'divine_reckoning_1',
+      abilityId: 'flashback',
+    });
+
+    game.resolveTopOfStack();
+
+    const queuedChoiceSteps = ResolutionQueueManager.getQueue(divineGameId).steps
+      .filter((step: any) => step?.divineReckoningChoice === true) as any[];
+    expect(queuedChoiceSteps.map((step: any) => String(step.playerId))).toEqual([playerId, opponentId]);
+
+    const controllerChoiceStep = ResolutionQueueManager
+      .getStepsForPlayer(divineGameId, playerId)
+      .find((step: any) => step?.divineReckoningChoice === true) as any;
+    const opponentChoiceStep = ResolutionQueueManager
+      .getStepsForPlayer(divineGameId, opponentId)
+      .find((step: any) => step?.divineReckoningChoice === true) as any;
+
+    expect(controllerChoiceStep).toBeDefined();
+    expect(opponentChoiceStep).toBeDefined();
+    expect((controllerChoiceStep.validTargets || []).map((target: any) => target.id).sort()).toEqual(['divine_p1_destroy', 'divine_p1_keep']);
+    expect((opponentChoiceStep.validTargets || []).map((target: any) => target.id).sort()).toEqual(['divine_p2_destroy', 'divine_p2_keep']);
+    expect(controllerChoiceStep.divineReckoningExpectedPlayerIds).toEqual([playerId, opponentId]);
+    expect(opponentChoiceStep.divineReckoningExpectedPlayerIds).toEqual([playerId, opponentId]);
+
+    await controllerHandlers['submitResolutionResponse']({
+      gameId: divineGameId,
+      stepId: String(controllerChoiceStep.id),
+      selections: ['divine_p1_keep'],
+    });
+
+    expect((((game.state as any).battlefield || []) as any[]).map((permanent: any) => permanent.id).sort()).toEqual([
+      'divine_artifact_1',
+      'divine_p1_destroy',
+      'divine_p1_keep',
+      'divine_p2_destroy',
+      'divine_p2_keep',
+    ]);
+
+    await opponentHandlers['submitResolutionResponse']({
+      gameId: divineGameId,
+      stepId: String(opponentChoiceStep.id),
+      selections: ['divine_p2_keep'],
+    });
+
+    const remainingPermanentIds = (((game.state as any).battlefield || []) as any[])
+      .map((permanent: any) => permanent.id)
+      .sort();
+    expect(remainingPermanentIds).toEqual(['divine_artifact_1', 'divine_p1_keep', 'divine_p2_keep']);
+    expect((game.state as any).divineReckoningChoiceBatches).toBeUndefined();
+    expect(ResolutionQueueManager.getQueue(divineGameId).steps.some((step: any) => step?.divineReckoningChoice === true)).toBe(false);
+    expect(((game.state as any).zones?.[playerId]?.exile || []).map((card: any) => card.id)).toContain('divine_reckoning_1');
+
+    const persistedEvents = getEvents(divineGameId);
+    expect(persistedEvents.filter((event: any) => event.type === 'divineReckoningChoiceResolve')).toHaveLength(2);
+    expect(persistedEvents.some((event: any) => event.type === 'divineReckoningBatchResolve')).toBe(true);
+  });
+
+  it('replay Divine Reckoning choice and batch events restore the final battlefield', async () => {
+    const replayGameId = `${gameId}_divine_reckoning_replay`;
+    const { game, playerId } = await seedGame(
+      replayGameId,
+      'divine_reckoning_replay_1',
+      'Each player chooses a creature they control. Destroy the rest.\nFlashback {5}{W}{W}',
+      {
+        manaPool: { white: 2, blue: 0, black: 0, red: 0, green: 0, colorless: 5 },
+        name: 'Divine Reckoning',
+        typeLine: 'Sorcery',
+      },
+    );
+    const opponentId = 'p2';
+    (game.state as any).players = [
+      { id: playerId, name: 'P1', spectator: false, life: 40 },
+      { id: opponentId, name: 'P2', spectator: false, life: 40 },
+    ];
+    (game.state as any).life = { [playerId]: 40, [opponentId]: 40 };
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).activePlayer = playerId;
+    (game.state as any).zones[opponentId] = {
+      hand: [],
+      handCount: 0,
+      library: [],
+      libraryCount: 0,
+      graveyard: [],
+      graveyardCount: 0,
+      exile: [],
+      exileCount: 0,
+    };
+    (game.state as any).battlefield = [
+      {
+        id: 'divine_replay_p1_keep',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        counters: {},
+        card: {
+          id: 'divine_replay_p1_keep_card',
+          name: 'Vigilant Knight',
+          type_line: 'Creature - Human Knight',
+          oracle_text: '',
+          power: '2',
+          toughness: '2',
+        },
+      },
+      {
+        id: 'divine_replay_p1_destroy',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        counters: {},
+        card: {
+          id: 'divine_replay_p1_destroy_card',
+          name: 'Militia Guard',
+          type_line: 'Creature - Human Soldier',
+          oracle_text: '',
+          power: '1',
+          toughness: '1',
+        },
+      },
+      {
+        id: 'divine_replay_p2_keep',
+        controller: opponentId,
+        owner: opponentId,
+        tapped: false,
+        counters: {},
+        card: {
+          id: 'divine_replay_p2_keep_card',
+          name: 'Aerial Defender',
+          type_line: 'Creature - Bird Soldier',
+          oracle_text: '',
+          power: '2',
+          toughness: '3',
+        },
+      },
+      {
+        id: 'divine_replay_p2_destroy',
+        controller: opponentId,
+        owner: opponentId,
+        tapped: false,
+        counters: {},
+        card: {
+          id: 'divine_replay_p2_destroy_card',
+          name: 'Cloister Monk',
+          type_line: 'Creature - Monk',
+          oracle_text: '',
+          power: '1',
+          toughness: '2',
+        },
+      },
+      {
+        id: 'divine_replay_artifact_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        card: {
+          id: 'divine_replay_artifact_card_1',
+          name: 'Pearl Medallion',
+          type_line: 'Artifact',
+          oracle_text: 'White spells you cast cost {1} less to cast.',
+        },
+      },
+    ];
+
+    game.applyEvent({
+      type: 'activateGraveyardAbility',
+      playerId,
+      cardId: 'divine_reckoning_replay_1',
+      abilityId: 'flashback',
+      stackId: 'stack_divine_reckoning_replay_1',
+      manaCost: '{5}{W}{W}',
+    } as any);
+
+    game.applyEvent({ type: 'resolveTopOfStack' } as any);
+
+    const controllerChoiceStep = ResolutionQueueManager
+      .getStepsForPlayer(replayGameId, playerId)
+      .find((step: any) => step?.divineReckoningChoice === true) as any;
+    const opponentChoiceStep = ResolutionQueueManager
+      .getStepsForPlayer(replayGameId, opponentId)
+      .find((step: any) => step?.divineReckoningChoice === true) as any;
+    expect(controllerChoiceStep).toBeDefined();
+    expect(opponentChoiceStep).toBeDefined();
+
+    const batchId = String(controllerChoiceStep.divineReckoningBatchId || '');
+    expect(batchId).toContain('divine_reckoning');
+
+    game.applyEvent({
+      type: 'divineReckoningChoiceResolve',
+      playerId,
+      batchId,
+      resolvedStepId: String(controllerChoiceStep.id),
+      sourceId: String(controllerChoiceStep.sourceId || ''),
+      sourceName: 'Divine Reckoning',
+      selectedPermanentId: 'divine_replay_p1_keep',
+      expectedPlayerIds: [playerId, opponentId],
+    } as any);
+    game.applyEvent({
+      type: 'divineReckoningChoiceResolve',
+      playerId: opponentId,
+      batchId,
+      resolvedStepId: String(opponentChoiceStep.id),
+      sourceId: String(opponentChoiceStep.sourceId || ''),
+      sourceName: 'Divine Reckoning',
+      selectedPermanentId: 'divine_replay_p2_keep',
+      expectedPlayerIds: [playerId, opponentId],
+    } as any);
+
+    expect((game.state as any).divineReckoningChoiceBatches?.[batchId]?.choices).toEqual({
+      [playerId]: 'divine_replay_p1_keep',
+      [opponentId]: 'divine_replay_p2_keep',
+    });
+    expect(ResolutionQueueManager.getQueue(replayGameId).steps.some((step: any) => step?.divineReckoningChoice === true)).toBe(false);
+
+    game.applyEvent({
+      type: 'divineReckoningBatchResolve',
+      batchId,
+      sourceId: String(controllerChoiceStep.sourceId || ''),
+      sourceName: 'Divine Reckoning',
+      survivorIds: ['divine_replay_p1_keep', 'divine_replay_p2_keep'],
+      destroyedIds: ['divine_replay_p1_destroy', 'divine_replay_p2_destroy'],
+    } as any);
+
+    const remainingPermanentIds = (((game.state as any).battlefield || []) as any[])
+      .map((permanent: any) => permanent.id)
+      .sort();
+    expect(remainingPermanentIds).toEqual(['divine_replay_artifact_1', 'divine_replay_p1_keep', 'divine_replay_p2_keep']);
+    expect((game.state as any).divineReckoningChoiceBatches).toBeUndefined();
+    expect(((game.state as any).zones?.[playerId]?.exile || []).map((card: any) => card.id)).toContain('divine_reckoning_replay_1');
+  });
+
+  it('live flashback Prisoner\'s Dilemma keeps choices hidden until all opponents choose and resolves mixed damage', async () => {
+    const prisonersGameId = `${gameId}_prisoners_dilemma_live`;
+    const { game, playerId } = await seedGame(
+      prisonersGameId,
+      'prisoners_dilemma_1',
+      "Each opponent secretly chooses silence or snitch, then the choices are revealed. If each opponent chose silence, Prisoner's Dilemma deals 4 damage to each of them. If each opponent chose snitch, Prisoner's Dilemma deals 8 damage to each of them. Otherwise, Prisoner's Dilemma deals 12 damage to each opponent who chose silence.\nFlashback {5}{R}{R}",
+      {
+        manaPool: { white: 0, blue: 0, black: 0, red: 2, green: 0, colorless: 5 },
+        name: "Prisoner's Dilemma",
+        typeLine: 'Sorcery',
+      },
+    );
+    const opponentOneId = 'p2';
+    const opponentTwoId = 'p3';
+    const opponentThreeId = 'p4';
+    (game.state as any).players = [
+      { id: playerId, name: 'P1', spectator: false, life: 40 },
+      { id: opponentOneId, name: 'P2', spectator: false, life: 40 },
+      { id: opponentTwoId, name: 'P3', spectator: false, life: 40 },
+      { id: opponentThreeId, name: 'P4', spectator: false, life: 40 },
+    ];
+    (game.state as any).life = { [playerId]: 40, [opponentOneId]: 40, [opponentTwoId]: 40, [opponentThreeId]: 40 };
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).activePlayer = playerId;
+    for (const opponentId of [opponentOneId, opponentTwoId, opponentThreeId]) {
+      (game.state as any).zones[opponentId] = {
+        hand: [],
+        handCount: 0,
+        library: [],
+        libraryCount: 0,
+        graveyard: [],
+        graveyardCount: 0,
+        exile: [],
+        exileCount: 0,
+      };
+    }
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const io = createMockIo(emitted);
+    const { socket: controllerSocket, handlers: controllerHandlers } = createMockSocket(playerId, prisonersGameId, emitted);
+    const { socket: opponentOneSocket, handlers: opponentOneHandlers } = createMockSocket(opponentOneId, prisonersGameId, emitted);
+    const { socket: opponentTwoSocket, handlers: opponentTwoHandlers } = createMockSocket(opponentTwoId, prisonersGameId, emitted);
+    const { socket: opponentThreeSocket, handlers: opponentThreeHandlers } = createMockSocket(opponentThreeId, prisonersGameId, emitted);
+
+    registerInteractionHandlers(io as any, controllerSocket as any);
+    registerResolutionHandlers(io as any, opponentOneSocket as any);
+    registerResolutionHandlers(io as any, opponentTwoSocket as any);
+    registerResolutionHandlers(io as any, opponentThreeSocket as any);
+
+    await controllerHandlers['activateGraveyardAbility']({
+      gameId: prisonersGameId,
+      cardId: 'prisoners_dilemma_1',
+      abilityId: 'flashback',
+    });
+
+    game.resolveTopOfStack();
+
+    const queuedChoiceSteps = ResolutionQueueManager.getQueue(prisonersGameId).steps
+      .filter((step: any) => step?.prisonersDilemmaChoice === true) as any[];
+    expect(queuedChoiceSteps.map((step: any) => String(step.playerId))).toEqual([opponentOneId, opponentTwoId, opponentThreeId]);
+    for (const choiceStep of queuedChoiceSteps) {
+      expect(choiceStep.type).toBe(ResolutionStepType.OPTION_CHOICE);
+      expect(choiceStep.secretChoice).toBe(true);
+      expect(choiceStep.prisonersDilemmaExpectedPlayerIds).toEqual([opponentOneId, opponentTwoId, opponentThreeId]);
+      expect((choiceStep.options || []).map((option: any) => String(option.id || ''))).toEqual(['silence', 'snitch']);
+    }
+
+    const opponentOneStep = ResolutionQueueManager.getStepsForPlayer(prisonersGameId, opponentOneId)
+      .find((step: any) => step?.prisonersDilemmaChoice === true) as any;
+    const opponentTwoStep = ResolutionQueueManager.getStepsForPlayer(prisonersGameId, opponentTwoId)
+      .find((step: any) => step?.prisonersDilemmaChoice === true) as any;
+    const opponentThreeStep = ResolutionQueueManager.getStepsForPlayer(prisonersGameId, opponentThreeId)
+      .find((step: any) => step?.prisonersDilemmaChoice === true) as any;
+
+    await opponentOneHandlers['submitResolutionResponse']({
+      gameId: prisonersGameId,
+      stepId: String(opponentOneStep.id),
+      selections: ['silence'],
+    });
+    await opponentTwoHandlers['submitResolutionResponse']({
+      gameId: prisonersGameId,
+      stepId: String(opponentTwoStep.id),
+      selections: ['snitch'],
+    });
+
+    expect((game.state as any).life).toMatchObject({
+      [playerId]: 40,
+      [opponentOneId]: 40,
+      [opponentTwoId]: 40,
+      [opponentThreeId]: 40,
+    });
+    const preRevealMessages = emitted
+      .filter((entry) => entry.event === 'chat')
+      .map((entry) => String(entry.payload?.message || ''));
+    expect(preRevealMessages.some((message) => message.includes('P2: silence') || message.includes('P3: snitch'))).toBe(false);
+
+    await opponentThreeHandlers['submitResolutionResponse']({
+      gameId: prisonersGameId,
+      stepId: String(opponentThreeStep.id),
+      selections: ['silence'],
+    });
+
+    expect((game.state as any).life).toMatchObject({
+      [playerId]: 40,
+      [opponentOneId]: 28,
+      [opponentTwoId]: 40,
+      [opponentThreeId]: 28,
+    });
+    expect((game.state as any).damageTakenThisTurnByPlayer).toMatchObject({
+      [opponentOneId]: 12,
+      [opponentThreeId]: 12,
+    });
+    expect((game.state as any).prisonersDilemmaChoiceBatches).toBeUndefined();
+    expect(ResolutionQueueManager.getQueue(prisonersGameId).steps.some((step: any) => step?.prisonersDilemmaChoice === true)).toBe(false);
+    expect(((game.state as any).zones?.[playerId]?.exile || []).map((card: any) => card.id)).toContain('prisoners_dilemma_1');
+
+    const revealMessages = emitted
+      .filter((entry) => entry.event === 'chat')
+      .map((entry) => String(entry.payload?.message || ''));
+    expect(revealMessages.some((message) => message.includes('P2: silence') && message.includes('P3: snitch') && message.includes('P4: silence'))).toBe(true);
+
+    const persistedEvents = getEvents(prisonersGameId);
+    expect(persistedEvents.filter((event: any) => event.type === 'prisonersDilemmaChoiceResolve')).toHaveLength(3);
+    const batchEvent = persistedEvents.find((event: any) => event.type === 'prisonersDilemmaBatchResolve') as any;
+    expect(batchEvent?.payload?.choices).toEqual({
+      [opponentOneId]: 'silence',
+      [opponentTwoId]: 'snitch',
+      [opponentThreeId]: 'silence',
+    });
+    expect(batchEvent?.payload?.damageByPlayerId).toEqual({
+      [opponentOneId]: 12,
+      [opponentThreeId]: 12,
+    });
+  });
+
+  it('replay Prisoner\'s Dilemma choice and batch events recompute all-snitch damage', async () => {
+    const replayGameId = `${gameId}_prisoners_dilemma_replay`;
+    const { game, playerId } = await seedGame(
+      replayGameId,
+      'prisoners_dilemma_replay_1',
+      "Each opponent secretly chooses silence or snitch, then the choices are revealed. If each opponent chose silence, Prisoner's Dilemma deals 4 damage to each of them. If each opponent chose snitch, Prisoner's Dilemma deals 8 damage to each of them. Otherwise, Prisoner's Dilemma deals 12 damage to each opponent who chose silence.\nFlashback {5}{R}{R}",
+      {
+        manaPool: { white: 0, blue: 0, black: 0, red: 2, green: 0, colorless: 5 },
+        name: "Prisoner's Dilemma",
+        typeLine: 'Sorcery',
+      },
+    );
+    const opponentOneId = 'p2';
+    const opponentTwoId = 'p3';
+    (game.state as any).players = [
+      { id: playerId, name: 'P1', spectator: false, life: 40 },
+      { id: opponentOneId, name: 'P2', spectator: false, life: 40 },
+      { id: opponentTwoId, name: 'P3', spectator: false, life: 40 },
+    ];
+    (game.state as any).life = { [playerId]: 40, [opponentOneId]: 40, [opponentTwoId]: 40 };
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).activePlayer = playerId;
+    for (const opponentId of [opponentOneId, opponentTwoId]) {
+      (game.state as any).zones[opponentId] = {
+        hand: [],
+        handCount: 0,
+        library: [],
+        libraryCount: 0,
+        graveyard: [],
+        graveyardCount: 0,
+        exile: [],
+        exileCount: 0,
+      };
+    }
+
+    game.applyEvent({
+      type: 'activateGraveyardAbility',
+      playerId,
+      cardId: 'prisoners_dilemma_replay_1',
+      abilityId: 'flashback',
+      stackId: 'stack_prisoners_dilemma_replay_1',
+      manaCost: '{5}{R}{R}',
+    } as any);
+
+    game.applyEvent({ type: 'resolveTopOfStack' } as any);
+
+    const opponentOneStep = ResolutionQueueManager.getStepsForPlayer(replayGameId, opponentOneId)
+      .find((step: any) => step?.prisonersDilemmaChoice === true) as any;
+    const opponentTwoStep = ResolutionQueueManager.getStepsForPlayer(replayGameId, opponentTwoId)
+      .find((step: any) => step?.prisonersDilemmaChoice === true) as any;
+    expect(opponentOneStep).toBeDefined();
+    expect(opponentTwoStep).toBeDefined();
+
+    const batchId = String(opponentOneStep.prisonersDilemmaBatchId || '');
+    const expectedPlayerIds = [opponentOneId, opponentTwoId];
+
+    game.applyEvent({
+      type: 'prisonersDilemmaChoiceResolve',
+      playerId: opponentOneId,
+      batchId,
+      resolvedStepId: String(opponentOneStep.id),
+      sourceId: String(opponentOneStep.sourceId || ''),
+      sourceName: "Prisoner's Dilemma",
+      choice: 'snitch',
+      expectedPlayerIds,
+    } as any);
+    game.applyEvent({
+      type: 'prisonersDilemmaChoiceResolve',
+      playerId: opponentTwoId,
+      batchId,
+      resolvedStepId: String(opponentTwoStep.id),
+      sourceId: String(opponentTwoStep.sourceId || ''),
+      sourceName: "Prisoner's Dilemma",
+      choice: 'snitch',
+      expectedPlayerIds,
+    } as any);
+
+    expect((game.state as any).prisonersDilemmaChoiceBatches?.[batchId]?.choices).toEqual({
+      [opponentOneId]: 'snitch',
+      [opponentTwoId]: 'snitch',
+    });
+    expect(ResolutionQueueManager.getQueue(replayGameId).steps.some((step: any) => step?.prisonersDilemmaChoice === true)).toBe(false);
+
+    game.applyEvent({
+      type: 'prisonersDilemmaBatchResolve',
+      batchId,
+      sourceId: String(opponentOneStep.sourceId || ''),
+      sourceName: "Prisoner's Dilemma",
+      expectedPlayerIds,
+      choices: {
+        [opponentOneId]: 'snitch',
+        [opponentTwoId]: 'snitch',
+      },
+    } as any);
+
+    expect((game.state as any).life).toMatchObject({
+      [playerId]: 40,
+      [opponentOneId]: 32,
+      [opponentTwoId]: 32,
+    });
+    expect((game.state as any).damageTakenThisTurnByPlayer).toMatchObject({
+      [opponentOneId]: 8,
+      [opponentTwoId]: 8,
+    });
+    expect((game.state as any).prisonersDilemmaChoiceBatches).toBeUndefined();
+    expect(((game.state as any).zones?.[playerId]?.exile || []).map((card: any) => card.id)).toContain('prisoners_dilemma_replay_1');
   });
 
   it('live flashback Faithless Looting draws, queues discard, and exiles itself on resolution', async () => {
@@ -3277,6 +5877,120 @@ describe('cast-from-graveyard replay semantics (integration)', () => {
       'faithful_replay_draw_2',
     ]);
     expect((zonesAfterResolve?.exile || []).map((card: any) => card.id)).toContain('faithful_mending_replay_1');
+  });
+
+  it('live flashback Angelfire Ignition adds counters, grants keywords, and exiles itself', async () => {
+    const angelfireGameId = `${gameId}_angelfire_ignition_live`;
+    const { game, playerId } = await seedGame(
+      angelfireGameId,
+      'angelfire_ignition_1',
+      'Put two +1/+1 counters on target creature. It gains vigilance, trample, lifelink, indestructible, and haste until end of turn.\nFlashback {2}{R}{W}',
+      {
+        manaPool: { white: 1, blue: 0, black: 0, red: 1, green: 0, colorless: 2 },
+        name: 'Angelfire Ignition',
+        typeLine: 'Sorcery',
+      },
+    );
+    (game.state as any).battlefield = [
+      {
+        id: 'angelfire_target_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        counters: {},
+        temporaryPTMods: [],
+        temporaryAbilities: [],
+        card: {
+          id: 'angelfire_target_card_1',
+          name: 'Silvercoat Lion',
+          type_line: 'Creature - Cat',
+          oracle_text: '',
+          power: '2',
+          toughness: '2',
+        },
+      },
+    ];
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const io = createMockIo(emitted);
+    const { socket, handlers } = createMockSocket(playerId, angelfireGameId, emitted);
+
+    registerInteractionHandlers(io as any, socket as any);
+    registerResolutionHandlers(io as any, socket as any);
+
+    await handlers['activateGraveyardAbility']({
+      gameId: angelfireGameId,
+      cardId: 'angelfire_ignition_1',
+      abilityId: 'flashback',
+      targets: ['angelfire_target_1'],
+    });
+
+    game.resolveTopOfStack();
+
+    const creature = ((game.state as any).battlefield || []).find((entry: any) => entry.id === 'angelfire_target_1');
+    const temporaryAbilities = Array.isArray(creature?.temporaryAbilities) ? creature.temporaryAbilities : [];
+    const grantedAbilities = temporaryAbilities.map((entry: any) => String(entry?.ability || entry).toLowerCase());
+    const zones = (game.state as any).zones?.[playerId];
+
+    expect(Number(creature?.counters?.['+1/+1'] || 0)).toBe(2);
+    expect(grantedAbilities).toEqual(expect.arrayContaining(['vigilance', 'trample', 'lifelink', 'indestructible', 'haste']));
+    expect(temporaryAbilities).toEqual(expect.arrayContaining([expect.objectContaining({ expiresAt: 'end_of_turn' })]));
+    expect((zones?.exile || []).map((card: any) => card.id)).toContain('angelfire_ignition_1');
+  });
+
+  it('replay resolveTopOfStack restores Angelfire Ignition counters, keywords, and exile result', async () => {
+    const replayGameId = `${gameId}_angelfire_ignition_replay`;
+    const { game, playerId } = await seedGame(
+      replayGameId,
+      'angelfire_ignition_replay_1',
+      'Put two +1/+1 counters on target creature. It gains vigilance, trample, lifelink, indestructible, and haste until end of turn.\nFlashback {2}{R}{W}',
+      {
+        manaPool: { white: 1, blue: 0, black: 0, red: 1, green: 0, colorless: 2 },
+        name: 'Angelfire Ignition',
+        typeLine: 'Sorcery',
+      },
+    );
+    (game.state as any).battlefield = [
+      {
+        id: 'angelfire_replay_target_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        counters: {},
+        temporaryPTMods: [],
+        temporaryAbilities: [],
+        card: {
+          id: 'angelfire_replay_target_card_1',
+          name: 'Silvercoat Lion',
+          type_line: 'Creature - Cat',
+          oracle_text: '',
+          power: '2',
+          toughness: '2',
+        },
+      },
+    ];
+
+    game.applyEvent({
+      type: 'activateGraveyardAbility',
+      playerId,
+      cardId: 'angelfire_ignition_replay_1',
+      abilityId: 'flashback',
+      stackId: 'stack_angelfire_ignition_replay_1',
+      manaCost: '{2}{R}{W}',
+      targets: ['angelfire_replay_target_1'],
+    } as any);
+
+    game.applyEvent({ type: 'resolveTopOfStack' } as any);
+
+    const creature = ((game.state as any).battlefield || []).find((entry: any) => entry.id === 'angelfire_replay_target_1');
+    const temporaryAbilities = Array.isArray(creature?.temporaryAbilities) ? creature.temporaryAbilities : [];
+    const grantedAbilities = temporaryAbilities.map((entry: any) => String(entry?.ability || entry).toLowerCase());
+    const zones = (game.state as any).zones?.[playerId];
+
+    expect(Number(creature?.counters?.['+1/+1'] || 0)).toBe(2);
+    expect(grantedAbilities).toEqual(expect.arrayContaining(['vigilance', 'trample', 'lifelink', 'indestructible', 'haste']));
+    expect(temporaryAbilities).toEqual(expect.arrayContaining([expect.objectContaining({ expiresAt: 'end_of_turn' })]));
+    expect((zones?.exile || []).map((card: any) => card.id)).toContain('angelfire_ignition_replay_1');
   });
 
   it('live flashback Laughing Mad pays the discard cost, draws two cards, and exiles itself on resolution', async () => {
@@ -4240,6 +6954,55 @@ describe('cast-from-graveyard replay semantics (integration)', () => {
     expect((zones?.graveyard || []).map((card: any) => card.id)).toContain('torrential_decline_instant_1');
     expect(((game.state as any).stack || []).some((entry: any) => String(entry?.card?.id || '') === 'torrential_decline_instant_1')).toBe(false);
     expect(ResolutionQueueManager.getStepsForPlayer(torrentialGameId, playerId).some((step: any) => String((step as any)?.castFromGraveyardCardId || '') === 'torrential_decline_instant_1')).toBe(false);
+  });
+
+  it('replays a declined cast-from-graveyard prompt without moving the card', async () => {
+    const replayGameId = `${gameId}_graveyard_decline_replay`;
+    const { game, playerId } = await seedGame(
+      replayGameId,
+      'graveyard_decline_replay_instant_1',
+      'Draw a card.',
+      {
+        manaCost: '{U}',
+        name: 'Think Twice',
+        typeLine: 'Instant',
+      },
+    );
+
+    const graveyardCard = (game.state as any).zones?.[playerId]?.graveyard?.[0];
+    const step = ResolutionQueueManager.addStep(replayGameId, {
+      type: ResolutionStepType.OPTION_CHOICE,
+      playerId: playerId as any,
+      sourceId: 'graveyard_decline_replay_source_1',
+      sourceName: 'Replay Source',
+      description: 'You may cast Think Twice from your graveyard.',
+      mandatory: false,
+      options: [
+        { id: 'cast', label: 'Cast' },
+        { id: 'decline', label: 'Decline' },
+      ],
+      minSelections: 1,
+      maxSelections: 1,
+      castFromGraveyardCardId: 'graveyard_decline_replay_instant_1',
+      castFromGraveyardCard: { ...(graveyardCard as any) },
+      castFromGraveyardWithoutPayingManaCost: true,
+      castFromGraveyardExileAfterResolution: true,
+    });
+
+    game.applyEvent({
+      type: 'castFromGraveyardPromptResolve',
+      playerId,
+      sourceId: 'graveyard_decline_replay_source_1',
+      resolvedStepId: step.id,
+      cardId: 'graveyard_decline_replay_instant_1',
+      choice: 'decline',
+    } as any);
+
+    const zones = (game.state as any).zones?.[playerId];
+    expect((zones?.graveyard || []).map((card: any) => card.id)).toContain('graveyard_decline_replay_instant_1');
+    expect((zones?.exile || []).map((card: any) => card.id)).not.toContain('graveyard_decline_replay_instant_1');
+    expect(((game.state as any).stack || []).some((entry: any) => String(entry?.card?.id || '') === 'graveyard_decline_replay_instant_1')).toBe(false);
+    expect(ResolutionQueueManager.getStepsForPlayer(replayGameId, playerId).some((queuedStep: any) => String((queuedStep as any)?.castFromGraveyardCardId || '') === 'graveyard_decline_replay_instant_1')).toBe(false);
   });
 
   it('replays Torrential Gearhulk free graveyard casts with exile replacement after resolution', async () => {

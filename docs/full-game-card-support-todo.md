@@ -1,6 +1,6 @@
 # Full-Game Card Support Todo
 
-Last updated: 2026-05-15
+Last updated: 2026-05-17
 
 Owner: Copilot + project maintainers
 
@@ -221,19 +221,43 @@ Required system work:
 
 Source: [oracle-automation-next-200-offset-200.md](./oracle-automation-next-200-offset-200.md), items 380-400.
 
+Current implementation status:
+
+- Completed and validated in the current flashback slice: Bulk Up, Artful Dodge, Increasing Vengeance, Increasing Devotion, Moment's Peace, Angelfire Ignition, Forbidden Alchemy, Memory Deluge, Croaking Counterpart, Siphon Insight, Nibelheim Aflame, Rite of Harmony, Divine Reckoning, Prisoner's Dilemma, Electric Revelation, Eviscerator's Insight, Rite of Oblivion, and Summons of Saruman. Bulk Up is noted above with the other graveyard-cast spell handling work; the completed simple flashback cards are tracked below with their guardrails.
+- Newly closed in this pass: Angelfire Ignition now rides a generic resolved-spell helper for target +1/+1 counters plus pronoun-based temporary keyword grants; Forbidden Alchemy and Memory Deluge now queue replay-safe top-of-library `LIBRARY_SEARCH` prompts, with Memory Deluge deriving X from the recorded graveyard-cast mana cost; Croaking Counterpart now extends the targeted creature-copy token path to support `target non-Frog creature` plus the `1/1 green Frog` copy modification in live play and replay; Siphon Insight now reuses a replay-safe target-opponent `LIBRARY_SEARCH` prompt that exiles the chosen card face down into that opponent's exile while preserving the caster's live/replay permission to cast it with mana as though it were mana of any type; Nibelheim Aflame now resolves its chosen-creature power sweep in live play and replay and applies the printed flashback-only `discard your hand and draw four cards` rider; Rite of Harmony now creates a temporary end-of-turn creature-or-enchantment ETB draw window that survives replay and expires at cleanup; Divine Reckoning now queues replay-safe per-player creature survivor choices before destroying every other creature; Prisoner's Dilemma now queues replay-safe hidden opponent choices, reveals them only after the batch is complete, and applies the printed 4/8/12-damage branches; Electric Revelation, Eviscerator's Insight, and Rite of Oblivion now preserve their printed discard/sacrifice additional costs through the resumed flashback cast flow; Summons of Saruman now derives X from the cards exiled to pay its flashback cost, amasses Orcs X, mills X, and offers the eligible milled instant/sorcery for a free cast.
+- The named flashback card buckets from this subsection are now closed. Remaining Section 5 work is system hardening below.
+
 - [x] Granted flashback: Lier, Disciple of the Drowned; Will of the Jeskai.
   - Focused live coverage now proves both named cards on the shared graveyard-cast path: Lier grants flashback at mana cost from the graveyard, Will's current `Choose one.` modal templating resolves the selected flashback-grant bullet correctly, and commander-present casts can expand Will to `choose both` without losing the chosen mode text on the stack. Guardrail: `server/tests/cast-from-graveyard.graveyard-replay.integration.test.ts`.
-- [ ] Simple flashback: Increasing Vengeance, Increasing Devotion, Prisoner's Dilemma, Divine Reckoning, Siphon Insight, Rite of Harmony, Artful Dodge, Nibelheim Aflame, Angelfire Ignition, Forbidden Alchemy, Croaking Counterpart, Memory Deluge, Moment's Peace.
+- [x] Simple flashback remaining: none.
   - Focused live/replay flashback coverage now also includes Faithful Mending's printed `gain 2 life, draw two, discard two` flow, including the queued discard step after resolution and flashback exile replacement. Guardrail: `server/tests/cast-from-graveyard.graveyard-replay.integration.test.ts`.
-- [ ] Flashback with additional costs or unusual costs: Rite of Oblivion, Eviscerator's Insight, Electric Revelation, Summons of Saruman.
+  - Increasing Devotion now applies `If this spell was cast from a graveyard, create N of those tokens instead` replacement counts in the shared Oracle IR token path, so flashback creates ten Humans instead of the base five. Guardrail: `server/tests/cast-from-graveyard.graveyard-replay.integration.test.ts`.
+  - Increasing Vengeance now resolves the generic `Copy target instant or sorcery spell you control` pattern from the stack and uses the existing graveyard-cast provenance to copy the target spell twice when cast with flashback. Guardrail: `server/tests/cast-from-graveyard.graveyard-replay.integration.test.ts`.
+  - Artful Dodge now rides the printed flashback path and the generic resolved-spell evasion handler for `Target creature can't be blocked this turn`, with live/replay guardrails proving the target receives an end-of-turn unblockable marker and the flashback spell is exiled. Guardrail: `server/tests/cast-from-graveyard.graveyard-replay.integration.test.ts`.
+  - Moment's Peace now rides printed flashback through the generic graveyard activation path, the Oracle IR fallback registers a global combat-damage prevention effect, and server combat damage honors that effect before player/permanent damage, damage trackers, commander damage, and lifelink are applied. Guardrail: `server/tests/cast-from-graveyard.graveyard-replay.integration.test.ts`.
+  - Angelfire Ignition now has live/replay flashback guardrails for two `+1/+1` counters plus vigilance, trample, lifelink, indestructible, and haste until end of turn. Guardrail: `server/tests/cast-from-graveyard.graveyard-replay.integration.test.ts`.
+  - Forbidden Alchemy now has live/replay flashback guardrails for the top-four choose-one `LIBRARY_SEARCH` prompt, graveyard remainder handling, and flashback exile replacement. Guardrail: `server/tests/cast-from-graveyard.graveyard-replay.integration.test.ts`.
+  - Memory Deluge now has live/replay flashback guardrails for `X = mana spent to cast this spell`, the top-seven choose-two `LIBRARY_SEARCH` prompt from flashback, and bottom-of-library remainder handling. Guardrail: `server/tests/cast-from-graveyard.graveyard-replay.integration.test.ts`.
+  - Siphon Insight now has live/replay flashback guardrails for targeting an opponent, queueing the target-opponent top-two choose-one `LIBRARY_SEARCH` prompt, exiling the chosen card face down into that opponent's exile, and casting it later with mana as though it were mana of any type. Guardrail: `server/tests/cast-from-graveyard.graveyard-replay.integration.test.ts`.
+  - Nibelheim Aflame now has live/replay flashback guardrails for the chosen-creature `deals damage equal to its power to each other creature` sweep and the graveyard-only `discard your hand and draw four cards` rider. Guardrail: `server/tests/cast-from-graveyard.graveyard-replay.integration.test.ts`.
+  - Rite of Harmony now has live/replay flashback guardrails for creating the printed temporary `Whenever a creature or enchantment you control enters this turn, draw a card` window, drawing from both the live and replayed ETB path, and expiring that window during cleanup. Guardrail: `server/tests/cast-from-graveyard.graveyard-replay.integration.test.ts`.
+  - Divine Reckoning now has live/replay flashback guardrails for queueing one survivor choice per player with creatures, persisting each choice, and destroying all non-chosen creatures only after the batch is complete. Guardrail: `server/tests/cast-from-graveyard.graveyard-replay.integration.test.ts`.
+  - Prisoner's Dilemma now has live/replay flashback guardrails for queueing hidden silence/snitch choices for each opponent, keeping interim choices out of chat, revealing the full batch only after all opponents choose, and replaying the final damage calculation deterministically. Guardrail: `server/tests/cast-from-graveyard.graveyard-replay.integration.test.ts`.
+  - Croaking Counterpart now has live/replay flashback guardrails for `target non-Frog creature` targeting and the `1/1 green Frog` token-copy override, while the neighboring Cackling Counterpart regression stays green on the same copy-token seam. Guardrail: `server/tests/cast-from-graveyard.graveyard-replay.integration.test.ts`.
+- [x] Flashback with ordinary additional costs: Rite of Oblivion, Eviscerator's Insight, Electric Revelation.
+  - Electric Revelation now queues and persists the discard-as-additional-cost path before flashback casting, then draws two cards and exiles itself on resolution in live play and replay.
+  - Eviscerator's Insight now parses `sacrifice an artifact or creature` from the ordinary additional-cost line, queues the sacrifice-cost prompt before flashback casting, draws two cards, and replays the sacrifice plus cast deterministically.
+  - Rite of Oblivion now parses `sacrifice a nonland permanent`, filters nonland sacrifice and spell targets correctly, exiles target nonland permanent, and replays the sacrifice plus flashback cast deterministically. Guardrail: `server/tests/cast-from-graveyard.graveyard-replay.integration.test.ts`.
+- [x] Flashback with X/unusual costs: Summons of Saruman.
+  - Summons of Saruman now queues an X-sized exile-from-graveyard flashback cost, carries that X onto the stack and replay event, creates or grows an Orc Army, mills X, filters milled instant/sorcery cards by mana value X or less, and reuses the graveyard free-cast prompt. Guardrail: `server/tests/cast-from-graveyard.graveyard-replay.integration.test.ts`.
 
 Required system work:
 
-- [ ] Make flashback a specialization of the generic graveyard permission system.
-- [ ] Enforce exile-after-resolution or exile-if-would-leave-stack replacement.
-- [ ] Support granted flashback cost derivation from mana value or source text.
-- [ ] Preserve additional costs and target selection through resumed cast flow.
-- [ ] Add replay coverage for cast, countered spell, copied spell, fizzled spell, and declined prompt cases.
+- [x] Make flashback a specialization of the generic graveyard permission system. Printed and granted flashback now use the shared graveyard keyword candidate path with jump-start, retrace, escape, and harmonize, while preserving flashback's exile-after-resolution behavior. Guardrail: `server/tests/can-respond.test.ts`.
+- [x] Enforce exile-after-resolution or exile-if-would-leave-stack replacement. Resolved, countered, and all-targets-missing fizzled flashback spells now exile instead of going to graveyard across live stack resolution, replayed `resolveSpell`/`resolveTopOfStack`, and ward-style stack counters. Guardrail: `server/tests/stack.counter.test.ts`.
+- [x] Support granted flashback cost derivation from mana value or source text. Granted flashback now derives generic costs from card mana value wording and can read explicit `flashback cost is {N}` source-text sentences for static and temporary grants. Guardrail: `server/tests/can-respond.test.ts`.
+- [x] Preserve additional costs and target selection through resumed cast flow. Discard, sacrifice artifact-or-creature, sacrifice nonland permanent, post-cost spell target selection, and X-based graveyard exile costs are now covered for flashback.
+- [x] Add replay coverage for cast, countered spell, copied spell, fizzled spell, and declined prompt cases. Cast/copy/declined-prompt replay guardrails live in `server/tests/cast-from-graveyard.graveyard-replay.integration.test.ts`; countered and fizzled leave-stack replay guardrails live in `server/tests/stack.counter.test.ts`.
 
 ## Broader Engine Todo
 
@@ -309,6 +333,7 @@ Replacement and prevention are essential for real games because they alter event
   - Damage redirection where applicable.
   - Damage doubling/halving/instead effects.
   - Infect, wither, lifelink, deathtouch, trample interactions.
+  - Guardrail progress: combat-damage prevention now has focused coverage for both a global spell rider (Moment's Peace) and a temporary attacker-specific rider (Oketra's Avenger), with combat damage application consulting those effects before marked damage and destruction handling. Guardrails: `server/tests/cast-from-graveyard.graveyard-replay.integration.test.ts`, `server/tests/exert-choice.integration.test.ts`.
 
 - [ ] Cover draw, life, token, counter, and search replacements.
   - Draw replacement and dredge-style behavior.
@@ -359,6 +384,7 @@ The normal cast and activate pipeline must handle all common Magic costs without
   - Total power or mana value limits.
   - Zone targets from graveyard, exile, library, stack, command zone, and battlefield.
   - Player targets and opponent-only/team restrictions.
+  - Guardrail progress: exert-trigger targeting now covers opponent-filtered battlefield targets like Glorybringer's `target non-Dragon creature an opponent controls` and replay-safe graveyard target binding for Devoted Crop-Mate before the reflexive trigger resolves. Guardrail: `server/tests/exert-choice.integration.test.ts`.
 
 - [ ] Generalize non-target choices.
   - Modes, repeated modes, modal DFC-style choices, spree/escalate/entwine/kicker-style choices.
@@ -452,6 +478,7 @@ This is one of the largest remaining pillars for near-all-card correctness.
   - Token copy with exceptions.
   - Copy values versus current modified values.
   - Linked copied object metadata for replay.
+  - Guardrail progress: spell-copy lineage now preserves `copiedFromStackItemId` through graveyard-cast copy effects, so flashback Increasing Vengeance recreates both copied spells deterministically in live play and replay. Guardrail: `server/tests/cast-from-graveyard.graveyard-replay.integration.test.ts`.
 
 - [ ] Finish attachment support.
   - Aura legality.
@@ -468,6 +495,7 @@ This is one of the largest remaining pillars for near-all-card correctness.
 - [ ] State-based actions.
 - [ ] Combat declaration and legality.
 - [ ] Blocking requirements/restrictions.
+  - Guardrail progress: declare-blockers now rejects temporary `can't be blocked` and `can't be blocked by creatures with power 2 or less this turn` riders created by exert resolution, covering Clockwork Droid and Rhonas's Stalwart without needing card-specific combat branches. Guardrail: `server/tests/exert-choice.integration.test.ts`.
 - [ ] Combat damage assignment, including trample, first strike, double strike, deathtouch, menace, flying, reach, protection, indestructible, lifelink, toxic, infect, wither.
 - [ ] Commander damage.
 - [ ] Commander tax by commander id.

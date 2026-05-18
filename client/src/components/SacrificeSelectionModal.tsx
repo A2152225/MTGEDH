@@ -8,6 +8,7 @@
 
 import React, { useState, useMemo } from 'react';
 import type { BattlefieldPermanent, KnownCardRef, PlayerID } from '../../../shared/src';
+import type { SacrificeType } from '../../../shared/src/textUtils';
 
 export interface SacrificeSelectionProps {
   open: boolean;
@@ -17,9 +18,9 @@ export interface SacrificeSelectionProps {
   count: number;
   /** 
    * Type of permanent required for sacrifice.
-   * Use 'artifact_or_creature' for compound types (e.g., Mondrak's ability).
+  * Use 'artifact_or_creature' or 'nonland_permanent' for compound restrictions.
    */
-  permanentType?: 'creature' | 'artifact' | 'enchantment' | 'land' | 'permanent' | 'artifact_or_creature';
+  permanentType?: Exclude<SacrificeType, 'self'>;
   creatureSubtype?: string;
   excludePermanentId?: string;
   sourceImage?: string;
@@ -89,6 +90,9 @@ export function SacrificeSelectionModal({
           return typeLine.includes(creatureSubtype.toLowerCase());
         }
         return true;
+      }
+      if (permanentType === 'nonland_permanent') {
+        return !typeLine.includes('land');
       }
       if (!typeLine.includes(permanentType)) return false;
       if (creatureSubtype && permanentType === 'creature') {

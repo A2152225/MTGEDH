@@ -2171,6 +2171,87 @@ describe('canRespond', () => {
     expect(canRespond(ctx, 'p1' as PlayerID)).toBe(true);
   });
 
+  it('derives static granted flashback costs from card mana value', () => {
+    const ctx = createTestContext({
+      zones: {
+        p1: {
+          hand: [],
+          graveyard: [
+            {
+              id: 'mana_value_flashback_1',
+              name: 'Mnemonic Burst',
+              type_line: 'Instant',
+              mana_cost: '{1}{U}',
+              cmc: 2,
+              oracle_text: 'Draw two cards.',
+            },
+          ],
+        },
+      },
+      battlefield: [
+        {
+          id: 'mana_value_grant_1',
+          controller: 'p1',
+          card: {
+            name: 'Mana Value Archivist',
+            type_line: 'Creature - Human Wizard',
+            oracle_text: "Each instant and sorcery card in your graveyard has flashback. The flashback cost is equal to that card's mana value.",
+          },
+        },
+      ],
+      manaPool: {
+        p1: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 2 },
+      },
+      players: [{ id: 'p1' }, { id: 'p2' }],
+      step: 'MAIN1',
+      turnPlayer: 'p1',
+      priority: 'p1',
+      stack: [],
+    });
+
+    const candidates = getCastableSpellCandidates(ctx, 'p1' as PlayerID, { mode: 'response' });
+    expect(candidates).toEqual(expect.arrayContaining([
+      expect.objectContaining({ card: expect.objectContaining({ id: 'mana_value_flashback_1' }), castMethod: 'flashback', manaCost: '{2}' }),
+    ]));
+    expect(canRespond(ctx, 'p1' as PlayerID)).toBe(true);
+  });
+
+  it('derives temporary granted flashback costs from a source-text cost sentence', () => {
+    const ctx = createTestContext({
+      zones: {
+        p1: {
+          hand: [],
+          graveyard: [
+            { id: 'source_text_cost_1', name: 'Shock', type_line: 'Instant', mana_cost: '{R}', oracle_text: 'Shock deals 2 damage to any target.' },
+          ],
+        },
+      },
+      battlefield: [],
+      manaPool: {
+        p1: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 1 },
+      },
+      players: [{ id: 'p1' }, { id: 'p2' }],
+      step: 'MAIN1',
+      turnPlayer: 'p1',
+      priority: 'p1',
+      stack: [],
+    });
+
+    const applied = applyTemporaryGraveyardKeywordGrantFromText(
+      ctx,
+      'p1' as PlayerID,
+      'Source Text Archivist',
+      'Each instant and sorcery card in your graveyard gains flashback until end of turn. The flashback cost is {1}.',
+      { sourceId: 'source_text_grant_1' },
+    );
+
+    expect(applied).toBe(1);
+    const candidates = getCastableSpellCandidates(ctx, 'p1' as PlayerID, { mode: 'response' });
+    expect(candidates).toEqual(expect.arrayContaining([
+      expect.objectContaining({ card: expect.objectContaining({ id: 'source_text_cost_1' }), castMethod: 'flashback', manaCost: '{1}' }),
+    ]));
+  });
+
   it('surfaces instant and Lesson cards granted flashback during your turn', () => {
     const ctx = createTestContext({
       zones: {

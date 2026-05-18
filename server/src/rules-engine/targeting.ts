@@ -449,6 +449,7 @@ export function parseTargetRequirements(oracleText?: string, options?: DynamicMa
   targetFilterMinManaValue?: number;
   targetFilterMaxManaValue?: number;
   targetTotalPowerLimit?: number;
+  targetFilterExcludeTypes?: string[];
 } {
   if (!oracleText) return { needsTargets: false, targetTypes: [], minTargets: 0, maxTargets: 0, targetDescription: '' };
   
@@ -697,6 +698,31 @@ export function parseTargetRequirements(oracleText?: string, options?: DynamicMa
     targetDescription = 'any target';
     return { needsTargets: true, targetTypes, minTargets, maxTargets, targetDescription };
   }
+
+  const nonSubtypeCreatureTargetMatch = t.match(/target\s+non-([a-z0-9'-]+(?:\s+[a-z0-9'-]+)*)\s+creature(?:\s+(you\s+control|an\s+opponent\s+controls))?/i);
+  if (nonSubtypeCreatureTargetMatch) {
+    minTargets = 1;
+    maxTargets = 1;
+    targetTypes.push('creature');
+    const excludedTypes = String(nonSubtypeCreatureTargetMatch[1] || '')
+      .trim()
+      .toLowerCase()
+      .split(/\s+/)
+      .map((word) => word.trim())
+      .filter(Boolean);
+    const scope = String(nonSubtypeCreatureTargetMatch[2] || '').trim().toLowerCase();
+    targetDescription = `target non-${String(nonSubtypeCreatureTargetMatch[1] || '').trim()} creature${scope ? ` ${scope}` : ''}`;
+    return {
+      needsTargets: true,
+      targetTypes,
+      minTargets,
+      maxTargets,
+      targetDescription,
+      targetFilterExcludeTypes: excludedTypes,
+      ...(scope === 'you control' ? { targetControllerConstraint: 'you' as const } : {}),
+      ...(scope === 'an opponent controls' ? { targetControllerConstraint: 'opponent' as const } : {}),
+    };
+  }
   
   // Check for standard "target X" patterns
   const targetMatch = t.match(/target\s+(creature|permanent|artifact|enchantment|land|battle|player|opponent|planeswalker|spell|nonland\s+permanent|noncreature\s+permanent)(?:\s+(you\s+control|an\s+opponent\s+controls))?/i);
@@ -733,7 +759,11 @@ export function categorizeSpell(_name: string, oracleText?: string): SpellSpec |
   const normalizedOracleText = String(oracleText || '').replace(/\u2019/g, "'");
   const t = normalizedOracleText
     .split(/\r?\n/)
-    .filter((line) => !/^\s*(?:flashback|jump-start|retrace|escape|disturb)\b/i.test(String(line || '').trim()))
+    .filter((line) => {
+      const trimmedLine = String(line || '').trim();
+      return !/^\s*(?:flashback|jump-start|retrace|escape|disturb)\b/i.test(trimmedLine)
+        && !/^\s*as an additional cost to cast this spell\b/i.test(trimmedLine);
+    })
     .join('\n')
     .toLowerCase();
 

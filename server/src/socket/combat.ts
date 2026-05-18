@@ -883,6 +883,21 @@ function getTemporaryCombatAbilityTexts(permanent: any): string[] {
     .filter(Boolean);
 }
 
+function isFullyUnblockableRestriction(entry: string): boolean {
+  const normalized = String(entry || '')
+    .replace(/’/g, "'")
+    .replace(/\s+/g, ' ')
+    .replace(/[.]$/, '')
+    .trim()
+    .toLowerCase();
+
+  if (normalized === 'unblockable') {
+    return true;
+  }
+
+  return /^(?:(?:it|this creature) )?(?:can't|cannot) be blocked(?: this turn)?$/.test(normalized);
+}
+
 /**
  * Check if a permanent has counters that prevent it from attacking/blocking
  * Uses scalable pattern matching: "creatures with [X] counters on them can't attack/block"
@@ -1045,7 +1060,7 @@ function canBlockAttacker(
   }
 
   const attackerRestrictionTexts = getTemporaryCombatAbilityTexts(attacker);
-  if (attackerRestrictionTexts.some((entry) => entry === 'unblockable' || entry.includes("can't be blocked this turn"))) {
+  if (attackerRestrictionTexts.some(isFullyUnblockableRestriction)) {
     return {
       canBlock: false,
       reason: 'Attacker cannot be blocked this turn',

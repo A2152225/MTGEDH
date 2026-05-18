@@ -255,6 +255,8 @@ function matchesSacrificeRequirement(
       return true;
     case 'artifact_or_creature':
       return typeLine.includes('artifact') || typeLine.includes('creature');
+    case 'nonland_permanent':
+      return !typeLine.includes('land');
     default:
       return false;
   }

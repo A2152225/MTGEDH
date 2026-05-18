@@ -33,7 +33,7 @@ export function parseNumberFromText(text: string, defaultValue: number = 1): num
 /**
  * Types of permanents that can be sacrificed
  */
-export type SacrificeType = 'creature' | 'artifact' | 'enchantment' | 'land' | 'permanent' | 'self' | 'artifact_or_creature';
+export type SacrificeType = 'creature' | 'artifact' | 'enchantment' | 'land' | 'permanent' | 'nonland_permanent' | 'self' | 'artifact_or_creature';
 
 /**
  * Result of parsing sacrifice requirements from a cost string
@@ -97,6 +97,16 @@ export function parseSacrificeCost(costStr: string): SacrificeCostInfo {
     result.sacrificeCount = parseNumberFromText(artifactOrCreatureMatch[1]);
     return result;
   }
+
+  // Singular compound types: "sacrifice an artifact or creature".
+  const singularArtifactOrCreatureMatch = lowerCost.match(
+    /sacrifice\s+(\d+|one|two|three|four|five|an?)\s+(?:other\s+)?(?:artifacts?\s+or\s+creatures?|creatures?\s+or\s+artifacts?)/i
+  );
+  if (singularArtifactOrCreatureMatch) {
+    result.sacrificeType = 'artifact_or_creature';
+    result.sacrificeCount = parseNumberFromText(singularArtifactOrCreatureMatch[1]);
+    return result;
+  }
   
   // "Sacrifice a/an X" patterns - first check for permanent types
   if (/sacrifice\s+(?:a|an|another)\s+creature\b/i.test(lowerCost)) {
@@ -107,6 +117,8 @@ export function parseSacrificeCost(costStr: string): SacrificeCostInfo {
     result.sacrificeType = 'enchantment';
   } else if (/sacrifice\s+(?:a|an|another)\s+land\b/i.test(lowerCost)) {
     result.sacrificeType = 'land';
+  } else if (/sacrifice\s+(?:a|an|another)\s+nonland\s+permanent\b/i.test(lowerCost)) {
+    result.sacrificeType = 'nonland_permanent';
   } else if (/sacrifice\s+(?:a|an|another)\s+permanent\b/i.test(lowerCost)) {
     result.sacrificeType = 'permanent';
   } else {
@@ -117,7 +129,7 @@ export function parseSacrificeCost(costStr: string): SacrificeCostInfo {
     if (subtypeMatch) {
       const potentialSubtype = subtypeMatch[1].trim();
       // Verify it's not a card type (case-insensitive check)
-      const cardTypes = ['creature', 'artifact', 'enchantment', 'land', 'permanent', 'planeswalker', 'instant', 'sorcery'];
+      const cardTypes = ['creature', 'artifact', 'enchantment', 'land', 'permanent', 'nonland permanent', 'planeswalker', 'instant', 'sorcery'];
       if (!cardTypes.includes(potentialSubtype.toLowerCase())) {
         // This is a creature subtype
         result.sacrificeType = 'creature';
@@ -145,6 +157,14 @@ export function parseSacrificeCost(costStr: string): SacrificeCostInfo {
   if (/sacrifice\s+(\d+|one|two|three|four|five|an?)\s+(?:other\s+)?artifacts?/i.test(lowerCost)) {
     result.sacrificeType = 'artifact';
     const countMatch = lowerCost.match(/sacrifice\s+(\d+|one|two|three|four|five|an?)\s+(?:other\s+)?artifacts?/i);
+    if (countMatch) {
+      result.sacrificeCount = parseNumberFromText(countMatch[1]);
+    }
+  }
+
+  if (/sacrifice\s+(\d+|one|two|three|four|five|an?)\s+(?:other\s+)?nonland\s+permanents?/i.test(lowerCost)) {
+    result.sacrificeType = 'nonland_permanent';
+    const countMatch = lowerCost.match(/sacrifice\s+(\d+|one|two|three|four|five|an?)\s+(?:other\s+)?nonland\s+permanents?/i);
     if (countMatch) {
       result.sacrificeCount = parseNumberFromText(countMatch[1]);
     }

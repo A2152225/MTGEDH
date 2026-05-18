@@ -74,6 +74,12 @@ import { dispatchDamageReceivedTrigger, processDamageReceivedTriggers, resolveDa
 import { getTokenImageUrls } from "../services/tokens.js";
 import { normalizeCardName } from "../state/modules/chosen-name-restrictions.js";
 import {
+  applyDivineReckoningBatchResult,
+  applyPrisonersDilemmaBatchResult,
+  clearDivineReckoningChoiceBatch,
+  clearPrisonersDilemmaChoiceBatch,
+  recordDivineReckoningChoice,
+  recordPrisonersDilemmaChoice,
   applyTriggeredReanimationEntryRiders,
   applyMyriadTokenCopies,
   executeTriggerEffect,
@@ -8515,6 +8521,16 @@ function getTypeSpecificFields(step: ResolutionStep): Record<string, any> {
         fields.voters = (step as any).voters;
         fields.responses = (step as any).responses;
       }
+
+      if ((step as any)?.prisonersDilemmaChoice === true) {
+        fields.prisonersDilemmaChoice = true;
+        fields.secretChoice = (step as any).secretChoice;
+        fields.prisonersDilemmaBatchId = (step as any).prisonersDilemmaBatchId;
+        fields.prisonersDilemmaExpectedPlayerIds = (step as any).prisonersDilemmaExpectedPlayerIds;
+        fields.prisonersDilemmaController = (step as any).prisonersDilemmaController;
+        fields.prisonersDilemmaSourceId = (step as any).prisonersDilemmaSourceId;
+        fields.prisonersDilemmaSourceName = (step as any).prisonersDilemmaSourceName;
+      }
       break;
       
     case ResolutionStepType.PONDER_EFFECT:
@@ -8817,6 +8833,11 @@ async function handleStepResponse(
   }
   
   const pid = response.playerId;
+
+  if (step.type === ResolutionStepType.OPTION_CHOICE && (step as any)?.prisonersDilemmaChoice === true) {
+    await handlePrisonersDilemmaChoiceResponse(io, game, gameId, step, response);
+    return;
+  }
   
   switch (step.type) {
     case ResolutionStepType.OPENING_HAND_ACTIONS: {
@@ -14873,6 +14894,7 @@ async function handleDiscardResponse(
         discardedCardIds: discardedCardIdsForCost,
         exiledCardIdsFromHandForCost: exiledCardIdsFromHandForCost,
         targets: Array.isArray(stepAny?.targetsForCast) ? stepAny.targetsForCast : undefined,
+        xValue: Number.isFinite(Number(stepAny?.xValue)) ? Math.max(0, Math.floor(Number(stepAny.xValue))) : undefined,
         emitError: (payload) => emitToPlayer(io, controllerId as any, 'error', payload),
       });
 
@@ -15950,6 +15972,116 @@ async function handleTargetSelectionResponse(
   // These are enqueued as TARGET_SELECTION steps with crewAbility metadata.
   // ========================================================================
   const stepAny = step as any;
+  if (stepAny?.divineReckoningChoice === true) {
+    const selectedPermanentId = String(selections[0] || '').trim();
+    if (!selectedPermanentId) {
+      return;
+    }
+
+    const batchId = String(stepAny?.divineReckoningBatchId || `${String(stepAny?.divineReckoningSourceId || step.sourceId || '').trim()}:divine_reckoning`).trim();
+    const sourceId = String(stepAny?.divineReckoningSourceId || step.sourceId || '').trim() || undefined;
+    const sourceName = String(stepAny?.divineReckoningSourceName || step.sourceName || 'Divine Reckoning').trim() || 'Divine Reckoning';
+    const controllerId = String(stepAny?.divineReckoningController || '').trim() || undefined;
+    const expectedPlayerIds = Array.isArray(stepAny?.divineReckoningExpectedPlayerIds)
+      ? stepAny.divineReckoningExpectedPlayerIds.map((value: any) => String(value || '').trim()).filter(Boolean)
+      : [];
+    const batch = recordDivineReckoningChoice(game.state, batchId, {
+      playerId: String(pid || '').trim(),
+      permanentId: selectedPermanentId,
+      controller: controllerId,
+      sourceId,
+      sourceName,
+      expectedPlayerIds,
+    });
+
+    try {
+      await appendEvent(gameId, Number((game as any)?.seq?.value ?? (game as any)?.seq ?? 0), 'divineReckoningChoiceResolve', {
+        playerId: String(pid || '').trim(),
+        batchId,
+        resolvedStepId: String(step.id || '').trim(),
+        sourceId,
+        sourceName,
+        selectedPermanentId,
+        expectedPlayerIds,
+      });
+    } catch (err) {
+      debugWarn(1, '[Resolution] Failed to persist divineReckoningChoiceResolve event:', err);
+    }
+
+    const battlefield = Array.isArray((game.state as any)?.battlefield) ? (game.state as any).battlefield : [];
+    const chosenPermanent = battlefield.find((permanent: any) => permanent && String(permanent.id || '') === selectedPermanentId);
+    const chosenName = String(chosenPermanent?.card?.name || 'a creature');
+
+    io.to(gameId).emit('chat', {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: 'system',
+      message: `${getPlayerName(game, pid)} chooses ${chosenName} for ${sourceName}.`,
+      ts: Date.now(),
+    });
+
+    const batchChoices = batch?.choices && typeof batch.choices === 'object' && !Array.isArray(batch.choices)
+      ? batch.choices
+      : {};
+    const finalExpectedPlayerIds = expectedPlayerIds.length > 0
+      ? expectedPlayerIds
+      : Array.isArray(batch?.expectedPlayerIds)
+        ? batch.expectedPlayerIds.map((value: any) => String(value || '').trim()).filter(Boolean)
+        : [];
+    const survivorIds = finalExpectedPlayerIds
+      .map((playerId: string) => String(batchChoices[playerId] || '').trim())
+      .filter(Boolean);
+    const batchComplete = finalExpectedPlayerIds.length > 0
+      ? finalExpectedPlayerIds.every((playerId: string) => Boolean(String(batchChoices[playerId] || '').trim()))
+      : survivorIds.length > 0;
+
+    if (batchComplete) {
+      const ctx = {
+        state: game.state,
+        libraries: (game as any).libraries,
+        bumpSeq: typeof (game as any).bumpSeq === 'function' ? (game as any).bumpSeq.bind(game) : (() => {}),
+        rng: (game as any).rng,
+        gameId,
+      } as unknown as GameContext;
+      const result = applyDivineReckoningBatchResult(ctx, survivorIds);
+      clearDivineReckoningChoiceBatch(game.state, batchId);
+
+      try {
+        await appendEvent(gameId, Number((game as any)?.seq?.value ?? (game as any)?.seq ?? 0), 'divineReckoningBatchResolve', {
+          batchId,
+          sourceId,
+          sourceName,
+          survivorIds: result.survivorIds,
+          destroyedIds: result.destroyedIds,
+        });
+      } catch (err) {
+        debugWarn(1, '[Resolution] Failed to persist divineReckoningBatchResolve event:', err);
+      }
+
+      const survivorNames = result.survivorIds
+        .map((permanentId) => {
+          const permanent = battlefield.find((entry: any) => entry && String(entry.id || '') === permanentId);
+          return String(permanent?.card?.name || '').trim();
+        })
+        .filter(Boolean);
+      io.to(gameId).emit('chat', {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: 'system',
+        message: survivorNames.length > 0
+          ? `${sourceName} destroys every other creature. Survivors: ${survivorNames.join(', ')}.`
+          : `${sourceName} destroys every creature.`,
+        ts: Date.now(),
+      });
+    }
+
+    if (typeof (game as any).bumpSeq === 'function') {
+      (game as any).bumpSeq();
+    }
+    broadcastGame(io, game, gameId);
+    return;
+  }
+
   if (stepAny?.dungeonRoomPayment?.paymentType === 'sacrifice') {
     const controllerId = String(pid || '').trim();
     const sourceName = String(stepAny?.dungeonRoomPayment?.sourceName || step.sourceName || 'Dungeon').trim() || 'Dungeon';
@@ -19446,6 +19578,9 @@ async function handleTargetSelectionResponse(
           case 'land':
             okType = typeLine.includes('land');
             break;
+          case 'nonland_permanent':
+            okType = !typeLine.includes('land');
+            break;
           case 'artifact_or_creature':
             okType = typeLine.includes('artifact') || typeLine.includes('creature');
             break;
@@ -19549,6 +19684,7 @@ async function handleTargetSelectionResponse(
           ? stepAny.exiledCardIdsFromGraveyardForCost.map((id: any) => String(id)).filter(Boolean)
           : undefined,
         sacrificedPermanentIdsForCost: sacrificedIds,
+        xValue: Number.isFinite(Number(stepAny?.xValue)) ? Math.max(0, Math.floor(Number(stepAny.xValue))) : undefined,
         emitError: (payload) => emitToPlayer(io, controllerId as any, 'error', payload),
       });
 
@@ -19582,6 +19718,7 @@ async function handleTargetSelectionResponse(
       sacrificedPermanentIdsForCost: Array.isArray((step as any)?.sacrificedPermanentIdsForCost)
         ? (step as any).sacrificedPermanentIdsForCost.map((id: any) => String(id)).filter(Boolean)
         : undefined,
+      xValue: Number.isFinite(Number((step as any)?.xValue)) ? Math.max(0, Math.floor(Number((step as any).xValue))) : undefined,
       emitError: (payload) => emitToPlayer(io, pid as any, 'error', payload),
     });
 
@@ -22115,6 +22252,135 @@ function handleVoteResponse(
   }
 }
 
+async function handlePrisonersDilemmaChoiceResponse(
+  io: Server,
+  game: any,
+  gameId: string,
+  step: ResolutionStep,
+  response: ResolutionStepResponse,
+): Promise<void> {
+  const pid = String(response.playerId || '').trim();
+  const stepAny = step as any;
+  const rawSelection: any = response.selections as any;
+  const selectedChoice = String(
+    typeof rawSelection === 'string'
+      ? rawSelection
+      : Array.isArray(rawSelection)
+        ? rawSelection[0]
+        : rawSelection && typeof rawSelection === 'object'
+          ? rawSelection.choice || rawSelection.id || rawSelection.value
+          : '',
+  ).trim().toLowerCase();
+
+  if (!pid || !['silence', 'snitch'].includes(selectedChoice)) {
+    debugWarn(1, `[Resolution] Invalid Prisoner's Dilemma choice: player=${pid} choice=${selectedChoice}`);
+    return;
+  }
+
+  const batchId = String(stepAny?.prisonersDilemmaBatchId || `${String(stepAny?.prisonersDilemmaSourceId || step.sourceId || '').trim()}:prisoners_dilemma`).trim();
+  const sourceId = String(stepAny?.prisonersDilemmaSourceId || step.sourceId || '').trim() || undefined;
+  const sourceName = String(stepAny?.prisonersDilemmaSourceName || step.sourceName || "Prisoner's Dilemma").trim() || "Prisoner's Dilemma";
+  const controllerId = String(stepAny?.prisonersDilemmaController || '').trim() || undefined;
+  const expectedPlayerIds = Array.isArray(stepAny?.prisonersDilemmaExpectedPlayerIds)
+    ? stepAny.prisonersDilemmaExpectedPlayerIds.map((value: any) => String(value || '').trim()).filter(Boolean)
+    : [];
+  const batch = recordPrisonersDilemmaChoice(game.state, batchId, {
+    playerId: pid,
+    choice: selectedChoice,
+    controller: controllerId,
+    sourceId,
+    sourceName,
+    expectedPlayerIds,
+  });
+
+  try {
+    await appendEvent(gameId, Number((game as any)?.seq?.value ?? (game as any)?.seq ?? 0), 'prisonersDilemmaChoiceResolve', {
+      playerId: pid,
+      batchId,
+      resolvedStepId: String(step.id || '').trim(),
+      sourceId,
+      sourceName,
+      choice: selectedChoice,
+      expectedPlayerIds,
+    });
+  } catch (err) {
+    debugWarn(1, "[Resolution] Failed to persist prisonersDilemmaChoiceResolve event:", err);
+  }
+
+  io.to(gameId).emit('chat', {
+    id: `m_${Date.now()}`,
+    gameId,
+    from: 'system',
+    message: `${getPlayerName(game, pid)} makes a secret choice for ${sourceName}.`,
+    ts: Date.now(),
+  });
+
+  const batchChoices = batch?.choices && typeof batch.choices === 'object' && !Array.isArray(batch.choices)
+    ? batch.choices
+    : {};
+  const finalExpectedPlayerIds = expectedPlayerIds.length > 0
+    ? expectedPlayerIds
+    : Array.isArray(batch?.expectedPlayerIds)
+      ? batch.expectedPlayerIds.map((value: any) => String(value || '').trim()).filter(Boolean)
+      : [];
+  const batchComplete = finalExpectedPlayerIds.length > 0
+    ? finalExpectedPlayerIds.every((playerId: string) => ['silence', 'snitch'].includes(String(batchChoices[playerId] || '').trim().toLowerCase()))
+    : Object.keys(batchChoices).length > 0;
+
+  if (batchComplete) {
+    const finalChoices = Object.fromEntries(
+      finalExpectedPlayerIds
+        .map((playerId: string) => [playerId, String(batchChoices[playerId] || '').trim().toLowerCase()])
+        .filter(([, choice]) => choice === 'silence' || choice === 'snitch'),
+    ) as Record<string, string>;
+    const ctx = {
+      state: game.state,
+      libraries: (game as any).libraries,
+      bumpSeq: typeof (game as any).bumpSeq === 'function' ? (game as any).bumpSeq.bind(game) : (() => {}),
+      rng: (game as any).rng,
+      gameId,
+    } as unknown as GameContext;
+    const result = applyPrisonersDilemmaBatchResult(ctx, {
+      expectedPlayerIds: finalExpectedPlayerIds,
+      choices: finalChoices,
+    });
+    clearPrisonersDilemmaChoiceBatch(game.state, batchId);
+
+    try {
+      await appendEvent(gameId, Number((game as any)?.seq?.value ?? (game as any)?.seq ?? 0), 'prisonersDilemmaBatchResolve', {
+        batchId,
+        sourceId,
+        sourceName,
+        expectedPlayerIds: finalExpectedPlayerIds,
+        choices: finalChoices,
+        damageByPlayerId: result.damageByPlayerId,
+      });
+    } catch (err) {
+      debugWarn(1, "[Resolution] Failed to persist prisonersDilemmaBatchResolve event:", err);
+    }
+
+    const choiceSummary = finalExpectedPlayerIds
+      .map((playerId: string) => `${getPlayerName(game, playerId)}: ${finalChoices[playerId]}`)
+      .join(', ');
+    const damageSummary = Object.entries(result.damageByPlayerId)
+      .map(([playerId, damageAmount]) => `${damageAmount} to ${getPlayerName(game, playerId)}`)
+      .join(', ');
+    io.to(gameId).emit('chat', {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: 'system',
+      message: damageSummary
+        ? `${sourceName} choices are revealed (${choiceSummary}) and deals ${damageSummary}.`
+        : `${sourceName} choices are revealed (${choiceSummary}) and deals no damage.`,
+      ts: Date.now(),
+    });
+  }
+
+  if (typeof (game as any).bumpSeq === 'function') {
+    (game as any).bumpSeq();
+  }
+}
+
 /**
  * Handle Bottom Order resolution response
  * Player orders a provided list of cards, which are then placed on the bottom of their library
@@ -22561,8 +22827,11 @@ async function handleLibrarySearchResponse(
   const lifeLoss = (searchStep as any).lifeLoss;
 
   // Optional extras for specific effects
+  const searchOwnerId = String((searchStep as any).searchOwnerId || pid).trim() || String(pid || '');
   const destinationFaceDown = (searchStep as any).destinationFaceDown === true;
   const grantPlayableFromExileToController = (searchStep as any).grantPlayableFromExileToController === true;
+  const grantPlayableFromExileControllerId = String((searchStep as any).grantPlayableFromExileControllerId || searchOwnerId).trim() || searchOwnerId;
+  const grantPlayableFromExileSpendManaAsThoughAnyType = (searchStep as any).grantPlayableFromExileSpendManaAsThoughAnyType === true;
   const playableFromExileTypeKey = String((searchStep as any).playableFromExileTypeKey || '').toLowerCase();
   const attachSelectedEquipmentToPermanentId = String((searchStep as any).attachSelectedEquipmentToPermanentId || '').trim();
 
@@ -22597,8 +22866,8 @@ async function handleLibrarySearchResponse(
   const state = game.state || {};
   const battlefield = state.battlefield = state.battlefield || [];
   const zones = state.zones = state.zones || {};
-  const z = zones[pid] = zones[pid] || { hand: [], handCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0 };
-  const lib = (game as any).libraries?.get(pid) || [];
+  const z = zones[searchOwnerId] = zones[searchOwnerId] || { hand: [], handCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0 };
+  const lib = (game as any).libraries?.get(searchOwnerId) || [];
   
   // Create a map of card ID to full card data
   const allRevealedCards = [...availableCards, ...nonSelectableCards];
@@ -22821,7 +23090,16 @@ async function handleLibrarySearchResponse(
         debug(2, `[Resolution] ${sourceName}: Put ${card.name} into graveyard`);
       } else if (destination === 'exile') {
         z.exile = z.exile || [];
-        const exiledCard = { ...card, zone: 'exile', ...(destinationFaceDown ? { faceDown: true } : {}) };
+        const exiledCard = {
+          ...card,
+          zone: 'exile',
+          ...(destinationFaceDown ? { faceDown: true } : {}),
+          ...(grantPlayableFromExileToController ? {
+            canBePlayedBy: grantPlayableFromExileControllerId,
+            playableUntilTurn: true,
+            ...(grantPlayableFromExileSpendManaAsThoughAnyType ? { spendManaAsThoughAnyType: true } : {}),
+          } : null),
+        };
         z.exile.push(exiledCard);
         z.exileCount = z.exile.length;
         debug(2, `[Resolution] ${sourceName}: Exiled ${card.name}`);
@@ -22832,7 +23110,7 @@ async function handleLibrarySearchResponse(
           if (passesTypeGate) {
             const stateAny = state as any;
             stateAny.playableFromExile = stateAny.playableFromExile || {};
-            const entry = (stateAny.playableFromExile[pid] = stateAny.playableFromExile[pid] || {});
+            const entry = (stateAny.playableFromExile[grantPlayableFromExileControllerId] = stateAny.playableFromExile[grantPlayableFromExileControllerId] || {});
             entry[exiledCard.id] = true;
           }
         }
@@ -22952,6 +23230,7 @@ async function handleLibrarySearchResponse(
     try {
       appendEvent(gameId, game.seq ?? 0, 'librarySearchResolve', {
         playerId: pid,
+        searchOwnerId,
         sourceId: String((step as any).sourceId || ''),
         sourceName,
         reason: String((searchStep as any).persistLibrarySearchResolveReason || ''),
@@ -22964,6 +23243,8 @@ async function handleLibrarySearchResponse(
         entersTapped,
         destinationFaceDown,
         grantPlayableFromExileToController,
+        grantPlayableFromExileControllerId,
+        grantPlayableFromExileSpendManaAsThoughAnyType,
         playableFromExileTypeKey,
         pendingBottomOrder: pendingBottomOrderEntry
           ? {
@@ -30776,6 +31057,9 @@ async function handleGraveyardSelectionResponse(
         abilityId,
         exiledCardIdsFromGraveyardForCost: movedCardIds,
         targets: Array.isArray(stepAny?.targetsForCast) ? stepAny.targetsForCast : undefined,
+        xValue: stepAny?.exileCountIsX === true
+          ? movedCardIds.length
+          : (Number.isFinite(Number(stepAny?.xValue)) ? Math.max(0, Math.floor(Number(stepAny.xValue))) : undefined),
         emitError: (payload) => emitToPlayer(io, controllerId as any, 'error', payload),
       });
 

@@ -1,6 +1,7 @@
 import type { GameContext } from "../context";
 import type { PlayerID } from "../../../../shared/src";
 import { collectStaticEffectSources } from "./static-effect-sources";
+import { cardManaValue } from "../utils";
 
 export interface GrantedFlashbackInfo {
   hasIt: boolean;
@@ -125,6 +126,25 @@ function isLesson(card: any): boolean {
 
 function getManaCost(card: any): string {
   return String(card?.mana_cost || card?.manaCost || '').trim();
+}
+
+function getCardManaValue(card: any): number | undefined {
+  const directValue = [card?.cmc, card?.mana_value, card?.manaValue, card?.convertedManaCost]
+    .map((value) => Number(value))
+    .find((value) => Number.isFinite(value) && value >= 0);
+  if (typeof directValue === 'number') {
+    return Math.max(0, Math.floor(directValue));
+  }
+
+  const derivedValue = cardManaValue(card);
+  return Number.isFinite(derivedValue) && derivedValue >= 0
+    ? Math.max(0, Math.floor(derivedValue))
+    : undefined;
+}
+
+function getGenericManaValueCost(card: any): string | undefined {
+  const manaValue = getCardManaValue(card);
+  return typeof manaValue === 'number' ? `{${manaValue}}` : undefined;
 }
 
 function getCardId(card: any): string {
@@ -602,14 +622,25 @@ function extractGrantedKeywordCost(keyword: GraveyardGrantKeyword, remainder: st
     return explicitCost[1].trim();
   }
 
+  const keywordCostPattern = escapeRegExp(keyword);
+  const sourceExplicitCost = String(fullOracleText || '').match(new RegExp(`${keywordCostPattern} cost (?:is|equals?)\\s*((?:\\{[^}]+\\}\\s*)+)`, 'i'));
+  if (sourceExplicitCost?.[1]) {
+    return sourceExplicitCost[1].trim();
+  }
+
   if (keyword === 'jump-start' || keyword === 'retrace') {
     const manaCost = getManaCost(card);
     return manaCost || undefined;
   }
 
-  if (new RegExp(`${escapeRegExp(keyword)} cost is equal to (?:that card's|its|the card's) mana cost`, 'i').test(fullOracleText)) {
+  const costSubjectPattern = `(?:that card's|its|the card's|this card's|that spell's|this spell's)`;
+  if (new RegExp(`${keywordCostPattern} cost is equal to ${costSubjectPattern} mana cost`, 'i').test(fullOracleText)) {
     const manaCost = getManaCost(card);
     return manaCost || undefined;
+  }
+
+  if (new RegExp(`${keywordCostPattern} cost is equal to ${costSubjectPattern} mana value`, 'i').test(fullOracleText)) {
+    return getGenericManaValueCost(card);
   }
 
   return undefined;

@@ -50,9 +50,25 @@ import {
 import { cleanupCardLeavingExile } from "./playable-from-exile";
 import { buildEmbalmOrEternalizeTokenPermanent } from "./graveyard-tokens.js";
 import { clearPreparedPermanent, syncPreparedPermanentAfterControlChange } from "./prepared.js";
-import { applyMyriadTokenCopies, pushStack, resolveTopOfStack, playLand, castSpell, triggerETBEffectsForToken } from "./stack";
+import {
+  applyDivineReckoningBatchResult,
+  applyPrisonersDilemmaBatchResult,
+  applyMyriadTokenCopies,
+  castSpell,
+  clearDivineReckoningChoiceBatch,
+  clearPrisonersDilemmaChoiceBatch,
+  createDivineReckoningChoiceBatch,
+  createPrisonersDilemmaChoiceBatch,
+  pushStack,
+  recordDivineReckoningChoice,
+  recordPrisonersDilemmaChoice,
+  resolveTopOfStack,
+  playLand,
+  triggerETBEffectsForToken,
+} from "./stack";
 import { exileEntireStack } from "./stack";
 import { applyGraveyardPermissionEffectsFromText, applyTemporaryGraveyardKeywordGrantFromText, buildCastFromGraveyardCard } from "./graveyard-permissions.js";
+import { shouldExileStackCardInsteadOfGraveyard } from "./stack-zone-replacements.js";
 import { permanentHasKeyword } from "./keyword-handlers";
 import { nextTurn, nextStep, passPriority } from "./turn";
 import {
@@ -2066,14 +2082,22 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
               const stackIdx = ctx.state.stack.findIndex((s: any) => s.id === target.id);
               if (stackIdx >= 0) {
                 const countered = ctx.state.stack.splice(stackIdx, 1)[0];
-                // Move the countered spell to its controller's graveyard
+                // Move the countered spell to its replacement destination
                 const controller = (countered as any).controller as PlayerID;
                 const zones = ctx.state.zones = ctx.state.zones || {};
                 zones[controller] = zones[controller] || { hand: [], handCount: 0, libraryCount: 0, graveyard: [], graveyardCount: 0 };
-                const gy = (zones[controller] as any).graveyard = (zones[controller] as any).graveyard || [];
                 if ((countered as any).card) {
-                  gy.push((countered as any).card);
-                  (zones[controller] as any).graveyardCount = gy.length;
+                  if ((countered as any).card?.ceaseOnCounter === true) {
+                    // Copied spells cease to exist instead of changing zones.
+                  } else if (shouldExileStackCardInsteadOfGraveyard(countered)) {
+                    const exile = (zones[controller] as any).exile = (zones[controller] as any).exile || [];
+                    exile.push({ ...(countered as any).card, zone: 'exile' });
+                    (zones[controller] as any).exileCount = exile.length;
+                  } else {
+                    const gy = (zones[controller] as any).graveyard = (zones[controller] as any).graveyard || [];
+                    gy.push({ ...(countered as any).card, zone: 'graveyard' });
+                    (zones[controller] as any).graveyardCount = gy.length;
+                  }
                 }
               }
             }
@@ -2321,15 +2345,23 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
                   const stackIdx = ctx.state.stack.findIndex((s: any) => s.id === eff.stackItemId);
                   if (stackIdx >= 0) {
                     const countered = ctx.state.stack.splice(stackIdx, 1)[0];
-                    // Move the countered spell to its controller's graveyard
+                    // Move the countered spell to its replacement destination
                     const controller = (countered as any).controller as PlayerID;
                     const zones = ctx.state.zones = ctx.state.zones || {};
                     zones[controller] = zones[controller] || { hand: [], handCount: 0, libraryCount: 0, graveyard: [], graveyardCount: 0 };
-                    const gy = (zones[controller] as any).graveyard = (zones[controller] as any).graveyard || [];
                     if ((countered as any).card) {
-                      gy.push({ ...(countered as any).card, zone: 'graveyard' });
-                      recordCardPutIntoGraveyardThisTurn(ctx as any, String(controller), (countered as any).card, { fromBattlefield: false });
-                      (zones[controller] as any).graveyardCount = gy.length;
+                      if ((countered as any).card?.ceaseOnCounter === true) {
+                        // Copied spells cease to exist instead of changing zones.
+                      } else if (shouldExileStackCardInsteadOfGraveyard(countered)) {
+                        const exile = (zones[controller] as any).exile = (zones[controller] as any).exile || [];
+                        exile.push({ ...(countered as any).card, zone: 'exile' });
+                        (zones[controller] as any).exileCount = exile.length;
+                      } else {
+                        const gy = (zones[controller] as any).graveyard = (zones[controller] as any).graveyard || [];
+                        gy.push({ ...(countered as any).card, zone: 'graveyard' });
+                        recordCardPutIntoGraveyardThisTurn(ctx as any, String(controller), (countered as any).card, { fromBattlefield: false });
+                        (zones[controller] as any).graveyardCount = gy.length;
+                      }
                     }
                   }
                   break;
@@ -8059,6 +8091,9 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
                 const graveyardPermissionId = String((e as any).graveyardPermissionId || '').trim() || undefined;
                 const graveyardPermissionSourceName = String((e as any).graveyardPermissionSourceName || '').trim() || undefined;
                 const graveyardPermissionCostMode = String((e as any).graveyardPermissionCostMode || '').trim() || undefined;
+                const xValue = Number.isFinite(Number((e as any).xValue))
+                  ? Math.max(0, Math.floor(Number((e as any).xValue)))
+                  : undefined;
                 ctx.state.stack = ctx.state.stack || [];
                 const graveyardCastCard = {
                   ...buildCastFromGraveyardCard(card, String(abilityType)),
@@ -8067,6 +8102,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
                   fromZone: 'graveyard',
                   ...(alternateCostId ? { alternateCostId } : {}),
                   ...((e as any).castWithoutPayingManaCost === true ? { castWithoutPayingManaCost: true } : {}),
+                  ...(xValue !== undefined ? { xValue } : {}),
                   ...(graveyardPermissionId ? { graveyardPermissionId } : {}),
                   ...(graveyardPermissionSourceName ? { graveyardPermissionSourceName } : {}),
                   ...(graveyardPermissionCostMode ? { graveyardPermissionCostMode } : {}),
@@ -8075,11 +8111,13 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
                   id: stackId,
                   controller: pid,
                   card: graveyardCastCard,
+                  ...(manaCost ? { manaCost } : {}),
                   castFromGraveyard: true,
                   castSourceZone: 'graveyard',
                   fromZone: 'graveyard',
                   ...(alternateCostId ? { alternateCostId } : {}),
                   ...((e as any).castWithoutPayingManaCost === true ? { castWithoutPayingManaCost: true } : {}),
+                  ...(xValue !== undefined ? { xValue } : {}),
                   ...(graveyardPermissionId ? { graveyardPermissionId } : {}),
                   ...(graveyardPermissionSourceName ? { graveyardPermissionSourceName } : {}),
                   ...(graveyardPermissionCostMode ? { graveyardPermissionCostMode } : {}),
@@ -9091,6 +9129,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
 
       case "librarySearchResolve": {
         const pid = String((e as any).playerId || '').trim();
+        const searchOwnerId = String((e as any).searchOwnerId || pid).trim() || pid;
         const destination = String((e as any).destination || 'hand');
         const sourceId = String((e as any).sourceId || '').trim();
         const sourceName = String((e as any).sourceName || '').trim();
@@ -9099,6 +9138,8 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
         const splitAssignments = (e as any).splitAssignments as { toBattlefield?: string[]; toHand?: string[] } | undefined;
         const destinationFaceDown = (e as any).destinationFaceDown === true;
         const grantPlayableFromExileToController = (e as any).grantPlayableFromExileToController === true;
+        const grantPlayableFromExileControllerId = String((e as any).grantPlayableFromExileControllerId || searchOwnerId).trim() || searchOwnerId;
+        const grantPlayableFromExileSpendManaAsThoughAnyType = (e as any).grantPlayableFromExileSpendManaAsThoughAnyType === true;
         const playableFromExileTypeKey = String((e as any).playableFromExileTypeKey || '').toLowerCase();
         const pendingBottomOrder = (e as any).pendingBottomOrder && typeof (e as any).pendingBottomOrder === 'object'
           ? (e as any).pendingBottomOrder as Record<string, any>
@@ -9165,7 +9206,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           }
 
           const zones = ctx.state.zones || {};
-          const z = zones[pid] || {
+          const z = zones[searchOwnerId] || {
             hand: [],
             handCount: 0,
             library: [],
@@ -9175,7 +9216,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
             exile: [],
             exileCount: 0,
           };
-          zones[pid] = z;
+          zones[searchOwnerId] = z;
 
           if (Array.isArray(ctx.state.stack) && ctx.state.stack.length > 0) {
             ctx.state.stack = ctx.state.stack.filter((item: any) => {
@@ -9207,7 +9248,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           (z as any).library = libraryAfter;
           z.libraryCount = libraryAfter.length;
           if (ctx.libraries?.set) {
-            ctx.libraries.set(pid, cloneLibraryCards(libraryAfter));
+            ctx.libraries.set(searchOwnerId, cloneLibraryCards(libraryAfter));
           }
 
           const moveToBattlefield = (card: any) => {
@@ -9246,7 +9287,16 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           const moveToExileZone = (card: any) => {
             if (!card) return;
             z.exile = Array.isArray(z.exile) ? z.exile : [];
-            const exiledCard = { ...card, zone: 'exile', ...(destinationFaceDown ? { faceDown: true } : {}) };
+            const exiledCard = {
+              ...card,
+              zone: 'exile',
+              ...(destinationFaceDown ? { faceDown: true } : {}),
+              ...(grantPlayableFromExileToController ? {
+                canBePlayedBy: grantPlayableFromExileControllerId,
+                playableUntilTurn: true,
+                ...(grantPlayableFromExileSpendManaAsThoughAnyType ? { spendManaAsThoughAnyType: true } : {}),
+              } : null),
+            };
             (z.exile as any[]).push(exiledCard);
             z.exileCount = (z.exile as any[]).length;
 
@@ -9256,7 +9306,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
               if (passesTypeGate) {
                 const stateAny = ctx.state as any;
                 stateAny.playableFromExile = stateAny.playableFromExile || {};
-                const entry = (stateAny.playableFromExile[pid] = stateAny.playableFromExile[pid] || {});
+                const entry = (stateAny.playableFromExile[grantPlayableFromExileControllerId] = stateAny.playableFromExile[grantPlayableFromExileControllerId] || {});
                 entry[String(exiledCard.id)] = true;
               }
             }
@@ -10479,6 +10529,154 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           ctx.bumpSeq();
         } catch (err) {
           debugWarn(1, 'applyEvent(sacrificeSelectionResolve): failed', err);
+        }
+        break;
+      }
+
+      case "divineReckoningChoiceResolve": {
+        try {
+          const gameId = String((ctx as any).gameId || '').trim();
+          const resolvedStepId = String((e as any).resolvedStepId || '').trim();
+          const batchId = String((e as any).batchId || '').trim();
+          const playerId = String((e as any).playerId || '').trim();
+          const selectedPermanentId = String((e as any).selectedPermanentId || '').trim();
+          const sourceId = String((e as any).sourceId || '').trim() || undefined;
+          const sourceName = String((e as any).sourceName || 'Divine Reckoning').trim() || 'Divine Reckoning';
+          const expectedPlayerIds = Array.isArray((e as any).expectedPlayerIds)
+            ? ((e as any).expectedPlayerIds as any[]).map((value: any) => String(value || '').trim()).filter(Boolean)
+            : [];
+
+          if (gameId && resolvedStepId) {
+            clearReplayQueuedSteps(gameId, (step: any) => String(step?.id || '').trim() === resolvedStepId);
+          }
+
+          if (batchId) {
+            createDivineReckoningChoiceBatch(ctx.state, {
+              id: batchId,
+              sourceId,
+              sourceName,
+              expectedPlayerIds,
+            });
+          }
+
+          if (batchId && playerId && selectedPermanentId) {
+            recordDivineReckoningChoice(ctx.state, batchId, {
+              playerId,
+              permanentId: selectedPermanentId,
+              sourceId,
+              sourceName,
+              expectedPlayerIds,
+            });
+          }
+
+          ctx.bumpSeq();
+        } catch (err) {
+          debugWarn(1, 'applyEvent(divineReckoningChoiceResolve): failed', err);
+        }
+        break;
+      }
+
+      case "divineReckoningBatchResolve": {
+        try {
+          const gameId = String((ctx as any).gameId || '').trim();
+          const batchId = String((e as any).batchId || '').trim();
+          const survivorIds = Array.isArray((e as any).survivorIds)
+            ? ((e as any).survivorIds as any[]).map((value: any) => String(value || '').trim()).filter(Boolean)
+            : [];
+
+          if (gameId && batchId) {
+            clearReplayQueuedSteps(gameId, (step: any) => String((step as any)?.divineReckoningBatchId || '').trim() === batchId);
+          }
+
+          applyDivineReckoningBatchResult(ctx as any, survivorIds);
+          clearDivineReckoningChoiceBatch(ctx.state, batchId);
+
+          ctx.bumpSeq();
+        } catch (err) {
+          debugWarn(1, 'applyEvent(divineReckoningBatchResolve): failed', err);
+        }
+        break;
+      }
+
+      case "prisonersDilemmaChoiceResolve": {
+        try {
+          const gameId = String((ctx as any).gameId || '').trim();
+          const resolvedStepId = String((e as any).resolvedStepId || '').trim();
+          const batchId = String((e as any).batchId || '').trim();
+          const playerId = String((e as any).playerId || '').trim();
+          const choice = String((e as any).choice || '').trim().toLowerCase();
+          const sourceId = String((e as any).sourceId || '').trim() || undefined;
+          const sourceName = String((e as any).sourceName || "Prisoner's Dilemma").trim() || "Prisoner's Dilemma";
+          const expectedPlayerIds = Array.isArray((e as any).expectedPlayerIds)
+            ? ((e as any).expectedPlayerIds as any[]).map((value: any) => String(value || '').trim()).filter(Boolean)
+            : [];
+
+          if (gameId && resolvedStepId) {
+            clearReplayQueuedSteps(gameId, (step: any) => String(step?.id || '').trim() === resolvedStepId);
+          }
+
+          if (batchId) {
+            createPrisonersDilemmaChoiceBatch(ctx.state, {
+              id: batchId,
+              sourceId,
+              sourceName,
+              expectedPlayerIds,
+            });
+          }
+
+          if (batchId && playerId && (choice === 'silence' || choice === 'snitch')) {
+            recordPrisonersDilemmaChoice(ctx.state, batchId, {
+              playerId,
+              choice,
+              sourceId,
+              sourceName,
+              expectedPlayerIds,
+            });
+          }
+
+          ctx.bumpSeq();
+        } catch (err) {
+          debugWarn(1, 'applyEvent(prisonersDilemmaChoiceResolve): failed', err);
+        }
+        break;
+      }
+
+      case "prisonersDilemmaBatchResolve": {
+        try {
+          const gameId = String((ctx as any).gameId || '').trim();
+          const batchId = String((e as any).batchId || '').trim();
+          const expectedPlayerIds = Array.isArray((e as any).expectedPlayerIds)
+            ? ((e as any).expectedPlayerIds as any[]).map((value: any) => String(value || '').trim()).filter(Boolean)
+            : [];
+          const choices = (e as any).choices && typeof (e as any).choices === 'object' && !Array.isArray((e as any).choices)
+            ? Object.fromEntries(
+                Object.entries((e as any).choices)
+                  .map(([playerId, choice]) => [String(playerId || '').trim(), String(choice || '').trim().toLowerCase()])
+                  .filter(([playerId, choice]) => Boolean(playerId) && (choice === 'silence' || choice === 'snitch')),
+              ) as Record<string, string>
+            : {};
+          const damageByPlayerId = (e as any).damageByPlayerId && typeof (e as any).damageByPlayerId === 'object' && !Array.isArray((e as any).damageByPlayerId)
+            ? Object.fromEntries(
+                Object.entries((e as any).damageByPlayerId)
+                  .map(([playerId, amount]) => [String(playerId || '').trim(), Number(amount || 0)])
+                  .filter(([playerId, amount]) => Boolean(playerId) && Number(amount) > 0),
+              ) as Record<string, number>
+            : undefined;
+
+          if (gameId && batchId) {
+            clearReplayQueuedSteps(gameId, (step: any) => String((step as any)?.prisonersDilemmaBatchId || '').trim() === batchId);
+          }
+
+          applyPrisonersDilemmaBatchResult(ctx as any, {
+            expectedPlayerIds,
+            choices,
+            damageByPlayerId,
+          });
+          clearPrisonersDilemmaChoiceBatch(ctx.state, batchId);
+
+          ctx.bumpSeq();
+        } catch (err) {
+          debugWarn(1, 'applyEvent(prisonersDilemmaBatchResolve): failed', err);
         }
         break;
       }

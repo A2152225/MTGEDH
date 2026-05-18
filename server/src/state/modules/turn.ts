@@ -18,7 +18,7 @@ import type { GameContext } from "../context.js";
 import type { PlayerID } from "../../../../shared/src/types.js";
 import { drawCards } from "./zones.js";
 import { recalculatePlayerEffects, applyCombatDamageReplacement, canDamageBePrevented, clearTemporaryLandBonuses, processLifeChange } from "./game-state-effects.js";
-import { detectEntersWithCounters, triggerETBEffectsForPermanent } from "./stack.js";
+import { clearTemporaryEtbTriggers, detectEntersWithCounters, triggerETBEffectsForPermanent } from "./stack.js";
 import { 
   getBeginningOfCombatTriggers, 
   getEndStepTriggers, 
@@ -83,7 +83,7 @@ function isCombatDamagePreventedForPermanent(permanent: any): boolean {
   return abilityTexts.some((entry) => /prevent all combat damage that would be dealt to (?:it|this creature) this turn/.test(entry));
 }
 
-function applyCombatDamageToPlaneswalker(permanent: any, amount: number): {
+function applyCombatDamageToPlaneswalker(ctx: GameContext, permanent: any, amount: number, sourceCard: any, sourceId: string): {
   prevented: boolean;
   appliedAmount: number;
   remainingLoyalty: number;
@@ -95,15 +95,20 @@ function applyCombatDamageToPlaneswalker(permanent: any, amount: number): {
     return { prevented: false, appliedAmount: 0, remainingLoyalty: currentLoyalty };
   }
 
+  const prevention = applyCombatDamagePreventionEffects(ctx, normalizedAmount, sourceId, sourceCard, { targetPermanentId: String(permanent.id || '') });
+  if (prevention.remainingDamage <= 0) {
+    return { prevented: true, appliedAmount: 0, remainingLoyalty: currentLoyalty };
+  }
+
   if (isCombatDamagePreventedForPermanent(permanent) || applyShieldCounterDamagePrevention(permanent)) {
     return { prevented: true, appliedAmount: 0, remainingLoyalty: currentLoyalty };
   }
 
-  const nextLoyalty = currentLoyalty - normalizedAmount;
+  const nextLoyalty = currentLoyalty - prevention.remainingDamage;
   (permanent as any).counters = { ...((permanent as any).counters || {}), loyalty: nextLoyalty };
   (permanent as any).loyalty = nextLoyalty;
 
-  return { prevented: false, appliedAmount: normalizedAmount, remainingLoyalty: nextLoyalty };
+  return { prevented: false, appliedAmount: prevention.remainingDamage, remainingLoyalty: nextLoyalty };
 }
 
 function removeExpiredUntilNextTurnEffects(ctx: GameContext, currentPlayerId: PlayerID, currentTurn: number): void {
@@ -240,6 +245,88 @@ function applyVigorDamageReplacement(ctx: GameContext, damagedPermanent: any, da
   updateCounters(ctx, String(damagedPermanent.id || ''), { '+1/+1': normalizedAmount });
   debug(1, `${ts()} [dealCombatDamage] Vigor prevented ${normalizedAmount} damage to ${damagedPermanent.card?.name || damagedPermanent.id}`);
   return true;
+}
+
+function getCurrentTurnNumberForEffects(state: any): number {
+  const currentTurn = Number(state?.turnNumber ?? state?.turn ?? 0);
+  return Number.isFinite(currentTurn) ? currentTurn : 0;
+}
+
+function getSourceColorsForPrevention(sourceCard: any): string[] {
+  const rawColors = Array.isArray(sourceCard?.colors)
+    ? sourceCard.colors
+    : Array.isArray(sourceCard?.color_identity)
+      ? sourceCard.color_identity
+      : [];
+
+  return rawColors
+    .map((color: any) => String(color || '').trim().toUpperCase())
+    .filter(Boolean);
+}
+
+function applyCombatDamagePreventionEffects(
+  ctx: GameContext,
+  amount: number,
+  sourceId: string,
+  sourceCard: any,
+  options?: { targetPlayerId?: string; targetPermanentId?: string },
+): { prevented: number; remainingDamage: number } {
+  const initialAmount = Math.max(0, Number(amount || 0));
+  if (initialAmount <= 0) return { prevented: 0, remainingDamage: 0 };
+
+  const state = (ctx as any).state as any;
+  const effects = Array.isArray(state?.damagePreventionEffects) ? state.damagePreventionEffects : [];
+  if (effects.length === 0) return { prevented: 0, remainingDamage: initialAmount };
+
+  const targetRef = options?.targetPlayerId || options?.targetPermanentId || '';
+  if (!canDamageBePrevented(ctx, sourceCard, targetRef)) {
+    return { prevented: 0, remainingDamage: initialAmount };
+  }
+
+  const currentTurn = getCurrentTurnNumberForEffects(state);
+  const normalizedSourceId = String(sourceId || '').trim();
+  const targetPlayerId = String(options?.targetPlayerId || '').trim();
+  const targetPermanentId = String(options?.targetPermanentId || '').trim();
+  const sourceColors = getSourceColorsForPrevention(sourceCard);
+
+  for (const effect of effects) {
+    const targetSourceId = String(effect?.targetSourceId || '').trim();
+    if (targetSourceId !== '*' && targetSourceId !== normalizedSourceId) continue;
+
+    const effectTargetPlayerId = String(effect?.targetPlayerId || '').trim();
+    if (effectTargetPlayerId && effectTargetPlayerId !== targetPlayerId) continue;
+
+    const effectTargetPermanentId = String(effect?.targetPermanentId || '').trim();
+    if (effectTargetPermanentId && effectTargetPermanentId !== targetPermanentId) continue;
+
+    const expiresAtTurn = Number(effect?.expiresAtTurn);
+    if (Number.isFinite(expiresAtTurn) && expiresAtTurn !== currentTurn) continue;
+
+    const requiredColors = Array.isArray(effect?.colors)
+      ? effect.colors.map((color: any) => String(color || '').trim().toUpperCase()).filter(Boolean)
+      : [];
+    if (requiredColors.length > 0 && !requiredColors.some((color: string) => sourceColors.includes(color))) continue;
+
+    const remainingAmount = Number(effect?.remainingAmount);
+    const hasFiniteShield = Number.isFinite(remainingAmount);
+    const prevented = hasFiniteShield ? Math.min(initialAmount, Math.max(0, remainingAmount)) : initialAmount;
+    if (prevented <= 0) continue;
+
+    if (effect?.consumeOnUse === true) {
+      state.damagePreventionEffects = effects.filter((entry: any) => String(entry?.id || '') !== String(effect?.id || ''));
+    } else if (hasFiniteShield) {
+      const nextRemaining = Math.max(0, remainingAmount - prevented);
+      state.damagePreventionEffects = effects.flatMap((entry: any) => {
+        if (String(entry?.id || '') !== String(effect?.id || '')) return [entry];
+        return nextRemaining > 0 ? [{ ...entry, remainingAmount: nextRemaining }] : [];
+      });
+    }
+
+    debug(2, `${ts()} [dealCombatDamage] Prevented ${prevented} combat damage from ${normalizedSourceId || sourceCard?.name || 'source'}`);
+    return { prevented, remainingDamage: Math.max(0, initialAmount - prevented) };
+  }
+
+  return { prevented: 0, remainingDamage: initialAmount };
 }
 
 const TEMPORARY_RETAINED_MANA_COLORS = ['white', 'blue', 'black', 'red', 'green', 'colorless'] as const;
@@ -1713,7 +1800,7 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
         }
 
         if (isPlaneswalkerTarget && defendingPermanent) {
-          const damageResult = applyCombatDamageToPlaneswalker(defendingPermanent, attackerPower);
+          const damageResult = applyCombatDamageToPlaneswalker(ctx, defendingPermanent, attackerPower, card, String(attacker.id || ''));
 
           if (damageResult.appliedAmount > 0) {
             debug(2, `${ts()} [dealCombatDamage] ${card.name || 'Attacker'} dealt ${damageResult.appliedAmount} combat damage to planeswalker ${defendingPermanent.card?.name || defendingPermanent.id} (${damageResult.remainingLoyalty} loyalty remaining)`);
@@ -1738,7 +1825,7 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
             ctx, card, attacker, attackerController, attackerPower, defendingPlayerId
           );
           
-          const actualDamage = replacementResult.damageDealt;
+          let actualDamage = replacementResult.damageDealt;
           
           // Log replacement effects
           for (const effect of replacementResult.effectsApplied) {
@@ -1783,6 +1870,11 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
             }
           }
           
+          const preventionResult = applyCombatDamagePreventionEffects(ctx, actualDamage, String(attacker.id || ''), card, { targetPlayerId: defendingPlayerId });
+          if (preventionResult.prevented > 0) {
+            actualDamage = preventionResult.remainingDamage;
+          }
+
           // Deal actual damage (may be 0 if prevented)
           if (actualDamage > 0) {
             const currentLife = life[defendingPlayerId] ?? startingLife;
@@ -1878,7 +1970,7 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
                 debug(2, `${ts()} [dealCombatDamage] ${aura.card?.name || 'Aura'}: ${lifeGainResult.message}`);
               }
             }
-          } else if (replacementResult.prevented) {
+          } else if (replacementResult.prevented || preventionResult.prevented > 0) {
             debug(2, `${ts()} [dealCombatDamage] ${card.name || 'Attacker'}'s ${attackerPower} combat damage was prevented`);
           }
         }
@@ -1930,17 +2022,24 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
                 debug(2, `${ts()} [dealCombatDamage] Combat damage to blocker ${blockerCard.name || blockerId} was prevented`);
                 continue;
               }
-              if (applyVigorDamageReplacement(ctx, blocker, damageToBlocker, card)) {
+              const preventionResult = applyCombatDamagePreventionEffects(ctx, damageToBlocker, String(attacker.id || ''), card, { targetPermanentId: String(blocker.id || '') });
+              const damageToBlockerAfterPrevention = preventionResult.remainingDamage;
+              if (preventionResult.prevented > 0 && damageToBlockerAfterPrevention <= 0) {
+                remainingDamage -= damageToBlocker;
+                debug(2, `${ts()} [dealCombatDamage] Combat damage to blocker ${blockerCard.name || blockerId} was prevented`);
+                continue;
+              }
+              if (applyVigorDamageReplacement(ctx, blocker, damageToBlockerAfterPrevention, card)) {
                 remainingDamage -= damageToBlocker;
                 continue;
               }
-              const damageResult = applyDamageToPermanentWithCounterEffects(blocker, damageToBlocker, 'markedDamage');
+              const damageResult = applyDamageToPermanentWithCounterEffects(blocker, damageToBlockerAfterPrevention, 'markedDamage');
               if (damageResult.prevented) {
                 continue;
               }
               // Track damage dealt to this permanent this turn (for intervening-if clauses).
-              blocker.damageThisTurn = (blocker.damageThisTurn || 0) + damageToBlocker;
-              blocker.combatDamageThisTurn = (blocker.combatDamageThisTurn || 0) + damageToBlocker;
+              blocker.damageThisTurn = (blocker.damageThisTurn || 0) + damageToBlockerAfterPrevention;
+              blocker.combatDamageThisTurn = (blocker.combatDamageThisTurn || 0) + damageToBlockerAfterPrevention;
               blocker.tookDamageThisTurn = true;
 
               // Best-effort: track creature damaged by this creature this turn (for intervening-if templates).
@@ -1958,10 +2057,10 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
               }
               remainingDamage -= damageToBlocker;
               
-              debug(2, `${ts()} [dealCombatDamage] ${card.name || 'Attacker'} dealt ${damageToBlocker} damage to blocker ${blockerCard.name || blockerId}`);
+              debug(2, `${ts()} [dealCombatDamage] ${card.name || 'Attacker'} dealt ${damageToBlockerAfterPrevention} damage to blocker ${blockerCard.name || blockerId}`);
               
               // Check for damage-received triggers (Brash Taunter, Boros Reckoner, etc.)
-              queueDamageReceivedTrigger(ctx, blocker, damageToBlocker);
+              queueDamageReceivedTrigger(ctx, blocker, damageToBlockerAfterPrevention);
               
               // Check if blocker dies
               const totalDamageOnBlocker = blocker.markedDamage || 0;
@@ -1974,7 +2073,7 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
               
               // Lifelink for damage dealt to blocker
               if (keywords.lifelink) {
-                const lifeGainResult = applyLifeGainViaProcessLifeChange(ctx, attackerController as PlayerID, damageToBlocker, `${card.name || 'Attacker'} (lifelink)`);
+                const lifeGainResult = applyLifeGainViaProcessLifeChange(ctx, attackerController as PlayerID, damageToBlockerAfterPrevention, `${card.name || 'Attacker'} (lifelink)`);
                 
                 result.lifeGainForPlayers[attackerController] = 
                   (result.lifeGainForPlayers[attackerController] || 0) + lifeGainResult.actualChange;
@@ -1987,7 +2086,7 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
           // Trample: Excess damage goes to defending player or planeswalker
           if (keywords.trample && remainingDamage > 0) {
             if (isPlaneswalkerTarget && defendingPermanent) {
-              const damageResult = applyCombatDamageToPlaneswalker(defendingPermanent, remainingDamage);
+              const damageResult = applyCombatDamageToPlaneswalker(ctx, defendingPermanent, remainingDamage, card, String(attacker.id || ''));
 
               if (damageResult.appliedAmount > 0) {
                 debug(2, `${ts()} [dealCombatDamage] ${card.name || 'Attacker'} trample: dealt ${damageResult.appliedAmount} excess damage to planeswalker ${defendingPermanent.card?.name || defendingPermanent.id} (${damageResult.remainingLoyalty} loyalty remaining)`);
@@ -2003,24 +2102,31 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
               }
             } else if (!isPermanentCombatTarget && defendingTarget) {
               const defendingPlayerId = defendingTarget;
+              const preventionResult = applyCombatDamagePreventionEffects(ctx, remainingDamage, String(attacker.id || ''), card, { targetPlayerId: defendingPlayerId });
+              const trampleDamageToPlayer = preventionResult.remainingDamage;
+              if (preventionResult.prevented > 0 && trampleDamageToPlayer <= 0) {
+                debug(2, `${ts()} [dealCombatDamage] ${card.name || 'Attacker'}'s ${remainingDamage} trample damage to ${defendingPlayerId} was prevented`);
+                continue;
+              }
+
               const currentLife = life[defendingPlayerId] ?? startingLife;
-              life[defendingPlayerId] = currentLife - remainingDamage;
+              life[defendingPlayerId] = currentLife - trampleDamageToPlayer;
 
               // Track damage dealt to each player this turn.
               try {
                 (state as any).damageTakenThisTurnByPlayer = (state as any).damageTakenThisTurnByPlayer || {};
                 (state as any).damageTakenThisTurnByPlayer[defendingPlayerId] =
-                  ((state as any).damageTakenThisTurnByPlayer[defendingPlayerId] || 0) + remainingDamage;
+                  ((state as any).damageTakenThisTurnByPlayer[defendingPlayerId] || 0) + trampleDamageToPlayer;
               } catch {}
 
               // Track life lost this turn for common oracle checks.
               try {
                 state.lifeLostThisTurn = state.lifeLostThisTurn || {};
-                state.lifeLostThisTurn[defendingPlayerId] = (state.lifeLostThisTurn[defendingPlayerId] || 0) + remainingDamage;
+                state.lifeLostThisTurn[defendingPlayerId] = (state.lifeLostThisTurn[defendingPlayerId] || 0) + trampleDamageToPlayer;
               } catch {}
               
               result.damageToPlayers[defendingPlayerId] = 
-                (result.damageToPlayers[defendingPlayerId] || 0) + remainingDamage;
+                (result.damageToPlayers[defendingPlayerId] || 0) + trampleDamageToPlayer;
               
               // Track which attacker dealt damage to which player (for batched triggers)
               if (!result.attackersThatDealtDamage[defendingPlayerId]) {
@@ -2028,17 +2134,17 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
               }
               result.attackersThatDealtDamage[defendingPlayerId].add(attacker.id);
               
-              debug(2, `${ts()} [dealCombatDamage] ${card.name || 'Attacker'} trample: dealt ${remainingDamage} excess damage to ${defendingPlayerId}`);
+              debug(2, `${ts()} [dealCombatDamage] ${card.name || 'Attacker'} trample: dealt ${trampleDamageToPlayer} excess damage to ${defendingPlayerId}`);
               
               // Track commander trample damage (Rule 903.10a)
-              trackCommanderDamage(ctx, attackerController, card, attacker, defendingPlayerId, remainingDamage);
+              trackCommanderDamage(ctx, attackerController, card, attacker, defendingPlayerId, trampleDamageToPlayer);
               
               // Track that this creature dealt damage to this player this turn (for Reciprocate-style effects)
-              trackCreatureDamageToPlayer(ctx, attacker.id, card.name || 'Unknown Creature', defendingPlayerId, remainingDamage);
+              trackCreatureDamageToPlayer(ctx, attacker.id, card.name || 'Unknown Creature', defendingPlayerId, trampleDamageToPlayer);
               
               // Lifelink for trample damage
               if (keywords.lifelink) {
-                const lifeGainResult = applyLifeGainViaProcessLifeChange(ctx, attackerController as PlayerID, remainingDamage, `${card.name || 'Attacker'} (lifelink trample)`);
+                const lifeGainResult = applyLifeGainViaProcessLifeChange(ctx, attackerController as PlayerID, trampleDamageToPlayer, `${card.name || 'Attacker'} (lifelink trample)`);
                 
                 result.lifeGainForPlayers[attackerController] = 
                   (result.lifeGainForPlayers[attackerController] || 0) + lifeGainResult.actualChange;
@@ -2113,13 +2219,20 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
           }
           
           if (blockerPower > 0) {
+            const preventionResult = applyCombatDamagePreventionEffects(ctx, blockerPower, String(blocker.id || ''), blockerCard, { targetPermanentId: String(attacker.id || '') });
+            const blockerDamageAfterPrevention = preventionResult.remainingDamage;
+            if (preventionResult.prevented > 0 && blockerDamageAfterPrevention <= 0) {
+              debug(2, `${ts()} [COMBAT_DAMAGE] Combat damage to attacker ${card.name || attacker.id} was prevented`);
+              continue;
+            }
+
             // Track excess damage to attacker (best-effort): damage beyond remaining toughness in this event.
             try {
               const stateAny = (ctx as any).state as any;
               const attackerToughnessForExcess = parseInt(String(attacker.baseToughness ?? card.toughness ?? '0'), 10) || 0;
               const prevMarked = attacker.markedDamage || 0;
               const remaining = Math.max(0, attackerToughnessForExcess - prevMarked);
-              if (remaining > 0 && blockerPower > remaining) {
+              if (remaining > 0 && blockerDamageAfterPrevention > remaining) {
                 stateAny.excessDamageThisTurnByCreatureId = stateAny.excessDamageThisTurnByCreatureId || {};
                 stateAny.excessDamageThisTurnByCreatureId[String(attacker.id)] = true;
 
@@ -2131,16 +2244,16 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
             } catch {}
 
             // Deal damage to attacker
-            if (applyVigorDamageReplacement(ctx, attacker, blockerPower, blockerCard)) {
+            if (applyVigorDamageReplacement(ctx, attacker, blockerDamageAfterPrevention, blockerCard)) {
               continue;
             }
-            const damageResult = applyDamageToPermanentWithCounterEffects(attacker, blockerPower, 'markedDamage');
+            const damageResult = applyDamageToPermanentWithCounterEffects(attacker, blockerDamageAfterPrevention, 'markedDamage');
             if (damageResult.prevented) {
               continue;
             }
             // Track damage dealt to this permanent this turn (for intervening-if clauses).
-            attacker.damageThisTurn = (attacker.damageThisTurn || 0) + blockerPower;
-            attacker.combatDamageThisTurn = (attacker.combatDamageThisTurn || 0) + blockerPower;
+            attacker.damageThisTurn = (attacker.damageThisTurn || 0) + blockerDamageAfterPrevention;
+            attacker.combatDamageThisTurn = (attacker.combatDamageThisTurn || 0) + blockerDamageAfterPrevention;
             attacker.tookDamageThisTurn = true;
 
             // Best-effort: track creature damaged by this creature this turn (for intervening-if templates).
@@ -2157,10 +2270,10 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
               // best-effort only
             }
             
-            debug(2, `${ts()} [COMBAT_DAMAGE] Blocker ${blockerCard.name || blockerId} dealt ${blockerPower} damage to attacker ${card.name || attacker.id}`);
+            debug(2, `${ts()} [COMBAT_DAMAGE] Blocker ${blockerCard.name || blockerId} dealt ${blockerDamageAfterPrevention} damage to attacker ${card.name || attacker.id}`);
             
             // Check for damage-received triggers (Brash Taunter, Boros Reckoner, etc.)
-            queueDamageReceivedTrigger(ctx, attacker, blockerPower);
+            queueDamageReceivedTrigger(ctx, attacker, blockerDamageAfterPrevention);
             
             // Check if attacker dies
             const attackerToughness = attackerStats.toughness;
@@ -2177,7 +2290,7 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
             // Lifelink for blocker
             if (blockerKeywords.lifelink) {
               const blockerController = blocker.controller;
-              const lifeGainResult = applyLifeGainViaProcessLifeChange(ctx, blockerController as PlayerID, blockerPower, `${blockerCard.name || 'Blocker'} (lifelink)`);
+              const lifeGainResult = applyLifeGainViaProcessLifeChange(ctx, blockerController as PlayerID, blockerDamageAfterPrevention, `${blockerCard.name || 'Blocker'} (lifelink)`);
               
               result.lifeGainForPlayers[blockerController] = 
                 (result.lifeGainForPlayers[blockerController] || 0) + lifeGainResult.actualChange;
@@ -2699,6 +2812,7 @@ function endTemporaryEffects(ctx: GameContext) {
 
     endedCount += clearTemporaryGraveyardKeywordGrants(state);
     endedCount += clearTemporaryPlayableFromGraveyardPermissions(state);
+    endedCount += clearTemporaryEtbTriggers(state);
 
     // Revert temporary control changes recorded for cleanup.
     if (Array.isArray((state as any).controlChangeEffects) && (state as any).controlChangeEffects.length > 0) {
@@ -2749,6 +2863,19 @@ function endTemporaryEffects(ctx: GameContext) {
         effect.duration !== 'until_end_of_turn' && effect.duration !== 'this_turn'
       );
       endedCount += beforeCount - state.temporaryEffects.length;
+    }
+
+    if (Array.isArray(state.damagePreventionEffects) && state.damagePreventionEffects.length > 0) {
+      const beforeCount = state.damagePreventionEffects.length;
+      const currentTurn = getCurrentTurnNumberForEffects(state);
+      state.damagePreventionEffects = state.damagePreventionEffects.filter((effect: any) => {
+        const expiresAtTurn = Number(effect?.expiresAtTurn);
+        return Number.isFinite(expiresAtTurn) && expiresAtTurn > currentTurn;
+      });
+      endedCount += beforeCount - state.damagePreventionEffects.length;
+      if (state.damagePreventionEffects.length === 0) {
+        delete state.damagePreventionEffects;
+      }
     }
     
     // Clear creatures attacked this turn count (for Minas Tirith, etc.)

@@ -4120,11 +4120,11 @@ export function processHeroicTriggersForTargets(
   }
 }
 
-export function applyCostAdjustment<T extends { generic: number; colors: Record<string, number> }>(
-  parsedCost: T,
+export function applyCostAdjustment<TParsedCost extends { generic: number; colors: Record<string, number> }>(
+  parsedCost: TParsedCost,
   reduction: { generic: number; colors: Record<string, number>; messages?: string[] },
   genericTax = 0,
-): T {
+): TParsedCost {
   const colorNameToSymbol: Record<string, string> = {
     white: 'W',
     blue: 'U',
@@ -4144,7 +4144,7 @@ export function applyCostAdjustment<T extends { generic: number; colors: Record<
     ...parsedCost,
     generic: Math.max(0, parsedCost.generic + Math.max(0, Number(genericTax || 0)) - reduction.generic),
     colors: { ...parsedCost.colors },
-  } as T;
+  } as TParsedCost;
   
   // Apply color reductions (can reduce to 0 but not below)
   for (const [reductionColor, amount] of Object.entries(reduction.colors || {})) {
@@ -4888,7 +4888,9 @@ export async function requestCastSpellForSocket(
 
         const cardAllows = cardAllowsPlayerToPlayFromExile(exiled, String(playerId) as any, turnNumber);
 
-        const isForetold = Boolean((exiled as any)?.foretold) || Boolean((exiled as any)?.foretellCost) || Boolean((exiled as any)?.faceDown);
+        const isForetold = Boolean((exiled as any)?.foretold)
+          || Boolean((exiled as any)?.foretellCost)
+          || (Boolean((exiled as any)?.faceDown) && /\bforetell\b/i.test(String((exiled as any)?.oracle_text || '')));
         if (isForetold) {
           socket.emit("error", { code: "USE_CAST_FORETOLD", message: "Use the foretell cast action for this card." });
           return;
@@ -7536,6 +7538,13 @@ export function registerGameActions(io: Server, socket: Socket) {
         ? commandZoneCandidate?.card
         : sourceArr.find((c: any) => c && c.id === cardId);
 
+      if (!cardInHand && castSourceZone === 'exile') {
+        const exiled = findPlayableExileCardForPlayer(game.state, String(playerId) as any, String(cardId));
+        if (exiled) {
+          cardInHand = exiled;
+        }
+      }
+
       // If no fromZone was specified, allow auto-detection (hand -> exile -> graveyard)
       if (!cardInHand && !fromZone) {
         const inHand = hand.find((c: any) => c && c.id === cardId);
@@ -7586,7 +7595,9 @@ export function registerGameActions(io: Server, socket: Socket) {
 
         const cardAllows = cardAllowsPlayerToPlayFromExile(cardInHand, String(playerId) as any, turnNumber);
 
-        const isForetold = Boolean((cardInHand as any)?.foretold) || Boolean((cardInHand as any)?.foretellCost) || Boolean((cardInHand as any)?.faceDown);
+        const isForetold = Boolean((cardInHand as any)?.foretold)
+          || Boolean((cardInHand as any)?.foretellCost)
+          || (Boolean((cardInHand as any)?.faceDown) && /\bforetell\b/i.test(String((cardInHand as any)?.oracle_text || '')));
         if (isForetold) {
           socket.emit("error", { code: "USE_CAST_FORETOLD", message: "Use the foretell cast action for this card." });
           return;
