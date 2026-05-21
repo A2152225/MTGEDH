@@ -39,7 +39,7 @@ import { shouldSuppressMandatoryTriggeredAbilityPrompt } from "./trigger-shortcu
 import { hasMutateAlternateCost, parseMadnessCost, parseMutateCost, getValidMutateTargets } from "../state/modules/alternate-costs.js";
 import { getCastableSpellCandidates, getCommandZoneCommanderCandidates, getPlayableLandCandidates, type SharedCommanderAvailabilityCandidate, type SharedPlayableLandCandidate, type SharedSpellCastCandidate } from "../state/modules/can-respond.js";
 import { buildCounterRemovalCostOptions } from "../state/modules/counter-removal-costs.js";
-import { cardAllowsPlayerToPlayFromExile, cleanupCardLeavingExile, findPlayableExileCardForPlayer, getPlayableExileCardsForPlayer, getPlayableFromExileDurablePermissionForCard } from "../state/modules/playable-from-exile.js";
+import { cardAllowsPlayerToPlayFromExile, cardMeetsPlayFromExileConditions, cleanupCardLeavingExile, findPlayableExileCardForPlayer, getPlayableExileCardsForPlayer, getPlayableFromExileDurablePermissionForCard } from "../state/modules/playable-from-exile.js";
 import { isPreparedCopyActive, syncPreparedPermanentAfterControlChange } from "../state/modules/prepared.js";
 import { getEffectiveBasicLandTypes } from "../state/modules/mana-abilities.js";
 import { buildCostAdjustmentPlan, buildLiveSpellCostAdjustment } from "../state/modules/cost-adjustments.js";
@@ -4891,60 +4891,6 @@ export async function requestCastSpellForSocket(
     if (!cardInHand && !fromZone) {
       const exiled = findPlayableExileCardForPlayer(game.state, String(playerId) as any, String(cardId));
       if (exiled) {
-        const stateAny: any = game.state as any;
-        const turnNumber = Number(stateAny?.turnNumber ?? 0);
-
-        const pfe = stateAny?.playableFromExile?.[playerId];
-        const entry = Array.isArray(pfe) ? (pfe.includes(cardId) ? true : undefined) : pfe?.[cardId];
-        const pfeAllows = typeof entry === 'number' ? entry >= turnNumber : Boolean(entry);
-
-        const cardAllows = cardAllowsPlayerToPlayFromExile(exiled, String(playerId) as any, turnNumber);
-        const durablePermission = getPlayableFromExileDurablePermissionForCard(game.state, String(playerId) as any, exiled, 'cast');
-        const durableAllows = Boolean(durablePermission);
-
-        if (durableAllows && String(durablePermission?.costMode || '') === 'without_paying_mana_cost') {
-          (exiled as any).castWithoutPayingManaCost = true;
-        }
-        if (durableAllows && (durablePermission?.metadata as any)?.spendManaAsThoughAnyType === true) {
-          (exiled as any).spendManaAsThoughAnyType = true;
-        }
-        if (durableAllows && (
-          durablePermission?.timingOverride?.asThoughFlash === true
-          || durablePermission?.timingOverride?.ignoreTiming === true
-        )) {
-          ignoreTimingRestrictions = true;
-        }
-
-        const isForetold = Boolean((exiled as any)?.foretold)
-          || Boolean((exiled as any)?.foretellCost)
-          || (Boolean((exiled as any)?.faceDown) && /\bforetell\b/i.test(String((exiled as any)?.oracle_text || '')));
-        if (isForetold) {
-          socket.emit("error", { code: "USE_CAST_FORETOLD", message: "Use the foretell cast action for this card." });
-          return;
-        }
-
-        if (String((exiled as any)?.preparedSourcePermanentId || '').trim()) {
-          if (!isPreparedCopyActive(game.state as any, exiled, String(playerId))) {
-            const staleExileIndex = exile.findIndex((card: any) => String(card?.id || '') === String(exiled?.id || ''));
-            if (staleExileIndex !== -1) {
-              const [removedCard] = exile.splice(staleExileIndex, 1);
-              (zones as any).exileCount = exile.length;
-              cleanupCardLeavingExile(game.state as any, removedCard);
-            }
-
-            socket.emit("error", {
-              code: "PREPARED_COPY_EXPIRED",
-              message: "That prepared copy is no longer available to cast.",
-            });
-            return;
-          }
-        }
-
-        if (!bypassExilePermissionCheck && !pfeAllows && !cardAllows && !durableAllows) {
-          socket.emit("error", { code: "NO_PERMISSION", message: "You don't have permission to cast that card from exile." });
-          return;
-        }
-
         cardInHand = exiled;
         castSourceZone = 'exile';
       }
@@ -4972,6 +4918,63 @@ export async function requestCastSpellForSocket(
           : `Card not found in ${castSourceZone}`,
       });
       return;
+    }
+
+    if (castSourceZone === 'exile') {
+      const stateAny: any = game.state as any;
+      const turnNumber = Number(stateAny?.turnNumber ?? 0);
+
+      const pfe = stateAny?.playableFromExile?.[playerId];
+      const entry = Array.isArray(pfe) ? (pfe.includes(cardId) ? true : undefined) : pfe?.[cardId];
+      const pfeAllows = (typeof entry === 'number' ? entry >= turnNumber : Boolean(entry))
+        && cardMeetsPlayFromExileConditions(game.state, cardInHand, String(playerId) as any);
+
+      const cardAllows = cardAllowsPlayerToPlayFromExile(cardInHand, String(playerId) as any, turnNumber, game.state);
+      const durablePermission = getPlayableFromExileDurablePermissionForCard(game.state, String(playerId) as any, cardInHand, 'cast');
+      const durableAllows = Boolean(durablePermission);
+
+      if (durableAllows && String(durablePermission?.costMode || '') === 'without_paying_mana_cost') {
+        (cardInHand as any).castWithoutPayingManaCost = true;
+      }
+      if (durableAllows && (durablePermission?.metadata as any)?.spendManaAsThoughAnyType === true) {
+        (cardInHand as any).spendManaAsThoughAnyType = true;
+      }
+      if (durableAllows && (
+        durablePermission?.timingOverride?.asThoughFlash === true
+        || durablePermission?.timingOverride?.ignoreTiming === true
+      )) {
+        ignoreTimingRestrictions = true;
+      }
+
+      const isForetold = Boolean((cardInHand as any)?.foretold)
+        || Boolean((cardInHand as any)?.foretellCost)
+        || (Boolean((cardInHand as any)?.faceDown) && /\bforetell\b/i.test(String((cardInHand as any)?.oracle_text || '')));
+      if (isForetold) {
+        socket.emit("error", { code: "USE_CAST_FORETOLD", message: "Use the foretell cast action for this card." });
+        return;
+      }
+
+      if (String((cardInHand as any)?.preparedSourcePermanentId || '').trim()) {
+        if (!isPreparedCopyActive(game.state as any, cardInHand, String(playerId))) {
+          const staleExileIndex = exile.findIndex((card: any) => String(card?.id || '') === String((cardInHand as any)?.id || ''));
+          if (staleExileIndex !== -1) {
+            const [removedCard] = exile.splice(staleExileIndex, 1);
+            (zones as any).exileCount = exile.length;
+            cleanupCardLeavingExile(game.state as any, removedCard);
+          }
+
+          socket.emit("error", {
+            code: "PREPARED_COPY_EXPIRED",
+            message: "That prepared copy is no longer available to cast.",
+          });
+          return;
+        }
+      }
+
+      if (!bypassExilePermissionCheck && !pfeAllows && !cardAllows && !durableAllows) {
+        socket.emit("error", { code: "NO_PERMISSION", message: "You don't have permission to cast that card from exile." });
+        return;
+      }
     }
 
     const typeLine = (cardInHand.type_line || "").toLowerCase();
@@ -7071,9 +7074,10 @@ export function handlePlayLandRequest(io: Server, socket: Socket, payload?: Play
       const turnNumber = Number(stateAny?.turnNumber ?? 0);
       const pfe = stateAny?.playableFromExile?.[playerId];
       const entry = Array.isArray(pfe) ? (pfe.includes(cardId) ? true : undefined) : pfe?.[cardId];
-      const pfeAllows = typeof entry === 'number' ? entry >= turnNumber : Boolean(entry);
       const exiledCard = findPlayableExileCardForPlayer(game.state, String(playerId) as any, String(cardId));
-      const cardAllows = cardAllowsPlayerToPlayFromExile(exiledCard, String(playerId) as any, turnNumber);
+      const pfeAllows = (typeof entry === 'number' ? entry >= turnNumber : Boolean(entry))
+        && cardMeetsPlayFromExileConditions(game.state, exiledCard, String(playerId) as any);
+      const cardAllows = cardAllowsPlayerToPlayFromExile(exiledCard, String(playerId) as any, turnNumber, game.state);
       const durablePermission = getPlayableFromExileDurablePermissionForCard(game.state, String(playerId) as any, exiledCard, 'play');
       if (!pfeAllows && !cardAllows && !durablePermission) {
         socket.emit("error", {
@@ -7647,9 +7651,10 @@ export function registerGameActions(io: Server, socket: Socket) {
         const turnNumber = Number(stateAny?.turnNumber ?? 0);
         const pfe = stateAny?.playableFromExile?.[playerId];
         const entry = Array.isArray(pfe) ? (pfe.includes(cardId) ? true : undefined) : pfe?.[cardId];
-        const pfeAllows = typeof entry === 'number' ? entry >= turnNumber : Boolean(entry);
+        const pfeAllows = (typeof entry === 'number' ? entry >= turnNumber : Boolean(entry))
+          && cardMeetsPlayFromExileConditions(game.state, cardInHand, String(playerId) as any);
 
-        const cardAllows = cardAllowsPlayerToPlayFromExile(cardInHand, String(playerId) as any, turnNumber);
+        const cardAllows = cardAllowsPlayerToPlayFromExile(cardInHand, String(playerId) as any, turnNumber, game.state);
         const durablePermission = getPlayableFromExileDurablePermissionForCard(game.state, String(playerId) as any, cardInHand, 'cast');
         const durableAllows = Boolean(durablePermission);
 

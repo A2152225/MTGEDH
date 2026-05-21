@@ -14,6 +14,7 @@ vi.mock('../src/socket/game-actions.js', async () => {
 
 import { AIEngine, AIDecisionType } from '../../rules-engine/src/AIEngine.js';
 import { createGameIfNotExists, deleteGame, initDb } from '../src/db/index.js';
+import { buildDurableCommandZonePermission, buildDurableLibraryPermission, buildDurablePlayableFromExilePermission } from '../src/state/modules/durable-permissions.js';
 import { cleanupGameAI, handleAIPriority, registerAIPlayer, unregisterAIPlayer } from '../src/socket/ai.js';
 import { games } from '../src/socket/socket.js';
 import { ensureGame } from '../src/socket/util.js';
@@ -1184,6 +1185,310 @@ describe('AI response-window integration', () => {
         gameId,
         cardId: 'exile_opt_1',
         fromZone: 'exile',
+      }),
+    );
+  });
+
+  it('casts a durable ignore-timing exile sorcery on an opponent turn through the shared cast request flow', async () => {
+    const gameId = createTestGameId('durable_exile_sorcery_response');
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [
+      { id: playerId, name: 'AI', spectator: false, isAI: true, life: 40 },
+      { id: 'opp1', name: 'Opponent', spectator: false, life: 40 },
+    ];
+    (game.state as any).turnNumber = 12;
+    (game.state as any).turnPlayer = 'opp1';
+    (game.state as any).activePlayer = 'opp1';
+    (game.state as any).priority = playerId;
+    (game.state as any).phase = 'main';
+    (game.state as any).step = 'precombat_main';
+    (game.state as any).stack = [];
+    (game.state as any).manaPool = {
+      [playerId]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+      opp1: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+    };
+    (game.state as any).durablePermissions = [
+      buildDurablePlayableFromExilePermission({
+        playerId,
+        cardIds: ['exile_divination_response_1'],
+        action: 'cast',
+        duration: 'this_turn',
+        turnApplied: 12,
+        expiresAtTurn: 12,
+        sourceName: 'Response Exile Test',
+        costMode: 'without_paying_mana_cost',
+        timingOverride: { ignoreTiming: true },
+      }),
+    ];
+    (game.state as any).battlefield = [];
+    (game.state as any).zones = {
+      [playerId]: {
+        hand: [],
+        handCount: 0,
+        library: [],
+        libraryCount: 0,
+        graveyard: [],
+        graveyardCount: 0,
+        exile: [
+          {
+            id: 'exile_divination_response_1',
+            name: 'Divination',
+            type_line: 'Sorcery',
+            oracle_text: 'Draw two cards.',
+            mana_cost: '{2}{U}',
+            cmc: 3,
+            zone: 'exile',
+          },
+        ],
+        exileCount: 1,
+      },
+      opp1: {
+        hand: [],
+        handCount: 0,
+        library: [],
+        libraryCount: 0,
+        graveyard: [],
+        graveyardCount: 0,
+        exile: [],
+        exileCount: 0,
+      },
+    };
+
+    registerAIPlayer(gameId, playerId as any);
+
+    vi.spyOn(AIEngine.prototype, 'makeDecision').mockResolvedValue({
+      type: AIDecisionType.ACTIVATE_ABILITY,
+      playerId,
+      action: {},
+      reasoning: 'No activated ability available',
+      confidence: 1,
+    } as any);
+
+    requestCastSpellForSocket.mockImplementationOnce(async (_io: any, _socket: any, payload: any) => {
+      const liveGame = ensureGame(String(payload?.gameId || ''));
+      if (!liveGame) throw new Error('game missing during mocked cast');
+      (liveGame.state as any).priority = null;
+    });
+
+    await handleAIPriority(createNoopIo(), gameId, playerId as any);
+
+    expect(requestCastSpellForSocket).toHaveBeenCalledTimes(1);
+    expect(requestCastSpellForSocket).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({
+        gameId,
+        cardId: 'exile_divination_response_1',
+        fromZone: 'exile',
+      }),
+    );
+  });
+
+  it('casts a durable ignore-timing top-library sorcery on an opponent turn through the shared cast request flow', async () => {
+    const gameId = createTestGameId('durable_library_sorcery_response');
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [
+      { id: playerId, name: 'AI', spectator: false, isAI: true, life: 40 },
+      { id: 'opp1', name: 'Opponent', spectator: false, life: 40 },
+    ];
+    (game.state as any).turnNumber = 13;
+    (game.state as any).turnPlayer = 'opp1';
+    (game.state as any).activePlayer = 'opp1';
+    (game.state as any).priority = playerId;
+    (game.state as any).phase = 'main';
+    (game.state as any).step = 'precombat_main';
+    (game.state as any).stack = [];
+    (game.state as any).manaPool = {
+      [playerId]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+      opp1: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+    };
+    (game.state as any).durablePermissions = [
+      buildDurableLibraryPermission({
+        playerId,
+        action: 'cast',
+        duration: 'this_turn',
+        turnApplied: 13,
+        expiresAtTurn: 13,
+        sourceName: 'Response Library Test',
+        costMode: 'without_paying_mana_cost',
+        timingOverride: { ignoreTiming: true },
+        typeLineIncludes: ['sorcery'],
+      }),
+    ];
+    (game.state as any).battlefield = [];
+    (game.state as any).zones = {
+      [playerId]: {
+        hand: [],
+        handCount: 0,
+        library: [],
+        libraryCount: 1,
+        graveyard: [],
+        graveyardCount: 0,
+        exile: [],
+        exileCount: 0,
+      },
+      opp1: {
+        hand: [],
+        handCount: 0,
+        library: [],
+        libraryCount: 0,
+        graveyard: [],
+        graveyardCount: 0,
+        exile: [],
+        exileCount: 0,
+      },
+    };
+    (game as any).libraries = new Map([
+      [playerId, [
+        {
+          id: 'library_divination_response_1',
+          name: 'Divination',
+          type_line: 'Sorcery',
+          oracle_text: 'Draw two cards.',
+          mana_cost: '{2}{U}',
+          cmc: 3,
+          zone: 'library',
+        },
+      ]],
+      ['opp1', []],
+    ]);
+
+    registerAIPlayer(gameId, playerId as any);
+
+    vi.spyOn(AIEngine.prototype, 'makeDecision').mockResolvedValue({
+      type: AIDecisionType.ACTIVATE_ABILITY,
+      playerId,
+      action: {},
+      reasoning: 'No activated ability available',
+      confidence: 1,
+    } as any);
+
+    requestCastSpellForSocket.mockImplementationOnce(async (_io: any, _socket: any, payload: any) => {
+      const liveGame = ensureGame(String(payload?.gameId || ''));
+      if (!liveGame) throw new Error('game missing during mocked cast');
+      (liveGame.state as any).priority = null;
+    });
+
+    await handleAIPriority(createNoopIo(), gameId, playerId as any);
+
+    expect(requestCastSpellForSocket).toHaveBeenCalledTimes(1);
+    expect(requestCastSpellForSocket).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({
+        gameId,
+        cardId: 'library_divination_response_1',
+        fromZone: 'library',
+      }),
+    );
+  });
+
+  it('casts a durable ignore-timing commander on an opponent turn through the shared cast request flow', async () => {
+    const gameId = createTestGameId('durable_command_sorcery_response');
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [
+      { id: playerId, name: 'AI', spectator: false, isAI: true, life: 40 },
+      { id: 'opp1', name: 'Opponent', spectator: false, life: 40 },
+    ];
+    (game.state as any).turnNumber = 14;
+    (game.state as any).turnPlayer = 'opp1';
+    (game.state as any).activePlayer = 'opp1';
+    (game.state as any).priority = playerId;
+    (game.state as any).phase = 'main';
+    (game.state as any).step = 'precombat_main';
+    (game.state as any).stack = [];
+    (game.state as any).manaPool = {
+      [playerId]: { white: 0, blue: 1, black: 0, red: 0, green: 0, colorless: 2 },
+      opp1: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+    };
+    (game.state as any).battlefield = [];
+    (game.state as any).zones = {
+      [playerId]: {
+        hand: [],
+        handCount: 0,
+        library: [],
+        libraryCount: 0,
+        graveyard: [],
+        graveyardCount: 0,
+        exile: [],
+        exileCount: 0,
+      },
+      opp1: {
+        hand: [],
+        handCount: 0,
+        library: [],
+        libraryCount: 0,
+        graveyard: [],
+        graveyardCount: 0,
+        exile: [],
+        exileCount: 0,
+      },
+    };
+    (game.state as any).commandZone = {
+      [playerId]: {
+        commanderIds: ['cmd_response_timing'],
+        commanderCards: [
+          {
+            id: 'cmd_response_timing',
+            name: 'Response Timing Commander',
+            type_line: 'Legendary Creature — Wizard',
+            mana_cost: '{2}{U}',
+            oracle_text: '',
+          },
+        ],
+        inCommandZone: ['cmd_response_timing'],
+        taxById: { cmd_response_timing: 0 },
+      },
+      opp1: { commanderIds: [], commanderCards: [], inCommandZone: [], taxById: {} },
+    };
+    (game.state as any).durablePermissions = [
+      buildDurableCommandZonePermission({
+        playerId,
+        action: 'cast',
+        duration: 'this_turn',
+        turnApplied: 14,
+        expiresAtTurn: 14,
+        sourceName: 'Response Command Test',
+        cardIds: ['cmd_response_timing'],
+        timingOverride: { ignoreTiming: true },
+      }),
+    ];
+
+    registerAIPlayer(gameId, playerId as any);
+
+    vi.spyOn(AIEngine.prototype, 'makeDecision').mockResolvedValue({
+      type: AIDecisionType.ACTIVATE_ABILITY,
+      playerId,
+      action: {},
+      reasoning: 'No activated ability available',
+      confidence: 1,
+    } as any);
+
+    requestCastSpellForSocket.mockImplementationOnce(async (_io: any, _socket: any, payload: any) => {
+      const liveGame = ensureGame(String(payload?.gameId || ''));
+      if (!liveGame) throw new Error('game missing during mocked cast');
+      (liveGame.state as any).priority = null;
+    });
+
+    await handleAIPriority(createNoopIo(), gameId, playerId as any);
+
+    expect(requestCastSpellForSocket).toHaveBeenCalledTimes(1);
+    expect(requestCastSpellForSocket).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({
+        gameId,
+        cardId: 'cmd_response_timing',
+        fromZone: 'command',
       }),
     );
   });

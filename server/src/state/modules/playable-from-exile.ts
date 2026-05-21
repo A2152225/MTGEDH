@@ -70,9 +70,41 @@ function getPlayersWithExileZones(state: any): string[] {
   return [...playerIds];
 }
 
-export function cardAllowsPlayerToPlayFromExile(card: any, playerId: PlayerID, currentTurn: number): boolean {
+function playerControlsPermanentNameIncluding(state: any, playerId: PlayerID, namePart: string, typeLinePart?: string): boolean {
+  const normalizedNamePart = String(namePart || '').trim().toLowerCase();
+  const normalizedTypeLinePart = String(typeLinePart || '').trim().toLowerCase();
+  if (!normalizedNamePart) return true;
+
+  const battlefield = Array.isArray((state as any)?.battlefield) ? (state as any).battlefield : [];
+  return battlefield.some((permanent: any) => {
+    if (!permanent || permanent.phasedOut === true) return false;
+    if (String(permanent.controller || permanent.owner || '') !== String(playerId || '')) return false;
+
+    const permanentName = String(permanent?.card?.name || permanent?.name || '').toLowerCase();
+    const typeLine = String(permanent?.card?.type_line || permanent?.card?.typeLine || permanent?.type_line || permanent?.typeLine || '').toLowerCase();
+    if (!permanentName.includes(normalizedNamePart)) return false;
+    return !normalizedTypeLinePart || typeLine.includes(normalizedTypeLinePart);
+  });
+}
+
+export function cardMeetsPlayFromExileConditions(state: any, card: any, playerId: PlayerID): boolean {
+  if (!card || typeof card !== 'object') return true;
+
+  const requiredPlaneswalkerNamePart = String((card as any)?.playFromExileRequiresControllerPlaneswalkerNameIncludes || '').trim();
+  if (requiredPlaneswalkerNamePart) {
+    return playerControlsPermanentNameIncluding(state, playerId, requiredPlaneswalkerNamePart, 'planeswalker');
+  }
+
+  return true;
+}
+
+export function cardAllowsPlayerToPlayFromExile(card: any, playerId: PlayerID, currentTurn: number, state?: any): boolean {
   if (!card || typeof card !== 'object') return false;
   if (!playerMatchesPlayableFromExilePermission((card as any)?.canBePlayedBy, playerId)) {
+    return false;
+  }
+
+  if (state && !cardMeetsPlayFromExileConditions(state, card, playerId)) {
     return false;
   }
 
@@ -99,9 +131,10 @@ export function getPlayableExileCardsForPlayer(state: any, playerId: PlayerID): 
 
       if (!includeAll) {
         const hasMarker = isCardMarkedPlayableFromExile(state, playerId, cardId, currentTurn);
-        const cardAllows = cardAllowsPlayerToPlayFromExile(card, playerId, currentTurn);
+        const conditionAllows = cardMeetsPlayFromExileConditions(state, card, playerId);
+        const cardAllows = cardAllowsPlayerToPlayFromExile(card, playerId, currentTurn, state);
         const durablePermission = getPlayableFromExileDurablePermissionForCard(state, playerId, card);
-        if (!hasMarker && !cardAllows && !durablePermission) {
+        if ((!hasMarker || !conditionAllows) && !cardAllows && !durablePermission) {
           continue;
         }
       }
@@ -166,6 +199,7 @@ export function stripPlayableFromExileTags(card: any): void {
     if (!card || typeof card !== "object") return;
     delete (card as any).canBePlayedBy;
     delete (card as any).playableUntilTurn;
+    delete (card as any).playFromExileRequiresControllerPlaneswalkerNameIncludes;
   } catch {
     // ignore
   }

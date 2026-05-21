@@ -101,8 +101,6 @@ describe('AI shared land-surface integration', () => {
         exileCount: 0,
       },
     };
-    (game.state as any).battlefield = [];
-
     registerAIPlayer(gameId, playerId as any);
 
     await handleAIPriority(createNoopIo(), gameId, playerId as any);
@@ -129,6 +127,18 @@ describe('AI shared land-surface integration', () => {
     (game.state as any).phase = 'main';
     (game.state as any).step = 'precombat_main';
     (game.state as any).stack = [];
+    (game.state as any).battlefield = [
+      {
+        id: 'crucible_perm_1',
+        controller: playerId,
+        card: {
+          id: 'crucible_card_1',
+          name: 'Crucible of Worlds',
+          type_line: 'Artifact',
+          oracle_text: 'You may play lands from your graveyard.',
+        },
+      },
+    ];
     (game.state as any).landsPlayedThisTurn = { [playerId]: 0 };
     (game.state as any).durablePermissions = [
       buildDurableLandPlayPermission({
@@ -175,8 +185,6 @@ describe('AI shared land-surface integration', () => {
         exileCount: 0,
       },
     };
-    (game.state as any).battlefield = [];
-
     registerAIPlayer(gameId, playerId as any);
 
     await handleAIPriority(createNoopIo(), gameId, playerId as any);

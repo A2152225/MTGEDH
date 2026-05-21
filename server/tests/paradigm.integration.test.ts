@@ -6,6 +6,7 @@ import '../src/state/modules/priority.js';
 import { initializePriorityResolutionHandler, registerResolutionHandlers } from '../src/socket/resolution.js';
 import { ResolutionQueueManager } from '../src/state/resolution/index.js';
 import { games } from '../src/socket/socket.js';
+import { getDurablePlayableFromExilePermissionForCard } from '../src/state/modules/durable-permissions.js';
 
 function createNoopIo() {
   return {
@@ -181,6 +182,17 @@ describe('Paradigm integration', () => {
     expect(step).toBeDefined();
     expect(step.castFromExileCardId).toBeDefined();
     expect((game.state as any).zones[playerId].exile).toHaveLength(2);
+    const copyInExile = ((game.state as any).zones[playerId].exile || [])
+      .find((card: any) => String(card?.id || '') === String(step.castFromExileCardId));
+    expect(copyInExile).toBeDefined();
+    expect(getDurablePlayableFromExilePermissionForCard(game.state as any, playerId as any, copyInExile, 'cast')).toEqual(
+      expect.objectContaining({
+        allowedAction: 'cast',
+        duration: 'one_shot',
+        costMode: 'without_paying_mana_cost',
+        usageLimit: expect.objectContaining({ type: 'one_shot', maxUses: 1 }),
+      }),
+    );
 
     const emitted: Array<{ room?: string; event: string; payload: any }> = [];
     const { socket, handlers } = createMockSocket(playerId, emitted);
@@ -197,6 +209,7 @@ describe('Paradigm integration', () => {
 
     expect((game.state as any).zones[playerId].exile).toHaveLength(1);
     expect((game.state as any).zones[playerId].exile[0].id).toBe('paradigm_card_1');
+    expect(getDurablePlayableFromExilePermissionForCard(game.state as any, playerId as any, copyInExile, 'cast')).toBeUndefined();
     expect((game.state as any).stack).toHaveLength(0);
   });
 

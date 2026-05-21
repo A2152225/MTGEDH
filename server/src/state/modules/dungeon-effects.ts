@@ -8,6 +8,7 @@ import { updateCounters } from "./counters_tokens.js";
 import { applyGoadToCreature } from "./goad-effects.js";
 import { drawCards } from "./zones.js";
 import { ResolutionStepType, type CreateResolutionStepConfig } from "../resolution/index.js";
+import { buildDurablePlayableFromExilePermission, upsertDurablePermission } from "./durable-permissions.js";
 
 export type DungeonRoomExecuteEffectPayload = {
   effectType: 'createToken';
@@ -430,8 +431,23 @@ export function applyAutomaticDungeonRoomTokenEffects(
 
       stateAny.playableFromExile = stateAny.playableFromExile || {};
       const playableEntry = (stateAny.playableFromExile[playerId] = stateAny.playableFromExile[playerId] || {});
+      const grantedCardIds: string[] = [];
       for (const card of exiledCards) {
-        playableEntry[String(card.id)] = true;
+        const grantedCardId = String(card?.id || '').trim();
+        if (!grantedCardId) continue;
+        playableEntry[grantedCardId] = true;
+        grantedCardIds.push(grantedCardId);
+      }
+      if (grantedCardIds.length > 0) {
+        upsertDurablePermission(stateAny, buildDurablePlayableFromExilePermission({
+          playerId,
+          cardIds: grantedCardIds,
+          action: 'play',
+          duration: 'static',
+          turnApplied: Number(stateAny.turnNumber || 0),
+          sourceName: String(progress.currentRoomName || 'Runestone Caverns'),
+          sourceText: 'Exile the top two cards of your library. You may play them.',
+        }));
       }
 
       return [{

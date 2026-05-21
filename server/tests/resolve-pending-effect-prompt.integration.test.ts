@@ -5,6 +5,7 @@ import { games } from '../src/socket/socket.js';
 import { ensureGame } from '../src/socket/util.js';
 import { processPendingCascades, processPendingDanceWithCalamity, processPendingLimDulsVault, processPendingPonder, processPendingProliferate } from '../src/socket/resolution.js';
 import { ResolutionQueueManager, ResolutionStepType } from '../src/state/resolution/index.js';
+import { getDurablePlayableFromExilePermissionForCard } from '../src/state/modules/durable-permissions.js';
 
 const LIM_DULS_VAULT_ORACLE = "Look at the top five cards of your library. As many times as you choose, you may pay 1 life, put those cards on the bottom of your library in any order, then look at the top five cards of your library. Then shuffle and put the last cards you looked at this way on top in any order.";
 const DANCE_WITH_CALAMITY_ORACLE = 'Shuffle your library. As many times as you choose, you may exile the top card of your library. If the total mana value of the cards exiled this way is 13 or less, you may cast any number of spells from among those cards without paying their mana costs.';
@@ -352,6 +353,16 @@ describe('pending-effect prompt persistence (integration)', () => {
     expect(queue.steps).toHaveLength(1);
     expect((queue.steps[0] as any)?.type).toBe(ResolutionStepType.OPTION_CHOICE);
     expect((queue.steps[0] as any)?.castFromExileCardId).toBe('spell_b');
+    const spellB = ((game.state as any).zones[p1].exile || []).find((card: any) => String(card?.id || '') === 'spell_b');
+    expect(getDurablePlayableFromExilePermissionForCard(game.state as any, p1 as any, spellB, 'cast')).toEqual(
+      expect.objectContaining({
+        allowedAction: 'cast',
+        duration: 'one_shot',
+        costMode: 'without_paying_mana_cost',
+        usageLimit: expect.objectContaining({ type: 'one_shot', maxUses: 1 }),
+        sourceName: 'Dance with Calamity',
+      }),
+    );
 
     const promptEvents = getEvents(danceGameId).filter((event: any) => String(event?.type || '') === 'resolveTopOfStackPrompt') as any[];
     expect(promptEvents.length).toBeGreaterThan(0);

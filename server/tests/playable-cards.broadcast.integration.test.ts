@@ -601,7 +601,18 @@ describe('broadcastGame playable card refresh', () => {
         { id: 'p2', seat: 2, name: 'Player 2' },
       ],
       stack: [],
-      battlefield: [],
+      battlefield: [
+        {
+          id: 'crucible_perm_1',
+          controller: 'p1',
+          card: {
+            id: 'crucible_card_1',
+            name: 'Crucible of Worlds',
+            type_line: 'Artifact',
+            oracle_text: 'You may play lands from your graveyard.',
+          },
+        },
+      ],
       durablePermissions: [
         buildDurableLandPlayPermission({
           playerId: 'p1',

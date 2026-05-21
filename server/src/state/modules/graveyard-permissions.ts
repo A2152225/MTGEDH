@@ -2,7 +2,7 @@ import type { GameContext } from "../context";
 import type { DurablePermission, PlayerID } from "../../../../shared/src";
 import { collectStaticEffectSources } from "./static-effect-sources";
 import { cardManaValue } from "../utils";
-import { buildDurableGraveyardPermission, clearTemporaryDurableGraveyardPermissions, getActiveDurablePermissions, upsertDurablePermission } from "./durable-permissions";
+import { buildDurableGraveyardActivationPermission, buildDurableGraveyardPermission, clearTemporaryDurableGraveyardPermissions, getActiveDurablePermissions, getDurableGraveyardActivationPermissionForCard, upsertDurablePermission } from "./durable-permissions";
 
 export interface GrantedFlashbackInfo {
   hasIt: boolean;
@@ -86,6 +86,7 @@ export interface GraveyardCastingPermission {
   turnApplied?: number;
   sourceId?: string;
   sourceName?: string;
+  sourceText?: string;
   usageLimit?: GraveyardCastingPermissionUsageLimit;
   replacement?: GraveyardCastingPermissionReplacement;
 }
@@ -265,6 +266,165 @@ function getDurableGraveyardCastingPermissions(state: any, playerId: PlayerID): 
     .filter((permission): permission is GraveyardCastingPermission => Boolean(permission));
 }
 
+function normalizeRuleText(value: unknown): string {
+  return normalizeText(value).replace(/\s+/g, ' ').trim();
+}
+
+function isStaticGraveyardPermissionLine(line: string): boolean {
+  const normalized = normalizeRuleText(line);
+  if (!normalized.includes('graveyard')) return false;
+  if (!normalized.includes('you may play') && !normalized.includes('you may cast') && !normalized.includes(' cast ')) return false;
+  if (normalized.includes(':')) return false;
+  if (/^\s*(when|whenever|at the beginning)\b/.test(normalized)) return false;
+  return true;
+}
+
+function getGraveyardPermissionCostModeFromText(text: unknown): GraveyardCastingPermissionCostMode {
+  const normalized = normalizeRuleText(text);
+  return /\bwithout paying (?:its|their|that spell's) mana cost\b/.test(normalized)
+    ? 'without_paying_mana_cost'
+    : 'normal';
+}
+
+function sourceExilesSpellCastThisWay(oracleText: string): boolean {
+  const normalized = normalizeRuleText(oracleText);
+  return /\bif\s+(?:a|that|this)\s+(?:card|spell)\s+cast\s+this\s+way\s+would\s+be\s+put\s+into\s+your\s+graveyard\s*,?\s*exile\s+it\s+instead\b/.test(normalized);
+}
+
+function sourceLeaveBattlefieldReplacementDestination(oracleText: string): 'exile' | undefined {
+  const normalized = normalizeRuleText(oracleText).replace(/["“”]/g, ' ');
+
+  if (/\bit\s+gains\b.*\bif\s+this\s+permanent\s+would\s+leave\s+the\s+battlefield,\s*exile\s+it\s+instead\s+of\s+putting\s+it\s+anywhere\s+else\b/.test(normalized)) {
+    return 'exile';
+  }
+
+  if (/\bit\s+gains\b.*\bwhen\s+this\s+(?:creature\s+dies|permanent\s+is\s+put\s+into\s+a\s+graveyard\s+from\s+the\s+battlefield),\s*exile\s+it\b/.test(normalized)) {
+    return 'exile';
+  }
+
+  return undefined;
+}
+
+function sourceLeaveBattlefieldLifeGain(oracleText: string): number | undefined {
+  const normalized = normalizeRuleText(oracleText).replace(/["“”]/g, ' ');
+  const match = normalized.match(/\bit\s+gains\b.*\bwhen\s+this\s+permanent\s+is\s+put\s+into\s+a\s+graveyard\s+from\s+the\s+battlefield,\s*exile\s+it\s+and\s+you\s+gain\s+(\d+)\s+life\b/);
+  if (!match) return undefined;
+
+  const amount = Number.parseInt(match[1], 10);
+  return Number.isFinite(amount) && amount > 0 ? amount : undefined;
+}
+
+function getStaticGraveyardPermissionUsageLimit(
+  line: string,
+  permission: GraveyardCastingPermissionKind,
+  qualifier: string,
+): GraveyardCastingPermissionUsageLimit | undefined {
+  const normalizedLine = normalizeRuleText(line);
+  const normalizedQualifier = normalizeRuleText(qualifier);
+
+  if (/\bpermanent (?:cards?|spells?) of each permanent type\b/.test(normalizedQualifier)) {
+    return { type: 'one_per_permanent_type' };
+  }
+
+  if (/\bonce during each of your turns\b/.test(normalizedLine) || /\bup to one\b/.test(normalizedQualifier)) {
+    return { type: 'once_per_turn', maxUses: 1 };
+  }
+
+  if (permission === 'play' && /^\s*(?:a|an)\b/i.test(String(qualifier || '').trim())) {
+    return { type: 'once_per_turn', maxUses: 1 };
+  }
+
+  return undefined;
+}
+
+function getStaticSourceGraveyardCastingPermissions(state: any, playerId: PlayerID): GraveyardCastingPermission[] {
+  const permissionsById = new Map<string, GraveyardCastingPermission>();
+  const normalizedPlayerId = String(playerId || '');
+
+  const pushPermission = (
+    source: any,
+    permission: GraveyardCastingPermissionKind,
+    qualifier: string,
+    sourceText: string,
+    replacement?: GraveyardCastingPermissionReplacement,
+  ) => {
+    const normalizedQualifier = String(qualifier || '').trim();
+    if (!normalizedQualifier) return;
+
+    const entry: GraveyardCastingPermission = {
+      id: '',
+      playerId: normalizedPlayerId,
+      permission,
+      sourceZone: 'graveyard',
+      cardFilter: { qualifier: normalizedQualifier },
+      costMode: getGraveyardPermissionCostModeFromText(sourceText),
+      duration: 'static',
+      turnApplied: 0,
+      ...(source?.sourceId ? { sourceId: String(source.sourceId) } : {}),
+      ...(source?.sourceName ? { sourceName: String(source.sourceName) } : {}),
+      ...(sourceText ? { sourceText } : {}),
+      ...(replacement ? { replacement } : {}),
+    };
+
+    const usageLimit = getStaticGraveyardPermissionUsageLimit(sourceText, permission, normalizedQualifier);
+    if (usageLimit) {
+      entry.usageLimit = usageLimit;
+    }
+
+    entry.id = buildGraveyardCastingPermissionId(entry);
+    if (!permissionsById.has(entry.id)) {
+      permissionsById.set(entry.id, entry);
+    }
+  };
+
+  for (const source of collectStaticEffectSources(state)) {
+    if (source?.phasedOut) continue;
+    if (!source?.affectsAllPlayers && String(source?.controller || '') !== normalizedPlayerId) continue;
+
+    const oracleText = String(source?.oracleText || '').trim();
+    if (!oracleText || !/graveyard/i.test(oracleText)) continue;
+
+    const leaveBattlefieldDestination = sourceLeaveBattlefieldReplacementDestination(oracleText);
+    const leaveBattlefieldLifeGain = sourceLeaveBattlefieldLifeGain(oracleText);
+    const replacementBase: GraveyardCastingPermissionReplacement | undefined = (
+      sourceExilesSpellCastThisWay(oracleText)
+      || leaveBattlefieldDestination
+      || leaveBattlefieldLifeGain
+    )
+      ? {
+          ...(sourceExilesSpellCastThisWay(oracleText) ? { exileAfterResolution: true } : {}),
+          ...(leaveBattlefieldDestination ? { leaveBattlefieldDestination } : {}),
+          ...(leaveBattlefieldLifeGain ? { leaveBattlefieldLifeGain } : {}),
+          ...(leaveBattlefieldDestination && source?.sourceName ? { sourceName: String(source.sourceName) } : {}),
+        }
+      : undefined;
+
+    for (const rawLine of oracleText.split(/\r?\n/)) {
+      const sourceText = String(rawLine || '').trim();
+      const line = normalizeRuleText(sourceText);
+      if (!isStaticGraveyardPermissionLine(line)) continue;
+      if (/\bduring(?:\s+each\s+of)?\s+your\s+turns?\b/.test(line) && !isPlayersTurn(state, playerId)) continue;
+
+      const combinedPlayCastMatch = line.match(/you may play ([^.]+?) and cast ([^.]+?) from your graveyard/i);
+      if (combinedPlayCastMatch) {
+        pushPermission(source, 'play', String(combinedPlayCastMatch[1] || '').trim(), sourceText, replacementBase);
+        pushPermission(source, 'cast', String(combinedPlayCastMatch[2] || '').trim(), sourceText, replacementBase);
+        continue;
+      }
+
+      for (const match of line.matchAll(/\b(?:you may|or|and) play ([^.]+?) from your graveyard\b/gi)) {
+        pushPermission(source, 'play', String(match[1] || '').trim(), sourceText, replacementBase);
+      }
+
+      for (const match of line.matchAll(/\b(?:you may|or|and) cast ([^.]+?) from your graveyard\b/gi)) {
+        pushPermission(source, 'cast', String(match[1] || '').trim(), sourceText, replacementBase);
+      }
+    }
+  }
+
+  return [...permissionsById.values()];
+}
+
 export function addGraveyardCastingPermission(
   state: any,
   permission: Omit<GraveyardCastingPermission, 'id' | 'sourceZone'> & { id?: string; sourceZone?: 'graveyard' },
@@ -301,6 +461,7 @@ export function addGraveyardCastingPermission(
     turnApplied,
     ...(permission.sourceId ? { sourceId: String(permission.sourceId) } : {}),
     ...(permission.sourceName ? { sourceName: String(permission.sourceName) } : {}),
+    ...(permission.sourceText ? { sourceText: String(permission.sourceText) } : {}),
     ...(permission.usageLimit ? { usageLimit: { ...permission.usageLimit } } : {}),
     ...(permission.replacement ? { replacement: { ...permission.replacement } } : {}),
   };
@@ -333,6 +494,7 @@ export function getActiveGraveyardCastingPermissions(
   for (const permission of [
     ...getGraveyardCastingPermissions(state),
     ...getDurableGraveyardCastingPermissions(state, playerId),
+    ...getStaticSourceGraveyardCastingPermissions(state, playerId),
   ]) {
     const permissionId = String(permission?.id || '').trim();
     if (!permissionId || permissionsById.has(permissionId)) continue;
@@ -344,6 +506,27 @@ export function getActiveGraveyardCastingPermissions(
     if (expectedPermission && permission.permission !== expectedPermission) return false;
     return graveyardCastingPermissionIsActive(state, permission);
   });
+}
+
+export function getMatchingGraveyardCastingPermission(
+  state: any,
+  playerId: PlayerID,
+  card: any,
+  permissionKind?: GraveyardCastingPermissionKind,
+): GraveyardCastingPermission | undefined {
+  const cardId = getCardId(card);
+  return getActiveGraveyardCastingPermissions(state, playerId, permissionKind ? { permission: permissionKind } : undefined)
+    .find((permission) => {
+      const cardIds = Array.isArray(permission.cardFilter?.cardIds)
+        ? permission.cardFilter.cardIds.map((entry) => String(entry || '').trim()).filter(Boolean)
+        : [];
+      if (cardIds.length > 0 && !cardIds.includes(cardId)) {
+        return false;
+      }
+
+      const qualifier = String(permission.cardFilter?.qualifier || '').trim();
+      return !qualifier || qualifierMatchesCard(qualifier, card);
+    });
 }
 
 function getCollapsedOracleText(card: any): string {
@@ -540,6 +723,7 @@ function markSourceCardPlayableFromGraveyardThisTurn(
   options?: {
     sourceId?: string;
     sourceName?: string;
+    sourceText?: string;
     costMode?: GraveyardCastingPermissionCostMode;
     replacement?: GraveyardCastingPermissionReplacement;
   },
@@ -581,6 +765,7 @@ function markSourceCardPlayableFromGraveyardThisTurn(
     permission,
     sourceId: options?.sourceId || cardId,
     sourceName: options?.sourceName || String(sourceCard?.name || ''),
+    ...(options?.sourceText ? { sourceText: String(options.sourceText) } : {}),
     cardFilter: {
       qualifier: 'this card',
       cardIds: [cardId],
@@ -785,6 +970,7 @@ function addTemporaryPlayableFromGraveyardPermission(
   options: {
     sourceId?: string;
     sourceName?: string;
+    sourceText?: string;
     costMode?: GraveyardCastingPermissionCostMode;
     usageLimit?: GraveyardCastingPermissionUsageLimit;
     replacement?: GraveyardCastingPermissionReplacement;
@@ -816,6 +1002,7 @@ function addTemporaryPlayableFromGraveyardPermission(
     permission,
     sourceId,
     ...(options.sourceName ? { sourceName: String(options.sourceName) } : {}),
+    ...(options.sourceText ? { sourceText: String(options.sourceText) } : {}),
     cardFilter: { qualifier: normalizedQualifier },
     costMode: options.costMode || 'normal',
     duration: 'this_turn',
@@ -926,6 +1113,20 @@ function addTemporaryGraveyardKeywordGrant(
     expiresAt: 'end_of_turn',
     turnApplied: Number(state.turnNumber ?? state.turn ?? 0) || 0,
   });
+
+  if (options.keyword === 'unearth' || options.keyword === 'embalm') {
+    upsertDurablePermission(state, buildDurableGraveyardActivationPermission({
+      playerId,
+      keyword: options.keyword,
+      cardIds: [cardId],
+      ...(options.cost ? { cost: options.cost } : {}),
+      ...(Number(options.additionalExileCount || 0) > 0 ? { additionalExileCount: Number(options.additionalExileCount) } : {}),
+      duration: 'end_of_turn',
+      turnApplied: Number(state.turnNumber ?? state.turn ?? 0) || 0,
+      ...(options.sourceId ? { sourceId: options.sourceId } : {}),
+      ...(options.sourceName ? { sourceName: options.sourceName } : {}),
+    }));
+  }
 
   return true;
 }
@@ -1130,6 +1331,7 @@ export function applyPlayableFromGraveyardPermissionFromText(
         {
           ...(sourceCardId ? { sourceId: sourceCardId } : {}),
           ...(sourceCardName ? { sourceName: sourceCardName } : {}),
+          sourceText: text,
           costMode,
           ...(usageLimit ? { usageLimit } : {}),
           ...(replacement ? { replacement } : {}),
@@ -1152,6 +1354,7 @@ export function applyPlayableFromGraveyardPermissionFromText(
         {
           ...(sourceCardId ? { sourceId: sourceCardId } : {}),
           ...(sourceCardName ? { sourceName: sourceCardName } : {}),
+          sourceText: text,
           costMode,
           ...((grantsCastPermission && spellReplacement) ? { replacement: spellReplacement } : {}),
         },
@@ -1195,6 +1398,7 @@ export function applyPlayableFromGraveyardPermissionFromText(
             {
               ...(sourceCardId ? { sourceId: sourceCardId } : {}),
               ...(sourceCardName ? { sourceName: sourceCardName } : {}),
+              sourceText: text,
               costMode: grantedPermission === 'cast' ? grantedPermissionCostMode : 'normal',
               ...((grantedPermission === 'cast' && spellReplacement) ? { replacement: spellReplacement } : {}),
             },
@@ -1266,6 +1470,22 @@ function findGrantedKeywordInfo(
 
     const temporaryGrant = findTemporaryGrantedKeywordInfo(state, playerId, card, keyword);
     if (temporaryGrant.hasIt) return temporaryGrant;
+
+    if (keyword === 'unearth' || keyword === 'embalm') {
+      const durableGrant = getDurableGraveyardActivationPermissionForCard(state, playerId, card, keyword);
+      if (durableGrant) {
+        const metadata = durableGrant.metadata || {};
+        const cost = String((metadata as any).cost || '').trim();
+        const additionalExileCount = Number((metadata as any).additionalExileCount || 0) || 0;
+        return {
+          hasIt: true,
+          ...(cost ? { cost } : {}),
+          ...(additionalExileCount > 0 ? { additionalExileCount } : {}),
+          ...(durableGrant.sourceId ? { sourceId: durableGrant.sourceId } : {}),
+          ...(durableGrant.sourceName ? { sourceName: durableGrant.sourceName } : {}),
+        };
+      }
+    }
 
     const keywordPattern = escapeRegExp(keyword);
     for (const source of collectStaticEffectSources(state)) {

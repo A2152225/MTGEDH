@@ -2465,6 +2465,17 @@ describe('canRespond', () => {
     );
 
     expect(applied).toBe(1);
+    expect((ctx.state as any).durablePermissions).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        allowedAction: 'activate',
+        allowedSourceZones: ['graveyard'],
+        metadata: expect.objectContaining({
+          graveyardKeyword: 'unearth',
+          cost: '{3}',
+        }),
+      }),
+    ]));
+    delete (ctx.state as any).temporaryGraveyardKeywordGrants;
     expect(canActivateAnyAbility(ctx, 'p1' as PlayerID)).toBe(true);
   });
 
@@ -2905,6 +2916,7 @@ describe('canAct', () => {
         grantsFlash: true,
       }),
     ]);
+    expect(canRespond(ctx, 'p1' as PlayerID)).toBe(true);
   });
 
   it('applies durable command-zone flexible mana metadata to commander payability', () => {
@@ -4808,7 +4820,18 @@ describe('canAct', () => {
           costMode: 'without_paying_mana_cost',
         }),
       ],
-      battlefield: [],
+      battlefield: [
+        {
+          id: 'mystic_forge_perm_1',
+          controller: 'p1',
+          card: {
+            id: 'mystic_forge_card_1',
+            name: 'Mystic Forge',
+            type_line: 'Artifact',
+            oracle_text: 'You may look at the top card of your library any time.',
+          },
+        },
+      ],
       manaPool: {
         p1: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
       },
@@ -4917,7 +4940,18 @@ describe('canAct', () => {
           spendManaAsThoughAnyType: true,
         }),
       ],
-      battlefield: [],
+      battlefield: [
+        {
+          id: 'mana_lens_perm_1',
+          controller: 'p1',
+          card: {
+            id: 'mana_lens_card_1',
+            name: 'Library Mana Lens',
+            type_line: 'Artifact',
+            oracle_text: 'You may spend mana as though it were mana of any color to cast artifact spells from the top of your library.',
+          },
+        },
+      ],
       manaPool: {
         p1: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 1 },
       },
@@ -4974,7 +5008,18 @@ describe('canAct', () => {
           typeLineIncludes: ['land'],
         }),
       ],
-      battlefield: [],
+      battlefield: [
+        {
+          id: 'future_sight_perm_1',
+          controller: 'p1',
+          card: {
+            id: 'future_sight_card_1',
+            name: 'Future Sight',
+            type_line: 'Enchantment',
+            oracle_text: 'You may play lands and cast spells from the top of your library.',
+          },
+        },
+      ],
       landsPlayedThisTurn: { p1: 0 },
       manaPool: {
         p1: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },

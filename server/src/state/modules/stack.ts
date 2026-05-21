@@ -2817,6 +2817,7 @@ function millCardsFromLibrary(stateAny: any, playerId: PlayerID, count: number):
 }
 
 function queueCastFromExileResolutionPrompt(
+  ctx: GameContext,
   gameId: string,
   playerId: PlayerID,
   sourceName: string,
@@ -2824,6 +2825,23 @@ function queueCastFromExileResolutionPrompt(
   sourceImage: string | undefined,
   exiledCard: any
 ): void {
+  const stateAny = (ctx as any)?.state as any;
+  const exiledCardId = String(exiledCard?.id || '').trim();
+  if (stateAny && exiledCardId) {
+    upsertDurablePermission(stateAny, buildDurablePlayableFromExilePermission({
+      playerId,
+      cardIds: [exiledCardId],
+      action: 'cast',
+      duration: 'one_shot',
+      turnApplied: Number(stateAny.turnNumber ?? 0),
+      expiresAtTurn: Number(stateAny.turnNumber ?? 0),
+      sourceId,
+      sourceName,
+      costMode: 'without_paying_mana_cost',
+      usageLimit: { type: 'one_shot', maxUses: 1 },
+    }));
+  }
+
   ResolutionQueueManager.addStep(gameId, {
     type: ResolutionStepType.OPTION_CHOICE,
     playerId: playerId as any,
@@ -3000,6 +3018,7 @@ function applySupplementalOracleIRForResolvedSpell(
 
         if (gameId && gameId !== 'unknown' && !isReplaying) {
           queueCastFromExileResolutionPrompt(
+            ctx,
             gameId,
             playerId,
             spellName,
@@ -9544,6 +9563,7 @@ export function executeTriggerEffect(
     (zones as any).exileCount = exile.length;
 
     queueCastFromExileResolutionPrompt(
+      ctx,
       gameId,
       String(controller) as PlayerID,
       String(sourceName || sourceCard?.name || 'Paradigm'),
@@ -12887,6 +12907,7 @@ export function executeTriggerEffect(
         const gameId = String((ctx as any).gameId || '').trim();
         if (gameId && gameId !== 'unknown' && !(ctx as any).isReplaying) {
           queueCastFromExileResolutionPrompt(
+            ctx,
             gameId,
             String(controller) as PlayerID,
             String(sourceName || 'Ability'),

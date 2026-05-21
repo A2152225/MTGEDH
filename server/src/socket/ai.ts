@@ -3425,6 +3425,7 @@ type AICastableSpellCandidate = {
   sourceZone: AISupportedCardSourceZone;
   faceIndex?: number;
   cost: any;
+  paymentCost?: any;
   cmc: number;
   typeLine: string;
   priority: number;
@@ -3590,7 +3591,7 @@ function getAIActionCandidateKinds(query: AIActionCandidateQuery): Set<AIActionC
   }
 
   if (query.mode === 'response') {
-    return new Set<AIActionCandidate['kind']>(['activate_ability', 'cast_spell']);
+    return new Set<AIActionCandidate['kind']>(['activate_ability', 'cast_commander', 'cast_spell']);
   }
 
   return new Set<AIActionCandidate['kind']>(['play_land', 'activate_ability', 'cast_commander', 'cast_spell']);
@@ -3632,12 +3633,13 @@ async function enumerateAIActionCandidates(
     }
   }
 
-  if (query.mode === 'main' && kinds.has('cast_commander')) {
-    const commanderCandidate = findCastableCommander(game, playerId);
+  if (kinds.has('cast_commander')) {
+    const commanderCandidate = findCastableCommander(game, playerId, { responseOnly: query.mode === 'response' });
     if (commanderCandidate) {
+      const basePriority = query.mode === 'response' ? 430 : 650;
       candidates.push({
         kind: 'cast_commander',
-        priority: 650 + Math.max(0, calculateSpellPriority(commanderCandidate.card, game, playerId, commanderCandidate.cost)),
+        priority: basePriority + Math.max(0, calculateSpellPriority(commanderCandidate.card, game, playerId, commanderCandidate.cost)),
         commander: commanderCandidate,
       });
     }
@@ -3728,6 +3730,21 @@ async function tryAIResponseActions(
       }
 
       if (didAICastAttemptChangeControlFlow(gameId, game, playerId, candidateSpell)) {
+        return true;
+      }
+    }
+
+    if (candidate.kind === 'cast_commander') {
+      debug(1, '[AI] Taking response-window commander action:', candidate.commander.card.name);
+      const castProgressed = await executeAICastCommander(io, gameId, playerId, candidate.commander);
+      if (castProgressed) {
+        return true;
+      }
+
+      if (didAICastAttemptChangeControlFlow(gameId, game, playerId, {
+        card: candidate.commander.card,
+        sourceZone: 'command',
+      })) {
         return true;
       }
     }
@@ -4277,11 +4294,12 @@ function findCastableSpells(
       const excludedHandCardIds = candidate.sourceZone === 'hand'
         ? [String(candidate.card?.id || '').trim()].filter(Boolean)
         : [];
-      return canAIAssembleSpellPaymentPlan(game, playerId, candidate.cost!, excludedHandCardIds);
+      return canAIAssembleSpellPaymentPlan(game, playerId, candidate.payableCost || candidate.cost!, excludedHandCardIds);
     })
     .map((candidate) => {
       const typeLine = String(candidate.castCard?.type_line || '').toLowerCase();
       const cmc = candidate.cost!.generic + Object.values(candidate.cost!.colors).reduce((sum, count) => sum + count, 0);
+      const paymentCost = candidate.payableCost || candidate.cost;
 
       return {
         card: candidate.card,
@@ -4289,6 +4307,7 @@ function findCastableSpells(
         sourceZone: candidate.sourceZone,
         faceIndex: typeof candidate.castCard?.faceIndex === 'number' ? candidate.castCard.faceIndex : undefined,
         cost: candidate.cost,
+        paymentCost,
         cmc,
         typeLine,
         priority: responseOnly
@@ -4463,10 +4482,16 @@ function detectBeneficialAura(oracleText: string): boolean {
  * Partner commanders and backgrounds are tracked independently - each can be cast
  * while the other remains in the command zone.
  */
-function findCastableCommander(game: any, playerId: PlayerID): AICastableCommanderCandidate | null {
+function findCastableCommander(
+  game: any,
+  playerId: PlayerID,
+  options?: { responseOnly?: boolean },
+): AICastableCommanderCandidate | null {
   const manaPool = getAvailableMana(game.state, playerId);
+  const responseOnly = options?.responseOnly === true;
   const candidate = getCastableCommanderCandidates(getAIActionContext(game), playerId)
-    .find((entry) => entry.cost && canAIAssembleSpellPaymentPlan(game, playerId, entry.cost)) || null;
+    .filter((entry) => !responseOnly || entry.grantsFlash === true)
+    .find((entry) => entry.cost && canAIAssembleSpellPaymentPlan(game, playerId, entry.payableCost || entry.cost)) || null;
 
   if (!candidate) {
     debug(2, '[AI] No castable commanders found', {

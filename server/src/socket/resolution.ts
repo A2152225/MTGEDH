@@ -2141,6 +2141,31 @@ function appendCastFromExilePromptResolveEvent(
   }
 }
 
+function upsertOneShotCastFromExilePromptPermission(
+  game: any,
+  playerId: PlayerID,
+  card: any,
+  sourceName: string,
+  sourceId?: string,
+): void {
+  const cardId = String(card?.id || '').trim();
+  if (!game?.state || !cardId) return;
+
+  const turnNumber = Number((game.state as any)?.turnNumber ?? 0);
+  upsertDurablePermission(game.state as any, buildDurablePlayableFromExilePermission({
+    playerId,
+    cardIds: [cardId],
+    action: 'cast',
+    duration: 'one_shot',
+    turnApplied: turnNumber,
+    expiresAtTurn: turnNumber,
+    sourceId: String(sourceId || '').trim() || undefined,
+    sourceName,
+    costMode: 'without_paying_mana_cost',
+    usageLimit: { type: 'one_shot', maxUses: 1 },
+  }));
+}
+
 function appendCastFromGraveyardPromptResolveEvent(
   gameId: string,
   game: any,
@@ -15010,6 +15035,7 @@ async function handleDiscardResponse(
 
       if (!existingSacrificeStep) {
         const lifeToPayForCost = Number(stepAny?.lifeToPayForCost || 0);
+
         ResolutionQueueManager.addStep(gameId, {
           type: ResolutionStepType.TARGET_SELECTION,
           playerId: pid as any,
@@ -23325,6 +23351,8 @@ async function handleLibrarySearchResponse(
     const chosen = cardsToOffer[0];
     const declineDestination = (searchStep as any).followUpMayCastDeclineDestination || 'exile';
 
+    upsertOneShotCastFromExilePromptPermission(game, pid as PlayerID, chosen, sourceName, (step as any).sourceId);
+
     ResolutionQueueManager.addStep(gameId, {
       type: ResolutionStepType.OPTION_CHOICE,
       playerId: pid as any,
@@ -24836,6 +24864,8 @@ export function processPendingDanceWithCalamity(io: Server, game: any, gameId: s
           entry.queued = false;
           continue;
         }
+
+        upsertOneShotCastFromExilePromptPermission(game, String(playerId) as PlayerID, nextCard, sourceName, effectId);
 
         ResolutionQueueManager.addStep(gameId, {
           type: ResolutionStepType.OPTION_CHOICE,
@@ -27927,6 +27957,8 @@ async function handleOptionChoiceResponse(
         zones.library = Array.isArray(zones.library) ? zones.library : [];
         zones.library.push({ ...exiledCard, zone: 'library' });
         zones.libraryCount = zones.library.length;
+      } else if (declineDestination === 'exile') {
+        cleanupCardLeavingExile(game.state as any, exiledCard);
       }
 
       if (Number.isFinite(declineDamageEachOpponent) && declineDamageEachOpponent > 0) {
@@ -27983,6 +28015,8 @@ async function handleOptionChoiceResponse(
         const nextIndex = queueIndex + 1;
         const next = queueCards[nextIndex];
         if (next && nextIndex < queueCards.length) {
+          upsertOneShotCastFromExilePromptPermission(game, playerId as any, next, sourceName, (step as any).sourceId);
+
           const queuedStep = ResolutionQueueManager.addStep(gameId, {
             type: ResolutionStepType.OPTION_CHOICE,
             playerId: playerId as any,

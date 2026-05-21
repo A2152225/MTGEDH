@@ -1,7 +1,7 @@
 import type { DurablePermission, DurablePermissionTimingOverride, DurablePermissionZone, PlayerID } from "../../../../shared/src";
 
 export type DurableLandPlayZone = 'graveyard' | 'exile';
-export type DurableGraveyardPermissionAction = 'play' | 'cast';
+export type DurableGraveyardPermissionAction = 'play' | 'cast' | 'activate';
 export type DurablePlayableFromExileAction = 'play' | 'cast';
 export type DurableLibraryPermissionAction = 'play' | 'cast';
 export type DurableCommandZonePermissionAction = 'cast';
@@ -23,6 +23,15 @@ function sanitizeIdPart(value: unknown): string {
 
 function getCurrentTurn(state: any): number {
   return Number(state?.turnNumber ?? state?.turn ?? 0) || 0;
+}
+
+function normalizeDurablePermissionDuration(value: unknown): string {
+  const normalized = String(value || '').trim().toLowerCase().replace(/[\s-]+/g, '_');
+  if (!normalized) return 'static';
+  if (normalized === 'permanent') return 'static';
+  if (normalized === 'eot' || normalized === 'turn' || normalized === 'until_end_of_turn') return 'end_of_turn';
+  if (normalized === 'until_next_turn' || normalized === 'end_of_next_turn') return 'until_end_of_next_turn';
+  return normalized;
 }
 
 function permissionMatchesPlayer(permission: DurablePermission, playerId?: PlayerID): boolean {
@@ -71,6 +80,88 @@ function durablePermissionUsageAvailable(permission: DurablePermission): boolean
   }
 
   return true;
+}
+
+function durablePermissionSourceRemains(state: any, permission: DurablePermission): boolean {
+  const duration = normalizeDurablePermissionDuration(permission?.duration);
+  if (duration !== 'while_source_remains') return true;
+
+  const sourceObjectId = String(permission?.sourceObjectId || '').trim();
+  const sourceId = String(permission?.sourceId || '').trim();
+  if (!sourceObjectId && !sourceId) return true;
+
+  const battlefield = Array.isArray(state?.battlefield) ? state.battlefield : [];
+  if (sourceObjectId) {
+    return battlefield.some((permanent: any) => String(permanent?.id || permanent?.objectId || '').trim() === sourceObjectId);
+  }
+
+  return battlefield.some((permanent: any) => (
+    String(permanent?.id || permanent?.objectId || '').trim() === sourceId
+    || String(permanent?.card?.id || '').trim() === sourceId
+  ));
+}
+
+function permanentTypeLine(permanent: any): string {
+  return String(permanent?.card?.type_line || permanent?.card?.typeLine || permanent?.type_line || permanent?.typeLine || '').toLowerCase();
+}
+
+function permanentName(permanent: any): string {
+  return String(permanent?.card?.name || permanent?.name || '').trim().toLowerCase();
+}
+
+function permanentNameIncludesAll(permanent: any, includes: readonly string[]): boolean {
+  if (includes.length === 0) return true;
+  const name = permanentName(permanent);
+  return includes.every((entry) => name.includes(entry));
+}
+
+function countControlledPermanents(state: any, playerId: PlayerID, predicate: (permanent: any) => boolean): number {
+  const battlefield = Array.isArray(state?.battlefield) ? state.battlefield : [];
+  return battlefield.filter((permanent: any) => (
+    permanent
+    && permanent.phasedOut !== true
+    && String(permanent.controller || permanent.owner || '') === String(playerId || '')
+    && predicate(permanent)
+  )).length;
+}
+
+function durablePermissionConditionMet(state: any, permission: DurablePermission): boolean {
+  const condition = permission?.condition;
+  if (!condition || typeof condition !== 'object') return true;
+
+  const conditionType = String(condition.type || '').trim().toLowerCase();
+  if (!conditionType) return true;
+
+  const conditionPlayerId = String(condition.playerId || permission.grantedTo || '').trim() as PlayerID;
+  const minCount = Math.max(1, normalizeUsageCount(condition.minCount) || 1);
+  let result = true;
+
+  if (conditionType === 'player_controls_permanent_type') {
+    const typeLineIncludes = normalizeStringArray(condition.typeLineIncludes).map((entry) => entry.toLowerCase());
+    const nameIncludes = normalizeStringArray((condition as any).nameIncludes).map((entry) => entry.toLowerCase());
+    result = (typeLineIncludes.length > 0 || nameIncludes.length > 0) && countControlledPermanents(state, conditionPlayerId, (permanent) => {
+      const typeLine = permanentTypeLine(permanent);
+      return typeLineIncludes.every((entry) => typeLine.includes(entry))
+        && permanentNameIncludesAll(permanent, nameIncludes);
+    }) >= minCount;
+  } else if (conditionType === 'player_controls_permanent_named') {
+    const names = normalizeStringArray(condition.names).map((entry) => entry.toLowerCase());
+    const nameIncludes = normalizeStringArray((condition as any).nameIncludes).map((entry) => entry.toLowerCase());
+    result = (names.length > 0 || nameIncludes.length > 0) && countControlledPermanents(state, conditionPlayerId, (permanent) => {
+      const name = permanentName(permanent);
+      return (names.length === 0 || names.includes(name))
+        && permanentNameIncludesAll(permanent, nameIncludes);
+    }) >= minCount;
+  } else if (conditionType === 'source_on_battlefield') {
+    result = durablePermissionSourceRemains(state, {
+      ...permission,
+      duration: 'while_source_remains',
+      sourceId: condition.sourceId || permission.sourceId,
+      sourceObjectId: condition.sourceObjectId || permission.sourceObjectId,
+    });
+  }
+
+  return condition.negate === true ? !result : result;
 }
 
 function typeLineIncludesAll(card: any, includes: readonly string[] | undefined): boolean {
@@ -156,14 +247,17 @@ export function getDurablePermissions(state: any): DurablePermission[] {
 
 export function isDurablePermissionActive(state: any, permission: DurablePermission): boolean {
   if (!durablePermissionUsageAvailable(permission)) return false;
-
-  const duration = String(permission?.duration || 'static');
-  if (duration === 'static' || duration === 'while_source_remains') return true;
+  if (!durablePermissionSourceRemains(state, permission)) return false;
+  if (!durablePermissionConditionMet(state, permission)) return false;
 
   const currentTurn = getCurrentTurn(state);
-  if (typeof permission.expiresAtTurn === 'number') {
-    return currentTurn <= permission.expiresAtTurn;
+  const expiresAtTurn = Number(permission.expiresAtTurn);
+  if (Number.isFinite(expiresAtTurn)) {
+    return currentTurn <= expiresAtTurn;
   }
+
+  const duration = normalizeDurablePermissionDuration(permission?.duration || 'static');
+  if (duration === 'static' || duration === 'while_source_remains') return true;
 
   const turnApplied = Number(permission.turnApplied ?? currentTurn);
   if (duration === 'until_end_of_next_turn') return currentTurn <= turnApplied + 1;
@@ -198,6 +292,10 @@ export function recordDurablePermissionUse(state: any, permissionOrId: DurablePe
 
   const permission = (state.durablePermissions as DurablePermission[])
     .find((entry) => String(entry?.id || '').trim() === permissionId);
+  const capturedUsageLimit = typeof permissionOrId === 'string' ? undefined : permissionOrId.usageLimit;
+  if (permission && !permission.usageLimit && capturedUsageLimit) {
+    permission.usageLimit = { ...capturedUsageLimit };
+  }
   if (!permission?.usageLimit) return permission;
 
   permission.usageLimit = {
@@ -239,6 +337,7 @@ export function buildDurableLandPlayPermission(args: {
   sourceText?: string;
   turnApplied?: number;
   usageLimit?: DurablePermission['usageLimit'];
+  condition?: DurablePermission['condition'];
 }): DurablePermission {
   const sourcePart = sanitizeIdPart(args.sourceObjectId || args.sourceId || args.sourceName || 'source');
   const playerPart = sanitizeIdPart(args.playerId);
@@ -259,6 +358,7 @@ export function buildDurableLandPlayPermission(args: {
     cardFilter: { typeLineIncludes: ['land'] },
     costMode: 'normal',
     ...(args.usageLimit ? { usageLimit: { ...args.usageLimit } } : {}),
+    ...(args.condition ? { condition: { ...args.condition } } : {}),
     turnApplied: args.turnApplied,
     metadata: { legacyLandPlayZone: args.zone },
     debug: {
@@ -282,6 +382,7 @@ export function buildDurableGraveyardPermission(args: {
   sourceId?: string;
   sourceName?: string;
   usageLimit?: DurablePermission['usageLimit'];
+  condition?: DurablePermission['condition'];
   replacement?: {
     exileAfterResolution?: boolean;
     leaveBattlefieldDestination?: DurablePermissionZone;
@@ -305,18 +406,77 @@ export function buildDurableGraveyardPermission(args: {
     ...(args.sourceName ? { sourceName: args.sourceName } : {}),
     sourceZone: 'graveyard',
     allowedSourceZones: ['graveyard'],
-    allowedDestination: args.permission === 'cast' ? 'stack' : 'battlefield',
+    allowedDestination: args.permission === 'cast' || args.permission === 'activate' ? 'stack' : 'battlefield',
     cardFilter: {
       ...(affectedCardIds.length > 0 ? { affectedCardIds } : {}),
       ...(qualifier ? { qualifier } : {}),
     },
     costMode: args.costMode || 'normal',
     ...(args.usageLimit ? { usageLimit: { ...args.usageLimit } } : {}),
+    ...(args.condition ? { condition: { ...args.condition } } : {}),
     ...(args.replacement ? { replacement: { ...args.replacement } } : {}),
     ...(typeof args.turnApplied === 'number' ? { turnApplied: args.turnApplied } : {}),
     metadata: { graveyardPermissionId: args.id },
     debug: {
       reason: `${args.permission}_from_graveyard`,
+      ...(args.sourceName ? { notes: [`Granted by ${args.sourceName}`] } : {}),
+    },
+  };
+}
+
+export function buildDurableGraveyardActivationPermission(args: {
+  playerId: PlayerID;
+  keyword: string;
+  cardIds?: readonly string[];
+  cost?: string;
+  additionalExileCount?: number;
+  duration: string;
+  turnApplied?: number;
+  expiresAtTurn?: number;
+  sourceId?: string;
+  sourceName?: string;
+  usageLimit?: DurablePermission['usageLimit'];
+  condition?: DurablePermission['condition'];
+  typeLineIncludes?: readonly string[];
+  oracleTextIncludes?: readonly string[];
+}): DurablePermission {
+  const affectedCardIds = normalizeStringArray(args.cardIds);
+  const keyword = String(args.keyword || '').trim().toLowerCase();
+  const sourcePart = sanitizeIdPart(args.sourceId || args.sourceName || 'source');
+  const playerPart = sanitizeIdPart(args.playerId);
+  const cardsPart = sanitizeIdPart(affectedCardIds.join('_') || 'cards');
+  const keywordPart = sanitizeIdPart(keyword || 'ability');
+
+  return {
+    id: `graveyard_activation:${playerPart}:${cardsPart}:${keywordPart}:${sourcePart}`,
+    kind: GRAVEYARD_PERMISSION_KIND,
+    grantedTo: args.playerId,
+    allowedAction: 'activate',
+    origin: args.duration === 'static' || args.duration === 'while_source_remains' ? 'static_battlefield' : 'temporary',
+    duration: args.duration,
+    ...(args.sourceId ? { sourceId: args.sourceId } : {}),
+    ...(args.sourceName ? { sourceName: args.sourceName } : {}),
+    sourceZone: 'graveyard',
+    allowedSourceZones: ['graveyard'],
+    allowedDestination: 'stack',
+    cardFilter: {
+      ...(affectedCardIds.length > 0 ? { affectedCardIds } : {}),
+      ...(Array.isArray(args.typeLineIncludes) && args.typeLineIncludes.length > 0 ? { typeLineIncludes: [...args.typeLineIncludes] } : {}),
+      ...(Array.isArray(args.oracleTextIncludes) && args.oracleTextIncludes.length > 0 ? { oracleTextIncludes: [...args.oracleTextIncludes] } : {}),
+    },
+    costMode: 'alternate',
+    ...(args.usageLimit ? { usageLimit: { ...args.usageLimit } } : {}),
+    ...(args.condition ? { condition: { ...args.condition } } : {}),
+    ...(typeof args.turnApplied === 'number' ? { turnApplied: args.turnApplied } : {}),
+    ...(typeof args.expiresAtTurn === 'number' ? { expiresAtTurn: args.expiresAtTurn } : {}),
+    metadata: {
+      graveyardKeywordPermission: true,
+      graveyardKeyword: keyword,
+      ...(args.cost ? { cost: args.cost } : {}),
+      ...(Number(args.additionalExileCount || 0) > 0 ? { additionalExileCount: Number(args.additionalExileCount) } : {}),
+    },
+    debug: {
+      reason: `${keyword || 'ability'}_activation_from_graveyard`,
       ...(args.sourceName ? { notes: [`Granted by ${args.sourceName}`] } : {}),
     },
   };
@@ -337,6 +497,7 @@ export function buildDurablePlayableFromExilePermission(args: {
   grantsFlash?: boolean;
   timingOverride?: DurablePermissionTimingOverride;
   usageLimit?: DurablePermission['usageLimit'];
+  condition?: DurablePermission['condition'];
   typeLineIncludes?: readonly string[];
   oracleTextIncludes?: readonly string[];
 }): DurablePermission {
@@ -371,6 +532,7 @@ export function buildDurablePlayableFromExilePermission(args: {
       },
     } : {}),
     ...(args.usageLimit ? { usageLimit: { ...args.usageLimit } } : {}),
+    ...(args.condition ? { condition: { ...args.condition } } : {}),
     ...(typeof args.turnApplied === 'number' ? { turnApplied: args.turnApplied } : {}),
     ...(typeof args.expiresAtTurn === 'number' ? { expiresAtTurn: args.expiresAtTurn } : {}),
     metadata: {
@@ -400,6 +562,7 @@ export function buildDurableLibraryPermission(args: {
   grantsFlash?: boolean;
   timingOverride?: DurablePermissionTimingOverride;
   usageLimit?: DurablePermission['usageLimit'];
+  condition?: DurablePermission['condition'];
   typeLineIncludes?: readonly string[];
   oracleTextIncludes?: readonly string[];
 }): DurablePermission {
@@ -432,6 +595,7 @@ export function buildDurableLibraryPermission(args: {
       },
     } : {}),
     ...(args.usageLimit ? { usageLimit: { ...args.usageLimit } } : {}),
+    ...(args.condition ? { condition: { ...args.condition } } : {}),
     ...(typeof args.turnApplied === 'number' ? { turnApplied: args.turnApplied } : {}),
     ...(typeof args.expiresAtTurn === 'number' ? { expiresAtTurn: args.expiresAtTurn } : {}),
     metadata: {
@@ -461,6 +625,7 @@ export function buildDurableCommandZonePermission(args: {
   grantsFlash?: boolean;
   timingOverride?: DurablePermissionTimingOverride;
   usageLimit?: DurablePermission['usageLimit'];
+  condition?: DurablePermission['condition'];
   cardIds?: readonly string[];
   typeLineIncludes?: readonly string[];
   oracleTextIncludes?: readonly string[];
@@ -496,6 +661,7 @@ export function buildDurableCommandZonePermission(args: {
       },
     } : {}),
     ...(args.usageLimit ? { usageLimit: { ...args.usageLimit } } : {}),
+    ...(args.condition ? { condition: { ...args.condition } } : {}),
     ...(typeof args.turnApplied === 'number' ? { turnApplied: args.turnApplied } : {}),
     ...(typeof args.expiresAtTurn === 'number' ? { expiresAtTurn: args.expiresAtTurn } : {}),
     metadata: {
@@ -523,6 +689,20 @@ export function playerHasDurableLandPlayPermission(state: any, playerId: PlayerI
     permission.allowedAction === 'play'
     && Array.isArray(permission.allowedSourceZones)
     && permission.allowedSourceZones.map((entry: DurablePermissionZone) => String(entry)).includes(zone)
+  ));
+}
+
+export function getDurableLandPlayPermissionForCard(
+  state: any,
+  playerId: PlayerID,
+  zone: DurableLandPlayZone,
+  card: any,
+): DurablePermission | undefined {
+  return getActiveDurablePermissions(state, { playerId, kind: LAND_PLAY_KIND }).find((permission) => (
+    permission.allowedAction === 'play'
+    && Array.isArray(permission.allowedSourceZones)
+    && permission.allowedSourceZones.map((entry: DurablePermissionZone) => String(entry)).includes(zone)
+    && durablePermissionMatchesCard(permission, card)
   ));
 }
 
@@ -560,6 +740,22 @@ export function getDurableCommandZonePermissionForCard(
     durableCommandZonePermissionAllowsAction(permission, action)
     && durablePermissionMatchesCard(permission, card)
   ));
+}
+
+export function getDurableGraveyardActivationPermissionForCard(
+  state: any,
+  playerId: PlayerID,
+  card: any,
+  keyword?: string,
+): DurablePermission | undefined {
+  const normalizedKeyword = String(keyword || '').trim().toLowerCase();
+  return getActiveDurablePermissions(state, { playerId, kind: GRAVEYARD_PERMISSION_KIND }).find((permission) => {
+    if (String(permission.allowedAction || '') !== 'activate') return false;
+    if (!Array.isArray(permission.allowedSourceZones) || !permission.allowedSourceZones.map(String).includes('graveyard')) return false;
+    if (!durablePermissionMatchesCard(permission, card)) return false;
+    if (!normalizedKeyword) return true;
+    return String((permission.metadata as any)?.graveyardKeyword || '').trim().toLowerCase() === normalizedKeyword;
+  });
 }
 
 export function removeCardIdFromDurablePlayableFromExilePermissions(state: any, cardId: string): void {
@@ -600,7 +796,7 @@ export function clearTemporaryDurableGraveyardPermissions(state: any): number {
   const before = getDurablePermissions(state).length;
   removeDurablePermissionsWhere(state, (permission) => {
     if (String(permission.kind || '') !== GRAVEYARD_PERMISSION_KIND) return false;
-    const duration = String(permission.duration || '').trim().toLowerCase();
+    const duration = normalizeDurablePermissionDuration(permission.duration);
     return duration === 'end_of_turn' || duration === 'this_turn';
   });
   return before - getDurablePermissions(state).length;

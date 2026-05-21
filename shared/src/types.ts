@@ -567,6 +567,20 @@ export interface DurablePermissionTimingOverride {
   ignoreTiming?: boolean;
 }
 
+export type DurablePermissionConditionType = 'player_controls_permanent_type' | 'player_controls_permanent_named' | 'source_on_battlefield' | string;
+
+export interface DurablePermissionCondition {
+  type: DurablePermissionConditionType;
+  playerId?: PlayerID;
+  minCount?: number;
+  typeLineIncludes?: readonly string[];
+  names?: readonly string[];
+  nameIncludes?: readonly string[];
+  sourceId?: string;
+  sourceObjectId?: string;
+  negate?: boolean;
+}
+
 export interface DurablePermissionReplacementBehavior {
   exileAfterResolution?: boolean;
   leaveBattlefieldDestination?: DurablePermissionZone;
@@ -598,6 +612,7 @@ export interface DurablePermission {
   usageLimit?: DurablePermissionUsageLimit;
   costMode?: DurablePermissionCostMode;
   timingOverride?: DurablePermissionTimingOverride;
+  condition?: DurablePermissionCondition;
   replacement?: DurablePermissionReplacementBehavior;
   turnApplied?: number;
   expiresAtTurn?: number;

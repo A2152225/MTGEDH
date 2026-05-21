@@ -67,12 +67,14 @@ import {
   triggerETBEffectsForToken,
 } from "./stack";
 import { exileEntireStack } from "./stack";
-import { applyGraveyardPermissionEffectsFromText, applyTemporaryGraveyardKeywordGrantFromText, buildCastFromGraveyardCard } from "./graveyard-permissions.js";
+import { applyGraveyardPermissionEffectsFromText, applyTemporaryGraveyardKeywordGrantFromText, buildCastFromGraveyardCard, getMatchingGraveyardCastingPermission } from "./graveyard-permissions.js";
 import { shouldExileStackCardInsteadOfGraveyard } from "./stack-zone-replacements.js";
 import {
   buildDurablePlayableFromExilePermission,
   getDurableCommandZonePermissionForCard,
+  getDurableLandPlayPermissionForCard,
   getDurableLibraryPermissionForCard,
+  getDurablePlayableFromExilePermissionForCard,
   recordDurablePermissionUse,
   upsertDurablePermission,
 } from "./durable-permissions.js";
@@ -274,6 +276,68 @@ function resolveReplayCommanderCard(ctx: any, event: any, commanderId: string): 
   }
 
   return undefined;
+}
+
+function getReplayLibraryForPlayer(ctx: any, playerId: string): any[] {
+  if (Array.isArray(ctx?.libraries?.get?.(playerId))) {
+    return ctx.libraries.get(playerId);
+  }
+  if (Array.isArray(ctx?.libraries?.[playerId])) {
+    return ctx.libraries[playerId];
+  }
+  return [];
+}
+
+function findReplayCardInZone(ctx: any, playerId: string, zone: string, cardId: string): any | undefined {
+  const normalizedZone = String(zone || '').toLowerCase().trim();
+  const normalizedCardId = String(cardId || '').trim();
+  if (!normalizedZone || !normalizedCardId) return undefined;
+
+  if (normalizedZone === 'library') {
+    return getReplayLibraryForPlayer(ctx, playerId).find((card: any) => String(card?.id || '') === normalizedCardId);
+  }
+
+  const zoneCards = (ctx?.state as any)?.zones?.[playerId]?.[normalizedZone];
+  if (Array.isArray(zoneCards)) {
+    const card = zoneCards.find((entry: any) => String(entry?.id || '') === normalizedCardId);
+    if (card) return card;
+  }
+
+  if (normalizedZone === 'exile') {
+    const zones = (ctx?.state as any)?.zones;
+    if (zones && typeof zones === 'object') {
+      for (const playerZones of Object.values(zones) as any[]) {
+        const exileCards = Array.isArray(playerZones?.exile) ? playerZones.exile : [];
+        const card = exileCards.find((entry: any) => String(entry?.id || '') === normalizedCardId);
+        if (card) return card;
+      }
+    }
+  }
+
+  const playerEntry = Array.isArray((ctx?.state as any)?.players)
+    ? ((ctx.state as any).players as any[]).find((entry: any) => String(entry?.id || '') === playerId)
+    : undefined;
+  const playerZoneCards = playerEntry && Array.isArray(playerEntry[normalizedZone]) ? playerEntry[normalizedZone] : [];
+  return playerZoneCards.find((entry: any) => String(entry?.id || '') === normalizedCardId);
+}
+
+function resolveReplayCardForPermissionUse(ctx: any, event: any, zone: string, cardData: any): any {
+  if (cardData && typeof cardData === 'object') return cardData;
+
+  const playerId = String(event?.playerId || '').trim();
+  const cardId = String(cardData || '').trim();
+  if (!playerId || !cardId) return { id: cardId || cardData };
+
+  if (zone === 'command') {
+    return resolveReplayCommanderCard(ctx, event, cardId) || { id: cardId };
+  }
+
+  return findReplayCardInZone(ctx, playerId, zone, cardId) || { id: cardId };
+}
+
+function recordReplayDurablePermissionUse(state: any, permission: any): void {
+  if (!permission) return;
+  recordDurablePermissionUse(state, typeof permission?.kind === 'string' ? permission : String(permission?.id || ''));
 }
 import { join, leave as leaveModule } from "./join";
 import { resolveSpell } from "../../rules-engine/targeting";
@@ -2452,22 +2516,18 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
         const cardData = (e as any).card || (e as any).cardId;
         const fromZone = String((e as any).fromZone || '').toLowerCase().trim();
         const playerId = String((e as any).playerId || '').trim();
-        const cardForPermission = (() => {
-          if (cardData && typeof cardData === 'object') return cardData;
-          if (fromZone !== 'library' || !playerId) return cardData;
-          const library = Array.isArray((ctx as any).libraries?.get?.(playerId))
-            ? (ctx as any).libraries.get(playerId)
-            : (Array.isArray((ctx as any).libraries?.[playerId]) ? (ctx as any).libraries[playerId] : []);
-          return library.find((card: any) => String(card?.id || '') === String(cardData || '')) || cardData;
-        })();
+        const cardForPermission = resolveReplayCardForPermissionUse(ctx as any, e, fromZone, cardData);
         const battlefieldLengthBefore = Array.isArray(ctx.state.battlefield) ? ctx.state.battlefield.length : 0;
-        const durablePermissionToRecord = fromZone === 'library' && playerId
-          ? getDurableLibraryPermissionForCard(
-              ctx.state as any,
-              playerId as any,
-              typeof cardForPermission === 'object' && cardForPermission ? cardForPermission : { id: cardForPermission },
-              'play',
-            )
+        const durablePermissionToRecord = playerId
+          ? fromZone === 'library'
+            ? getDurableLibraryPermissionForCard(ctx.state as any, playerId as any, cardForPermission, 'play')
+            : fromZone === 'exile'
+              ? getDurablePlayableFromExilePermissionForCard(ctx.state as any, playerId as any, cardForPermission, 'play')
+                || getDurableLandPlayPermissionForCard(ctx.state as any, playerId as any, 'exile', cardForPermission)
+              : fromZone === 'graveyard'
+                ? getMatchingGraveyardCastingPermission(ctx.state as any, playerId as any, cardForPermission, 'play')
+                  || getDurableLandPlayPermissionForCard(ctx.state as any, playerId as any, 'graveyard', cardForPermission)
+                : undefined
           : undefined;
 
         // Defensive replay hardening: if the persisted event indicates the land
@@ -2484,8 +2544,8 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
         playLand(ctx as any, (e as any).playerId, cardData);
         try {
           const battlefieldLengthAfter = Array.isArray(ctx.state.battlefield) ? ctx.state.battlefield.length : 0;
-          if (fromZone === 'library' && playerId && battlefieldLengthAfter > battlefieldLengthBefore) {
-            recordDurablePermissionUse(ctx.state as any, durablePermissionToRecord);
+          if (playerId && battlefieldLengthAfter > battlefieldLengthBefore) {
+            recordReplayDurablePermissionUse(ctx.state as any, durablePermissionToRecord);
           }
         } catch {
           // best-effort only
@@ -2594,12 +2654,14 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
             spellCardData = commanderCard;
           }
         }
+        if ((fromZone === 'library' || fromZone === 'graveyard' || fromZone === 'exile') && typeof spellCardData === 'string') {
+          const replayCard = resolveReplayCardForPermissionUse(ctx as any, e, fromZone, spellCardData);
+          if (replayCard && typeof replayCard === 'object') {
+            spellCardData = replayCard;
+          }
+        }
         if (fromZone === 'library' && typeof spellCardData === 'string') {
-          const library = Array.isArray((ctx as any).libraries?.get?.((e as any).playerId))
-            ? (ctx as any).libraries.get((e as any).playerId)
-            : (Array.isArray((ctx as any).libraries?.[(e as any).playerId])
-                ? (ctx as any).libraries[(e as any).playerId]
-                : []);
+          const library = getReplayLibraryForPlayer(ctx as any, String((e as any).playerId || '').trim());
           const libraryCard = library.find((card: any) => String(card?.id || '') === String(spellCardData));
           if (libraryCard) {
             spellCardData = libraryCard;
@@ -2615,15 +2677,15 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
             ? getDurableLibraryPermissionForCard(ctx.state as any, playerIdForDurablePermissionUse as any, cardForDurablePermissionUse, 'cast')
             : fromZone === 'command'
               ? getDurableCommandZonePermissionForCard(ctx.state as any, playerIdForDurablePermissionUse as any, cardForDurablePermissionUse, 'cast')
-              : undefined
+              : fromZone === 'exile'
+                ? getDurablePlayableFromExilePermissionForCard(ctx.state as any, playerIdForDurablePermissionUse as any, cardForDurablePermissionUse, 'cast')
+                : fromZone === 'graveyard'
+                  ? getMatchingGraveyardCastingPermission(ctx.state as any, playerIdForDurablePermissionUse as any, cardForDurablePermissionUse, 'cast')
+                  : undefined
           : undefined;
 
         if (fromZone === 'library') {
-          const library = Array.isArray((ctx as any).libraries?.get?.((e as any).playerId))
-            ? (ctx as any).libraries.get((e as any).playerId)
-            : (Array.isArray((ctx as any).libraries?.[(e as any).playerId])
-                ? (ctx as any).libraries[(e as any).playerId]
-                : []);
+          const library = getReplayLibraryForPlayer(ctx as any, String((e as any).playerId || '').trim());
           const spellCardId = String((spellCardData as any)?.id || (e as any).cardId || '').trim();
           const libraryIdx = library.findIndex((card: any) => String(card?.id || '') === spellCardId);
           if (libraryIdx !== -1) {
@@ -2668,7 +2730,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
         try {
           const stackLengthAfter = ctx.state.stack?.length || 0;
           if (playerIdForDurablePermissionUse && stackLengthAfter > stackLengthBefore) {
-            recordDurablePermissionUse(ctx.state as any, durablePermissionToRecord);
+            recordReplayDurablePermissionUse(ctx.state as any, durablePermissionToRecord);
           }
         } catch {
           // best-effort only
@@ -3376,9 +3438,16 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
             break;
           }
 
-          const [exiledCard] = exile.splice(exileIndex, 1);
-          zones.exileCount = exile.length;
-          cleanupCardLeavingExile((ctx.state as any) as any, exiledCard);
+          let exiledCard = exile[exileIndex];
+
+          if (declineDestination === 'exile') {
+            cleanupCardLeavingExile((ctx.state as any) as any, exiledCard);
+          } else {
+            const [removedCard] = exile.splice(exileIndex, 1);
+            exiledCard = removedCard;
+            zones.exileCount = exile.length;
+            cleanupCardLeavingExile((ctx.state as any) as any, exiledCard);
+          }
 
           if (declineDestination === 'graveyard') {
             zones.graveyard = Array.isArray(zones.graveyard) ? zones.graveyard : [];

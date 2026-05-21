@@ -31,7 +31,7 @@ import { getCurrentGoaders } from "./goad-effects.js";
 import { isAbilityActivationProhibitedByChosenName, isSpellCastingProhibitedByChosenName } from "./chosen-name-restrictions.js";
 import { canActivateLoyaltyAtInstantSpeed } from "./triggered-abilities.js";
 import { canPayCounterRemovalCost } from "./counter-removal-costs.js";
-import { cardAllowsPlayerToPlayFromExile, getPlayableExileCardsForPlayer, getPlayableFromExileDurablePermissionForCard } from "./playable-from-exile.js";
+import { cardAllowsPlayerToPlayFromExile, cardMeetsPlayFromExileConditions, getPlayableExileCardsForPlayer, getPlayableFromExileDurablePermissionForCard } from "./playable-from-exile.js";
 import { getDurableCommandZonePermissionForCard, playerHasDurableLandPlayPermission } from "./durable-permissions";
 
 function cardHasSplitSecond(card: any): boolean {
@@ -176,7 +176,9 @@ export interface SharedSpellCastCandidate {
   payability: SharedSpellCandidatePayability;
   manaCost?: string;
   cost?: ReturnType<typeof parseManaCost>;
+  payableCost?: ReturnType<typeof parseManaCost>;
   grantsFlash?: boolean;
+  spendManaAsThoughAnyType?: boolean;
   exileAfterResolution?: boolean;
   leaveBattlefieldReplacementDestination?: 'exile';
   leaveBattlefieldReplacementSourceName?: string;
@@ -208,6 +210,7 @@ export interface SharedCommanderBaseCandidate {
   commanderId: string;
   manaCost: string;
   cost: SharedCommanderParsedCost;
+  payableCost?: SharedCommanderParsedCost;
   grantsFlash: boolean;
   isBackground: boolean;
   commanderTax: number;
@@ -339,7 +342,13 @@ export function getCommandZoneCommanderCandidates(
         costAdjustment,
         canPayCost,
         ...(commandZonePermissionCostMode ? { commandZonePermissionCostMode } : {}),
-        ...(spendManaAsThoughAnyType ? { spendManaAsThoughAnyType: true } : {}),
+        ...(spendManaAsThoughAnyType ? {
+          spendManaAsThoughAnyType: true,
+          payableCost: {
+            ...payableCost,
+            cmc,
+          },
+        } : {}),
       });
     }
 
@@ -828,7 +837,7 @@ function getSpecificLandFromGraveyardPermission(
       for (const rawLine of lines) {
         const line = normalizeRuleText(rawLine);
         if (!isStaticGraveyardPermissionLine(line)) continue;
-        if (/\bduring your turn\b/.test(line) && !isPlayersTurnForPermission(state, playerId)) continue;
+        if (/\bduring(?:\s+each\s+of)?\s+your\s+turns?\b/.test(line) && !isPlayersTurnForPermission(state, playerId)) continue;
 
         for (const match of line.matchAll(/you may play ([^.]+?) from your graveyard/gi)) {
           const qualifier = String(match[1] || '').trim();
@@ -1054,6 +1063,11 @@ function getSpecificSpellFromGraveyardPermission(
     const firstClassLeaveBattlefieldDestination = firstClassPermissionLeaveBattlefieldDestination(firstClassPermission);
     const firstClassLeaveBattlefieldLifeGain = firstClassPermissionLeaveBattlefieldLifeGain(firstClassPermission);
     if (firstClassPermission) {
+      const sourceGrantedAdditionalCost = getSourceGrantedAdditionalCost(String((firstClassPermission as any)?.sourceText || ''));
+      if (sourceGrantedAdditionalCost && !canPaySourceGrantedAdditionalCost(state, playerId, card, sourceGrantedAdditionalCost)) {
+        return { allowed: false };
+      }
+
       return {
         allowed: true,
         ...(firstClassPermissionExilesSpell(firstClassPermission) ? { exileAfterResolution: true } : {}),
@@ -1062,6 +1076,7 @@ function getSpecificSpellFromGraveyardPermission(
           ? { leaveBattlefieldReplacementSourceName: firstClassPermission.replacement?.sourceName || firstClassPermission.sourceName }
           : {}),
         ...(firstClassLeaveBattlefieldLifeGain ? { leaveBattlefieldReplacementLifeGain: firstClassLeaveBattlefieldLifeGain } : {}),
+        ...(sourceGrantedAdditionalCost ? { sourceGrantedAdditionalCost } : {}),
         graveyardPermissionId: firstClassPermission.id,
         ...(firstClassPermission.sourceName ? { graveyardPermissionSourceName: firstClassPermission.sourceName } : {}),
         graveyardPermissionCostMode: firstClassPermission.costMode || 'normal',
@@ -1105,7 +1120,7 @@ function getSpecificSpellFromGraveyardPermission(
         const sourceGrantedAdditionalCost = getSourceGrantedAdditionalCost(line) || getSourceGrantedAdditionalCost(oracleText);
         const sourceCostMode = getGraveyardPermissionCostModeFromText(line || oracleText);
         if (!isStaticGraveyardPermissionLine(line)) continue;
-        if (/\bduring your turn\b/.test(line) && !isPlayersTurnForPermission(state, playerId)) continue;
+        if (/\bduring(?:\s+each\s+of)?\s+your\s+turns?\b/.test(line) && !isPlayersTurnForPermission(state, playerId)) continue;
 
         const combinedPlayCastMatch = line.match(/you may play ([^.]+?) and cast ([^.]+?) from your graveyard/i);
         if (combinedPlayCastMatch) {
@@ -1430,8 +1445,9 @@ export function getCastableSpellCandidates(
         } else if (sourceZone === 'exile') {
           const exileInfo = hasForetellOrCanCastFromExile(card);
           const exileCardId = String(card?.id || castCard?.id || castCard?.name || '');
-          const playableFromExile = isCardPlayableFromExile(exilePermissions, exileCardId, currentTurn);
-          const cardAllows = cardAllowsPlayerToPlayFromExile(card, playerId, currentTurn);
+          const playableFromExile = isCardPlayableFromExile(exilePermissions, exileCardId, currentTurn)
+            && cardMeetsPlayFromExileConditions(state, card, playerId);
+          const cardAllows = cardAllowsPlayerToPlayFromExile(card, playerId, currentTurn, state);
           const durablePermission = getPlayableFromExileDurablePermissionForCard(state, playerId, card, 'cast');
           const durablePermissionAllows = Boolean(durablePermission);
           const durableCostMode = String(durablePermission?.costMode || '').trim();
@@ -1510,6 +1526,7 @@ export function getCastableSpellCandidates(
             payability: 'normal',
             manaCost,
             cost: adjustedCost,
+            ...(spendManaAsThoughAnyType ? { payableCost, spendManaAsThoughAnyType: true } : {}),
             grantsFlash,
             ...(exileAfterResolution ? { exileAfterResolution: true } : {}),
             ...(leaveBattlefieldReplacementDestination ? { leaveBattlefieldReplacementDestination } : {}),
@@ -2528,8 +2545,8 @@ function isLandPlayableFromExile(state: any, playerId: PlayerID, card: any): boo
   const playableCards = (state as any)?.playableFromExile?.[playerId];
   const currentTurn = Number((state as any)?.turnNumber ?? 0);
   const cardId = String(card?.id || card?.name || '');
-  return isCardPlayableFromExile(playableCards, cardId, currentTurn)
-    || cardAllowsPlayerToPlayFromExile(card, playerId, currentTurn)
+  return (isCardPlayableFromExile(playableCards, cardId, currentTurn) && cardMeetsPlayFromExileConditions(state, card, playerId))
+    || cardAllowsPlayerToPlayFromExile(card, playerId, currentTurn, state)
     || Boolean(getPlayableFromExileDurablePermissionForCard(state, playerId, card, 'play'));
 }
 
@@ -2769,11 +2786,17 @@ function hasPlayFromZoneEffect(ctx: GameContext, playerId: PlayerID, zone: strin
     if (zone === "exile" && stateAny.playableFromExile) {
       const playableCards = stateAny.playableFromExile[playerId];
       const currentTurn = Number(stateAny?.turnNumber ?? 0);
+      const playerExile = Array.isArray(stateAny?.zones?.[playerId]?.exile) ? stateAny.zones[playerId].exile : [];
       const hasUsableEntry = Array.isArray(playableCards)
-        ? playableCards.length > 0
-        : Object.keys(playableCards || {}).some((cardId) =>
-            isCardPlayableFromExile(playableCards, cardId, currentTurn)
-          );
+        ? playableCards.some((cardId) => {
+            const card = playerExile.find((entry: any) => String(entry?.id || entry?.name || '') === String(cardId || ''));
+            return !card || cardMeetsPlayFromExileConditions(stateAny, card, playerId);
+          })
+        : Object.keys(playableCards || {}).some((cardId) => {
+            if (!isCardPlayableFromExile(playableCards, cardId, currentTurn)) return false;
+            const card = playerExile.find((entry: any) => String(entry?.id || entry?.name || '') === String(cardId || ''));
+            return !card || cardMeetsPlayFromExileConditions(stateAny, card, playerId);
+          });
       if (hasUsableEntry) {
         return true;
       }
@@ -2863,6 +2886,11 @@ export function canRespond(ctx: GameContext, playerId: PlayerID): boolean {
     // Check if player can activate any abilities
     if (canActivateAnyAbility(ctx, playerId)) {
       debug(2, `[canRespond] ${playerId}: Can activate ability`);
+      return true;
+    }
+
+    if (canCastCommanderFromCommandZone(ctx, playerId)) {
+      debug(2, `[canRespond] ${playerId}: Can cast commander from command zone`);
       return true;
     }
     

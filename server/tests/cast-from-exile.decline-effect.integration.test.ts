@@ -4,6 +4,12 @@ import { ensureGame } from '../src/socket/util.js';
 import { registerResolutionHandlers } from '../src/socket/resolution.js';
 import { ResolutionQueueManager, ResolutionStepType } from '../src/state/resolution/index.js';
 import { games } from '../src/socket/socket.js';
+import { createInitialGameState } from '../src/state/gameState.js';
+import {
+  buildDurablePlayableFromExilePermission,
+  getDurablePlayableFromExilePermissionForCard,
+  upsertDurablePermission,
+} from '../src/state/modules/durable-permissions.js';
 
 function createMockIo(
   emitted: Array<{ room?: string; event: string; payload: any }>,
@@ -77,6 +83,7 @@ describe('generic cast-from-exile decline effects (integration)', () => {
       { id: p2, name: 'P2', spectator: false, life: 40 },
       { id: p3, name: 'P3', spectator: false, life: 40 },
     ];
+    (game.state as any).turnNumber = 7;
     (game.state as any).startingLife = 40;
     (game.state as any).life = { [p1]: 40, [p2]: 40, [p3]: 40 };
     (game.state as any).zones = {
@@ -90,6 +97,8 @@ describe('generic cast-from-exile decline effects (integration)', () => {
             type_line: 'Instant',
             oracle_text: 'Lightning Strike deals 3 damage to any target.',
             zone: 'exile',
+            canBePlayedBy: p1,
+            playableUntilTurn: 7,
           },
         ],
         exileCount: 1,
@@ -100,6 +109,16 @@ describe('generic cast-from-exile decline effects (integration)', () => {
       [p2]: { hand: [], handCount: 0, exile: [], exileCount: 0, graveyard: [], graveyardCount: 0, libraryCount: 0 },
       [p3]: { hand: [], handCount: 0, exile: [], exileCount: 0, graveyard: [], graveyardCount: 0, libraryCount: 0 },
     };
+    (game.state as any).playableFromExile = { [p1]: { exiled_1: 7 } };
+    upsertDurablePermission(game.state as any, buildDurablePlayableFromExilePermission({
+      playerId: p1,
+      cardIds: ['exiled_1'],
+      action: 'cast',
+      duration: 'one_shot',
+      turnApplied: 7,
+      expiresAtTurn: 7,
+      sourceName: 'Chandra, Torch of Defiance',
+    }));
 
     const step = ResolutionQueueManager.addStep(gameId, {
       type: ResolutionStepType.OPTION_CHOICE,
@@ -136,8 +155,92 @@ describe('generic cast-from-exile decline effects (integration)', () => {
     expect((game.state as any).life[p2]).toBe(37);
     expect((game.state as any).life[p3]).toBe(37);
     expect(((game.state as any).zones[p1].exile || []).map((c: any) => c.id)).toEqual(['exiled_1']);
+    const stillExiled = ((game.state as any).zones[p1].exile || [])[0];
+    expect(stillExiled.canBePlayedBy).toBeUndefined();
+    expect(stillExiled.playableUntilTurn).toBeUndefined();
+    expect((game.state as any).playableFromExile[p1]?.exiled_1).toBeUndefined();
+    expect(getDurablePlayableFromExilePermissionForCard(game.state as any, p1, stillExiled, 'cast')).toBeUndefined();
 
     const chat = emitted.find((event) => event.event === 'chat');
     expect(chat?.payload?.message).toContain('deals 3 damage to each opponent');
+  });
+
+  it('replays exile-decline prompts by keeping the card exiled but clearing prompt permissions', () => {
+    const game = createInitialGameState(gameId);
+    const p1 = 'p1' as any;
+    const p2 = 'p2' as any;
+
+    (game.state as any).players = [
+      { id: p1, name: 'P1', spectator: false, life: 40 },
+      { id: p2, name: 'P2', spectator: false, life: 40 },
+    ];
+    (game.state as any).turnNumber = 8;
+    (game.state as any).startingLife = 40;
+    (game.state as any).life = { [p1]: 40, [p2]: 40 };
+    (game.state as any).zones = {
+      [p1]: {
+        hand: [],
+        handCount: 0,
+        exile: [
+          {
+            id: 'exiled_replay_1',
+            name: 'Replay Strike',
+            type_line: 'Instant',
+            oracle_text: 'Replay Strike deals 3 damage to any target.',
+            zone: 'exile',
+            canBePlayedBy: p1,
+            playableUntilTurn: 8,
+          },
+        ],
+        exileCount: 1,
+        graveyard: [],
+        graveyardCount: 0,
+        libraryCount: 0,
+      },
+      [p2]: { hand: [], handCount: 0, exile: [], exileCount: 0, graveyard: [], graveyardCount: 0, libraryCount: 0 },
+    };
+    (game.state as any).playableFromExile = { [p1]: { exiled_replay_1: 8 } };
+    upsertDurablePermission(game.state as any, buildDurablePlayableFromExilePermission({
+      playerId: p1,
+      cardIds: ['exiled_replay_1'],
+      action: 'cast',
+      duration: 'one_shot',
+      turnApplied: 8,
+      expiresAtTurn: 8,
+      sourceName: 'Replay Chandra',
+    }));
+
+    const step = ResolutionQueueManager.addStep(gameId, {
+      type: ResolutionStepType.OPTION_CHOICE,
+      playerId: p1,
+      sourceName: 'Replay Chandra',
+      options: [
+        { id: 'cast', label: 'Cast Replay Strike' },
+        { id: 'decline', label: "Don't cast" },
+      ],
+      castFromExileCardId: 'exiled_replay_1',
+      castFromExileCard: { id: 'exiled_replay_1', name: 'Replay Strike', type_line: 'Instant' },
+      castFromExileDeclineDestination: 'exile',
+    } as any);
+
+    game.applyEvent({
+      type: 'castFromExilePromptResolve',
+      playerId: p1,
+      resolvedStepId: step.id,
+      cardId: 'exiled_replay_1',
+      choice: 'decline',
+      declineDestination: 'exile',
+      declineDamageEachOpponent: 3,
+    } as any);
+
+    expect(((game.state as any).zones[p1].exile || []).map((card: any) => card.id)).toEqual(['exiled_replay_1']);
+    expect((game.state as any).zones[p1].exileCount).toBe(1);
+    const stillExiled = ((game.state as any).zones[p1].exile || [])[0];
+    expect(stillExiled.canBePlayedBy).toBeUndefined();
+    expect(stillExiled.playableUntilTurn).toBeUndefined();
+    expect((game.state as any).playableFromExile[p1]?.exiled_replay_1).toBeUndefined();
+    expect(getDurablePlayableFromExilePermissionForCard(game.state as any, p1, stillExiled, 'cast')).toBeUndefined();
+    expect((game.state as any).life[p2]).toBe(37);
+    expect((ResolutionQueueManager.getQueue(gameId).steps || []).some((queuedStep: any) => String(queuedStep?.castFromExileCardId || '') === 'exiled_replay_1')).toBe(false);
   });
 });

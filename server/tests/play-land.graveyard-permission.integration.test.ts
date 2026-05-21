@@ -181,7 +181,18 @@ describe('playLand graveyard permission windows (integration)', () => {
       turnPlayer: playerId,
       priority: playerId,
       stack: [],
-      battlefield: [],
+      battlefield: [
+        {
+          id: 'crucible_perm_1',
+          controller: playerId,
+          card: {
+            id: 'crucible_card_1',
+            name: 'Crucible of Worlds',
+            type_line: 'Artifact',
+            oracle_text: 'You may play lands from your graveyard.',
+          },
+        },
+      ],
       manaPool: {
         [playerId]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
         [opponentId]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },

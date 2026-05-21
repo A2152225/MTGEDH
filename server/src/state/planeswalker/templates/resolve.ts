@@ -5,6 +5,7 @@ import { getActualPowerToughness, uid } from "../../utils.js";
 import { drawCards as drawCardsFromZone, movePermanentToHand, movePermanentToLibrary } from "../../modules/zones.js";
 import { createToken, destroyPermanent, movePermanentToExile, movePermanentToGraveyard, updateCounters } from "../../modules/counters_tokens.js";
 import { cleanupCardLeavingExile } from "../../modules/playable-from-exile.js";
+import { buildDurablePlayableFromExilePermission, upsertDurablePermission } from "../../modules/durable-permissions.js";
 import { recordCardLeftGraveyardThisTurn } from "../../modules/turn-tracking.js";
 import { applyTemporaryLandBonus } from "../../modules/game-state-effects.js";
 import { addExtraTurn, nextTurn } from "../../modules/turn.js";
@@ -41,6 +42,30 @@ function isNonAuraPermanentCard(card: any): boolean {
     typeLine.includes('planeswalker') ||
     typeLine.includes('battle')
   );
+}
+
+function upsertPlaneswalkerPlayableFromExileGrant(
+  state: any,
+  controller: PlayerID,
+  cardIds: readonly string[],
+  sourceName: string,
+  sourceText: string,
+  action: 'play' | 'cast',
+  expiresAtTurn: number,
+): void {
+  const affectedCardIds = cardIds.map((cardId) => String(cardId || '').trim()).filter(Boolean);
+  if (affectedCardIds.length === 0) return;
+
+  upsertDurablePermission(state, buildDurablePlayableFromExilePermission({
+    playerId: controller,
+    cardIds: affectedCardIds,
+    action,
+    duration: 'this_turn',
+    turnApplied: Number(state?.turnNumber ?? state?.turn ?? 0) || 0,
+    expiresAtTurn,
+    sourceName,
+    sourceText,
+  }));
 }
 
 function restartGameWithKarnExemptions(
@@ -1448,6 +1473,23 @@ export function tryResolvePlaneswalkerLoyaltyTemplate(
         const isCreatureCard = typeLine.includes('creature');
         if (isCreatureCard && exiledCard?.id) {
           pfe[String(exiledCard.id)] = true;
+          upsertDurablePermission(stateAny, buildDurablePlayableFromExilePermission({
+            playerId: controller,
+            cardIds: [String(exiledCard.id)],
+            action: 'cast',
+            duration: 'static',
+            turnApplied: Number(stateAny?.turnNumber ?? stateAny?.turn ?? 0) || 0,
+            sourceName,
+            sourceText: text,
+            typeLineIncludes: ['creature'],
+            condition: {
+              type: 'player_controls_permanent_type',
+              playerId: controller,
+              minCount: 1,
+              typeLineIncludes: ['planeswalker'],
+              nameIncludes: ['lukka'],
+            },
+          }));
         }
       }
 
@@ -2200,6 +2242,7 @@ export function tryResolvePlaneswalkerLoyaltyTemplate(
       (state as any).playableFromExile = (state as any).playableFromExile || {};
       const pfe = ((state as any).playableFromExile[controller] = (state as any).playableFromExile[controller] || {});
       pfe[cardId] = (state as any).turnNumber ?? 0;
+      upsertPlaneswalkerPlayableFromExileGrant(state, controller, [cardId], sourceName, text, 'play', Number((state as any).turnNumber ?? 0));
 
       (ctx as any).bumpSeq?.();
       debug(
@@ -2260,6 +2303,7 @@ export function tryResolvePlaneswalkerLoyaltyTemplate(
         const pfe =
           ((state as any).playableFromExile[controller] = (state as any).playableFromExile[controller] || {});
         pfe[cardId] = (state as any).turnNumber ?? 0;
+        upsertPlaneswalkerPlayableFromExileGrant(state, controller, [cardId], sourceName, text, 'cast', Number((state as any).turnNumber ?? 0));
       }
 
       (ctx as any).bumpSeq?.();
@@ -2298,6 +2342,7 @@ export function tryResolvePlaneswalkerLoyaltyTemplate(
       const pfe = ((state as any).playableFromExile[controller] = (state as any).playableFromExile[controller] || {});
 
       const actual = Math.max(0, Math.min(count, lib.length));
+      const grantedCardIds: string[] = [];
       for (let i = 0; i < actual; i++) {
         const topCard = lib.shift();
         const cardId = String((topCard as any)?.id || uid("c"));
@@ -2311,7 +2356,9 @@ export function tryResolvePlaneswalkerLoyaltyTemplate(
         };
         z.exile.push(exiled);
         pfe[cardId] = (state as any).turnNumber ?? 0;
+        grantedCardIds.push(cardId);
       }
+      upsertPlaneswalkerPlayableFromExileGrant(state, controller, grantedCardIds, sourceName, text, 'play', Number((state as any).turnNumber ?? 0));
 
       (ctx as any).libraries?.set(controller, lib);
       z.libraryCount = lib.length;
@@ -4252,6 +4299,7 @@ export function tryResolvePlaneswalkerLoyaltyTemplate(
       const pfe = ((state as any).playableFromExile[controller] = (state as any).playableFromExile[controller] || {});
 
       const actual = Math.max(0, Math.min(3, lib.length));
+      const grantedCardIds: string[] = [];
       for (let i = 0; i < actual; i++) {
         const topCard = lib.shift();
         const cardId = String((topCard as any)?.id || uid('c'));
@@ -4268,7 +4316,9 @@ export function tryResolvePlaneswalkerLoyaltyTemplate(
         };
         z.exile.push(exiled);
         pfe[cardId] = (state as any).turnNumber ?? 0;
+        grantedCardIds.push(cardId);
       }
+      upsertPlaneswalkerPlayableFromExileGrant(state, controller, grantedCardIds, sourceName, text, 'play', Number((state as any).turnNumber ?? 0));
 
       (ctx as any).libraries?.set(controller, lib);
       z.libraryCount = lib.length;
@@ -11987,6 +12037,17 @@ export function tryResolvePlaneswalkerLoyaltyTemplate(
       (state as any).playableFromExile = (state as any).playableFromExile || {};
       const pfe = ((state as any).playableFromExile[controller] = (state as any).playableFromExile[controller] || {});
       pfe[cardId] = (state as any).turnNumber ?? 0;
+      upsertDurablePermission(state as any, buildDurablePlayableFromExilePermission({
+        playerId: controller,
+        cardIds: [cardId],
+        action: 'cast',
+        duration: 'one_shot',
+        turnApplied: Number((state as any).turnNumber ?? 0),
+        expiresAtTurn: Number((state as any).turnNumber ?? 0),
+        sourceName,
+        sourceText: text,
+        usageLimit: { type: 'one_shot', maxUses: 1 },
+      }));
 
       const dmg = parseInt(m[2], 10) || 0;
       ResolutionQueueManager.addStep(gameId, {
