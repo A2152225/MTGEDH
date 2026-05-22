@@ -11,6 +11,7 @@ import {
 import { parseSacrificeCost, type SacrificeType } from "../../../shared/src/textUtils";
 import { getLandfallTriggers, getETBTriggersForPermanent, getLoyaltyActivationLimit, detectUtilityLandAbility, detectHideawayAbility } from "../state/modules/triggered-abilities";
 import { movePermanentToGraveyard, trackPermanentSacrificedThisTurn } from "../state/modules/counters_tokens.js";
+import { sacrificePermanent } from "../state/modules/upkeep-triggers.js";
 import { queueSelfETBTriggersForPermanent, triggerETBEffectsForPermanent, triggerETBEffectsForToken } from "../state/modules/stack";
 import { recordCardLeftGraveyardThisTurn } from "../state/modules/turn-tracking.js";
 import { 
@@ -6146,16 +6147,8 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
           (permanent as any).tapped = true;
         }
         
-        // Remove from battlefield (sacrifice - part of cost, paid immediately)
-        battlefield.splice(permIndex, 1);
-        
-        // Move to graveyard
         const zones = (game.state as any)?.zones?.[pid];
-        if (zones) {
-          zones.graveyard = zones.graveyard || [];
-          zones.graveyard.push({ ...card, zone: "graveyard" });
-          zones.graveyardCount = zones.graveyard.length;
-        }
+        sacrificePermanent(game as any, String(permanentId), pid);
         
         // Draw a card (effect) - only if zones exists
         if (zones) {

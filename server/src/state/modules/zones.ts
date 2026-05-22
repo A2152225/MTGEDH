@@ -942,6 +942,16 @@ export function movePermanentToLibrary(
   if (getCounterLeaveBattlefieldReplacement(perm, 'library') === 'exile') {
     return moveRemovedPermanentToExile(ctx, perm, removedPermanentId);
   }
+
+  // Tokens cease to exist when they leave the battlefield instead of entering a library.
+  if ((perm as any).isToken === true) {
+    if (removedPermanentId) {
+      processLinkedExileReturns(ctx, removedPermanentId);
+    }
+    debug(2, `[movePermanentToLibrary] Token ${card?.name || permanentId} left battlefield -> ceased to exist (not moved to library)`);
+    bumpSeq();
+    return true;
+  }
   
   // Commander Replacement Effect (Rule 903.9a):
   // If a commander would be put into its owner's library from anywhere,

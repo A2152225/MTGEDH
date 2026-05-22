@@ -1680,9 +1680,21 @@ export function removePermanent(ctx: GameContext, permanentId: string) {
     } catch {
       // best-effort tracking only
     }
+    if (getCounterLeaveBattlefieldReplacement(perm, 'graveyard') === 'exile') {
+      moveRemovedPermanentToExile(ctx, perm, removedPermanentId);
+      runSBA(ctx);
+      try {
+        recalculatePlayerEffects(ctx);
+      } catch (err) {
+        debugWarn(1, '[removePermanent] Failed to recalculate player effects after exile replacement:', err);
+      }
+      return;
+    }
+
     if (removedPermanentId) {
       processLinkedExileReturns(ctx, removedPermanentId);
     }
+
     bumpSeq();
     runSBA(ctx);
     
@@ -1970,108 +1982,9 @@ export function runSBA(ctx: GameContext) {
     }
   }
   if (res.destroys.length) {
-    const zones = state.zones = state.zones || {};
     for (const id of res.destroys) {
-      const idx = state.battlefield.findIndex(b => b.id === id);
-      if (idx >= 0) { 
-        const destroyed = state.battlefield.splice(idx, 1)[0];
-        const isToken = (destroyed as any).isToken === true;
-        const isCreature = ((destroyed as any).card?.type_line || '').toLowerCase().includes('creature');
-        const controller = (destroyed as any).controller || (destroyed as any).owner;
-        const leaveReplacementDestination = getCounterLeaveBattlefieldReplacement(destroyed, 'graveyard');
-
-        if (leaveReplacementDestination === 'exile') {
-          moveRemovedPermanentToExile(ctx, destroyed, String((destroyed as any)?.id || '').trim());
-          changed = true;
-          continue;
-        }
-        
-        // Fire death triggers for ALL creatures (including tokens) BEFORE they leave/cease to exist
-        // Rule 700.4: The term "dies" means "is put into a graveyard from the battlefield"
-        // Even though tokens don't actually go to the graveyard, they still "die" and trigger death effects
-        if (isCreature) {
-          try {
-            // Best-effort turn tracking for intervening-if templates.
-            try {
-              const stateAny = state as any;
-              const id = String((destroyed as any)?.id || '').trim();
-              if (id) {
-                stateAny.creaturesDiedThisTurnIds = Array.isArray(stateAny.creaturesDiedThisTurnIds)
-                  ? stateAny.creaturesDiedThisTurnIds
-                  : [];
-                if (!stateAny.creaturesDiedThisTurnIds.includes(id)) {
-                  stateAny.creaturesDiedThisTurnIds.push(id);
-                }
-              }
-            } catch {
-              // best-effort only
-            }
-
-            const deathTriggers = mergeDeathTriggers(
-              getDeathTriggers(ctx, destroyed, controller),
-              getKeywordDeathTriggersForPermanent(destroyed, controller),
-            );
-            if (deathTriggers.length > 0) {
-              debug(2, `[runSBA] Found ${deathTriggers.length} death trigger(s) for ${isToken ? 'token ' : ''}${(destroyed as any).card?.name || destroyed.id}`);
-              
-              // Push death triggers onto the stack
-              state.stack = state.stack || [];
-              for (const trigger of deathTriggers) {
-                // Intervening-if (Rule 603.4): if recognized and false at trigger time, do not trigger.
-                const sourcePerm = trigger?.source?.permanentId === destroyed.id
-                  ? destroyed
-                  : (state.battlefield || []).find((p: any) => p?.id === trigger?.source?.permanentId);
-                const raw = String(trigger.effect || '').trim();
-                let textForEval = raw;
-                if (textForEval && !/^(?:when|whenever|at)\b/i.test(textForEval)) {
-                  textForEval = `Whenever a creature dies, ${textForEval}`;
-                }
-                const dyingControllerId = String(controller || '').trim();
-                const needsThatPlayerRef = /\bthat player\b/i.test(textForEval);
-                const ok = isInterveningIfSatisfied(
-                  ctx as any,
-                  String(trigger.source.controllerId),
-                  textForEval,
-                  sourcePerm,
-                  dyingControllerId && needsThatPlayerRef
-                    ? {
-                        thatPlayerId: dyingControllerId,
-                        referencedPlayerId: dyingControllerId,
-                        theirPlayerId: dyingControllerId,
-                      }
-                    : undefined
-                );
-                if (ok === false) continue;
-
-                pushDeathTriggerOntoStack(ctx, trigger, destroyed);
-              }
-            }
-          } catch (err) {
-            debugWarn(1, `[runSBA] Error processing death triggers:`, err);
-          }
-        }
-        
-        // Rule 111.7: A token that's in a zone other than the battlefield ceases to exist.
-        // Tokens don't go to the graveyard - they cease to exist as a state-based action.
-        if (isToken) {
-          debug(2, `[runSBA] Token ${(destroyed as any).card?.name || destroyed.id} ceased to exist (left battlefield)`);
-          changed = true;
-          continue; // Token ceases to exist, don't add to graveyard
-        }
-        
-        // Move non-token to owner's graveyard (SBA - creatures die)
-        const owner = (destroyed as any).owner || (destroyed as any).controller;
-        if (owner) {
-          const ownerZone = zones[owner] = zones[owner] || { hand: [], graveyard: [], handCount: 0, graveyardCount: 0, libraryCount: 0 };
-          (ownerZone as any).graveyard = (ownerZone as any).graveyard || [];
-          const card = (destroyed as any).card;
-          if (card) {
-            (ownerZone as any).graveyard.push(buildZoneObjectWithRetainedCounters(card, destroyed, 'graveyard'));
-            recordCardPutIntoGraveyardThisTurn(ctx, String(owner), card, { fromBattlefield: true, controllerId: String((destroyed as any).controller || owner) });
-            (ownerZone as any).graveyardCount = (ownerZone as any).graveyard.length;
-          }
-        }
-        changed = true; 
+      if (movePermanentToGraveyard(ctx, String(id), true)) {
+        changed = true;
       }
     }
   }
@@ -2108,8 +2021,6 @@ export function runSBA(ctx: GameContext) {
     // 2. Move the rest to graveyard
     // This is a simplification; a full implementation would use ResolutionQueueManager
     // to prompt the player to choose which to keep
-    const zones = state.zones = state.zones || {};
-    
     for (const [key, perms] of violationsByKey) {
       if (perms.length <= 1) continue;
       
@@ -2123,30 +2034,7 @@ export function runSBA(ctx: GameContext) {
       debug(1, `[runSBA] Legend Rule: ${controller} controls ${perms.length} copies of ${cardName}, keeping first and sacrificing ${toSacrifice.length}`);
       
       for (const toRemove of toSacrifice) {
-        const idx = state.battlefield.findIndex(b => b.id === toRemove.id);
-        if (idx >= 0) {
-          const removed = state.battlefield.splice(idx, 1)[0];
-          const owner = (removed as any).owner || (removed as any).controller;
-          const isToken = (removed as any).isToken === true;
-          
-          // Tokens cease to exist
-          if (isToken) {
-            debug(2, `[runSBA] Legend Rule: Token ${cardName} ceased to exist`);
-            changed = true;
-            continue;
-          }
-          
-          // Move to owner's graveyard
-          if (owner) {
-            const ownerZone = zones[owner] = zones[owner] || { hand: [], graveyard: [], handCount: 0, graveyardCount: 0, libraryCount: 0 };
-            (ownerZone as any).graveyard = (ownerZone as any).graveyard || [];
-            const card = (removed as any).card;
-            if (card) {
-              (ownerZone as any).graveyard.push(buildZoneObjectWithRetainedCounters(card, removed, 'graveyard'));
-              recordCardPutIntoGraveyardThisTurn(ctx, String(owner), card, { fromBattlefield: true, controllerId: String((removed as any).controller || owner) });
-              (ownerZone as any).graveyardCount = (ownerZone as any).graveyard.length;
-            }
-          }
+        if (movePermanentToGraveyard(ctx, String(toRemove.id), true)) {
           changed = true;
         }
       }

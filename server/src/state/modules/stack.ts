@@ -9670,22 +9670,7 @@ export function executeTriggerEffect(
       // Fallback: if no creatures, sacrifice the source
       if (controllerCreatures.length === 0 && sourcePermanent) {
         debug(2, `[executeTriggerEffect] ${sourceName}: No creatures available, sacrificing source`);
-        const idx = battlefield.findIndex((p: any) => p.id === sourceId);
-        if (idx !== -1) {
-          const [removed] = battlefield.splice(idx, 1);
-          // Move to graveyard (non-token)
-          if (!removed.isToken) {
-            const zones = state.zones || {};
-            const ownerZones = zones[removed.owner || controller] || {};
-            ownerZones.graveyard = ownerZones.graveyard || [];
-            ownerZones.graveyard.push({ ...removed.card, zone: 'graveyard' });
-            recordCardPutIntoGraveyardThisTurn(ctx, String(removed.owner || controller), removed.card, {
-              fromBattlefield: true,
-              controllerId: String((removed as any).controller || controller),
-            });
-            ownerZones.graveyardCount = ownerZones.graveyard.length;
-          }
-        }
+        sacrificePermanent(ctx, String(sourceId), String(controller));
       }
     }
     

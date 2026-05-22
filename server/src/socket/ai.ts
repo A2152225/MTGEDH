@@ -40,6 +40,7 @@ import { ResolutionQueueManager } from "../state/resolution/ResolutionQueueManag
 import { getPendingInteractions } from "../state/modules/turn.js";
 import { debug, debugWarn, debugError } from "../utils/debug.js";
 import { runSBA } from "../state/modules/counters_tokens.js";
+import { movePermanentToHand } from "../state/modules/zones.js";
 import { isOpeningHandBattlefieldCard } from "./opening-hand.js";
 import { getDominantCreatureType } from "./creature-type.js";
 import { handlePlayLandRequest, requestCastSpellForSocket, runPostResolutionPermanentPromptChecks } from "./game-actions.js";
@@ -5336,12 +5337,12 @@ function snapshotAIAbilityActivationState(
   }
 
   function removeAISimulatedPermanent(game: any, permanentId: string): void {
-    if (!Array.isArray(game.state?.battlefield)) {
+    const targetId = String(permanentId || '');
+    if (!targetId) {
       return;
     }
 
-    const targetId = String(permanentId || '');
-    game.state.battlefield = game.state.battlefield.filter((entry: any) => String(entry?.id || '') !== targetId);
+    movePermanentToGraveyard(game as any, targetId, true);
   }
 
   function matchesAIHandCostTypeRestriction(card: any, typeRestriction?: string): boolean {
@@ -5548,17 +5549,7 @@ function snapshotAIAbilityActivationState(
         return false;
       }
 
-      const [removedPermanent] = battlefield.splice(permanentIndex, 1);
-      if (!removedPermanent) {
-        return false;
-      }
-
-      zones.hand = Array.isArray(zones.hand) ? zones.hand : [];
-      zones.hand.push({
-        ...(removedPermanent.card || {}),
-        zone: 'hand',
-      });
-      zones.handCount = zones.hand.length;
+      movePermanentToHand(game as any, String(returnedPermanent?.id || ''));
     }
 
     const livePermanent = (Array.isArray(game.state?.battlefield) ? game.state.battlefield : []).find(
@@ -7823,7 +7814,6 @@ export async function handleBounceLandETB(game: any, playerId: PlayerID, bounceL
   game.state = (game.state || {}) as any;
   game.state.battlefield = game.state.battlefield || [];
   const battlefield = game.state.battlefield;
-  const zones = game.state?.zones?.[playerId];
   
   // Find all lands controlled by this player, INCLUDING the bounce land itself.
   // Per MTG rules, the bounce land can return itself to hand.
@@ -7936,20 +7926,7 @@ export async function handleBounceLandETB(game: any, playerId: PlayerID, bounceL
   // Return the lowest-scored land to hand
   const landToReturn = scoredLands[0]?.perm;
   if (landToReturn) {
-    // Remove from battlefield
-    const idx = battlefield.indexOf(landToReturn);
-    if (idx !== -1) {
-      battlefield.splice(idx, 1);
-    }
-    
-    // Add to hand
-    if (zones) {
-      zones.hand = zones.hand || [];
-      const returnedCard = { ...landToReturn.card, zone: 'hand' };
-      (zones.hand as any[]).push(returnedCard);
-      zones.handCount = (zones.hand as any[]).length;
-    }
-    
+    movePermanentToHand(game as any, String(landToReturn.id || ''));
     debug(1, '[AI] Bounce land returned to hand:', landToReturn.card?.name, hasLandfallSynergy ? '(landfall synergy detected)' : '');
   }
 }

@@ -69,7 +69,7 @@ import { handleKynaiosChoiceResponse as handleKynaiosChoiceResponseBatched } fro
 import { applyTriggerOrderToStack } from "../state/resolution/handlers/triggerOrder.js";
 import { sacrificePermanent } from "../state/modules/upkeep-triggers.js";
 import { permanentHasCreatureTypeNow } from "../state/creatureTypeNow.js";
-import { drawCards as drawCardsFromZones } from "../state/modules/zones.js";
+import { drawCards as drawCardsFromZones, movePermanentToHand } from "../state/modules/zones.js";
 import { dispatchDamageReceivedTrigger, processDamageReceivedTriggers, resolveDamageTrigger, type DamageTriggerInfo } from "../state/modules/triggers/damage-received.js";
 import { getTokenImageUrls } from "../services/tokens.js";
 import { normalizeCardName } from "../state/modules/chosen-name-restrictions.js";
@@ -105,7 +105,7 @@ import {
 import { buildOraclePromptContext, getOracleTextFromResolutionStep } from "../utils/oraclePromptContext.js";
 import { cleanupCardLeavingExile, removePlayableFromExileForCard, stripPlayableFromExileTags } from "../state/modules/playable-from-exile.js";
 import { buildDurablePlayableFromExilePermission, upsertDurablePermission } from "../state/modules/durable-permissions.js";
-import { movePermanentToExile } from "../state/modules/counters_tokens.js";
+import { destroyPermanent, movePermanentToExile, removePermanent } from "../state/modules/counters_tokens.js";
 import { trackCountersPlacedThisTurn } from "../state/modules/counters_tokens.js";
 import { updateCounters } from "../state/modules/counters_tokens.js";
 import { registerLinkedExile } from "../state/modules/triggers/linked-exile.js";
@@ -1435,19 +1435,8 @@ function applyWardManaPaymentSelection(
     }
 
     if (sacrificedPermanents.length > 0) {
-      const sacrificeSet = new Set(sacrificedPermanents);
-      const zones = ((game.state as any)?.zones || {})[playerId];
-      for (let index = battlefield.length - 1; index >= 0; index -= 1) {
-        const permanent = battlefield[index];
-        if (!permanent || !sacrificeSet.has(String(permanent.id || ''))) continue;
-        const [sacrificedPermanent] = battlefield.splice(index, 1);
-        if (zones) {
-          (zones as any).graveyard = Array.isArray((zones as any).graveyard) ? (zones as any).graveyard : [];
-          if (sacrificedPermanent?.card) {
-            ((zones as any).graveyard as any[]).push({ ...(sacrificedPermanent.card || {}), zone: 'graveyard' });
-            (zones as any).graveyardCount = ((zones as any).graveyard as any[]).length;
-          }
-        }
+      for (const sacrificedPermanentId of sacrificedPermanents) {
+        sacrificePermanent(game as any, sacrificedPermanentId, playerId);
       }
     }
 
@@ -1764,19 +1753,8 @@ function applySelectedManaPaymentForResolutionCost(
     }
 
     if (sacrificedPermanents.length > 0) {
-      const sacrificeSet = new Set(sacrificedPermanents);
-      const zones = ((game.state as any)?.zones || {})[playerId];
-      for (let index = battlefield.length - 1; index >= 0; index -= 1) {
-        const permanent = battlefield[index];
-        if (!permanent || !sacrificeSet.has(String(permanent.id || ''))) continue;
-        const [sacrificedPermanent] = battlefield.splice(index, 1);
-        if (zones) {
-          (zones as any).graveyard = Array.isArray((zones as any).graveyard) ? (zones as any).graveyard : [];
-          if (sacrificedPermanent?.card) {
-            ((zones as any).graveyard as any[]).push({ ...(sacrificedPermanent.card || {}), zone: 'graveyard' });
-            (zones as any).graveyardCount = ((zones as any).graveyard as any[]).length;
-          }
-        }
+      for (const sacrificedPermanentId of sacrificedPermanents) {
+        sacrificePermanent(game as any, sacrificedPermanentId, playerId);
       }
     }
 
@@ -10818,15 +10796,7 @@ async function handleStepResponse(
         const cardName = String(stepData?.cardName || permanent?.card?.name || step.sourceName || 'Permanent');
 
         if (response.cancelled) {
-          battlefield.splice(permanentIndex, 1);
-          const zones = game.state?.zones?.[pid];
-          if (zones) {
-            (zones as any).graveyard = Array.isArray((zones as any).graveyard) ? (zones as any).graveyard : [];
-            if (permanent?.card) {
-              ((zones as any).graveyard as any[]).push({ ...(permanent.card || {}), zone: 'graveyard' });
-              (zones as any).graveyardCount = ((zones as any).graveyard as any[]).length;
-            }
-          }
+          sacrificePermanent(game as any, permanentId, pid);
 
           io.to(gameId).emit('chat', {
             id: `m_${Date.now()}`,
@@ -13007,15 +12977,9 @@ async function handleStepResponse(
           if (permIndex === -1) continue;
           const perm = battlefield[permIndex];
           if (String(perm?.controller || '') !== String(pid)) continue;
-          battlefield.splice(permIndex, 1);
-          zones.graveyard = zones.graveyard || [];
-          if (perm.card) {
-            perm.card.zone = 'graveyard';
-            (zones.graveyard as any[]).push(perm.card);
-          }
           sacrificedNames.push(String(perm?.card?.name || 'Unknown'));
+          sacrificePermanent(game as any, String(permId), pid);
         }
-        zones.graveyardCount = (zones.graveyard as any[]).length;
 
         io.to(gameId).emit('chat', {
           id: `m_${Date.now()}`,
@@ -18799,25 +18763,11 @@ async function handleTargetSelectionResponse(
     }
 
     const exiledMv = Number(perm?.card?.cmc ?? 0);
+    const exiledName = String(perm?.card?.name || 'a creature');
 
     // Exile the target creature you control.
-    battlefield.splice(idx, 1);
+    movePermanentToExile(game as any, targetId);
     const zones = (state.zones = state.zones || {});
-    const owner = String(perm?.owner || perm?.controller || controllerId);
-    const ownerZones = (zones[owner] = zones[owner] || {
-      hand: [],
-      handCount: 0,
-      libraryCount: 0,
-      graveyard: [],
-      graveyardCount: 0,
-      exile: [],
-      exileCount: 0,
-    });
-    ownerZones.exile = Array.isArray(ownerZones.exile) ? ownerZones.exile : (ownerZones.exile = []);
-    if (!perm.isToken && perm.card) {
-      ownerZones.exile.push({ ...(perm.card || {}), zone: 'exile' });
-      ownerZones.exileCount = ownerZones.exile.length;
-    }
 
     // Reveal until a creature card with greater MV.
     const lib: any[] = (game as any).libraries?.get?.(controllerId) || [];
@@ -18882,7 +18832,7 @@ async function handleTargetSelectionResponse(
       id: `m_${Date.now()}`,
       gameId,
       from: 'system',
-      message: `${sourceName}: ${getPlayerName(game, controllerId)} exiled ${perm.card?.name || 'a creature'} and revealed cards until a creature with greater mana value was found.`,
+      message: `${sourceName}: ${getPlayerName(game, controllerId)} exiled ${exiledName} and revealed cards until a creature with greater mana value was found.`,
       ts: Date.now(),
     });
 
@@ -18897,15 +18847,7 @@ async function handleTargetSelectionResponse(
     for (const tid of selections) {
       const perm = battlefield.find((p: any) => p.id === tid);
       if (!perm) continue;
-      const idx = battlefield.indexOf(perm);
-      if (idx >= 0) battlefield.splice(idx, 1);
-      const controller = perm.controller;
-      state.zones = state.zones || {};
-      state.zones[controller] = state.zones[controller] || { graveyard: [], graveyardCount: 0 } as any;
-      const graveyard = state.zones[controller].graveyard || [];
-      graveyard.push({ ...(perm.card || {}), zone: 'graveyard' });
-      state.zones[controller].graveyard = graveyard;
-      state.zones[controller].graveyardCount = graveyard.length;
+      destroyPermanent(game as any, String(tid), true);
       debug(2, `[Resolution] Destroyed ${perm.card?.name || perm.id} (Aura Shards effect)`);
     }
     broadcastGame(io, game, gameId);
@@ -19221,22 +19163,13 @@ async function handleTargetSelectionResponse(
       return;
     }
 
-    const [perm] = battlefield.splice(idx, 1);
+    const perm = battlefield[idx];
     const tl = String(perm?.card?.type_line || '').toLowerCase();
     if (!(tl.includes('creature') || tl.includes('planeswalker'))) {
       debugWarn(1, `[Resolution] destroy_target_creature_or_planeswalker: invalid target type: ${perm?.card?.type_line}`);
       return;
     }
-
-    const owner = perm.owner || perm.controller || pid;
-    state.zones = state.zones || {};
-    state.zones[owner] = state.zones[owner] || ({ hand: [], handCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0 } as any);
-    state.zones[owner].graveyard = state.zones[owner].graveyard || [];
-
-    if (!perm.isToken) {
-      state.zones[owner].graveyard.push({ ...(perm.card || {}), zone: 'graveyard' });
-      state.zones[owner].graveyardCount = state.zones[owner].graveyard.length;
-    }
+    destroyPermanent(game as any, targetId, true);
 
     io.to(gameId).emit('chat', {
       id: `m_${Date.now()}`,
@@ -20006,7 +19939,6 @@ function handleUpkeepSacrificeResponse(
   let sacrificedPermanentId: string | undefined;
   
   const battlefield = game.state?.battlefield || [];
-  const zones = game.state?.zones || {};
   
   if (sacrificeType === 'creature' && creatureId) {
     // Validate the creature is in the valid options
@@ -20019,18 +19951,10 @@ function handleUpkeepSacrificeResponse(
     // Find and sacrifice the creature
     const creatureIdx = battlefield.findIndex((p: any) => p.id === creatureId);
     if (creatureIdx !== -1) {
-      const [sacrificed] = battlefield.splice(creatureIdx, 1);
+      const sacrificed = battlefield[creatureIdx];
       const creatureName = sacrificed.card?.name || 'Creature';
-      const owner = sacrificed.owner || pid;
       sacrificedPermanentId = String(sacrificed.id || creatureId);
-      
-      // Move to graveyard (tokens cease to exist instead)
-      if (!sacrificed.isToken) {
-        const ownerZones = zones[owner] || (zones[owner] = { hand: [], graveyard: [], handCount: 0, graveyardCount: 0 });
-        ownerZones.graveyard = ownerZones.graveyard || [];
-        ownerZones.graveyard.push({ ...sacrificed.card, zone: 'graveyard' });
-        ownerZones.graveyardCount = ownerZones.graveyard.length;
-      }
+      sacrificePermanent(game as any, sacrificedPermanentId, pid);
       
       io.to(gameId).emit("chat", {
         id: `m_${Date.now()}`,
@@ -20047,18 +19971,10 @@ function handleUpkeepSacrificeResponse(
     if (sourceId) {
       const sourceIdx = battlefield.findIndex((p: any) => p.id === sourceId);
       if (sourceIdx !== -1) {
-        const [sacrificed] = battlefield.splice(sourceIdx, 1);
+        const sacrificed = battlefield[sourceIdx];
         const artifactName = sacrificed.card?.name || sourceName;
-        const owner = sacrificed.owner || pid;
         sacrificedPermanentId = String(sacrificed.id || sourceId);
-        
-        // Move to graveyard
-        if (!sacrificed.isToken) {
-          const ownerZones = zones[owner] || (zones[owner] = { hand: [], graveyard: [], handCount: 0, graveyardCount: 0 });
-          ownerZones.graveyard = ownerZones.graveyard || [];
-          ownerZones.graveyard.push({ ...sacrificed.card, zone: 'graveyard' });
-          ownerZones.graveyardCount = ownerZones.graveyard.length;
-        }
+        sacrificePermanent(game as any, sacrificedPermanentId, pid);
         
         io.to(gameId).emit("chat", {
           id: `m_${Date.now()}`,
@@ -20194,7 +20110,6 @@ function handleEntrapmentManeuverResponse(
   }
   
   const battlefield = game.state?.battlefield || [];
-  const zones = game.state?.zones || {};
   
   // Find the creature on battlefield
   const creatureIdx = battlefield.findIndex((p: any) => p.id === creatureId);
@@ -20238,20 +20153,7 @@ function handleEntrapmentManeuverResponse(
   // Ensure toughness is at least 0 for token creation
   toughness = Math.max(0, toughness);
   
-  // Sacrifice the creature
-  battlefield.splice(creatureIdx, 1);
-  
-  // Move to owner's graveyard (if not a token)
-  // Tokens cease to exist instead of going to graveyard
-  if (!creature.isToken) {
-    const owner = creature.owner || pid;
-    zones[owner] = zones[owner] || { hand: [], graveyard: [], handCount: 0, graveyardCount: 0 };
-    zones[owner].graveyard = zones[owner].graveyard || [];
-    zones[owner].graveyard.push({ ...creatureCard, zone: "graveyard" });
-    zones[owner].graveyardCount = zones[owner].graveyard.length;
-  } else {
-    debug(2, `[Resolution] Entrapment Maneuver: Token ${creatureName} ceases to exist (not moved to graveyard)`);
-  }
+  sacrificePermanent(game as any, String(creature.id || creatureId), pid);
   
   // Create Soldier tokens for the caster equal to the sacrificed creature's toughness
   if (toughness > 0) {
@@ -21038,19 +20940,10 @@ function handleReturnControlledPermanentChoiceResponse(
   
   const returnedPermanentName = (permanentToReturn as any).card?.name || 'Permanent';
   
-  // Remove the permanent from battlefield.
-  const idx = battlefield.indexOf(permanentToReturn);
-  if (idx !== -1) {
-    battlefield.splice(idx, 1);
-  }
-  
-  // Add the permanent to the configured destination.
-  const zones = game.state?.zones?.[pid];
-  if (zones && destination === 'hand') {
-    zones.hand = zones.hand || [];
-    const returnedCard = { ...(permanentToReturn as any).card, zone: 'hand' };
-    (zones.hand as any[]).push(returnedCard);
-    zones.handCount = (zones.hand as any[]).length;
+  if (destination === 'hand') {
+    movePermanentToHand(game as any, returnPermanentId);
+  } else {
+    removePermanent(game as any, returnPermanentId);
   }
   
   // If this was triggered from the stack, remove the stack item
@@ -23634,20 +23527,10 @@ function handleDevourSelectionResponse(
   for (const creatureIdToSac of selectedIds) {
     const idx = battlefield.findIndex((p: any) => p.id === creatureIdToSac);
     if (idx !== -1) {
-      const sacrificed = battlefield.splice(idx, 1)[0];
+      const sacrificed = battlefield[idx];
       const sacCard = (sacrificed as any).card;
-      const owner = (sacrificed as any).owner || pid;
-      
-      // Move to graveyard
-      const zones = state.zones = state.zones || {};
-      const z = zones[owner] = zones[owner] || { graveyard: [], graveyardCount: 0 };
-      z.graveyard = z.graveyard || [];
-      z.graveyard.push({ ...sacCard, zone: 'graveyard' });
-      z.graveyardCount = z.graveyard.length;
-      
-      debug(2, `[Resolution] Devour: Sacrificed ${sacCard.name || 'creature'}`);
-      
-      // TODO: Trigger death effects for sacrificed creature
+      sacrificePermanent(game as any, String(creatureIdToSac), pid);
+      debug(2, `[Resolution] Devour: Sacrificed ${sacCard?.name || 'creature'}`);
     }
   }
   
@@ -26329,15 +26212,7 @@ async function handleOptionChoiceResponse(
     }
 
     if (!paid) {
-      const card = (permanent as any).card;
-      battlefield.splice(permIndex, 1);
-
-      const zones = game.state?.zones?.[playerId];
-      if (zones) {
-        (zones as any).graveyard = (zones as any).graveyard || [];
-        ((zones as any).graveyard as any[]).push({ ...card, zone: 'graveyard' });
-        (zones as any).graveyardCount = ((zones as any).graveyard as any[]).length;
-      }
+      sacrificePermanent(game as any, permanentId, playerId);
 
       io.to(gameId).emit('chat', {
         id: `m_${Date.now()}`,

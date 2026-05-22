@@ -14,6 +14,7 @@
 import type { GameContext } from "../context.js";
 import { debug } from "../../utils/debug.js";
 import { recordCardLeftGraveyardThisTurn } from "./turn-tracking.js";
+import { movePermanentToLibrary } from "./zones.js";
 
 /**
  * Shuffle cards from one zone into library.
@@ -53,24 +54,7 @@ export function shuffleZoneIntoLibrary(
     cardsToShuffle.push({ ...card, zone: 'library' });
   }
   
-  // Handle self-replacement (card on battlefield shuffling itself)
-  if (includeSelf) {
-    const battlefield = state.battlefield || [];
-    const selfPerm = battlefield.find((p: any) => p.id === includeSelf);
-    
-    if (selfPerm && selfPerm.card) {
-      cardsToShuffle.push({ ...selfPerm.card, zone: 'library' });
-      
-      // Remove from battlefield
-      const selfIndex = battlefield.findIndex((p: any) => p.id === includeSelf);
-      if (selfIndex >= 0) {
-        battlefield.splice(selfIndex, 1);
-        debug(2, `[shuffleZoneIntoLibrary] Removed ${selfPerm.card.name} from battlefield`);
-      }
-    }
-  }
-  
-  if (cardsToShuffle.length === 0) {
+  if (cardsToShuffle.length === 0 && !includeSelf) {
     debug(2, `[shuffleZoneIntoLibrary] No cards to shuffle from ${sourceZone} for ${playerId}`);
     return 0;
   }
@@ -90,19 +74,32 @@ export function shuffleZoneIntoLibrary(
     zones[zoneCountField] = zones[sourceZone].length;
   }
   
-  // Add cards to library
-  const newLibrary = [...library, ...cardsToShuffle];
-  
-  // Shuffle using RNG (use ctx.rng for determinism if available)
-  const rng = (ctx.rng && typeof ctx.rng === 'function') ? ctx.rng : Math.random;
-  for (let i = newLibrary.length - 1; i > 0; i--) {
-    const j = Math.floor(rng() * (i + 1));
-    [newLibrary[i], newLibrary[j]] = [newLibrary[j], newLibrary[i]];
+  let shuffledFromSourceCount = 0;
+  if (cardsToShuffle.length > 0) {
+    const newLibrary = [...library, ...cardsToShuffle];
+
+    // Shuffle using RNG (use ctx.rng for determinism if available)
+    const rng = (ctx.rng && typeof ctx.rng === 'function') ? ctx.rng : Math.random;
+    for (let i = newLibrary.length - 1; i > 0; i--) {
+      const j = Math.floor(rng() * (i + 1));
+      [newLibrary[i], newLibrary[j]] = [newLibrary[j], newLibrary[i]];
+    }
+
+    // Update library
+    ctx.libraries.set(playerId, newLibrary);
+    zones.libraryCount = newLibrary.length;
+    shuffledFromSourceCount = cardsToShuffle.length;
   }
-  
-  // Update library
-  ctx.libraries.set(playerId, newLibrary);
-  zones.libraryCount = newLibrary.length;
+
+  let shuffledSelfCount = 0;
+  if (includeSelf) {
+    const libraryBeforeSelfMove = (ctx.libraries.get(playerId) || []).length;
+    if (movePermanentToLibrary(ctx, includeSelf, 'shuffle')) {
+      const libraryAfterSelfMove = (ctx.libraries.get(playerId) || []).length;
+      shuffledSelfCount = Math.max(0, libraryAfterSelfMove - libraryBeforeSelfMove);
+      debug(2, `[shuffleZoneIntoLibrary] Processed battlefield self ${includeSelf} through library helper`);
+    }
+  }
 
   // Turn-tracking for intervening-if: a card left your graveyard this turn.
   if (sourceZone === 'graveyard') {
@@ -115,9 +112,16 @@ export function shuffleZoneIntoLibrary(
     } catch {}
   }
   
-  debug(1, `[shuffleZoneIntoLibrary] Shuffled ${cardsToShuffle.length} cards from ${sourceZone} into ${playerId}'s library (new library size: ${newLibrary.length})`);
+  const movedCount = shuffledFromSourceCount + shuffledSelfCount;
+  const finalLibrarySize = (ctx.libraries.get(playerId) || []).length;
+  if (movedCount === 0) {
+    debug(2, `[shuffleZoneIntoLibrary] No cards to shuffle from ${sourceZone} for ${playerId}`);
+    return 0;
+  }
+
+  debug(1, `[shuffleZoneIntoLibrary] Shuffled ${movedCount} cards from ${sourceZone} into ${playerId}'s library (new library size: ${finalLibrarySize})`);
   
-  return cardsToShuffle.length;
+  return movedCount;
 }
 
 /**
