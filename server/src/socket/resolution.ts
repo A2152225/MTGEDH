@@ -86,6 +86,8 @@ import {
   inferTriggeredAbilityTargetMetadata,
   queueSelfETBTriggersForPermanent,
   queueTributeChoiceOnEntry,
+  returnExiledCardToBattlefield,
+  scheduleExiledCardReturnToBattlefield,
   triggerETBEffectsForPermanent,
   triggerETBEffectsForToken,
 } from "../state/modules/stack.js";
@@ -106,6 +108,7 @@ import { buildDurablePlayableFromExilePermission, upsertDurablePermission } from
 import { movePermanentToExile } from "../state/modules/counters_tokens.js";
 import { trackCountersPlacedThisTurn } from "../state/modules/counters_tokens.js";
 import { updateCounters } from "../state/modules/counters_tokens.js";
+import { registerLinkedExile } from "../state/modules/triggers/linked-exile.js";
 import { isRemovableCounterType, permanentMatchesCounterRemovalFilter } from "../state/modules/counter-removal-costs.js";
 import { recordCardLeftGraveyardThisTurn, recordCardPutIntoGraveyardThisTurn } from "../state/modules/turn-tracking.js";
 import { canPermanentBeTargetedByPlayer, categorizeSpell, evaluateTargeting, matchesGraveyardCardTargetType as matchesSharedGraveyardCardTargetType, parseTargetRequirements, permanentsShareCardType, selectionRequiresSharedCardType, type SpellSpec } from "../rules-engine/targeting";
@@ -15611,6 +15614,22 @@ function handleCommanderZoneResponse(
         exiledWithSourceName?: string;
       }
     | undefined;
+  const linkedExileData = stepData.linkedExileData as
+    | {
+        exilingPermanentId?: string;
+        exilingPermanentName?: string;
+        originalOwner?: string;
+        originalController?: string;
+      }
+    | undefined;
+  const flickerReturnData = stepData.flickerReturnData as
+    | {
+        ownerId?: string;
+        cardId?: string;
+        returnAt?: 'immediate' | 'next_end_step' | 'owners_next_end_step' | 'end_of_combat';
+        sourceName?: string;
+      }
+    | undefined;
   
   if (goToCommandZone) {
     // Update commander tracking so it can be cast from the command zone.
@@ -15745,6 +15764,43 @@ function handleCommanderZoneResponse(
           const countKey = `${destZoneName}Count`;
           (zones as any)[countKey] = 1;
         }
+      }
+    }
+
+    if (destinationZone === 'exile' && linkedExileData?.exilingPermanentId && card) {
+      registerLinkedExile(
+        {
+          state: game.state,
+          bumpSeq: typeof game.bumpSeq === 'function' ? game.bumpSeq.bind(game) : (() => {}),
+          gameId,
+          commandZone: (game as any).commandZone,
+          libraries: (game as any).libraries,
+        } as any,
+        String(linkedExileData.exilingPermanentId),
+        String(linkedExileData.exilingPermanentName || step.sourceName || 'Linked Exile Source'),
+        card,
+        String(linkedExileData.originalOwner || pid || ''),
+        String(linkedExileData.originalController || linkedExileData.originalOwner || pid || ''),
+      );
+    }
+
+    if (destinationZone === 'exile' && flickerReturnData?.cardId && card) {
+      const flickerCtx = {
+        state: game.state,
+        bumpSeq: typeof game.bumpSeq === 'function' ? game.bumpSeq.bind(game) : (() => {}),
+        gameId,
+        commandZone: (game as any).commandZone,
+        libraries: (game as any).libraries,
+      } as any;
+      const ownerId = String(flickerReturnData.ownerId || pid || '').trim() as PlayerID;
+      const cardId = String(flickerReturnData.cardId || card.id || '').trim();
+      const returnAt = flickerReturnData.returnAt || 'immediate';
+      const sourceName = String(flickerReturnData.sourceName || step.sourceName || 'Flicker effect');
+
+      if (returnAt === 'immediate') {
+        returnExiledCardToBattlefield(flickerCtx, ownerId, cardId, sourceName);
+      } else {
+        scheduleExiledCardReturnToBattlefield(flickerCtx, ownerId, cardId, returnAt, sourceName);
       }
     }
 

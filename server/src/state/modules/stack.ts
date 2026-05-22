@@ -45,7 +45,7 @@ import { isInterveningIfSatisfied } from "./triggers/intervening-if.js";
 import { isCreatureNow } from "../creatureTypeNow.js";
 import { handleElixirShuffle, handleEldraziShuffle, shuffleZoneIntoLibrary } from "./zone-manipulation.js";
 import { addExtraTurn, addExtraCombat } from "./turn.js";
-import { drawCards as drawCardsFromZone, movePermanentToHand } from "./zones.js";
+import { drawCards as drawCardsFromZone, movePermanentToHand, movePermanentToLibrary } from "./zones.js";
 import { createToken, runSBA, applyCounterModifications, destroyPermanent, movePermanentToGraveyard, movePermanentToExile, updateCounters } from "./counters_tokens.js";
 import { cleanupCardLeavingExile, removeCardFromAnyPlayerExile } from "./playable-from-exile.js";
 import { recordCardLeftGraveyardThisTurn, recordCardPutIntoGraveyardThisTurn } from "./turn-tracking.js";
@@ -5707,24 +5707,12 @@ function handleDispatch(
   
   if (metalcraftActive) {
     // Exile the creature instead of tapping
-    const permIndex = battlefield.indexOf(targetPerm);
-    if (permIndex !== -1) {
-      battlefield.splice(permIndex, 1);
-      
-      // Tokens cease to exist when they leave the battlefield - don't add to exile zone
-      if (targetPerm.isToken || targetPerm.card?.isToken) {
-        debug(2, `[handleDispatch] Metalcraft active - ${targetPerm.card?.name || targetPerm.id} token ceases to exist (not added to exile)`);
-      } else {
-        // Move non-token to exile zone
-        const owner = targetPerm.owner || targetPerm.controller;
-        const zones = state.zones || {};
-        zones[owner] = zones[owner] || { hand: [], graveyard: [], exile: [] };
-        zones[owner].exile = zones[owner].exile || [];
-        zones[owner].exile.push({ ...targetPerm.card, zone: 'exile' });
-        zones[owner].exileCount = zones[owner].exile.length;
-        
-        debug(2, `[handleDispatch] Metalcraft active (${countArtifacts(ctx, controller)} artifacts) - exiled ${targetPerm.card?.name || targetPerm.id}`);
-      }
+    movePermanentToExile(ctx, targetPerm.id);
+
+    if (targetPerm.isToken || targetPerm.card?.isToken) {
+      debug(2, `[handleDispatch] Metalcraft active - ${targetPerm.card?.name || targetPerm.id} token left the battlefield via exile helper`);
+    } else {
+      debug(2, `[handleDispatch] Metalcraft active (${countArtifacts(ctx, controller)} artifacts) - exiled ${targetPerm.card?.name || targetPerm.id}`);
     }
   } else {
     // Just tap the creature
@@ -12933,51 +12921,25 @@ export function executeTriggerEffect(
     if (targets.length > 0) {
       const targetPerm = (state.battlefield || []).find((p: any) => p?.id === targets[0]);
       if (targetPerm) {
-        const permIndex = state.battlefield.indexOf(targetPerm);
-        if (permIndex !== -1) {
-          const exiledPermanentId = targetPerm.id;
-          const exiledCard = targetPerm.card;
-          const exiledCardName = exiledCard?.name || targetPerm.id;
-          const originalOwner = targetPerm.owner;
-          const originalController = targetPerm.controller;
-          
-          // Remove from battlefield
-          state.battlefield.splice(permIndex, 1);
-          
-          // Tokens cease to exist when they leave the battlefield
-          if (targetPerm.isToken || exiledCard?.isToken) {
-            debug(2, `[executeTriggerEffect] ${exiledCardName} token ceases to exist (not added to exile, no return)`);
-          } else {
-            // Add to exile zone (tag with its source so intervening-if checks can be decidable)
-            const ownerZones = state.zones?.[originalOwner];
-            if (ownerZones) {
-              ownerZones.exile = ownerZones.exile || [];
-              const sourceId = triggerItem.sourceId || triggerItem.permanentId || triggerItem.source;
-              const tagged = {
-                ...(exiledCard || {}),
-                zone: 'exile',
-                ...(sourceId ? { exiledWithSourceId: sourceId, exiledWithSourceName: sourceName } : {}),
-              };
-              ownerZones.exile.push(tagged);
-              ownerZones.exileCount = (ownerZones.exile || []).length;
-            }
-            
-            // Register the linked exile so the card returns when source leaves
-            const sourceId = triggerItem.sourceId || triggerItem.permanentId || triggerItem.source;
-            registerLinkedExile(
-              ctx,
-              sourceId,
-              sourceName,
-              exiledCard,
-              originalOwner,
-              originalController
-            );
-            
-            debug(2, `[executeTriggerEffect] ${sourceName} exiled ${exiledCardName} - will return when ${sourceName} leaves the battlefield`);
-          }
-          
-          // Process linked exile returns for the removed permanent
-          processLinkedExileReturns(ctx, exiledPermanentId);
+        const sourceId = String(triggerItem.sourceId || triggerItem.permanentId || triggerItem.source || '').trim();
+        const sourceOracleId = String(triggerItem.card?.id || '').trim();
+        const exiledCardName = targetPerm.card?.name || targetPerm.id;
+
+        movePermanentToExile(ctx, targetPerm.id, {
+          ...(sourceId ? { exiledWithSourceId: sourceId, exiledWithSourceName: sourceName } : {}),
+          ...(sourceOracleId ? { exiledWithOracleId: sourceOracleId } : {}),
+          linkedExileData: {
+            exilingPermanentId: sourceId,
+            exilingPermanentName: sourceName,
+            originalOwner: String(targetPerm.owner || ''),
+            originalController: String(targetPerm.controller || targetPerm.owner || ''),
+          },
+        });
+
+        if (targetPerm.isToken || targetPerm.card?.isToken) {
+          debug(2, `[executeTriggerEffect] ${exiledCardName} token ceases to exist (not added to exile, no return)`);
+        } else {
+          debug(2, `[executeTriggerEffect] ${sourceName} exiled ${exiledCardName} - will return when ${sourceName} leaves the battlefield`);
         }
       }
     }
@@ -13006,25 +12968,22 @@ export function executeTriggerEffect(
 
           const sourceId = triggerItem.sourceId || triggerItem.permanentId || triggerItem.source;
           const sourceOracleId = triggerItem.card?.id;
-          if (shouldTagExiledWith) {
-            movePermanentToExile(ctx, targetPerm.id, {
-              ...(sourceId ? { exiledWithSourceId: sourceId, exiledWithSourceName: sourceName } : {}),
-              ...(sourceOracleId ? { exiledWithOracleId: String(sourceOracleId) } : {}),
-            });
-          } else {
-            movePermanentToExile(ctx, targetPerm.id);
-          }
-          
-          // If this is a linked exile effect, register the link
+          movePermanentToExile(ctx, targetPerm.id, {
+            ...(shouldTagExiledWith && sourceId ? { exiledWithSourceId: sourceId, exiledWithSourceName: sourceName } : {}),
+            ...(shouldTagExiledWith && sourceOracleId ? { exiledWithOracleId: String(sourceOracleId) } : {}),
+            ...(linkedEffect?.hasLinkedExile
+              ? {
+                  linkedExileData: {
+                    exilingPermanentId: String(sourceId || ''),
+                    exilingPermanentName: sourceName,
+                    originalOwner: String(targetPerm.owner || ''),
+                    originalController: String(targetPerm.controller || targetPerm.owner || ''),
+                  },
+                }
+              : {}),
+          });
+
           if (linkedEffect?.hasLinkedExile && targetPerm.card && !targetPerm.isToken && !targetPerm.card?.isToken) {
-            registerLinkedExile(
-              ctx,
-              sourceId,
-              sourceName,
-              targetPerm.card,
-              targetPerm.owner,
-              targetPerm.controller
-            );
             debug(2, `[executeTriggerEffect] ${sourceName} exiled ${targetPerm.card?.name || targetPerm.id} (linked - returns when ${sourceName} leaves)`);
           } else if (!targetPerm.isToken && !targetPerm.card?.isToken) {
             debug(2, `[executeTriggerEffect] Exiled ${targetPerm.card?.name || targetPerm.id}`);
@@ -13044,80 +13003,8 @@ export function executeTriggerEffect(
     if (targets.length > 0) {
       const targetPerm = (state.battlefield || []).find((p: any) => p?.id === targets[0]);
       if (targetPerm) {
-        const owner = targetPerm.owner;
-        const card = targetPerm.card;
-        
-        // Check if this is a commander (Rule 903.9a)
-        const commandZone = (ctx as any).commandZone || {};
-        const commanderInfo = commandZone[owner];
-        const commanderIds = commanderInfo?.commanderIds || [];
-        const isCommander = (card?.id && commanderIds.includes(card.id)) || targetPerm.isCommander === true;
-        
-        // Move to graveyard
-        const permIndex = state.battlefield.indexOf(targetPerm);
-        if (permIndex !== -1) {
-          const destroyedPermanentId = targetPerm.id;
-          state.battlefield.splice(permIndex, 1);
-          
-          if (isCommander && card) {
-            // Commander Replacement Effect (Rule 903.9a):
-            // If a commander would be put into graveyard from anywhere,
-            // its owner may put it into the command zone instead.
-            ResolutionQueueManager.addStep(ctx.gameId, {
-              type: ResolutionStepType.OPTION_CHOICE,
-              playerId: owner,
-              sourceId: destroyedPermanentId,
-              sourceName: card.name,
-              sourceImage: card.image_uris?.small || card.image_uris?.normal,
-              description: `Your commander ${card.name} would be put into your graveyard. Move it to the command zone instead?`,
-              mandatory: true,
-              minSelections: 1,
-              maxSelections: 1,
-              commanderZoneChoice: true,
-              options: [
-                { id: 'command', label: 'Move to Command Zone' },
-                { id: 'stay', label: 'Let it go to graveyard' },
-              ],
-              commanderId: card.id,
-              commanderName: card.name,
-              fromZone: 'graveyard',
-              card: {
-                id: card.id,
-                name: card.name,
-                type_line: card.type_line,
-                oracle_text: card.oracle_text,
-                image_uris: card.image_uris,
-                mana_cost: card.mana_cost,
-                power: card.power,
-                toughness: card.toughness,
-                ...(buildZoneObjectWithRetainedCounters(card, targetPerm, 'command')?.counters
-                  ? { counters: buildZoneObjectWithRetainedCounters(card, targetPerm, 'command').counters }
-                  : {}),
-              } as any,
-            } as any);
-            debug(2, `[executeTriggerEffect] Commander ${card.name} destroyed - queued commander zone choice step`);
-          } else {
-            // Non-commander - move directly to graveyard
-            const ownerZones = state.zones?.[targetPerm.owner];
-            if (ownerZones) {
-              ownerZones.graveyard = ownerZones.graveyard || [];
-              ownerZones.graveyard.push(buildZoneObjectWithRetainedCounters(targetPerm.card, targetPerm, 'graveyard'));
-              recordCardPutIntoGraveyardThisTurn(ctx, String(targetPerm.owner), targetPerm.card, {
-                fromBattlefield: true,
-                controllerId: String((targetPerm as any).controller || targetPerm.owner),
-              });
-              ownerZones.graveyardCount = (ownerZones.graveyard || []).length;
-              
-              // Check for graveyard triggers (Eldrazi shuffle)
-              if (checkGraveyardTrigger(ctx, targetPerm.card, targetPerm.owner)) {
-                debug(2, `[executeTriggerEffect] ${targetPerm.card?.name} triggered graveyard shuffle for ${targetPerm.owner}`);
-              }
-            }
-            debug(2, `[executeTriggerEffect] Destroyed ${targetPerm.card?.name || targetPerm.id}`);
-          }
-          
-          // Process linked exile returns for the removed permanent
-          processLinkedExileReturns(ctx, destroyedPermanentId);
+        if (destroyPermanent(ctx, targetPerm.id)) {
+          debug(2, `[executeTriggerEffect] Destroyed ${targetPerm.card?.name || targetPerm.id}`);
         }
       }
     }
@@ -13476,71 +13363,9 @@ export function executeTriggerEffect(
     if (targets.length > 0) {
       const targetPerm = (state.battlefield || []).find((p: any) => p?.id === targets[0]);
       if (targetPerm) {
-        const owner = targetPerm.owner;
         const card = targetPerm.card;
-        
-        // Commander Replacement Effect (Rule 903.9a):
-        // If a commander would be put into its owner's hand from anywhere, 
-        // its owner may put it into the command zone instead.
-        const commandZone = (ctx as any).commandZone || {};
-        const commanderInfo = commandZone[owner];
-        const commanderIds = commanderInfo?.commanderIds || [];
-        const isCommander = (card?.id && commanderIds.includes(card.id)) || targetPerm.isCommander === true;
-        
-        // Move to owner's hand
-        const permIndex = state.battlefield.indexOf(targetPerm);
-        if (permIndex !== -1) {
-          const bouncedPermanentId = targetPerm.id;
-          state.battlefield.splice(permIndex, 1);
-          
-          if (isCommander && card) {
-            // Defer zone change - let player choose command zone or hand
-            ResolutionQueueManager.addStep(ctx.gameId, {
-              type: ResolutionStepType.OPTION_CHOICE,
-              playerId: owner,
-              sourceId: bouncedPermanentId,
-              sourceName: card.name,
-              sourceImage: card.image_uris?.small || card.image_uris?.normal,
-              description: `Your commander ${card.name} would be returned to your hand. Move it to the command zone instead?`,
-              mandatory: true,
-              minSelections: 1,
-              maxSelections: 1,
-              commanderZoneChoice: true,
-              options: [
-                { id: 'command', label: 'Move to Command Zone' },
-                { id: 'stay', label: 'Let it go to hand' },
-              ],
-              commanderId: card.id,
-              commanderName: card.name,
-              fromZone: 'hand',
-              card: {
-                id: card.id,
-                name: card.name,
-                type_line: card.type_line,
-                oracle_text: card.oracle_text,
-                image_uris: card.image_uris,
-                mana_cost: card.mana_cost,
-                power: card.power,
-                toughness: card.toughness,
-                ...(buildZoneObjectWithRetainedCounters(card, targetPerm, 'command')?.counters
-                  ? { counters: buildZoneObjectWithRetainedCounters(card, targetPerm, 'command').counters }
-                  : {}),
-              } as any,
-            } as any);
-            debug(2, `[executeTriggerEffect] Commander ${card.name} would go to hand - queued commander zone choice step`);
-          } else {
-            // Non-commander - move directly to hand
-            const ownerZones = state.zones?.[owner];
-            if (ownerZones) {
-              ownerZones.hand = ownerZones.hand || [];
-              ownerZones.hand.push(buildZoneObjectWithRetainedCounters(card, targetPerm, 'hand'));
-              ownerZones.handCount = ownerZones.hand.length;
-            }
-            debug(2, `[executeTriggerEffect] Returned ${card?.name || targetPerm.id} to owner's hand`);
-          }
-          
-          // Process linked exile returns for the removed permanent
-          processLinkedExileReturns(ctx, bouncedPermanentId);
+        if (movePermanentToHand(ctx, targetPerm.id)) {
+          debug(2, `[executeTriggerEffect] Returned ${card?.name || targetPerm.id} to owner's hand`);
         }
       }
     }
@@ -19126,64 +18951,42 @@ export function resolveTopOfStack(ctx: GameContext) {
       
       debug(2, `[resolveTopOfStack] ${effectiveCard.name}: Returning ${permanentsToBounce.length} permanents to owners' hands (filter: ${massBounceFilter})`);
       
+      const permanentsToBounceIdSet = new Set(permanentsToBounce.map((p: any) => String(p?.id || '')));
+
       // Helper function to bounce a single permanent
       const bouncePermanent = (perm: any) => {
         const ownerId = perm.owner || perm.controller;
         const zones = state.zones || {};
-        const ownerZones = zones[ownerId];
-        
-        if (ownerZones) {
-          // Token permanents cease to exist when they leave the battlefield
-          if (perm.isToken) {
-            debug(2, `[resolveTopOfStack] ${perm.card?.name || 'Token'} is a token - removed from game`);
-            const idx = battlefield.findIndex((p: any) => p.id === perm.id);
-            if (idx !== -1) battlefield.splice(idx, 1);
-            return;
-          }
-          
-          // Add card to owner's hand
-          ownerZones.hand = ownerZones.hand || [];
-          (ownerZones.hand as any[]).push({ ...perm.card, zone: 'hand' });
-          ownerZones.handCount = ownerZones.hand.length;
-          
-          debug(2, `[resolveTopOfStack] ${perm.card?.name || 'Permanent'} returned to ${ownerId}'s hand`);
-        }
         
         // Handle attached permanents (auras, equipment) - they fall off
-        // Auras attached to this permanent go to graveyard
+        // Auras that are not also being bounced go to graveyard; otherwise they will be bounced by the same effect.
         const attachedAuras = battlefield.filter((p: any) => 
           p.attachedTo === perm.id && (p.card?.type_line || '').toLowerCase().includes('aura')
         );
         for (const aura of attachedAuras) {
-          const auraOwnerId = aura.owner || aura.controller;
-          const auraOwnerZones = zones[auraOwnerId];
-          if (auraOwnerZones) {
-            // Token auras cease to exist
-            if (aura.isToken) {
-              debug(2, `[resolveTopOfStack] ${aura.card?.name || 'Aura Token'} is a token - removed from game`);
-            } else {
-              auraOwnerZones.graveyard = auraOwnerZones.graveyard || [];
-              (auraOwnerZones.graveyard as any[]).push({ ...aura.card, zone: 'graveyard' });
-              auraOwnerZones.graveyardCount = auraOwnerZones.graveyard.length;
-              debug(2, `[resolveTopOfStack] ${aura.card?.name || 'Aura'} fell off and went to graveyard`);
-            }
+          if (permanentsToBounceIdSet.has(String(aura?.id || ''))) {
+            continue;
           }
-          const auraIdx = battlefield.findIndex((p: any) => p.id === aura.id);
-          if (auraIdx !== -1) battlefield.splice(auraIdx, 1);
+          if (movePermanentToGraveyard(ctx, aura.id)) {
+            debug(2, `[resolveTopOfStack] ${aura.card?.name || 'Aura'} fell off and went to graveyard`);
+          }
         }
         
-        // Equipment detaches but stays on battlefield
+        // Equipment that are not also being bounced detach and stay on battlefield.
         const attachedEquipment = battlefield.filter((p: any) => 
           p.attachedTo === perm.id && (p.card?.type_line || '').toLowerCase().includes('equipment')
         );
         for (const equipment of attachedEquipment) {
+          if (permanentsToBounceIdSet.has(String(equipment?.id || ''))) {
+            continue;
+          }
           delete equipment.attachedTo;
           debug(2, `[resolveTopOfStack] ${equipment.card?.name || 'Equipment'} detached`);
         }
-        
-        // Remove permanent from battlefield
-        const idx = battlefield.findIndex((p: any) => p.id === perm.id);
-        if (idx !== -1) battlefield.splice(idx, 1);
+
+        if (movePermanentToHand(ctx, perm.id)) {
+          debug(2, `[resolveTopOfStack] ${perm.card?.name || 'Permanent'} returned to ${ownerId}'s hand`);
+        }
       };
       
       // Bounce all matching permanents
@@ -19993,49 +19796,12 @@ export function resolveTopOfStack(ctx: GameContext) {
         const commanderIds = commanderInfo?.commanderIds || [];
         const isCommander = (targetCard?.id && commanderIds.includes(targetCard.id)) || targetPerm.isCommander === true;
         
-        // Remove permanent from battlefield
-        const idx = battlefield.findIndex((p: any) => p.id === targetPermId);
-        if (idx !== -1) {
-          battlefield.splice(idx, 1);
-        }
-        
-        if (isCommander && targetCard) {
+        const moved = movePermanentToLibrary(ctx, targetPermId, 'shuffle');
+
+        if (isCommander && targetCard && moved) {
           // Defer zone change - let player choose command zone or library via Resolution Queue
-          ResolutionQueueManager.addStep(ctx.gameId, {
-            type: ResolutionStepType.OPTION_CHOICE,
-            playerId: owner,
-            sourceId: targetPermId,
-            sourceName: targetCard.name,
-            sourceImage: targetCard.image_uris?.small || targetCard.image_uris?.normal,
-            description: `Your commander ${targetCard.name} would be shuffled into your library. Move it to the command zone instead?`,
-            mandatory: true,
-            minSelections: 1,
-            maxSelections: 1,
-            commanderZoneChoice: true,
-            options: [
-              { id: 'command', label: 'Move to Command Zone' },
-              { id: 'stay', label: 'Shuffle into library' },
-            ],
-            commanderId: targetCard.id,
-            commanderName: targetCard.name,
-            fromZone: 'library',
-            libraryPosition: 'shuffle',
-            card: {
-              id: targetCard.id,
-              name: targetCard.name,
-              type_line: targetCard.type_line,
-              oracle_text: targetCard.oracle_text,
-              image_uris: targetCard.image_uris,
-              mana_cost: targetCard.mana_cost,
-              power: targetCard.power,
-              toughness: targetCard.toughness,
-              ...(buildZoneObjectWithRetainedCounters(targetCard, targetPerm, 'command')?.counters
-                ? { counters: buildZoneObjectWithRetainedCounters(targetCard, targetPerm, 'command').counters }
-                : {}),
-            } as any,
-          } as any);
           debug(2, `[resolveTopOfStack] Chaos Warp: Commander ${targetCard.name} would go to library - queued commander zone choice step`);
-          
+
           // Still reveal and potentially put a card onto battlefield
           // (but the commander choice happens separately)
           const lib = ctx.libraries?.get(owner) || [];
@@ -20078,19 +19844,11 @@ export function resolveTopOfStack(ctx: GameContext) {
         }
         
         // Non-commander - shuffle into owner's library
-        const lib = ctx.libraries?.get(owner) || [];
-        (lib as any[]).push({ ...targetCard, zone: 'library' });
-        
-        // Shuffle library
-        for (let i = lib.length - 1; i > 0; i--) {
-          const j = Math.floor(Math.random() * (i + 1));
-          [lib[i], lib[j]] = [lib[j], lib[i]];
+        if (!moved) {
+          return;
         }
-        ctx.libraries?.set(owner, lib);
-        
-        debug(2, `[resolveTopOfStack] Chaos Warp: ${targetCard?.name || 'Permanent'} shuffled into ${owner}'s library`);
-        
-        // Reveal top card of library
+
+        const lib = ctx.libraries?.get(owner) || [];
         if (lib.length > 0) {
           const topCard = lib[0];
           const viewers = new Set<any>([owner as any, 'spectator:judge' as const]);
@@ -20789,25 +20547,10 @@ function executeSpellEffect(
     }
     case 'MoveToExile': {
       const battlefield = state.battlefield || [];
-      const idx = battlefield.findIndex((p: any) => p.id === effect.id);
-      if (idx !== -1) {
-        const exiledPermanentId = (battlefield[idx] as any).id;
-        const exiled = battlefield.splice(idx, 1)[0];
-        const owner = (exiled as any).owner || (exiled as any).controller;
-        const zones = ctx.state.zones || {};
-        const z = zones[owner];
-        if (z) {
-          z.exile = z.exile || [];
-          const card = (exiled as any).card;
-          if (card) {
-            (z.exile as any[]).push({ ...card, zone: "exile" });
-          }
-        }
-        debug(2, `[resolveSpell] ${spellName} exiled ${(exiled as any).card?.name || effect.id}`);
-        
-        // Process linked exile returns - if this was an Oblivion Ring-style card,
-        // return any cards it had exiled
-        processLinkedExileReturns(ctx, exiledPermanentId);
+      const target = battlefield.find((p: any) => p.id === effect.id);
+      if (target) {
+        movePermanentToExile(ctx, String((target as any).id || effect.id));
+        debug(2, `[resolveSpell] ${spellName} exiled ${(target as any).card?.name || effect.id}`);
       }
       break;
     }
@@ -20897,74 +20640,49 @@ function executeSpellEffect(
       break;
     }
     case 'FlickerPermanent': {
-      // Flicker effect: Exile a permanent and return it to the battlefield
-      // For tokens, they cease to exist when exiled and don't return
       const battlefield = state.battlefield || [];
-      const idx = battlefield.findIndex((p: any) => p.id === effect.id);
-      if (idx !== -1) {
-        const flickeredPermanentId = (battlefield[idx] as any).id;
-        const flickered = battlefield.splice(idx, 1)[0];
-        const flickeredCard = (flickered as any).card;
+      const target = battlefield.find((p: any) => p.id === effect.id);
+      if (target) {
+        const targetId = String((target as any).id || effect.id);
+        const flickeredCard = (target as any).card;
         const flickeredName = flickeredCard?.name || effect.id;
-        const owner = (flickered as any).owner || (flickered as any).controller;
-        const isToken = (flickered as any).isToken === true;
-        
-        // Process linked exile returns first - if this was an Oblivion Ring-style card,
-        // return any cards it had exiled before the flicker effect
-        processLinkedExileReturns(ctx, flickeredPermanentId);
-        
-        // Tokens cease to exist when exiled (Rule 111.7) - they don't return
+        const owner = ((target as any).owner || (target as any).controller) as PlayerID;
+        const cardId = String(flickeredCard?.id || '').trim();
+        const isToken = (target as any).isToken === true;
+        const returnAt = normalizeFlickerReturnAt((effect as any).returnDelay || 'immediate');
+
+        movePermanentToExile(ctx, targetId, {
+          ...(!isToken && owner && cardId
+            ? {
+                flickerReturnData: {
+                  ownerId: String(owner),
+                  cardId,
+                  returnAt,
+                  sourceName: spellName,
+                },
+              }
+            : {}),
+        });
+
         if (isToken) {
           debug(2, `[resolveSpell] ${spellName} exiled token ${flickeredName} - token ceased to exist`);
           break;
         }
-        
-        // Determine when to return the permanent
-        const returnDelay = (effect as any).returnDelay || 'immediate';
-        
-        if (returnDelay === 'immediate') {
-          // Return immediately to the battlefield under owner's control
-          // Create a new permanent (new object, no connection to old one)
-          // Detect enters-with-counters
-          const entersWithCounters = detectEntersWithCounters(flickeredCard);
-          const isPlaneswalker = flickeredCard?.type_line?.toLowerCase()?.includes('planeswalker');
-          
-          const newPermanent = {
-            id: uid('perm'),
-            card: flickeredCard,
-            controller: owner,
-            owner: owner,
-            tapped: false,
-            summoning_sickness: flickeredCard?.type_line?.toLowerCase()?.includes('creature') || false,
-            counters: entersWithCounters && Object.keys(entersWithCounters).length > 0 ? entersWithCounters : {},
-            attachedTo: undefined, // Equipment/Auras are removed
-          };
-          
-          // Add loyalty for planeswalkers
-          if (isPlaneswalker && (flickeredCard as any).loyalty) {
-            const loyaltyValue = parseInt((flickeredCard as any).loyalty, 10);
-            newPermanent.counters = { ...newPermanent.counters, loyalty: loyaltyValue };
-            (newPermanent as any).loyalty = loyaltyValue;
-            (newPermanent as any).baseLoyalty = loyaltyValue;
+
+        if (!owner || !cardId) {
+          debug(2, `[resolveSpell] ${spellName} exiled ${flickeredName} - return skipped because owner/card id was missing`);
+          break;
+        }
+
+        const returned = resolveFlickerReturnAfterExile(ctx, owner, cardId, returnAt, spellName);
+        if (returnAt === 'immediate') {
+          if (returned) {
+            debug(2, `[resolveSpell] ${spellName} flickered ${flickeredName} - returned immediately as new permanent ${returned.id}`);
+          } else {
+            debug(2, `[resolveSpell] ${spellName} exiled ${flickeredName} - immediate return deferred or skipped`);
           }
-          
-          battlefield.push(newPermanent);
-          debug(2, `[resolveSpell] ${spellName} flickered ${flickeredName} - returned immediately as new permanent ${newPermanent.id}`);
-          
-          // Trigger ETB effects for the returned permanent
-          triggerETBEffectsForPermanent(ctx, newPermanent, owner);
-          
         } else {
-          // Set up delayed trigger for end of turn or end of combat
-          const delayedReturns = (state as any).delayedReturns = (state as any).delayedReturns || [];
-          delayedReturns.push({
-            id: uid('delayed'),
-            card: flickeredCard,
-            owner: owner,
-            returnTime: returnDelay, // 'end_of_turn' or 'end_of_combat'
-            source: spellName,
-          });
-          debug(2, `[resolveSpell] ${spellName} exiled ${flickeredName} - will return at ${returnDelay}`);
+          debug(2, `[resolveSpell] ${spellName} exiled ${flickeredName} - scheduled return at ${returnAt}`);
         }
       }
       break;
@@ -21541,6 +21259,121 @@ function executeSpellEffect(
       break;
     }
   }
+}
+
+type FlickerReturnAt = 'immediate' | 'next_end_step' | 'owners_next_end_step' | 'end_of_combat';
+
+function normalizeFlickerReturnAt(returnDelay: unknown): FlickerReturnAt {
+  const normalized = String(returnDelay || '').toLowerCase();
+  if (normalized === 'end_of_turn') return 'next_end_step';
+  if (normalized === 'end_of_combat') return 'end_of_combat';
+  if (normalized === 'owners_next_end_step') return 'owners_next_end_step';
+  if (normalized === 'next_end_step') return 'next_end_step';
+  return 'immediate';
+}
+
+export function scheduleExiledCardReturnToBattlefield(
+  ctx: GameContext,
+  ownerId: PlayerID,
+  cardId: string,
+  returnAt: FlickerReturnAt,
+  sourceName: string,
+): boolean {
+  const normalizedOwnerId = String(ownerId || '').trim() as PlayerID;
+  const normalizedCardId = String(cardId || '').trim();
+  if (!normalizedOwnerId || !normalizedCardId || returnAt === 'immediate') {
+    return false;
+  }
+
+  const stateAny = (ctx as any).state as any;
+  stateAny.pendingFlickerReturns = Array.isArray(stateAny.pendingFlickerReturns)
+    ? stateAny.pendingFlickerReturns
+    : [];
+  stateAny.pendingFlickerReturns.push({
+    kind: 'return_from_exile_to_battlefield',
+    ownerId: normalizedOwnerId,
+    cardId: normalizedCardId,
+    returnAt,
+    sourceName,
+  });
+  return true;
+}
+
+export function returnExiledCardToBattlefield(
+  ctx: GameContext,
+  ownerId: PlayerID,
+  cardId: string,
+  sourceName = 'Flicker effect',
+): any | null {
+  const stateAny = (ctx as any).state as any;
+  const normalizedOwnerId = String(ownerId || '').trim() as PlayerID;
+  const normalizedCardId = String(cardId || '').trim();
+  if (!stateAny || !normalizedOwnerId || !normalizedCardId) return null;
+
+  const zones = stateAny.zones || {};
+  const ownerZones = zones[normalizedOwnerId];
+  const exile = Array.isArray(ownerZones?.exile) ? ownerZones.exile : [];
+  const exileIndex = exile.findIndex((card: any) => String(card?.id || '') === normalizedCardId);
+  if (exileIndex < 0) return null;
+
+  const card = exile.splice(exileIndex, 1)[0];
+  if (typeof ownerZones.exileCount === 'number') {
+    ownerZones.exileCount = exile.length;
+  }
+  cleanupCardLeavingExile(stateAny, card);
+
+  const entersWithCounters = detectEntersWithCounters(card);
+  const isPlaneswalker = String(card?.type_line || '').toLowerCase().includes('planeswalker');
+  const newPermanent: any = {
+    id: uid('perm'),
+    card: { ...card, zone: 'battlefield' },
+    controller: normalizedOwnerId,
+    owner: normalizedOwnerId,
+    tapped: false,
+    summoning_sickness: String(card?.type_line || '').toLowerCase().includes('creature') || false,
+    counters: entersWithCounters && Object.keys(entersWithCounters).length > 0 ? entersWithCounters : {},
+    attachedTo: undefined,
+  };
+
+  if (isPlaneswalker && card?.loyalty) {
+    const loyaltyValue = parseInt(String(card.loyalty), 10);
+    if (!Number.isNaN(loyaltyValue)) {
+      newPermanent.counters = { ...newPermanent.counters, loyalty: loyaltyValue };
+      newPermanent.loyalty = loyaltyValue;
+      newPermanent.baseLoyalty = loyaltyValue;
+    }
+  }
+
+  stateAny.battlefield = Array.isArray(stateAny.battlefield) ? stateAny.battlefield : [];
+  stateAny.battlefield.push(newPermanent);
+
+  debug(2, `[returnExiledCardToBattlefield] ${sourceName}: returned ${card?.name || normalizedCardId} to battlefield as ${newPermanent.id}`);
+  triggerETBEffectsForPermanent(ctx, newPermanent, normalizedOwnerId);
+  (ctx as any).bumpSeq?.();
+  return newPermanent;
+}
+
+function isCardInOwnerExile(ctx: GameContext, ownerId: PlayerID, cardId: string): boolean {
+  const stateAny = (ctx as any).state as any;
+  const exile = stateAny?.zones?.[ownerId]?.exile;
+  return Array.isArray(exile) && exile.some((card: any) => String(card?.id || '') === String(cardId || ''));
+}
+
+function resolveFlickerReturnAfterExile(
+  ctx: GameContext,
+  ownerId: PlayerID,
+  cardId: string,
+  returnAt: FlickerReturnAt,
+  sourceName: string,
+): any | null {
+  if (returnAt === 'immediate') {
+    return returnExiledCardToBattlefield(ctx, ownerId, cardId, sourceName);
+  }
+  if (!isCardInOwnerExile(ctx, ownerId, cardId)) {
+    return null;
+  }
+  scheduleExiledCardReturnToBattlefield(ctx, ownerId, cardId, returnAt, sourceName);
+  return null;
 }
 
 function queueDealsDamageToPlayerTriggersFromPermanent(

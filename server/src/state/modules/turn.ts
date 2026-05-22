@@ -484,7 +484,11 @@ function applyLifeGainViaProcessLifeChange(
   };
 }
 
-function processPendingFlickerReturnsAtBeginningOfEndStep(ctx: GameContext, turnPlayer: PlayerID) {
+function processPendingFlickerReturnsAtBeginningOfEndStep(
+  ctx: GameContext,
+  turnPlayer: PlayerID,
+  timing: 'end_step' | 'end_combat' = 'end_step',
+) {
   try {
     const state = (ctx as any).state;
     if (!state) return;
@@ -509,6 +513,16 @@ function processPendingFlickerReturnsAtBeginningOfEndStep(ctx: GameContext, turn
       const returnAt = String(entry.returnAt || '');
 
       if (!ownerId || !cardId) {
+        continue;
+      }
+
+      if (timing === 'end_combat') {
+        if (returnAt !== 'end_of_combat') {
+          remaining.push(entry);
+          continue;
+        }
+      } else if (returnAt === 'end_of_combat') {
+        remaining.push(entry);
         continue;
       }
 
@@ -567,7 +581,7 @@ function processPendingFlickerReturnsAtBeginningOfEndStep(ctx: GameContext, turn
 
     (state as any).pendingFlickerReturns = remaining;
     if (returnedCount > 0) {
-      debug(2, `${ts()} [processPendingFlickerReturns] Returned ${returnedCount} card(s) from exile during END step for ${turnPlayer}`);
+      debug(2, `${ts()} [processPendingFlickerReturns] Returned ${returnedCount} card(s) from exile during ${timing} for ${turnPlayer}`);
       (ctx as any).bumpSeq?.();
     }
   } catch (err) {
@@ -5265,6 +5279,7 @@ export function nextStep(ctx: GameContext) {
             ...delayedCombatCleanupTriggers,
           ];
           pushTriggersToStack(endCombatTriggers, 'end_combat', 'endcombat');
+          processPendingFlickerReturnsAtBeginningOfEndStep(ctx, turnPlayer, 'end_combat');
           
           // Clear firebending mana at end of combat
           // Firebending: "add {R}{R}... This mana lasts until end of combat."

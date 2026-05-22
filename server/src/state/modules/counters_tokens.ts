@@ -20,6 +20,7 @@ import { applyShieldCounterDamagePrevention, getCounterLeaveBattlefieldReplaceme
 import { inferManaValueConstraintFromText } from "./graveyard-mana-value.js";
 import { detectKeywords } from "./keyword-detection.js";
 import { moveRemovedPermanentToExile } from "./zones.js";
+import { registerLinkedExile } from "./triggers/linked-exile.js";
 
 /**
  * Counter modification effects that double or halve counters
@@ -1701,6 +1702,18 @@ export function movePermanentToExile(
     exiledWithSourceId?: string;
     exiledWithOracleId?: string;
     exiledWithSourceName?: string;
+    linkedExileData?: {
+      exilingPermanentId: string;
+      exilingPermanentName: string;
+      originalOwner: string;
+      originalController: string;
+    };
+    flickerReturnData?: {
+      ownerId: string;
+      cardId: string;
+      returnAt: 'immediate' | 'next_end_step' | 'owners_next_end_step' | 'end_of_combat';
+      sourceName?: string;
+    };
   }
 ) {
   const { state, bumpSeq, commandZone } = ctx;
@@ -1798,6 +1811,8 @@ export function movePermanentToExile(
       commanderName: card.name,
       fromZone: 'exile',
       exileTag,
+      ...(options?.linkedExileData ? { linkedExileData: options.linkedExileData } : null),
+      ...(options?.flickerReturnData ? { flickerReturnData: options.flickerReturnData } : null),
       card: {
         id: card.id,
         name: card.name,
@@ -1840,6 +1855,16 @@ export function movePermanentToExile(
   };
   (z as any).exile = (z as any).exile || [];
   (z as any).exile.push(kc);
+  if (options?.linkedExileData?.exilingPermanentId && card) {
+    registerLinkedExile(
+      ctx,
+      String(options.linkedExileData.exilingPermanentId),
+      String(options.linkedExileData.exilingPermanentName || ''),
+      card,
+      String(options.linkedExileData.originalOwner || owner || ''),
+      String(options.linkedExileData.originalController || controller || ''),
+    );
+  }
   if (removedPermanentId) {
     processLinkedExileReturns(ctx, removedPermanentId);
   }

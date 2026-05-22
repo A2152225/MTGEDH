@@ -7631,7 +7631,6 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           const permIndex = battlefield.findIndex((perm: any) => perm && String(perm.id || '') === permanentId);
           if (permIndex === -1) break;
 
-          const [permanent] = battlefield.splice(permIndex, 1);
           const zones = stateAny.zones = stateAny.zones || {};
           const zoneState = zones[playerId] = zones[playerId] || {
             hand: [],
@@ -7654,11 +7653,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
             consumeRecordedManaCostFromPool(stateAny.manaPool[playerId], manaCost);
           }
 
-          zoneState.graveyard = Array.isArray(zoneState.graveyard) ? zoneState.graveyard : [];
-          if (permanent?.card) {
-            (zoneState.graveyard as any[]).push({ ...(permanent as any).card, zone: 'graveyard' });
-          }
-          zoneState.graveyardCount = Array.isArray(zoneState.graveyard) ? zoneState.graveyard.length : zoneState.graveyardCount;
+          movePermanentToGraveyard(ctx as any, permanentId, true);
 
           const libraries = (ctx as any).libraries;
           const mapLibrary = libraries && typeof libraries.get === 'function' ? libraries.get(playerId) : undefined;
@@ -8843,22 +8838,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
               }
             }
           } else if (permIndex !== -1) {
-            const [perm] = battlefield.splice(permIndex, 1);
-            const zones = ((ctx.state as any).zones = (ctx.state as any).zones || {});
-            const playerZones = (zones[pid] = zones[pid] || {
-              hand: [],
-              handCount: 0,
-              libraryCount: 0,
-              graveyard: [],
-              graveyardCount: 0,
-              exile: [],
-              exileCount: 0,
-            });
-            playerZones.graveyard = Array.isArray(playerZones.graveyard) ? playerZones.graveyard : [];
-            if (perm?.card) {
-              playerZones.graveyard.push({ ...(perm.card || {}), zone: 'graveyard' });
-              playerZones.graveyardCount = playerZones.graveyard.length;
-            }
+            movePermanentToGraveyard(ctx as any, permId, true);
           }
 
           ctx.bumpSeq();
@@ -9113,16 +9093,8 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
             const battlefield = ctx.state.battlefield || [];
             const idx = battlefield.findIndex((p: any) => p.id === returnedLandId);
             if (idx !== -1) {
-              const [perm] = battlefield.splice(idx, 1);
-              const zones = ctx.state.zones || {};
-              const z = zones[pid] || { hand: [], handCount: 0, libraryCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0 };
-              zones[pid] = z;
-              if (perm && (perm as any).card) {
-                if (destination === 'hand') {
-                  z.hand = Array.isArray(z.hand) ? z.hand : [];
-                  (z.hand as any[]).push({ ...(perm as any).card, zone: 'hand' });
-                  z.handCount = (z.hand as any[]).length;
-                }
+              if (destination === 'hand') {
+                movePermanentToHand(ctx as any, String(returnedLandId));
               }
             }
           }
@@ -11835,11 +11807,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
             for (const permId of selectedCards) {
               const permIndex = battlefield.findIndex((p: any) => p?.id === permId);
               if (permIndex !== -1) {
-                const [perm] = battlefield.splice(permIndex, 1);
-                z.graveyard = z.graveyard || [];
-                if (perm && (perm as any).card) {
-                  (z.graveyard as any[]).push({ ...(perm as any).card, zone: 'graveyard' });
-                }
+                movePermanentToGraveyard(ctx as any, String(permId), true);
               }
             }
             z.graveyardCount = Array.isArray(z.graveyard) ? z.graveyard.length : 0;

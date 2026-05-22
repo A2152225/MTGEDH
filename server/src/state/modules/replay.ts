@@ -22,8 +22,10 @@ import {
   peekTopN as zonesPeekTopN,
   applyScry as zonesApplyScry,
   applySurveil as zonesApplySurveil,
+  movePermanentToHand,
 } from "./zones.js";
 import { setCommander, castCommander, moveCommanderToCZ } from "./commander.js";
+import { movePermanentToGraveyard } from "./counters_tokens.js";
 
 function resolveReplayCommanderId(ctx: any, event: any): string {
   const explicitCommanderId = String(event?.commanderId || '').trim();
@@ -410,14 +412,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
       const battlefield = ctx.state?.battlefield || [];
       const permIdx = battlefield.findIndex((p: any) => p.id === (e as any).returnPermanentId);
       if (permIdx !== -1) {
-        const perm = battlefield.splice(permIdx, 1)[0];
-        const zones = ctx.state?.zones?.[(e as any).playerId];
-        if (zones) {
-          zones.hand = zones.hand || [];
-          (zones.hand as any[]).push({ ...perm.card, zone: 'hand' });
-          zones.handCount = (zones.hand as any[]).length;
-        }
-        ctx.bumpSeq();
+        movePermanentToHand(ctx as any, String((e as any).returnPermanentId || ''));
       }
       break;
     }
@@ -429,14 +424,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
         // Sacrifice the permanent
         const permIdx = battlefield.findIndex((p: any) => p.id === (e as any).permanentId);
         if (permIdx !== -1) {
-          const perm = battlefield.splice(permIdx, 1)[0];
-          const zones = ctx.state?.zones?.[(e as any).playerId];
-          if (zones) {
-            zones.graveyard = zones.graveyard || [];
-            (zones.graveyard as any[]).push({ ...perm.card, zone: 'graveyard' });
-            zones.graveyardCount = (zones.graveyard as any[]).length;
-          }
-          ctx.bumpSeq();
+          movePermanentToGraveyard(ctx as any, String((e as any).permanentId || ''), true);
         }
       }
       // If payMana is true, the permanent stays - no state change needed

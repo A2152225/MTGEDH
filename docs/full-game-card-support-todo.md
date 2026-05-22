@@ -1,6 +1,6 @@
 # Full-Game Card Support Todo
 
-Last updated: 2026-05-21
+Last updated: 2026-05-22
 
 Owner: Copilot + project maintainers
 
@@ -11,6 +11,7 @@ This is the working completion checklist. Existing queue files such as [oracle-a
 ## Current Baseline
 
 - [x] Latest known broad validation was green after durable usage-limit counter consumption, per-turn reset, source-remains enforcement, duration alias/explicit-expiry activation fixes, replay-safe usage recording for exile/graveyard durable permissions, generic condition-bound active filtering, Lukka-style condition-bound playable-from-exile durable permission integration, live Runestone Caverns durable playable-from-exile mirroring, direct planeswalker this-turn exile-play/cast durable mirroring, one-shot cast-from-exile prompt decline cleanup, durable one-shot production for direct planeswalker cast-or-decline prompts, durable one-shot production for stack-created copied-card cast-from-exile prompts, durable one-shot production for resolution-owned free-cast follow-up prompts, AI/shared explicit exile request-cast consumption of durable free-cast metadata, AI/shared normalized payable-cost consumption for durable flexible-mana spell/commander permissions, AI shared-flow top-library durable free/flexible permission guardrails, AI response-window durable ignore-timing exile/library guardrails, AI/shared response-window durable ignore-timing command-zone commander guardrails, durable unearth/embalm graveyard activation mirrors, and shared static battlefield graveyard permission synthesis: `git diff --check`, `npm test` (179 files / 6266 tests), `npm run build`, focused durable permission tests, and workspace typechecks passed.
+- [x] Latest known broad validation was green after leave-battlefield helper convergence for blink, shared sacrifice, apply-event sacrifice/bounce, and legacy replay sacrifice/bounce paths: `npm install`, `npm run typecheck --workspace=server`, `npm test` (179 files / 6266 tests), `npm run build`, and `git diff --check` passed.
 - [x] Recent server work covered pay-to-return death recursion, graveyard provenance ETBs, replay restoration of graveyard entry metadata, Prized Amalgam-style delayed returns, Archfiend's Vessel-style self-exile/token creation, Rocket-Powered Goblin Glider-style graveyard-cast ETB targeting, Tibalt's Trickery supplemental milling resolution, and Echo upkeep payment prompts with first-upkeep timing tracked across live resolution and replay.
 - [ ] Re-run broad validation after every implementation slice that changes server, client, shared, rules-engine, replay, or AI behavior.
 
@@ -106,6 +107,7 @@ Required system work:
 
 - [ ] Add a generic leave-battlefield replacement effect model for `If it would leave the battlefield, exile it instead of putting it anywhere else.`
 - [ ] Apply it to destroy, sacrifice, exile, bounce, tuck, blink, cleanup, control-change cleanup, and any other battlefield-exit helper.
+  - Progress: stack-resolution targeted bounce, mass bounce, Chaos Warp-style tuck, trigger-driven destroy, linked-exile commander-choice, Dispatch metalcraft-exile, the effect-resolution `MoveToExile` / EXILE_TARGET spell branch, `FlickerPermanent` immediate/delayed blink, shared sacrifice helper paths, sacrifice-cost event application, bounce-land event application, and the matching legacy replay bounce/sacrifice paths now route through shared battlefield-exit helpers. Linked exile and blink return side effects now run only if a deferred commander exile actually stays in exile.
 - [ ] Ensure it does not double-exile or mis-handle tokens.
 - [ ] Persist replacement outcome in replay events.
 - [ ] Add regression tests for each major exit path.

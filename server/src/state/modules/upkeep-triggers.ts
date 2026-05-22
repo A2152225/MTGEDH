@@ -15,7 +15,7 @@
 import type { GameContext } from "../context.js";
 import { debug, debugWarn, debugError } from "../../utils/debug.js";
 import { isInterveningIfSatisfied } from "./triggers/intervening-if.js";
-import { recordCardPutIntoGraveyardThisTurn } from "./turn-tracking.js";
+import { movePermanentToGraveyard } from "./counters_tokens.js";
 
 // ============================================================================
 // DYNAMIC PATTERN DETECTION REGEXES
@@ -769,7 +769,7 @@ export function sacrificePermanent(ctx: GameContext, permanentId: string, player
   const idx = battlefield.findIndex((p: any) => p?.id === permanentId);
   
   if (idx !== -1) {
-    const permanent = battlefield.splice(idx, 1)[0];
+    const permanent = battlefield[idx];
     const cardName = permanent.card?.name || "Unknown";
 
     // Per-turn tracking for intervening-if templates like:
@@ -793,20 +793,10 @@ export function sacrificePermanent(ctx: GameContext, permanentId: string, player
     } catch {
       // best-effort only
     }
-    
-    const zones = ((ctx as any).zones || ctx.state?.zones)?.[playerId];
-    if (zones) {
-      zones.graveyard = zones.graveyard || [];
-      zones.graveyard.push({ ...permanent.card, zone: "graveyard" });
-      recordCardPutIntoGraveyardThisTurn(ctx, String(playerId), permanent.card, {
-        fromBattlefield: true,
-        controllerId: String((permanent as any).controller || playerId),
-      });
-      zones.graveyardCount = zones.graveyard.length;
+
+    if (movePermanentToGraveyard(ctx, permanentId, true)) {
+      return cardName;
     }
-    
-    ctx.bumpSeq();
-    return cardName;
   }
   return null;
 }

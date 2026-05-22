@@ -6,6 +6,7 @@ import { registerCombatHandlers } from '../src/socket/combat.js';
 import { games } from '../src/socket/socket.js';
 import { ensureGame } from '../src/socket/util.js';
 import { createInitialGameState } from '../src/state/gameState.js';
+import { sacrificePermanent } from '../src/state/modules/upkeep-triggers.js';
 import { movePermanentToHand } from '../src/state/modules/zones.js';
 import { ResolutionQueueManager } from '../src/state/resolution/index.js';
 
@@ -105,6 +106,318 @@ describe('Personal Decoy (integration)', () => {
     expect(movePermanentToHand(game as any, String(personalDecoy.id || ''))).toBe(true);
     expect((((game.state as any).zones?.[playerId]?.hand || []) as any[]).map((card: any) => String(card?.id || ''))).not.toContain('personal_decoy_card_1');
     expect((((game.state as any).zones?.[playerId]?.exile || []) as any[]).map((card: any) => String(card?.id || ''))).toContain('personal_decoy_card_1');
+  });
+
+  it('exiles Personal Decoy instead of returning it to hand when a mass bounce spell resolves', () => {
+    const game = createInitialGameState(`${gameId}_mass_bounce`);
+    const playerId = 'p1';
+    const opponentId = 'p2';
+    game.applyEvent({ type: 'join', playerId, name: 'P1' } as any);
+    game.applyEvent({ type: 'join', playerId: opponentId, name: 'P2' } as any);
+    (game.state as any).startingLife = 40;
+    (game.state as any).life = { [playerId]: 40, [opponentId]: 40 };
+    (game.state as any).zones = {
+      [playerId]: { hand: [], handCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0, library: [], libraryCount: 0 },
+      [opponentId]: { hand: [], handCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0, library: [], libraryCount: 0 },
+    };
+    (game.state as any).battlefield = [
+      {
+        id: 'personal_decoy_perm_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        counters: { loyalty: 40 },
+        loyalty: 40,
+        baseLoyalty: 40,
+        leaveBattlefieldReplacementDestination: 'exile',
+        card: {
+          id: 'personal_decoy_card_1',
+          name: 'Personal Decoy',
+          type_line: 'Planeswalker - Duck',
+          oracle_text: "Personal Decoy enters with a number of loyalty counters on it equal to your life total. If it would leave the battlefield, exile it instead of putting it anywhere else. You can't be attacked.\n+1: You gain 1 life.\n−4: Draw a card.",
+          loyalty: '*',
+          leaveBattlefieldReplacementDestination: 'exile',
+        },
+      },
+    ];
+
+    game.applyEvent({
+      type: 'pushStack',
+      item: {
+        id: 'cyclonic_rift_overload_1',
+        controller: opponentId,
+        source: 'hand',
+        card: {
+          id: 'cyclonic_rift_card_1',
+          name: 'Cyclonic Rift',
+          type_line: 'Instant',
+          mana_cost: '{6}{U}',
+          oracle_text: "Return each nonland permanent you don't control to its owner's hand.",
+        },
+        targets: [],
+      },
+    } as any);
+
+    game.resolveTopOfStack();
+
+    expect((((game.state as any).battlefield || []) as any[]).map((permanent: any) => String(permanent?.id || ''))).not.toContain('personal_decoy_perm_1');
+    expect((((game.state as any).zones?.[playerId]?.hand || []) as any[]).map((card: any) => String(card?.id || ''))).not.toContain('personal_decoy_card_1');
+    expect((((game.state as any).zones?.[playerId]?.exile || []) as any[]).map((card: any) => String(card?.id || ''))).toContain('personal_decoy_card_1');
+  });
+
+  it('exiles Personal Decoy instead of shuffling it into the library when Chaos Warp resolves', () => {
+    const game = createInitialGameState(`${gameId}_chaos_warp`);
+    const playerId = 'p1';
+    const opponentId = 'p2';
+    game.applyEvent({ type: 'join', playerId, name: 'P1' } as any);
+    game.applyEvent({ type: 'join', playerId: opponentId, name: 'P2' } as any);
+    (game.state as any).startingLife = 40;
+    (game.state as any).life = { [playerId]: 40, [opponentId]: 40 };
+    (game.state as any).zones = {
+      [playerId]: { hand: [], handCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0, library: [], libraryCount: 0 },
+      [opponentId]: { hand: [], handCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0, library: [], libraryCount: 0 },
+    };
+    (game.state as any).battlefield = [
+      {
+        id: 'personal_decoy_perm_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        counters: { loyalty: 40 },
+        loyalty: 40,
+        baseLoyalty: 40,
+        leaveBattlefieldReplacementDestination: 'exile',
+        card: {
+          id: 'personal_decoy_card_1',
+          name: 'Personal Decoy',
+          type_line: 'Planeswalker - Duck',
+          oracle_text: "Personal Decoy enters with a number of loyalty counters on it equal to your life total. If it would leave the battlefield, exile it instead of putting it anywhere else. You can't be attacked.\n+1: You gain 1 life.\n−4: Draw a card.",
+          loyalty: '*',
+          leaveBattlefieldReplacementDestination: 'exile',
+        },
+      },
+    ];
+    game.libraries.set(playerId as any, []);
+
+    game.applyEvent({
+      type: 'pushStack',
+      item: {
+        id: 'chaos_warp_spell_1',
+        controller: opponentId,
+        source: 'hand',
+        card: {
+          id: 'chaos_warp_card_1',
+          name: 'Chaos Warp',
+          type_line: 'Instant',
+          mana_cost: '{2}{R}',
+          oracle_text: "The owner of target permanent shuffles it into their library, then reveals the top card of their library. If it's a permanent card, they put it onto the battlefield.",
+        },
+        targets: ['personal_decoy_perm_1'],
+      },
+    } as any);
+
+    game.resolveTopOfStack();
+
+    expect((((game.state as any).battlefield || []) as any[]).map((permanent: any) => String(permanent?.id || ''))).not.toContain('personal_decoy_perm_1');
+    expect((((game.state as any).zones?.[playerId]?.exile || []) as any[]).map((card: any) => String(card?.id || ''))).toContain('personal_decoy_card_1');
+    expect((game.libraries.get(playerId as any) || []).map((card: any) => String(card?.id || ''))).not.toContain('personal_decoy_card_1');
+  });
+
+  it('exiles Personal Decoy instead of putting it into the graveyard when a triggered destroy effect resolves', () => {
+    const game = createInitialGameState(`${gameId}_trigger_destroy`);
+    const playerId = 'p1';
+    const opponentId = 'p2';
+    game.applyEvent({ type: 'join', playerId, name: 'P1' } as any);
+    game.applyEvent({ type: 'join', playerId: opponentId, name: 'P2' } as any);
+    (game.state as any).startingLife = 40;
+    (game.state as any).life = { [playerId]: 40, [opponentId]: 40 };
+    (game.state as any).zones = {
+      [playerId]: { hand: [], handCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0, library: [], libraryCount: 0 },
+      [opponentId]: { hand: [], handCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0, library: [], libraryCount: 0 },
+    };
+    (game.state as any).battlefield = [
+      {
+        id: 'personal_decoy_perm_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        counters: { loyalty: 40 },
+        loyalty: 40,
+        baseLoyalty: 40,
+        leaveBattlefieldReplacementDestination: 'exile',
+        card: {
+          id: 'personal_decoy_card_1',
+          name: 'Personal Decoy',
+          type_line: 'Planeswalker - Duck',
+          oracle_text: "Personal Decoy enters with a number of loyalty counters on it equal to your life total. If it would leave the battlefield, exile it instead of putting it anywhere else. You can't be attacked.\n+1: You gain 1 life.\n−4: Draw a card.",
+          loyalty: '*',
+          leaveBattlefieldReplacementDestination: 'exile',
+        },
+      },
+    ];
+
+    game.applyEvent({
+      type: 'pushStack',
+      item: {
+        id: 'triggered_destroy_1',
+        type: 'triggered_ability',
+        controller: opponentId,
+        source: 'test_trigger_source',
+        sourceName: 'Test Destroy Trigger',
+        description: 'Destroy target permanent.',
+        effect: 'Destroy target permanent.',
+        mandatory: true,
+        targets: ['personal_decoy_perm_1'],
+      },
+    } as any);
+
+    game.resolveTopOfStack();
+
+    expect((((game.state as any).battlefield || []) as any[]).map((permanent: any) => String(permanent?.id || ''))).not.toContain('personal_decoy_perm_1');
+    expect((((game.state as any).zones?.[playerId]?.graveyard || []) as any[]).map((card: any) => String(card?.id || ''))).not.toContain('personal_decoy_card_1');
+    expect((((game.state as any).zones?.[playerId]?.exile || []) as any[]).map((card: any) => String(card?.id || ''))).toContain('personal_decoy_card_1');
+  });
+
+  it('exiles Personal Decoy instead of putting it into the graveyard when sacrificed through the shared helper', () => {
+    const game = createInitialGameState(`${gameId}_sacrifice_helper`);
+    const playerId = 'p1';
+    const opponentId = 'p2';
+    game.applyEvent({ type: 'join', playerId, name: 'P1' } as any);
+    game.applyEvent({ type: 'join', playerId: opponentId, name: 'P2' } as any);
+    (game.state as any).startingLife = 40;
+    (game.state as any).life = { [playerId]: 40, [opponentId]: 40 };
+    (game.state as any).zones = {
+      [playerId]: { hand: [], handCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0, library: [], libraryCount: 0 },
+      [opponentId]: { hand: [], handCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0, library: [], libraryCount: 0 },
+    };
+    (game.state as any).battlefield = [
+      {
+        id: 'personal_decoy_perm_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        counters: { loyalty: 40 },
+        loyalty: 40,
+        baseLoyalty: 40,
+        leaveBattlefieldReplacementDestination: 'exile',
+        card: {
+          id: 'personal_decoy_card_1',
+          name: 'Personal Decoy',
+          type_line: 'Planeswalker - Duck',
+          oracle_text: "Personal Decoy enters with a number of loyalty counters on it equal to your life total. If it would leave the battlefield, exile it instead of putting it anywhere else. You can't be attacked.\n+1: You gain 1 life.\n−4: Draw a card.",
+          loyalty: '*',
+          leaveBattlefieldReplacementDestination: 'exile',
+        },
+      },
+    ];
+
+    expect(sacrificePermanent(game as any, 'personal_decoy_perm_1', playerId)).toBe('Personal Decoy');
+
+    expect((((game.state as any).battlefield || []) as any[]).map((permanent: any) => String(permanent?.id || ''))).not.toContain('personal_decoy_perm_1');
+    expect((((game.state as any).zones?.[playerId]?.graveyard || []) as any[]).map((card: any) => String(card?.id || ''))).not.toContain('personal_decoy_card_1');
+    expect((((game.state as any).zones?.[playerId]?.exile || []) as any[]).map((card: any) => String(card?.id || ''))).toContain('personal_decoy_card_1');
+  });
+
+  it('exiles Personal Decoy instead of putting it into the graveyard when an applied sacrifice-cost event resolves', () => {
+    const game = createInitialGameState(`${gameId}_additional_cost_sacrifice`);
+    const playerId = 'p1';
+    const opponentId = 'p2';
+    game.applyEvent({ type: 'join', playerId, name: 'P1' } as any);
+    game.applyEvent({ type: 'join', playerId: opponentId, name: 'P2' } as any);
+    (game.state as any).startingLife = 40;
+    (game.state as any).life = { [playerId]: 40, [opponentId]: 40 };
+    (game.state as any).zones = {
+      [playerId]: { hand: [], handCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0, library: [], libraryCount: 0 },
+      [opponentId]: { hand: [], handCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0, library: [], libraryCount: 0 },
+    };
+    (game.state as any).battlefield = [
+      {
+        id: 'personal_decoy_perm_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        counters: { loyalty: 40 },
+        loyalty: 40,
+        baseLoyalty: 40,
+        leaveBattlefieldReplacementDestination: 'exile',
+        card: {
+          id: 'personal_decoy_card_1',
+          name: 'Personal Decoy',
+          type_line: 'Planeswalker - Duck',
+          oracle_text: "Personal Decoy enters with a number of loyalty counters on it equal to your life total. If it would leave the battlefield, exile it instead of putting it anywhere else. You can't be attacked.\n+1: You gain 1 life.\n−4: Draw a card.",
+          loyalty: '*',
+          leaveBattlefieldReplacementDestination: 'exile',
+        },
+      },
+    ];
+
+    game.applyEvent({
+      type: 'additionalCostConfirm',
+      playerId,
+      costType: 'sacrifice',
+      selectedCards: ['personal_decoy_perm_1'],
+    } as any);
+
+    expect((((game.state as any).battlefield || []) as any[]).map((permanent: any) => String(permanent?.id || ''))).not.toContain('personal_decoy_perm_1');
+    expect((((game.state as any).zones?.[playerId]?.graveyard || []) as any[]).map((card: any) => String(card?.id || ''))).not.toContain('personal_decoy_card_1');
+    expect((((game.state as any).zones?.[playerId]?.exile || []) as any[]).map((card: any) => String(card?.id || ''))).toContain('personal_decoy_card_1');
+  });
+
+  it('exiles Personal Decoy instead of going through manual exile writes when an EXILE_TARGET spell resolves', () => {
+    const game = createInitialGameState(`${gameId}_swords_to_plowshares`);
+    const playerId = 'p1';
+    const opponentId = 'p2';
+    game.applyEvent({ type: 'join', playerId, name: 'P1' } as any);
+    game.applyEvent({ type: 'join', playerId: opponentId, name: 'P2' } as any);
+    (game.state as any).startingLife = 40;
+    (game.state as any).life = { [playerId]: 40, [opponentId]: 40 };
+    (game.state as any).zones = {
+      [playerId]: { hand: [], handCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0, library: [], libraryCount: 0 },
+      [opponentId]: { hand: [], handCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0, library: [], libraryCount: 0 },
+    };
+    (game.state as any).battlefield = [
+      {
+        id: 'personal_decoy_perm_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        counters: { loyalty: 40 },
+        loyalty: 40,
+        baseLoyalty: 40,
+        leaveBattlefieldReplacementDestination: 'exile',
+        card: {
+          id: 'personal_decoy_card_1',
+          name: 'Personal Decoy',
+          type_line: 'Planeswalker - Duck',
+          oracle_text: "Personal Decoy enters with a number of loyalty counters on it equal to your life total. If it would leave the battlefield, exile it instead of putting it anywhere else. You can't be attacked.\n+1: You gain 1 life.\n−4: Draw a card.",
+          loyalty: '*',
+          leaveBattlefieldReplacementDestination: 'exile',
+        },
+      },
+    ];
+
+    game.applyEvent({
+      type: 'pushStack',
+      item: {
+        id: 'swords_to_plowshares_spell_1',
+        controller: opponentId,
+        source: 'hand',
+        card: {
+          id: 'swords_to_plowshares_card_1',
+          name: 'Swords to Plowshares',
+          type_line: 'Instant',
+          mana_cost: '{W}',
+          oracle_text: 'Exile target creature. Its controller gains life equal to its power.',
+        },
+        targets: ['personal_decoy_perm_1'],
+      },
+    } as any);
+
+    game.resolveTopOfStack();
+
+    expect((((game.state as any).battlefield || []) as any[]).map((permanent: any) => String(permanent?.id || ''))).not.toContain('personal_decoy_perm_1');
+    expect((((game.state as any).zones?.[playerId]?.exile || []) as any[]).map((card: any) => String(card?.id || ''))).toContain('personal_decoy_card_1');
+    expect((((game.state as any).zones?.[playerId]?.graveyard || []) as any[]).map((card: any) => String(card?.id || ''))).not.toContain('personal_decoy_card_1');
   });
 
   it('prevents opponents from declaring attacks against its controller', async () => {
