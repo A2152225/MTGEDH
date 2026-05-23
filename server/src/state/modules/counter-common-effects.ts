@@ -1,3 +1,5 @@
+import { evaluateDamageReplacementEvent, evaluateLeaveBattlefieldDestinationReplacement } from './replacement-effects.js';
+
 const COMMON_GRANTED_ABILITIES = [
   'flying',
   'indestructible',
@@ -124,7 +126,14 @@ export function applyDamageToPermanentWithCounterEffects(
     return { prevented: false, appliedAmount: 0 };
   }
 
-  if (applyShieldCounterDamagePrevention(permanent)) {
+  const replacement = evaluateDamageReplacementEvent({
+    amount: normalizedAmount,
+    target: permanent,
+    targetId: String(permanent?.id || ''),
+    metadata: { damageField },
+  });
+
+  if (replacement.effectId === 'shield-counter-prevent-damage' && applyShieldCounterDamagePrevention(permanent)) {
     return { prevented: true, appliedAmount: 0 };
   }
 
@@ -136,22 +145,8 @@ export function getCounterLeaveBattlefieldReplacement(
   permanent: any,
   destination: 'graveyard' | 'exile' | 'hand' | 'library'
 ): 'graveyard' | 'exile' | 'hand' | 'library' {
-  const leaveBattlefieldReplacementDestination = normalizeText(
-    permanent?.leaveBattlefieldReplacementDestination || permanent?.card?.leaveBattlefieldReplacementDestination || ''
-  );
-  if (leaveBattlefieldReplacementDestination === 'exile' && destination !== 'exile') {
-    return 'exile';
-  }
-
-  if (destination !== 'graveyard') return destination;
-
-  const typeLine = normalizeText(permanent?.card?.type_line || permanent?.type_line || '');
-  const isCreature = typeLine.includes('creature');
-  if (isCreature && permanentHasCounter(permanent, 'finality')) {
-    return 'exile';
-  }
-
-  return destination;
+  const result = evaluateLeaveBattlefieldDestinationReplacement(permanent, destination);
+  return (result.replacementDestination || destination) as 'graveyard' | 'exile' | 'hand' | 'library';
 }
 
 export function getCounterGrantedAbilities(state: any, permanent: any): string[] {

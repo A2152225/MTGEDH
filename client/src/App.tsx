@@ -389,7 +389,7 @@ export function App() {
     sourceId: string;
     sourceName: string;
     imageUrl?: string;
-    optionsToChoose: Array<{ permanentId: string; cardName: string; imageUrl?: string }>;
+    optionsToChoose: Array<{ permanentId: string; cardName: string; imageUrl?: string; leaveBattlefieldReplacementDestination?: 'exile'; leaveBattlefieldReplacementSourceName?: string; leaveBattlefieldReplacementLifeGain?: number }>;
     title?: string;
     subtitle?: string;
     oracleText?: string;
@@ -940,7 +940,7 @@ export function App() {
     description: string;
     imageUrl?: string;
     availableCards?: Array<{ id: string; name: string; imageUrl?: string }>;
-    availableTargets?: Array<{ id: string; name: string; imageUrl?: string; typeLine?: string }>;
+    availableTargets?: Array<{ id: string; name: string; imageUrl?: string; typeLine?: string; leaveBattlefieldReplacementDestination?: 'exile'; leaveBattlefieldReplacementSourceName?: string; leaveBattlefieldReplacementLifeGain?: number }>;
     availableCounters?: Array<{ id: string; permanentId: string; permanentName: string; counterType: string; counterIndex: number; name: string; imageUrl?: string; typeLine?: string }>;
     effectId?: string;
     // If present, this modal is being used to answer a ResolutionQueue step.
@@ -3433,7 +3433,7 @@ export function App() {
         const sourceToSacrifice = (step as any).sourceToSacrifice as { id: string; name: string; imageUrl?: string } | undefined;
 
         const resolutionSourceChoiceId = '__SACRIFICE_SOURCE__';
-        const availableTargets: Array<{ id: string; name: string; imageUrl?: string; typeLine?: string }> = creatures.map(c => ({
+        const availableTargets: Array<{ id: string; name: string; imageUrl?: string; typeLine?: string; leaveBattlefieldReplacementDestination?: 'exile'; leaveBattlefieldReplacementSourceName?: string; leaveBattlefieldReplacementLifeGain?: number }> = creatures.map(c => ({
           id: c.id,
           name: c.name,
           imageUrl: c.imageUrl,

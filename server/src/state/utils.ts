@@ -1,6 +1,7 @@
 import type { BattlefieldPermanent } from "../../../shared/src/types.js";
 import { debug, debugWarn, debugError } from "../utils/debug.js";
 import { permanentHasCreatureTypeNow } from './creatureTypeNow.js';
+import { evaluateLifeGainReplacementEvent } from './modules/replacement-effects.js';
 
 export function uid(prefix = "id"): string {
   return `${prefix}_${Math.random().toString(36).slice(2, 10)}`;
@@ -214,145 +215,6 @@ export const PAY_X_LIFE_CARDS: Record<string, {
 };
 
 /**
- * Known cards that PREVENT life gain.
- * These effects can be global, affect only opponents, or affect specific players.
- */
-export const LIFE_GAIN_PREVENTION_CARDS: Record<string, {
-  effect: string;
-  affectsOpponents: boolean; // True if only affects opponents
-  affectsAll: boolean; // True if affects all players including controller
-  isStatic: boolean; // True if it's a static ability (always active while on battlefield)
-  isEmblem?: boolean; // True if it creates an emblem with this effect
-}> = {
-  "erebos, god of the dead": {
-    effect: "Your opponents can't gain life",
-    affectsOpponents: true,
-    affectsAll: false,
-    isStatic: true,
-  },
-  "sulfuric vortex": {
-    effect: "Players can't gain life",
-    affectsOpponents: false,
-    affectsAll: true,
-    isStatic: true,
-  },
-  "leyline of punishment": {
-    effect: "Players can't gain life",
-    affectsOpponents: false,
-    affectsAll: true,
-    isStatic: true,
-  },
-  "tibalt, rakish instigator": {
-    effect: "Your opponents can't gain life",
-    affectsOpponents: true,
-    affectsAll: false,
-    isStatic: true,
-  },
-  "stigma lasher": {
-    effect: "Player dealt damage by ~ can't gain life for the rest of the game",
-    affectsOpponents: false,
-    affectsAll: false,
-    isStatic: false, // Triggered, creates lasting effect
-  },
-  "everlasting torment": {
-    effect: "Players can't gain life. Damage causes -1/-1 counters.",
-    affectsOpponents: false,
-    affectsAll: true,
-    isStatic: true,
-  },
-  "havoc festival": {
-    effect: "Players can't gain life",
-    affectsOpponents: false,
-    affectsAll: true,
-    isStatic: true,
-  },
-  "rain of gore": {
-    effect: "If a spell or ability would cause its controller to gain life, that player loses that much life instead",
-    affectsOpponents: false,
-    affectsAll: true,
-    isStatic: true,
-  },
-  "witch hunt": {
-    effect: "Players can't gain life",
-    affectsOpponents: false,
-    affectsAll: true,
-    isStatic: true,
-  },
-  "forsaken wastes": {
-    effect: "Players can't gain life",
-    affectsOpponents: false,
-    affectsAll: true,
-    isStatic: true,
-  },
-  "rampaging ferocidon": {
-    effect: "Players can't gain life",
-    affectsOpponents: false,
-    affectsAll: true,
-    isStatic: true,
-  },
-  "archfiend of ifnir": {
-    effect: "Your opponents can't gain life (during your turn)",
-    affectsOpponents: true,
-    affectsAll: false,
-    isStatic: true,
-  },
-  "kederekt parasite": {
-    effect: "Whenever an opponent draws a card, if you control a red permanent, damage dealt",
-    affectsOpponents: true,
-    affectsAll: false,
-    isStatic: false,
-  },
-  "roiling vortex": {
-    effect: "At the beginning of each player's upkeep, that player loses 1 life. Whenever a player casts a spell, if no mana was spent to cast that spell, that player loses 5 life. Players can't gain life.",
-    affectsOpponents: false,
-    affectsAll: true,
-    isStatic: true,
-  },
-  "quakebringer": {
-    effect: "Your opponents can't gain life (while in graveyard too)",
-    affectsOpponents: true,
-    affectsAll: false,
-    isStatic: true,
-  },
-};
-
-/**
- * Known cards that REVERSE life gain to life loss.
- * These cause the player who would gain life to lose that much life instead.
- */
-export const LIFE_GAIN_REVERSAL_CARDS: Record<string, {
-  effect: string;
-  affectsOpponents: boolean; // True if only affects opponents
-  affectsAll: boolean; // True if affects all players
-  isStatic: boolean;
-}> = {
-  "tainted remedy": {
-    effect: "If an opponent would gain life, that player loses that much life instead",
-    affectsOpponents: true,
-    affectsAll: false,
-    isStatic: true,
-  },
-  "rain of gore": {
-    effect: "If a spell or ability would cause its controller to gain life, that player loses that much life instead",
-    affectsOpponents: false,
-    affectsAll: true,
-    isStatic: true,
-  },
-  "archfiend of despair": {
-    effect: "Your opponents can't gain life. At end of each end step, each opponent who lost life this turn loses that much life again.",
-    affectsOpponents: true,
-    affectsAll: false,
-    isStatic: true,
-  },
-  "false cure": {
-    effect: "Until end of turn, whenever a player gains life, that player loses 2 life for each 1 life gained",
-    affectsOpponents: false,
-    affectsAll: true,
-    isStatic: false, // Temporary effect
-  },
-};
-
-/**
  * Check if a player's life gain is prevented by any effect on the battlefield.
  * 
  * @param gameState - The current game state
@@ -363,44 +225,18 @@ export function checkLifeGainPrevention(
   gameState: any,
   playerId: string
 ): { prevented: boolean; source?: string; reversedToLoss?: boolean } {
-  const battlefield = gameState?.battlefield || [];
-  
-  for (const perm of battlefield) {
-    if (!perm || !perm.card) continue;
-    
-    const cardName = (perm.card.name || '').toLowerCase();
-    const controller = perm.controller;
-    
-    // Check prevention effects
-    const prevention = LIFE_GAIN_PREVENTION_CARDS[cardName];
-    if (prevention && prevention.isStatic) {
-      // Check if this affects the player
-      if (prevention.affectsAll) {
-        return { prevented: true, source: perm.card.name };
-      }
-      if (prevention.affectsOpponents && controller !== playerId) {
-        return { prevented: true, source: perm.card.name };
-      }
-    }
-    
-    // Check reversal effects
-    const reversal = LIFE_GAIN_REVERSAL_CARDS[cardName];
-    if (reversal && reversal.isStatic) {
-      if (reversal.affectsAll) {
-        return { prevented: false, reversedToLoss: true, source: perm.card.name };
-      }
-      if (reversal.affectsOpponents && controller !== playerId) {
-        return { prevented: false, reversedToLoss: true, source: perm.card.name };
-      }
-    }
+  const result = evaluateLifeGainReplacementEvent({
+    state: gameState,
+    playerId,
+    amount: 1,
+  });
+
+  if (result.effectId === 'life-gain-prevented') {
+    return { prevented: true, source: result.sourceName };
   }
-  
-  // Also check for lasting effects (like Stigma Lasher's "can't gain life for rest of game")
-  const lastingEffects = gameState?.lastingEffects || [];
-  for (const effect of lastingEffects) {
-    if (effect.type === 'preventLifeGain' && effect.targetPlayer === playerId) {
-      return { prevented: true, source: effect.source };
-    }
+
+  if (result.effectId === 'life-gain-reversed-to-loss') {
+    return { prevented: false, reversedToLoss: true, source: result.sourceName };
   }
   
   return { prevented: false };

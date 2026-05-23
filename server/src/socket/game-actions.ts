@@ -39,6 +39,7 @@ import { shouldSuppressMandatoryTriggeredAbilityPrompt } from "./trigger-shortcu
 import { hasMutateAlternateCost, parseMadnessCost, parseMutateCost, getValidMutateTargets } from "../state/modules/alternate-costs.js";
 import { getCastableSpellCandidates, getCommandZoneCommanderCandidates, getPlayableLandCandidates, type SharedCommanderAvailabilityCandidate, type SharedPlayableLandCandidate, type SharedSpellCastCandidate } from "../state/modules/can-respond.js";
 import { buildCounterRemovalCostOptions } from "../state/modules/counter-removal-costs.js";
+import { getCounterLeaveBattlefieldReplacement } from "../state/modules/counter-common-effects.js";
 import { cardAllowsPlayerToPlayFromExile, cardMeetsPlayFromExileConditions, cleanupCardLeavingExile, findPlayableExileCardForPlayer, getPlayableExileCardsForPlayer, getPlayableFromExileDurablePermissionForCard } from "../state/modules/playable-from-exile.js";
 import { isPreparedCopyActive, syncPreparedPermanentAfterControlChange } from "../state/modules/prepared.js";
 import { getEffectiveBasicLandTypes } from "../state/modules/mana-abilities.js";
@@ -66,6 +67,20 @@ import {
 export const emitPendingDamageTriggers = emitPendingDamageTriggersImpl;
 
 const FLOATING_MANA_PAYMENT_PREFIX = '__pool__:';
+
+function getLeaveBattlefieldReplacementHint(permanent: any, destination: 'graveyard' | 'hand' | 'library' = 'graveyard') {
+  if (getCounterLeaveBattlefieldReplacement(permanent, destination) !== 'exile') {
+    return {};
+  }
+
+  const sourceName = String((permanent as any)?.leaveBattlefieldReplacementSourceName || (permanent as any)?.card?.leaveBattlefieldReplacementSourceName || '').trim();
+  const lifeGain = Number((permanent as any)?.leaveBattlefieldReplacementLifeGain || (permanent as any)?.card?.leaveBattlefieldReplacementLifeGain || 0);
+  return {
+    leaveBattlefieldReplacementDestination: 'exile' as const,
+    ...(sourceName ? { leaveBattlefieldReplacementSourceName: sourceName } : {}),
+    ...(lifeGain > 0 ? { leaveBattlefieldReplacementLifeGain: lifeGain } : {}),
+  };
+}
 
 function getFloatingPaymentPoolKey(permanentId: string, mana: string): string | null {
   const rawId = String(permanentId || '').trim();
@@ -5914,6 +5929,7 @@ export async function requestCastSpellForSocket(
               name: p.card?.name || 'Unknown',
               imageUrl: p.card?.image_uris?.small || p.card?.image_uris?.normal,
               typeLine: p.card?.type_line,
+              ...getLeaveBattlefieldReplacementHint(p, 'graveyard'),
             })),
             castSpellFromHandArgs: {
               cardId,
@@ -6448,6 +6464,7 @@ export async function requestCastSpellForSocket(
           name: p.card?.name || 'Unknown',
           imageUrl: p.card?.image_uris?.small || p.card?.image_uris?.normal,
           typeLine: p.card?.type_line,
+          ...getLeaveBattlefieldReplacementHint(p, 'graveyard'),
         })),
         castSpellFromHandArgs: {
           cardId,
@@ -8422,6 +8439,7 @@ export function registerGameActions(io: Server, socket: Socket) {
                 name: p.card?.name || 'Unknown',
                 imageUrl: p.card?.image_uris?.small || p.card?.image_uris?.normal,
                 typeLine: p.card?.type_line,
+                ...getLeaveBattlefieldReplacementHint(p, 'graveyard'),
               })),
               castSpellFromHandArgs: {
                 cardId,
@@ -8619,6 +8637,7 @@ export function registerGameActions(io: Server, socket: Socket) {
                 name: p.card?.name || 'Unknown',
                 imageUrl: p.card?.image_uris?.small || p.card?.image_uris?.normal,
                 typeLine: p.card?.type_line,
+                ...getLeaveBattlefieldReplacementHint(p, 'graveyard'),
               })),
               castSpellFromHandArgs: {
                 cardId,

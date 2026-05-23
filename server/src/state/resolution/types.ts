@@ -488,7 +488,7 @@ export interface AdditionalCostPaymentStep extends BaseResolutionStep {
   readonly title: string;
   readonly imageUrl?: string;
   readonly availableCards?: readonly { id: string; name: string; imageUrl?: string; typeLine?: string }[];
-  readonly availableTargets?: readonly { id: string; name: string; imageUrl?: string; typeLine?: string }[];
+  readonly availableTargets?: readonly { id: string; name: string; imageUrl?: string; typeLine?: string; leaveBattlefieldReplacementDestination?: 'exile'; leaveBattlefieldReplacementSourceName?: string; leaveBattlefieldReplacementLifeGain?: number }[];
   readonly availableCounters?: readonly { id: string; permanentId: string; permanentName: string; counterType: string; counterIndex: number; name: string; imageUrl?: string; typeLine?: string }[];
 
   /** Optional continuation context so the server can resume castSpellFromHand. */
@@ -813,6 +813,9 @@ export interface ReturnControlledPermanentChoiceStep extends BaseResolutionStep 
     permanentId: string;
     cardName: string;
     imageUrl?: string;
+    leaveBattlefieldReplacementDestination?: 'exile';
+    leaveBattlefieldReplacementSourceName?: string;
+    leaveBattlefieldReplacementLifeGain?: number;
   }[];
   readonly stackItemId?: string;
 }

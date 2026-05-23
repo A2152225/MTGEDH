@@ -14,6 +14,9 @@ export interface ReturnControlledPermanentOption {
   permanentId: string;
   cardName: string;
   imageUrl?: string;
+  leaveBattlefieldReplacementDestination?: 'exile';
+  leaveBattlefieldReplacementSourceName?: string;
+  leaveBattlefieldReplacementLifeGain?: number;
 }
 
 export interface ReturnControlledPermanentChoiceModalProps {
@@ -43,6 +46,9 @@ export function ReturnControlledPermanentChoiceModal({
     id: option.permanentId,
     name: option.cardName,
     imageUrl: option.imageUrl,
+    description: option.leaveBattlefieldReplacementDestination === 'exile'
+      ? 'Will be exiled instead'
+      : undefined,
   }));
 
   const handleConfirm = (selectedIds: string[]) => {

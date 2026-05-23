@@ -39,7 +39,7 @@ import {
   checkGraveyardTrigger,
 } from "./triggered-abilities.js";
 import { dispatchDamageReceivedTrigger, processDamageReceivedTriggers } from "./triggers/damage-received.js";
-import { applyDamageToPermanentWithCounterEffects } from "./counter-common-effects.js";
+import { applyDamageToPermanentWithCounterEffects, getCounterLeaveBattlefieldReplacement } from "./counter-common-effects.js";
 import { detectCombatDamageTriggers } from "./triggers/index.js";
 import { isInterveningIfSatisfied } from "./triggers/intervening-if.js";
 import { isCreatureNow } from "../creatureTypeNow.js";
@@ -15580,10 +15580,21 @@ export function resolveTopOfStack(ctx: GameContext) {
             returnControlledPermanentChoice: true,
             returnControlledPermanentSourceName: sourceName,
             returnControlledPermanentDestination: 'hand',
-            returnControlledPermanentOptions: availableLands.map((p: any) => ({
-              permanentId: p.id,
-              cardName: p.card?.name || 'Land',
-              imageUrl: p.card?.image_uris?.small || p.card?.image_uris?.normal,
+            returnControlledPermanentOptions: availableLands.map((permanent: any) => ({
+              permanentId: permanent.id,
+              cardName: permanent.card?.name || 'Land',
+              imageUrl: permanent.card?.image_uris?.small || permanent.card?.image_uris?.normal,
+              ...(getCounterLeaveBattlefieldReplacement(permanent, 'hand') === 'exile'
+                ? {
+                    leaveBattlefieldReplacementDestination: 'exile' as const,
+                    ...((permanent as any).leaveBattlefieldReplacementSourceName || (permanent.card as any)?.leaveBattlefieldReplacementSourceName
+                      ? { leaveBattlefieldReplacementSourceName: String((permanent as any).leaveBattlefieldReplacementSourceName || (permanent.card as any)?.leaveBattlefieldReplacementSourceName) }
+                      : {}),
+                    ...(Number((permanent as any).leaveBattlefieldReplacementLifeGain || (permanent.card as any)?.leaveBattlefieldReplacementLifeGain || 0) > 0
+                      ? { leaveBattlefieldReplacementLifeGain: Number((permanent as any).leaveBattlefieldReplacementLifeGain || (permanent.card as any)?.leaveBattlefieldReplacementLifeGain || 0) }
+                      : {}),
+                  }
+                : {}),
             })),
             stackItemId: item.id,
           } as any);

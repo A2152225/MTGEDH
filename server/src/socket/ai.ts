@@ -1803,6 +1803,14 @@ function getAIPlayerLife(game: any, playerId: PlayerID): number {
   return Number(game?.state?.startingLife || 40) || 40;
 }
 
+function permanentHasLeaveBattlefieldExileReplacement(permanent: any): boolean {
+  return String(
+    (permanent as any)?.leaveBattlefieldReplacementDestination ||
+    (permanent as any)?.card?.leaveBattlefieldReplacementDestination ||
+    ''
+  ) === 'exile';
+}
+
 function scoreCardForAIAcquisition(
   game: any,
   playerId: PlayerID,
@@ -2069,6 +2077,7 @@ export function chooseAIReturnControlledPermanentId(
       let score = scoreAISacrificePermanentForManaAbility(game, playerId, permanent);
       if (permanent.tapped) score -= 20;
       if (sourceId && permanentId === sourceId) score += 30;
+      if (permanentHasLeaveBattlefieldExileReplacement(permanent) || option?.leaveBattlefieldReplacementDestination === 'exile') score += 10000;
 
       return { permanentId, score };
     })
@@ -5448,8 +5457,8 @@ function snapshotAIAbilityActivationState(
         }
       })
       .sort((left: any, right: any) =>
-        scoreAISacrificePermanentForManaAbility(game, playerId, left) -
-        scoreAISacrificePermanentForManaAbility(game, playerId, right)
+        (scoreAISacrificePermanentForManaAbility(game, playerId, left) + (permanentHasLeaveBattlefieldExileReplacement(left) ? 10000 : 0)) -
+        (scoreAISacrificePermanentForManaAbility(game, playerId, right) + (permanentHasLeaveBattlefieldExileReplacement(right) ? 10000 : 0))
       );
 
     return candidates[0] || null;
@@ -5549,7 +5558,17 @@ function snapshotAIAbilityActivationState(
         return false;
       }
 
-      movePermanentToHand(game as any, String(returnedPermanent?.id || ''));
+      const [removedPermanent] = battlefield.splice(permanentIndex, 1);
+      if (!removedPermanent) {
+        return false;
+      }
+
+      zones.hand = Array.isArray(zones.hand) ? zones.hand : [];
+      zones.hand.push({
+        ...(removedPermanent.card || {}),
+        zone: 'hand',
+      });
+      zones.handCount = zones.hand.length;
     }
 
     const livePermanent = (Array.isArray(game.state?.battlefield) ? game.state.battlefield : []).find(
@@ -7862,6 +7881,9 @@ export async function handleBounceLandETB(game: any, playerId: PlayerID, bounceL
           score -= 10;
         }
       }
+      if (permanentHasLeaveBattlefieldExileReplacement(perm)) {
+        score += 10000;
+      }
       return { perm, score };
     }
     
@@ -7915,6 +7937,10 @@ export async function handleBounceLandETB(game: any, playerId: PlayerID, bounceL
     // Don't return lands that produce multiple colors (they're valuable)
     if (producedColors.length > 2) {
       score += 20;
+    }
+
+    if (permanentHasLeaveBattlefieldExileReplacement(perm)) {
+      score += 10000;
     }
     
     return { perm, score };

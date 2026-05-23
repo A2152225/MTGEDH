@@ -114,7 +114,8 @@ Required system work:
   - Legacy replay now inherits the generic `removePermanent` replacement path, with focused replay coverage proving replacement permanents deterministically land in exile.
 - [x] Add regression tests for each major exit path.
   - Guardrails cover direct hand/library/graveyard/exile helper moves, mass bounce, tuck, destroy, sacrifice, state-based lethal/legend cleanup, Elixir-style self-shuffle, unknown-game upkeep sacrifice fallback, generic remove events, replayed remove events, linked exile, and immediate/delayed blink commander choices.
-- [ ] Ensure AI and UI do not offer impossible destination-dependent choices after replacement is active.
+- [x] Ensure AI and UI do not offer impossible destination-dependent choices after replacement is active.
+  - Return-to-hand and sacrifice prompts now carry replacement hints so the UI can label choices that will be exiled instead, and AI return-choice heuristics prefer ordinary hand returns before replacement-exile permanents when both are legal. Guardrail: `server/tests/leave-battlefield-replacement.integration.test.ts`.
 
 ### 3. Complete Cast-From-Graveyard Permission Windows
 
@@ -334,10 +335,11 @@ Cards frequently grant permission to cast, play, activate, or spend resources fr
 
 Replacement and prevention are essential for real games because they alter events before those events happen.
 
-- [ ] Create a generic replacement-effect registry/evaluator.
+- [x] Create a generic replacement-effect registry/evaluator.
   - Event inputs should include event type, object ids, source/destination zones, controller/owner, damage amount/source, cause, and pending metadata.
   - Effects should be ordered and replayable.
   - The evaluator should produce an explicit applied/not-applied result for logs and replay.
+  - Initial evaluator contract lives in `server/src/state/modules/replacement-effects.ts`, with ordered evaluators returning explicit applied/not-applied metadata for battlefield zone-change replacements. The existing leave-battlefield helper now routes through this evaluator. Guardrail: `server/tests/leave-battlefield-replacement.integration.test.ts`.
 
 - [ ] Cover zone-change replacements.
   - Leave battlefield and exile instead.
@@ -346,6 +348,7 @@ Replacement and prevention are essential for real games because they alter event
   - Commander replacement to command zone.
   - Token disappearance when leaving battlefield.
   - Enter tapped, enter with counters, enter as copy, enter transformed/face down.
+  - Progress: leave-battlefield/exile-instead and finality-counter graveyard replacement now share the generic evaluator result contract, while their live helper paths remain unchanged. Ordinary token battlefield exits now also produce explicit `token-ceases-to-exist` evaluator metadata, with hand, graveyard, and library helper guardrails proving non-replacement tokens do not enter those zones. Stack-to-graveyard cleanup for flashback/jump-start/escape/disturb/harmonize and explicit `exileAfterResolution` markers now uses the same evaluator contract before exiling instead. Commander zone-change replacement is represented as a `choiceRequired` evaluator result, preserving the Resolution Queue prompt flow instead of treating the command-zone move as already applied. Guardrails: `server/tests/replacement-effects.test.ts`, `server/tests/leave-battlefield-replacement.integration.test.ts`, `server/tests/cast-from-graveyard.graveyard-replay.integration.test.ts`, `server/tests/commander-zone-choice.validate-before-complete.integration.test.ts`, `server/tests/linked-exile.commander-zone-choice.integration.test.ts`, `server/tests/skullbriar.zone-counters.test.ts`.
 
 - [ ] Cover damage replacements and prevention.
   - Prevent next N damage.
@@ -354,7 +357,7 @@ Replacement and prevention are essential for real games because they alter event
   - Damage redirection where applicable.
   - Damage doubling/halving/instead effects.
   - Infect, wither, lifelink, deathtouch, trample interactions.
-  - Guardrail progress: combat-damage prevention now has focused coverage for both a global spell rider (Moment's Peace) and a temporary attacker-specific rider (Oketra's Avenger), with combat damage application consulting those effects before marked damage and destruction handling. Guardrails: `server/tests/cast-from-graveyard.graveyard-replay.integration.test.ts`, `server/tests/exert-choice.integration.test.ts`.
+  - Guardrail progress: combat-damage prevention now has focused coverage for both a global spell rider (Moment's Peace) and a temporary attacker-specific rider (Oketra's Avenger), with combat damage application consulting those effects before marked damage and destruction handling. Shield-counter prevention now also enters the generic replacement evaluator as a damage event result, while the existing live helper still owns consuming the counter. Guardrails: `server/tests/replacement-effects.test.ts`, `server/tests/special-counters.common-effects.test.ts`, `server/tests/cast-from-graveyard.graveyard-replay.integration.test.ts`, `server/tests/exert-choice.integration.test.ts`.
 
 - [ ] Cover draw, life, token, counter, and search replacements.
   - Draw replacement and dredge-style behavior.
@@ -362,6 +365,7 @@ Replacement and prevention are essential for real games because they alter event
   - Token creation modification.
   - Counter placement modification.
   - Search prevention and replacement.
+  - Progress: life-gain prevention and reversal now evaluate through generic `life-gain` replacement events before `applyLifeGain` preserves the existing live mutation behavior. Library-search prevention, top-card limits, payment requirements, control replacement, and search triggers now evaluate through generic `library-search` events, with both socket search restriction helpers consuming the shared evaluator instead of maintaining duplicate card tables. Guardrails: `server/tests/replacement-effects.test.ts`, `server/tests/custom-cards.test.ts`, `server/tests/whip-of-erebos.integration.test.ts`, and the library-search replay/regression suites.
 
 - [ ] Add replay tests for each replacement category.
 

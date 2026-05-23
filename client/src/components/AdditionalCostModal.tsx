@@ -25,6 +25,9 @@ export interface AdditionalCostTarget {
   name: string;
   imageUrl?: string;
   typeLine?: string;
+  leaveBattlefieldReplacementDestination?: 'exile';
+  leaveBattlefieldReplacementSourceName?: string;
+  leaveBattlefieldReplacementLifeGain?: number;
 }
 
 export interface AdditionalCostCounter {
@@ -260,6 +263,11 @@ export function AdditionalCostModal({
                           {(option as AdditionalCostTarget).typeLine}
                         </div>
                       )}
+                      {costType === 'sacrifice' && (option as AdditionalCostTarget).leaveBattlefieldReplacementDestination === 'exile' && (
+                        <div style={{ fontSize: 10, color: '#fca5a5', marginTop: 4 }}>
+                          Exiles instead
+                        </div>
+                      )}
                       {costType === 'remove_counters' && (
                         <div style={{ fontSize: 10, color: '#aaa', marginTop: 4 }}>
                           {(option as AdditionalCostCounter).counterType} counter
@@ -306,6 +314,11 @@ export function AdditionalCostModal({
                     borderBottomRightRadius: 6,
                   }}>
                     {option.name}
+                    {costType === 'sacrifice' && (option as AdditionalCostTarget).leaveBattlefieldReplacementDestination === 'exile' && (
+                      <div style={{ fontSize: 10, color: '#fca5a5', marginTop: 2 }}>
+                        Exiles instead
+                      </div>
+                    )}
                   </div>
                 )}
               </button>

@@ -33,6 +33,7 @@ import { consumeDelayedSpellCopiesForCast, creatureHasHaste, processHeroicTrigge
 import { debug, debugWarn, debugError } from "../utils/debug.js";
 import { filterLibraryCardsForSearch } from "./library-search.js";
 import { pushWheneverYouExertTriggersOntoStack } from "./exert-triggers.js";
+import { evaluateLibrarySearchReplacementEvent } from "../state/modules/replacement-effects.js";
 import { registerManaHandlers } from "./mana-handlers.js";
 import { canPermanentBeTargetedByPlayer, matchesGraveyardCardTargetType as matchesSharedGraveyardCardTargetType, normalizeRequirementTargetType, parseAbilityTargeting, parseTargetRequirements, selectionRequiresSharedCardType } from "../rules-engine/targeting.js";
 import { requestPlayerSelection } from "./player-selection.js";
@@ -809,28 +810,6 @@ const CREATURE_TYPE_PATTERNS: Map<string, RegExp> = new Map(
 // Library Search Restriction Handling (Aven Mindcensor, Stranglehold, etc.)
 // ============================================================================
 
-/** Known cards that prevent or restrict library searching */
-const SEARCH_PREVENTION_CARDS: Record<string, { affectsOpponents: boolean; affectsSelf: boolean }> = {
-  "stranglehold": { affectsOpponents: true, affectsSelf: false },
-  "ashiok, dream render": { affectsOpponents: true, affectsSelf: false },
-  "mindlock orb": { affectsOpponents: true, affectsSelf: true },
-  "shadow of doubt": { affectsOpponents: true, affectsSelf: true },
-  "leonin arbiter": { affectsOpponents: true, affectsSelf: true }, // Can pay {2}
-};
-
-/** Known cards that limit library searching to top N cards */
-const SEARCH_LIMIT_CARDS: Record<string, { limit: number; affectsOpponents: boolean }> = {
-  "aven mindcensor": { limit: 4, affectsOpponents: true },
-};
-
-/** Known cards that trigger when opponents search */
-const SEARCH_TRIGGER_CARDS: Record<string, { effect: string; affectsOpponents: boolean }> = {
-  "ob nixilis, unshackled": { effect: "Sacrifice a creature and lose 10 life", affectsOpponents: true },
-};
-
-/** Known cards that give control during opponent's search */
-const SEARCH_CONTROL_CARDS = new Set(["opposition agent"]);
-
 /**
  * Check for search restrictions affecting a player
  */
@@ -845,76 +824,16 @@ function checkLibrarySearchRestrictions(
   reason?: string;
   paymentRequired?: { cardName: string; amount: string };
 } {
-  const battlefield = game.state?.battlefield || [];
-  const triggerEffects: { cardName: string; effect: string; controllerId: string }[] = [];
-  let canSearch = true;
-  let limitToTop: number | undefined;
-  let controlledBy: string | undefined;
-  let reason: string | undefined;
-  let paymentRequired: { cardName: string; amount: string } | undefined;
-  
-  for (const perm of battlefield) {
-    if (!perm || !perm.card) continue;
-    
-    const cardName = (perm.card.name || "").toLowerCase();
-    const controllerId = perm.controller;
-    const isOpponent = controllerId !== searchingPlayerId;
-    
-    // Check prevention cards
-    for (const [name, info] of Object.entries(SEARCH_PREVENTION_CARDS)) {
-      if (cardName.includes(name)) {
-        const applies = (isOpponent && info.affectsOpponents) || (!isOpponent && info.affectsSelf);
-        if (applies) {
-          // Special case: Leonin Arbiter allows payment
-          if (name === "leonin arbiter") {
-            paymentRequired = { cardName: perm.card.name, amount: "{2}" };
-          } else {
-            canSearch = false;
-            reason = `${perm.card.name} prevents library searching`;
-          }
-        }
-      }
-    }
-    
-    // Check limit cards (Aven Mindcensor)
-    for (const [name, info] of Object.entries(SEARCH_LIMIT_CARDS)) {
-      if (cardName.includes(name)) {
-        if (isOpponent && info.affectsOpponents) {
-          if (limitToTop === undefined || info.limit < limitToTop) {
-            limitToTop = info.limit;
-          }
-        }
-      }
-    }
-    
-    // Check trigger cards (Ob Nixilis)
-    for (const [name, info] of Object.entries(SEARCH_TRIGGER_CARDS)) {
-      if (cardName.includes(name)) {
-        if (isOpponent && info.affectsOpponents) {
-          triggerEffects.push({
-            cardName: perm.card.name,
-            effect: info.effect,
-            controllerId,
-          });
-        }
-      }
-    }
-    
-    // Check control cards (Opposition Agent)
-    if (SEARCH_CONTROL_CARDS.has(cardName)) {
-      if (isOpponent) {
-        controlledBy = controllerId;
-      }
-    }
-  }
+  const result = evaluateLibrarySearchReplacementEvent({ game, searchingPlayerId });
+  const metadata = (result.metadata || {}) as any;
   
   return {
-    canSearch,
-    limitToTop,
-    triggerEffects,
-    controlledBy,
-    reason,
-    paymentRequired,
+    canSearch: metadata.canSearch !== false,
+    limitToTop: typeof metadata.limitToTop === 'number' ? metadata.limitToTop : undefined,
+    triggerEffects: Array.isArray(metadata.triggerEffects) ? metadata.triggerEffects : [],
+    controlledBy: metadata.controlledBy,
+    reason: metadata.reason,
+    paymentRequired: metadata.paymentRequired,
   };
 }
 
