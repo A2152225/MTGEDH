@@ -1,6 +1,6 @@
 export type ReplacementZone = 'battlefield' | 'graveyard' | 'exile' | 'hand' | 'library' | 'command' | 'stack';
 
-export type ReplacementEvent = ZoneChangeReplacementEvent | DamageReplacementEvent | LifeGainReplacementEvent | LibrarySearchReplacementEvent;
+export type ReplacementEvent = ZoneChangeReplacementEvent | DamageReplacementEvent | LifeGainReplacementEvent | LibrarySearchReplacementEvent | TokenCreationReplacementEvent | CounterPlacementReplacementEvent;
 
 export interface ZoneChangeReplacementEvent {
   type: 'zone-change';
@@ -44,6 +44,27 @@ export interface LibrarySearchReplacementEvent {
   game?: any;
   state?: any;
   searchingPlayerId: string;
+  cause?: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface TokenCreationReplacementEvent {
+  type: 'token-creation';
+  state?: any;
+  controllerId: string;
+  count: number;
+  tokenName?: string;
+  cause?: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface CounterPlacementReplacementEvent {
+  type: 'counter-placement';
+  state?: any;
+  targetPermanentId: string;
+  controllerId?: string;
+  deltas: Record<string, number>;
+  modifiedDeltas?: Record<string, number>;
   cause?: string;
   metadata?: Record<string, unknown>;
 }
@@ -121,6 +142,27 @@ const SEARCH_TRIGGER_CARDS: Record<string, { effect: string; affectsOpponents: b
 };
 
 const SEARCH_CONTROL_CARDS = new Set(["opposition agent"]);
+
+function normalizeDeltas(deltas: Record<string, number> | undefined): Record<string, number> {
+  const normalized: Record<string, number> = {};
+  for (const [key, value] of Object.entries(deltas || {})) {
+    const amount = Math.floor(Number(value || 0));
+    if (amount !== 0) normalized[key] = amount;
+  }
+  return normalized;
+}
+
+function deltasDiffer(left: Record<string, number>, right: Record<string, number>): boolean {
+  const keys = new Set([...Object.keys(left), ...Object.keys(right)]);
+  for (const key of keys) {
+    if (Number(left[key] || 0) !== Number(right[key] || 0)) return true;
+  }
+  return false;
+}
+
+function sumPositiveDeltas(deltas: Record<string, number>): number {
+  return Object.values(deltas).reduce((sum, value) => sum + Math.max(0, Number(value || 0)), 0);
+}
 
 function normalizeReplacementText(value: unknown): string {
   return String(value || '')
@@ -473,6 +515,88 @@ const librarySearchReplacementEvaluator: ReplacementEffectEvaluator = (event) =>
   return null;
 };
 
+const tokenCreationReplacementEvaluator: ReplacementEffectEvaluator = (event) => {
+  if (event.type !== 'token-creation') return null;
+
+  const originalAmount = Math.max(0, Math.floor(Number(event.count || 0)));
+  if (originalAmount <= 0) return null;
+
+  const battlefield = Array.isArray(event.state?.battlefield) ? event.state.battlefield : [];
+  let multiplier = 1;
+  const sources: string[] = [];
+
+  for (const permanent of battlefield) {
+    if (!permanent?.card) continue;
+
+    const cardName = normalizeReplacementText(permanent.card.name || '');
+    const oracleText = normalizeReplacementText(permanent.card.oracle_text || '');
+    const controller = String(permanent.controller || '');
+
+    if (cardName.includes('primal vigor')) {
+      multiplier *= 2;
+      sources.push(permanent.card.name || 'Primal Vigor');
+      continue;
+    }
+
+    if (controller !== String(event.controllerId || '')) continue;
+
+    if (cardName.includes('ojer taq') || (oracleText.includes('three times that many') && oracleText.includes('token'))) {
+      multiplier *= 3;
+      sources.push(permanent.card.name || 'Ojer Taq');
+    }
+
+    if (cardName.includes('anointed procession')
+      || cardName.includes('parallel lives')
+      || cardName.includes('doubling season')
+      || cardName.includes('mondrak, glory dominus')
+      || (cardName.includes('elspeth') && oracleText.includes('twice that many'))
+      || (oracleText.includes('twice that many') && oracleText.includes('token'))) {
+      multiplier *= 2;
+      sources.push(permanent.card.name || 'Token doubler');
+    }
+  }
+
+  if (multiplier <= 1) return null;
+
+  return {
+    applied: true,
+    eventType: event.type,
+    effectId: 'token-creation-multiplied',
+    originalAmount,
+    replacementAmount: originalAmount * multiplier,
+    reason: 'token_creation_replacement',
+    metadata: {
+      controllerId: String(event.controllerId || ''),
+      multiplier,
+      sources,
+      ...(event.tokenName ? { tokenName: event.tokenName } : {}),
+    },
+  };
+};
+
+const counterPlacementReplacementEvaluator: ReplacementEffectEvaluator = (event) => {
+  if (event.type !== 'counter-placement') return null;
+
+  const originalDeltas = normalizeDeltas(event.deltas);
+  const modifiedDeltas = normalizeDeltas(event.modifiedDeltas || event.deltas);
+  if (!deltasDiffer(originalDeltas, modifiedDeltas)) return null;
+
+  return {
+    applied: true,
+    eventType: event.type,
+    effectId: 'counter-placement-modified',
+    originalAmount: sumPositiveDeltas(originalDeltas),
+    replacementAmount: sumPositiveDeltas(modifiedDeltas),
+    reason: 'counter_placement_replacement',
+    metadata: {
+      targetPermanentId: String(event.targetPermanentId || ''),
+      ...(event.controllerId ? { controllerId: String(event.controllerId) } : {}),
+      originalDeltas,
+      modifiedDeltas,
+    },
+  };
+};
+
 const replacementEffectEvaluators: ReplacementEffectEvaluator[] = [
   leaveBattlefieldExileEvaluator,
   tokenLeaveBattlefieldEvaluator,
@@ -481,6 +605,8 @@ const replacementEffectEvaluators: ReplacementEffectEvaluator[] = [
   shieldCounterDamagePreventionEvaluator,
   lifeGainPreventionEvaluator,
   librarySearchReplacementEvaluator,
+  tokenCreationReplacementEvaluator,
+  counterPlacementReplacementEvaluator,
 ];
 
 export function evaluateReplacementEvent(event: ReplacementEvent): ReplacementEffectResult {
@@ -505,6 +631,32 @@ export function evaluateReplacementEvent(event: ReplacementEvent): ReplacementEf
       applied: false,
       eventType: event.type,
       metadata: { canSearch: true, triggerEffects: [] },
+    };
+  }
+
+  if (event.type === 'token-creation') {
+    const originalAmount = Math.max(0, Math.floor(Number(event.count || 0)));
+    return {
+      applied: false,
+      eventType: event.type,
+      originalAmount,
+      replacementAmount: originalAmount,
+      metadata: { controllerId: String(event.controllerId || '') },
+    };
+  }
+
+  if (event.type === 'counter-placement') {
+    const originalDeltas = normalizeDeltas(event.deltas);
+    return {
+      applied: false,
+      eventType: event.type,
+      originalAmount: sumPositiveDeltas(originalDeltas),
+      replacementAmount: sumPositiveDeltas(originalDeltas),
+      metadata: {
+        targetPermanentId: String(event.targetPermanentId || ''),
+        originalDeltas,
+        modifiedDeltas: originalDeltas,
+      },
     };
   }
 
@@ -566,6 +718,20 @@ export function evaluateLifeGainReplacementEvent(event: Omit<LifeGainReplacement
 export function evaluateLibrarySearchReplacementEvent(event: Omit<LibrarySearchReplacementEvent, 'type'>): ReplacementEffectResult {
   return evaluateReplacementEvent({
     type: 'library-search',
+    ...event,
+  });
+}
+
+export function evaluateTokenCreationReplacementEvent(event: Omit<TokenCreationReplacementEvent, 'type'>): ReplacementEffectResult {
+  return evaluateReplacementEvent({
+    type: 'token-creation',
+    ...event,
+  });
+}
+
+export function evaluateCounterPlacementReplacementEvent(event: Omit<CounterPlacementReplacementEvent, 'type'>): ReplacementEffectResult {
+  return evaluateReplacementEvent({
+    type: 'counter-placement',
     ...event,
   });
 }

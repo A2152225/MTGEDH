@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
+import { createInitialGameState } from '../src/state/gameState.js';
 import { applyDamageToPermanentWithCounterEffects } from '../src/state/modules/counter-common-effects.js';
+import { applyCounterModifications, createToken } from '../src/state/modules/counters_tokens.js';
 import { applyLifeGain } from '../src/state/utils.js';
-import { evaluateDamageReplacementEvent, evaluateLibrarySearchReplacementEvent, evaluateLifeGainReplacementEvent, evaluateReplacementEvent } from '../src/state/modules/replacement-effects.js';
+import { evaluateCounterPlacementReplacementEvent, evaluateDamageReplacementEvent, evaluateLibrarySearchReplacementEvent, evaluateLifeGainReplacementEvent, evaluateReplacementEvent, evaluateTokenCreationReplacementEvent } from '../src/state/modules/replacement-effects.js';
 import { shouldExileStackCardInsteadOfGraveyard } from '../src/state/modules/stack-zone-replacements.js';
 
 describe('replacement effect evaluator', () => {
@@ -377,5 +379,101 @@ describe('replacement effect evaluator', () => {
     expect((result.metadata as any).triggerEffects).toEqual([
       { cardName: 'Ob Nixilis, Unshackled', effect: 'Sacrifice a creature and lose 10 life', controllerId: 'p2' },
     ]);
+  });
+
+  it('evaluates token creation multipliers and preserves createToken behavior', () => {
+    const game = createInitialGameState('replacement_effect_token_creation');
+    game.applyEvent({ type: 'join', playerId: 'p1', name: 'P1' } as any);
+    game.applyEvent({ type: 'join', playerId: 'p2', name: 'P2' } as any);
+    (game.state as any).battlefield = [
+      {
+        id: 'anointed_procession_1',
+        controller: 'p1',
+        owner: 'p1',
+        card: { id: 'anointed_procession_card_1', name: 'Anointed Procession', type_line: 'Enchantment', oracle_text: '' },
+      },
+      {
+        id: 'primal_vigor_1',
+        controller: 'p2',
+        owner: 'p2',
+        card: { id: 'primal_vigor_card_1', name: 'Primal Vigor', type_line: 'Enchantment', oracle_text: 'If one or more tokens would be created, twice that many are created instead.' },
+      },
+    ];
+
+    const result = evaluateTokenCreationReplacementEvent({
+      state: game.state,
+      controllerId: 'p1',
+      count: 2,
+      tokenName: 'Soldier',
+    });
+
+    expect(result).toMatchObject({
+      applied: true,
+      eventType: 'token-creation',
+      effectId: 'token-creation-multiplied',
+      originalAmount: 2,
+      replacementAmount: 8,
+      reason: 'token_creation_replacement',
+      metadata: {
+        controllerId: 'p1',
+        multiplier: 4,
+        tokenName: 'Soldier',
+      },
+    });
+    expect((result.metadata as any).sources).toEqual(['Anointed Procession', 'Primal Vigor']);
+
+    const createdIds = createToken(game as any, 'p1' as any, 'Soldier', 2, 1, 1, { typeLine: 'Token Creature - Soldier' }, true);
+    expect(createdIds).toHaveLength(8);
+  });
+
+  it('evaluates counter placement replacement metadata around existing counter ordering', () => {
+    const game = createInitialGameState('replacement_effect_counter_placement');
+    game.applyEvent({ type: 'join', playerId: 'p1', name: 'P1' } as any);
+    (game.state as any).battlefield = [
+      {
+        id: 'counter_target_1',
+        controller: 'p1',
+        owner: 'p1',
+        card: { id: 'counter_target_card_1', name: 'Counter Target', type_line: 'Creature', oracle_text: '' },
+      },
+      {
+        id: 'doubling_season_1',
+        controller: 'p1',
+        owner: 'p1',
+        card: { id: 'doubling_season_card_1', name: 'Doubling Season', type_line: 'Enchantment', oracle_text: '' },
+      },
+      {
+        id: 'hardened_scales_1',
+        controller: 'p1',
+        owner: 'p1',
+        card: { id: 'hardened_scales_card_1', name: 'Hardened Scales', type_line: 'Enchantment', oracle_text: '' },
+      },
+    ];
+
+    const modifiedDeltas = applyCounterModifications(game.state, 'counter_target_1', { '+1/+1': 2 });
+    expect(modifiedDeltas).toEqual({ '+1/+1': 6 });
+
+    const result = evaluateCounterPlacementReplacementEvent({
+      state: game.state,
+      targetPermanentId: 'counter_target_1',
+      controllerId: 'p1',
+      deltas: { '+1/+1': 2 },
+      modifiedDeltas,
+    });
+
+    expect(result).toMatchObject({
+      applied: true,
+      eventType: 'counter-placement',
+      effectId: 'counter-placement-modified',
+      originalAmount: 2,
+      replacementAmount: 6,
+      reason: 'counter_placement_replacement',
+      metadata: {
+        targetPermanentId: 'counter_target_1',
+        controllerId: 'p1',
+        originalDeltas: { '+1/+1': 2 },
+        modifiedDeltas: { '+1/+1': 6 },
+      },
+    });
   });
 });

@@ -21,6 +21,7 @@ import { inferManaValueConstraintFromText } from "./graveyard-mana-value.js";
 import { detectKeywords } from "./keyword-detection.js";
 import { moveRemovedPermanentToExile } from "./zones.js";
 import { registerLinkedExile } from "./triggers/linked-exile.js";
+import { evaluateCounterPlacementReplacementEvent, evaluateTokenCreationReplacementEvent } from "./replacement-effects.js";
 
 /**
  * Counter modification effects that double or halve counters
@@ -792,7 +793,14 @@ export function applyCounterModifications(
     modified[counterType] = amount;
   }
   
-  return modified;
+  const replacement = evaluateCounterPlacementReplacementEvent({
+    state: gameState,
+    targetPermanentId,
+    controllerId: targetController,
+    deltas,
+    modifiedDeltas: modified,
+  });
+  return ((replacement.metadata as any)?.modifiedDeltas as Record<string, number> | undefined) || modified;
 }
 
 export function updateCounters(ctx: GameContext, permanentId: string, deltas: Record<string, number>) {
@@ -930,42 +938,16 @@ export function createToken(
   const createdPermanentIds: string[] = [];
   
   // Apply token doubling effects (Anointed Procession, Doubling Season, Elspeth, etc.)
-  // Import the function from stack.ts dynamically to avoid circular dependency
   let tokensToCreate = count;
   try {
-    const battlefield = state.battlefield || [];
-    let multiplier = 1;
-    
-    for (const perm of battlefield) {
-      const permName = (perm.card?.name || '').toLowerCase();
-      const permOracle = (perm.card?.oracle_text || '').toLowerCase();
-
-      // Primal Vigor is global (applies regardless of controller)
-      if (permName.includes('primal vigor')) {
-        multiplier *= 2;
-        continue;
-      }
-
-      if (perm.controller !== controller) continue;
-      
-      // Ojer Taq: triples tokens (3x multiplier)
-      if (permName.includes('ojer taq') ||
-          (permOracle.includes('three times that many') && permOracle.includes('token'))) {
-        multiplier *= 3;
-      }
-      
-      // Token doublers (Anointed Procession, Doubling Season, Elspeth, etc.)
-      if (permName.includes('anointed procession') ||
-          permName.includes('parallel lives') ||
-          permName.includes('doubling season') ||
-          permName.includes('mondrak, glory dominus') ||
-          (permName.includes('elspeth') && permOracle.includes('twice that many')) ||
-          (permOracle.includes('twice that many') && permOracle.includes('token'))) {
-        multiplier *= 2;
-      }
-    }
-    
-    tokensToCreate = count * multiplier;
+    const replacement = evaluateTokenCreationReplacementEvent({
+      state,
+      controllerId: String(controller),
+      count,
+      tokenName: name,
+    });
+    const multiplier = Number((replacement.metadata as any)?.multiplier || 1);
+    tokensToCreate = Math.floor(Number(replacement.replacementAmount ?? count));
     if (multiplier > 1) {
       debug(2, `[createToken] Token doubling: creating ${tokensToCreate} tokens (base: ${count}, multiplier: ${multiplier})`);
     }
