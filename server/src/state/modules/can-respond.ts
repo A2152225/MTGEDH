@@ -16,7 +16,7 @@
 
 import type { GameContext } from "../context";
 import type { PlayerID } from "../../../../shared/src";
-import { parseManaCost, canPayManaCostWithAvailableSources, getManaPoolFromState, getAvailableMana } from "./mana-check";
+import { parseManaCost, normalizeParsedManaCost, canPayManaCostWithAvailableSources, getManaPoolFromState, getAvailableMana } from "./mana-check";
 import { hasPayableAlternateCost } from "./alternate-costs";
 import { hasValidTargetsForSpell } from "../../rules-engine/target-availability.js";
 import { calculateMaxLandsPerTurn, canCastFromTop, canPlayLandsFromTop, getActiveAbilityConditions } from "./game-state-effects";
@@ -119,6 +119,7 @@ function normalizeParsedCostForAnyTypeManaSpending(parsedCost: ReturnType<typeof
     colors: { W: 0, U: 0, B: 0, R: 0, G: 0, C: 0 },
     generic: Math.max(0, Number(parsedCost.generic || 0)) + colorCostTotal,
     hybrid,
+    hybrids: hybrid,
   };
 }
 
@@ -317,7 +318,9 @@ export function getCommandZoneCommanderCandidates(
       const commanderTax = Number((commandZone as any).taxById?.[commanderId] ?? (commandZone as any).taxById?.[commanderKey] ?? 0) || 0;
       const costAdjustmentPlan = buildCostAdjustmentPlan(state, playerId, commander);
       const costAdjustment = costAdjustmentPlan.totalAdjustment;
-      const adjustedCost = applyCostAdjustmentToParsedCost(parsedCost, costAdjustmentPlan, commanderTax);
+      const adjustedCost = normalizeParsedManaCost(
+        applyCostAdjustmentToParsedCost(parsedCost, costAdjustmentPlan, commanderTax),
+      );
       const payableCost = spendManaAsThoughAnyType
         ? normalizeParsedCostForAnyTypeManaSpending(adjustedCost)
         : adjustedCost;
@@ -1512,7 +1515,9 @@ export function getCastableSpellCandidates(
 
         const parsedCost = parseManaCost(manaCost);
         const costAdjustmentPlan = buildCostAdjustmentPlan(state, playerId, castCard);
-        const adjustedCost = applyCostAdjustmentToParsedCost(parsedCost, costAdjustmentPlan);
+        const adjustedCost = normalizeParsedManaCost(
+          applyCostAdjustmentToParsedCost(parsedCost, costAdjustmentPlan),
+        );
         const payableCost = spendManaAsThoughAnyType
           ? normalizeParsedCostForAnyTypeManaSpending(adjustedCost)
           : adjustedCost;

@@ -4,6 +4,7 @@ import {
   buildCostAdjustmentPlan,
   buildLiveSpellCostAdjustment,
 } from '../src/state/modules/cost-adjustments.js';
+import { buildNormalizedManaPaymentModel, parseManaCost, stringifyParsedManaCost } from '../src/state/modules/mana-check.js';
 
 const redSpell = {
   id: 'red_spell',
@@ -266,5 +267,42 @@ describe('cost adjustment engine', () => {
     expect(adjusted).toMatchObject({ generic: 1, colors: { R: 0 }, hasX: true });
     expect(adjusted.hybrid).toEqual([['R', 'G']]);
     expect(adjusted.hybrid).not.toBe(parsedCost.hybrid);
+  });
+
+  it('normalizes hybrid and Phyrexian mana into one payment model shape', () => {
+    const parsed = parseManaCost('{X}{2}{W/P}{2/U}{B/R}');
+    expect(parsed.hybrid).toEqual([['W', 'LIFE:2'], ['GENERIC:2', 'U'], ['B', 'R']]);
+    expect(parsed.hybrids).toBe(parsed.hybrid);
+    expect(stringifyParsedManaCost(parsed)).toBe('{X}{2}{W/LIFE:2}{GENERIC:2/U}{B/R}');
+
+    const model = buildNormalizedManaPaymentModel({
+      originalManaCost: '{3}{W/P}{B/R}',
+      effectiveManaCost: '{1}{W/P}{B/R}',
+      forcedAlternateCostId: 'miracle',
+      additionalCosts: [{ type: 'discard', count: 1 }],
+    });
+
+    expect(model).toMatchObject({
+      originalManaCost: '{3}{W/P}{B/R}',
+      effectiveManaCost: '{1}{W/P}{B/R}',
+      castWithoutPayingManaCost: false,
+      forcedAlternateCostId: 'miracle',
+      phyrexianCosts: [{ index: 0, color: 'W', lifeCost: 2 }],
+      hybridCosts: [['W', 'LIFE:2'], ['B', 'R']],
+      additionalCosts: [{ type: 'discard', count: 1 }],
+    });
+  });
+
+  it('keeps additional costs while zeroing effective mana for free casts', () => {
+    const model = buildNormalizedManaPaymentModel({
+      originalManaCost: '{4}{U}',
+      effectiveManaCost: '{4}{U}',
+      castWithoutPayingManaCost: true,
+      additionalCosts: [{ type: 'sacrifice', count: 1 }],
+    });
+
+    expect(model.effectiveManaCost).toBe('{0}');
+    expect(model.parsedEffectiveCost).toMatchObject({ generic: 0, colors: { U: 0 }, hasX: false });
+    expect(model.additionalCosts).toEqual([{ type: 'sacrifice', count: 1 }]);
   });
 });

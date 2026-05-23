@@ -126,4 +126,58 @@ describe('Pay-life-as-activation-cost (integration)', () => {
     // Intervening-if inference support: include the full activated-ability text (cost + effect)
     expect(String(stack[0].activatedAbilityText || '').toLowerCase()).toContain('pay 2 life');
   });
+
+  it('rejects explicit sorcery-speed battlefield activations outside the active player main phase', async () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const p1 = 'p1';
+    const p2 = 'p2';
+
+    (game.state as any).players = [
+      { id: p1, name: 'P1', spectator: false, life: 40 },
+      { id: p2, name: 'P2', spectator: false, life: 40 },
+    ];
+    (game.state as any).startingLife = 40;
+    (game.state as any).life = { [p1]: 40, [p2]: 40 };
+    (game.state as any).turnPlayer = p2;
+    (game.state as any).priority = p1;
+    (game.state as any).step = 'MAIN1';
+    (game.state as any).stack = [];
+
+    (game.state as any).battlefield = [
+      {
+        id: 'sorcery_speed_src_1',
+        controller: p1,
+        owner: p1,
+        tapped: false,
+        card: {
+          name: 'Sorcery Speed Permanent',
+          type_line: 'Artifact',
+          oracle_text: '{0}: Draw a card. Activate only as a sorcery.',
+          image_uris: { small: 'https://example.com/test.jpg' },
+        },
+      },
+    ];
+
+    (game.state as any).zones = {
+      [p1]: { hand: [], graveyard: [], handCount: 0, graveyardCount: 0 },
+      [p2]: { hand: [], graveyard: [], handCount: 0, graveyardCount: 0 },
+    };
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(p1, emitted);
+    socket.rooms.add(gameId);
+    const io = createMockIo(emitted, [socket]);
+
+    registerResolutionHandlers(io as any, socket as any);
+    registerInteractionHandlers(io as any, socket as any);
+
+    await handlers['activateBattlefieldAbility']({ gameId, permanentId: 'sorcery_speed_src_1', abilityId: 'sorcery_speed_src_1-ability-0' });
+
+    const error = emitted.find((entry) => entry.event === 'error');
+    expect(error?.payload?.code).toBe('SORCERY_SPEED_ONLY');
+    expect(((game.state as any).stack || [])).toHaveLength(0);
+  });
 });

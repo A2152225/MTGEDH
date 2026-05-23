@@ -130,4 +130,60 @@ describe('ADDITIONAL_COST_PAYMENT validate-before-complete (integration)', () =>
     const queueAfterOk = ResolutionQueueManager.getQueue(gameId);
     expect(queueAfterOk.steps.some((s: any) => String(s.id) === stepId)).toBe(false);
   });
+
+  it('pays reveal additional costs without moving the revealed card', async () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const p1 = 'p1';
+    (game.state as any).players = [{ id: p1, name: 'P1', spectator: false, life: 40 }];
+    (game.state as any).startingLife = 40;
+    (game.state as any).life = { [p1]: 40 };
+    (game.state as any).zones = {
+      [p1]: {
+        hand: [
+          { id: 'spell_reveal_1', name: 'Reveal-Cost Spell', oracle_text: '' },
+          { id: 'dragon_reveal_1', name: 'Dragon Witness', type_line: 'Creature - Dragon', oracle_text: '' },
+        ],
+        handCount: 2,
+        graveyard: [],
+        graveyardCount: 0,
+      },
+    };
+
+    ResolutionQueueManager.addStep(gameId, {
+      type: ResolutionStepType.ADDITIONAL_COST_PAYMENT,
+      playerId: p1 as any,
+      cardId: 'spell_reveal_1',
+      cardName: 'Reveal-Cost Spell',
+      description: 'Reveal a Dragon card',
+      mandatory: true,
+      costType: 'reveal',
+      amount: 1,
+      title: 'Pay reveal cost',
+      availableCards: [{ id: 'dragon_reveal_1', name: 'Dragon Witness', typeLine: 'Creature - Dragon' }],
+      castSpellFromHandArgs: { cardId: 'spell_reveal_1' },
+    } as any);
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(p1, emitted);
+    socket.rooms.add(gameId);
+
+    const io = createMockIo(emitted, [socket]);
+    registerResolutionHandlers(io as any, socket as any);
+
+    const queue = ResolutionQueueManager.getQueue(gameId);
+    const step = queue.steps.find((s: any) => s.type === 'additional_cost_payment');
+    expect(step).toBeDefined();
+
+    const stepId = String((step as any).id);
+    await handlers['submitResolutionResponse']({ gameId, stepId, selections: 'dragon_reveal_1' });
+
+    const queueAfterOk = ResolutionQueueManager.getQueue(gameId);
+    expect(queueAfterOk.steps.some((s: any) => String(s.id) === stepId)).toBe(false);
+    expect((game.state as any).zones[p1].hand.map((card: any) => card.id)).toEqual(['spell_reveal_1', 'dragon_reveal_1']);
+    expect((game.state as any).zones[p1].graveyard).toEqual([]);
+    expect(emitted.some((entry) => entry.event === 'chat' && String(entry.payload?.message || '').includes('reveals Dragon Witness'))).toBe(true);
+  });
 });

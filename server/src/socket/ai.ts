@@ -27,11 +27,13 @@ import { GameManager } from "../GameManager.js";
 import {
   getAvailableMana,
   parseManaCost,
+  normalizeParsedManaCost,
   canPayManaCost,
   canPayManaCostWithAvailableSources,
   getTotalManaFromPool,
   parseHandCostFromManaAbilityCost,
   parseReturnToHandCostFromManaAbilityCost,
+  type ParsedManaCost,
 } from "../state/modules/mana-check.js";
 import { canAct, canPlayLand, canRespond, getCastableCommanderCandidates, getCastableSpellCandidates, getPlayableLandCandidates, isCardPlayableAsLandFromHand, type SharedCommanderCastCandidate, type SharedPlayableLandCandidate, type SharedSpellSourceZone } from "../state/modules/can-respond.js";
 import { applyCostAdjustmentToParsedCost, buildCostAdjustmentPlan } from "../state/modules/cost-adjustments.js";
@@ -3554,22 +3556,17 @@ function getSpellCmc(cost: { generic: number; colors: Record<string, number> }):
   return Number(cost?.generic || 0) + Object.values(cost?.colors || {}).reduce((sum, value) => sum + Number(value || 0), 0);
 }
 
-function getAIAdjustedSpellCost(game: any, playerId: PlayerID, card: any): { generic: number; colors: Record<string, number>; hasX: boolean; hybrid?: Array<string[]> } {
+function getAIAdjustedSpellCost(game: any, playerId: PlayerID, card: any): ParsedManaCost {
   const manaCost = String(card?.mana_cost || card?.manaCost || '').trim();
   const parsedCost = parseManaCost(manaCost);
 
   if (!manaCost) {
-    return {
-      generic: Number(parsedCost.generic || 0),
-      colors: { ...(parsedCost.colors || {}) },
-      hasX: Boolean(parsedCost.hasX),
-      ...(Array.isArray(parsedCost.hybrid)
-        ? { hybrid: parsedCost.hybrid.map((entry) => [...entry]) }
-        : {}),
-    };
+    return normalizeParsedManaCost(parsedCost);
   }
 
-  return applyCostAdjustmentToParsedCost(parsedCost, buildCostAdjustmentPlan(game?.state, String(playerId), card));
+  return normalizeParsedManaCost(
+    applyCostAdjustmentToParsedCost(parsedCost, buildCostAdjustmentPlan(game?.state, String(playerId), card)),
+  );
 }
 
 async function getAIActivatedAbilityCandidate(
@@ -6713,6 +6710,59 @@ function chooseCardsToDiscard(game: any, playerId: PlayerID, discardCount: numbe
   return scoredCards.slice(0, discardCount).map((sc: any) => sc.card.id);
 }
 
+function scoreAIRevealCostCard(card: any): number {
+  const typeLine = String(card?.type_line || '').toLowerCase();
+  const oracleText = String(card?.oracle_text || '').toLowerCase();
+  const manaValue = Math.max(0, Number(card?.cmc ?? card?.manaValue ?? card?.mana_value ?? 0) || 0);
+  let score = manaValue * 3;
+
+  if (typeLine.includes('land')) score -= 20;
+  if (typeLine.includes('planeswalker')) score += 30;
+  if (typeLine.includes('battle')) score += 15;
+  if (typeLine.includes('creature')) score += 5;
+  if (typeLine.includes('legendary')) score += 5;
+  if (/\b(draw|destroy|exile|counter target|extra turn|tutor|search your library)\b/i.test(oracleText)) score += 8;
+
+  return score;
+}
+
+function chooseAIRevealCostCards(availableCards: any[], amount: number): string[] {
+  return [...availableCards]
+    .sort((left: any, right: any) => (
+      scoreAIRevealCostCard(left) - scoreAIRevealCostCard(right) ||
+      String(left?.name || '').localeCompare(String(right?.name || '')) ||
+      String(left?.id || '').localeCompare(String(right?.id || ''))
+    ))
+    .slice(0, Math.max(0, amount))
+    .map((entry: any) => String(entry?.id || ''))
+    .filter(Boolean);
+}
+
+function chooseAIAdditionalCostCardIds(game: any, playerId: PlayerID, step: any, amount: number): string[] {
+  const availableCards = Array.isArray(step?.availableCards) ? step.availableCards : [];
+  const costType = String(step?.costType || 'discard');
+  if (costType === 'reveal') {
+    return chooseAIRevealCostCards(availableCards, amount);
+  }
+
+  const selected: string[] = [];
+  if (costType === 'discard') {
+    const legalIds = new Set(availableCards.map((entry: any) => String(entry?.id || '')).filter(Boolean));
+    for (const cardId of chooseCardsToDiscard(game, playerId, availableCards.length)) {
+      const normalizedId = String(cardId || '');
+      if (legalIds.has(normalizedId) && !selected.includes(normalizedId)) selected.push(normalizedId);
+      if (selected.length >= amount) return selected;
+    }
+  }
+
+  for (const entry of availableCards) {
+    const id = String(entry?.id || '');
+    if (id && !selected.includes(id)) selected.push(id);
+    if (selected.length >= amount) break;
+  }
+  return selected;
+}
+
 /**
  * Handle AI turn when it's an AI player's priority
  * This is the main AI decision-making function that handles:
@@ -9321,15 +9371,17 @@ async function handleAIResolutionStep(
       case 'additional_cost_payment': {
         const amount = Math.max(0, Number((step as any)?.amount ?? 0));
         const costType = String((step as any)?.costType || 'discard');
-        const pool = costType === 'remove_counters'
+        const selectedIds = (costType === 'remove_counters'
           ? (Array.isArray((step as any)?.availableCounters) ? (step as any).availableCounters : [])
+              .slice(0, amount)
+              .map((entry: any) => String(entry?.id || ''))
+              .filter(Boolean)
           : (costType === 'sacrifice'
             ? (Array.isArray((step as any)?.availableTargets) ? (step as any).availableTargets : [])
-            : (Array.isArray((step as any)?.availableCards) ? (step as any).availableCards : []));
-        const selectedIds = pool
-          .slice(0, amount)
-          .map((entry: any) => String(entry?.id || ''))
-          .filter(Boolean);
+                .slice(0, amount)
+                .map((entry: any) => String(entry?.id || ''))
+                .filter(Boolean)
+            : chooseAIAdditionalCostCardIds(game, playerId, step, amount)));
 
         ResolutionQueueManager.completeStep(gameId, step.id, createResponse(selectedIds));
         debug(1, `[AI] additional_cost_payment: selected ${selectedIds.length} item(s)`);
@@ -9417,6 +9469,23 @@ async function handleAIResolutionStep(
       case 'devour_selection': {
         ResolutionQueueManager.completeStep(gameId, step.id, createResponse([]));
         debug(1, `[AI] devour_selection: not sacrificing any creatures`);
+        break;
+      }
+
+      case 'suspend_cast': {
+        ResolutionQueueManager.completeStep(gameId, step.id, createResponse({ action: 'suspend' }));
+        debug(1, `[AI] suspend_cast: suspending ${String((step as any)?.card?.name || 'card')}`);
+        break;
+      }
+
+      case 'morph_turn_face_up': {
+        const canAfford = (step as any)?.canAfford !== false;
+        ResolutionQueueManager.completeStep(
+          gameId,
+          step.id,
+          createResponse({ action: canAfford ? 'turn_face_up' : 'cancel' }, !canAfford),
+        );
+        debug(1, `[AI] morph_turn_face_up: ${canAfford ? 'turning face-up' : 'cancelling (cannot afford)'}`);
         break;
       }
 

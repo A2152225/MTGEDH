@@ -1,6 +1,6 @@
 export type ReplacementZone = 'battlefield' | 'graveyard' | 'exile' | 'hand' | 'library' | 'command' | 'stack';
 
-export type ReplacementEvent = ZoneChangeReplacementEvent | DamageReplacementEvent | LifeGainReplacementEvent | LibrarySearchReplacementEvent | TokenCreationReplacementEvent | CounterPlacementReplacementEvent;
+export type ReplacementEvent = ZoneChangeReplacementEvent | BattlefieldEntryReplacementEvent | DamageReplacementEvent | LifeGainReplacementEvent | LibrarySearchReplacementEvent | TokenCreationReplacementEvent | CounterPlacementReplacementEvent | CardDrawReplacementEvent;
 
 export interface ZoneChangeReplacementEvent {
   type: 'zone-change';
@@ -14,9 +14,26 @@ export interface ZoneChangeReplacementEvent {
   metadata?: Record<string, unknown>;
 }
 
+export interface BattlefieldEntryReplacementEvent {
+  type: 'battlefield-entry';
+  state?: any;
+  card?: any;
+  permanent?: any;
+  controllerId: string;
+  entersTapped?: boolean;
+  entryCounters?: Record<string, number>;
+  entersTransformed?: boolean;
+  entersFaceDown?: boolean;
+  copySourceId?: string;
+  cause?: string;
+  metadata?: Record<string, unknown>;
+}
+
 export interface DamageReplacementEvent {
   type: 'damage';
+  state?: any;
   amount: number;
+  replacementAmount?: number;
   source?: any;
   sourceId?: string;
   target?: any;
@@ -24,6 +41,16 @@ export interface DamageReplacementEvent {
   targetPlayerId?: string;
   combatDamage?: boolean;
   damageKind?: 'combat' | 'noncombat';
+  cause?: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface CardDrawReplacementEvent {
+  type: 'card-draw';
+  state?: any;
+  playerId: string;
+  count: number;
+  drawIndex?: number;
   cause?: string;
   metadata?: Record<string, unknown>;
 }
@@ -162,6 +189,119 @@ function deltasDiffer(left: Record<string, number>, right: Record<string, number
 
 function sumPositiveDeltas(deltas: Record<string, number>): number {
   return Object.values(deltas).reduce((sum, value) => sum + Math.max(0, Number(value || 0)), 0);
+}
+
+function hasPositiveDeltas(deltas: Record<string, number> | undefined): boolean {
+  return Object.values(deltas || {}).some((value) => Number(value || 0) > 0);
+}
+
+function getCardName(card: any): string {
+  return String(card?.name || '').trim();
+}
+
+function getCardTypeLine(card: any): string {
+  return normalizeReplacementText(card?.type_line || card?.type || '');
+}
+
+function getCardOracleText(card: any): string {
+  return normalizeReplacementText(card?.oracle_text || card?.text || '');
+}
+
+function getEventStateBattlefield(event: { state?: any; metadata?: Record<string, unknown> }): any[] {
+  const stateBattlefield = Array.isArray(event.state?.battlefield) ? event.state.battlefield : [];
+  if (stateBattlefield.length > 0) return stateBattlefield;
+  const metadataBattlefield = Array.isArray(event.metadata?.battlefield) ? event.metadata?.battlefield : [];
+  return metadataBattlefield;
+}
+
+function getDamageSourceColors(source: any): string[] {
+  const rawColors = Array.isArray(source?.colors)
+    ? source.colors
+    : Array.isArray(source?.color_identity)
+      ? source.color_identity
+      : [];
+  return rawColors.map((color: any) => String(color || '').trim().toUpperCase()).filter(Boolean);
+}
+
+function damageCannotBePrevented(event: DamageReplacementEvent): { sourceName?: string; reason: string } | null {
+  if (event.metadata?.damageCanBePrevented === false) {
+    return { reason: 'damage_prevention_disallowed' };
+  }
+
+  const sourceOracle = getCardOracleText(event.source?.card || event.source);
+  if (sourceOracle.includes("damage can't be prevented")
+    || (sourceOracle.includes("damage that would be dealt by") && sourceOracle.includes("can't be prevented"))) {
+    return {
+      sourceName: getCardName(event.source?.card || event.source),
+      reason: 'source_damage_prevention_disallowed',
+    };
+  }
+
+  for (const permanent of getEventStateBattlefield(event)) {
+    const oracle = getCardOracleText(permanent?.card || permanent);
+    if (!oracle.includes("damage can't be prevented")) continue;
+    return {
+      sourceName: getCardName(permanent?.card || permanent),
+      reason: 'static_damage_prevention_disallowed',
+    };
+  }
+
+  return null;
+}
+
+function replacementEffectModifiedAmount(originalAmount: number, rawEffects: unknown): { finalAmount: number; appliedEffects: string[] } | null {
+  if (!Array.isArray(rawEffects) || rawEffects.length === 0) return null;
+
+  let amount = originalAmount;
+  const appliedEffects: string[] = [];
+  for (const effect of rawEffects as any[]) {
+    const type = normalizeReplacementText(effect?.type || effect?.kind || '');
+    const source = String(effect?.source || effect?.sourceName || 'Damage replacement').trim();
+    const before = amount;
+    if (type === 'prevent') {
+      amount = 0;
+    } else if (type === 'double') {
+      amount *= 2;
+    } else if (type === 'triple') {
+      amount *= 3;
+    } else if (type === 'halve') {
+      amount = Math.floor(amount / 2);
+    } else if (type === 'halve_round_up' || type === 'halve round up') {
+      amount = Math.ceil(amount / 2);
+    } else if (type === 'add_flat' || type === 'add flat') {
+      amount += Number(effect?.value || 1);
+    } else {
+      continue;
+    }
+    amount = Math.max(0, amount);
+    appliedEffects.push(`${source}: ${type} (${before} -> ${amount})`);
+  }
+
+  return appliedEffects.length > 0 ? { finalAmount: amount, appliedEffects } : null;
+}
+
+function getDredgeOptions(event: CardDrawReplacementEvent): Array<{ cardId: string; cardName: string; dredge: number }> {
+  const zone = event.state?.zones?.[event.playerId] || {};
+  const graveyard = Array.isArray(zone.graveyard) ? zone.graveyard : [];
+  const libraryCount = Array.isArray(event.state?.libraries?.[event.playerId])
+    ? event.state.libraries[event.playerId].length
+    : Number(zone.libraryCount || 0);
+  const options: Array<{ cardId: string; cardName: string; dredge: number }> = [];
+
+  for (const card of graveyard) {
+    const oracle = getCardOracleText(card);
+    const match = oracle.match(/\bdredge\s+(\d+)\b/i);
+    if (!match) continue;
+    const dredge = parseInt(match[1], 10);
+    if (!Number.isFinite(dredge) || dredge <= 0 || libraryCount < dredge) continue;
+    options.push({
+      cardId: String(card?.id || '').trim(),
+      cardName: getCardName(card) || 'Dredge card',
+      dredge,
+    });
+  }
+
+  return options;
 }
 
 function normalizeReplacementText(value: unknown): string {
@@ -336,6 +476,66 @@ const commanderZoneChoiceEvaluator: ReplacementEffectEvaluator = (event) => {
   };
 };
 
+const battlefieldEntryReplacementEvaluator: ReplacementEffectEvaluator = (event) => {
+  if (event.type !== 'battlefield-entry') return null;
+
+  const entryCounters = normalizeDeltas(event.entryCounters);
+  const entersTapped = event.entersTapped === true;
+  const entersTransformed = event.entersTransformed === true;
+  const entersFaceDown = event.entersFaceDown === true;
+  const copySourceId = String(event.copySourceId || '').trim();
+  const hasEntryReplacement = entersTapped || hasPositiveDeltas(entryCounters) || entersTransformed || entersFaceDown || Boolean(copySourceId);
+  if (!hasEntryReplacement) return null;
+
+  const effects: string[] = [];
+  if (entersTapped) effects.push('entersTapped');
+  if (hasPositiveDeltas(entryCounters)) effects.push('entryCounters');
+  if (entersTransformed) effects.push('entersTransformed');
+  if (entersFaceDown) effects.push('entersFaceDown');
+  if (copySourceId) effects.push('copy');
+
+  return {
+    applied: true,
+    eventType: event.type,
+    effectId: effects.length === 1 ? `battlefield-entry-${effects[0]}` : 'battlefield-entry-modified',
+    sourceName: getCardName(event.card || event.permanent?.card) || undefined,
+    reason: 'battlefield_entry_replacement',
+    metadata: {
+      controllerId: String(event.controllerId || ''),
+      effects,
+      entersTapped,
+      entryCounters,
+      entersTransformed,
+      entersFaceDown,
+      ...(copySourceId ? { copySourceId } : {}),
+    },
+  };
+};
+
+const damagePreventionDisallowedEvaluator: ReplacementEffectEvaluator = (event) => {
+  if (event.type !== 'damage') return null;
+
+  const originalAmount = Math.max(0, Number(event.amount || 0));
+  if (originalAmount <= 0) return null;
+  const disallowed = damageCannotBePrevented(event);
+  if (!disallowed) return null;
+
+  return {
+    applied: true,
+    eventType: event.type,
+    effectId: 'damage-prevention-disallowed',
+    sourceName: disallowed.sourceName,
+    originalAmount,
+    replacementAmount: originalAmount,
+    preventedAmount: 0,
+    reason: disallowed.reason,
+    metadata: {
+      damageCanBePrevented: false,
+      targetId: String(event.targetId || event.target?.id || event.targetPlayerId || '').trim(),
+    },
+  };
+};
+
 const shieldCounterDamagePreventionEvaluator: ReplacementEffectEvaluator = (event) => {
   if (event.type !== 'damage') return null;
 
@@ -353,6 +553,104 @@ const shieldCounterDamagePreventionEvaluator: ReplacementEffectEvaluator = (even
     reason: 'shield_counter',
     metadata: {
       targetId: String(event.targetId || event.target?.id || '').trim(),
+    },
+  };
+};
+
+const damagePreventionEffectEvaluator: ReplacementEffectEvaluator = (event) => {
+  if (event.type !== 'damage') return null;
+
+  const originalAmount = Math.max(0, Number(event.amount || 0));
+  if (originalAmount <= 0) return null;
+
+  const targetPlayerId = String(event.targetPlayerId || '').trim();
+  const targetPermanentId = String(event.targetId || event.target?.id || '').trim();
+  const normalizedSourceId = String(event.sourceId || event.source?.id || '').trim();
+  const sourceColors = getDamageSourceColors(event.source?.card || event.source);
+  const currentTurn = Number(event.state?.turnNumber ?? event.state?.turn ?? 0) || 0;
+  const effects = Array.isArray(event.state?.damagePreventionEffects)
+    ? event.state.damagePreventionEffects
+    : Array.isArray(event.metadata?.damagePreventionEffects)
+      ? event.metadata?.damagePreventionEffects
+      : [];
+
+  for (const effect of effects) {
+    const targetSourceId = String(effect?.targetSourceId || '*').trim() || '*';
+    if (targetSourceId !== '*' && targetSourceId !== normalizedSourceId) continue;
+
+    const effectTargetPlayerId = String(effect?.targetPlayerId || '').trim();
+    if (effectTargetPlayerId && effectTargetPlayerId !== targetPlayerId) continue;
+
+    const effectTargetPermanentId = String(effect?.targetPermanentId || '').trim();
+    if (effectTargetPermanentId && effectTargetPermanentId !== targetPermanentId) continue;
+
+    const expiresAtTurn = Number(effect?.expiresAtTurn);
+    if (Number.isFinite(expiresAtTurn) && expiresAtTurn !== currentTurn) continue;
+
+    const requiredColors = Array.isArray(effect?.colors)
+      ? effect.colors.map((color: any) => String(color || '').trim().toUpperCase()).filter(Boolean)
+      : [];
+    if (requiredColors.length > 0 && !requiredColors.some((color: string) => sourceColors.includes(color))) continue;
+
+    const remainingAmount = Number(effect?.remainingAmount);
+    const preventedAmount = Number.isFinite(remainingAmount)
+      ? Math.min(originalAmount, Math.max(0, remainingAmount))
+      : originalAmount;
+    if (preventedAmount <= 0) continue;
+
+    return {
+      applied: true,
+      eventType: event.type,
+      effectId: 'damage-prevented-by-effect',
+      sourceName: String(effect?.sourceName || effect?.source || '').trim() || undefined,
+      originalAmount,
+      replacementAmount: Math.max(0, originalAmount - preventedAmount),
+      preventedAmount,
+      reason: 'damage_prevention_effect',
+      metadata: {
+        effectId: String(effect?.id || '').trim(),
+        targetId: targetPlayerId || targetPermanentId,
+      },
+    };
+  }
+
+  return null;
+};
+
+const damageAmountReplacementEvaluator: ReplacementEffectEvaluator = (event) => {
+  if (event.type !== 'damage') return null;
+
+  const originalAmount = Math.max(0, Number(event.amount || 0));
+  if (originalAmount <= 0) return null;
+
+  const explicitReplacementAmount = Number(event.replacementAmount);
+  if (Number.isFinite(explicitReplacementAmount) && Math.max(0, explicitReplacementAmount) !== originalAmount) {
+    const replacementAmount = Math.max(0, explicitReplacementAmount);
+    return {
+      applied: true,
+      eventType: event.type,
+      effectId: replacementAmount === 0 ? 'damage-prevented' : 'damage-amount-modified',
+      originalAmount,
+      replacementAmount,
+      preventedAmount: Math.max(0, originalAmount - replacementAmount),
+      reason: 'damage_amount_replacement',
+      metadata: { ...(event.metadata || {}) },
+    };
+  }
+
+  const replacement = replacementEffectModifiedAmount(originalAmount, event.metadata?.replacementEffects);
+  if (!replacement || replacement.finalAmount === originalAmount) return null;
+
+  return {
+    applied: true,
+    eventType: event.type,
+    effectId: replacement.finalAmount === 0 ? 'damage-prevented' : 'damage-amount-modified',
+    originalAmount,
+    replacementAmount: replacement.finalAmount,
+    preventedAmount: Math.max(0, originalAmount - replacement.finalAmount),
+    reason: 'damage_amount_replacement',
+    metadata: {
+      appliedEffects: replacement.appliedEffects,
     },
   };
 };
@@ -597,16 +895,89 @@ const counterPlacementReplacementEvaluator: ReplacementEffectEvaluator = (event)
   };
 };
 
+const cardDrawReplacementEvaluator: ReplacementEffectEvaluator = (event) => {
+  if (event.type !== 'card-draw') return null;
+
+  const originalAmount = Math.max(0, Math.floor(Number(event.count || 0)));
+  if (originalAmount <= 0) return null;
+
+  const dredgeOptions = getDredgeOptions(event);
+  if (dredgeOptions.length > 0) {
+    return {
+      applied: false,
+      choiceRequired: true,
+      eventType: event.type,
+      effectId: 'dredge-draw-replacement-choice',
+      originalAmount,
+      replacementAmount: 0,
+      reason: 'dredge_replacement_choice',
+      metadata: {
+        playerId: String(event.playerId || ''),
+        dredgeOptions,
+      },
+    };
+  }
+
+  const isFirstDrawStepDraw = event.metadata?.isFirstDrawStepDraw === true;
+  const battlefield = getEventStateBattlefield(event);
+  for (const permanent of battlefield) {
+    if (!permanent?.card) continue;
+    if (String(permanent.controller || '') === String(event.playerId || '')) continue;
+
+    const cardName = normalizeReplacementText(permanent.card.name || '');
+    const oracle = getCardOracleText(permanent.card);
+    if (cardName.includes('notion thief') || (oracle.includes('if an opponent would draw a card') && oracle.includes('instead you draw a card'))) {
+      if (isFirstDrawStepDraw) continue;
+      return {
+        applied: true,
+        eventType: event.type,
+        effectId: 'draw-replaced-by-opponent',
+        sourceName: getCardName(permanent.card) || undefined,
+        originalAmount,
+        replacementAmount: 0,
+        reason: 'draw_replaced_by_opponent',
+        metadata: {
+          playerId: String(event.playerId || ''),
+          replacementPlayerId: String(permanent.controller || ''),
+        },
+      };
+    }
+
+    if (originalAmount >= 2 && (cardName.includes('alms collector') || (oracle.includes('opponent would draw two or more cards') && oracle.includes('instead you and that player each draw a card')))) {
+      return {
+        applied: true,
+        eventType: event.type,
+        effectId: 'draw-replaced-by-shared-draw',
+        sourceName: getCardName(permanent.card) || undefined,
+        originalAmount,
+        replacementAmount: 1,
+        reason: 'draw_replaced_by_shared_draw',
+        metadata: {
+          playerId: String(event.playerId || ''),
+          additionalDraws: [{ playerId: String(permanent.controller || ''), count: 1 }],
+        },
+      };
+    }
+  }
+
+  return null;
+};
+
 const replacementEffectEvaluators: ReplacementEffectEvaluator[] = [
   leaveBattlefieldExileEvaluator,
   tokenLeaveBattlefieldEvaluator,
   stackGraveyardExileEvaluator,
   commanderZoneChoiceEvaluator,
+  battlefieldEntryReplacementEvaluator,
+  damagePreventionDisallowedEvaluator,
   shieldCounterDamagePreventionEvaluator,
+  damagePreventionEffectEvaluator,
+  damageAmountReplacementEvaluator,
   lifeGainPreventionEvaluator,
   librarySearchReplacementEvaluator,
   tokenCreationReplacementEvaluator,
   counterPlacementReplacementEvaluator,
+  cardDrawReplacementEvaluator,
 ];
 
 export function evaluateReplacementEvent(event: ReplacementEvent): ReplacementEffectResult {
@@ -631,6 +1002,31 @@ export function evaluateReplacementEvent(event: ReplacementEvent): ReplacementEf
       applied: false,
       eventType: event.type,
       metadata: { canSearch: true, triggerEffects: [] },
+    };
+  }
+
+  if (event.type === 'battlefield-entry') {
+    return {
+      applied: false,
+      eventType: event.type,
+      metadata: {
+        controllerId: String(event.controllerId || ''),
+        entersTapped: false,
+        entryCounters: {},
+        entersTransformed: false,
+        entersFaceDown: false,
+      },
+    };
+  }
+
+  if (event.type === 'card-draw') {
+    const originalAmount = Math.max(0, Math.floor(Number(event.count || 0)));
+    return {
+      applied: false,
+      eventType: event.type,
+      originalAmount,
+      replacementAmount: originalAmount,
+      metadata: { playerId: String(event.playerId || '') },
     };
   }
 
@@ -708,6 +1104,13 @@ export function evaluateDamageReplacementEvent(event: Omit<DamageReplacementEven
   });
 }
 
+export function evaluateBattlefieldEntryReplacementEvent(event: Omit<BattlefieldEntryReplacementEvent, 'type'>): ReplacementEffectResult {
+  return evaluateReplacementEvent({
+    type: 'battlefield-entry',
+    ...event,
+  });
+}
+
 export function evaluateLifeGainReplacementEvent(event: Omit<LifeGainReplacementEvent, 'type'>): ReplacementEffectResult {
   return evaluateReplacementEvent({
     type: 'life-gain',
@@ -732,6 +1135,13 @@ export function evaluateTokenCreationReplacementEvent(event: Omit<TokenCreationR
 export function evaluateCounterPlacementReplacementEvent(event: Omit<CounterPlacementReplacementEvent, 'type'>): ReplacementEffectResult {
   return evaluateReplacementEvent({
     type: 'counter-placement',
+    ...event,
+  });
+}
+
+export function evaluateDrawReplacementEvent(event: Omit<CardDrawReplacementEvent, 'type'>): ReplacementEffectResult {
+  return evaluateReplacementEvent({
+    type: 'card-draw',
     ...event,
   });
 }

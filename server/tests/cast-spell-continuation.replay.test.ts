@@ -33,6 +33,7 @@ describe('castSpellContinuation replay semantics', () => {
       't_cast_spell_continuation_donate_payment_prompt_replay',
       't_cast_spell_continuation_mutate_payment_prompt_replay',
       't_cast_spell_continuation_blight_prompt_replay',
+      't_cast_spell_continuation_reveal_cost_replay',
     ]) {
       resetGame(gameId);
     }
@@ -73,6 +74,45 @@ describe('castSpellContinuation replay semantics', () => {
     expect(player?.life).toBe(35);
     expect((game.state as any).lifeLostThisTurn[p1]).toBe(5);
     expect((zones.hand[0] as any).lifePaymentAmount).toBe(5);
+  });
+
+  it('replays reveal-cost evidence without moving the revealed card', () => {
+    const game = createInitialGameState('t_cast_spell_continuation_reveal_cost_replay');
+    const p1 = 'p1' as PlayerID;
+    addPlayer(game, p1, 'P1');
+
+    const zones = (game.state as any).zones[p1];
+    zones.hand = [
+      {
+        id: 'spell_reveal_replay_1',
+        name: 'Reveal-Cost Spell',
+        type_line: 'Instant',
+        oracle_text: 'As an additional cost to cast this spell, reveal a Dragon card from your hand.',
+        zone: 'hand',
+      },
+      {
+        id: 'dragon_reveal_replay_1',
+        name: 'Dragon Witness',
+        type_line: 'Creature - Dragon',
+        oracle_text: '',
+        zone: 'hand',
+      },
+    ];
+    zones.handCount = zones.hand.length;
+
+    game.applyEvent({
+      type: 'castSpellContinuation',
+      playerId: p1,
+      cardId: 'spell_reveal_replay_1',
+      revealedCardIdsForCost: ['dragon_reveal_replay_1'],
+      cardUpdates: {
+        additionalCostPaid: true,
+      },
+    } as any);
+
+    expect(zones.hand.map((card: any) => card.id)).toEqual(['spell_reveal_replay_1', 'dragon_reveal_replay_1']);
+    expect((game.state as any).revealedCardIdsForCostBySpell.spell_reveal_replay_1).toEqual(['dragon_reveal_replay_1']);
+    expect((zones.hand[0] as any).additionalCostPaid).toBe(true);
   });
 
   it('replays discarded cards, sacrificed permanents, and bargain flags', () => {

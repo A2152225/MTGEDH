@@ -1331,6 +1331,36 @@ function enforceSorcerySpeedGraveyardAbility(socket: any, game: any, playerId: s
   return true;
 }
 
+function isBattlefieldSorcerySpeedWindow(game: any, playerId: string): boolean {
+  const state = game?.state || {};
+  if (String(state.turnPlayer || '') !== String(playerId || '')) return false;
+  if (Array.isArray(state.stack) && state.stack.length > 0) return false;
+  const step = String(state.step || state.phase || '').toLowerCase();
+  return !step || step.includes('main');
+}
+
+function getBattlefieldActivationTimingRestrictionError(game: any, playerId: string, abilityText: string, cardName: string): { code: string; message: string } | null {
+  const text = String(abilityText || '').toLowerCase();
+  if (/\bactivate(?:\s+(?:this ability|these abilities))?\s+only\s+(?:as a sorcery|any time you could cast a sorcery)\b/i.test(text)) {
+    if (!isBattlefieldSorcerySpeedWindow(game, playerId)) {
+      return {
+        code: 'SORCERY_SPEED_ONLY',
+        message: `${cardName} can only be activated at sorcery speed (your main phase with an empty stack).`,
+      };
+    }
+  }
+
+  if (/\bactivate(?:\s+(?:this ability|these abilities))?\s+only\s+during\s+your\s+turn\b/i.test(text)
+    && String(game?.state?.turnPlayer || '') !== String(playerId || '')) {
+    return {
+      code: 'WRONG_TIMING',
+      message: `${cardName} can only be activated during your turn.`,
+    };
+  }
+
+  return null;
+}
+
 function queueSelfEtbForLiveGraveyardEntry(game: any, gameId: string, playerId: string, permanent: any): void {
   const ctx = {
     state: game.state,
@@ -5237,6 +5267,17 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         code: 'CANNOT_ACTIVATE_CHOSEN_NAME',
         message: `Activated abilities of sources named "${cardName}" can't be activated (${blocker} chose that name).`,
       });
+      return;
+    }
+
+    const timingRestrictionError = getBattlefieldActivationTimingRestrictionError(
+      game,
+      String(pid),
+      scopedAbilityFullText || oracleText,
+      cardName,
+    );
+    if (timingRestrictionError) {
+      socket.emit('error', timingRestrictionError);
       return;
     }
     

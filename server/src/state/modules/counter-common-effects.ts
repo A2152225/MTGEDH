@@ -119,7 +119,8 @@ export function applyShieldCounterDamagePrevention(permanent: any): boolean {
 export function applyDamageToPermanentWithCounterEffects(
   permanent: any,
   amount: number,
-  damageField: 'damage' | 'markedDamage' | 'damageMarked' = 'damageMarked'
+  damageField: 'damage' | 'markedDamage' | 'damageMarked' = 'damageMarked',
+  options?: { state?: any; source?: any; sourceId?: string; targetPlayerId?: string }
 ): { prevented: boolean; appliedAmount: number } {
   const normalizedAmount = Math.max(0, Number(amount || 0));
   if (!permanent || normalizedAmount <= 0) {
@@ -127,9 +128,13 @@ export function applyDamageToPermanentWithCounterEffects(
   }
 
   const replacement = evaluateDamageReplacementEvent({
+    state: options?.state,
     amount: normalizedAmount,
+    source: options?.source,
+    sourceId: options?.sourceId,
     target: permanent,
     targetId: String(permanent?.id || ''),
+    targetPlayerId: options?.targetPlayerId,
     metadata: { damageField },
   });
 

@@ -71,6 +71,7 @@ import { sacrificePermanent } from "../state/modules/upkeep-triggers.js";
 import { permanentHasCreatureTypeNow } from "../state/creatureTypeNow.js";
 import { drawCards as drawCardsFromZones, movePermanentToHand } from "../state/modules/zones.js";
 import { dispatchDamageReceivedTrigger, processDamageReceivedTriggers, resolveDamageTrigger, type DamageTriggerInfo } from "../state/modules/triggers/damage-received.js";
+import { getDiscardTriggers } from "../state/modules/triggers/discard.js";
 import { getTokenImageUrls } from "../services/tokens.js";
 import { normalizeCardName } from "../state/modules/chosen-name-restrictions.js";
 import {
@@ -2270,6 +2271,114 @@ function queueDiscardTriggeredGraveyardCastAbilities(
   }
 }
 
+function queueDiscardTriggeredAbilities(
+  game: any,
+  gameId: string,
+  discardingPlayerId: string,
+  discardedCards: any[],
+): void {
+  const triggers = getDiscardTriggers(game as any, String(discardingPlayerId));
+  if (triggers.length === 0) {
+    return;
+  }
+
+  const cardsToTrigger = Array.isArray(discardedCards)
+    ? discardedCards.filter((card: any) => card)
+    : [];
+  if (cardsToTrigger.length === 0) {
+    return;
+  }
+
+  const stateAny = game.state as any;
+  stateAny.stack = Array.isArray(stateAny.stack) ? stateAny.stack : [];
+
+  const isPermanentCard = (typeLine: string): boolean => {
+    const normalized = String(typeLine || '').toLowerCase();
+    return ['artifact', 'battle', 'creature', 'enchantment', 'land', 'planeswalker'].some((type) => normalized.includes(type));
+  };
+
+  const matchesDiscardTriggerFilter = (card: any, filter: string): boolean => {
+    const typeLine = String(card?.type_line || '').toLowerCase();
+    const isLand = typeLine.includes('land');
+    const isCreature = typeLine.includes('creature');
+    const isArtifact = typeLine.includes('artifact');
+    switch (filter) {
+      case 'land':
+        return isLand;
+      case 'nonland':
+        return !isLand;
+      case 'creature':
+        return isCreature;
+      case 'noncreature_nonland':
+        return !isCreature && !isLand;
+      case 'artifact':
+        return isArtifact;
+      case 'permanent':
+        return isPermanentCard(typeLine);
+      case 'any':
+      default:
+        return true;
+    }
+  };
+
+  const pushDiscardTrigger = (trigger: any, matchingCards: any[]) => {
+    if (matchingCards.length === 0) {
+      return;
+    }
+    if (/\bcast it from your graveyard\b/i.test(String(trigger.effect || ''))) {
+      return;
+    }
+
+    const primaryCard = matchingCards[0];
+    const primaryCardId = String(primaryCard?.id || '').trim();
+    const primaryCardName = String(primaryCard?.name || 'that card').trim() || 'that card';
+    const triggerId = uid('trigger');
+    const stackItem = {
+      id: triggerId,
+      type: 'triggered_ability',
+      controller: String(trigger.controllerId),
+      source: String(trigger.permanentId || triggerId),
+      permanentId: String(trigger.permanentId || triggerId),
+      sourceName: trigger.cardName,
+      description: trigger.effect,
+      effect: trigger.effect,
+      triggerType: trigger.triggerType,
+      triggeringPlayer: String(discardingPlayerId),
+      targetPlayer: String(discardingPlayerId),
+      mandatory: trigger.mandatory !== false,
+      effectData: {
+        discardingPlayerId: String(discardingPlayerId),
+        discardedCardsCount: matchingCards.length,
+        discardedCardIds: matchingCards.map((card: any) => String(card?.id || '')).filter(Boolean),
+        ...(primaryCardId ? { discardedCardId: primaryCardId } : null),
+        ...(primaryCardName ? { discardedCardName: primaryCardName } : null),
+      },
+      ...(primaryCard && typeof primaryCard === 'object'
+        ? { discardedCard: { ...(primaryCard as any) } }
+        : null),
+    } as any;
+
+    stateAny.stack.push(stackItem);
+    appendTriggeredAbilityPushEvent(gameId, game, stackItem);
+  };
+
+  for (const trigger of triggers) {
+    const matchingCards = cardsToTrigger.filter((card: any) => matchesDiscardTriggerFilter(card, String(trigger.cardFilter || 'any')));
+    if (matchingCards.length === 0) {
+      continue;
+    }
+
+    if (trigger.frequency === 'per_event') {
+      pushDiscardTrigger(trigger, matchingCards);
+      continue;
+    }
+
+    for (const matchingCard of matchingCards) {
+      pushDiscardTrigger(trigger, [matchingCard]);
+    }
+  }
+}
+
 function pushTapTriggerOntoStack(
   io: Server,
   game: any,
@@ -2378,6 +2487,58 @@ function matchesGraveyardCardTargetType(card: any, targetType: string): boolean 
   return matchesSharedGraveyardCardTargetType(card, targetType);
 }
 
+function activatedAbilityPermanentTargetMatches(
+  perm: any,
+  rawTargetType: string,
+  controllerId: string,
+  targetReqs: ReturnType<typeof parseTargetRequirements>
+): boolean {
+  if (!perm?.id || !perm?.card) return false;
+
+  const typeLine = String(perm?.card?.type_line || '').toLowerCase();
+  const targetType = String(rawTargetType || '').trim().toLowerCase();
+  const controllerConstraint = String((targetReqs as any).targetControllerConstraint || 'any').toLowerCase();
+
+  if ((controllerConstraint === 'you' || controllerConstraint === 'controller') && String(perm.controller || '') !== String(controllerId || '')) {
+    return false;
+  }
+  if ((controllerConstraint === 'opponent' || controllerConstraint === 'that_player') && String(perm.controller || '') === String(controllerId || '')) {
+    return false;
+  }
+
+  if (Array.isArray((targetReqs as any).targetFilterExcludeTypes)
+    && (targetReqs as any).targetFilterExcludeTypes.some((type: any) => typeLine.includes(String(type || '').toLowerCase()))) {
+    return false;
+  }
+  if (Array.isArray((targetReqs as any).targetFilterRequiredTypeWords)
+    && !(targetReqs as any).targetFilterRequiredTypeWords.every((word: any) => typeLine.includes(String(word || '').toLowerCase()))) {
+    return false;
+  }
+
+  if (typeof (targetReqs as any).targetFilterExactManaValue === 'number' && Number.isFinite((targetReqs as any).targetFilterExactManaValue)) {
+    if (cardManaValue(perm.card) !== Number((targetReqs as any).targetFilterExactManaValue)) return false;
+  }
+  if (typeof (targetReqs as any).targetFilterMinManaValue === 'number' && Number.isFinite((targetReqs as any).targetFilterMinManaValue)) {
+    if (cardManaValue(perm.card) < Number((targetReqs as any).targetFilterMinManaValue)) return false;
+  }
+  if (typeof (targetReqs as any).targetFilterMaxManaValue === 'number' && Number.isFinite((targetReqs as any).targetFilterMaxManaValue)) {
+    if (cardManaValue(perm.card) > Number((targetReqs as any).targetFilterMaxManaValue)) return false;
+  }
+
+  if (targetType === 'any') return typeLine.includes('creature') || typeLine.includes('planeswalker');
+  if (targetType === 'permanent') return true;
+  if (targetType === 'nonland' || targetType === 'nonland permanent') return !typeLine.includes('land');
+  if (targetType === 'noncreature permanent') return !typeLine.includes('creature');
+  if (targetType === 'creature') return typeLine.includes('creature');
+  if (targetType === 'artifact') return typeLine.includes('artifact');
+  if (targetType === 'enchantment') return typeLine.includes('enchantment');
+  if (targetType === 'land') return typeLine.includes('land');
+  if (targetType === 'planeswalker') return typeLine.includes('planeswalker');
+  if (targetType === 'battle') return typeLine.includes('battle');
+
+  return targetType.length > 0 && typeLine.includes(targetType);
+}
+
 function buildActivatedAbilityValidTargets(
   game: any,
   controllerId: string,
@@ -2395,7 +2556,7 @@ function buildActivatedAbilityValidTargets(
     switch (targetType) {
       case 'creature':
         validTargets.push(...stateBattlefield
-          .filter((perm: any) => String(perm?.card?.type_line || '').toLowerCase().includes('creature'))
+          .filter((perm: any) => activatedAbilityPermanentTargetMatches(perm, targetType, controllerId, targetReqs))
           .map((perm: any) => ({
             id: String(perm.id),
             name: perm.card?.name || 'Creature',
@@ -2406,11 +2567,10 @@ function buildActivatedAbilityValidTargets(
         break;
       case 'permanent':
       case 'nonland':
+      case 'nonland permanent':
+      case 'noncreature permanent':
         validTargets.push(...stateBattlefield
-          .filter((perm: any) => {
-            const typeLine = String(perm?.card?.type_line || '').toLowerCase();
-            return targetType === 'nonland' ? !typeLine.includes('land') : true;
-          })
+          .filter((perm: any) => activatedAbilityPermanentTargetMatches(perm, targetType, controllerId, targetReqs))
           .map((perm: any) => ({
             id: String(perm.id),
             name: perm.card?.name || 'Permanent',
@@ -2423,8 +2583,9 @@ function buildActivatedAbilityValidTargets(
       case 'enchantment':
       case 'planeswalker':
       case 'land':
+      case 'battle':
         validTargets.push(...stateBattlefield
-          .filter((perm: any) => String(perm?.card?.type_line || '').toLowerCase().includes(targetType))
+          .filter((perm: any) => activatedAbilityPermanentTargetMatches(perm, targetType, controllerId, targetReqs))
           .map((perm: any) => ({
             id: String(perm.id),
             name: perm.card?.name || 'Permanent',
@@ -2450,10 +2611,7 @@ function buildActivatedAbilityValidTargets(
         break;
       case 'any':
         validTargets.push(...stateBattlefield
-          .filter((perm: any) => {
-            const typeLine = String(perm?.card?.type_line || '').toLowerCase();
-            return typeLine.includes('creature') || typeLine.includes('planeswalker');
-          })
+          .filter((perm: any) => activatedAbilityPermanentTargetMatches(perm, targetType, controllerId, targetReqs))
           .map((perm: any) => ({
             id: String(perm.id),
             name: perm.card?.name || 'Permanent',
@@ -5018,7 +5176,7 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
     if (step.type === ResolutionStepType.ADDITIONAL_COST_PAYMENT) {
       const stepAny = step as any;
       const mandatory = Boolean(stepAny.mandatory);
-      const costType = String(stepAny.costType || 'discard') as 'discard' | 'sacrifice' | 'remove_counters';
+      const costType = String(stepAny.costType || 'discard') as 'discard' | 'sacrifice' | 'remove_counters' | 'reveal';
       const amount = Math.max(0, Number(stepAny.amount ?? 0));
 
       if (cancelled) {
@@ -5057,7 +5215,7 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
             return;
           }
 
-          if (costType === 'discard') {
+          if (costType === 'discard' || costType === 'reveal') {
             const zones = (game.state as any)?.zones?.[pid];
             const hand: any[] = Array.isArray(zones?.hand) ? zones.hand : [];
             const handIdSet = new Set(hand.map((c: any) => String(c?.id || '')).filter(Boolean));
@@ -5310,6 +5468,8 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
         const extractSelectionId = (sel: any): string | null => {
           if (typeof sel === 'string') return sel;
           if (sel && typeof sel === 'object') {
+            const optionId = (sel as any).optionId;
+            if (typeof optionId === 'string' && optionId.trim()) return optionId;
             const id = (sel as any).id;
             if (typeof id === 'string' && id.trim()) return id;
             const value = (sel as any).value;
@@ -5330,8 +5490,19 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
             .map((s: any) => extractSelectionId(s) ?? (typeof s === 'number' || typeof s === 'boolean' ? String(s) : null))
             .filter((s: any) => typeof s === 'string' && s.trim().length > 0) as string[];
         } else if (rawSel && typeof rawSel === 'object') {
-          const one = extractSelectionId(rawSel);
-          selectionIds = one ? [one] : null;
+          const wrappedSelections = Array.isArray(rawSel.selectedOptionIds)
+            ? rawSel.selectedOptionIds
+            : (Array.isArray(rawSel.optionIds)
+              ? rawSel.optionIds
+              : (Array.isArray(rawSel.selectedIds) ? rawSel.selectedIds : null));
+          if (wrappedSelections) {
+            selectionIds = wrappedSelections
+              .map((s: any) => extractSelectionId(s) ?? (typeof s === 'number' || typeof s === 'boolean' ? String(s) : null))
+              .filter((s: any) => typeof s === 'string' && s.trim().length > 0) as string[];
+          } else {
+            const one = extractSelectionId(rawSel);
+            selectionIds = one ? [one] : null;
+          }
         } else {
           selectionIds = null;
         }
@@ -5650,6 +5821,8 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
           if (typeof opt === 'string') return opt;
           if (typeof opt === 'number' || typeof opt === 'boolean') return String(opt);
           if (opt && typeof opt === 'object') {
+            const modeId = (opt as any).modeId;
+            if (typeof modeId === 'string' && modeId.trim()) return modeId;
             const id = (opt as any).id;
             if (typeof id === 'string' && id.trim()) return id;
             const value = (opt as any).value;
@@ -5672,8 +5845,19 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
             .map((s: any) => extractModeId(s))
             .filter((s: any) => typeof s === 'string' && s.trim().length > 0) as string[];
         } else if (rawSel && typeof rawSel === 'object') {
-          const one = extractModeId(rawSel);
-          selectionIds = one ? [one] : null;
+          const wrappedSelections = Array.isArray(rawSel.selectedModeIds)
+            ? rawSel.selectedModeIds
+            : (Array.isArray(rawSel.modeIds)
+              ? rawSel.modeIds
+              : (Array.isArray(rawSel.selectedIds) ? rawSel.selectedIds : null));
+          if (wrappedSelections) {
+            selectionIds = wrappedSelections
+              .map((s: any) => extractModeId(s))
+              .filter((s: any) => typeof s === 'string' && s.trim().length > 0) as string[];
+          } else {
+            const one = extractModeId(rawSel);
+            selectionIds = one ? [one] : null;
+          }
         } else {
           selectionIds = null;
         }
@@ -12733,7 +12917,7 @@ async function handleStepResponse(
       const castArgs = stepData.castSpellFromHandArgs as any;
       const cardId = String(stepData.cardId || stepData.sourceId || castArgs?.cardId || '');
       const cardName = String(stepData.cardName || stepData.sourceName || 'Spell');
-      const costType = String(stepData.costType || 'discard') as 'discard' | 'sacrifice' | 'remove_counters';
+      const costType = String(stepData.costType || 'discard') as 'discard' | 'sacrifice' | 'remove_counters' | 'reveal';
       const additionalCostKeyword = String(stepData.additionalCostKeyword || '').toLowerCase().trim();
       const isBargain = additionalCostKeyword === 'bargain';
 
@@ -12879,6 +13063,7 @@ async function handleStepResponse(
       let discardedNames: string[] = [];
       let sacrificedNames: string[] = [];
       let removedCounterDescriptions: string[] = [];
+      let revealedNames: string[] = [];
       const movedDiscardedCardsToGraveyard: any[] = [];
       const movedDiscardedCardsToExile: any[] = [];
       const deferredMadnessPrompts: any[] = [];
@@ -13004,6 +13189,25 @@ async function handleStepResponse(
           message: `${getPlayerName(game, pid)} removes ${removedCounterDescriptions.join(', ')} as an additional cost to cast ${cardName}.`,
           ts: Date.now(),
         });
+      } else if (costType === 'reveal') {
+        for (const revealId of selectedIds) {
+          const revealed = (zones.hand as any[]).find((c: any) => c && String(c.id || '') === String(revealId));
+          if (!revealed) continue;
+          revealedNames.push(String(revealed?.name || 'Unknown'));
+        }
+
+        if (revealedNames.length === 0) {
+          emitToPlayer(io, pid as any, 'error', { code: 'CARD_NOT_IN_HAND', message: 'Selected reveal card not found in hand' });
+          break;
+        }
+
+        io.to(gameId).emit('chat', {
+          id: `m_${Date.now()}`,
+          gameId,
+          from: 'system',
+          message: `${getPlayerName(game, pid)} reveals ${revealedNames.join(', ')} as an additional cost to cast ${cardName}.`,
+          ts: Date.now(),
+        });
       }
 
       if (isBargain) {
@@ -13050,6 +13254,7 @@ async function handleStepResponse(
         cardId,
         sacrificedPermanentIds: costType === 'sacrifice' ? selectedIds : [],
         removedCountersForCost: costType === 'remove_counters' ? removedCountersForCost : [],
+        revealedCardIdsForCost: costType === 'reveal' ? selectedIds : [],
         ...(spellSourceZone === 'hand'
           ? {
               cardUpdates: isBargain
@@ -15490,6 +15695,7 @@ async function handleDiscardResponse(
   }
 
   if (!isDiscardCostActivation && !isExileFromHandCostActivation && !isGraveyardCastDiscardActivation && !isCleanupDiscard && movedCards.length > 0) {
+    queueDiscardTriggeredAbilities(game, gameId, String(pid), movedCards);
     queueDiscardTriggeredGraveyardCastAbilities(game, gameId, String(pid), movedCards);
   }
 
@@ -23848,14 +24054,26 @@ async function handleSuspendCastResponse(
   
   // Exile the card with time counters
   z.exile = z.exile || [];
-  z.exile.push({
+  const suspendedCard = {
     ...card,
     zone: 'exile',
     isSuspended: true,
     timeCounters: timeCounters,
     suspendedBy: pid,
-  });
+  };
+  z.exile.push(suspendedCard);
   z.exileCount = z.exile.length;
+
+  try {
+    appendEvent(gameId, (game as any).seq ?? 0, 'suspendCard', {
+      playerId: pid,
+      cardId: card.id,
+      cardName: card.name,
+      card: suspendedCard,
+    });
+  } catch (err) {
+    debugWarn(1, '[Resolution] appendEvent(suspendCard) failed:', err);
+  }
   
   // Send chat message
   io.to(gameId).emit("chat", {
@@ -23911,7 +24129,7 @@ function handleMorphTurnFaceUpResponse(
   
   // Turn face-up
   creature.isFaceDown = false;
-  creature.card = actualCard;
+  creature.card = { ...actualCard, zone: 'battlefield' };
   
   // Update power/toughness from 2/2 to actual values
   const tl = (actualCard.type_line || '').toLowerCase();
@@ -23925,6 +24143,17 @@ function handleMorphTurnFaceUpResponse(
   delete creature.faceDownType;
   delete creature.morphCost;
   delete creature.faceUpCard;
+  delete creature.canTurnFaceUp;
+
+  try {
+    appendEvent(gameId, (game as any).seq ?? 0, 'morphTurnFaceUp', {
+      playerId: pid,
+      permanentId,
+      actualCard: { ...actualCard, zone: 'battlefield' },
+    });
+  } catch (err) {
+    debugWarn(1, '[Resolution] appendEvent(morphTurnFaceUp) failed:', err);
+  }
   
   // Send chat message
   io.to(gameId).emit("chat", {

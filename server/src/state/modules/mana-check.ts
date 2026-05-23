@@ -17,22 +17,40 @@ import { debug } from "../../utils/debug.js";
  * mana symbols. A Phyrexian mana symbol represents a cost that can be paid by spending 
  * one mana of the color associated with that Phyrexian mana symbol or by paying 2 life."
  */
-const PHYREXIAN_LIFE_COST = 2;
+export const PHYREXIAN_LIFE_COST = 2;
+
+export interface ParsedManaCost {
+  colors: Record<string, number>;
+  generic: number;
+  hasX: boolean;
+  hybrid: Array<string[]>;
+  hybrids: Array<string[]>;
+}
+
+export interface NormalizedManaPaymentModel {
+  originalManaCost: string;
+  effectiveManaCost: string;
+  parsedOriginalCost: ParsedManaCost;
+  parsedEffectiveCost: ParsedManaCost;
+  castWithoutPayingManaCost: boolean;
+  forcedAlternateCostId?: string;
+  xValue?: number;
+  additionalCosts: unknown[];
+  phyrexianCosts: Array<{ index: number; color: string; lifeCost: number }>;
+  hybridCosts: Array<string[]>;
+}
 
 /**
  * Parse mana cost from a string into components
  */
-export function parseManaCost(manaCost?: string): {
-  colors: Record<string, number>;
-  generic: number;
-  hasX: boolean;
-  hybrid?: Array<string[]>; // Track hybrid mana requirements separately
-} {
+export function parseManaCost(manaCost?: string): ParsedManaCost {
+  const hybridCosts: Array<string[]> = [];
   const result = {
     colors: { W: 0, U: 0, B: 0, R: 0, G: 0, C: 0 },
     generic: 0,
     hasX: false,
-    hybrid: [] as Array<string[]>,
+    hybrid: hybridCosts,
+    hybrids: hybridCosts,
   };
 
   if (!manaCost) return result;
@@ -77,7 +95,94 @@ export function parseManaCost(manaCost?: string): {
   return result;
 }
 
-type ParsedManaCost = ReturnType<typeof parseManaCost>;
+export function normalizeParsedManaCost(parsedCost?: Partial<ParsedManaCost> & { hybrid?: Array<string[]>; hybrids?: Array<string[]> }): ParsedManaCost {
+  const hybridCosts = (Array.isArray(parsedCost?.hybrid)
+    ? parsedCost?.hybrid
+    : Array.isArray(parsedCost?.hybrids)
+      ? parsedCost?.hybrids
+      : [])
+    .filter((entry): entry is string[] => Array.isArray(entry))
+    .map((entry) => entry.map((option) => String(option || '').toUpperCase()).filter(Boolean));
+
+  return {
+    colors: { W: 0, U: 0, B: 0, R: 0, G: 0, C: 0, ...(parsedCost?.colors || {}) },
+    generic: Math.max(0, Math.floor(Number(parsedCost?.generic || 0))),
+    hasX: Boolean(parsedCost?.hasX),
+    hybrid: hybridCosts,
+    hybrids: hybridCosts,
+  };
+}
+
+export function stringifyParsedManaCost(parsedCost?: Partial<ParsedManaCost> & { hybrid?: Array<string[]>; hybrids?: Array<string[]> }): string {
+  const normalized = normalizeParsedManaCost(parsedCost);
+  let manaCost = '';
+
+  if (normalized.hasX) {
+    manaCost += '{X}';
+  }
+
+  if (normalized.generic > 0) {
+    manaCost += `{${normalized.generic}}`;
+  }
+
+  for (const color of ['W', 'U', 'B', 'R', 'G', 'C']) {
+    const count = Math.max(0, Math.floor(Number(normalized.colors[color] || 0)));
+    for (let index = 0; index < count; index++) {
+      manaCost += `{${color}}`;
+    }
+  }
+
+  for (const hybrid of normalized.hybrid) {
+    if (hybrid.length > 0) {
+      manaCost += `{${hybrid.join('/')}}`;
+    }
+  }
+
+  return manaCost || '{0}';
+}
+
+export function buildNormalizedManaPaymentModel(options: {
+  originalManaCost?: string;
+  effectiveManaCost?: string;
+  castWithoutPayingManaCost?: boolean;
+  forcedAlternateCostId?: string;
+  xValue?: number;
+  additionalCosts?: unknown[];
+}): NormalizedManaPaymentModel {
+  const originalManaCost = String(options.originalManaCost || '').trim();
+  const isFreeCast = options.castWithoutPayingManaCost === true || options.forcedAlternateCostId === 'free';
+  const effectiveManaCost = isFreeCast
+    ? '{0}'
+    : String(options.effectiveManaCost || originalManaCost || '{0}').trim() || '{0}';
+  const parsedOriginalCost = normalizeParsedManaCost(parseManaCost(originalManaCost));
+  const parsedEffectiveCost = normalizeParsedManaCost(parseManaCost(effectiveManaCost));
+  const phyrexianCosts = parsedEffectiveCost.hybrid
+    .map((optionsForSymbol, index) => {
+      const lifeOption = optionsForSymbol.find((option) => String(option || '').startsWith('LIFE:'));
+      if (!lifeOption) return null;
+      const colorOption = optionsForSymbol.find((option) => /^[WUBRGC]$/.test(String(option || '')));
+      const lifeCost = Number(String(lifeOption).split(':')[1] || PHYREXIAN_LIFE_COST);
+      return {
+        index,
+        color: String(colorOption || '').toUpperCase(),
+        lifeCost: Number.isFinite(lifeCost) && lifeCost > 0 ? lifeCost : PHYREXIAN_LIFE_COST,
+      };
+    })
+    .filter((entry): entry is { index: number; color: string; lifeCost: number } => Boolean(entry));
+
+  return {
+    originalManaCost,
+    effectiveManaCost,
+    parsedOriginalCost,
+    parsedEffectiveCost,
+    castWithoutPayingManaCost: isFreeCast,
+    ...(options.forcedAlternateCostId ? { forcedAlternateCostId: options.forcedAlternateCostId } : {}),
+    ...(options.xValue !== undefined ? { xValue: Number(options.xValue) || 0 } : {}),
+    additionalCosts: Array.isArray(options.additionalCosts) ? [...options.additionalCosts] : [],
+    phyrexianCosts,
+    hybridCosts: parsedEffectiveCost.hybrid.map((entry) => [...entry]),
+  };
+}
 
 /**
  * Get total available mana from a mana pool.

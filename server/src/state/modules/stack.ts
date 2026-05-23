@@ -96,6 +96,7 @@ import {
 import { applyGraveyardPermissionEffectsFromText } from "./graveyard-permissions.js";
 import { shouldExileStackCardInsteadOfGraveyard } from "./stack-zone-replacements.js";
 import { buildDurablePlayableFromExilePermission, upsertDurablePermission } from "./durable-permissions.js";
+import { evaluateBattlefieldEntryReplacementEvent } from "./replacement-effects.js";
 
 function removeReplayDuplicateCardEntries(cards: any, cardId: string): number {
   if (!Array.isArray(cards) || !cardId) return 0;
@@ -111,21 +112,13 @@ function removeReplayDuplicateCardEntries(cards: any, cardId: string): number {
   return removed;
 }
 
-type ReplayZoneRepairSummary = {
-  total: number;
-  hand: number;
-  exile: number;
-  graveyard: number;
-  library: number;
-};
-
 function getPermanentSpellTypeWords(card: any): string[] {
   const typeLine = String(card?.type_line || card?.typeLine || '').toLowerCase();
   return ['artifact', 'creature', 'enchantment', 'planeswalker', 'battle']
     .filter((typeWord) => new RegExp(`\\b${typeWord}\\b`, 'i').test(typeLine));
 }
 
-function recordGraveyardPermanentTypesCastThisTurn(state: any, playerId: PlayerID, card: any): void {
+function recordGraveyardPermanentTypesCastThisTurn(state: any, playerId: string, card: any): void {
   const permanentTypes = getPermanentSpellTypeWords(card);
   if (permanentTypes.length === 0) return;
 
@@ -138,7 +131,7 @@ function recordGraveyardPermanentTypesCastThisTurn(state: any, playerId: PlayerI
   }
 }
 
-function repairReplayCardSourceZones(ctxOrState: any, playerId: PlayerID, cardId: string): ReplayZoneRepairSummary {
+function repairReplayCardSourceZones(ctxOrState: any, playerId: string, cardId: string): { total: number; hand: number; exile: number; graveyard: number; library: number } {
   const state = ctxOrState?.state || ctxOrState;
   const libraries = ctxOrState?.libraries || state?.libraries;
   if (!state || !cardId) {
@@ -152,24 +145,23 @@ function repairReplayCardSourceZones(ctxOrState: any, playerId: PlayerID, cardId
   }
 
   const hand = removeReplayDuplicateCardEntries(zone.hand, cardId);
-
   if (Array.isArray(zone.hand)) {
     zone.handCount = zone.hand.length;
   }
 
-  const exile = removeReplayDuplicateCardEntries((zone as any).exile, cardId);
-  if (Array.isArray((zone as any).exile)) {
-    (zone as any).exileCount = (zone as any).exile.length;
+  const exile = removeReplayDuplicateCardEntries(zone.exile, cardId);
+  if (Array.isArray(zone.exile)) {
+    zone.exileCount = zone.exile.length;
   }
 
-  const graveyard = removeReplayDuplicateCardEntries((zone as any).graveyard, cardId);
-  if (Array.isArray((zone as any).graveyard)) {
-    (zone as any).graveyardCount = (zone as any).graveyard.length;
+  const graveyard = removeReplayDuplicateCardEntries(zone.graveyard, cardId);
+  if (Array.isArray(zone.graveyard)) {
+    zone.graveyardCount = zone.graveyard.length;
   }
 
-  const libraryCards = Array.isArray((libraries as any)?.get?.(playerId))
-    ? (libraries as any).get(playerId)
-    : (Array.isArray((libraries as any)?.[playerId]) ? (libraries as any)[playerId] : undefined);
+  const libraryCards = Array.isArray(libraries?.get?.(playerId))
+    ? libraries.get(playerId)
+    : (Array.isArray(libraries?.[playerId]) ? libraries[playerId] : undefined);
   const library = removeReplayDuplicateCardEntries(libraryCards, cardId);
 
   return {
@@ -1484,10 +1476,14 @@ const PERMANENT_TRIGGER_TARGET_TYPES = new Set([
   'enchantment',
   'land',
   'planeswalker',
+  'battle',
   'creature or planeswalker',
+  'artifact or enchantment',
   'noncreature artifact',
   'nonland permanent',
   'noncreature permanent',
+  'any target',
+  'any_target',
 ]);
 
 const COUNT_WORD_TO_NUMBER: Record<string, number> = {
@@ -1701,6 +1697,7 @@ export function inferTriggeredAbilityTargetMetadata(effectText: string, context?
     }
 
     if (lower.includes('target creature or planeswalker')) targetType = 'creature or planeswalker';
+    else if (lower.includes('target artifact or enchantment')) targetType = 'artifact or enchantment';
     else if (lower.includes('target noncreature artifact')) targetType = 'noncreature artifact';
     else if (/target\s+non-[a-z0-9'-]+(?:\s+[a-z0-9'-]+)*\s+creature\b/.test(lower)) targetType = 'creature';
     else if (lower.includes('target creature')) targetType = 'creature';
@@ -1710,6 +1707,7 @@ export function inferTriggeredAbilityTargetMetadata(effectText: string, context?
     else if (lower.includes('target artifact')) targetType = 'artifact';
     else if (lower.includes('target enchantment')) targetType = 'enchantment';
     else if (lower.includes('target planeswalker')) targetType = 'planeswalker';
+    else if (lower.includes('target battle')) targetType = 'battle';
     else if (lower.includes('target nonland')) targetType = 'nonland permanent';
     else if (lower.includes('target noncreature')) targetType = 'noncreature permanent';
     else if (lower.includes('any target')) targetType = 'any';
@@ -1758,8 +1756,12 @@ function matchesTriggeredBattlefieldTarget(targetType: string, typeLine: string,
   let matchesBaseTargetType = false;
   switch (targetType) {
     case 'permanent':
-    case 'any':
       matchesBaseTargetType = true;
+      break;
+    case 'any':
+    case 'any target':
+    case 'any_target':
+      matchesBaseTargetType = typeLine.includes('creature') || typeLine.includes('planeswalker') || typeLine.includes('battle');
       break;
     case 'creature':
       matchesBaseTargetType = typeLine.includes('creature');
@@ -1776,8 +1778,14 @@ function matchesTriggeredBattlefieldTarget(targetType: string, typeLine: string,
     case 'planeswalker':
       matchesBaseTargetType = typeLine.includes('planeswalker');
       break;
+    case 'battle':
+      matchesBaseTargetType = typeLine.includes('battle');
+      break;
     case 'creature or planeswalker':
       matchesBaseTargetType = typeLine.includes('creature') || typeLine.includes('planeswalker');
+      break;
+    case 'artifact or enchantment':
+      matchesBaseTargetType = typeLine.includes('artifact') || typeLine.includes('enchantment');
       break;
     case 'noncreature artifact':
       matchesBaseTargetType = typeLine.includes('artifact') && !typeLine.includes('creature');
@@ -8820,6 +8828,39 @@ export function executeTriggerEffect(
   }
 
   let desc = String(description || "").replace(/[’]/g, "'").toLowerCase();
+  if (desc.includes('exile') && desc.includes('graveyard') && desc.includes('target player')) {
+    const targetPlayerId = String(Array.isArray((triggerItem as any)?.targets) ? (triggerItem as any).targets[0] || '' : '').trim();
+    if (!targetPlayerId) {
+      return;
+    }
+
+    const zones = state.zones = state.zones || {};
+    const targetZones = zones[targetPlayerId] = zones[targetPlayerId] || {
+      hand: [],
+      handCount: 0,
+      graveyard: [],
+      graveyardCount: 0,
+      exile: [],
+      exileCount: 0,
+    };
+
+    const graveyardCards = Array.isArray(targetZones.graveyard) ? targetZones.graveyard : [];
+    const exileZone = Array.isArray(targetZones.exile) ? targetZones.exile : [];
+
+    if (graveyardCards.length === 0) {
+      return;
+    }
+
+    for (const card of graveyardCards) {
+      exileZone.push({ ...card, zone: 'exile' });
+    }
+
+    targetZones.graveyard = [];
+    targetZones.graveyardCount = 0;
+    targetZones.exile = exileZone;
+    targetZones.exileCount = exileZone.length;
+    return;
+  }
   if (
     /^exile the top two cards of your library\.\s*choose one of them\.\s*you may play that card this turn\.?$/i.test(desc)
   ) {
@@ -11649,7 +11690,7 @@ export function executeTriggerEffect(
   // Matches: "create a 2/2 green Wolf creature token", "create a 1/1 white Soldier creature token with vigilance"
   // Also matches: "create a 0/1 colorless Eldrazi Spawn creature token"
   // Also matches: "create two 1/1 white Cat creature tokens that are tapped and attacking"
-  const createTokenMatch = desc.match(/create (?:a|an|one|two|three|four|five|(\d+)) (\d+)\/(\d+) ([^\.]+?)(?:\s+creature)?\s+tokens?/i);
+  const createTokenMatch = desc.match(/create (?:a|an|one|two|three|four|five|(\d+))(?: (tapped))? (\d+)\/(\d+) ([^\.]+?)(?:\s+creature)?\s+tokens?/i);
   if (createTokenMatch) {
     // Parse count from word or number
     const countWord = desc.match(/create (a|an|one|two|three|four|five|\d+)/i)?.[1]?.toLowerCase() || 'a';
@@ -11657,9 +11698,10 @@ export function executeTriggerEffect(
       'a': 1, 'an': 1, 'one': 1, 'two': 2, 'three': 3, 'four': 4, 'five': 5
     };
     const tokenCount = wordToCount[countWord] || (createTokenMatch[1] ? parseInt(createTokenMatch[1], 10) : 1);
-    const power = parseInt(createTokenMatch[2], 10);
-    const toughness = parseInt(createTokenMatch[3], 10);
-    const tokenDescription = createTokenMatch[4].trim();
+    const entersTapped = Boolean(createTokenMatch[2]);
+    const power = parseInt(createTokenMatch[3], 10);
+    const toughness = parseInt(createTokenMatch[4], 10);
+    const tokenDescription = createTokenMatch[5].trim();
     
     // Apply token doubling effects (Anointed Procession, Doubling Season, Elspeth, etc.)
     const tokensToCreate = tokenCount * getTokenDoublerMultiplier(controller, state);
@@ -11667,6 +11709,7 @@ export function executeTriggerEffect(
     
     // Check for "tapped and attacking" pattern
     const isTappedAndAttacking = desc.includes('tapped and attacking');
+    const entersTappedOnly = entersTapped && !isTappedAndAttacking;
     
     // Extract color and creature type from description
     // e.g., "white Soldier" -> color: white, type: Soldier
@@ -11728,7 +11771,7 @@ export function executeTriggerEffect(
         controller,
         owner: controller,
         // Tokens that enter "tapped and attacking" are tapped, have no summoning sickness issue for attacking
-        tapped: isTappedAndAttacking,
+        tapped: entersTappedOnly || isTappedAndAttacking,
         counters: {},
         basePower: power,
         baseToughness: toughness,
@@ -11752,7 +11795,7 @@ export function executeTriggerEffect(
       } as any;
       
       state.battlefield.push(token);
-      debug(2, `[executeTriggerEffect] Created ${power}/${toughness} ${tokenName} token for ${controller}${isTappedAndAttacking ? ' (tapped and attacking)' : ''}`);
+      debug(2, `[executeTriggerEffect] Created ${power}/${toughness} ${tokenName} token for ${controller}${isTappedAndAttacking ? ' (tapped and attacking)' : entersTappedOnly ? ' (tapped)' : ''}`);
       
       // Trigger ETB effects from other permanents (Cathars' Crusade, Soul Warden, etc.)
       triggerETBEffectsForToken(ctx, token, controller);
@@ -15237,6 +15280,10 @@ export function resolveTopOfStack(ctx: GameContext) {
     }
     
     const description = (item as any).description || '';
+    const descriptionWithoutTimingRestriction = String(description || '')
+      .trim()
+      .replace(/\s+activate(?:\s+this ability)?\s+only\s+(?:as a sorcery|any time you could cast a sorcery)\.?$/i, '')
+      .trim();
     const battlefield = state.battlefield || [];
     const sourcePermanentId = String((item as any).source || '').trim();
     const sourcePermanent = sourcePermanentId
@@ -15245,7 +15292,7 @@ export function resolveTopOfStack(ctx: GameContext) {
     const isEquipmentAttachAbility =
       Boolean(sourcePermanent) &&
       /\bequipment\b/i.test(String((sourcePermanent as any)?.card?.type_line || '')) &&
-      /^attach(?:\s+(?:this equipment|[a-z0-9 ,.'’\-]+))?\s+to\s+target creature(?:\s+you control|\s+an opponent controls)?\.?$/i.test(String(description || '').trim());
+      /^attach(?:\s+(?:this equipment|[a-z0-9 ,.'’\-]+))?\s+to\s+target creature(?:\s+you control|\s+an opponent controls)?\.?$/i.test(descriptionWithoutTimingRestriction);
 
     if (isEquipmentAttachAbility) {
       const targetCreatureId = String((item as any).targets?.[0] || '').trim();
@@ -15938,35 +15985,10 @@ export function resolveTopOfStack(ctx: GameContext) {
     const targetType = (item as any).targetType;
     
     if (requiresTarget && triggerType === 'etb') {
-      const players = state.players || [];
-      const gameId = (ctx as any).gameId || 'unknown';
       const isReplaying = !!(ctx as any).isReplaying;
       
       if (!isReplaying) {
-        // Create appropriate resolution step based on target type
-        if (targetType === 'player') {
-          // Target player selection
-          queueResolveTopOfStackPrompt(ctx, {
-            type: ResolutionStepType.PLAYER_CHOICE,
-            playerId: triggerController as PlayerID,
-            description: `${sourceName}: Choose target player`,
-            mandatory: true,
-            sourceName: sourceName,
-            sourceImage: (item as any).sourceImage,
-            // Store the trigger info so we can execute it after target selection
-            triggerItem: item,
-            etbTargetTrigger: true,
-          });
-          
-          debug(2, `[resolveTopOfStack] ETB trigger with target: added resolution step for ${triggerController} to select target player`);
-          
-          // DON'T execute the trigger effect yet - wait for target selection
-          return;
-        } else if (targetType === 'creature' || targetType === 'permanent') {
-          // Target permanent selection - would need to implement TARGET_SELECTION handler
-          // For now, skip and execute without targeting
-          debug(2, `[resolveTopOfStack] ETB trigger requires ${targetType} target - not yet implemented`);
-        }
+        debug(2, `[resolveTopOfStack] ETB trigger requires ${targetType || 'unknown'} target - delegating to generic triggered target selection`);
       }
     }
 
@@ -16103,46 +16125,77 @@ export function resolveTopOfStack(ctx: GameContext) {
         }
       }
 
-      if (!isReplaying && !hasLockedBattlefieldTargets && (PERMANENT_TRIGGER_TARGET_TYPES.has(String(targetType || '').toLowerCase()) || targetType === 'any')) {
+      if (!isReplaying && !hasLockedBattlefieldTargets) {
         const targetFilterTypes = Array.isArray((item as any).targetFilterTypes) ? (item as any).targetFilterTypes : undefined;
         const targetFilterRequiredTypeWords = Array.isArray((item as any).targetFilterRequiredTypeWords) ? (item as any).targetFilterRequiredTypeWords : undefined;
         const targetFilterExcludeTypes = Array.isArray((item as any).targetFilterExcludeTypes) ? (item as any).targetFilterExcludeTypes : undefined;
-        const validTargets = battlefield
-          .filter((permanent: any) => {
-            if (!permanent) return false;
-            const typeLine = String(permanent.card?.type_line || '').toLowerCase();
-            const normalizedTargetType = String(targetType || '').toLowerCase();
-            const matchesType = matchesTriggeredBattlefieldTarget(normalizedTargetType, typeLine, {
-              targetFilterTypes,
-              targetFilterRequiredTypeWords,
-              targetFilterExcludeTypes,
-            });
-            if (!matchesType) return false;
-            if (String((item as any).targetConstraint || '').toLowerCase() === 'opponent') {
-              return String(permanent.controller || '') !== String(triggerController);
-            }
-            if (!constrainedToController) return true;
-            return String(permanent.controller || '') === String(triggerController);
-          })
-          .map((permanent: any) => ({
-            id: permanent.id,
-            label: permanent.card?.name || 'Permanent',
-            description: permanent.card?.type_line || 'Permanent',
-            image: permanent.card?.image_uris?.small || permanent.card?.image_uris?.normal,
-          }));
+        const normalizedTargetType = String(targetType || '').toLowerCase();
+        const targetsBattlefield = PERMANENT_TRIGGER_TARGET_TYPES.has(normalizedTargetType) || normalizedTargetType === 'any';
+        const targetsPlayers = ['player', 'opponent', 'any', 'any target', 'any_target'].includes(normalizedTargetType);
+        const validPermanentTargets = targetsBattlefield
+          ? battlefield
+              .filter((permanent: any) => {
+                if (!permanent) return false;
+                const typeLine = String(permanent.card?.type_line || '').toLowerCase();
+                const matchesType = matchesTriggeredBattlefieldTarget(normalizedTargetType, typeLine, {
+                  targetFilterTypes,
+                  targetFilterRequiredTypeWords,
+                  targetFilterExcludeTypes,
+                });
+                if (!matchesType) return false;
+                if (String((item as any).targetConstraint || '').toLowerCase() === 'opponent') {
+                  return String(permanent.controller || '') !== String(triggerController);
+                }
+                if (!constrainedToController) return true;
+                return String(permanent.controller || '') === String(triggerController);
+              })
+              .map((permanent: any) => ({
+                id: permanent.id,
+                label: permanent.card?.name || 'Permanent',
+                description: permanent.card?.type_line || 'Permanent',
+                image: permanent.card?.image_uris?.small || permanent.card?.image_uris?.normal,
+              }))
+          : [];
+        const validPlayerTargets = targetsPlayers
+          ? ((state.players || []) as any[])
+              .filter((player: any) => player && player.id && (player as any).hasLost !== true)
+              .filter((player: any) => {
+                if (normalizedTargetType === 'opponent' || String((item as any).targetConstraint || '').toLowerCase() === 'opponent') {
+                  return String(player.id) !== String(triggerController);
+                }
+                return true;
+              })
+              .map((player: any) => ({
+                id: String(player.id),
+                label: player.name || String(player.id),
+                description: 'Player',
+                life: player.life,
+              }))
+          : [];
+        const validTargets = [...validPermanentTargets, ...validPlayerTargets];
+        const minSelectionCount = Math.max(0, Number((item as any).minTargets ?? 1));
+        const requestedMaxSelectionCount = Math.max(minSelectionCount, Number((item as any).maxTargets ?? minSelectionCount));
+        const maxSelectionCount = Math.min(validTargets.length, requestedMaxSelectionCount);
+        const targetDescription = String(
+          (item as any).targetDescription
+          || (normalizedTargetType === 'any' || normalizedTargetType === 'any target' || normalizedTargetType === 'any_target'
+            ? 'any target'
+            : `target ${targetType || 'object'}`)
+        );
 
-        if (validTargets.length > 0) {
+        if ((targetsBattlefield || targetsPlayers) && validTargets.length >= minSelectionCount) {
           queueResolveTopOfStackPrompt(ctx, {
             type: ResolutionStepType.TARGET_SELECTION,
             playerId: triggerController as PlayerID,
-            description: `${sourceName}: Choose target ${targetType}`,
+            description: `${sourceName}: Choose ${targetDescription}`,
             mandatory: true,
             sourceId,
             sourceName,
             validTargets,
             targetTypes: [targetType],
-            minTargets: 1,
-            maxTargets: 1,
+            minTargets: minSelectionCount,
+            maxTargets: maxSelectionCount,
+            targetDescription,
             targetedTriggeredAbility: true,
             triggerItem: item,
             targetedTriggeredAbilitySourceName: sourceName,
@@ -16292,6 +16345,17 @@ export function resolveTopOfStack(ctx: GameContext) {
     const modifiedCounters = applyCounterModifications(state, newPermId, retainedEntryCounters);
     state.battlefield.pop(); // Remove temp permanent
     const copiedPermanentSpellBecomesToken = (item as any).isCopy === true;
+    const entryReplacement = evaluateBattlefieldEntryReplacementEvent({
+      state,
+      card: effectiveCard,
+      controllerId: String(controller),
+      entersTapped: shouldEnterTapped,
+      entryCounters: modifiedCounters,
+      entersTransformed: Boolean((effectiveCard as any)?.transformed || (item as any)?.transformed),
+      entersFaceDown: wasCastWithMorph,
+      copySourceId: copiedPermanentSpellBecomesToken ? String((item as any).copiedFromStackItemId || (item as any).copiedFromPermanentId || '') : undefined,
+      cause: 'spell_resolution',
+    });
     
     const newPermanent: any = {
       id: newPermId,
@@ -16300,6 +16364,7 @@ export function resolveTopOfStack(ctx: GameContext) {
       tapped: shouldEnterTapped,
       ...(copiedPermanentSpellBecomesToken ? { isToken: true } : {}),
       counters: Object.keys(modifiedCounters).length > 0 ? modifiedCounters : undefined,
+      ...(entryReplacement.applied ? { battlefieldEntryReplacement: entryReplacement } : {}),
       basePower: baseP,
       baseToughness: baseT,
       summoningSickness: hasSummoningSickness,

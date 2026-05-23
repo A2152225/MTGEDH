@@ -592,6 +592,8 @@ describe('activateBattlefieldAbility detector routing uses selected ability text
     (game.state as any).life = { [playerId]: 40, [opponentId]: 40 };
     (game.state as any).turnPlayer = playerId;
     (game.state as any).priority = playerId;
+    (game.state as any).phase = 'main';
+    (game.state as any).step = 'precombat_main';
     (game.state as any).manaPool = {
       [playerId]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 1 },
       [opponentId]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },

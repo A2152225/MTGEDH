@@ -62,6 +62,7 @@ describe('Tap-other-as-activation-cost via Resolution Queue (integration)', () =
     gameId,
     `${gameId}_multi_type`,
     `${gameId}_power_restriction`,
+    `${gameId}_opponent_target`,
     `${gameId}_pay_life`,
   ];
 
@@ -391,6 +392,100 @@ describe('Tap-other-as-activation-cost via Resolution Queue (integration)', () =
     expect(String(stack[0].type)).toBe('ability');
     expect(String(stack[0].source)).toBe('src_power');
     expect(String(stack[0].description || '').toLowerCase()).toContain('draw a card');
+  });
+
+  it('preserves opponent-only target constraints after paying a tap-other cost', async () => {
+    const opponentTargetGameId = `${gameId}_opponent_target`;
+    ResolutionQueueManager.removeQueue(opponentTargetGameId);
+    games.delete(opponentTargetGameId as any);
+
+    createGameIfNotExists(opponentTargetGameId, 'commander', 40);
+    const game = ensureGame(opponentTargetGameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const p1 = 'p1';
+    const p2 = 'p2';
+    (game.state as any).players = [
+      { id: p1, name: 'P1', spectator: false, life: 40 },
+      { id: p2, name: 'P2', spectator: false, life: 40 },
+    ];
+    (game.state as any).startingLife = 40;
+    (game.state as any).life = { [p1]: 40, [p2]: 40 };
+    (game.state as any).turnPlayer = p1;
+    (game.state as any).priority = p1;
+
+    (game.state as any).battlefield = [
+      {
+        id: 'src_opponent_target_1',
+        controller: p1,
+        owner: p1,
+        tapped: false,
+        card: {
+          name: 'Test Tactician',
+          type_line: 'Artifact',
+          oracle_text: 'Tap an untapped creature you control: Destroy target creature an opponent controls.',
+          image_uris: { small: 'https://example.com/tactician.jpg' },
+        },
+      },
+      {
+        id: 'cost_creature_1',
+        controller: p1,
+        owner: p1,
+        tapped: false,
+        basePower: 1,
+        baseToughness: 1,
+        card: { name: 'Cost Bear', type_line: 'Creature — Bear', oracle_text: '' },
+      },
+      {
+        id: 'friendly_target_1',
+        controller: p1,
+        owner: p1,
+        tapped: false,
+        basePower: 2,
+        baseToughness: 2,
+        card: { name: 'Friendly Target', type_line: 'Creature — Soldier', oracle_text: '' },
+      },
+      {
+        id: 'opponent_target_1',
+        controller: p2,
+        owner: p2,
+        tapped: false,
+        basePower: 3,
+        baseToughness: 3,
+        card: { name: 'Opponent Target', type_line: 'Creature — Warrior', oracle_text: '' },
+      },
+    ];
+
+    (game.state as any).zones = {
+      [p1]: { hand: [], graveyard: [], handCount: 0, graveyardCount: 0 },
+      [p2]: { hand: [], graveyard: [], handCount: 0, graveyardCount: 0 },
+    };
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(p1, emitted);
+    socket.rooms.add(opponentTargetGameId);
+    const io = createMockIo(emitted, [socket]);
+
+    registerResolutionHandlers(io as any, socket as any);
+    registerInteractionHandlers(io as any, socket as any);
+
+    await handlers['activateBattlefieldAbility']({ gameId: opponentTargetGameId, permanentId: 'src_opponent_target_1', abilityId: 'src_opponent_target_1-ability-0' });
+
+    let queue = ResolutionQueueManager.getQueue(opponentTargetGameId);
+    const tapStep = queue.steps[0] as any;
+    expect(tapStep.type).toBe('tap_untap_target');
+
+    await handlers['submitResolutionResponse']({
+      gameId: opponentTargetGameId,
+      stepId: tapStep.id,
+      selections: { targetIds: ['cost_creature_1'], action: 'tap' },
+    });
+
+    queue = ResolutionQueueManager.getQueue(opponentTargetGameId);
+    const targetStep = queue.steps[0] as any;
+    expect(targetStep.type).toBe('target_selection');
+    expect(String(targetStep.targetDescription || '').toLowerCase()).toContain('opponent controls');
+    expect((targetStep.validTargets || []).map((target: any) => String(target?.id))).toEqual(['opponent_target_1']);
   });
 
   it('supports tap-other costs that also pay life (deferred until target tap selection)', async () => {

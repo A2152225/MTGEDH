@@ -23,7 +23,7 @@ import { debug, debugWarn, debugError } from "../utils/debug.js";
  * Examples include discarding cards (Faithless Looting), sacrificing permanents,
  * or paying life.
  * 
- * @property type - The type of additional cost required ('discard', 'sacrifice', 'pay_life', 'remove_counters', 'squad', or 'strive')
+ * @property type - The type of additional cost required ('discard', 'sacrifice', 'pay_life', 'remove_counters', 'reveal', 'squad', or 'strive')
  * @property amount - How many of the cost type must be paid (e.g., 1 card, 2 life)
  * @property filter - Optional filter for sacrifice costs (e.g., "creature", "artifact")
  * @property cost - For squad/strive: the mana cost to pay per copy/target (e.g., "{1}{W}")
@@ -31,7 +31,7 @@ import { debug, debugWarn, debugError } from "../utils/debug.js";
  * @property costPerTarget - For strive: indicates this cost is per additional target beyond the first
  */
 export interface AdditionalCostResult {
-  type: 'discard' | 'sacrifice' | 'pay_life' | 'remove_counters' | 'squad' | 'strive' | 'blight' | 'collect_evidence';
+  type: 'discard' | 'sacrifice' | 'pay_life' | 'remove_counters' | 'reveal' | 'squad' | 'strive' | 'blight' | 'collect_evidence';
   amount: number;
   filter?: string;
   counterType?: string;
@@ -139,6 +139,16 @@ export function detectAdditionalCost(oracleText: string): AdditionalCostResult |
     return {
       type: 'discard',
       amount: discardMatch[1] ? parseInt(discardMatch[1], 10) : 1,
+    };
+  }
+
+  // "As an additional cost to cast this spell, reveal a Dragon card from your hand"
+  const revealMatch = lowerText.match(/as an additional cost.*reveal\s+(?:a|an|one|1)\s+([a-z\s-]+?)\s+card\s+from\s+your\s+hand/i);
+  if (revealMatch) {
+    return {
+      type: 'reveal',
+      amount: 1,
+      filter: revealMatch[1].trim(),
     };
   }
   

@@ -348,7 +348,7 @@ Replacement and prevention are essential for real games because they alter event
   - Commander replacement to command zone.
   - Token disappearance when leaving battlefield.
   - Enter tapped, enter with counters, enter as copy, enter transformed/face down.
-  - Progress: leave-battlefield/exile-instead and finality-counter graveyard replacement now share the generic evaluator result contract, while their live helper paths remain unchanged. Ordinary token battlefield exits now also produce explicit `token-ceases-to-exist` evaluator metadata, with hand, graveyard, and library helper guardrails proving non-replacement tokens do not enter those zones. Stack-to-graveyard cleanup for flashback/jump-start/escape/disturb/harmonize and explicit `exileAfterResolution` markers now uses the same evaluator contract before exiling instead. Commander zone-change replacement is represented as a `choiceRequired` evaluator result, preserving the Resolution Queue prompt flow instead of treating the command-zone move as already applied. Guardrails: `server/tests/replacement-effects.test.ts`, `server/tests/leave-battlefield-replacement.integration.test.ts`, `server/tests/cast-from-graveyard.graveyard-replay.integration.test.ts`, `server/tests/commander-zone-choice.validate-before-complete.integration.test.ts`, `server/tests/linked-exile.commander-zone-choice.integration.test.ts`, `server/tests/skullbriar.zone-counters.test.ts`.
+  - Progress: leave-battlefield/exile-instead and finality-counter graveyard replacement now share the generic evaluator result contract, while their live helper paths remain unchanged. Ordinary token battlefield exits now also produce explicit `token-ceases-to-exist` evaluator metadata, with hand, graveyard, and library helper guardrails proving non-replacement tokens do not enter those zones. Stack-to-graveyard cleanup for flashback/jump-start/escape/disturb/harmonize and explicit `exileAfterResolution` markers now uses the same evaluator contract before exiling instead. Commander zone-change replacement is represented as a `choiceRequired` evaluator result, preserving the Resolution Queue prompt flow instead of treating the command-zone move as already applied. Battlefield-entry replacements now also have generic evaluator metadata for enter-tapped, entry counters, copy, transformed, and face-down entries, and spell resolution stamps that metadata onto the entering permanent while the existing stack owner path still performs the mutation. Guardrails: `server/tests/replacement-effects.test.ts`, `server/tests/leave-battlefield-replacement.integration.test.ts`, `server/tests/cast-from-graveyard.graveyard-replay.integration.test.ts`, `server/tests/commander-zone-choice.validate-before-complete.integration.test.ts`, `server/tests/linked-exile.commander-zone-choice.integration.test.ts`, `server/tests/skullbriar.zone-counters.test.ts`.
 
 - [ ] Cover damage replacements and prevention.
   - Prevent next N damage.
@@ -357,7 +357,7 @@ Replacement and prevention are essential for real games because they alter event
   - Damage redirection where applicable.
   - Damage doubling/halving/instead effects.
   - Infect, wither, lifelink, deathtouch, trample interactions.
-  - Guardrail progress: combat-damage prevention now has focused coverage for both a global spell rider (Moment's Peace) and a temporary attacker-specific rider (Oketra's Avenger), with combat damage application consulting those effects before marked damage and destruction handling. Shield-counter prevention now also enters the generic replacement evaluator as a damage event result, while the existing live helper still owns consuming the counter. Guardrails: `server/tests/replacement-effects.test.ts`, `server/tests/special-counters.common-effects.test.ts`, `server/tests/cast-from-graveyard.graveyard-replay.integration.test.ts`, `server/tests/exert-choice.integration.test.ts`.
+  - Guardrail progress: combat-damage prevention now has focused coverage for both a global spell rider (Moment's Peace) and a temporary attacker-specific rider (Oketra's Avenger), with combat damage application consulting those effects before marked damage and destruction handling. Shield-counter prevention now also enters the generic replacement evaluator as a damage event result, while the existing live helper still owns consuming the counter. Damage events now represent `damage can't be prevented`, finite prevention shields, and explicit amount modifiers through the generic evaluator, and combat permanent/planeswalker shield paths pass source/state context so prevention-disallowed effects can stop shield replacement. Guardrails: `server/tests/replacement-effects.test.ts`, `server/tests/special-counters.common-effects.test.ts`, `server/tests/cast-from-graveyard.graveyard-replay.integration.test.ts`, `server/tests/exert-choice.integration.test.ts`.
 
 - [ ] Cover draw, life, token, counter, and search replacements.
   - Draw replacement and dredge-style behavior.
@@ -365,9 +365,10 @@ Replacement and prevention are essential for real games because they alter event
   - Token creation modification.
   - Counter placement modification.
   - Search prevention and replacement.
-  - Progress: life-gain prevention and reversal now evaluate through generic `life-gain` replacement events before `applyLifeGain` preserves the existing live mutation behavior. Library-search prevention, top-card limits, payment requirements, control replacement, and search triggers now evaluate through generic `library-search` events, with both socket search restriction helpers consuming the shared evaluator instead of maintaining duplicate card tables. Token creation multipliers now evaluate through generic `token-creation` events before `createToken` applies them, and counter-placement modifiers now emit generic `counter-placement` metadata around the existing replacement-ordering helper. Guardrails: `server/tests/replacement-effects.test.ts`, `server/tests/custom-cards.test.ts`, `server/tests/whip-of-erebos.integration.test.ts`, token-doubler/Mirrormind suites, and the library-search replay/regression suites.
+  - Progress: life-gain prevention and reversal now evaluate through generic `life-gain` replacement events before `applyLifeGain` preserves the existing live mutation behavior. Library-search prevention, top-card limits, payment requirements, control replacement, and search triggers now evaluate through generic `library-search` events, with both socket search restriction helpers consuming the shared evaluator instead of maintaining duplicate card tables. Token creation multipliers now evaluate through generic `token-creation` events before `createToken` applies them, and counter-placement modifiers now emit generic `counter-placement` metadata around the existing replacement-ordering helper. Draw replacement events now cover Dredge choice metadata, Notion Thief-style opponent replacement, and Alms Collector-style batch shared draws; deterministic Notion Thief and Alms Collector branches route through the live `drawCards` helper and replay inherits the same path. Guardrails: `server/tests/replacement-effects.test.ts`, `server/tests/custom-cards.test.ts`, `server/tests/whip-of-erebos.integration.test.ts`, token-doubler/Mirrormind suites, and the library-search replay/regression suites.
 
 - [ ] Add replay tests for each replacement category.
+  - Progress: focused replay guardrails now cover draw replacement through recorded `drawCards` events and token creation replacement through recorded `createToken` events, alongside the existing leave-battlefield and library-search replay suites. Remaining gaps include replay assertions for damage-prevention metadata, battlefield-entry replacement metadata persistence, and Dredge/choice replacement prompts once those choices are fully queued.
 
 ### D. Cost And Payment Coverage
 
@@ -377,6 +378,7 @@ The normal cast and activate pipeline must handle all common Magic costs without
   - Mana, hybrid, Phyrexian, snow, colorless, X, variable, and commander tax.
   - Alternate costs, additional costs, cost increases, cost reductions, and cost replacement.
   - `Without paying its mana cost` with additional costs still payable.
+  - Progress: server mana parsing now exposes one canonical `ParsedManaCost` shape with both state (`hybrid`) and socket (`hybrids`) aliases, socket parsing delegates to the state parser, and pending cast metadata carries a normalized mana payment model with original/effective costs, hybrid/Phyrexian choices, free-cast zeroing, and additional-cost preservation. Guardrails: `server/tests/cost-adjustments.test.ts`, `server/tests/static-cost-adjustment.request-cast.integration.test.ts`, `server/tests/commander.shared-surface.integration.test.ts`, `server/tests/hybrid-mana.resume-activation-cost.integration.test.ts`, `server/tests/phyrexian-mana-payment-choice-as-cost.battlefield-activation.integration.test.ts`.
 
 - [ ] Support non-mana costs.
   - Sacrifice permanents.
@@ -401,7 +403,7 @@ The normal cast and activate pipeline must handle all common Magic costs without
 
 ### E. Targeting, Choices, And Resolution Queue
 
-- [ ] Generalize target selection for all target shapes.
+- [x] Generalize target selection for all target shapes.
   - Any number of targets.
   - Up to N targets.
   - Multiple target groups with different filters.
@@ -411,18 +413,19 @@ The normal cast and activate pipeline must handle all common Magic costs without
   - Player targets and opponent-only/team restrictions.
   - Guardrail progress: exert-trigger targeting now covers opponent-filtered battlefield targets like Glorybringer's `target non-Dragon creature an opponent controls` and replay-safe graveyard target binding for Devoted Crop-Mate before the reflexive trigger resolves. Guardrail: `server/tests/exert-choice.integration.test.ts`.
 
-- [ ] Generalize non-target choices.
+- [x] Generalize non-target choices.
   - Modes, repeated modes, modal DFC-style choices, spree/escalate/entwine/kicker-style choices.
   - Colors, card names, creature types, land types, numbers, piles, votes, directions, opponents.
   - Hidden-information choices with private data boundaries.
 
-- [ ] Finish generic ETB target selection for stack items.
-  - There is still a known server gap where some ETB triggers log that a target is required but not yet implemented.
-  - Build a generic prompt generator for triggered ability stack items with target metadata.
-  - Cover battlefield, graveyard, exile, player, and mixed target prompts.
+- [x] Finish generic ETB target selection for stack items.
+  - Generic prompt generation now covers triggered-ability stack items with target metadata.
+  - Current guardrails cover battlefield, graveyard, exile, player, and mixed target prompts.
 
 - [ ] Ensure every prompt has AI response support.
+-  - Guardrail progress: explicit AI completion now covers local `suspend_cast` and `morph_turn_face_up` seams. Guardrail: `server/tests/ai-resolution-step.integration.test.ts`.
 - [ ] Ensure every prompt response is replayed through `applyEvent.ts` or equivalent replay support.
+-  - Guardrail progress: suspend and morph prompt outcomes now append replay evidence and rehydrate through replay. Guardrail: `server/tests/suspend-morph-prompt.replay.test.ts`.
 
 ### F. Trigger Infrastructure
 
@@ -435,6 +438,8 @@ The normal cast and activate pipeline must handle all common Magic costs without
   - Create token, sacrifice, tap, untap.
   - Counters placed/removed.
   - Beginning/end step and cleanup triggers.
+  - Guardrail progress: generic discard-selection resolution now detects discard-trigger families with per-card vs per-event batching, typed discard filters, and triggering-player context for "that player" effects. Guardrail: `server/tests/discard-trigger.integration.test.ts`.
+  - Guardrail progress: shared card-draw trigger detection now runs on the common `game.drawCards` path, persisting stack entries for supported non-target draw triggers while preserving Smothering Tithe's special payment flow. Guardrail: `server/tests/draw-trigger.integration.test.ts`.
 
 - [ ] Preserve trigger context.
   - The triggering object.

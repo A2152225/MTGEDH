@@ -14,6 +14,7 @@
 import { randomUUID } from "crypto";
 import { createInitialGameState } from "./state/index.js";
 import { buildCommanderCardSnapshot } from "./state/modules/commander.js";
+import { processDrawTriggers } from "./state/modules/zones.js";
 import { createGameIfNotExists, getEvents, gameExistsInDb } from "./db"; // NEW: import getEvents for replay, gameExistsInDb for deleted game check
 import { createRulesBridge, type RulesBridge } from "./rules-bridge.js";
 import { debug, debugWarn, debugError } from "./utils/debug.js";
@@ -355,6 +356,7 @@ export class MinimalGameAdapter {
       const z = (this.state.zones || {})[playerId];
       if (!z) return;
       z.hand = z.hand || [];
+      let actualDrawn = 0;
       
       // Try to get library from multiple sources:
       // 1. Primary: libraries Map (authoritative source)
@@ -372,6 +374,7 @@ export class MinimalGameAdapter {
       while (count-- > 0 && lib && lib.length > 0) {
         const c = lib.shift();
         z.hand.push(c);
+        actualDrawn += 1;
       }
       z.handCount = z.hand.length;
       z.libraryCount = lib ? lib.length : 0;
@@ -382,6 +385,10 @@ export class MinimalGameAdapter {
       }
       if (this._fallbackLibraries) {
         this._fallbackLibraries[playerId] = lib;
+      }
+
+      if (actualDrawn > 0) {
+        processDrawTriggers(this as any, playerId as any, actualDrawn);
       }
       
       this.bumpSeq();

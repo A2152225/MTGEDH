@@ -3120,6 +3120,15 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
             updateCounters(ctx as any, permanentId, { [counterType]: -count });
           }
 
+          const revealedCardIdsForCost = Array.isArray((e as any).revealedCardIdsForCost)
+            ? (e as any).revealedCardIdsForCost.map((id: any) => String(id || '').trim()).filter(Boolean)
+            : [];
+          if (playerId && cardId && revealedCardIdsForCost.length > 0) {
+            const stateAny = ctx.state as any;
+            stateAny.revealedCardIdsForCostBySpell = stateAny.revealedCardIdsForCostBySpell || {};
+            stateAny.revealedCardIdsForCostBySpell[cardId] = revealedCardIdsForCost;
+          }
+
           ctx.bumpSeq();
         } catch (err) {
           debugWarn(1, 'applyEvent(castSpellContinuation): failed', err);
@@ -11372,6 +11381,45 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           ctx.bumpSeq();
         } catch (err) {
           debugWarn(1, "applyEvent(suspendCard): failed", err);
+        }
+        break;
+      }
+
+      case "morphTurnFaceUp": {
+        const permanentId = String((e as any).permanentId || '').trim();
+        const actualCardData = (e as any).actualCard;
+
+        try {
+          if (!permanentId) break;
+
+          const battlefield = Array.isArray(ctx.state.battlefield) ? ctx.state.battlefield : [];
+          const permanent = battlefield.find((entry: any) => entry && String(entry.id || '') === permanentId) as any;
+          if (!permanent) break;
+
+          const actualCard = actualCardData && typeof actualCardData === 'object'
+            ? { ...(actualCardData as any), zone: 'battlefield' }
+            : (permanent.faceUpCard && typeof permanent.faceUpCard === 'object'
+              ? { ...(permanent.faceUpCard as any), zone: 'battlefield' }
+              : null);
+          if (!actualCard) break;
+
+          permanent.isFaceDown = false;
+          permanent.card = actualCard;
+
+          const typeLine = String(actualCard?.type_line || '').toLowerCase();
+          if (typeLine.includes('creature')) {
+            permanent.basePower = parsePT((actualCard as any).power);
+            permanent.baseToughness = parsePT((actualCard as any).toughness);
+          }
+
+          delete permanent.faceDownType;
+          delete permanent.morphCost;
+          delete permanent.faceUpCard;
+          delete permanent.canTurnFaceUp;
+
+          ctx.bumpSeq();
+        } catch (err) {
+          debugWarn(1, 'applyEvent(morphTurnFaceUp): failed', err);
         }
         break;
       }

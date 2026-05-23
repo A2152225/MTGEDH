@@ -138,6 +138,131 @@ describe('AI resolution-step integration', () => {
     expect(completed?.response?.selections).toEqual(['scepter']);
   });
 
+  it('handles suspend-cast steps for AI players by exiling the card with time counters', async () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const suspendedCard = {
+      id: 'rift_bolt_1',
+      name: 'Rift Bolt',
+      type_line: 'Sorcery',
+      oracle_text: 'Suspend 1--{R}',
+      mana_cost: '{2}{R}',
+      zone: 'hand',
+    };
+
+    (game.state as any).players = [
+      { id: playerId, name: 'AI', spectator: false, life: 40 },
+      { id: 'opp1', name: 'Opponent', spectator: false, life: 40 },
+    ];
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).phase = 'main';
+    (game.state as any).step = 'precombat_main';
+    (game.state as any).stack = [];
+    (game.state as any).zones = {
+      [playerId]: {
+        hand: [{ ...suspendedCard }],
+        handCount: 1,
+        exile: [],
+        exileCount: 0,
+        library: [],
+        graveyard: [],
+      },
+      opp1: { hand: [], handCount: 0, exile: [], exileCount: 0, library: [], graveyard: [] },
+    };
+
+    registerAIPlayer(gameId, playerId as any);
+
+    const step = ResolutionQueueManager.addStep(gameId, {
+      type: ResolutionStepType.SUSPEND_CAST,
+      playerId: playerId as any,
+      description: 'Suspend Rift Bolt.',
+      mandatory: true,
+      card: { ...suspendedCard },
+      suspendCost: '{R}',
+      timeCounters: 1,
+    } as any);
+
+    ResolutionQueueManager.activateStep(gameId, step.id);
+
+    await handleAIPriority(createNoopIo(), gameId, playerId as any);
+
+    const queue = ResolutionQueueManager.getQueue(gameId);
+    expect(queue.steps.some((entry: any) => String(entry.id) === String(step.id))).toBe(false);
+    const completed = queue.completedSteps.find((entry: any) => String(entry.id) === String(step.id));
+    expect(completed?.response?.cancelled).toBe(false);
+    expect(completed?.response?.selections).toEqual({ action: 'suspend' });
+  });
+
+  it('cancels unaffordable morph-turn-face-up steps for AI players', async () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [
+      { id: playerId, name: 'AI', spectator: false, life: 40 },
+      { id: 'opp1', name: 'Opponent', spectator: false, life: 40 },
+    ];
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).phase = 'main';
+    (game.state as any).step = 'precombat_main';
+    (game.state as any).stack = [];
+    (game.state as any).battlefield = [
+      {
+        id: 'morph_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        summoningSickness: false,
+        isFaceDown: true,
+        faceDownType: 'creature',
+        morphCost: '{5}{W}{W}',
+        card: {
+          id: 'morph_hidden',
+          name: 'Face-down Creature',
+          type_line: 'Creature',
+          power: '2',
+          toughness: '2',
+        },
+      },
+    ];
+
+    registerAIPlayer(gameId, playerId as any);
+
+    const step = ResolutionQueueManager.addStep(gameId, {
+      type: ResolutionStepType.MORPH_TURN_FACE_UP,
+      playerId: playerId as any,
+      description: 'Turn face-down creature face-up.',
+      mandatory: false,
+      permanentId: 'morph_1',
+      morphCost: '{5}{W}{W}',
+      actualCard: {
+        id: 'exalted_angel_1',
+        name: 'Exalted Angel',
+        type_line: 'Creature - Angel',
+        oracle_text: 'Flying',
+        power: '4',
+        toughness: '5',
+      },
+      canAfford: false,
+    } as any);
+
+    ResolutionQueueManager.activateStep(gameId, step.id);
+
+    await handleAIPriority(createNoopIo(), gameId, playerId as any);
+
+    const permanent = ((game.state as any).battlefield || []).find((entry: any) => String(entry.id) === 'morph_1');
+    expect(permanent?.isFaceDown).toBe(true);
+    expect(String(permanent?.card?.name || '')).toBe('Face-down Creature');
+
+    const queue = ResolutionQueueManager.getQueue(gameId);
+    const completed = queue.completedSteps.find((entry: any) => String(entry.id) === String(step.id));
+    expect(completed?.response?.cancelled).toBe(true);
+  });
+
   it('auto-resolves AI target-selection steps from the shared resolution queue handler', async () => {
     const io = createNoopIo();
     const aiHandler = initializeAIResolutionHandler(io as any);
@@ -2267,6 +2392,45 @@ describe('AI resolution-step integration', () => {
     expect(queue.steps.some((entry: any) => String(entry.id) === String(step.id))).toBe(false);
     const completed = queue.completedSteps.find((entry: any) => String(entry.id) === String(step.id));
     expect(completed?.response?.selections).toEqual(['cost_a', 'cost_b']);
+  });
+
+  it('routes reveal additional-cost-payment steps through AI priority handling and chooses the lowest-exposure legal card', async () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [
+      { id: playerId, name: 'AI', spectator: false, life: 40 },
+    ];
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).phase = 'main';
+    (game.state as any).step = 'precombat_main';
+    (game.state as any).stack = [];
+
+    registerAIPlayer(gameId, playerId as any);
+
+    const step = ResolutionQueueManager.addStep(gameId, {
+      type: ResolutionStepType.ADDITIONAL_COST_PAYMENT,
+      playerId: playerId as any,
+      description: 'Reveal a creature card as an additional cost.',
+      mandatory: true,
+      costType: 'reveal',
+      amount: 1,
+      availableCards: [
+        { id: 'bomb_creature', name: 'Game Ending Dragon', type_line: 'Creature - Dragon', oracle_text: 'When this enters, draw three cards.', cmc: 7 },
+        { id: 'cheap_creature', name: 'Small Bear', type_line: 'Creature - Bear', oracle_text: '', cmc: 2 },
+      ],
+    } as any);
+
+    ResolutionQueueManager.activateStep(gameId, step.id);
+
+    await handleAIPriority(createNoopIo(), gameId, playerId as any);
+
+    const queue = ResolutionQueueManager.getQueue(gameId);
+    expect(queue.steps.some((entry: any) => String(entry.id) === String(step.id))).toBe(false);
+    const completed = queue.completedSteps.find((entry: any) => String(entry.id) === String(step.id));
+    expect(completed?.response?.selections).toEqual(['cheap_creature']);
   });
 
   it('routes active squad-cost-payment steps through AI priority handling and declines extra squad payments', async () => {

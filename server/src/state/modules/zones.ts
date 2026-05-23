@@ -18,6 +18,8 @@ import { cleanupCardLeavingExile } from "./playable-from-exile.js";
 import { clearPreparedPermanent } from "./prepared.js";
 import { getCounterLeaveBattlefieldReplacement } from "./counter-common-effects.js";
 import { processLinkedExileReturns } from "./triggers/linked-exile.js";
+import { getCardDrawTriggers } from "./triggers/card-draw.js";
+import { evaluateDrawReplacementEvent } from "./replacement-effects.js";
 
 function clearPreparedStateOnBattlefieldExit(state: any, permanent: any): void {
   if (!permanent) {
@@ -298,74 +300,144 @@ export interface DrawResult {
 }
 
 export function drawCards(ctx: GameContext, playerId: PlayerID, count: number): KnownCardRef[] {
-  const lib = ctx.libraries.get(playerId) || [];
   const zones = ctx.state.zones = ctx.state.zones || {};
-  const z = zones[playerId] || (zones[playerId] = { hand: [], handCount: 0, libraryCount: 0, graveyard: [], graveyardCount: 0 } as any);
   const drawn: KnownCardRef[] = [];
+  const normalizedCount = Math.max(0, Math.floor(Number(count || 0)));
   
   // Track draws this turn for miracle abilities (Rule 702.94)
   (ctx.state as any).cardsDrawnThisTurn = (ctx.state as any).cardsDrawnThisTurn || {};
-  const previousDrawCount = (ctx.state as any).cardsDrawnThisTurn[playerId] || 0;
-  
-  // Track if player attempted to draw from empty library
-  let attemptedEmptyDraw = false;
-  
-  for (let i = 0; i < count; i++) {
-    if (lib.length > 0) {
-      const c = lib.shift()!;
-      
-      // Check if this is the first card drawn this turn (for miracle)
-      const drawNumber = previousDrawCount + i + 1;
-      if (drawNumber === 1) {
-        // Mark this card as the first card drawn this turn
-        (c as any).isFirstDrawnThisTurn = true;
-        (c as any).drawnAt = Date.now();
-      }
-      
-      (z.hand as any[]).push(c);
-      drawn.push(c);
-    } else {
-      // Attempted to draw from empty library (Rule 704.5b)
-      attemptedEmptyDraw = true;
-      debug(2, `[drawCards] Player ${playerId} attempted to draw from empty library`);
-      break; // Stop trying to draw more cards
+  const previousDrawCounts: Record<string, number> = {};
+  const drawnByPlayer: Record<string, KnownCardRef[]> = {};
+  const emptyDrawByPlayer: Record<string, boolean> = {};
+  const drawReplacementChoices: any[] = [];
+  const getPreviousDrawCount = (pid: string) => {
+    if (previousDrawCounts[pid] === undefined) {
+      previousDrawCounts[pid] = Number((ctx.state as any).cardsDrawnThisTurn?.[pid] || 0);
     }
+    return previousDrawCounts[pid];
+  };
+  const getZone = (pid: string) => {
+    return zones[pid] || (zones[pid] = { hand: [], handCount: 0, libraryCount: 0, graveyard: [], graveyardCount: 0 } as any);
+  };
+  const drawOneForPlayer = (pid: string, returnToOriginal: boolean): boolean => {
+    const lib = ctx.libraries.get(pid as PlayerID) || [];
+    const z = getZone(pid);
+    if (lib.length <= 0) {
+      emptyDrawByPlayer[pid] = true;
+      debug(2, `[drawCards] Player ${pid} attempted to draw from empty library`);
+      return false;
+    }
+
+    const c = lib.shift()!;
+    drawnByPlayer[pid] = drawnByPlayer[pid] || [];
+    const drawNumber = getPreviousDrawCount(pid) + drawnByPlayer[pid].length + 1;
+    if (drawNumber === 1) {
+      (c as any).isFirstDrawnThisTurn = true;
+      (c as any).drawnAt = Date.now();
+    }
+
+    (z.hand as any[]).push(c);
+    drawnByPlayer[pid].push(c);
+    if (returnToOriginal) drawn.push(c);
+    ctx.libraries.set(pid as PlayerID, lib);
+    z.handCount = (z.hand as any[]).length;
+    z.libraryCount = lib.length;
+    return true;
+  };
+
+  if (normalizedCount >= 2) {
+    const batchReplacement = evaluateDrawReplacementEvent({
+      state: ctx.state,
+      playerId: String(playerId),
+      count: normalizedCount,
+    });
+
+    if (batchReplacement.effectId === 'draw-replaced-by-shared-draw') {
+      const originalPlayerId = String(playerId);
+      drawOneForPlayer(originalPlayerId, true);
+      for (const additionalDraw of ((batchReplacement.metadata as any)?.additionalDraws || [])) {
+        const additionalPlayerId = String(additionalDraw?.playerId || '').trim();
+        const additionalCount = Math.max(0, Math.floor(Number(additionalDraw?.count || 0)));
+        if (!additionalPlayerId || additionalCount <= 0) continue;
+        for (let i = 0; i < additionalCount; i++) {
+          if (!drawOneForPlayer(additionalPlayerId, false)) break;
+        }
+      }
+    }
+  }
+
+  if (drawn.length === 0 && Object.keys(drawnByPlayer).length === 0) {
+  
+    for (let i = 0; i < normalizedCount; i++) {
+      const originalPlayerId = String(playerId);
+      const currentStep = String((ctx.state as any).step || (ctx.state as any).phase || '').toLowerCase();
+      const drawNumber = getPreviousDrawCount(originalPlayerId) + (drawnByPlayer[originalPlayerId]?.length || 0) + 1;
+      const replacement = evaluateDrawReplacementEvent({
+        state: ctx.state,
+        playerId: originalPlayerId,
+        count: 1,
+        drawIndex: drawNumber,
+        metadata: {
+          isFirstDrawStepDraw: currentStep.includes('draw') && drawNumber === 1,
+        },
+      });
+
+      if (replacement.choiceRequired && replacement.effectId === 'dredge-draw-replacement-choice') {
+        drawReplacementChoices.push(replacement.metadata);
+      }
+
+      if (replacement.effectId === 'draw-replaced-by-opponent') {
+        const replacementPlayerId = String((replacement.metadata as any)?.replacementPlayerId || '').trim();
+        if (replacementPlayerId) {
+          if (!drawOneForPlayer(replacementPlayerId, false)) break;
+          continue;
+        }
+      }
+
+      if (!drawOneForPlayer(originalPlayerId, true)) {
+        break;
+      }
+    }
+  }
+
+  if (drawReplacementChoices.length > 0) {
+    (ctx.state as any).lastDrawReplacementChoices = drawReplacementChoices;
   }
   
   // Update draw count for this turn
-  (ctx.state as any).cardsDrawnThisTurn[playerId] = previousDrawCount + drawn.length;
-  
-  ctx.libraries.set(playerId, lib);
-  z.handCount = (z.hand as any[]).length;
-  z.libraryCount = lib.length;
+  for (const [pid, cards] of Object.entries(drawnByPlayer)) {
+    (ctx.state as any).cardsDrawnThisTurn[pid] = getPreviousDrawCount(pid) + cards.length;
+  }
   
   // Process draw triggers (Psychosis Crawler, etc.)
-  if (drawn.length > 0) {
-    processDrawTriggers(ctx, playerId, drawn.length);
+  for (const [pid, cards] of Object.entries(drawnByPlayer)) {
+    if (cards.length > 0) {
+      processDrawTriggers(ctx, pid as PlayerID, cards.length);
+    }
   }
   
   // Handle empty library draw (Rule 704.5b)
-  if (attemptedEmptyDraw) {
+  for (const pid of Object.keys(emptyDrawByPlayer)) {
     // Check for win/lose replacement effects
-    const result = checkEmptyLibraryDraw(ctx, playerId);
+    const result = checkEmptyLibraryDraw(ctx, pid as PlayerID);
     
     if (result.wins) {
-      debug(2, `[drawCards] Player ${playerId} WINS: ${result.reason}`);
+      debug(2, `[drawCards] Player ${pid} WINS: ${result.reason}`);
       
       // Mark the game as won
       (ctx.state as any).gameOver = true;
-      (ctx.state as any).winner = playerId;
+      (ctx.state as any).winner = pid;
       (ctx.state as any).winReason = result.reason;
     } else if (result.loses) {
-      debug(2, `[drawCards] Player ${playerId} LOSES: ${result.reason}`);
+      debug(2, `[drawCards] Player ${pid} LOSES: ${result.reason}`);
       
       // Track that this player attempted to draw from empty library
       // State-based actions will check this
       (ctx.state as any).attemptedEmptyLibraryDraw = (ctx.state as any).attemptedEmptyLibraryDraw || {};
-      (ctx.state as any).attemptedEmptyLibraryDraw[playerId] = true;
+      (ctx.state as any).attemptedEmptyLibraryDraw[pid] = true;
     } else {
       // Can't lose the game (Platinum Angel, etc.)
-      debug(2, `[drawCards] Player ${playerId} attempted empty library draw but can't lose: ${result.reason}`);
+      debug(2, `[drawCards] Player ${pid} attempted empty library draw but can't lose: ${result.reason}`);
     }
   }
   
@@ -379,35 +451,84 @@ export function drawCards(ctx: GameContext, playerId: PlayerID, count: number): 
  * - Psychosis Crawler: "Whenever you draw a card, each opponent loses 1 life"
  * - Niv-Mizzet: "Whenever you draw a card, deal 1 damage to any target"
  */
-function processDrawTriggers(ctx: GameContext, drawingPlayerId: PlayerID, cardsDrawn: number) {
+export function processDrawTriggers(ctx: GameContext, drawingPlayerId: PlayerID, cardsDrawn: number) {
   const battlefield = ctx.state.battlefield || [];
   const players = (ctx.state as any).players || [];
   const gameId = String((ctx as any).gameId || '').trim();
+
+  const drawTriggers = getCardDrawTriggers(ctx, String(drawingPlayerId));
+  const queueGenericDrawTrigger = (trigger: any, drawIndex: number) => {
+    const effect = String(trigger?.effect || '').trim();
+    const sourceName = String(trigger?.cardName || '').trim();
+    const sourceNameLower = sourceName.toLowerCase();
+    const effectLower = effect.toLowerCase();
+    if (!effect) {
+      return;
+    }
+    if (sourceNameLower.includes('smothering tithe') || /\bmay pay \{[^}]+\}/i.test(effectLower)) {
+      return;
+    }
+    if (effectLower.includes('target') || effectLower.includes('any target')) {
+      return;
+    }
+
+    ctx.state.stack = Array.isArray(ctx.state.stack) ? ctx.state.stack : [];
+    const triggerId = uid('trigger');
+    const stackItem = {
+      id: triggerId,
+      type: 'triggered_ability',
+      controller: trigger.controllerId,
+      source: trigger.permanentId,
+      permanentId: trigger.permanentId,
+      sourceName,
+      description: effect,
+      effect,
+      triggerType: trigger.triggerType,
+      mandatory: trigger.mandatory !== false,
+      triggeringPlayer: drawingPlayerId,
+      targetPlayer: drawingPlayerId,
+      effectData: {
+        drawingPlayerId,
+        drawIndex,
+      },
+    } as any;
+
+    (ctx.state.stack as any[]).push(stackItem);
+
+    if (gameId && gameId !== 'unknown') {
+      try {
+        appendEvent(gameId, Number((ctx as any).seq?.value ?? (ctx as any).seq ?? 0), 'pushTriggeredAbility', {
+          triggerId,
+          sourceId: trigger.permanentId,
+          sourceName,
+          controllerId: trigger.controllerId,
+          description: effect,
+          triggerType: trigger.triggerType,
+          effect,
+          mandatory: trigger.mandatory !== false,
+          targetPlayer: drawingPlayerId,
+          triggeringPlayer: drawingPlayerId,
+          effectData: stackItem.effectData,
+        });
+      } catch (err) {
+        debugWarn(1, '[drawTrigger] Failed to persist generic draw trigger:', err);
+      }
+    }
+  };
+
+  if (cardsDrawn > 0 && drawTriggers.length > 0) {
+    for (let index = 0; index < cardsDrawn; index++) {
+      for (const trigger of drawTriggers) {
+        queueGenericDrawTrigger(trigger, index + 1);
+      }
+    }
+  }
   
   for (const perm of battlefield) {
     if (!perm || !perm.card) continue;
     
     const permName = (perm.card.name || '').toLowerCase();
     const oracleText = (perm.card.oracle_text || '').toLowerCase();
-    
-    // Psychosis Crawler: "Whenever you draw a card, each opponent loses 1 life"
-    if ((permName.includes('psychosis crawler') || 
-         (oracleText.includes('whenever you draw a card') && oracleText.includes('each opponent loses'))) &&
-        perm.controller === drawingPlayerId) {
-      for (const player of players) {
-        if (player.id !== drawingPlayerId && (ctx as any).life) {
-          (ctx as any).life[player.id] = ((ctx as any).life[player.id] ?? 40) - cardsDrawn;
-
-          // Track life lost this turn.
-          try {
-            (ctx.state as any).lifeLostThisTurn = (ctx.state as any).lifeLostThisTurn || {};
-            (ctx.state as any).lifeLostThisTurn[player.id] = ((ctx.state as any).lifeLostThisTurn[player.id] || 0) + cardsDrawn;
-          } catch {}
-
-          debug(1, `[drawTrigger] Psychosis Crawler: ${player.name || player.id} lost ${cardsDrawn} life`);
-        }
-      }
-    }
     
     // Niv-Mizzet: triggers for damage (would need stack implementation for targeting)
     if (permName.includes('niv-mizzet') && 

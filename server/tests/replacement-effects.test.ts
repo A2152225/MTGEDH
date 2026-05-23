@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest';
 
 import { createInitialGameState } from '../src/state/gameState.js';
+import { replay as replayEvents } from '../src/state/modules/replay.js';
 import { applyDamageToPermanentWithCounterEffects } from '../src/state/modules/counter-common-effects.js';
 import { applyCounterModifications, createToken } from '../src/state/modules/counters_tokens.js';
+import { drawCards } from '../src/state/modules/zones.js';
 import { applyLifeGain } from '../src/state/utils.js';
-import { evaluateCounterPlacementReplacementEvent, evaluateDamageReplacementEvent, evaluateLibrarySearchReplacementEvent, evaluateLifeGainReplacementEvent, evaluateReplacementEvent, evaluateTokenCreationReplacementEvent } from '../src/state/modules/replacement-effects.js';
+import { evaluateBattlefieldEntryReplacementEvent, evaluateCounterPlacementReplacementEvent, evaluateDamageReplacementEvent, evaluateDrawReplacementEvent, evaluateLibrarySearchReplacementEvent, evaluateLifeGainReplacementEvent, evaluateReplacementEvent, evaluateTokenCreationReplacementEvent } from '../src/state/modules/replacement-effects.js';
 import { shouldExileStackCardInsteadOfGraveyard } from '../src/state/modules/stack-zone-replacements.js';
 
 describe('replacement effect evaluator', () => {
@@ -242,6 +244,123 @@ describe('replacement effect evaluator', () => {
     });
   });
 
+  it('evaluates battlefield-entry tapped, counter, copy, transform, and face-down metadata', () => {
+    const result = evaluateBattlefieldEntryReplacementEvent({
+      state: { battlefield: [] },
+      controllerId: 'p1',
+      card: { id: 'entry_card_1', name: 'Entry Test', type_line: 'Creature', oracle_text: '' },
+      entersTapped: true,
+      entryCounters: { '+1/+1': 2, loyalty: 0 },
+      entersTransformed: true,
+      entersFaceDown: true,
+      copySourceId: 'source_perm_1',
+    });
+
+    expect(result).toMatchObject({
+      applied: true,
+      eventType: 'battlefield-entry',
+      effectId: 'battlefield-entry-modified',
+      sourceName: 'Entry Test',
+      reason: 'battlefield_entry_replacement',
+      metadata: {
+        controllerId: 'p1',
+        entersTapped: true,
+        entryCounters: { '+1/+1': 2 },
+        entersTransformed: true,
+        entersFaceDown: true,
+        copySourceId: 'source_perm_1',
+      },
+    });
+    expect((result.metadata as any).effects).toEqual(['entersTapped', 'entryCounters', 'entersTransformed', 'entersFaceDown', 'copy']);
+  });
+
+  it('evaluates damage prevention shields as blocked when damage cannot be prevented', () => {
+    const permanent = {
+      id: 'shielded_cant_prevent_perm_1',
+      counters: { shield: 1 },
+      card: { id: 'shielded_cant_prevent_card_1', name: 'Shielded Creature', type_line: 'Creature' },
+    };
+    const source = {
+      id: 'cant_prevent_source_1',
+      name: 'Banefire Test',
+      oracle_text: "Damage can't be prevented.",
+    };
+
+    const result = evaluateDamageReplacementEvent({
+      state: { battlefield: [] },
+      amount: 4,
+      source,
+      sourceId: source.id,
+      target: permanent,
+      targetId: permanent.id,
+    });
+
+    expect(result).toMatchObject({
+      applied: true,
+      eventType: 'damage',
+      effectId: 'damage-prevention-disallowed',
+      originalAmount: 4,
+      replacementAmount: 4,
+      preventedAmount: 0,
+      reason: 'source_damage_prevention_disallowed',
+      metadata: { damageCanBePrevented: false, targetId: 'shielded_cant_prevent_perm_1' },
+    });
+
+    const damageResult = applyDamageToPermanentWithCounterEffects(permanent, 4, 'damageMarked', {
+      state: { battlefield: [] },
+      source,
+      sourceId: source.id,
+    });
+    expect(damageResult).toEqual({ prevented: false, appliedAmount: 4 });
+    expect(permanent.counters.shield).toBe(1);
+    expect((permanent as any).damageMarked).toBe(4);
+  });
+
+  it('evaluates finite damage prevention effects and damage amount modifiers', () => {
+    const preventionResult = evaluateDamageReplacementEvent({
+      state: {
+        turnNumber: 3,
+        damagePreventionEffects: [
+          { id: 'prevent_1', sourceName: 'Preventer', targetSourceId: '*', targetPermanentId: 'target_perm_1', remainingAmount: 2, expiresAtTurn: 3 },
+        ],
+      },
+      amount: 5,
+      source: { id: 'source_1', name: 'Source', colors: ['R'] },
+      sourceId: 'source_1',
+      target: { id: 'target_perm_1', card: { name: 'Target' } },
+      targetId: 'target_perm_1',
+    });
+
+    expect(preventionResult).toMatchObject({
+      applied: true,
+      effectId: 'damage-prevented-by-effect',
+      sourceName: 'Preventer',
+      originalAmount: 5,
+      replacementAmount: 3,
+      preventedAmount: 2,
+      reason: 'damage_prevention_effect',
+    });
+
+    const modifierResult = evaluateDamageReplacementEvent({
+      amount: 3,
+      metadata: {
+        replacementEffects: [
+          { type: 'double', source: 'Damage Doubler' },
+          { type: 'add_flat', source: 'Bonus Damage', value: 1 },
+        ],
+      },
+    });
+
+    expect(modifierResult).toMatchObject({
+      applied: true,
+      effectId: 'damage-amount-modified',
+      originalAmount: 3,
+      replacementAmount: 7,
+      preventedAmount: 0,
+      reason: 'damage_amount_replacement',
+    });
+  });
+
   it('evaluates static life gain prevention and preserves applyLifeGain behavior', () => {
     const state = {
       startingLife: 40,
@@ -424,6 +543,170 @@ describe('replacement effect evaluator', () => {
 
     const createdIds = createToken(game as any, 'p1' as any, 'Soldier', 2, 1, 1, { typeLine: 'Token Creature - Soldier' }, true);
     expect(createdIds).toHaveLength(8);
+  });
+
+  it('evaluates draw replacements and preserves Notion Thief live draw behavior', () => {
+    const state = {
+      zones: {
+        p1: {
+          hand: [],
+          libraryCount: 5,
+          graveyard: [
+            { id: 'stinkweed_imp_1', name: 'Stinkweed Imp', oracle_text: 'Flying\nDredge 5' },
+          ],
+        },
+      },
+      battlefield: [
+        {
+          id: 'notion_thief_1',
+          controller: 'p2',
+          card: {
+            id: 'notion_thief_card_1',
+            name: 'Notion Thief',
+            type_line: 'Creature',
+            oracle_text: "If an opponent would draw a card except the first one they draw in each of their draw steps, instead you draw a card.",
+          },
+        },
+      ],
+    } as any;
+
+    const dredgeChoice = evaluateDrawReplacementEvent({ state, playerId: 'p1', count: 1 });
+    expect(dredgeChoice).toMatchObject({
+      applied: false,
+      choiceRequired: true,
+      eventType: 'card-draw',
+      effectId: 'dredge-draw-replacement-choice',
+      replacementAmount: 0,
+      reason: 'dredge_replacement_choice',
+    });
+    expect((dredgeChoice.metadata as any).dredgeOptions).toEqual([
+      { cardId: 'stinkweed_imp_1', cardName: 'Stinkweed Imp', dredge: 5 },
+    ]);
+
+    const thiefReplacement = evaluateDrawReplacementEvent({
+      state: { ...state, zones: { p1: { hand: [], libraryCount: 0, graveyard: [] } } },
+      playerId: 'p1',
+      count: 1,
+    });
+    expect(thiefReplacement).toMatchObject({
+      applied: true,
+      eventType: 'card-draw',
+      effectId: 'draw-replaced-by-opponent',
+      sourceName: 'Notion Thief',
+      originalAmount: 1,
+      replacementAmount: 0,
+      reason: 'draw_replaced_by_opponent',
+      metadata: { playerId: 'p1', replacementPlayerId: 'p2' },
+    });
+
+    const game = createInitialGameState('replacement_effect_draw_replacement');
+    game.applyEvent({ type: 'join', playerId: 'p1', name: 'P1' } as any);
+    game.applyEvent({ type: 'join', playerId: 'p2', name: 'P2' } as any);
+    (game.state as any).battlefield = state.battlefield;
+    (game.state as any).zones.p1.hand = [];
+    (game.state as any).zones.p2.hand = [];
+    game.libraries.set('p1' as any, [
+      { id: 'p1_lib_1', name: 'P1 Card 1' } as any,
+      { id: 'p1_lib_2', name: 'P1 Card 2' } as any,
+    ]);
+    game.libraries.set('p2' as any, [
+      { id: 'p2_lib_1', name: 'P2 Card 1' } as any,
+      { id: 'p2_lib_2', name: 'P2 Card 2' } as any,
+    ]);
+
+    const drawn = drawCards(game as any, 'p1' as any, 2);
+    expect(drawn).toHaveLength(0);
+    expect((game.state as any).zones.p1.hand).toHaveLength(0);
+    expect((game.state as any).zones.p2.hand.map((card: any) => card.name)).toEqual(['P2 Card 1', 'P2 Card 2']);
+    expect((game.state as any).cardsDrawnThisTurn.p2).toBe(2);
+  });
+
+  it('applies shared batch draw replacements through the live draw helper', () => {
+    const game = createInitialGameState('replacement_effect_shared_draw_replacement');
+    game.applyEvent({ type: 'join', playerId: 'p1', name: 'P1' } as any);
+    game.applyEvent({ type: 'join', playerId: 'p2', name: 'P2' } as any);
+    (game.state as any).battlefield = [
+      {
+        id: 'alms_collector_1',
+        controller: 'p2',
+        card: {
+          id: 'alms_collector_card_1',
+          name: 'Alms Collector',
+          type_line: 'Creature',
+          oracle_text: 'If an opponent would draw two or more cards, instead you and that player each draw a card.',
+        },
+      },
+    ];
+    game.libraries.set('p1' as any, [
+      { id: 'p1_batch_lib_1', name: 'P1 Batch Card 1' } as any,
+      { id: 'p1_batch_lib_2', name: 'P1 Batch Card 2' } as any,
+      { id: 'p1_batch_lib_3', name: 'P1 Batch Card 3' } as any,
+    ]);
+    game.libraries.set('p2' as any, [
+      { id: 'p2_batch_lib_1', name: 'P2 Batch Card 1' } as any,
+    ]);
+
+    const drawn = drawCards(game as any, 'p1' as any, 3);
+    expect(drawn.map((card: any) => card.name)).toEqual(['P1 Batch Card 1']);
+    expect((game.state as any).zones.p1.hand.map((card: any) => card.name)).toEqual(['P1 Batch Card 1']);
+    expect((game.state as any).zones.p2.hand.map((card: any) => card.name)).toEqual(['P2 Batch Card 1']);
+    expect((game.state as any).cardsDrawnThisTurn.p1).toBe(1);
+    expect((game.state as any).cardsDrawnThisTurn.p2).toBe(1);
+  });
+
+  it('replays draw replacements through the recorded drawCards event', () => {
+    const game = createInitialGameState('replacement_effect_draw_replay');
+    game.applyEvent({ type: 'join', playerId: 'p1', name: 'P1' } as any);
+    game.applyEvent({ type: 'join', playerId: 'p2', name: 'P2' } as any);
+    (game.state as any).battlefield = [
+      {
+        id: 'notion_thief_replay_1',
+        controller: 'p2',
+        card: {
+          id: 'notion_thief_replay_card_1',
+          name: 'Notion Thief',
+          type_line: 'Creature',
+          oracle_text: "If an opponent would draw a card except the first one they draw in each of their draw steps, instead you draw a card.",
+        },
+      },
+    ];
+    game.libraries.set('p1' as any, [
+      { id: 'p1_replay_lib_1', name: 'P1 Replay Card 1' } as any,
+      { id: 'p1_replay_lib_2', name: 'P1 Replay Card 2' } as any,
+    ]);
+    game.libraries.set('p2' as any, [
+      { id: 'p2_replay_lib_1', name: 'P2 Replay Card 1' } as any,
+      { id: 'p2_replay_lib_2', name: 'P2 Replay Card 2' } as any,
+    ]);
+
+    replayEvents(game as any, [{ type: 'drawCards', playerId: 'p1', count: 2 } as any]);
+
+    expect((game.state as any).zones.p1.hand).toHaveLength(0);
+    expect((game.state as any).zones.p2.hand.map((card: any) => card.name)).toEqual(['P2 Replay Card 1', 'P2 Replay Card 2']);
+    expect((game.state as any).cardsDrawnThisTurn.p2).toBe(2);
+  });
+
+  it('replays token creation replacements through the recorded createToken event', () => {
+    const game = createInitialGameState('replacement_effect_token_replay');
+    game.applyEvent({ type: 'join', playerId: 'p1', name: 'P1' } as any);
+    (game.state as any).battlefield = [
+      {
+        id: 'anointed_procession_replay_1',
+        controller: 'p1',
+        card: {
+          id: 'anointed_procession_replay_card_1',
+          name: 'Anointed Procession',
+          type_line: 'Enchantment',
+          oracle_text: 'If an effect would create one or more tokens under your control, it creates twice that many of those tokens instead.',
+        },
+      },
+    ];
+
+    replayEvents(game as any, [{ type: 'createToken', controller: 'p1', name: 'Soldier', count: 2, basePower: 1, baseToughness: 1 } as any]);
+
+    const tokens = ((game.state as any).battlefield || []).filter((permanent: any) => permanent?.card?.name === 'Soldier');
+    expect(tokens).toHaveLength(4);
+    expect(tokens.every((permanent: any) => permanent.isToken === true && permanent.controller === 'p1')).toBe(true);
   });
 
   it('evaluates counter placement replacement metadata around existing counter ordering', () => {

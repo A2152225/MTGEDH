@@ -118,4 +118,44 @@ describe('OPTION_CHOICE validate-before-complete (integration)', () => {
     const queueAfterOk = ResolutionQueueManager.getQueue(gameId);
     expect(queueAfterOk.steps.some((s: any) => String(s.id) === stepId)).toBe(false);
   });
+
+  it('accepts wrapped selectedOptionIds payloads for generic option choices', async () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const p1 = 'p1';
+    (game.state as any).players = [{ id: p1, name: 'P1', spectator: false, life: 40 }];
+
+    ResolutionQueueManager.addStep(gameId, {
+      type: ResolutionStepType.OPTION_CHOICE,
+      playerId: p1 as any,
+      description: 'Choose up to two options',
+      mandatory: true,
+      options: [
+        { id: 'a', label: 'A' },
+        { id: 'b', label: 'B' },
+        { id: 'c', label: 'C' },
+      ],
+      minSelections: 1,
+      maxSelections: 2,
+    } as any);
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(p1, emitted);
+    socket.rooms.add(gameId);
+
+    const io = createMockIo(emitted, [socket]);
+    registerResolutionHandlers(io as any, socket as any);
+
+    const step = ResolutionQueueManager.getQueue(gameId).steps.find((s: any) => s.type === 'option_choice');
+    const stepId = String((step as any).id);
+
+    await handlers['submitResolutionResponse']({ gameId, stepId, selections: { selectedOptionIds: ['b', 'c'] } });
+
+    const queueAfterOk = ResolutionQueueManager.getQueue(gameId);
+    expect(queueAfterOk.steps.some((s: any) => String(s.id) === stepId)).toBe(false);
+    const completed = queueAfterOk.completedSteps.find((s: any) => String(s.id) === stepId) as any;
+    expect(completed?.response?.selections?.selectedOptionIds).toEqual(['b', 'c']);
+  });
 });

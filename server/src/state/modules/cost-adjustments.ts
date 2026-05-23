@@ -20,6 +20,7 @@ export interface ParsedCostLike {
   generic: number;
   hasX: boolean;
   hybrid?: Array<string[]>;
+  hybrids?: Array<string[]>;
 }
 
 export interface LiveSpellCostAdjustment {
@@ -243,12 +244,18 @@ export function applyCostAdjustmentToParsedCost(
 
   if (!genericAdjustment && Object.keys(coloredReductions).length === 0) return parsedCost;
 
+  const hybridEntries = Array.isArray(parsedCost.hybrid)
+    ? parsedCost.hybrid.map((entry) => [...entry])
+    : Array.isArray(parsedCost.hybrids)
+      ? parsedCost.hybrids.map((entry) => [...entry])
+      : undefined;
+
   const result: ParsedCostLike = {
     colors: { ...parsedCost.colors },
     generic: parsedCost.generic,
     hasX: Boolean(parsedCost.hasX),
-    ...(Array.isArray(parsedCost.hybrid)
-      ? { hybrid: parsedCost.hybrid.map((entry) => [...entry]) }
+    ...(Array.isArray(hybridEntries)
+      ? { hybrid: hybridEntries.map((entry) => [...entry]), hybrids: hybridEntries.map((entry) => [...entry]) }
       : {}),
   };
 

@@ -44,6 +44,7 @@ import { cardAllowsPlayerToPlayFromExile, cardMeetsPlayFromExileConditions, clea
 import { isPreparedCopyActive, syncPreparedPermanentAfterControlChange } from "../state/modules/prepared.js";
 import { getEffectiveBasicLandTypes } from "../state/modules/mana-abilities.js";
 import { buildCostAdjustmentPlan, buildLiveSpellCostAdjustment } from "../state/modules/cost-adjustments.js";
+import { buildNormalizedManaPaymentModel, stringifyParsedManaCost, type NormalizedManaPaymentModel } from "../state/modules/mana-check.js";
 import { parseOracleTextToIR } from '../../../rules-engine/src/oracleIRParser.js';
 import { applyOracleIRStepsToGameState } from '../../../rules-engine/src/oracleIRExecutor.js';
 import { extractGiftInfo, resolveGiftAwareOracleText } from '../utils/gift.js';
@@ -150,6 +151,7 @@ export interface PendingCastCostMetadata {
   staticCostTax: StaticCostTaxMetadata;
   genericCostTax: number;
   paymentCostAdjustment?: PaymentStepCostAdjustment;
+  paymentModel?: NormalizedManaPaymentModel;
 }
 
 function normalizeSpellCastSourceZone(value: unknown): SpellCastSourceZone | undefined {
@@ -165,31 +167,10 @@ function buildManaCostStringFromParsedCost(parsedCost?: {
   hasX?: boolean;
 }): string {
   if (!parsedCost || typeof parsedCost !== 'object') return '';
-
-  let manaCost = '';
-  if (parsedCost.hasX) {
-    manaCost += '{X}';
-  }
-
-  const generic = Math.max(0, Number(parsedCost.generic || 0));
-  if (generic > 0) {
-    manaCost += `{${generic}}`;
-  }
-
-  for (const [color, count] of Object.entries(parsedCost.colors || {})) {
-    const normalizedCount = Math.max(0, Number(count || 0));
-    for (let index = 0; index < normalizedCount; index++) {
-      manaCost += `{${color}}`;
-    }
-  }
-
-  for (const hybrid of Array.isArray(parsedCost.hybrids) ? parsedCost.hybrids : []) {
-    if (Array.isArray(hybrid) && hybrid.length > 0) {
-      manaCost += `{${hybrid.join('/')}}`;
-    }
-  }
-
-  return manaCost || '{0}';
+  return stringifyParsedManaCost({
+    ...parsedCost,
+    hybrid: Array.isArray(parsedCost.hybrids) ? parsedCost.hybrids : [],
+  });
 }
 
 function isMainPhaseForSharedSpellGate(state: any): boolean {
@@ -420,6 +401,18 @@ function getEffectiveAdditionalCost(card: any, oracleText: string): AdditionalCo
   return detectAdditionalCost(oracleText);
 }
 
+function getRevealAdditionalCostCards(hand: any[], castSourceZone: SpellCastSourceZone, cardId: string, additionalCost: AdditionalCostResult): any[] {
+  const filter = String(additionalCost.filter || '').trim().toLowerCase();
+  return (Array.isArray(hand) ? hand : [])
+    .filter((card: any) => card && (castSourceZone === 'hand' ? String(card.id || '') !== String(cardId || '') : true))
+    .filter((card: any) => {
+      if (!filter) return true;
+      const typeLine = String(card?.type_line || '').toLowerCase();
+      const name = String(card?.name || '').toLowerCase();
+      return typeLine.includes(filter) || name.includes(filter);
+    });
+}
+
 function createEmptyCostReduction(): CostReductionMetadata {
   return {
     generic: 0,
@@ -598,11 +591,20 @@ export function buildPendingCastCostMetadata(
 ): PendingCastCostMetadata {
   const costReduction = calculateCostReduction(game, playerId, card);
   const staticCostTax = calculateStaticSourceGenericTax(game, playerId, card);
+  const originalManaCost = String(card?.mana_cost || '').trim();
+  const paymentModel = buildNormalizedManaPaymentModel({
+    originalManaCost,
+    effectiveManaCost: String(paymentCostAdjustment?.adjustedManaCost || originalManaCost || '{0}'),
+    castWithoutPayingManaCost: (card as any)?.castWithoutPayingManaCost === true,
+    forcedAlternateCostId: String((card as any)?.forcedAlternateCostId || '').trim() || undefined,
+    additionalCosts: Array.isArray((card as any)?.additionalCosts) ? (card as any).additionalCosts : [],
+  });
 
   return {
     costReduction,
     staticCostTax,
     genericCostTax: staticCostTax.generic,
+    paymentModel,
     ...(paymentCostAdjustment ? { paymentCostAdjustment } : {}),
   };
 }
@@ -614,6 +616,17 @@ function getPendingCastPaymentFields(
   const costMetadata: PendingCastCostMetadata = {
     ...metadata,
     ...(paymentCostAdjustment ? { paymentCostAdjustment } : {}),
+    ...(paymentCostAdjustment && metadata.paymentModel
+      ? {
+          paymentModel: buildNormalizedManaPaymentModel({
+            originalManaCost: metadata.paymentModel.originalManaCost,
+            effectiveManaCost: paymentCostAdjustment.adjustedManaCost,
+            castWithoutPayingManaCost: metadata.paymentModel.castWithoutPayingManaCost,
+            forcedAlternateCostId: metadata.paymentModel.forcedAlternateCostId,
+            additionalCosts: metadata.paymentModel.additionalCosts,
+          }),
+        }
+      : {}),
   };
 
   return { costMetadata };
@@ -5892,6 +5905,51 @@ export async function requestCastSpellForSocket(
             },
           } as any);
           preTargetQueuedSteps.push({ ...(discardCostStep as any) });
+        } else if (!requestCastAdditionalCostPaid && additionalCost?.type === 'reveal') {
+          const revealableHandCards = getRevealAdditionalCostCards(hand, castSourceZone, cardId, additionalCost);
+          if (revealableHandCards.length < additionalCost.amount) {
+            delete (game.state as any).pendingSpellCasts[effectId];
+            socket.emit('error', {
+              code: 'CANNOT_PAY_COST',
+              message: `Cannot cast ${cardName}: You need to reveal ${additionalCost.amount} ${additionalCost.filter || ''} card(s) from your hand.`,
+            });
+            return;
+          }
+
+          const revealCostStep = ResolutionQueueManager.addStep(gameId, {
+            type: ResolutionStepType.ADDITIONAL_COST_PAYMENT,
+            playerId: playerId as any,
+            sourceId: effectId,
+            sourceName: cardName,
+            sourceImage: cardForCast.image_uris?.small || cardForCast.image_uris?.normal || cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
+            description: `As an additional cost to cast ${cardName}, reveal ${additionalCost.amount} ${additionalCost.filter || ''} card${additionalCost.amount > 1 ? 's' : ''} from your hand.`,
+            mandatory: true,
+            cardId,
+            cardName,
+            costType: 'reveal',
+            amount: additionalCost.amount,
+            filter: additionalCost.filter,
+            title: `Reveal ${additionalCost.amount} ${additionalCost.filter || ''} card${additionalCost.amount > 1 ? 's' : ''} to cast ${cardName}`,
+            imageUrl: cardForCast.image_uris?.small || cardForCast.image_uris?.normal || cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
+            availableCards: revealableHandCards.map((c: any) => ({
+              id: c.id,
+              name: c.name,
+              imageUrl: c.image_uris?.small || c.image_uris?.normal,
+              typeLine: c.type_line,
+            })),
+            castSpellFromHandArgs: {
+              cardId,
+              faceIndex: selectedFaceIndex,
+              fromZone: castSourceZone,
+              xValue: chosenXValue,
+              alternateCostId: options?.forcedAlternateCostId,
+              castWithoutPayingManaCost: isFreeCast,
+              bypassExilePermissionCheck,
+              ignoreTimingRestrictions,
+              skipPriorityCheck: true,
+            },
+          } as any);
+          preTargetQueuedSteps.push({ ...(revealCostStep as any) });
         } else if (!requestCastAdditionalCostPaid && additionalCost?.type === 'sacrifice') {
           const validSacrificeTargets = (game.state?.battlefield || []).filter((p: any) => {
             if (String(p?.controller || '') !== String(playerId)) return false;
@@ -6424,6 +6482,67 @@ export async function requestCastSpellForSocket(
       });
 
       debug(2, `[requestCastSpell] Queued discard additional-cost step for no-target spell ${cardName}`);
+      return;
+    }
+
+    if (!requestCastAdditionalCostPaid && additionalCost?.type === 'reveal') {
+      const revealableHandCards = getRevealAdditionalCostCards(hand, castSourceZone, cardId, additionalCost);
+      if (revealableHandCards.length < additionalCost.amount) {
+        delete (game.state as any).pendingSpellCasts[effectId];
+        socket.emit('error', {
+          code: 'CANNOT_PAY_COST',
+          message: `Cannot cast ${cardName}: You need to reveal ${additionalCost.amount} ${additionalCost.filter || ''} card(s) from your hand.`,
+        });
+        return;
+      }
+
+      const revealCostStep = ResolutionQueueManager.addStep(gameId, {
+        type: ResolutionStepType.ADDITIONAL_COST_PAYMENT,
+        playerId: playerId as any,
+        sourceId: effectId,
+        sourceName: cardName,
+        sourceImage: cardForCast.image_uris?.small || cardForCast.image_uris?.normal || cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
+        description: `As an additional cost to cast ${cardName}, reveal ${additionalCost.amount} ${additionalCost.filter || ''} card${additionalCost.amount > 1 ? 's' : ''} from your hand.`,
+        mandatory: true,
+        cardId,
+        cardName,
+        costType: 'reveal',
+        amount: additionalCost.amount,
+        filter: additionalCost.filter,
+        title: `Reveal ${additionalCost.amount} ${additionalCost.filter || ''} card${additionalCost.amount > 1 ? 's' : ''} to cast ${cardName}`,
+        imageUrl: cardForCast.image_uris?.small || cardForCast.image_uris?.normal || cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
+        availableCards: revealableHandCards.map((c: any) => ({
+          id: c.id,
+          name: c.name,
+          imageUrl: c.image_uris?.small || c.image_uris?.normal,
+          typeLine: c.type_line,
+        })),
+        castSpellFromHandArgs: {
+          cardId,
+          faceIndex: selectedFaceIndex,
+          fromZone: castSourceZone,
+          xValue: chosenXValue,
+          alternateCostId: options?.forcedAlternateCostId,
+          castWithoutPayingManaCost: isFreeCast,
+          bypassExilePermissionCheck,
+          ignoreTimingRestrictions,
+          skipPriorityCheck: true,
+        },
+      } as any);
+
+      persistQueuedSpellCastStepContinuation(gameId, game, {
+        playerId,
+        cardId,
+        effectId,
+        pendingSpellCast: {
+          ...((game.state as any).pendingSpellCasts?.[effectId] || {}),
+        },
+        queuedResolutionStep: {
+          ...(revealCostStep as any),
+        },
+      });
+
+      debug(2, `[requestCastSpell] Queued reveal additional-cost step for no-target spell ${cardName}`);
       return;
     }
 

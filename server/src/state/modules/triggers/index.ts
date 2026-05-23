@@ -143,6 +143,7 @@ export * from "./special-cards.js";
 export * from "./win-conditions.js";
 export * from "./devotion.js";
 export * from "./transform.js";
+export * from "./discard.js";
 
 // Crystal activated abilities (Final Fantasy set)
 export * from "./crystal-abilities.js";

@@ -49,6 +49,7 @@ import { debug, debugWarn, debugError } from "../../utils/debug.js";
 import { ensureInitialDayNightDesignationFromBattlefield, setDayNightState } from "./day-night.js";
 import { clearTemporaryGraveyardKeywordGrants, clearTemporaryPlayableFromGraveyardPermissions } from "./graveyard-permissions.js";
 import { resetDurablePermissionUsageForTurn } from "./durable-permissions.js";
+import { evaluateDamageReplacementEvent } from "./replacement-effects.js";
 
 /** Small helper to prepend ISO timestamp to debug logs */
 function ts() {
@@ -101,7 +102,15 @@ function applyCombatDamageToPlaneswalker(ctx: GameContext, permanent: any, amoun
     return { prevented: true, appliedAmount: 0, remainingLoyalty: currentLoyalty };
   }
 
-  if (isCombatDamagePreventedForPermanent(permanent) || applyShieldCounterDamagePrevention(permanent)) {
+  const shieldReplacement = evaluateDamageReplacementEvent({
+    state: ctx.state,
+    amount: prevention.remainingDamage,
+    source: sourceCard,
+    sourceId,
+    target: permanent,
+    targetId: String(permanent.id || ''),
+  });
+  if (isCombatDamagePreventedForPermanent(permanent) || (shieldReplacement.effectId === 'shield-counter-prevent-damage' && applyShieldCounterDamagePrevention(permanent))) {
     return { prevented: true, appliedAmount: 0, remainingLoyalty: currentLoyalty };
   }
 
@@ -2048,7 +2057,11 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
                 remainingDamage -= damageToBlocker;
                 continue;
               }
-              const damageResult = applyDamageToPermanentWithCounterEffects(blocker, damageToBlockerAfterPrevention, 'markedDamage');
+              const damageResult = applyDamageToPermanentWithCounterEffects(blocker, damageToBlockerAfterPrevention, 'markedDamage', {
+                state: ctx.state,
+                source: card,
+                sourceId: String(attacker.id || ''),
+              });
               if (damageResult.prevented) {
                 continue;
               }
@@ -2262,7 +2275,11 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
             if (applyVigorDamageReplacement(ctx, attacker, blockerDamageAfterPrevention, blockerCard)) {
               continue;
             }
-            const damageResult = applyDamageToPermanentWithCounterEffects(attacker, blockerDamageAfterPrevention, 'markedDamage');
+            const damageResult = applyDamageToPermanentWithCounterEffects(attacker, blockerDamageAfterPrevention, 'markedDamage', {
+              state: ctx.state,
+              source: blockerCard,
+              sourceId: String(blocker.id || ''),
+            });
             if (damageResult.prevented) {
               continue;
             }

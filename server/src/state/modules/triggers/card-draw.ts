@@ -35,39 +35,42 @@ export function detectCardDrawTriggers(card: any, permanent: any): CardDrawTrigg
   // Pattern: "Whenever an opponent draws a card"
   const opponentDrawsMatch = oracleText.match(/whenever an opponent draws (?:a card|cards?),?\s*([^.]+)/i);
   if (opponentDrawsMatch) {
+    const effect = opponentDrawsMatch[1].trim();
     triggers.push({
       permanentId,
       cardName,
       controllerId,
       triggerType: "opponent_draws",
-      effect: opponentDrawsMatch[1].trim(),
-      mandatory: true,
+      effect,
+      mandatory: !/^you may\b/i.test(effect),
     });
   }
   
   // Pattern: "Whenever a player draws a card" (except first each turn sometimes)
   const playerDrawsMatch = oracleText.match(/whenever a player draws (?:a card|cards?),?\s*([^.]+)/i);
   if (playerDrawsMatch) {
+    const effect = playerDrawsMatch[1].trim();
     triggers.push({
       permanentId,
       cardName,
       controllerId,
       triggerType: "player_draws",
-      effect: playerDrawsMatch[1].trim(),
-      mandatory: true,
+      effect,
+      mandatory: !/^you may\b/i.test(effect),
     });
   }
   
   // Pattern: "Whenever you draw a card"
   const youDrawMatch = oracleText.match(/whenever you draw (?:a card|cards?),?\s*([^.]+)/i);
   if (youDrawMatch) {
+    const effect = youDrawMatch[1].trim();
     triggers.push({
       permanentId,
       cardName,
       controllerId,
       triggerType: "you_draw",
-      effect: youDrawMatch[1].trim(),
-      mandatory: true,
+      effect,
+      mandatory: !/^you may\b/i.test(effect),
     });
   }
   
