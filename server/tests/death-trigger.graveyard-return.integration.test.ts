@@ -2568,4 +2568,116 @@ describe('Death trigger graveyard returns (integration)', () => {
     expect(String(returnedPermanent?.card?.type_line || '').toLowerCase()).toContain('ogre');
     expect(String(returnedPermanent?.card?.type_line || '').toLowerCase()).toContain('zombie');
   });
+
+  it('queues a variable reflexive mana payment for Leyline Tyrant and targets the follow-up damage trigger', async () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const controllerId = 'p1';
+    const opponentId = 'p2';
+    const eventsBefore = getEvents(gameId).length;
+    (game.state as any).players = [
+      { id: controllerId, name: 'P1', spectator: false, life: 40 },
+      { id: opponentId, name: 'P2', spectator: false, life: 40 },
+    ];
+    (game.state as any).turnPlayer = controllerId;
+    (game.state as any).priority = controllerId;
+    (game.state as any).manaPool = {
+      [controllerId]: { white: 0, blue: 0, black: 0, red: 4, green: 0, colorless: 0 },
+      [opponentId]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+    };
+    (game.state as any).battlefield = [
+      {
+        id: 'leyline_tyrant_1',
+        controller: controllerId,
+        owner: controllerId,
+        tapped: false,
+        counters: {},
+        basePower: 4,
+        baseToughness: 4,
+        card: {
+          id: 'leyline_tyrant_card_1',
+          name: 'Leyline Tyrant',
+          type_line: 'Creature - Dragon',
+          oracle_text: 'Flying\nYou don\'t lose unspent red mana as steps and phases end.\nWhen this creature dies, you may pay any amount of {R}. When you do, it deals that much damage to any target.',
+          zone: 'battlefield',
+          power: '4',
+          toughness: '4',
+        },
+      },
+    ];
+    (game.state as any).zones = {
+      [controllerId]: {
+        hand: [], handCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0, library: [], libraryCount: 0,
+      },
+      [opponentId]: {
+        hand: [], handCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0, library: [], libraryCount: 0,
+      },
+    };
+
+    expect(movePermanentToGraveyard(game as any, 'leyline_tyrant_1')).toBe(true);
+    expect((game.state as any).stack).toHaveLength(1);
+    expect(String((game.state as any).stack[0]?.effect || '').toLowerCase()).toContain('when you do');
+
+    game.resolveTopOfStack();
+
+    const queue = ResolutionQueueManager.getQueue(gameId);
+    const paymentStep = queue.steps.find((step: any) => step?.reflexiveManaPaymentChoice === true) as any;
+    expect(paymentStep).toBeDefined();
+    expect(paymentStep).toMatchObject({
+      type: 'option_choice',
+      playerId: controllerId,
+      reflexiveManaPaymentUnit: '{R}',
+      reflexiveManaPaymentMaxAmount: 4,
+    });
+    expect(paymentStep.options.map((option: any) => option.id)).toEqual(['pay_1', 'pay_2', 'pay_3', 'pay_4', 'decline']);
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(controllerId, emitted);
+    socket.rooms.add(gameId);
+    const io = createMockIo(emitted, [socket]);
+    registerResolutionHandlers(io as any, socket as any);
+
+    await handlers.submitResolutionResponse({
+      gameId,
+      stepId: paymentStep.id,
+      selections: 'pay_3',
+    });
+
+    expect((game.state as any).manaPool[controllerId].red).toBe(1);
+    const followupTrigger = ((game.state as any).stack || []).find((item: any) => String(item?.triggerType || '') === 'reflexive_mana_payment');
+    expect(followupTrigger).toMatchObject({
+      sourceName: 'Leyline Tyrant',
+      requiresTarget: true,
+      targetType: 'any',
+      effectData: { reflexivePaymentAmount: 3, paidManaAmount: 3 },
+    });
+    expect(String(followupTrigger?.effect || '')).toContain('deals 3 damage to any target');
+
+    const newEvents = getEvents(gameId).slice(eventsBefore);
+    expect(newEvents.map((event: any) => event.type)).toContain('resolveTopOfStackPrompt');
+    expect(newEvents.map((event: any) => event.type)).toContain('reflexiveManaPaymentResolve');
+    expect(newEvents.map((event: any) => event.type)).toContain('pushTriggeredAbility');
+    expect(newEvents.find((event: any) => event.type === 'reflexiveManaPaymentResolve')?.payload).toMatchObject({
+      playerId: controllerId,
+      paidAmount: 3,
+      paymentUnit: '{R}',
+    });
+
+    game.resolveTopOfStack();
+
+    const targetStep = ResolutionQueueManager.getQueue(gameId).steps.find((step: any) => step?.type === 'target_selection') as any;
+    expect(targetStep).toBeDefined();
+    expect(targetStep.validTargets.map((target: any) => String(target.id))).toContain(opponentId);
+
+    await handlers.submitResolutionResponse({
+      gameId,
+      stepId: targetStep.id,
+      selections: [opponentId],
+    });
+
+    const opponent = (game.state as any).players.find((player: any) => player.id === opponentId);
+    expect(opponent.life).toBe(37);
+  });
 });

@@ -423,9 +423,11 @@ The normal cast and activate pipeline must handle all common Magic costs without
   - Current guardrails cover battlefield, graveyard, exile, player, and mixed target prompts.
 
 - [ ] Ensure every prompt has AI response support.
--  - Guardrail progress: explicit AI completion now covers local `suspend_cast` and `morph_turn_face_up` seams. Guardrail: `server/tests/ai-resolution-step.integration.test.ts`.
+  - Guardrail progress: explicit AI completion now covers local `suspend_cast` and `morph_turn_face_up` seams. Guardrail: `server/tests/ai-resolution-step.integration.test.ts`.
+  - Guardrail progress: AI option-choice handling now recognizes reflexive any-amount mana payment prompts and chooses a legal beneficial `pay_N` amount instead of relying on generic option scoring. Guardrail: `server/tests/ai-resolution-step.integration.test.ts`.
 - [ ] Ensure every prompt response is replayed through `applyEvent.ts` or equivalent replay support.
--  - Guardrail progress: suspend and morph prompt outcomes now append replay evidence and rehydrate through replay. Guardrail: `server/tests/suspend-morph-prompt.replay.test.ts`.
+  - Guardrail progress: suspend and morph prompt outcomes now append replay evidence and rehydrate through replay. Guardrail: `server/tests/suspend-morph-prompt.replay.test.ts`.
+  - Guardrail progress: reflexive any-amount mana payment prompts now persist `reflexiveManaPaymentResolve`, replay the recorded resource spend, and are registered in replay coverage metadata. Guardrails: `server/tests/ability-activated-copy.applyEvent.test.ts`, `server/tests/replay-coverage.meta.test.ts`.
 
 ### F. Trigger Infrastructure
 
@@ -463,6 +465,7 @@ The normal cast and activate pipeline must handle all common Magic costs without
   - Delayed trigger creation and expiration.
     - Progress: activated effects such as Mishra's Bauble now schedule `Draw a card at the beginning of the next turn's upkeep` as a replay-persisted delayed upkeep trigger instead of drawing immediately, then expire the pending entry when the upkeep trigger is queued. Guardrail: `server/tests/delayed-upkeep-draw.integration.test.ts`.
   - Reflexive `When you do` triggers.
+    - Progress: variable mana reflexive prompts now support `you may pay any amount of {R}. When you do...` patterns such as Leyline Tyrant through Resolution Queue option-choice prompts, persisted `reflexiveManaPaymentResolve` decisions, and separate replay-safe follow-up `pushTriggeredAbility` stack entries. Existing sacrifice-when-you-do prompts now carry generic follow-up descriptions and inferred target metadata instead of only fixed damage/lifegain payloads. Guardrails: `server/tests/death-trigger.graveyard-return.integration.test.ts`, `server/tests/ability-activated-copy.applyEvent.test.ts`, and `server/tests/after-sacrifice-followup-target-selection.integration.test.ts`.
   - Intervening-if at trigger time and resolution time.
     - Progress: resolution-time intervening-if reconstruction now covers common generic trigger families such as life-loss, pay-life, sacrifice, counters, library shuffle, token-created, draw, discard, mill, untap, and zone-change triggers. Guardrail: `server/tests/life-loss-trigger.integration.test.ts`.
 

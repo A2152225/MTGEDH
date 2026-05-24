@@ -1,9 +1,82 @@
 import { describe, expect, it } from 'vitest';
 
 import { applyEvent } from '../src/state/modules/applyEvent';
+import { ResolutionQueueManager } from '../src/state/resolution/index.js';
 import { serializeAbilityActivatedTriggeredStackItem } from '../src/state/modules/triggers/ability-activated';
 
 describe('ability-activated copy retarget metadata via applyEvent', () => {
+  it('replay reflexiveManaPaymentResolve clears the prompt and pushTriggeredAbility restores the follow-up once', () => {
+    const gameId = 'test_reflexive_mana_payment_apply_event';
+    ResolutionQueueManager.removeQueue(gameId);
+    const queuedStep = ResolutionQueueManager.addStep(gameId, {
+      type: 'option_choice' as any,
+      playerId: 'p1' as any,
+      sourceId: 'leyline_tyrant_1',
+      sourceName: 'Leyline Tyrant',
+      description: 'Leyline Tyrant: You may pay any amount of {R}.',
+      mandatory: false,
+      options: [{ id: 'pay_3', label: 'Pay 3 {R}' }, { id: 'decline', label: 'Decline' }],
+      minSelections: 1,
+      maxSelections: 1,
+      reflexiveManaPaymentChoice: true,
+      reflexiveManaPaymentUnit: '{R}',
+    } as any);
+    const ctx: any = {
+      gameId,
+      state: {
+        battlefield: [],
+        stack: [],
+        manaPool: {
+          p1: { white: 0, blue: 0, black: 0, red: 4, green: 0, colorless: 0 },
+        },
+      },
+      bumpSeq() {},
+    };
+
+    applyEvent(ctx, {
+      type: 'reflexiveManaPaymentResolve',
+      playerId: 'p1',
+      sourceId: 'leyline_tyrant_1',
+      resolvedStepId: queuedStep.id,
+      paidAmount: 3,
+      paymentUnit: '{R}',
+    } as any);
+
+    expect(ctx.state.manaPool.p1.red).toBe(1);
+    expect(ResolutionQueueManager.getQueue(gameId).steps).toEqual([]);
+    expect(ctx.state.stack).toHaveLength(0);
+
+    const pushPayload = {
+      type: 'pushTriggeredAbility',
+      triggerId: 'trigger_leyline_1',
+      sourceId: 'leyline_tyrant_1',
+      sourceName: 'Leyline Tyrant',
+      controllerId: 'p1',
+      description: 'Leyline Tyrant deals 3 damage to any target',
+      effect: 'Leyline Tyrant deals 3 damage to any target',
+      triggerType: 'reflexive_mana_payment',
+      mandatory: true,
+      requiresTarget: true,
+      targetType: 'any_target',
+      effectData: { reflexivePaymentAmount: 3, paidManaAmount: 3 },
+    } as any;
+
+    applyEvent(ctx, pushPayload);
+    applyEvent(ctx, pushPayload);
+
+    expect(ctx.state.stack).toHaveLength(1);
+    expect(ctx.state.stack[0]).toMatchObject({
+      id: 'trigger_leyline_1',
+      sourceName: 'Leyline Tyrant',
+      triggerType: 'reflexive_mana_payment',
+      requiresTarget: true,
+      targetType: 'any_target',
+      effectData: { reflexivePaymentAmount: 3, paidManaAmount: 3 },
+    });
+
+    ResolutionQueueManager.removeQueue(gameId);
+  });
+
   it('replay pushTriggeredAbility preserves ability-activated trigger metadata', () => {
     const ctx: any = {
       state: {

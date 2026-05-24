@@ -59,6 +59,7 @@ import { detectETBTappedPattern, evaluateConditionalLandETB, getLandSubtypes } f
 import { queueMayAbilityStep } from '../../socket/may-ability-prompts.js';
 import { queueOptionalPaymentStep } from '../../socket/optional-payment-prompts.js';
 import { broadcastGame, consumeManaFromPool, getEffectivePower, getOrInitManaPool, parseManaCost } from '../../socket/util.js';
+import { buildReflexivePaymentAmountOptions, getAvailableReflexiveManaAmountFromPool, parseReflexiveAnyAmountManaPayment } from './reflexive-triggers.js';
 import { getSavedMayAbilityTriggerDecision, getSavedTriggerShortcutPreference } from "../../socket/trigger-shortcuts.js";
 import { ResolutionQueueManager, ResolutionStepType, type CreateResolutionStepConfig } from "../resolution/index.js";
 import type { ChoiceOption } from "../../../../rules-engine/src/choiceEvents.js";
@@ -3684,6 +3685,59 @@ function maybeQueueOpponentMayPaySpellCastTrigger(
     },
   });
 
+  return true;
+}
+
+function maybeQueueReflexiveAnyAmountManaPayment(
+  ctx: GameContext,
+  item: any,
+  triggerController: PlayerID,
+  sourceName: string,
+  sourceId: string,
+  description: string,
+): boolean {
+  const parsed = parseReflexiveAnyAmountManaPayment(description);
+  if (!parsed) return false;
+
+  if ((ctx as any).isReplaying) {
+    debug(2, `[resolveTopOfStack] Reflexive any-amount payment for ${sourceName}: skipping prompt discovery during replay`);
+    return true;
+  }
+
+  const maxAmount = getAvailableReflexiveManaAmountFromPool((ctx as any).state, String(triggerController), parsed.paymentUnit);
+  if (maxAmount <= 0) {
+    debug(2, `[resolveTopOfStack] Reflexive any-amount payment for ${sourceName}: no payable mana available`);
+    return true;
+  }
+
+  const sourcePermanentId = String((item as any).source || (item as any).permanentId || '').trim();
+  const promptSourceId = sourcePermanentId || String(sourceId || '').trim();
+  const triggerStackItemId = String((item as any).id || sourceId || '').trim();
+  const paymentUnitLabel = parsed.paymentUnit === 'mana' ? 'mana' : parsed.paymentUnit;
+
+  queueResolveTopOfStackPrompt(ctx, {
+    type: ResolutionStepType.OPTION_CHOICE,
+    playerId: triggerController as PlayerID,
+    sourceId: promptSourceId || undefined,
+    sourceName,
+    sourceImage: (item as any)?.card?.image_uris?.small || (item as any)?.card?.image_uris?.normal,
+    description: `${sourceName}: You may pay any amount of ${paymentUnitLabel}.`,
+    mandatory: false,
+    options: buildReflexivePaymentAmountOptions(maxAmount, parsed.paymentUnit),
+    minSelections: 1,
+    maxSelections: 1,
+    reflexiveManaPaymentChoice: true,
+    reflexiveManaPaymentUnit: parsed.paymentUnit,
+    reflexiveManaPaymentMaxAmount: maxAmount,
+    reflexiveManaPaymentFollowupText: parsed.followupText,
+    reflexiveManaPaymentOriginalEffect: description,
+    reflexiveManaPaymentController: String(triggerController),
+    reflexiveManaPaymentSourceName: sourceName,
+    reflexiveManaPaymentSourcePermanentId: sourcePermanentId || undefined,
+    reflexiveManaPaymentTriggerStackItemId: triggerStackItemId || undefined,
+  } as any);
+
+  debug(2, `[resolveTopOfStack] Deferred reflexive any-amount payment trigger for ${sourceName} (${triggerController})`);
   return true;
 }
 
@@ -15849,6 +15903,11 @@ export function resolveTopOfStack(ctx: GameContext) {
 
     if (maybeQueueOpponentMayPaySpellCastTrigger(ctx, item, triggerController as PlayerID, sourceName, sourceId)) {
       debug(2, `[resolveTopOfStack] Deferred opponent-pay trigger for ${sourceName} (${triggerController})`);
+      return;
+    }
+
+    if (maybeQueueReflexiveAnyAmountManaPayment(ctx, item, triggerController as PlayerID, sourceName, sourceId, effectText || trimmedDescription)) {
+      debug(2, `[resolveTopOfStack] Deferred reflexive mana payment trigger for ${sourceName} (${triggerController})`);
       return;
     }
 

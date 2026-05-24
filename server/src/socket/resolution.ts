@@ -130,6 +130,7 @@ import { buildTapTriggeredStackItem, getTapTriggers, queueBecomesUntappedTrigger
 import { serializeAbilityActivatedTriggeredStackItem, triggerAbilityActivatedTriggers } from "../state/modules/triggers/ability-activated.js";
 import { clearMayCallback, clearMayCallbacks, consumeMayCallback, queueMayAbilityStep } from './may-ability-prompts.js';
 import { consumeOptionalPaymentCallback, getOptionalPaymentValidationFailure, isOptionalPaymentPayChoice, isOptionalPaymentPromptStep, queueOptionalPaymentStep, queueShockLandPaymentStep } from './optional-payment-prompts.js';
+import { consumeReflexiveManaAmountFromPool, formatReflexiveManaAmount, getAvailableReflexiveManaAmountFromPool, materializeReflexiveFollowupText, parseReflexivePaymentChoiceAmount } from '../state/modules/reflexive-triggers.js';
 import { flushPendingDamageTriggersAfterStepAdvance } from "./step-advance.js";
 import { lookupLocalCardByNameSync } from "../services/localCardLookup.js";
 import { getDominantCreatureType } from "./creature-type.js";
@@ -287,6 +288,56 @@ function appendQueuedResolutionPromptEvent(
   } catch (err) {
     debugWarn(1, '[resolution] appendEvent(resolveTopOfStackPrompt) failed:', err);
   }
+}
+
+function serializeTriggeredTargetMetadata(metadata: any): Record<string, any> {
+  return {
+    ...(metadata?.requiresTarget ? { requiresTarget: true, needsTargetSelection: true } : null),
+    ...(metadata?.targetType ? { targetType: metadata.targetType } : null),
+    ...(metadata?.targetConstraint ? { targetConstraint: metadata.targetConstraint } : null),
+    ...(metadata?.targetZone ? { targetZone: metadata.targetZone } : null),
+    ...(metadata?.targetDestination ? { targetDestination: metadata.targetDestination } : null),
+    ...(metadata?.targetGraveyardScope ? { targetGraveyardScope: metadata.targetGraveyardScope } : null),
+    ...(metadata?.destinationUsesSelectedCardOwner === true ? { destinationUsesSelectedCardOwner: true } : null),
+    ...(metadata?.battlefieldControllerMode ? { battlefieldControllerMode: metadata.battlefieldControllerMode } : null),
+    ...(metadata?.battlefieldCounters ? { battlefieldCounters: metadata.battlefieldCounters } : null),
+    ...(metadata?.targetAction ? { targetAction: metadata.targetAction } : null),
+    ...(Array.isArray(metadata?.targetFilterTypes) ? { targetFilterTypes: metadata.targetFilterTypes } : null),
+    ...(Array.isArray(metadata?.targetFilterRequiredTypeWords) ? { targetFilterRequiredTypeWords: metadata.targetFilterRequiredTypeWords } : null),
+    ...(Array.isArray(metadata?.targetFilterExcludeTypes) ? { targetFilterExcludeTypes: metadata.targetFilterExcludeTypes } : null),
+    ...(metadata?.targetFilterPermanentOnly === true ? { targetFilterPermanentOnly: true } : null),
+    ...(typeof metadata?.targetFilterExactManaValue === 'number' ? { targetFilterExactManaValue: metadata.targetFilterExactManaValue } : null),
+    ...(typeof metadata?.targetFilterMinManaValue === 'number' ? { targetFilterMinManaValue: metadata.targetFilterMinManaValue } : null),
+    ...(typeof metadata?.targetFilterMaxManaValue === 'number' ? { targetFilterMaxManaValue: metadata.targetFilterMaxManaValue } : null),
+    ...(typeof metadata?.targetTotalPowerLimit === 'number' ? { targetTotalPowerLimit: metadata.targetTotalPowerLimit } : null),
+    ...(metadata?.targetCastWithoutPayingManaCost === true ? { targetCastWithoutPayingManaCost: true } : null),
+    ...(metadata?.targetCastIsOptional === true ? { targetCastIsOptional: true } : null),
+    ...(typeof metadata?.minTargets === 'number' ? { minTargets: metadata.minTargets } : null),
+    ...(typeof metadata?.maxTargets === 'number' ? { maxTargets: metadata.maxTargets } : null),
+  };
+}
+
+function inferFollowupTargetMetadata(game: any, controllerId: string, sourceName: string, sourcePermanentId: string | undefined, effectText: string): Record<string, any> {
+  const battlefield = Array.isArray(game?.state?.battlefield) ? game.state.battlefield : [];
+  const sourcePermanent = sourcePermanentId
+    ? battlefield.find((permanent: any) => String(permanent?.id || '') === String(sourcePermanentId))
+    : undefined;
+  const metadata = inferTriggeredAbilityTargetMetadata(effectText, {
+    gameState: game?.state,
+    controllerId,
+    sourceName,
+    sourcePermanent,
+  } as any);
+
+  return serializeTriggeredTargetMetadata(metadata);
+}
+
+function targetDescriptionFromType(targetType: string | undefined): string {
+  const normalized = String(targetType || '').trim().toLowerCase();
+  if (!normalized || normalized === 'any' || normalized === 'any target' || normalized === 'any_target') {
+    return 'any target';
+  }
+  return `target ${targetType}`;
 }
 
 function appendDungeonRoomExecuteEffectEvents(
@@ -5629,6 +5680,21 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
         const validationFailure = getOptionalPaymentValidationFailure(game, String(pid), stepAny, choiceId);
         if (validationFailure) {
           socket.emit('error', validationFailure);
+          return;
+        }
+      }
+
+      if (stepAny?.reflexiveManaPaymentChoice === true && String(choiceId || '').toLowerCase().startsWith('pay_')) {
+        const amount = parseReflexivePaymentChoiceAmount(choiceId);
+        const paymentUnit = (String(stepAny?.reflexiveManaPaymentUnit || 'mana').trim() || 'mana') as any;
+        const available = getAvailableReflexiveManaAmountFromPool(game.state, String(pid), paymentUnit);
+        if (amount <= 0 || amount > available) {
+          socket.emit('error', {
+            code: 'INSUFFICIENT_MANA',
+            message: amount <= 0
+              ? 'Invalid mana payment amount.'
+              : `Insufficient mana. Available: ${available}, requested: ${amount}.`,
+          });
           return;
         }
       }
@@ -18714,14 +18780,26 @@ async function handleTargetSelectionResponse(
     const controllerId = String((step as any).sacrificeWhenYouDoController || pid);
     const sourceName = String((step as any).sacrificeWhenYouDoSourceName || step.sourceName || 'Ability');
     const sourcePermanentId = (step as any).sacrificeWhenYouDoSourcePermanentId as string | undefined;
+    const explicitFollowupDescription = String(
+      (step as any).sacrificeWhenYouDoFollowupDescription ||
+      (step as any).sacrificeWhenYouDoFollowupEffect ||
+      ''
+    ).trim();
     const permanentIdToSac = selections[0];
     const sacrificedPermanent = (game.state?.battlefield || []).find((p: any) => p?.id === permanentIdToSac);
     const sacrificedName = String(sacrificedPermanent?.card?.name || '').trim() || `a ${subtype}`;
     const triggerId = `trigger_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-    const triggerDescription = `${sourceName} deals ${damage} damage to any target and you gain ${lifeGain} life.`;
-
-    game.applyEvent({
-      type: 'sacrificeWhenYouDoResolve',
+    const triggerDescription = explicitFollowupDescription || `${sourceName} deals ${damage} damage to any target and you gain ${lifeGain} life.`;
+    const targetMetadata = explicitFollowupDescription
+      ? inferFollowupTargetMetadata(game, controllerId, sourceName, sourcePermanentId, triggerDescription)
+      : { requiresTarget: true, needsTargetSelection: true, targetType: 'any_target' };
+    const targetType = String((targetMetadata as any).targetType || '').trim();
+    const targetDescription = String(
+      (step as any).sacrificeWhenYouDoTargetDescription ||
+      (targetMetadata as any).targetDescription ||
+      targetDescriptionFromType(targetType)
+    ).trim();
+    const sacrificeResolvePayload = {
       playerId: controllerId,
       sourceName,
       sourcePermanentId,
@@ -18731,6 +18809,14 @@ async function handleTargetSelectionResponse(
       lifeGain,
       triggerId,
       description: triggerDescription,
+      effect: triggerDescription,
+      targetDescription,
+      ...targetMetadata,
+    };
+
+    game.applyEvent({
+      type: 'sacrificeWhenYouDoResolve',
+      ...sacrificeResolvePayload,
     } as any);
 
     io.to(gameId).emit('chat', {
@@ -18742,17 +18828,7 @@ async function handleTargetSelectionResponse(
     });
 
     try {
-      appendEvent(gameId, (game as any).seq ?? 0, 'sacrificeWhenYouDoResolve', {
-        playerId: controllerId,
-        sourceName,
-        sourcePermanentId,
-        sacrificedPermanentId: permanentIdToSac,
-        subtype,
-        damage,
-        lifeGain,
-        triggerId,
-        description: triggerDescription,
-      });
+      appendEvent(gameId, (game as any).seq ?? 0, 'sacrificeWhenYouDoResolve', sacrificeResolvePayload);
     } catch (err) {
       debugWarn(1, '[Resolution] Failed to persist sacrificeWhenYouDoResolve event:', err);
     }
@@ -18767,8 +18843,7 @@ async function handleTargetSelectionResponse(
         description: triggerDescription,
         effect: triggerDescription,
         mandatory: true,
-        requiresTarget: true,
-        targetType: 'any_target',
+        ...targetMetadata,
       });
     } catch (err) {
       debugWarn(1, '[Resolution] Failed to persist pushTriggeredAbility for sacrificeWhenYouDo:', err);
@@ -26392,6 +26467,130 @@ async function handleOptionChoiceResponse(
 
   // ===== COMBAT: OPTIONAL ATTACK TRIGGER MANA PAYMENT (Casal, etc.) =====
   // This is queued from server/socket/combat.ts when an attack trigger has "you may pay {..}. If you do, ...".
+  if (stepData?.reflexiveManaPaymentChoice === true) {
+    const choiceId = extractId(selectedOption) || (response.cancelled ? 'decline' : null) || 'decline';
+    const paidAmount = parseReflexivePaymentChoiceAmount(choiceId);
+    const paymentUnit = (String(stepData?.reflexiveManaPaymentUnit || 'mana').trim() || 'mana') as any;
+    const controllerId = String(stepData?.reflexiveManaPaymentController || playerId);
+    const sourceName = String(stepData?.reflexiveManaPaymentSourceName || step.sourceName || 'Ability');
+    const sourcePermanentId = String(stepData?.reflexiveManaPaymentSourcePermanentId || step.sourceId || '').trim();
+    const followupText = String(stepData?.reflexiveManaPaymentFollowupText || '').trim();
+    const resolvedStepId = String((step as any)?.id || '').trim();
+
+    if (response.cancelled || choiceId === 'decline' || paidAmount <= 0) {
+      try {
+        await appendEvent(gameId, (game as any).seq ?? 0, 'reflexiveManaPaymentResolve', {
+          playerId: controllerId,
+          sourceId: sourcePermanentId || undefined,
+          sourceName,
+          resolvedStepId: resolvedStepId || undefined,
+          choiceId,
+          paidAmount: 0,
+          paymentUnit,
+          followupText: followupText || undefined,
+        });
+      } catch (err) {
+        debugWarn(1, '[Resolution] appendEvent(reflexiveManaPaymentResolve decline) failed:', err);
+      }
+
+      io.to(gameId).emit('chat', {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: 'system',
+        message: `${sourceName}: ${getPlayerName(game, controllerId)} declined to pay.`,
+        ts: Date.now(),
+      });
+
+      if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
+      broadcastGame(io, game, gameId);
+      return;
+    }
+
+    const available = getAvailableReflexiveManaAmountFromPool(game.state, controllerId, paymentUnit);
+    if (paidAmount > available) {
+      emitToPlayer(io, controllerId as any, 'error', {
+        code: 'INSUFFICIENT_MANA',
+        message: `Cannot pay ${formatReflexiveManaAmount(paidAmount, paymentUnit)}: only ${available} available.`,
+      });
+      return;
+    }
+
+    consumeReflexiveManaAmountFromPool(game.state, controllerId, paymentUnit, paidAmount);
+
+    const effectText = materializeReflexiveFollowupText(followupText, sourceName, paidAmount);
+    const triggerId = uid('trigger');
+    const targetMetadata = inferFollowupTargetMetadata(game, controllerId, sourceName, sourcePermanentId || undefined, effectText);
+    const effectData = {
+      reflexivePaymentAmount: paidAmount,
+      paidManaAmount: paidAmount,
+      paymentUnit,
+    };
+    const stackItem: any = {
+      id: triggerId,
+      type: 'triggered_ability',
+      controller: controllerId,
+      source: sourcePermanentId || null,
+      ...(sourcePermanentId ? { permanentId: sourcePermanentId } : null),
+      sourceName,
+      description: effectText,
+      effect: effectText,
+      triggerType: 'reflexive_mana_payment',
+      mandatory: true,
+      ...targetMetadata,
+      effectData,
+    };
+
+    game.state.stack = Array.isArray(game.state.stack) ? game.state.stack : [];
+    game.state.stack.push(stackItem);
+
+    try {
+      await appendEvent(gameId, (game as any).seq ?? 0, 'reflexiveManaPaymentResolve', {
+        playerId: controllerId,
+        sourceId: sourcePermanentId || undefined,
+        sourceName,
+        resolvedStepId: resolvedStepId || undefined,
+        choiceId,
+        paidAmount,
+        paymentUnit,
+        followupText,
+        effect: effectText,
+        triggerId,
+      });
+    } catch (err) {
+      debugWarn(1, '[Resolution] appendEvent(reflexiveManaPaymentResolve) failed:', err);
+    }
+
+    try {
+      await appendEvent(gameId, (game as any).seq ?? 0, 'pushTriggeredAbility', {
+        triggerId,
+        sourceId: sourcePermanentId || null,
+        ...(sourcePermanentId ? { permanentId: sourcePermanentId } : null),
+        sourceName,
+        controllerId,
+        description: effectText,
+        effect: effectText,
+        triggerType: 'reflexive_mana_payment',
+        mandatory: true,
+        ...targetMetadata,
+        effectData,
+      });
+    } catch (err) {
+      debugWarn(1, '[Resolution] appendEvent(pushTriggeredAbility reflexive mana payment) failed:', err);
+    }
+
+    io.to(gameId).emit('chat', {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: 'system',
+      message: `${sourceName}: ${getPlayerName(game, controllerId)} paid ${formatReflexiveManaAmount(paidAmount, paymentUnit)}.`,
+      ts: Date.now(),
+    });
+
+    if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
+    broadcastGame(io, game, gameId);
+    return;
+  }
+
   if (isOptionalPaymentPromptStep(stepData)) {
     const choiceId = extractId(selectedOption);
     const callbackId = String(stepData?.pendingOptionalPaymentCallbackId || '').trim();
@@ -28494,6 +28693,8 @@ async function handleOptionChoiceResponse(
     const lifeGain = Number(stepData.sacrificeWhenYouDoLifeGain || 0);
     const sourceName = String(stepData.sacrificeWhenYouDoSourceName || step.sourceName || 'Ability');
     const sourcePermanentId = stepData.sacrificeWhenYouDoSourcePermanentId as string | undefined;
+    const followupDescription = String(stepData.sacrificeWhenYouDoFollowupDescription || stepData.sacrificeWhenYouDoFollowupEffect || '').trim();
+    const followupTargetDescription = String(stepData.sacrificeWhenYouDoTargetDescription || '').trim();
 
     if (stage === 'ask') {
       if (!choiceId || choiceId === 'decline' || choiceId === 'dont') {
@@ -28552,6 +28753,8 @@ async function handleOptionChoiceResponse(
         sacrificeWhenYouDoController: controllerId,
         sacrificeWhenYouDoSourceName: sourceName,
         sacrificeWhenYouDoSourcePermanentId: sourcePermanentId,
+        ...(followupDescription ? { sacrificeWhenYouDoFollowupDescription: followupDescription } : null),
+        ...(followupTargetDescription ? { sacrificeWhenYouDoTargetDescription: followupTargetDescription } : null),
       } as any);
 
       appendQueuedResolutionPromptEvent(game, gameId, {

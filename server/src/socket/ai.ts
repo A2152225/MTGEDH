@@ -38,6 +38,7 @@ import {
 import { canAct, canPlayLand, canRespond, getCastableCommanderCandidates, getCastableSpellCandidates, getPlayableLandCandidates, isCardPlayableAsLandFromHand, type SharedCommanderCastCandidate, type SharedPlayableLandCandidate, type SharedSpellSourceZone } from "../state/modules/can-respond.js";
 import { applyCostAdjustmentToParsedCost, buildCostAdjustmentPlan } from "../state/modules/cost-adjustments.js";
 import { canCastFromTop, canPlayLandsFromTop } from "../state/modules/game-state-effects.js";
+import { getAvailableReflexiveManaAmountFromPool, parseReflexivePaymentChoiceAmount } from "../state/modules/reflexive-triggers.js";
 import { ResolutionQueueManager } from "../state/resolution/ResolutionQueueManager.js";
 import { getPendingInteractions } from "../state/modules/turn.js";
 import { debug, debugWarn, debugError } from "../utils/debug.js";
@@ -2233,6 +2234,42 @@ function scoreGenericChoiceOption(step: any, option: any): number {
   return score;
 }
 
+function chooseAIReflexiveManaPaymentSelection(
+  game: any,
+  playerId: PlayerID,
+  step: any,
+  options: any[],
+  resolveOptionId: (option: any) => string,
+): { selections: string[]; cancelled: boolean } {
+  const optionIds = options.map(resolveOptionId).filter(Boolean);
+  const declineId = optionIds.find((id) => /^decline$/i.test(id))
+    || optionIds.find((id) => /^(?:no|cancel)$/i.test(id))
+    || 'decline';
+  const paymentUnit = String(step?.reflexiveManaPaymentUnit || 'mana').trim() || 'mana';
+  const available = getAvailableReflexiveManaAmountFromPool(game?.state, String(playerId), paymentUnit as any);
+  const stepMax = Math.max(0, Math.floor(Number(step?.reflexiveManaPaymentMaxAmount ?? available)));
+  const maxLegalAmount = Math.min(available, stepMax > 0 ? stepMax : available);
+
+  const payableOptions = optionIds
+    .map((id) => ({ id, amount: parseReflexivePaymentChoiceAmount(id) }))
+    .filter((entry) => entry.amount > 0 && entry.amount <= maxLegalAmount)
+    .sort((left, right) => right.amount - left.amount);
+
+  if (payableOptions.length === 0) {
+    return { selections: [declineId], cancelled: true };
+  }
+
+  const followupText = `${String(step?.reflexiveManaPaymentFollowupText || '')} ${String(step?.reflexiveManaPaymentOriginalEffect || '')} ${String(step?.description || '')}`.toLowerCase();
+  const looksBeneficial = /(damage|destroy|exile|counter|draw|create|gain|return|put .*counter|each opponent|target opponent|any target)/i.test(followupText);
+  const looksSelfPunishing = /(you lose|you discard|you sacrifice|you mill|damage to you)/i.test(followupText);
+
+  if (!looksBeneficial || looksSelfPunishing) {
+    return { selections: [declineId], cancelled: true };
+  }
+
+  return { selections: [payableOptions[0].id], cancelled: false };
+}
+
 function getPermanentKeywordSet(permanent: any): Set<string> {
   const keywords = new Set<string>();
 
@@ -2471,6 +2508,10 @@ export function chooseAIOptionSelectionsForStep(
   }
 
   const resolveOptionId = (option: any): string => String(option?.id || option?.value || option || '');
+
+  if (step?.reflexiveManaPaymentChoice === true) {
+    return chooseAIReflexiveManaPaymentSelection(game, playerId, step, options, resolveOptionId);
+  }
 
   if (step?.mayAbilityPrompt === true) {
     const effectText = String(step?.effectText || step?.description || '').toLowerCase();

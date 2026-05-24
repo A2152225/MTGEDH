@@ -408,6 +408,106 @@ describe('after sacrifice followup target selection (integration)', () => {
     });
   });
 
+  it('persists generic sacrifice-when-you-do follow-up metadata', async () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const p1 = 'p1' as any;
+    const p2 = 'p2' as any;
+    (game.state as any).players = [
+      { id: p1, name: 'P1', spectator: false, life: 40 },
+      { id: p2, name: 'P2', spectator: false, life: 40 },
+    ];
+    (game.state as any).battlefield = [
+      { id: 'source_perm', controller: p1, owner: p1, card: { name: 'Rite Source', type_line: 'Enchantment' } },
+      { id: 'vampire_1', controller: p1, owner: p1, card: { name: 'Test Vampire', type_line: 'Creature — Vampire' } },
+      { id: 'target_creature', controller: p2, owner: p2, card: { name: 'Target Creature', type_line: 'Creature — Test' } },
+      { id: 'target_walker', controller: p2, owner: p2, card: { name: 'Target Walker', type_line: 'Legendary Planeswalker — Test' }, loyalty: 5 },
+    ];
+    (game.state as any).zones = {
+      [p1]: { hand: [], handCount: 0, graveyard: [], graveyardCount: 0, libraryCount: 0, exile: [], exileCount: 0 },
+      [p2]: { hand: [], handCount: 0, graveyard: [], graveyardCount: 0, libraryCount: 0, exile: [], exileCount: 0 },
+    };
+
+    const step = ResolutionQueueManager.addStep(gameId, {
+      type: ResolutionStepType.TARGET_SELECTION,
+      playerId: p1,
+      description: 'Choose a Vampire to sacrifice',
+      mandatory: true,
+      sourceId: 'source_perm',
+      sourceName: 'Rite Source',
+      validTargets: [{ id: 'vampire_1', label: 'Test Vampire', description: 'Creature — Vampire' }],
+      targetTypes: ['sacrifice_target'],
+      minTargets: 1,
+      maxTargets: 1,
+      targetDescription: 'Vampire you control',
+      sacrificeWhenYouDo: true,
+      sacrificeWhenYouDoStage: 'select_sacrifice',
+      sacrificeWhenYouDoSubtype: 'Vampire',
+      sacrificeWhenYouDoController: p1,
+      sacrificeWhenYouDoSourceName: 'Rite Source',
+      sacrificeWhenYouDoSourcePermanentId: 'source_perm',
+      sacrificeWhenYouDoFollowupDescription: 'Destroy target creature or planeswalker.',
+      sacrificeWhenYouDoTargetDescription: 'target creature or planeswalker',
+    } as any);
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(p1, emitted, gameId);
+    const io = createMockIo(emitted, [socket]);
+    registerResolutionHandlers(io as any, socket as any);
+
+    const eventStart = getEvents(gameId).length;
+    await handlers['submitResolutionResponse']({
+      gameId,
+      stepId: step.id,
+      selections: ['vampire_1'],
+    });
+
+    const liveStack = ((game.state as any).stack || []).filter(
+      (item: any) => String(item?.sourceName || '') === 'Rite Source' && String(item?.description || '') === 'Destroy target creature or planeswalker.',
+    );
+    expect(liveStack).toHaveLength(1);
+    expect(liveStack[0]).toMatchObject({
+      sourceName: 'Rite Source',
+      description: 'Destroy target creature or planeswalker.',
+      requiresTarget: true,
+      targetType: 'creature or planeswalker',
+    });
+
+    const targetStep = ResolutionQueueManager.getQueue(gameId).steps[0] as any;
+    expect(targetStep).toMatchObject({
+      type: ResolutionStepType.TARGET_SELECTION,
+      targetDescription: 'target creature or planeswalker',
+      targetedTriggeredAbility: true,
+    });
+    expect((targetStep.validTargets || []).map((target: any) => target.id)).toEqual(['target_creature', 'target_walker']);
+
+    const events = getEvents(gameId).slice(eventStart);
+    const resolveEvent = [...events].reverse().find((event: any) => event.type === 'sacrificeWhenYouDoResolve') as any;
+    const pushEvent = [...events].reverse().find((event: any) => event.type === 'pushTriggeredAbility' && event.payload?.sourceName === 'Rite Source') as any;
+    expect(resolveEvent?.payload).toMatchObject({
+      description: 'Destroy target creature or planeswalker.',
+      effect: 'Destroy target creature or planeswalker.',
+      requiresTarget: true,
+      targetType: 'creature or planeswalker',
+      targetDescription: 'target creature or planeswalker',
+    });
+    expect(pushEvent?.payload).toMatchObject({
+      triggerId: resolveEvent?.payload?.triggerId,
+      requiresTarget: true,
+      targetType: 'creature or planeswalker',
+    });
+
+    await handlers['submitResolutionResponse']({
+      gameId,
+      stepId: targetStep.id,
+      selections: ['target_walker'],
+    });
+
+    expect(((game.state as any).battlefield || []).map((permanent: any) => permanent.id)).toEqual(['source_perm', 'target_creature']);
+  });
+
   it('persists and replays the sacrifice-when-you-do ask-stage follow-up sacrifice prompt', async () => {
     createGameIfNotExists(gameId, 'commander', 40);
     const game = ensureGame(gameId);

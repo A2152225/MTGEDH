@@ -788,7 +788,7 @@ function collectDeathTriggerEffectText(oracleText: string, match: RegExpMatchArr
     return effect;
   }
 
-  if (!/^you may pay\s+\{[^}]+\}(?:\{[^}]+\})*$/i.test(effect)) {
+  if (!/^you may pay\s+(?:any amount of\s+)?\{[^}]+\}(?:\{[^}]+\})*$/i.test(effect)) {
     return effect;
   }
 
@@ -804,7 +804,7 @@ function collectDeathTriggerEffectText(oracleText: string, match: RegExpMatchArr
     .slice(matchStart + matchText.length)
     .split(/\r?\n/)[0] || '';
   const continuationMatch = sameLineTail.match(
-    /^\s*\.\s*((?:if\s+you\s+do,?\s+[^.]+\.)(?:\s+(?:if\s+it['’]?s|it['’]?s|then)\b[^.]+\.)*)/i
+    /^\s*\.\s*((?:(?:if|when)\s+you\s+do,?\s+[^.]+\.)(?:\s+(?:if\s+it['’]?s|it['’]?s|then)\b[^.]+\.)*)/i
   );
   const continuation = String(continuationMatch?.[1] || '').trim();
   return continuation ? `${effect}. ${continuation}` : effect;

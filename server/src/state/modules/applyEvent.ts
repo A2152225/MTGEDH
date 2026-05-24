@@ -354,6 +354,7 @@ import { calculateManaProduction, consumeManaFromPool, getOrInitManaPool, record
 import { parseUpgradeAbilities as parseCreatureUpgradeAbilities } from "../../../../rules-engine/src/creatureUpgradeAbilities.js";
 import { detectTutorEffect, getActivatedAbilityScopeText, parseSearchCriteria } from "../../socket/interaction.js";
 import { getOpponentMayPayDrawCount, getOpponentMayPayTreasureCount } from "./opponent-may-pay-utils.js";
+import { consumeReflexiveManaAmountFromPool } from "./reflexive-triggers.js";
 import { moveKynaiosLandFromHandToBattlefield } from "../resolution/handlers/kynaiosChoice.js";
 import { applyTriggerOrderToStack } from "../resolution/handlers/triggerOrder.js";
 import { executeTriggeredAbilityEffectWithOracleIR } from "../../../../rules-engine/src/triggeredAbilities.js";
@@ -3396,6 +3397,43 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           ctx.bumpSeq();
         } catch (err) {
           debugWarn(1, 'applyEvent(optionalPaymentPromptResolve): failed', err);
+        }
+        break;
+      }
+
+      case "reflexiveManaPaymentResolve": {
+        try {
+          const replayGameId = String((ctx as any).gameId || '').trim();
+          const playerId = String((e as any).playerId || '').trim();
+          const sourceId = String((e as any).sourceId || '').trim();
+          const resolvedStepId = String((e as any).resolvedStepId || '').trim();
+          const paidAmount = Math.max(0, Math.floor(Number((e as any).paidAmount || 0)));
+          const paymentUnit = String((e as any).paymentUnit || 'mana').trim() || 'mana';
+
+          if (playerId && paidAmount > 0) {
+            consumeReflexiveManaAmountFromPool(ctx.state as any, playerId, paymentUnit as any, paidAmount);
+          }
+
+          if (replayGameId) {
+            clearReplayQueuedSteps(replayGameId, (step: any) => {
+              if (!step) return false;
+              const stepId = String((step as any)?.id || '').trim();
+              if (resolvedStepId && stepId === resolvedStepId) {
+                return true;
+              }
+
+              return (
+                String((step as any)?.type || '') === String(ResolutionStepType.OPTION_CHOICE) &&
+                (step as any)?.reflexiveManaPaymentChoice === true &&
+                sourceId.length > 0 &&
+                String((step as any)?.sourceId || '').trim() === sourceId
+              );
+            });
+          }
+
+          ctx.bumpSeq();
+        } catch (err) {
+          debugWarn(1, 'applyEvent(reflexiveManaPaymentResolve): failed', err);
         }
         break;
       }
@@ -10453,6 +10491,13 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           const lifeGain = Number((e as any).lifeGain || 0);
           const triggerId = String((e as any).triggerId || '').trim();
           const description = String((e as any).description || `${sourceName} deals ${damage} damage to any target and you gain ${lifeGain} life.`).trim();
+          const effect = String((e as any).effect || description).trim();
+          const requiresTarget = (e as any).requiresTarget === true;
+          const targetType = String((e as any).targetType || (requiresTarget ? 'any_target' : '')).trim();
+          const targetConstraint = String((e as any).targetConstraint || '').trim().toLowerCase();
+          const targetDescription = String((e as any).targetDescription || (targetType ? (['any', 'any target', 'any_target'].includes(targetType.toLowerCase()) ? 'any target' : `target ${targetType}`) : 'target')).trim();
+          const minTargets = typeof (e as any).minTargets === 'number' ? Number((e as any).minTargets) : 1;
+          const maxTargets = typeof (e as any).maxTargets === 'number' ? Number((e as any).maxTargets) : 1;
 
           if (sacrificedPermanentId) {
             const battlefield = Array.isArray(ctx.state?.battlefield) ? ctx.state.battlefield : [];
@@ -10474,51 +10519,110 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
                 ...(sourcePermanentId ? { permanentId: sourcePermanentId } : null),
                 sourceName,
                 description,
-                effect: description,
+                effect,
                 mandatory: true,
-                requiresTarget: true,
-                targetType: 'any_target',
+                ...(requiresTarget ? { requiresTarget: true, needsTargetSelection: true } : null),
+                ...(targetType ? { targetType } : null),
+                ...(targetConstraint ? { targetConstraint } : null),
+                ...((e as any).targetZone ? { targetZone: (e as any).targetZone } : null),
+                ...((e as any).targetDestination ? { targetDestination: (e as any).targetDestination } : null),
+                ...((e as any).targetGraveyardScope ? { targetGraveyardScope: (e as any).targetGraveyardScope } : null),
+                ...((e as any).destinationUsesSelectedCardOwner === true ? { destinationUsesSelectedCardOwner: true } : null),
+                ...((e as any).battlefieldControllerMode ? { battlefieldControllerMode: (e as any).battlefieldControllerMode } : null),
+                ...((e as any).battlefieldCounters && typeof (e as any).battlefieldCounters === 'object' ? { battlefieldCounters: (e as any).battlefieldCounters } : null),
+                ...((e as any).targetAction ? { targetAction: (e as any).targetAction } : null),
+                ...(Array.isArray((e as any).targetFilterTypes) ? { targetFilterTypes: (e as any).targetFilterTypes } : null),
+                ...(Array.isArray((e as any).targetFilterRequiredTypeWords) ? { targetFilterRequiredTypeWords: (e as any).targetFilterRequiredTypeWords } : null),
+                ...(Array.isArray((e as any).targetFilterExcludeTypes) ? { targetFilterExcludeTypes: (e as any).targetFilterExcludeTypes } : null),
+                ...((e as any).targetFilterPermanentOnly === true ? { targetFilterPermanentOnly: true } : null),
+                ...(typeof (e as any).targetFilterExactManaValue === 'number' ? { targetFilterExactManaValue: (e as any).targetFilterExactManaValue } : null),
+                ...(typeof (e as any).targetFilterMinManaValue === 'number' ? { targetFilterMinManaValue: (e as any).targetFilterMinManaValue } : null),
+                ...(typeof (e as any).targetFilterMaxManaValue === 'number' ? { targetFilterMaxManaValue: (e as any).targetFilterMaxManaValue } : null),
+                ...(typeof (e as any).targetTotalPowerLimit === 'number' ? { targetTotalPowerLimit: (e as any).targetTotalPowerLimit } : null),
+                ...(typeof minTargets === 'number' ? { minTargets } : null),
+                ...(typeof maxTargets === 'number' ? { maxTargets } : null),
               } as any);
             }
 
-            if ((ctx as any).gameId) {
+            if ((ctx as any).gameId && requiresTarget) {
               const queue = ResolutionQueueManager.getQueue((ctx as any).gameId);
+              const normalizedTargetType = targetType.toLowerCase();
               const existingTargetStep = queue.steps.find((step: any) =>
                 step &&
                 String((step as any).type || '') === String(ResolutionStepType.TARGET_SELECTION) &&
                 String((step as any).sourceId || '') === triggerId &&
                 Array.isArray((step as any).targetTypes) &&
-                (step as any).targetTypes.includes('any_target')
+                (step as any).targetTypes.map((entry: any) => String(entry).toLowerCase()).includes(normalizedTargetType)
               );
 
               if (!existingTargetStep) {
-                const validAnyTarget = [
-                  ...((ctx.state.players || []) as any[]).map((player: any) => ({
-                    id: player.id,
-                    label: player.name || player.id,
-                    description: 'player',
-                  })),
-                  ...((ctx.state.battlefield || []) as any[]).map((perm: any) => ({
+                const permanentMatches = (perm: any): boolean => {
+                  if (!perm) return false;
+                  const typeLine = String(perm?.card?.type_line || '').toLowerCase();
+                  if (targetConstraint === 'opponent' && String(perm.controller || '') === playerId) return false;
+                  if (targetConstraint === 'you' && String(perm.controller || '') !== playerId) return false;
+                  if (['any', 'any target', 'any_target', 'permanent'].includes(normalizedTargetType)) return true;
+                  if (normalizedTargetType === 'creature or planeswalker') return typeLine.includes('creature') || typeLine.includes('planeswalker');
+                  if (normalizedTargetType === 'artifact or enchantment') return typeLine.includes('artifact') || typeLine.includes('enchantment');
+                  if (normalizedTargetType === 'nonland permanent') return !typeLine.includes('land');
+                  if (normalizedTargetType === 'noncreature permanent') return !typeLine.includes('creature');
+                  return normalizedTargetType.length > 0 && typeLine.includes(normalizedTargetType);
+                };
+                const targetsPlayers = ['any', 'any target', 'any_target', 'player', 'opponent'].includes(normalizedTargetType);
+                const validPlayerTargets = targetsPlayers
+                  ? ((ctx.state.players || []) as any[])
+                      .filter((player: any) => player && player.id && (player as any).hasLost !== true)
+                      .filter((player: any) => normalizedTargetType === 'opponent' || targetConstraint === 'opponent' ? String(player.id) !== playerId : true)
+                      .map((player: any) => ({
+                        id: player.id,
+                        label: player.name || player.id,
+                        description: 'player',
+                      }))
+                  : [];
+                const validPermanentTargets = ((ctx.state.battlefield || []) as any[])
+                  .filter(permanentMatches)
+                  .map((perm: any) => ({
                     id: perm.id,
                     label: perm.card?.name || 'Permanent',
                     description: perm.card?.type_line || 'permanent',
                     imageUrl: perm.card?.image_uris?.small || perm.card?.image_uris?.normal,
-                  })),
-                ];
+                  }));
+                const validTargets = [...validPlayerTargets, ...validPermanentTargets];
 
-                ResolutionQueueManager.addStep((ctx as any).gameId, {
-                  type: ResolutionStepType.TARGET_SELECTION,
-                  playerId: playerId as any,
-                  description: `Choose any target for ${sourceName}`,
-                  mandatory: true,
-                  sourceId: triggerId,
-                  sourceName,
-                  validTargets: validAnyTarget,
-                  targetTypes: ['any_target'],
-                  minTargets: 1,
-                  maxTargets: 1,
-                  targetDescription: 'any target',
-                } as any);
+                if (validTargets.length >= Math.max(0, minTargets)) {
+                  const triggerItem = (ctx.state.stack as any[]).find((item: any) => item && String(item.id || '') === triggerId) || {
+                    id: triggerId,
+                    type: 'triggered_ability',
+                    controller: playerId,
+                    source: sourcePermanentId || null,
+                    ...(sourcePermanentId ? { permanentId: sourcePermanentId } : null),
+                    sourceName,
+                    description,
+                    effect,
+                    mandatory: true,
+                    ...(requiresTarget ? { requiresTarget: true, needsTargetSelection: true } : null),
+                    ...(targetType ? { targetType } : null),
+                  };
+
+                  ResolutionQueueManager.addStep((ctx as any).gameId, {
+                    type: ResolutionStepType.TARGET_SELECTION,
+                    playerId: playerId as any,
+                    description: `${sourceName}: Choose ${targetDescription}`,
+                    mandatory: true,
+                    sourceId: triggerId,
+                    sourceName,
+                    validTargets,
+                    targetTypes: [targetType],
+                    minTargets,
+                    maxTargets: Math.min(validTargets.length, Math.max(minTargets, maxTargets)),
+                    targetDescription,
+                    targetedTriggeredAbility: true,
+                    triggerItem,
+                    targetedTriggeredAbilitySourceName: sourceName,
+                    targetedTriggeredAbilityDescription: description,
+                    targetedTriggeredAbilityController: playerId,
+                  } as any);
+                }
               }
             }
           }

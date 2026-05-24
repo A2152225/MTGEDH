@@ -5307,6 +5307,82 @@ describe('AI resolution-step integration', () => {
     expect(completed?.response?.cancelled).toBe(false);
   });
 
+  it('auto-resolves reflexive any-amount mana payment prompts with a legal beneficial payment', async () => {
+    const io = createNoopIo();
+    const aiHandler = initializeAIResolutionHandler(io as any);
+
+    try {
+      createGameIfNotExists(gameId, 'commander', 40);
+      const game = ensureGame(gameId);
+      if (!game) throw new Error('ensureGame returned undefined');
+
+      (game.state as any).players = [
+        { id: playerId, name: 'AI', spectator: false, life: 40, isAI: true },
+        { id: 'opp1', name: 'Opponent', spectator: false, life: 40 },
+      ];
+      (game.state as any).turnPlayer = playerId;
+      (game.state as any).priority = playerId;
+      (game.state as any).phase = 'main';
+      (game.state as any).step = 'precombat_main';
+      (game.state as any).stack = [];
+      (game.state as any).battlefield = [];
+      (game.state as any).manaPool = {
+        [playerId]: { white: 0, blue: 0, black: 0, red: 4, green: 0, colorless: 0 },
+        opp1: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+      };
+      (game.state as any).zones = {
+        [playerId]: { hand: [], handCount: 0, library: [], graveyard: [], exile: [] },
+        opp1: { hand: [], handCount: 0, library: [], graveyard: [], exile: [] },
+      };
+
+      const step = ResolutionQueueManager.addStep(gameId, {
+        type: ResolutionStepType.OPTION_CHOICE,
+        playerId: playerId as any,
+        sourceId: 'leyline_tyrant_1',
+        sourceName: 'Leyline Tyrant',
+        description: 'Leyline Tyrant: You may pay any amount of {R}.',
+        mandatory: false,
+        options: [
+          { id: 'pay_1', label: 'Pay 1 {R}' },
+          { id: 'pay_2', label: 'Pay 2 {R}' },
+          { id: 'pay_3', label: 'Pay 3 {R}' },
+          { id: 'pay_4', label: 'Pay 4 {R}' },
+          { id: 'decline', label: 'Decline' },
+        ],
+        minSelections: 1,
+        maxSelections: 1,
+        reflexiveManaPaymentChoice: true,
+        reflexiveManaPaymentUnit: '{R}',
+        reflexiveManaPaymentMaxAmount: 4,
+        reflexiveManaPaymentController: playerId,
+        reflexiveManaPaymentSourceName: 'Leyline Tyrant',
+        reflexiveManaPaymentSourcePermanentId: 'leyline_tyrant_1',
+        reflexiveManaPaymentFollowupText: 'it deals that much damage to any target',
+        reflexiveManaPaymentOriginalEffect: 'You may pay any amount of {R}. When you do, it deals that much damage to any target.',
+      } as any);
+
+      await vi.waitFor(() => {
+        const queue = ResolutionQueueManager.getQueue(gameId);
+        expect(queue.steps.some((entry: any) => String(entry.id) === String(step.id))).toBe(false);
+
+        const completed = queue.completedSteps.find((entry: any) => String(entry.id) === String(step.id));
+        expect(completed?.response?.selections).toEqual(['pay_4']);
+        expect(completed?.response?.cancelled).toBe(false);
+
+        expect(Number((game.state as any).manaPool[playerId]?.red || 0)).toBe(0);
+        const followup = ((game.state as any).stack || []).find((entry: any) => String(entry?.triggerType || '') === 'reflexive_mana_payment');
+        expect(followup).toMatchObject({
+          sourceName: 'Leyline Tyrant',
+          requiresTarget: true,
+          effectData: { reflexivePaymentAmount: 4, paidManaAmount: 4 },
+        });
+        expect(String(followup?.effect || '')).toContain('deals 4 damage to any target');
+      });
+    } finally {
+      ResolutionQueueManager.off(aiHandler);
+    }
+  });
+
   it('plays shock lands through the shared option-choice flow instead of pre-paying life inline', async () => {
     createGameIfNotExists(gameId, 'commander', 40);
     const game = ensureGame(gameId);
