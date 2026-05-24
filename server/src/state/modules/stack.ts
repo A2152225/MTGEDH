@@ -39,13 +39,15 @@ import {
   checkGraveyardTrigger,
 } from "./triggered-abilities.js";
 import { dispatchDamageReceivedTrigger, processDamageReceivedTriggers } from "./triggers/damage-received.js";
+import { queueLifeLossTriggers } from "./triggers/life-loss.js";
+import { queueBecomesUntappedTriggers } from "./triggers/tap-untap.js";
 import { applyDamageToPermanentWithCounterEffects, getCounterLeaveBattlefieldReplacement } from "./counter-common-effects.js";
 import { detectCombatDamageTriggers } from "./triggers/index.js";
 import { isInterveningIfSatisfied } from "./triggers/intervening-if.js";
 import { isCreatureNow } from "../creatureTypeNow.js";
 import { handleElixirShuffle, handleEldraziShuffle, shuffleZoneIntoLibrary } from "./zone-manipulation.js";
 import { addExtraTurn, addExtraCombat } from "./turn.js";
-import { drawCards as drawCardsFromZone, movePermanentToHand, movePermanentToLibrary } from "./zones.js";
+import { drawCards as drawCardsFromZone, movePermanentToHand, movePermanentToLibrary, processMillTriggers } from "./zones.js";
 import { createToken, runSBA, applyCounterModifications, destroyPermanent, movePermanentToGraveyard, movePermanentToExile, updateCounters } from "./counters_tokens.js";
 import { cleanupCardLeavingExile, removeCardFromAnyPlayerExile } from "./playable-from-exile.js";
 import { recordCardLeftGraveyardThisTurn, recordCardPutIntoGraveyardThisTurn } from "./turn-tracking.js";
@@ -870,6 +872,65 @@ function getNextUpkeepNotBeforeTurnNumber(state: any): number {
   return currentTurn + 1;
 }
 
+function parseSmallNumberWord(value: string, fallback = 1): number {
+  const normalized = String(value || '').toLowerCase().trim();
+  const words: Record<string, number> = {
+    a: 1,
+    an: 1,
+    one: 1,
+    two: 2,
+    three: 3,
+    four: 4,
+    five: 5,
+    six: 6,
+    seven: 7,
+    eight: 8,
+    nine: 9,
+    ten: 10,
+  };
+  if (words[normalized] !== undefined) return words[normalized];
+  const parsed = parseInt(normalized, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function stripActivatedAbilityCostPrefix(text: string): string {
+  const normalized = String(text || '').replace(/[’]/g, "'").trim();
+  const colonIndex = normalized.indexOf(':');
+  return colonIndex >= 0 ? normalized.slice(colonIndex + 1).trim() : normalized;
+}
+
+function parseDelayedDrawAtNextUpkeep(text: string): { count: number; remainingText: string } | null {
+  const normalized = stripActivatedAbilityCostPrefix(text).replace(/\s+/g, ' ').trim();
+  if (!normalized) return null;
+
+  const delayedDrawPattern = /\bdraw\s+(a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+cards?\s+at\s+the\s+beginning\s+of\s+the\s+next\s+turn's\s+upkeep\.?/i;
+  const match = normalized.match(delayedDrawPattern);
+  if (!match) return null;
+
+  const remainingText = normalized
+    .replace(delayedDrawPattern, '')
+    .replace(/\s+/g, ' ')
+    .replace(/\s+\./g, '.')
+    .replace(/^\s*[.;,]\s*/, '')
+    .replace(/\s*[.;,]\s*$/, '')
+    .trim();
+
+  return {
+    count: parseSmallNumberWord(match[1], 1),
+    remainingText,
+  };
+}
+
+function remainingTextIsOnlyLibraryLook(text: string): boolean {
+  const remaining = stripActivatedAbilityCostPrefix(text)
+    .replace(/\s+/g, ' ')
+    .replace(/\blook at the top card of target player's library\.?/gi, '')
+    .replace(/\blook at the top card of (?:your|each opponent's|that player's) library\.?/gi, '')
+    .replace(/[\s.;,]+/g, '')
+    .trim();
+  return remaining.length === 0;
+}
+
 function splitRulesTextIntoSentences(text: string): string[] {
   return String(text || '')
     .replace(/\s+/g, ' ')
@@ -1120,6 +1181,50 @@ function scheduleDelayedGraveyardReturn(ctx: GameContext, options: {
     });
   } catch (err) {
     debugWarn(1, '[scheduleDelayedGraveyardReturn] appendEvent failed:', err);
+  }
+}
+
+function scheduleDelayedDrawAtNextUpkeep(ctx: GameContext, options: {
+  playerId: string;
+  sourceName: string;
+  sourceId?: string;
+  count?: number;
+}): void {
+  const stateAny = (ctx as any).state as any;
+  if (!stateAny) return;
+
+  const playerId = String(options.playerId || '').trim();
+  if (!playerId) return;
+
+  const count = Math.max(1, Math.floor(Number(options.count || 1)));
+  stateAny.pendingDelayedDrawsAtNextUpkeep = Array.isArray(stateAny.pendingDelayedDrawsAtNextUpkeep)
+    ? stateAny.pendingDelayedDrawsAtNextUpkeep
+    : [];
+
+  const pendingEntry = {
+    scheduleId: uid('delayed_upkeep_draw'),
+    playerId,
+    createdBy: playerId,
+    sourceId: String(options.sourceId || '').trim() || undefined,
+    sourceName: String(options.sourceName || 'Delayed trigger').trim() || 'Delayed trigger',
+    count,
+    fireAtTurnNumber: getNextUpkeepNotBeforeTurnNumber(stateAny),
+    fireAtStep: 'upkeep',
+  };
+
+  stateAny.pendingDelayedDrawsAtNextUpkeep.push(pendingEntry);
+
+  const gameId = String((ctx as any)?.gameId || '').trim();
+  if (!gameId) return;
+
+  try {
+    appendEvent(gameId, stateAny.seq ?? 0, 'scheduleDelayedDrawAtNextUpkeep', {
+      playerId,
+      sourceName: pendingEntry.sourceName,
+      entries: [pendingEntry],
+    });
+  } catch (err) {
+    debugWarn(1, '[scheduleDelayedDrawAtNextUpkeep] appendEvent failed:', err);
   }
 }
 
@@ -8828,6 +8933,7 @@ export function executeTriggerEffect(
   }
 
   let desc = String(description || "").replace(/[’]/g, "'").toLowerCase();
+  let descriptionForOracleFallback = String(description || '');
   if (desc.includes('exile') && desc.includes('graveyard') && desc.includes('target player')) {
     const targetPlayerId = String(Array.isArray((triggerItem as any)?.targets) ? (triggerItem as any).targets[0] || '' : '').trim();
     if (!targetPlayerId) {
@@ -9277,6 +9383,14 @@ export function executeTriggerEffect(
     if (player) {
       player.life = state.life[playerId];
     }
+
+    if (delta > 0) {
+      state.lifeGainedThisTurn = state.lifeGainedThisTurn || {};
+      state.lifeGainedThisTurn[playerId] = Number(state.lifeGainedThisTurn[playerId] || 0) + delta;
+    } else if (delta < 0) {
+      state.lifeLostThisTurn = state.lifeLostThisTurn || {};
+      state.lifeLostThisTurn[playerId] = Number(state.lifeLostThisTurn[playerId] || 0) + Math.abs(delta);
+    }
     
     const action = delta > 0 ? 'gained' : 'lost';
     const amount = Math.abs(delta);
@@ -9300,6 +9414,57 @@ export function executeTriggerEffect(
     }
     debug(2, `[executeTriggerEffect] ${reason}: ${playerId} gains ${amount} life`);
   };
+
+  const thatPlayerSacrificesAndLosesMatch = desc.match(/that player sacrifices a creature(?: of their choice)? and loses (\d+) life/i);
+  if (thatPlayerSacrificesAndLosesMatch) {
+    const affectedPlayerId = String(
+      (triggerItem as any)?.effectData?.searchingPlayerId ||
+      (triggerItem as any)?.targetPlayer ||
+      (triggerItem as any)?.triggeringPlayer ||
+      ''
+    ).trim();
+    const lossAmount = parseInt(thatPlayerSacrificesAndLosesMatch[1], 10);
+    if (affectedPlayerId && Number.isFinite(lossAmount) && lossAmount > 0) {
+      const gameId = String((ctx as any).gameId || (ctx as any).id || (triggerItem as any)?.gameId || 'unknown');
+      const sourceIdForStep = String((triggerItem as any)?.source || (triggerItem as any)?.permanentId || (triggerItem as any)?.sourceId || '');
+      const affectedCreatures = (state.battlefield || []).filter((permanent: any) => {
+        if (!permanent || String(permanent.controller || '') !== affectedPlayerId) return false;
+        const typeLine = String(permanent.card?.type_line || '').toLowerCase();
+        return typeLine.includes('creature') || isCreatureNow(permanent);
+      });
+
+      if (affectedCreatures.length > 0 && gameId && gameId !== 'unknown' && !(ctx as any).isReplaying) {
+        ResolutionQueueManager.addStep(gameId, {
+          type: ResolutionStepType.UPKEEP_SACRIFICE,
+          playerId: affectedPlayerId,
+          description: `${sourceName}: Choose a creature to sacrifice, then lose ${lossAmount} life.`,
+          mandatory: true,
+          sourceId: sourceIdForStep,
+          sourceName,
+          sourceImage: (triggerCard as any)?.image_uris?.small || (triggerCard as any)?.image_uris?.normal,
+          hasCreatures: true,
+          creatures: affectedCreatures.map((permanent: any) => ({
+            id: permanent.id,
+            name: permanent.card?.name || 'Creature',
+            imageUrl: permanent.card?.image_uris?.small || permanent.card?.image_uris?.normal,
+            power: permanent.card?.power || permanent.basePower,
+            toughness: permanent.card?.toughness || permanent.baseToughness,
+          })),
+          allowSourceSacrifice: false,
+          edictSacrifice: true,
+          sourceController: controller,
+          reason: 'trigger_effect',
+          lifeLossAfterSacrifice: lossAmount,
+          lifeLossAfterSacrificePlayerId: affectedPlayerId,
+          lifeLossAfterSacrificeSourceController: controller,
+        } as any);
+      } else {
+        modifyLife(affectedPlayerId, -lossAmount);
+        queueLifeLossTriggers(ctx, affectedPlayerId, lossAmount, controller, { trackLifeLost: false });
+      }
+      return;
+    }
+  }
 
   if (sourceNameLower.includes("venser's journal") || desc.includes('gain life equal to cards in hand')) {
     const cardsInHand = getHandSize(controller);
@@ -10359,7 +10524,24 @@ export function executeTriggerEffect(
     return;
   }
 
-  const triggeredOracleIRApplied = applyOracleIRFallbackForTriggeredEffect(ctx, controller, sourceName, description);
+  const delayedDrawSourceText = String(description || '').trim()
+    || String((triggerItem as any)?.activatedAbilityText || '').trim();
+  const delayedDrawAtNextUpkeep = parseDelayedDrawAtNextUpkeep(delayedDrawSourceText);
+  if (delayedDrawAtNextUpkeep) {
+    scheduleDelayedDrawAtNextUpkeep(ctx, {
+      playerId: String(controller || '').trim(),
+      sourceName,
+      sourceId: String((triggerItem as any)?.source || (triggerItem as any)?.sourceId || (triggerItem as any)?.permanentId || '').trim() || undefined,
+      count: delayedDrawAtNextUpkeep.count,
+    });
+    desc = delayedDrawAtNextUpkeep.remainingText.replace(/[’]/g, "'").toLowerCase();
+    descriptionForOracleFallback = delayedDrawAtNextUpkeep.remainingText;
+    if (!desc || remainingTextIsOnlyLibraryLook(delayedDrawAtNextUpkeep.remainingText)) {
+      return;
+    }
+  }
+
+  const triggeredOracleIRApplied = applyOracleIRFallbackForTriggeredEffect(ctx, controller, sourceName, descriptionForOracleFallback);
   if (triggeredOracleIRApplied > 0) {
     return;
   }
@@ -10422,6 +10604,32 @@ export function executeTriggerEffect(
     handled = true;
   }
 
+  const youGainThatMuchLifeMatch = desc.match(/you gain that much life/i);
+  if (youGainThatMuchLifeMatch) {
+    const amount = Number((triggerItem as any)?.effectData?.lifeLost || (triggerItem as any)?.effectData?.amount || 0);
+    if (Number.isFinite(amount) && amount > 0) {
+      modifyLife(controller, amount);
+      debug(2, `[executeTriggerEffect] ${controller} gains ${amount} life from ${sourceName}`);
+      handled = true;
+    }
+  }
+
+  const putThatManyCountersOnSelfMatch = desc.match(/put that many ([a-z0-9/+\- ]+?) counters? on (?:this enchantment|this permanent|~|it)/i);
+  if (putThatManyCountersOnSelfMatch) {
+    const amount = Number((triggerItem as any)?.effectData?.countersPlaced || (triggerItem as any)?.effectData?.amount || 0);
+    const counterType = String(putThatManyCountersOnSelfMatch[1] || '').trim().toLowerCase();
+    const sourceId = triggerItem.source || triggerItem.permanentId;
+    const sourcePermanent = sourceId
+      ? (state.battlefield || []).find((permanent: any) => permanent?.id === sourceId)
+      : null;
+    if (sourcePermanent && Number.isFinite(amount) && amount > 0 && counterType) {
+      sourcePermanent.counters = sourcePermanent.counters || {};
+      sourcePermanent.counters[counterType] = Number(sourcePermanent.counters[counterType] || 0) + amount;
+      debug(2, `[executeTriggerEffect] Added ${amount} ${counterType} counter(s) to ${sourcePermanent.card?.name || sourcePermanent.id}`);
+      handled = true;
+    }
+  }
+
   if (/you may put a land card from your hand onto the battlefield/i.test(desc)) {
     queueLandPlayFromHandPrompt(ctx, controller as any, sourceName, triggerItem);
   }
@@ -10482,7 +10690,7 @@ export function executeTriggerEffect(
       try {
         const sourcePermanentId = String((triggerItem as any)?.source || (triggerItem as any)?.permanentId || '');
         if (sourcePermanentId) {
-          queueDealsDamageToPlayerTriggersFromPermanent(ctx, sourcePermanentId, String(opp.id));
+          queueDealsDamageToPlayerTriggersFromPermanent(ctx, sourcePermanentId, String(opp.id), damage);
         }
       } catch {
         // Defensive: do not block resolution on trigger queue failure.
@@ -11941,6 +12149,30 @@ export function executeTriggerEffect(
     return;
   }
 
+  const thatPermanentControllerMillsMatch = desc.match(/that permanent's controller mills? (?:a card|([a-z]+|\d+) cards?)/i);
+  if (thatPermanentControllerMillsMatch) {
+    const millCount = thatPermanentControllerMillsMatch[1]
+      ? parseNumberWord(thatPermanentControllerMillsMatch[1], 1)
+      : 1;
+    const targetPlayerId = String(
+      (triggerItem as any)?.effectData?.untappedPermanentController ||
+      (triggerItem as any)?.targetPlayer ||
+      (triggerItem as any)?.triggeringPlayer ||
+      ''
+    ).trim();
+
+    if (targetPlayerId && millCount > 0) {
+      executeSpellEffect(
+        ctx,
+        { kind: 'MillCards', playerId: targetPlayerId, count: millCount } as any,
+        controller,
+        sourceName,
+        String((triggerItem as any)?.source || '') || null
+      );
+    }
+    return;
+  }
+
   const millTargetPlayerMatch = desc.match(/target (?:player|opponent) mills? ([a-z]+|\d+) cards?/i);
   if (millTargetPlayerMatch) {
     const millCount = parseNumberWord(millTargetPlayerMatch[1], 1);
@@ -12196,6 +12428,24 @@ export function executeTriggerEffect(
       }
     }
     return;
+  }
+
+  const selfNamedCounterMatch = desc.match(/put (a|an|one|two|three|four|five|\d+) \+1\/\+1 counters? on ([^.]+)/i);
+  if (selfNamedCounterMatch) {
+    const counterCount = parseNumberWord(selfNamedCounterMatch[1], 1);
+    const namedTarget = String(selfNamedCounterMatch[2] || '').trim().toLowerCase();
+    const sourceId = triggerItem.source || triggerItem.permanentId;
+    const perm = sourceId
+      ? (state.battlefield || []).find((p: any) => p?.id === sourceId)
+      : null;
+    const sourcePermanentNameLower = String(perm?.card?.name || triggerItem.sourceName || '').trim().toLowerCase();
+
+    if (perm && sourcePermanentNameLower && namedTarget.includes(sourcePermanentNameLower)) {
+      perm.counters = perm.counters || {};
+      perm.counters['+1/+1'] = (perm.counters['+1/+1'] || 0) + counterCount;
+      debug(2, `[executeTriggerEffect] Added ${counterCount} +1/+1 counter(s) to ${perm.card?.name || perm.id}`);
+      return;
+    }
   }
 
   const selfSourceId = triggerItem.source || triggerItem.permanentId;
@@ -12652,7 +12902,7 @@ export function executeTriggerEffect(
         try {
           const sourcePermanentId = String((triggerItem as any)?.source || (triggerItem as any)?.permanentId || '');
           if (sourcePermanentId) {
-            queueDealsDamageToPlayerTriggersFromPermanent(ctx, sourcePermanentId, String(targetId));
+            queueDealsDamageToPlayerTriggersFromPermanent(ctx, sourcePermanentId, String(targetId), damage);
 
             // Track that a creature dealt damage to a player this turn.
             try {
@@ -13573,9 +13823,20 @@ export function executeTriggerEffect(
   const dealsDamageToThatPlayerMatch = desc.match(/deals?\s+(\d+)\s+damage\s+to\s+that\s+player/i);
   if (dealsDamageToThatPlayerMatch) {
     const dmg = parseInt(dealsDamageToThatPlayerMatch[1], 10);
-    const targetPlayer = triggerItem?.triggeringPlayer || triggerItem?.targetPlayer || controller;
+    const targetPlayer = triggerItem?.triggeringPlayer ||
+      triggerItem?.targetPlayer ||
+      triggerItem?.effectData?.shuffledPlayerId ||
+      triggerItem?.effectData?.damagedPlayerId ||
+      controller;
     if (targetPlayer) {
       modifyLife(targetPlayer, -dmg);
+      try {
+        (state as any).damageTakenThisTurnByPlayer = (state as any).damageTakenThisTurnByPlayer || {};
+        (state as any).damageTakenThisTurnByPlayer[String(targetPlayer)] =
+          Number((state as any).damageTakenThisTurnByPlayer[String(targetPlayer)] || 0) + dmg;
+      } catch {
+        // best-effort tracking only
+      }
       debug(2, `[executeTriggerEffect] ${sourceName}: ${String(targetPlayer)} takes ${dmg} damage (that player)`);
     }
     return;
@@ -15383,6 +15644,28 @@ export function resolveTopOfStack(ctx: GameContext) {
           textForEval = `At the beginning of end step, ${textForEval}`;
         } else if (triggerType === 'landfall') {
           textForEval = `Whenever a land enters the battlefield under your control, ${textForEval}`;
+        } else if (triggerType === 'opponent_loses_life' || triggerType === 'player_loses_life' || triggerType === 'you_lose_life') {
+          textForEval = `Whenever a player loses life, ${textForEval}`;
+        } else if (triggerType === 'opponent_pays_life' || triggerType === 'player_pays_life' || triggerType === 'you_pay_life') {
+          textForEval = `Whenever a player pays life, ${textForEval}`;
+        } else if (triggerType === 'you_sacrifice' || triggerType === 'opponent_sacrifices' || triggerType === 'player_sacrifices') {
+          textForEval = `Whenever a player sacrifices a permanent, ${textForEval}`;
+        } else if (triggerType === 'counters_removed_from_self' || triggerType === 'counters_removed_from_permanent_you_control') {
+          textForEval = `Whenever one or more counters are removed from a permanent, ${textForEval}`;
+        } else if (triggerType === 'counters_put_on_creature_you_control' || triggerType === 'counters_put_on_permanent_you_control') {
+          textForEval = `Whenever one or more counters are put on a permanent, ${textForEval}`;
+        } else if (triggerType === 'library_shuffle') {
+          textForEval = `Whenever a player shuffles their library, ${textForEval}`;
+        } else if (triggerType === 'token_created') {
+          textForEval = `Whenever you create a token, ${textForEval}`;
+        } else if (triggerType === 'card_put_into_graveyard' || triggerType === 'card_left_graveyard' || triggerType === 'creature_exiled_from_battlefield' || triggerType === 'permanent_exiled_from_battlefield') {
+          textForEval = `Whenever a card changes zones, ${textForEval}`;
+        } else if (triggerType === 'opponent_draws' || triggerType === 'player_draws' || triggerType === 'you_draw') {
+          textForEval = `Whenever a player draws a card, ${textForEval}`;
+        } else if (triggerType === 'opponent_discards' || triggerType === 'player_discards' || triggerType === 'you_discard') {
+          textForEval = `Whenever a player discards a card, ${textForEval}`;
+        } else if (triggerType === 'player_mills' || triggerType === 'opponent_mills' || triggerType === 'you_mill') {
+          textForEval = `Whenever a player mills a card, ${textForEval}`;
         } else if (typeof triggerType === 'string' && triggerType.includes('etb')) {
           textForEval = `When ~ enters the battlefield, ${textForEval}`;
         }
@@ -20638,7 +20921,11 @@ function executeSpellEffect(
       const battlefield = state.battlefield || [];
       const perm = battlefield.find((p: any) => p.id === (effect as any).id);
       if (perm) {
+        const wasTapped = Boolean((perm as any).tapped);
         (perm as any).tapped = false;
+        if (wasTapped) {
+          queueBecomesUntappedTriggers(ctx, perm);
+        }
         ctx.bumpSeq();
         debug(2, `[resolveSpell] ${spellName} untapped ${(perm as any).card?.name || (effect as any).id}`);
       }
@@ -20866,7 +21153,7 @@ function executeSpellEffect(
         // If we have a battlefield permanent as the source of this effect, queue its damage-to-player triggers.
         try {
           if (sourcePermanentId) {
-            queueDealsDamageToPlayerTriggersFromPermanent(ctx, String(sourcePermanentId), String(targetPlayerId));
+            queueDealsDamageToPlayerTriggersFromPermanent(ctx, String(sourcePermanentId), String(targetPlayerId), dmg);
           }
         } catch {
           // Defensive: do not block resolution.
@@ -20901,20 +21188,12 @@ function executeSpellEffect(
       break;
     }
     case 'AddCountersPermanent': {
-      const battlefield = state.battlefield || [];
-      const perm = battlefield.find((p: any) => p.id === (effect as any).id);
-      if (perm) {
-        const counterType = String((effect as any).counterType || '').trim();
-        const amount = Math.max(0, Number((effect as any).amount ?? 0));
-        if (counterType && amount > 0) {
-          const existingCounters = perm.counters || {};
-          const current = (existingCounters as any)[counterType] || 0;
-          perm.counters = {
-            ...existingCounters,
-            [counterType]: current + amount,
-          } as any;
-          debug(2, `[resolveSpell] ${spellName} added ${amount} ${counterType} counter(s) to ${(perm as any).card?.name || perm.id}`);
-        }
+      const permanentId = String((effect as any).id || '').trim();
+      const counterType = String((effect as any).counterType || '').trim();
+      const amount = Math.max(0, Number((effect as any).amount ?? 0));
+      if (permanentId && counterType && amount > 0) {
+        updateCounters(ctx, permanentId, { [counterType]: amount });
+        debug(2, `[resolveSpell] ${spellName} added ${amount} ${counterType} counter(s) to ${permanentId}`);
       }
       break;
     }
@@ -21233,12 +21512,15 @@ function executeSpellEffect(
       const zones = (state as any).zones || ((state as any).zones = {});
       const z = (zones[playerId] = zones[playerId] || { hand: [], handCount: 0, libraryCount: 0, graveyard: [], graveyardCount: 0 });
       z.graveyard = Array.isArray(z.graveyard) ? z.graveyard : [];
+      const milledCards: any[] = [];
 
       if (lib && Array.isArray(lib)) {
         for (let i = 0; i < millCount && lib.length > 0; i++) {
           const milled = lib.shift();
           if (milled) {
-            z.graveyard.push({ ...milled, zone: 'graveyard' });
+            const graveyardCard = { ...milled, zone: 'graveyard' };
+            z.graveyard.push(graveyardCard);
+            milledCards.push(graveyardCard);
             recordCardPutIntoGraveyardThisTurn(ctx, String(playerId), milled, { fromBattlefield: false });
 
             // Check for graveyard triggers (e.g., Eldrazi shuffle).
@@ -21254,6 +21536,7 @@ function executeSpellEffect(
         }
         z.libraryCount = lib.length;
         z.graveyardCount = z.graveyard.length;
+        processMillTriggers(ctx, playerId, milledCards, caster);
         ctx.bumpSeq();
         debug(2, `[resolveSpell] ${spellName} milled ${millCount} card(s) for ${playerId}`);
       }
@@ -21440,7 +21723,8 @@ function resolveFlickerReturnAfterExile(
 function queueDealsDamageToPlayerTriggersFromPermanent(
   ctx: GameContext,
   sourcePermanentId: string,
-  damagedPlayerId: string
+  damagedPlayerId: string,
+  damageAmount = 0,
 ): void {
   const state = (ctx as any).state;
   const battlefield = state?.battlefield || [];
@@ -21492,8 +21776,9 @@ function queueDealsDamageToPlayerTriggersFromPermanent(
       // Conservative fallback: keep the trigger.
     }
 
-    state.stack.push({
-      id: uid('trigger'),
+    const triggerId = uid('trigger');
+    const stackItem = {
+      id: triggerId,
       type: 'triggered_ability',
       controller: sourcePerm.controller,
       source: sourcePerm.id,
@@ -21510,8 +21795,36 @@ function queueDealsDamageToPlayerTriggersFromPermanent(
       // be deterministic for templates like "if any of that damage was dealt by a Warrior".
       damageSourcePermanentIds: [String(sourcePerm.id)],
       damageIncludedWarriorSource: typeLineHasAllWords(String(sourcePerm?.card?.type_line || '').toLowerCase(), 'warrior'),
+      effectData: {
+        sourcePermanentId: String(sourcePerm.id),
+        damagedPlayerId: String(damagedPlayerId),
+        damageAmount: Math.max(0, Number(damageAmount) || 0),
+      },
       card: sourcePerm.card,
-    } as any);
+    } as any;
+
+    state.stack.push(stackItem);
+
+    const gameId = String((ctx as any).gameId || '').trim();
+    if (gameId && gameId !== 'unknown') {
+      try {
+        appendEvent(gameId, Number((ctx as any).seq?.value ?? (ctx as any).seq ?? 0), 'pushTriggeredAbility', {
+          triggerId,
+          sourceId: String(sourcePerm.id),
+          sourceName: sourcePerm.card?.name || trigger.cardName,
+          controllerId: sourcePerm.controller,
+          description: text,
+          triggerType: trigger.triggerType,
+          effect: trigger.effect || text,
+          mandatory: trigger.mandatory !== false,
+          targetPlayer: String(damagedPlayerId),
+          defendingPlayer: String(damagedPlayerId),
+          effectData: stackItem.effectData,
+        });
+      } catch (err) {
+        debugWarn(1, '[dealsDamageTrigger] Failed to persist damage-to-player trigger:', err);
+      }
+    }
   }
 }
 

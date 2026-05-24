@@ -10407,6 +10407,42 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
         break;
       }
 
+      case "scheduleDelayedDrawAtNextUpkeep": {
+        try {
+          const stateAny = ctx.state as any;
+          const entries = Array.isArray((e as any).entries) ? (e as any).entries : [];
+          stateAny.pendingDelayedDrawsAtNextUpkeep = Array.isArray(stateAny.pendingDelayedDrawsAtNextUpkeep)
+            ? stateAny.pendingDelayedDrawsAtNextUpkeep
+            : [];
+
+          for (const rawEntry of entries) {
+            const scheduleId = String(rawEntry?.scheduleId || '').trim();
+            const playerId = String(rawEntry?.playerId || rawEntry?.createdBy || (e as any).playerId || '').trim();
+            if (!playerId) continue;
+            if (scheduleId && stateAny.pendingDelayedDrawsAtNextUpkeep.some((entry: any) => String(entry?.scheduleId || '') === scheduleId)) {
+              continue;
+            }
+
+            const count = Math.max(1, Math.floor(Number(rawEntry?.count || 1)));
+            stateAny.pendingDelayedDrawsAtNextUpkeep.push({
+              ...(scheduleId ? { scheduleId } : null),
+              playerId,
+              createdBy: String(rawEntry?.createdBy || playerId).trim(),
+              sourceId: String(rawEntry?.sourceId || '').trim() || undefined,
+              sourceName: String(rawEntry?.sourceName || (e as any).sourceName || 'Delayed trigger').trim() || 'Delayed trigger',
+              count,
+              fireAtTurnNumber: Number(rawEntry?.fireAtTurnNumber ?? 0) || 0,
+              fireAtStep: 'upkeep',
+            });
+          }
+
+          ctx.bumpSeq();
+        } catch (err) {
+          debugWarn(1, 'applyEvent(scheduleDelayedDrawAtNextUpkeep): failed', err);
+        }
+        break;
+      }
+
       case "sacrificeWhenYouDoResolve": {
         try {
           const playerId = String((e as any).playerId || '').trim();

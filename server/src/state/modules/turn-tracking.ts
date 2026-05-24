@@ -1,4 +1,5 @@
 import type { GameContext } from "./context.js";
+import { queueLeftGraveyardTriggers, queuePutIntoGraveyardTriggers } from "./triggers/zone-change.js";
 
 export function recordCardPutIntoGraveyardThisTurn(
   ctx: GameContext,
@@ -71,6 +72,10 @@ export function recordCardPutIntoGraveyardThisTurn(
         stateAny.artifactOrCreaturePutIntoGraveyardFromBattlefieldThisTurn = true;
       }
     }
+
+    if (!(ctx as any)?.isReplaying) {
+      queuePutIntoGraveyardTriggers(ctx, owner, card, options);
+    }
   } catch {
     // best-effort only
   }
@@ -115,6 +120,10 @@ export function recordCardLeftGraveyardThisTurn(ctx: GameContext, ownerId: strin
 
       stateAny.creatureCardLeftYourGraveyardThisTurn = stateAny.creatureCardLeftYourGraveyardThisTurn || {};
       stateAny.creatureCardLeftYourGraveyardThisTurn[owner] = true;
+    }
+
+    if (card && !(ctx as any)?.isReplaying) {
+      queueLeftGraveyardTriggers(ctx, owner, card);
     }
   } catch {
     // best-effort only

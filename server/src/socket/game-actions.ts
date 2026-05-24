@@ -45,6 +45,11 @@ import { isPreparedCopyActive, syncPreparedPermanentAfterControlChange } from ".
 import { getEffectiveBasicLandTypes } from "../state/modules/mana-abilities.js";
 import { buildCostAdjustmentPlan, buildLiveSpellCostAdjustment } from "../state/modules/cost-adjustments.js";
 import { buildNormalizedManaPaymentModel, stringifyParsedManaCost, type NormalizedManaPaymentModel } from "../state/modules/mana-check.js";
+import { processMillTriggers } from "../state/modules/zones.js";
+import { queueLifegainTriggers } from "../state/modules/triggers/lifegain.js";
+import { queueLifeLossTriggers } from "../state/modules/triggers/life-loss.js";
+import { queueLifePaymentTriggers } from "../state/modules/triggers/pay-life.js";
+import { queueBecomesUntappedTriggers } from "../state/modules/triggers/tap-untap.js";
 import { parseOracleTextToIR } from '../../../rules-engine/src/oracleIRParser.js';
 import { applyOracleIRStepsToGameState } from '../../../rules-engine/src/oracleIRExecutor.js';
 import { extractGiftInfo, resolveGiftAwareOracleText } from '../utils/gift.js';
@@ -5844,6 +5849,7 @@ export async function requestCastSpellForSocket(
             (game.state as any).lifeLostThisTurn[String(playerId)] =
               ((game.state as any).lifeLostThisTurn[String(playerId)] || 0) + Number(additionalCost.amount || 0);
           } catch {}
+          queueLifePaymentTriggers(game as any, String(playerId), Number(additionalCost.amount || 0), { sourceId: cardId, sourceName: cardName });
 
           (cardInHand as any).additionalCostPaid = true;
           (cardInHand as any).additionalCostMethod = 'pay_life';
@@ -6408,6 +6414,7 @@ export async function requestCastSpellForSocket(
         (game.state as any).lifeLostThisTurn[String(playerId)] =
           ((game.state as any).lifeLostThisTurn[String(playerId)] || 0) + Number(additionalCost.amount || 0);
       } catch {}
+      queueLifePaymentTriggers(game as any, String(playerId), Number(additionalCost.amount || 0), { sourceId: cardId, sourceName: cardName });
 
       (cardInHand as any).additionalCostPaid = true;
       (cardInHand as any).additionalCostMethod = 'pay_life';
@@ -8803,6 +8810,7 @@ export function registerGameActions(io: Server, socket: Socket) {
             (game.state as any).lifeLostThisTurn[String(playerId)] =
               ((game.state as any).lifeLostThisTurn[String(playerId)] || 0) + Number(additionalCost.amount || 0);
           } catch {}
+          queueLifePaymentTriggers(game as any, String(playerId), Number(additionalCost.amount || 0), { sourceId: cardId, sourceName: cardInHand.name });
           
           io.to(gameId).emit("chat", {
             id: `m_${Date.now()}`,
@@ -13673,6 +13681,7 @@ export function registerGameActions(io: Server, socket: Socket) {
               // Check for "doesn't untap" effects
               if (!permanent.doesntUntap) {
                 permanent.tapped = false;
+                queueBecomesUntappedTriggers(game as any, permanent);
                 untappedPermanentIds.push(String(permanent.id || ''));
                 untappedCount++;
               }
@@ -14909,42 +14918,42 @@ export function registerGameActions(io: Server, socket: Socket) {
       // Check for lifegain triggers (Ratchet, Ajani's Pridemate, etc.)
       if (delta > 0) {
         try {
-          const { detectLifegainTriggers } = await import("../state/modules/triggers/lifegain.js");
-          const lifegainTriggers = detectLifegainTriggers(game as any, targetPid, delta);
-          
+          const lifegainTriggers = queueLifegainTriggers(game as any, targetPid, delta, playerId);
+
           if (lifegainTriggers.length > 0) {
-            // Add triggers to pending triggers queue
-            const state = game.state as any;
-            if (!state.pendingTriggers) {
-              state.pendingTriggers = [];
-            }
-            
             for (const trigger of lifegainTriggers) {
-              state.pendingTriggers.push({
-                id: `lifegain_${trigger.permanentId}_${Date.now()}`,
-                type: 'lifegain',
-                controllerId: trigger.controllerId,
-                sourceId: trigger.permanentId,
-                sourceName: trigger.cardName,
-                effect: trigger.effect,
-                effectType: trigger.effectType,
-                isMayAbility: trigger.isMayAbility,
-                lifeGained: delta,
-                maxArtifactMV: trigger.maxArtifactMV,
-              });
-              
               // Emit trigger notification
               io.to(gameId).emit("chat", {
                 id: `m_${Date.now()}_trigger`,
                 gameId,
                 from: "system",
-                message: `≡ƒÄ» Lifegain trigger: ${trigger.cardName} - ${trigger.effect}`,
+                message: `Lifegain trigger: ${trigger.sourceName} - ${trigger.effect}`,
                 ts: Date.now(),
               });
             }
           }
         } catch (triggerErr) {
           debugWarn(1, "Error detecting lifegain triggers:", triggerErr);
+        }
+      }
+
+      if (delta < 0) {
+        try {
+          const lifeLossTriggers = queueLifeLossTriggers(game as any, targetPid, Math.abs(delta), playerId);
+
+          if (lifeLossTriggers.length > 0) {
+            for (const trigger of lifeLossTriggers) {
+              io.to(gameId).emit("chat", {
+                id: `m_${Date.now()}_trigger`,
+                gameId,
+                from: "system",
+                message: `Life-loss trigger: ${trigger.sourceName} - ${trigger.effect}`,
+                ts: Date.now(),
+              });
+            }
+          }
+        } catch (triggerErr) {
+          debugWarn(1, "Error detecting life-loss triggers:", triggerErr);
         }
       }
 
@@ -15197,6 +15206,8 @@ export function registerGameActions(io: Server, socket: Socket) {
       } catch (e) {
         debugWarn(1, "appendEvent(mill) failed:", e);
       }
+
+      processMillTriggers(game as any, targetPid as any, milledCards, playerId as any);
 
       // Emit chat message with milled card names
       const targetName = getPlayerName(game, targetPid);

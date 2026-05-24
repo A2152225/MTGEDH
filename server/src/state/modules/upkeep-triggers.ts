@@ -15,6 +15,8 @@
 import type { GameContext } from "../context.js";
 import { debug, debugWarn, debugError } from "../../utils/debug.js";
 import { isInterveningIfSatisfied } from "./triggers/intervening-if.js";
+import { queueCounterRemovedTriggers } from "./triggers/counters.js";
+import { queueSacrificeTriggers } from "./triggers/sacrifice.js";
 import { movePermanentToGraveyard } from "./counters_tokens.js";
 
 // ============================================================================
@@ -725,6 +727,7 @@ export function removeFadeCounter(ctx: GameContext, permanentId: string): boolea
     const counters = { ...(permanent.counters || {}) };
     counters["fade"] -= 1;
     (permanent as any).counters = counters;
+    queueCounterRemovedTriggers(ctx, permanent, permanentId, { fade: 1 });
     ctx.bumpSeq();
     return counters["fade"] > 0;
   }
@@ -742,6 +745,7 @@ export function removeTimeCounter(ctx: GameContext, permanentId: string): boolea
     const counters = { ...(permanent.counters || {}) };
     counters["time"] -= 1;
     (permanent as any).counters = counters;
+    queueCounterRemovedTriggers(ctx, permanent, permanentId, { time: 1 });
     ctx.bumpSeq();
     return counters["time"] > 0;
   }
@@ -792,6 +796,12 @@ export function sacrificePermanent(ctx: GameContext, permanentId: string, player
       }
     } catch {
       // best-effort only
+    }
+
+    try {
+      queueSacrificeTriggers(ctx, String(playerId || permanent?.controller || ''), permanent);
+    } catch (err) {
+      debugWarn(1, '[sacrificePermanent] Failed to queue sacrifice triggers:', err);
     }
 
     if (movePermanentToGraveyard(ctx, permanentId, true)) {

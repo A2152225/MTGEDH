@@ -40,6 +40,8 @@ export {
   getTriggersForTiming,
   groupTriggersByController,
 } from "./registry.js";
+export { orderTriggersByAPNAP } from "./ordering.js";
+export { inferGenericTriggeredAbilityTargetMetadata, hasUnsupportedTargetRequirement } from "./target-metadata.js";
 
 // Export from sub-modules (these re-export from triggered-abilities.ts)
 export {
@@ -129,6 +131,8 @@ export {
   detectTapTriggers,
   getTapTriggers,
   detectUntapTriggers,
+  getBecomesUntappedTriggers,
+  queueBecomesUntappedTriggers,
   getAttackUntapTriggers,
   getCombatDamageUntapTriggers,
   executeUntapTrigger,
@@ -144,6 +148,15 @@ export * from "./win-conditions.js";
 export * from "./devotion.js";
 export * from "./transform.js";
 export * from "./discard.js";
+export * from "./mill.js";
+export * from "./life-loss.js";
+export * from "./pay-life.js";
+export * from "./sacrifice.js";
+export * from "./counters.js";
+export * from "./zone-change.js";
+export * from "./search.js";
+export * from "./shuffle.js";
+export * from "./tokens.js";
 
 // Crystal activated abilities (Final Fantasy set)
 export * from "./crystal-abilities.js";

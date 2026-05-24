@@ -32,6 +32,7 @@ import {
   checkDamageReceivedTrigger
 } from "./triggered-abilities.js";
 import { dispatchDamageReceivedTrigger, processDamageReceivedTriggers } from "./triggers/damage-received.js";
+import { queueBecomesUntappedTriggers } from "./triggers/tap-untap.js";
 import { getUpkeepTriggersForPlayer, autoProcessCumulativeUpkeepMana, recordUpkeepBegan } from "./upkeep-triggers.js";
 import { isInterveningIfSatisfied } from "./triggers/intervening-if.js";
 import { parseCreatureKeywords } from "./combat-mechanics.js";
@@ -815,6 +816,57 @@ function dequeuePendingUpkeepGraveyardReturnTriggers(ctx: GameContext, turnPlaye
     return triggers;
   } catch (err) {
     debugWarn(1, '[turn] Failed to dequeue pending upkeep graveyard-return triggers:', err);
+    return [];
+  }
+}
+
+function dequeuePendingUpkeepDrawTriggers(ctx: GameContext): any[] {
+  try {
+    const stateAny = (ctx as any).state as any;
+    if (!stateAny) return [];
+
+    const currentTurn = Number(stateAny?.turnNumber ?? 0) || 0;
+    const pendingDraws: any[] = Array.isArray(stateAny.pendingDelayedDrawsAtNextUpkeep)
+      ? stateAny.pendingDelayedDrawsAtNextUpkeep
+      : [];
+    if (pendingDraws.length === 0) return [];
+
+    const remainingDraws: any[] = [];
+    const triggers: any[] = [];
+
+    for (const entry of pendingDraws) {
+      const fireAtStep = String(entry?.fireAtStep || 'upkeep').toLowerCase();
+      const fireAtTurn = Number(entry?.fireAtTurnNumber ?? 0) || 0;
+      if (fireAtStep !== 'upkeep' || fireAtTurn > currentTurn) {
+        remainingDraws.push(entry);
+        continue;
+      }
+
+      const count = Math.max(1, Math.floor(Number(entry?.count || 1)));
+      const effectText = count === 1 ? 'Draw a card.' : `Draw ${count} cards.`;
+      const playerId = String(entry?.playerId || entry?.createdBy || '').trim();
+      if (!playerId) continue;
+
+      triggers.push({
+        controllerId: playerId,
+        permanentId: String(entry?.sourceId || entry?.scheduleId || '').trim(),
+        cardName: String(entry?.sourceName || 'Delayed trigger').trim(),
+        description: effectText,
+        effect: effectText,
+        mandatory: true,
+        stackItem: {
+          delayedAction: 'draw',
+          delayedDrawCount: count,
+          delayedSourceName: String(entry?.sourceName || 'Delayed trigger').trim(),
+          delayedScheduleId: String(entry?.scheduleId || '').trim() || undefined,
+        },
+      });
+    }
+
+    stateAny.pendingDelayedDrawsAtNextUpkeep = remainingDraws;
+    return triggers;
+  } catch (err) {
+    debugWarn(1, '[turn] Failed to dequeue pending upkeep draw triggers:', err);
     return [];
   }
 }
@@ -3088,6 +3140,7 @@ function untapLandsForPlayer(ctx: GameContext, playerId: string) {
 
       // Untap the land
       permanent.tapped = false;
+      queueBecomesUntappedTriggers(ctx, permanent);
       untappedCount++;
     }
 
@@ -3145,6 +3198,7 @@ function untapPermanentsForPlayer(ctx: GameContext, playerId: string) {
 
         // Normal untap
         permanent.tapped = false;
+        queueBecomesUntappedTriggers(ctx, permanent);
         untappedCount++;
       }
     }
@@ -5074,8 +5128,9 @@ export function nextStep(ctx: GameContext) {
         
         // Rule 504.1: Upkeep step - "at the beginning of your upkeep" triggers
         if (nextStep === "UPKEEP") {
+          const delayedUpkeepDraws = dequeuePendingUpkeepDrawTriggers(ctx);
           const delayedUpkeepReturns = dequeuePendingUpkeepGraveyardReturnTriggers(ctx, turnPlayer);
-          pushTriggersToStack(delayedUpkeepReturns, 'upkeep', 'upkeep');
+          pushTriggersToStack([...delayedUpkeepDraws, ...delayedUpkeepReturns], 'upkeep', 'upkeep');
 
           const initiativeHolder = String(((ctx as any).state as any)?.initiative || '').trim();
           if (initiativeHolder && initiativeHolder === String(turnPlayer)) {

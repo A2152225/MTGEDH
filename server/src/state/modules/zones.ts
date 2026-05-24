@@ -18,7 +18,11 @@ import { cleanupCardLeavingExile } from "./playable-from-exile.js";
 import { clearPreparedPermanent } from "./prepared.js";
 import { getCounterLeaveBattlefieldReplacement } from "./counter-common-effects.js";
 import { processLinkedExileReturns } from "./triggers/linked-exile.js";
+import { queueExiledFromBattlefieldTriggers } from "./triggers/zone-change.js";
 import { getCardDrawTriggers } from "./triggers/card-draw.js";
+import { getMillTriggers } from "./triggers/mill.js";
+import { orderTriggersByAPNAP } from "./triggers/ordering.js";
+import { hasUnsupportedTargetRequirement, inferGenericTriggeredAbilityTargetMetadata } from "./triggers/target-metadata.js";
 import { evaluateDrawReplacementEvent } from "./replacement-effects.js";
 
 function clearPreparedStateOnBattlefieldExit(state: any, permanent: any): void {
@@ -99,6 +103,7 @@ export function moveRemovedPermanentToExile(
     if (normalizedRemovedPermanentId) {
       processLinkedExileReturns(ctx, normalizedRemovedPermanentId);
     }
+    queueExiledFromBattlefieldTriggers(ctx, permanent);
     bumpSeq();
     return true;
   }
@@ -119,6 +124,26 @@ export function moveRemovedPermanentToExile(
       minSelections: 1,
       maxSelections: 1,
       commanderZoneChoice: true,
+      commanderZoneFromBattlefield: true,
+      commanderZoneOriginalPermanent: {
+        id: permanent.id,
+        controller: (permanent as any)?.controller || owner,
+        owner,
+        tapped: (permanent as any)?.tapped === true,
+        counters: (permanent as any)?.counters && typeof (permanent as any).counters === 'object'
+          ? { ...((permanent as any).counters as any) }
+          : undefined,
+        card: zoneCard ? {
+          id: zoneCard.id,
+          name: zoneCard.name,
+          type_line: zoneCard.type_line,
+          oracle_text: zoneCard.oracle_text,
+          image_uris: zoneCard.image_uris,
+          mana_cost: zoneCard.mana_cost,
+          power: zoneCard.power,
+          toughness: zoneCard.toughness,
+        } : undefined,
+      },
       options: [
         { id: 'command', label: 'Move to Command Zone' },
         { id: 'stay', label: 'Let it be exiled' },
@@ -167,6 +192,7 @@ export function moveRemovedPermanentToExile(
   if (normalizedRemovedPermanentId) {
     processLinkedExileReturns(ctx, normalizedRemovedPermanentId);
   }
+  queueExiledFromBattlefieldTriggers(ctx, permanent);
   bumpSeq();
   return true;
 }
@@ -452,13 +478,16 @@ export function drawCards(ctx: GameContext, playerId: PlayerID, count: number): 
  * - Niv-Mizzet: "Whenever you draw a card, deal 1 damage to any target"
  */
 export function processDrawTriggers(ctx: GameContext, drawingPlayerId: PlayerID, cardsDrawn: number) {
+  if ((ctx as any)?.isReplaying) return;
+
   const battlefield = ctx.state.battlefield || [];
   const players = (ctx.state as any).players || [];
   const gameId = String((ctx as any).gameId || '').trim();
 
-  const drawTriggers = getCardDrawTriggers(ctx, String(drawingPlayerId));
+  const drawTriggers = orderTriggersByAPNAP(ctx, getCardDrawTriggers(ctx, String(drawingPlayerId)));
   const queueGenericDrawTrigger = (trigger: any, drawIndex: number) => {
     const effect = String(trigger?.effect || '').trim();
+    const targetMetadata = inferGenericTriggeredAbilityTargetMetadata(effect);
     const sourceName = String(trigger?.cardName || '').trim();
     const sourceNameLower = sourceName.toLowerCase();
     const effectLower = effect.toLowerCase();
@@ -468,7 +497,7 @@ export function processDrawTriggers(ctx: GameContext, drawingPlayerId: PlayerID,
     if (sourceNameLower.includes('smothering tithe') || /\bmay pay \{[^}]+\}/i.test(effectLower)) {
       return;
     }
-    if (effectLower.includes('target') || effectLower.includes('any target')) {
+    if (hasUnsupportedTargetRequirement(targetMetadata)) {
       return;
     }
 
@@ -483,6 +512,7 @@ export function processDrawTriggers(ctx: GameContext, drawingPlayerId: PlayerID,
       sourceName,
       description: effect,
       effect,
+      ...targetMetadata,
       triggerType: trigger.triggerType,
       mandatory: trigger.mandatory !== false,
       triggeringPlayer: drawingPlayerId,
@@ -505,6 +535,7 @@ export function processDrawTriggers(ctx: GameContext, drawingPlayerId: PlayerID,
           description: effect,
           triggerType: trigger.triggerType,
           effect,
+          ...targetMetadata,
           mandatory: trigger.mandatory !== false,
           targetPlayer: drawingPlayerId,
           triggeringPlayer: drawingPlayerId,
@@ -589,6 +620,139 @@ export function processDrawTriggers(ctx: GameContext, drawingPlayerId: PlayerID,
           }
         }
       }
+    }
+  }
+}
+
+export function processMillTriggers(
+  ctx: GameContext,
+  millingPlayerId: PlayerID | string,
+  milledCards: any[],
+  sourcePlayerId?: PlayerID | string,
+): void {
+  if ((ctx as any)?.isReplaying) return;
+
+  const cards = Array.isArray(milledCards) ? milledCards.filter((card: any) => card) : [];
+  if (cards.length === 0) {
+    return;
+  }
+
+  const triggers = orderTriggersByAPNAP(ctx, getMillTriggers(ctx, String(millingPlayerId)));
+  if (triggers.length === 0) {
+    return;
+  }
+
+  const gameId = String((ctx as any).gameId || '').trim();
+  const stateAny = ctx.state as any;
+  stateAny.stack = Array.isArray(stateAny.stack) ? stateAny.stack : [];
+
+  const isPermanentCard = (typeLine: string): boolean => {
+    const normalized = String(typeLine || '').toLowerCase();
+    return ['artifact', 'battle', 'creature', 'enchantment', 'land', 'planeswalker'].some((type) => normalized.includes(type));
+  };
+
+  const matchesMillTriggerFilter = (card: any, filter: string): boolean => {
+    const typeLine = String(card?.type_line || '').toLowerCase();
+    const isLand = typeLine.includes('land');
+    const isCreature = typeLine.includes('creature');
+    const isArtifact = typeLine.includes('artifact');
+    switch (filter) {
+      case 'land':
+        return isLand;
+      case 'nonland':
+        return !isLand;
+      case 'creature':
+        return isCreature;
+      case 'noncreature_nonland':
+        return !isCreature && !isLand;
+      case 'artifact':
+        return isArtifact;
+      case 'permanent':
+        return isPermanentCard(typeLine);
+      case 'any':
+      default:
+        return true;
+    }
+  };
+
+  const pushMillTrigger = (trigger: any, matchingCards: any[]) => {
+    if (matchingCards.length === 0) {
+      return;
+    }
+    const effect = String(trigger?.effect || '').trim();
+    const targetMetadata = inferGenericTriggeredAbilityTargetMetadata(effect);
+    if (!effect || hasUnsupportedTargetRequirement(targetMetadata)) {
+      return;
+    }
+
+    const primaryCard = matchingCards[0];
+    const primaryCardId = String(primaryCard?.id || '').trim();
+    const primaryCardName = String(primaryCard?.name || 'that card').trim() || 'that card';
+    const triggerId = uid('trigger');
+    const stackItem = {
+      id: triggerId,
+      type: 'triggered_ability',
+      controller: String(trigger.controllerId),
+      source: String(trigger.permanentId || triggerId),
+      permanentId: String(trigger.permanentId || triggerId),
+      sourceName: String(trigger.cardName || 'Mill trigger'),
+      description: effect,
+      effect,
+      ...targetMetadata,
+      triggerType: trigger.triggerType,
+      mandatory: trigger.mandatory !== false,
+      triggeringPlayer: String(millingPlayerId),
+      targetPlayer: String(millingPlayerId),
+      effectData: {
+        millingPlayerId: String(millingPlayerId),
+        ...(sourcePlayerId ? { sourcePlayerId: String(sourcePlayerId) } : null),
+        milledCardsCount: matchingCards.length,
+        milledCardIds: matchingCards.map((card: any) => String(card?.id || '')).filter(Boolean),
+        ...(primaryCardId ? { milledCardId: primaryCardId } : null),
+        ...(primaryCardName ? { milledCardName: primaryCardName } : null),
+      },
+      ...(primaryCard && typeof primaryCard === 'object'
+        ? { milledCard: { ...(primaryCard as any) } }
+        : null),
+    } as any;
+
+    stateAny.stack.push(stackItem);
+
+    if (gameId && gameId !== 'unknown') {
+      try {
+        appendEvent(gameId, Number((ctx as any).seq?.value ?? (ctx as any).seq ?? 0), 'pushTriggeredAbility', {
+          triggerId,
+          sourceId: String(trigger.permanentId || triggerId),
+          sourceName: String(trigger.cardName || 'Mill trigger'),
+          controllerId: String(trigger.controllerId),
+          description: effect,
+          triggerType: trigger.triggerType,
+          effect,
+          ...targetMetadata,
+          mandatory: trigger.mandatory !== false,
+          targetPlayer: String(millingPlayerId),
+          triggeringPlayer: String(millingPlayerId),
+          effectData: stackItem.effectData,
+        });
+      } catch (err) {
+        debugWarn(1, '[millTrigger] Failed to persist generic mill trigger:', err);
+      }
+    }
+  };
+
+  for (const trigger of triggers) {
+    const matchingCards = cards.filter((card: any) => matchesMillTriggerFilter(card, String(trigger.cardFilter || 'any')));
+    if (matchingCards.length === 0) {
+      continue;
+    }
+
+    if (trigger.frequency === 'per_event') {
+      pushMillTrigger(trigger, matchingCards);
+      continue;
+    }
+
+    for (const matchingCard of matchingCards) {
+      pushMillTrigger(trigger, [matchingCard]);
     }
   }
 }

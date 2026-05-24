@@ -12,6 +12,7 @@ import { parseSacrificeCost, type SacrificeType } from "../../../shared/src/text
 import { getLandfallTriggers, getETBTriggersForPermanent, getLoyaltyActivationLimit, detectUtilityLandAbility, detectHideawayAbility } from "../state/modules/triggered-abilities";
 import { movePermanentToGraveyard, trackPermanentSacrificedThisTurn } from "../state/modules/counters_tokens.js";
 import { sacrificePermanent } from "../state/modules/upkeep-triggers.js";
+import { queueSacrificeTriggers } from "../state/modules/triggers/sacrifice.js";
 import { queueSelfETBTriggersForPermanent, triggerETBEffectsForPermanent, triggerETBEffectsForToken } from "../state/modules/stack";
 import { recordCardLeftGraveyardThisTurn } from "../state/modules/turn-tracking.js";
 import { 
@@ -5091,6 +5092,12 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     }
     
     trackPermanentSacrificedThisTurn(game.state, permanent);
+
+    try {
+      queueSacrificeTriggers(game as any, String(pid), permanent);
+    } catch (err) {
+      debugWarn(1, '[sacrificePermanent] Failed to queue sacrifice triggers:', err);
+    }
 
     const moved = movePermanentToGraveyard(game as any, String(permanentId), true);
     if (!moved) {

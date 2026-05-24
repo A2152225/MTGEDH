@@ -21,6 +21,9 @@ import { inferManaValueConstraintFromText } from "./graveyard-mana-value.js";
 import { detectKeywords } from "./keyword-detection.js";
 import { moveRemovedPermanentToExile } from "./zones.js";
 import { registerLinkedExile } from "./triggers/linked-exile.js";
+import { queueCounterPlacedTriggers, queueCounterRemovedTriggers } from "./triggers/counters.js";
+import { queueExiledFromBattlefieldTriggers } from "./triggers/zone-change.js";
+import { queueTokenCreatedTriggers } from "./triggers/tokens.js";
 import { evaluateCounterPlacementReplacementEvent, evaluateTokenCreationReplacementEvent } from "./replacement-effects.js";
 
 /**
@@ -820,13 +823,22 @@ export function updateCounters(ctx: GameContext, permanentId: string, deltas: Re
   trackCountersPlacedThisTurn(state, p, permanentId, modifiedDeltas);
   
   const current: Record<string, number> = { ...(p.counters ?? {}) };
+  const removedDeltas: Record<string, number> = {};
   for (const [k, vRaw] of Object.entries(modifiedDeltas)) {
     const v = Math.floor(Number(vRaw) || 0);
     if (!v) continue;
+    if (v < 0) {
+      const removed = Math.min(Number(current[k] || 0), Math.abs(v));
+      if (removed > 0) {
+        removedDeltas[k] = (removedDeltas[k] || 0) + removed;
+      }
+    }
     current[k] = (current[k] ?? 0) + v;
     if (current[k] <= 0) delete current[k];
   }
   p.counters = Object.keys(current).length ? current : undefined;
+  queueCounterPlacedTriggers(ctx, p, permanentId, modifiedDeltas);
+  queueCounterRemovedTriggers(ctx, p, permanentId, removedDeltas);
   bumpSeq();
   runSBA(ctx);
 }
@@ -1123,6 +1135,12 @@ export function createToken(
   } catch {
     // best-effort only
   }
+
+  queueTokenCreatedTriggers(ctx, String(controller), createdPermanentIds, {
+    name,
+    typeLine,
+  });
+
   bumpSeq();
   runSBA(ctx);
 
@@ -1220,6 +1238,11 @@ export function createCopyTokensOfCard(
   } catch {
     // best-effort only
   }
+
+  queueTokenCreatedTriggers(ctx, String(controller), created, {
+    name: String(sourceCard?.name || 'Token Copy'),
+    typeLine,
+  });
 
   bumpSeq();
   runSBA(ctx);
@@ -1763,6 +1786,7 @@ export function movePermanentToExile(
         zone: "exile",
       });
     }
+    queueExiledFromBattlefieldTriggers(ctx, perm);
     if (removedPermanentId) {
       processLinkedExileReturns(ctx, removedPermanentId);
     }
@@ -1849,6 +1873,7 @@ export function movePermanentToExile(
   };
   (z as any).exile = (z as any).exile || [];
   (z as any).exile.push(kc);
+  queueExiledFromBattlefieldTriggers(ctx, perm);
   if (options?.linkedExileData?.exilingPermanentId && card) {
     registerLinkedExile(
       ctx,

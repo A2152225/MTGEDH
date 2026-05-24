@@ -440,6 +440,7 @@ The normal cast and activate pipeline must handle all common Magic costs without
   - Beginning/end step and cleanup triggers.
   - Guardrail progress: generic discard-selection resolution now detects discard-trigger families with per-card vs per-event batching, typed discard filters, and triggering-player context for "that player" effects. Guardrail: `server/tests/discard-trigger.integration.test.ts`.
   - Guardrail progress: shared card-draw trigger detection now runs on the common `game.drawCards` path, persisting stack entries for supported non-target draw triggers while preserving Smothering Tithe's special payment flow. Guardrail: `server/tests/draw-trigger.integration.test.ts`.
+  - Guardrail progress: shared mill, life-loss, pay-life, sacrifice, counter-placement, counter-removal, source damage-to-player, exiled-from-battlefield, put-into-graveyard, left-graveyard, library-search, library-shuffle, token-created, and becomes-untapped trigger families now queue replay-persisted `triggered_ability` stack items with affected-player/permanent/token/payment/search/counter/zone/untap context. Counter-removal coverage includes generic counter updates plus fading/vanishing direct helper paths. Lifegain triggers now use the normal stack path for supported non-target triggers. Representative guardrails: `server/tests/mill-trigger.integration.test.ts`, `server/tests/life-loss-trigger.integration.test.ts`, `server/tests/pay-life-trigger.integration.test.ts`, `server/tests/lifegain-trigger.integration.test.ts`, `server/tests/sacrifice-trigger.integration.test.ts`, `server/tests/counter-trigger.integration.test.ts`, `server/tests/counter-removed-trigger.integration.test.ts`, `server/tests/noncombat-damage-trigger-persistence.integration.test.ts`, `server/tests/exiled-from-battlefield-trigger.integration.test.ts`, `server/tests/put-into-graveyard-trigger.integration.test.ts`, `server/tests/left-graveyard-trigger.integration.test.ts`, `server/tests/library-search-trigger.integration.test.ts`, `server/tests/library-shuffle-trigger.integration.test.ts`, `server/tests/token-created-trigger.integration.test.ts`, and `server/tests/untap-trigger.integration.test.ts`.
 
 - [ ] Preserve trigger context.
   - The triggering object.
@@ -449,16 +450,25 @@ The normal cast and activate pipeline must handle all common Magic costs without
   - Damage source and damage amount.
   - Controller and owner at trigger time.
   - Snapshots needed for intervening-if checks.
+  - Progress: tap-trigger stack items now persist tapped-permanent snapshots in `effectData`, becomes-untapped triggers persist untapped-permanent snapshots for Mesmeric Orb-style effects, exiled-from-battlefield triggers persist the exiled permanent plus source/destination zones, put-into-graveyard triggers persist the card, graveyard owner, controller, and source/destination zones, left-graveyard triggers persist the card and graveyard owner context, and the broader `pushTriggeredAbility` replay path preserves context fields such as `targetPlayer`, `triggeringPlayer`, `triggeringPermanentId`, `defendingPlayer`, and arbitrary `effectData`. Guardrails: `server/tests/drowner-of-secrets.activation.integration.test.ts`, `server/tests/untap-trigger.integration.test.ts`, `server/tests/exiled-from-battlefield-trigger.integration.test.ts`, `server/tests/put-into-graveyard-trigger.integration.test.ts`, `server/tests/left-graveyard-trigger.integration.test.ts`.
+  - Progress: exiled-from-battlefield triggers now cover the shared leave-battlefield replacement exile helper for non-commander permanents and commander replacement choices that actually stay in exile, in addition to direct battlefield-to-exile movement. Guardrail: `server/tests/exiled-from-battlefield-trigger.integration.test.ts`.
 
 - [ ] Complete trigger ordering.
   - APNAP ordering for multiplayer.
+    - Progress: zone-change trigger queues added in `server/src/state/modules/triggers/zone-change.ts` now push simultaneous exiled-from-battlefield, put-into-graveyard, and left-graveyard triggers in APNAP order while preserving stable order within a controller. Guardrail: `server/tests/put-into-graveyard-trigger.integration.test.ts`.
+    - Progress: shared `orderTriggersByAPNAP` now covers the common persisted trigger queues for lifegain, life-loss, pay-life, sacrifice, counter placement/removal, library search/shuffle, token-created, discard, draw, mill, and becomes-untapped families. Guardrail: `server/tests/life-loss-trigger.integration.test.ts`.
   - Optional trigger prompts.
   - Trigger target selection.
+    - Progress: common persisted trigger queues now attach generic target-selection metadata for supported battlefield/player target effects instead of dropping target-bearing effects. These stack items reuse the existing triggered-ability `TARGET_SELECTION` prompt path. Guardrail: `server/tests/life-loss-trigger.integration.test.ts`.
   - Delayed trigger creation and expiration.
+    - Progress: activated effects such as Mishra's Bauble now schedule `Draw a card at the beginning of the next turn's upkeep` as a replay-persisted delayed upkeep trigger instead of drawing immediately, then expire the pending entry when the upkeep trigger is queued. Guardrail: `server/tests/delayed-upkeep-draw.integration.test.ts`.
   - Reflexive `When you do` triggers.
   - Intervening-if at trigger time and resolution time.
+    - Progress: resolution-time intervening-if reconstruction now covers common generic trigger families such as life-loss, pay-life, sacrifice, counters, library shuffle, token-created, draw, discard, mill, untap, and zone-change triggers. Guardrail: `server/tests/life-loss-trigger.integration.test.ts`.
 
 - [ ] Make replay restore trigger stack state without rediscovering live triggers.
+  - Progress: zone-change trigger helpers now skip live rediscovery for exiled-from-battlefield, graveyard-entry, and left-graveyard trigger queueing during replay; `pushTriggeredAbility` replay remains the source of restored stack state. Guardrails: `server/tests/exiled-from-battlefield-trigger.integration.test.ts`, `server/tests/put-into-graveyard-trigger.integration.test.ts`, `server/tests/left-graveyard-trigger.integration.test.ts`.
+  - Progress: common live trigger discovery paths now also skip during replay for lifegain, life-loss, pay-life, sacrifice, counter placement/removal, library search/shuffle, draw, discard, mill, token-created, and becomes-untapped families. Guardrail: `server/tests/life-loss-trigger.integration.test.ts`.
 
 ### G. Continuous Effects And Layers
 

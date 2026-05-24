@@ -72,6 +72,12 @@ import { permanentHasCreatureTypeNow } from "../state/creatureTypeNow.js";
 import { drawCards as drawCardsFromZones, movePermanentToHand } from "../state/modules/zones.js";
 import { dispatchDamageReceivedTrigger, processDamageReceivedTriggers, resolveDamageTrigger, type DamageTriggerInfo } from "../state/modules/triggers/damage-received.js";
 import { getDiscardTriggers } from "../state/modules/triggers/discard.js";
+import { orderTriggersByAPNAP } from "../state/modules/triggers/ordering.js";
+import { hasUnsupportedTargetRequirement, inferGenericTriggeredAbilityTargetMetadata } from "../state/modules/triggers/target-metadata.js";
+import { queueLibraryShuffleTriggers } from "../state/modules/triggers/shuffle.js";
+import { queueLibrarySearchTriggers } from "../state/modules/triggers/search.js";
+import { queueLifePaymentTriggers } from "../state/modules/triggers/pay-life.js";
+import { queueLifeLossTriggers } from "../state/modules/triggers/life-loss.js";
 import { getTokenImageUrls } from "../services/tokens.js";
 import { normalizeCardName } from "../state/modules/chosen-name-restrictions.js";
 import {
@@ -110,6 +116,7 @@ import { destroyPermanent, movePermanentToExile, removePermanent } from "../stat
 import { trackCountersPlacedThisTurn } from "../state/modules/counters_tokens.js";
 import { updateCounters } from "../state/modules/counters_tokens.js";
 import { registerLinkedExile } from "../state/modules/triggers/linked-exile.js";
+import { queueExiledFromBattlefieldTriggers } from "../state/modules/triggers/zone-change.js";
 import { isRemovableCounterType, permanentMatchesCounterRemovalFilter } from "../state/modules/counter-removal-costs.js";
 import { recordCardLeftGraveyardThisTurn, recordCardPutIntoGraveyardThisTurn } from "../state/modules/turn-tracking.js";
 import { canPermanentBeTargetedByPlayer, categorizeSpell, evaluateTargeting, matchesGraveyardCardTargetType as matchesSharedGraveyardCardTargetType, parseTargetRequirements, permanentsShareCardType, selectionRequiresSharedCardType, type SpellSpec } from "../rules-engine/targeting";
@@ -119,7 +126,7 @@ import { applyPlayerSelectionEffect, handleDeclinedPlayerSelection } from "./pla
 import { handleImportWipeConfirmVote } from "./deck.js";
 import { handleJudgeConfirmVote } from "./judge.js";
 import { buildResolutionEventDataFromGameState, buildTriggeredAbilityEventDataFromChoices, executeTriggeredAbilityEffectWithOracleIR } from "../../../rules-engine/src/triggeredAbilities.js";
-import { buildTapTriggeredStackItem, getTapTriggers, serializeTapTriggeredStackItem } from "../state/modules/triggers/tap-untap.js";
+import { buildTapTriggeredStackItem, getTapTriggers, queueBecomesUntappedTriggers, serializeTapTriggeredStackItem } from "../state/modules/triggers/tap-untap.js";
 import { serializeAbilityActivatedTriggeredStackItem, triggerAbilityActivatedTriggers } from "../state/modules/triggers/ability-activated.js";
 import { clearMayCallback, clearMayCallbacks, consumeMayCallback, queueMayAbilityStep } from './may-ability-prompts.js';
 import { consumeOptionalPaymentCallback, getOptionalPaymentValidationFailure, isOptionalPaymentPayChoice, isOptionalPaymentPromptStep, queueOptionalPaymentStep, queueShockLandPaymentStep } from './optional-payment-prompts.js';
@@ -436,7 +443,7 @@ function isTrueLibrarySearchStep(step: any): boolean {
   const text = `${String(step?.description || '')} ${String(step?.searchCriteria || '')}`.toLowerCase();
   if (text.includes('look at the top') || text.includes('reveal the top')) return false;
   if (/\btop\s+(?:one|two|three|four|five|six|seven|eight|nine|ten|\d+)\b/.test(text)) return false;
-  return text.includes('search your library') || text.includes('search library');
+  return /\bsearch(?:es)?\s+(?:your|their|that player's|target player's|a player's)?\s*library\b/.test(text) || text.includes('search library');
 }
 
 function getPanglacialCastableCards(gameId: string, step: ResolutionStep): any[] {
@@ -2277,7 +2284,9 @@ function queueDiscardTriggeredAbilities(
   discardingPlayerId: string,
   discardedCards: any[],
 ): void {
-  const triggers = getDiscardTriggers(game as any, String(discardingPlayerId));
+  if ((game as any)?.isReplaying) return;
+
+  const triggers = orderTriggersByAPNAP(game as any, getDiscardTriggers(game as any, String(discardingPlayerId)));
   if (triggers.length === 0) {
     return;
   }
@@ -2328,6 +2337,11 @@ function queueDiscardTriggeredAbilities(
     if (/\bcast it from your graveyard\b/i.test(String(trigger.effect || ''))) {
       return;
     }
+    const effect = String(trigger.effect || '').trim();
+    const targetMetadata = inferGenericTriggeredAbilityTargetMetadata(effect);
+    if (!effect || hasUnsupportedTargetRequirement(targetMetadata)) {
+      return;
+    }
 
     const primaryCard = matchingCards[0];
     const primaryCardId = String(primaryCard?.id || '').trim();
@@ -2340,8 +2354,9 @@ function queueDiscardTriggeredAbilities(
       source: String(trigger.permanentId || triggerId),
       permanentId: String(trigger.permanentId || triggerId),
       sourceName: trigger.cardName,
-      description: trigger.effect,
-      effect: trigger.effect,
+      description: effect,
+      effect,
+      ...targetMetadata,
       triggerType: trigger.triggerType,
       triggeringPlayer: String(discardingPlayerId),
       targetPlayer: String(discardingPlayerId),
@@ -2388,7 +2403,10 @@ function pushTapTriggerOntoStack(
 ): void {
   game.state.stack = game.state.stack || [];
   const triggerId = `trigger_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-  const stackItem = buildTapTriggeredStackItem(trigger, tappedPermanentId, triggerId);
+  const tappedPermanent = Array.isArray(game.state?.battlefield)
+    ? game.state.battlefield.find((perm: any) => String(perm?.id || '') === String(tappedPermanentId || ''))
+    : undefined;
+  const stackItem = buildTapTriggeredStackItem(trigger, tappedPermanentId, triggerId, tappedPermanent);
 
   game.state.stack.push(stackItem);
 
@@ -9785,6 +9803,7 @@ async function handleStepResponse(
           } else {
             if (target.tapped) {
               target.tapped = false;
+              queueBecomesUntappedTriggers(game as any, target);
               affectedNames.push(String(target.card?.name || 'permanent'));
             }
           }
@@ -10483,6 +10502,7 @@ async function handleStepResponse(
         (game.state as any).lifeLostThisTurn[String(pid)] =
           ((game.state as any).lifeLostThisTurn[String(pid)] || 0) + Number(lifePayment || 0);
       } catch {}
+      queueLifePaymentTriggers(game as any, String(pid), Number(lifePayment || 0), { sourceId: cardId, sourceName: cardName });
       const playerObj = ((game.state as any).players || []).find((p: any) => p?.id === pid);
       if (playerObj) playerObj.life = (game.state as any).life[pid];
 
@@ -10759,6 +10779,7 @@ async function handleStepResponse(
               (game.state as any).lifeLostThisTurn = (game.state as any).lifeLostThisTurn || {};
               (game.state as any).lifeLostThisTurn[String(pid)] =
                 Number((game.state as any).lifeLostThisTurn[String(pid)] || 0) + lifeToPay;
+              queueLifePaymentTriggers(game as any, String(pid), lifeToPay, { sourceId: permanentId, sourceName: cardName || 'an ability' });
 
               const player = (game.state.players || []).find((entry: any) => entry?.id === pid);
               if (player) {
@@ -10815,6 +10836,9 @@ async function handleStepResponse(
             (game.state as any).lifeLostThisTurn = (game.state as any).lifeLostThisTurn || {};
             (game.state as any).lifeLostThisTurn[String(pid)] =
               Number((game.state as any).lifeLostThisTurn[String(pid)] || 0) + manaLifeLossAmount;
+            if (!manaLifeLossIsDamage) {
+              queueLifePaymentTriggers(game as any, String(pid), manaLifeLossAmount, { sourceId: permanentId, sourceName: cardName || 'an ability' });
+            }
 
             const player = (game.state.players || []).find((entry: any) => entry?.id === pid);
             if (player) {
@@ -11706,6 +11730,7 @@ async function handleStepResponse(
           (game.state as any).lifeLostThisTurn[String(pid)] =
             ((game.state as any).lifeLostThisTurn[String(pid)] || 0) + Number(totalLifeToPay || 0);
         } catch {}
+        queueLifePaymentTriggers(game as any, String(pid), Number(totalLifeToPay || 0), { sourceName: 'Phyrexian mana' });
 
         // Keep player object in sync.
         try {
@@ -15952,6 +15977,18 @@ function handleCommanderZoneResponse(
         String(linkedExileData.originalOwner || pid || ''),
         String(linkedExileData.originalController || linkedExileData.originalOwner || pid || ''),
       );
+    }
+
+    if (destinationZone === 'exile' && stepData?.commanderZoneFromBattlefield === true && card) {
+      const originalPermanent = stepData?.commanderZoneOriginalPermanent && typeof stepData.commanderZoneOriginalPermanent === 'object'
+        ? stepData.commanderZoneOriginalPermanent
+        : {
+            id: String(stepData?.sourceId || step.sourceId || commanderId || card.id || '').trim(),
+            controller: String(stepData?.controller || stepData?.originalController || pid || '').trim(),
+            owner: String(pid || '').trim(),
+            card,
+          };
+      queueExiledFromBattlefieldTriggers(game as GameContext, originalPermanent);
     }
 
     if (destinationZone === 'exile' && flickerReturnData?.cardId && card) {
@@ -20223,6 +20260,54 @@ function handleUpkeepSacrificeResponse(
     }
   }
 
+  const lifeLossAfterSacrifice = Number((stepData as any).lifeLossAfterSacrifice || 0);
+  if (Number.isFinite(lifeLossAfterSacrifice) && lifeLossAfterSacrifice > 0) {
+    const lifeLossPlayerId = String((stepData as any).lifeLossAfterSacrificePlayerId || pid).trim() || String(pid);
+    const startingLife = Number(game.state?.startingLife || 40);
+    game.state.life = game.state.life || {};
+    const currentLife = Number(game.state.life?.[lifeLossPlayerId] ?? startingLife);
+    const newLife = currentLife - lifeLossAfterSacrifice;
+    game.state.life[lifeLossPlayerId] = newLife;
+
+    const playerObj = ((game.state as any).players || []).find((player: any) => String(player?.id || '') === lifeLossPlayerId);
+    if (playerObj) {
+      playerObj.life = newLife;
+    }
+
+    (game.state as any).lifeLostThisTurn = (game.state as any).lifeLostThisTurn || {};
+    (game.state as any).lifeLostThisTurn[lifeLossPlayerId] =
+      Number((game.state as any).lifeLostThisTurn[lifeLossPlayerId] || 0) + lifeLossAfterSacrifice;
+
+    queueLifeLossTriggers(
+      game as any,
+      lifeLossPlayerId,
+      lifeLossAfterSacrifice,
+      String((stepData as any).lifeLossAfterSacrificeSourceController || (stepData as any).sourceController || ''),
+      { trackLifeLost: false },
+    );
+
+    if (typeof game.bumpSeq === 'function') {
+      game.bumpSeq();
+    }
+
+    try {
+      appendEvent(gameId, (game as any).seq ?? 0, 'adjustLife', {
+        playerId: lifeLossPlayerId,
+        delta: -lifeLossAfterSacrifice,
+      });
+    } catch {
+      // ignore persistence failures
+    }
+
+    io.to(gameId).emit('chat', {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: 'system',
+      message: `${sourceName}: ${getPlayerName(game, lifeLossPlayerId)} loses ${lifeLossAfterSacrifice} life. (${currentLife} → ${newLife})`,
+      ts: Date.now(),
+    });
+  }
+
   if ((stepData as any).afterSacrificeFollowupTargetSelection === true) {
     const battlefieldNow = game.state?.battlefield || [];
     const followupTargetTypes: string[] = Array.isArray((stepData as any).afterSacrificeFollowupTargetTypes)
@@ -23053,6 +23138,14 @@ async function handleLibrarySearchResponse(
   const zones = state.zones = state.zones || {};
   const z = zones[searchOwnerId] = zones[searchOwnerId] || { hand: [], handCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0 };
   const lib = (game as any).libraries?.get(searchOwnerId) || [];
+
+  if (isTrueLibrarySearchStep(searchStep)) {
+    queueLibrarySearchTriggers(game as any, String(pid), {
+      sourceId: String((step as any).sourceId || '').trim(),
+      sourceName,
+      searchedLibraryOwnerId: searchOwnerId,
+    });
+  }
   
   // Create a map of card ID to full card data
   const allRevealedCards = [...availableCards, ...nonSelectableCards];
@@ -23406,6 +23499,11 @@ async function handleLibrarySearchResponse(
       [lib[i], lib[j]] = [lib[j], lib[i]];
     }
     debug(2, `[Resolution] ${sourceName}: Shuffled library`);
+
+    queueLibraryShuffleTriggers(game as any, searchOwnerId, {
+      sourceId: String((step as any).sourceId || '').trim(),
+      sourceName,
+    });
   }
 
   if (deferTopPlacement && selectedCards.length > 0) {
@@ -26701,6 +26799,7 @@ async function handleOptionChoiceResponse(
         (game.state as any).lifeLostThisTurn = (game.state as any).lifeLostThisTurn || {};
         (game.state as any).lifeLostThisTurn[playerId] =
           Number((game.state as any).lifeLostThisTurn[playerId] || 0) + payLifeAmount;
+        queueLifePaymentTriggers(game as any, String(playerId), payLifeAmount, { sourceId: permanentId, sourceName: cardName });
 
         (permanent as any).tapped = false;
 
@@ -27124,6 +27223,7 @@ async function handleOptionChoiceResponse(
         (game.state as any).lifeLostThisTurn[String(playerId)] =
           ((game.state as any).lifeLostThisTurn[String(playerId)] || 0) + Number(lifeAmount || 0);
       } catch {}
+      queueLifePaymentTriggers(game as any, String(playerId), Number(lifeAmount || 0), { sourceName: wardPermanentName || 'Ward' });
       io.to(gameId).emit('chat', {
         id: `m_${Date.now()}`,
         gameId,

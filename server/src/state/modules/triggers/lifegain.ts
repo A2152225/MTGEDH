@@ -16,7 +16,12 @@
  */
 
 import type { GameContext } from "../../context.js";
+import { appendEvent } from "../../../db/index.js";
+import { debugWarn } from "../../../utils/debug.js";
 import { recordCardLeftGraveyardThisTurn } from "../turn-tracking.js";
+import { uid } from "../../utils.js";
+import { orderTriggersByAPNAP } from "./ordering.js";
+import { hasUnsupportedTargetRequirement, inferGenericTriggeredAbilityTargetMetadata } from "./target-metadata.js";
 
 /**
  * Helper to extract card ID from various card formats in zones
@@ -347,6 +352,10 @@ export function detectLifegainTriggers(
     // Only process if not already detected dynamically
     const knownTrigger = KNOWN_LIFEGAIN_TRIGGERS[cardName];
     if (knownTrigger) {
+      if (/^if you would\b/i.test(knownTrigger.effect)) {
+        continue;
+      }
+
       // Check once-per-turn restriction
       if (knownTrigger.oncePerTurn) {
         const triggerId = `${cardName}_${perm.id}`;
@@ -375,6 +384,92 @@ export function detectLifegainTriggers(
   }
   
   return triggers;
+}
+
+export function queueLifegainTriggers(
+  ctx: GameContext,
+  playerId: string,
+  lifeGained: number,
+  sourcePlayerId?: string,
+): any[] {
+  if (!playerId || lifeGained <= 0) {
+    return [];
+  }
+  if ((ctx as any)?.isReplaying) return [];
+
+  const triggers = orderTriggersByAPNAP(ctx, detectLifegainTriggers(ctx, playerId, lifeGained));
+  if (triggers.length === 0) {
+    return [];
+  }
+
+  const stateAny = ctx.state as any;
+  stateAny.stack = Array.isArray(stateAny.stack) ? stateAny.stack : [];
+  const gameId = String((ctx as any).gameId || '').trim();
+  const queued: any[] = [];
+
+  for (const trigger of triggers) {
+    const effect = String(trigger.effect || '').trim();
+    const targetMetadata = inferGenericTriggeredAbilityTargetMetadata(effect);
+    if (!effect || hasUnsupportedTargetRequirement(targetMetadata)) {
+      continue;
+    }
+
+    if (trigger.oncePerTurn) {
+      const firedId = `${String(trigger.cardName || '').toLowerCase()}_${trigger.permanentId}`;
+      stateAny.lifegainTriggersFiredThisTurn = stateAny.lifegainTriggersFiredThisTurn || {};
+      stateAny.lifegainTriggersFiredThisTurn[firedId] = true;
+    }
+
+    const triggerId = uid('trigger');
+    const stackItem = {
+      id: triggerId,
+      type: 'triggered_ability',
+      controller: trigger.controllerId,
+      source: trigger.permanentId,
+      permanentId: trigger.permanentId,
+      sourceName: trigger.cardName,
+      description: effect,
+      effect,
+      ...targetMetadata,
+      triggerType: 'lifegain',
+      mandatory: !trigger.isMayAbility,
+      triggeringPlayer: playerId,
+      targetPlayer: playerId,
+      effectData: {
+        playerId,
+        lifeGained,
+        ...(sourcePlayerId ? { sourcePlayerId } : null),
+        effectType: trigger.effectType,
+        maxArtifactMV: trigger.maxArtifactMV,
+      },
+    } as any;
+
+    stateAny.stack.push(stackItem);
+    queued.push(stackItem);
+
+    if (gameId && gameId !== 'unknown') {
+      try {
+        appendEvent(gameId, Number((ctx as any).seq?.value ?? (ctx as any).seq ?? 0), 'pushTriggeredAbility', {
+          triggerId,
+          sourceId: trigger.permanentId,
+          sourceName: trigger.cardName,
+          controllerId: trigger.controllerId,
+          description: effect,
+          triggerType: 'lifegain',
+          effect,
+          ...targetMetadata,
+          mandatory: !trigger.isMayAbility,
+          targetPlayer: playerId,
+          triggeringPlayer: playerId,
+          effectData: stackItem.effectData,
+        });
+      } catch (err) {
+        debugWarn(1, '[lifegainTrigger] Failed to persist generic lifegain trigger:', err);
+      }
+    }
+  }
+
+  return queued;
 }
 
 /**

@@ -203,6 +203,12 @@ describe('Drowner of Secrets activation (integration)', () => {
     expect(String(lastTriggerPush?.payload?.triggerType || '')).toBe('tap');
     expect(Boolean(lastTriggerPush?.payload?.mandatory)).toBe(false);
     expect(String(lastTriggerPush?.payload?.triggeringPermanentId || '')).toBe('judge');
+    expect(lastTriggerPush?.payload?.effectData).toEqual(expect.objectContaining({
+      tappedPermanentId: 'judge',
+      tappedPermanentName: 'Judge of Currents',
+      tappedPermanentController: p1,
+      tappedPermanentTypeLine: 'Creature — Merfolk Wizard',
+    }));
   });
 
   it('mills the chosen player when the live targeted activation resolves', async () => {

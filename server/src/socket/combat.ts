@@ -482,7 +482,7 @@ function processTapTriggersForAttackers(
         const stackItem: any = buildTapTriggeredStackItem({
           ...trigger,
           controllerId: String(triggerControllerId),
-        } as any, tapTrigger.tappedPermanentId, triggerId);
+        } as any, tapTrigger.tappedPermanentId, triggerId, battlefield.find((p: any) => String(p?.id || '') === String(tapTrigger.tappedPermanentId || '')));
         game.state.stack.push(stackItem);
 
         try {

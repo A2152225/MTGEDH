@@ -11,9 +11,13 @@
  */
 
 import type { GameContext } from "../../context.js";
+import { appendEvent } from "../../../db/index.js";
 import { KNOWN_UNTAP_TRIGGERS } from "./card-data-tables.js";
 import { escapeCardNameForRegex } from "./types.js";
 import { debug, debugWarn, debugError } from "../../../utils/debug.js";
+import { uid } from "../../utils.js";
+import { orderTriggersByAPNAP } from "./ordering.js";
+import { hasUnsupportedTargetRequirement, inferGenericTriggeredAbilityTargetMetadata } from "./target-metadata.js";
 
 // Re-export detectDoesntUntapEffects from turn-phases for backwards compatibility
 export { detectDoesntUntapEffects } from "./turn-phases.js";
@@ -59,16 +63,29 @@ export type TapTriggeredStackItem = {
   sourceName: string;
   description: string;
   effect: string;
-  triggerType: 'tap';
+  triggerType: 'tap' | 'untap';
   mandatory: boolean;
   triggeringPermanentId: string;
   effectData?: {
-    createsToken: boolean;
+    tappedPermanentId?: string;
+    tappedPermanentName?: string;
+    tappedPermanentController?: string;
+    tappedPermanentTypeLine?: string;
+    untappedPermanentId?: string;
+    untappedPermanentName?: string;
+    untappedPermanentController?: string;
+    untappedPermanentTypeLine?: string;
+    createsToken?: boolean;
     tokenDetails?: TapTrigger['tokenDetails'];
   };
 };
 
-export function buildTapTriggeredStackItem(trigger: TapTrigger, tappedPermanentId: string, triggerId: string): TapTriggeredStackItem {
+export function buildTapTriggeredStackItem(
+  trigger: TapTrigger,
+  tappedPermanentId: string,
+  triggerId: string,
+  tappedPermanent?: any,
+): TapTriggeredStackItem {
   const stackItem: TapTriggeredStackItem = {
     id: triggerId,
     type: 'triggered_ability',
@@ -80,10 +97,17 @@ export function buildTapTriggeredStackItem(trigger: TapTrigger, tappedPermanentI
     triggerType: 'tap',
     mandatory: Boolean(trigger.mandatory),
     triggeringPermanentId: String(tappedPermanentId || ''),
+    effectData: {
+      tappedPermanentId: String(tappedPermanentId || ''),
+      tappedPermanentName: String(tappedPermanent?.card?.name || ''),
+      tappedPermanentController: String(tappedPermanent?.controller || ''),
+      tappedPermanentTypeLine: String(tappedPermanent?.card?.type_line || ''),
+    },
   };
 
   if (trigger.createsToken) {
     stackItem.effectData = {
+      ...(stackItem.effectData || {}),
       createsToken: true,
       tokenDetails: trigger.tokenDetails,
     };
@@ -330,6 +354,7 @@ export function executeUntapTrigger(
         const typeLine = (permanent.card?.type_line || '').toLowerCase();
         if (typeLine.includes('land') && permanent.tapped) {
           permanent.tapped = false;
+          queueBecomesUntappedTriggers(ctx, permanent);
           debug(2, `[executeUntapTrigger] Untapped ${permanent.card?.name || permanent.id}`);
         }
       }
@@ -342,6 +367,7 @@ export function executeUntapTrigger(
         const typeLine = (permanent.card?.type_line || '').toLowerCase();
         if (typeLine.includes('creature') && permanent.tapped) {
           permanent.tapped = false;
+          queueBecomesUntappedTriggers(ctx, permanent);
           debug(2, `[executeUntapTrigger] Untapped ${permanent.card?.name || permanent.id}`);
         }
       }
@@ -353,6 +379,7 @@ export function executeUntapTrigger(
         if (!permanent || permanent.controller !== trigger.controllerId) continue;
         if (permanent.tapped) {
           permanent.tapped = false;
+          queueBecomesUntappedTriggers(ctx, permanent);
           debug(2, `[executeUntapTrigger] Untapped ${permanent.card?.name || permanent.id}`);
         }
       }
@@ -498,6 +525,36 @@ export function detectTapTriggers(card: any, permanent: any): TapTrigger[] {
       mandatory: true,
     });
   }
+
+  const permanentUntapMatch = oracleText.match(/whenever a permanent becomes untapped,?\s*([^.]+)/i);
+  if (permanentUntapMatch) {
+    const effectText = permanentUntapMatch[1].trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      description: `Whenever a permanent becomes untapped, ${effectText}`,
+      effect: effectText,
+      triggerCondition: 'becomes_untapped',
+      affectedType: 'any',
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const selfUntapMatch = oracleText.match(/whenever (?:~|this permanent|this creature|this artifact) becomes untapped,?\s*([^.]+)/i);
+  if (selfUntapMatch) {
+    const effectText = selfUntapMatch[1].trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      description: `Whenever ${cardName} becomes untapped, ${effectText}`,
+      effect: effectText,
+      triggerCondition: 'becomes_untapped',
+      affectedType: 'self',
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
   
   return triggers;
 }
@@ -523,6 +580,7 @@ export function getTapTriggers(
     const permTriggers = detectTapTriggers(permanent.card, permanent);
     
     for (const trigger of permTriggers) {
+      if (trigger.triggerCondition === 'becomes_untapped') continue;
       // Only trigger for the controller's permanents becoming tapped
       if (permanent.controller !== tappedByPlayerId) continue;
       
@@ -553,5 +611,119 @@ export function getTapTriggers(
   }
   
   return triggers;
+}
+
+export function getBecomesUntappedTriggers(
+  ctx: GameContext,
+  untappedPermanent: any,
+): TapTrigger[] {
+  const triggers: TapTrigger[] = [];
+  const battlefield = ctx.state?.battlefield || [];
+  const untappedTypeLine = String(untappedPermanent?.card?.type_line || '').toLowerCase();
+  const untappedCreatureTypes = extractCreatureTypes(untappedTypeLine);
+  const isCreature = untappedTypeLine.includes('creature');
+
+  for (const permanent of battlefield) {
+    if (!permanent || !permanent.card) continue;
+
+    const permTriggers = detectTapTriggers(permanent.card, permanent);
+    for (const trigger of permTriggers) {
+      if (trigger.triggerCondition !== 'becomes_untapped') continue;
+
+      let shouldTrigger = false;
+      switch (trigger.affectedType) {
+        case 'any':
+          shouldTrigger = true;
+          break;
+        case 'creature':
+          shouldTrigger = isCreature;
+          break;
+        case 'tribal_type':
+          if (trigger.tribalType) {
+            shouldTrigger = untappedCreatureTypes.includes(trigger.tribalType.toLowerCase());
+          }
+          break;
+        case 'self':
+          shouldTrigger = permanent.id === untappedPermanent.id;
+          break;
+      }
+
+      if (shouldTrigger) {
+        triggers.push(trigger);
+      }
+    }
+  }
+
+  return triggers;
+}
+
+export function queueBecomesUntappedTriggers(
+  ctx: GameContext,
+  untappedPermanent: any,
+): any[] {
+  if (!untappedPermanent?.id) return [];
+  if ((ctx as any)?.isReplaying) return [];
+
+  const triggers = orderTriggersByAPNAP(ctx, getBecomesUntappedTriggers(ctx, untappedPermanent));
+  if (triggers.length === 0) return [];
+
+  const stateAny = ctx.state as any;
+  stateAny.stack = Array.isArray(stateAny.stack) ? stateAny.stack : [];
+  const gameId = String((ctx as any).gameId || '').trim();
+  const queued: any[] = [];
+
+  for (const trigger of triggers) {
+    const effect = String(trigger.effect || '').trim();
+    const targetMetadata = inferGenericTriggeredAbilityTargetMetadata(effect);
+    if (!effect || hasUnsupportedTargetRequirement(targetMetadata)) continue;
+
+    const triggerId = uid('trigger');
+    const effectData = {
+      untappedPermanentId: String(untappedPermanent.id || ''),
+      untappedPermanentName: String(untappedPermanent?.card?.name || ''),
+      untappedPermanentController: String(untappedPermanent?.controller || ''),
+      untappedPermanentTypeLine: String(untappedPermanent?.card?.type_line || ''),
+    };
+    const stackItem = {
+      id: triggerId,
+      type: 'triggered_ability',
+      controller: trigger.controllerId,
+      source: trigger.permanentId,
+      permanentId: trigger.permanentId,
+      sourceName: trigger.cardName,
+      description: effect,
+      effect,
+      ...targetMetadata,
+      triggerType: 'untap',
+      mandatory: trigger.mandatory !== false,
+      triggeringPermanentId: String(untappedPermanent.id || ''),
+      effectData,
+    } as any;
+
+    stateAny.stack.push(stackItem);
+    queued.push(stackItem);
+
+    if (gameId && gameId !== 'unknown') {
+      try {
+        appendEvent(gameId, Number((ctx as any).seq?.value ?? (ctx as any).seq ?? 0), 'pushTriggeredAbility', {
+          triggerId,
+          sourceId: trigger.permanentId,
+          sourceName: trigger.cardName,
+          controllerId: trigger.controllerId,
+          description: effect,
+          triggerType: 'untap',
+          effect,
+          ...targetMetadata,
+          mandatory: trigger.mandatory !== false,
+          triggeringPermanentId: String(untappedPermanent.id || ''),
+          effectData,
+        });
+      } catch (err) {
+        debugWarn(1, '[untapTrigger] Failed to persist generic untap trigger:', err);
+      }
+    }
+  }
+
+  return queued;
 }
 
