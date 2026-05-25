@@ -59,7 +59,7 @@ import { detectETBTappedPattern, evaluateConditionalLandETB, getLandSubtypes } f
 import { queueMayAbilityStep } from '../../socket/may-ability-prompts.js';
 import { queueOptionalPaymentStep } from '../../socket/optional-payment-prompts.js';
 import { broadcastGame, consumeManaFromPool, getEffectivePower, getOrInitManaPool, parseManaCost, resolveManaCostForPoolPayment } from '../../socket/util.js';
-import { buildReflexivePaymentAmountOptions, cardMatchesReflexiveGraveyardExileType, formatReflexiveFixedPaymentLabel, formatReflexiveGraveyardExileLabel, formatReflexiveSacrificeTypeLabel, getAvailableReflexiveManaAmountFromPool, materializeReflexiveSourceText, parseReflexiveAnyAmountManaPayment, parseReflexiveBoundGraveyardSelfExileWhenYouDo, parseReflexiveDiscardWhenYouDo, parseReflexiveFixedPaymentWhenYouDo, parseReflexiveGraveyardExileWhenYouDo, parseReflexiveSacrificeWhenYouDo, permanentMatchesReflexiveSacrificeType } from './reflexive-triggers.js';
+import { buildReflexivePaymentAmountOptions, cardMatchesReflexiveGraveyardExileType, formatReflexiveFixedPaymentLabel, formatReflexiveGraveyardExileLabel, formatReflexiveSacrificeTypeLabel, getAvailableReflexiveManaAmountFromPool, materializeReflexiveSourceText, parseReflexiveAnyAmountManaPayment, parseReflexiveBoundGraveyardSelfExileWhenYouDo, parseReflexiveConditionalBattlefieldSelfExileWhenYouDo, parseReflexiveDiscardWhenYouDo, parseReflexiveFixedPaymentWhenYouDo, parseReflexiveGraveyardExileWhenYouDo, parseReflexiveSacrificeWhenYouDo, permanentMatchesReflexiveSacrificeType } from './reflexive-triggers.js';
 import { getSavedMayAbilityTriggerDecision, getSavedTriggerShortcutPreference } from "../../socket/trigger-shortcuts.js";
 import { ResolutionQueueManager, ResolutionStepType, type CreateResolutionStepConfig } from "../resolution/index.js";
 import type { ChoiceOption } from "../../../../rules-engine/src/choiceEvents.js";
@@ -4035,6 +4035,164 @@ function executeReflexiveBoundSelfExilePrelude(
     }
   }
 
+  return true;
+}
+
+function normalizeReflexiveCounterTypeName(counterType: string): string {
+  return String(counterType || '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+}
+
+function getPermanentCounterAmount(permanent: any, counterType: string): number {
+  const wanted = normalizeReflexiveCounterTypeName(counterType);
+  const counters = permanent?.counters && typeof permanent.counters === 'object' ? permanent.counters : {};
+  for (const [existingType, amountRaw] of Object.entries(counters)) {
+    if (normalizeReflexiveCounterTypeName(existingType) === wanted) {
+      return Math.max(0, Number(amountRaw) || 0);
+    }
+  }
+  return 0;
+}
+
+function permanentIsCommanderCard(ctx: GameContext, permanent: any): boolean {
+  const ownerId = String(permanent?.owner || permanent?.controller || '').trim();
+  const cardId = String(permanent?.card?.id || '').trim();
+  const commanderIds = ownerId ? ((ctx as any).commandZone?.[ownerId]?.commanderIds || []) : [];
+  return Boolean(permanent?.isCommander === true || (cardId && Array.isArray(commanderIds) && commanderIds.includes(cardId)));
+}
+
+function wasPermanentCardMovedToExile(state: any, permanentSnapshot: any): boolean {
+  const ownerId = String(permanentSnapshot?.owner || permanentSnapshot?.controller || '').trim();
+  const cardId = String(permanentSnapshot?.card?.id || '').trim();
+  if (!ownerId || !cardId) return false;
+  const exile = Array.isArray(state?.zones?.[ownerId]?.exile) ? state.zones[ownerId].exile : [];
+  return exile.some((card: any) => card && String(card.id || '').trim() === cardId);
+}
+
+function maybeResolveReflexiveConditionalBattlefieldSelfExileWhenYouDo(
+  ctx: GameContext,
+  item: any,
+  triggerController: PlayerID,
+  sourceName: string,
+  sourceId: string,
+  description: string,
+): boolean {
+  const parsed = parseReflexiveConditionalBattlefieldSelfExileWhenYouDo(description);
+  if (!parsed) return false;
+
+  const stateAny = (ctx as any).state || {};
+  const sourcePermanentId = String(
+    (item as any)?.effectData?.targetPermanentId ||
+    (item as any)?.triggeringPermanent ||
+    (item as any)?.source ||
+    (item as any)?.permanentId ||
+    sourceId ||
+    '',
+  ).trim();
+
+  executeTriggerEffect(
+    ctx,
+    triggerController,
+    sourceName,
+    parsed.preludeText,
+    { ...(item || {}), description: parsed.preludeText, effect: parsed.preludeText },
+  );
+
+  const battlefield = Array.isArray(stateAny.battlefield) ? stateAny.battlefield : [];
+  const sourcePermanent = sourcePermanentId
+    ? battlefield.find((permanent: any) => permanent && String(permanent.id || '') === sourcePermanentId)
+    : null;
+  if (!sourcePermanent) {
+    return true;
+  }
+
+  const sourceTypeLine = String(sourcePermanent?.card?.type_line || '').toLowerCase();
+  if (parsed.selfReferenceType !== 'permanent' && !sourceTypeLine.includes(parsed.selfReferenceType)) {
+    return true;
+  }
+
+  if (getPermanentCounterAmount(sourcePermanent, parsed.conditionCounterType) > 0) {
+    return true;
+  }
+
+  const permanentSnapshot = {
+    ...(sourcePermanent as any),
+    card: sourcePermanent.card && typeof sourcePermanent.card === 'object' ? { ...(sourcePermanent.card as any) } : sourcePermanent.card,
+  };
+  const gameId = String((ctx as any).gameId || '').trim();
+
+  if (gameId && gameId !== 'unknown' && !(ctx as any).isReplaying && !permanentIsCommanderCard(ctx, sourcePermanent)) {
+    try {
+      appendEvent(gameId, Number((ctx as any).seq?.value ?? (ctx as any).seq ?? stateAny.seq ?? 0), 'exilePermanent', {
+        permanentId: sourcePermanentId,
+        sourcePermanentId,
+        sourceName,
+        reason: 'reflexive_conditional_battlefield_self_exile',
+      });
+    } catch (err) {
+      debugWarn(1, `[resolveTopOfStack] appendEvent(exilePermanent conditional reflexive) failed for ${sourceName}:`, err);
+    }
+  }
+
+  movePermanentToExile(ctx, sourcePermanentId, { exiledWithSourceId: sourcePermanentId, exiledWithSourceName: sourceName });
+  if (!wasPermanentCardMovedToExile(stateAny, permanentSnapshot)) {
+    return true;
+  }
+
+  const followupDescription = materializeReflexiveSourceText(parsed.followupText, sourceName);
+  const targetMetadata = inferTriggeredAbilityTargetMetadata(followupDescription);
+  const triggerId = uid('trigger');
+  const stackItem = {
+    id: triggerId,
+    type: 'triggered_ability',
+    controller: triggerController,
+    source: sourcePermanentId,
+    permanentId: sourcePermanentId,
+    sourceName,
+    description: followupDescription,
+    effect: followupDescription,
+    triggerType: 'reflexive_battlefield_self_exile',
+    mandatory: true,
+    ...targetMetadata,
+    sourcePermanentSnapshot: permanentSnapshot,
+    effectData: {
+      exiledPermanentId: sourcePermanentId,
+      exiledCardId: String(permanentSnapshot?.card?.id || '').trim() || undefined,
+      exiledCardOwnerId: String(permanentSnapshot?.owner || permanentSnapshot?.controller || '').trim() || undefined,
+      conditionCounterType: parsed.conditionCounterType,
+      originalEffect: description,
+    },
+    card: permanentSnapshot.card,
+  } as any;
+
+  stateAny.stack = Array.isArray(stateAny.stack) ? stateAny.stack : [];
+  stateAny.stack.push(stackItem);
+
+  if (gameId && gameId !== 'unknown' && !(ctx as any).isReplaying) {
+    try {
+      appendEvent(gameId, Number((ctx as any).seq?.value ?? (ctx as any).seq ?? stateAny.seq ?? 0), 'pushTriggeredAbility', {
+        triggerId,
+        sourceId: sourcePermanentId,
+        permanentId: sourcePermanentId,
+        sourceName,
+        controllerId: String(triggerController),
+        description: followupDescription,
+        effect: followupDescription,
+        triggerType: 'reflexive_battlefield_self_exile',
+        mandatory: true,
+        ...targetMetadata,
+        sourcePermanentSnapshot: permanentSnapshot,
+        card: permanentSnapshot.card,
+        effectData: stackItem.effectData,
+      });
+    } catch (err) {
+      debugWarn(1, `[resolveTopOfStack] appendEvent(pushTriggeredAbility conditional reflexive) failed for ${sourceName}:`, err);
+    }
+  }
+
+  debug(2, `[resolveTopOfStack] Resolved conditional battlefield self-exile reflexive for ${sourceName}`);
   return true;
 }
 
@@ -9347,6 +9505,12 @@ export function executeTriggerEffect(
   const state = (ctx as any).state;
   if (!state) return;
   const triggerCard = (triggerItem as any)?.card || {};
+
+  if (/^(?:you\s+)?take\s+an\s+extra\s+turn\s+after\s+this\s+one\.?$/i.test(String(description || '').trim())) {
+    addExtraTurn(ctx, String(controller), sourceName || 'Extra turn trigger');
+    debug(2, `[executeTriggerEffect] Extra turn granted to ${controller} by ${sourceName}`);
+    return;
+  }
 
   const directGraveyardPermissionEffectsApplied = applyGraveyardPermissionEffectsFromText(ctx, controller, sourceName, description, triggerItem);
   if (directGraveyardPermissionEffectsApplied > 0) {
@@ -16386,6 +16550,11 @@ export function resolveTopOfStack(ctx: GameContext) {
 
     if (maybeQueueReflexiveDiscardWhenYouDo(ctx, item, triggerController as PlayerID, sourceName, sourceId, effectText || trimmedDescription)) {
       debug(2, `[resolveTopOfStack] Deferred reflexive discard trigger for ${sourceName} (${triggerController})`);
+      return;
+    }
+
+    if (maybeResolveReflexiveConditionalBattlefieldSelfExileWhenYouDo(ctx, item, triggerController as PlayerID, sourceName, sourceId, effectText || trimmedDescription)) {
+      debug(2, `[resolveTopOfStack] Resolved reflexive conditional battlefield exile trigger for ${sourceName} (${triggerController})`);
       return;
     }
 

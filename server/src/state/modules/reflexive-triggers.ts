@@ -35,6 +35,13 @@ export interface ReflexiveBoundGraveyardSelfExileWhenYouDo {
   followupText: string;
 }
 
+export interface ReflexiveConditionalBattlefieldSelfExileWhenYouDo {
+  preludeText: string;
+  selfReferenceType: string;
+  conditionCounterType: string;
+  followupText: string;
+}
+
 const REFLEXIVE_NUMBER_WORDS: Record<string, number> = {
   a: 1,
   an: 1,
@@ -191,6 +198,25 @@ export function parseReflexiveBoundGraveyardSelfExileWhenYouDo(effectText: strin
   if (followupConnector !== 'when' && followupConnector !== 'if') return null;
 
   return { selfReference, followupConnector, ...(preludeText ? { preludeText } : null), followupText };
+}
+
+export function parseReflexiveConditionalBattlefieldSelfExileWhenYouDo(effectText: string): ReflexiveConditionalBattlefieldSelfExileWhenYouDo | null {
+  const normalized = String(effectText || '')
+    .replace(/[’]/g, "'")
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!normalized) return null;
+
+  const match = normalized.match(/^(.*?)\.\s*then\s+if\s+this\s+(creature|enchantment|artifact|permanent|planeswalker)\s+has\s+no\s+([a-z0-9/+\- ]+?)\s+counters?\s+on\s+it,\s*exile\s+it\.\s*when\s+you\s+do,?\s*([\s\S]+)$/i);
+  if (!match) return null;
+
+  const preludeText = String(match[1] || '').replace(/\s+/g, ' ').trim();
+  const selfReferenceType = String(match[2] || '').trim().toLowerCase();
+  const conditionCounterType = String(match[3] || '').replace(/\s+/g, ' ').trim().toLowerCase();
+  const followupText = String(match[4] || '').trim();
+  if (!preludeText || !selfReferenceType || !conditionCounterType || !followupText) return null;
+
+  return { preludeText, selfReferenceType, conditionCounterType, followupText };
 }
 
 export function materializeReflexiveSourceText(followupText: string, sourceName: string): string {

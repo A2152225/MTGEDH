@@ -48,6 +48,26 @@ function normalizeCounterFilter(raw: string): string {
   return cleaned ? normalizeCounterType(cleaned) : 'any';
 }
 
+function collectCounterRemovedTriggerEffectText(oracleText: string, match: RegExpMatchArray, effectCaptureIndex: number): string {
+  const effect = String(match?.[effectCaptureIndex] || '').trim().replace(/\s+/g, ' ');
+  if (!effect) return effect;
+
+  const matchText = String(match?.[0] || '');
+  const matchStart = typeof match?.index === 'number'
+    ? match.index
+    : String(oracleText || '').indexOf(matchText);
+  if (matchStart < 0) return effect;
+
+  const sameLineTail = String(oracleText || '')
+    .slice(matchStart + matchText.length)
+    .split(/\r?\n/)[0] || '';
+  const continuationMatch = sameLineTail.match(
+    /^\s*\.\s*((?:then\s+if\s+this\s+(?:creature|enchantment|artifact|permanent|planeswalker)\s+has\s+no\s+[a-z0-9/+\- ]+?\s+counters?\s+on\s+it,\s*exile\s+it\.\s*when\s+you\s+do,?\s+[^.]+\.))/i
+  );
+  const continuation = String(continuationMatch?.[1] || '').trim();
+  return continuation ? `${effect}. ${continuation}` : effect;
+}
+
 export function detectCounterPlacedTriggers(card: any, permanent: any): CounterPlacedTrigger[] {
   const triggers: CounterPlacedTrigger[] = [];
   const oracleText = String(card?.oracle_text || '');
@@ -59,7 +79,7 @@ export function detectCounterPlacedTriggers(card: any, permanent: any): CounterP
   for (const match of matches) {
     const counterFilter: CounterPlacedTrigger['counterFilter'] = match[1] ? '+1/+1' : 'any';
     const targetFilter = String(match[2] || '').trim().toLowerCase() === 'creature' ? 'creature' : 'permanent';
-    const effect = String(match[3] || '').trim().replace(/\s+/g, ' ');
+    const effect = collectCounterRemovedTriggerEffectText(oracleText, match, 3);
     if (!effect) continue;
 
     triggers.push({
@@ -226,7 +246,7 @@ export function detectCounterRemovedTriggers(card: any, permanent: any): Counter
   for (const match of selfMatches) {
     const counterFilter = normalizeCounterFilter(String(match[1] || ''));
     const targetFilter = String(match[2] || 'permanent').trim().toLowerCase() as CounterRemovedTrigger['targetFilter'];
-    const effect = String(match[3] || '').trim().replace(/\s+/g, ' ');
+    const effect = collectCounterRemovedTriggerEffectText(oracleText, match, 3);
     if (!effect) continue;
 
     triggers.push({
