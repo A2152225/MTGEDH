@@ -22,6 +22,12 @@ export interface ReflexiveDiscardWhenYouDo {
   followupText: string;
 }
 
+export interface ReflexiveConvertWhenYouDo {
+  subjectText: string;
+  isMayAbility: boolean;
+  followupText: string;
+}
+
 export interface ReflexiveGraveyardExileWhenYouDo {
   exileCount: number;
   cardType?: string;
@@ -156,6 +162,27 @@ export function parseReflexiveDiscardWhenYouDo(effectText: string): ReflexiveDis
   if (!followupText) return null;
 
   return { discardCount: 1, followupText };
+}
+
+export function parseReflexiveConvertWhenYouDo(effectText: string): ReflexiveConvertWhenYouDo | null {
+  const normalized = String(effectText || '')
+    .replace(/[’]/g, "'")
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!normalized) return null;
+
+  const match = normalized.match(/^(you\s+may\s+)?convert\s+(.+?)\.\s*when\s+you\s+do,?\s*([\s\S]+)$/i);
+  if (!match) return null;
+
+  const subjectText = String(match[2] || '').replace(/\s+/g, ' ').trim();
+  const followupText = String(match[3] || '').trim();
+  if (!subjectText || !followupText) return null;
+
+  return {
+    subjectText,
+    isMayAbility: Boolean(match[1]),
+    followupText,
+  };
 }
 
 export function parseReflexiveGraveyardExileWhenYouDo(effectText: string): ReflexiveGraveyardExileWhenYouDo | null {

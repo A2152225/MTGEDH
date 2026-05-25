@@ -115,6 +115,7 @@ import { buildDurablePlayableFromExilePermission, upsertDurablePermission } from
 import { destroyPermanent, movePermanentToExile, removePermanent } from "../state/modules/counters_tokens.js";
 import { trackCountersPlacedThisTurn } from "../state/modules/counters_tokens.js";
 import { updateCounters } from "../state/modules/counters_tokens.js";
+import { transformPermanentToFace } from "../state/modules/day-night.js";
 import { registerLinkedExile } from "../state/modules/triggers/linked-exile.js";
 import { queueExiledFromBattlefieldTriggers } from "../state/modules/triggers/zone-change.js";
 import { isRemovableCounterType, permanentMatchesCounterRemovalFilter } from "../state/modules/counter-removal-costs.js";
@@ -26851,6 +26852,147 @@ async function handleOptionChoiceResponse(
     return;
   }
 
+  if (stepData?.reflexiveConvertWhenYouDo === true) {
+    const convertIsMandatory = (step as any)?.mandatory === true;
+    const defaultChoiceId = response.cancelled || !convertIsMandatory ? 'decline' : 'convert';
+    const choiceId = String(extractId(selectedOption) || defaultChoiceId).trim().toLowerCase();
+    const controllerId = String(stepData?.reflexiveConvertWhenYouDoController || playerId);
+    const sourceName = String(stepData?.reflexiveConvertWhenYouDoSourceName || step.sourceName || 'Ability');
+    const sourcePermanentId = String(stepData?.reflexiveConvertWhenYouDoSourcePermanentId || step.sourceId || '').trim();
+    const followupText = String(stepData?.reflexiveConvertWhenYouDoFollowupDescription || '').trim();
+    const subjectLabel = String(stepData?.reflexiveConvertWhenYouDoSubject || sourceName).trim() || sourceName;
+    const resolvedStepId = String((step as any)?.id || '').trim();
+
+    if (response.cancelled || choiceId === 'decline' || choiceId === 'no' || choiceId === 'dont') {
+      try {
+        await appendEvent(gameId, (game as any).seq ?? 0, 'reflexiveConvertResolve', {
+          playerId: controllerId,
+          sourceId: sourcePermanentId || undefined,
+          sourceName,
+          resolvedStepId: resolvedStepId || undefined,
+          choiceId,
+          converted: false,
+          followupText: followupText || undefined,
+        });
+      } catch (err) {
+        debugWarn(1, '[Resolution] appendEvent(reflexiveConvertResolve decline) failed:', err);
+      }
+
+      io.to(gameId).emit('chat', {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: 'system',
+        message: `${sourceName}: ${getPlayerName(game, controllerId)} declined to convert ${subjectLabel}.`,
+        ts: Date.now(),
+      });
+
+      if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
+      broadcastGame(io, game, gameId);
+      return;
+    }
+
+    if (choiceId !== 'convert') {
+      emitToPlayer(io, controllerId as any, 'error', {
+        code: 'INVALID_CHOICE',
+        message: 'Invalid convert choice.',
+      });
+      return;
+    }
+
+    const battlefield = Array.isArray(game?.state?.battlefield) ? game.state.battlefield : [];
+    const sourcePermanent = battlefield.find((permanent: any) => String(permanent?.id || '') === sourcePermanentId);
+    const cardFaces = Array.isArray(sourcePermanent?.card?.card_faces) ? sourcePermanent.card.card_faces : [];
+    if (!sourcePermanent || cardFaces.length < 2) {
+      emitToPlayer(io, controllerId as any, 'error', {
+        code: 'SOURCE_NOT_CONVERTIBLE',
+        message: `${sourceName} cannot be converted because its source permanent is missing or has no alternate face.`,
+      });
+      return;
+    }
+
+    const fromFaceIndex = sourcePermanent.transformed === true ? 1 : 0;
+    const faceIndex = fromFaceIndex === 1 ? 0 : 1;
+    const sourceSnapshot = { ...(sourcePermanent as any), card: { ...((sourcePermanent as any).card || {}) } };
+    transformPermanentToFace(sourcePermanent, faceIndex as 0 | 1);
+
+    const effectText = materializeReflexiveSourceText(followupText, sourceName);
+    const triggerId = uid('trigger');
+    const targetMetadata = inferFollowupTargetMetadata(game, controllerId, sourceName, sourcePermanentId || undefined, effectText, sourceSnapshot);
+    const battlefieldTapped = /\bto\s+the\s+battlefield\s+tapped\b/i.test(effectText);
+    const effectData = {
+      converted: true,
+      convertedFromFaceIndex: fromFaceIndex,
+      convertedToFaceIndex: faceIndex,
+    };
+    const stackItem: any = {
+      id: triggerId,
+      type: 'triggered_ability',
+      controller: controllerId,
+      source: sourcePermanentId || null,
+      ...(sourcePermanentId ? { permanentId: sourcePermanentId } : null),
+      sourceName,
+      description: effectText,
+      effect: effectText,
+      triggerType: 'reflexive_convert',
+      mandatory: true,
+      ...targetMetadata,
+      ...(battlefieldTapped ? { battlefieldTapped: true } : null),
+      effectData,
+    };
+
+    game.state.stack = Array.isArray(game.state.stack) ? game.state.stack : [];
+    game.state.stack.push(stackItem);
+
+    try {
+      await appendEvent(gameId, (game as any).seq ?? 0, 'reflexiveConvertResolve', {
+        playerId: controllerId,
+        sourceId: sourcePermanentId || undefined,
+        sourceName,
+        resolvedStepId: resolvedStepId || undefined,
+        choiceId,
+        converted: true,
+        fromFaceIndex,
+        faceIndex,
+        followupText,
+        effect: effectText,
+        triggerId,
+      });
+    } catch (err) {
+      debugWarn(1, '[Resolution] appendEvent(reflexiveConvertResolve) failed:', err);
+    }
+
+    try {
+      await appendEvent(gameId, (game as any).seq ?? 0, 'pushTriggeredAbility', {
+        triggerId,
+        sourceId: sourcePermanentId || null,
+        ...(sourcePermanentId ? { permanentId: sourcePermanentId } : null),
+        sourceName,
+        controllerId,
+        description: effectText,
+        effect: effectText,
+        triggerType: 'reflexive_convert',
+        mandatory: true,
+        ...targetMetadata,
+        ...(battlefieldTapped ? { battlefieldTapped: true } : null),
+        effectData,
+      });
+    } catch (err) {
+      debugWarn(1, '[Resolution] appendEvent(pushTriggeredAbility reflexive convert) failed:', err);
+    }
+
+    io.to(gameId).emit('chat', {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: 'system',
+      message: `${sourceName}: ${getPlayerName(game, controllerId)} converted ${subjectLabel}.`,
+      ts: Date.now(),
+    });
+
+    if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
+    broadcastGame(io, game, gameId);
+    return;
+  }
+
   if (isOptionalPaymentPromptStep(stepData)) {
     const choiceId = extractId(selectedOption);
     const callbackId = String(stepData?.pendingOptionalPaymentCallbackId || '').trim();
@@ -30482,6 +30624,7 @@ async function handleOptionChoiceResponse(
     const controllerId = (stepData.optionalDiscardThenDrawPlayerId as string | undefined) || playerId;
     const sourceName = (stepData.optionalDiscardThenDrawSourceName as string | undefined) || step.sourceName || 'Ability';
     const drawCount = Number(stepData.optionalDiscardThenDrawCount || 1);
+    const drawCountIfDiscardedLand = Number(stepData.optionalDiscardThenDrawCountIfDiscardedLand || 0);
 
     if (!choiceId || choiceId === 'dont' || choiceId === 'decline') {
       io.to(gameId).emit('chat', {
@@ -30534,6 +30677,7 @@ async function handleOptionChoiceResponse(
         colors: c.colors,
       })),
       afterDiscardDrawCount: drawCount,
+      ...(drawCountIfDiscardedLand > 0 ? { afterDiscardDrawCountIfDiscardedLand: drawCountIfDiscardedLand } : null),
     } as any);
 
     appendQueuedResolutionPromptEvent(game, gameId, {

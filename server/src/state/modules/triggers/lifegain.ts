@@ -219,7 +219,7 @@ export const KNOWN_LIFEGAIN_TRIGGERS: Record<string, {
   
   // Ratchet, Field Medic (Transformers)
   "ratchet, field medic": {
-    effect: 'You may convert Ratchet. When you do, return target artifact card with MV ≤ life gained this turn from graveyard to battlefield tapped.',
+    effect: 'You may convert Ratchet. When you do, return target artifact card with mana value less than or equal to the amount of life you gained this turn from your graveyard to the battlefield tapped.',
     effectType: 'convert_and_return',
     isMayAbility: true,
   },
@@ -307,9 +307,10 @@ export function detectLifegainTriggers(
       let effect = 'Triggered by lifegain';
       
       // Extract the effect text
-      const effectMatch = oracleText.match(/whenever you gain life[^,]*,?\s*([^.]+)/i);
+      const reflexiveConvertEffectMatch = oracleText.match(/whenever you gain life[^,]*,?\s*(you may convert [^.]+\.\s*when you do,?\s*[^.]+)/i);
+      const effectMatch = reflexiveConvertEffectMatch || oracleText.match(/whenever you gain life[^,]*,?\s*([^.]+)/i);
       if (effectMatch) {
-        effect = effectMatch[1].trim();
+        effect = effectMatch[1].replace(/\s+/g, ' ').trim();
       }
       
       // Determine effect type
@@ -409,7 +410,9 @@ export function queueLifegainTriggers(
 
   for (const trigger of triggers) {
     const effect = String(trigger.effect || '').trim();
-    const targetMetadata = inferGenericTriggeredAbilityTargetMetadata(effect);
+    const targetMetadata = trigger.effectType === 'convert_and_return' && /\bwhen\s+you\s+do\b/i.test(effect)
+      ? {}
+      : inferGenericTriggeredAbilityTargetMetadata(effect);
     if (!effect || hasUnsupportedTargetRequirement(targetMetadata)) {
       continue;
     }

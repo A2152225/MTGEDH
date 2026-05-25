@@ -180,4 +180,120 @@ describe('sacrifice another permanent for benefit (integration)', () => {
     expect(((game.state as any).zones[p1].hand || []).map((c: any) => c.id)).toEqual(['draw_1']);
     expect((game.state as any).zones[p1].libraryCount).toBe(0);
   });
+
+  it('queues the sacrifice benefit choice from generic triggered stack text', async () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const p1 = 'p1' as any;
+    (game.state as any).players = [{ id: p1, name: 'P1', spectator: false, life: 40 }];
+    (game.state as any).startingLife = 40;
+    (game.state as any).life = { [p1]: 40 };
+    (game.state as any).battlefield = [
+      {
+        id: 'source_perm',
+        controller: p1,
+        owner: p1,
+        card: {
+          name: 'Source Walker',
+          type_line: 'Legendary Planeswalker',
+          image_uris: { small: 'https://example.com/source.jpg' },
+        },
+      },
+      {
+        id: 'other_perm',
+        controller: p1,
+        owner: p1,
+        card: {
+          name: 'Treasure Token',
+          type_line: 'Artifact',
+          image_uris: { small: 'https://example.com/treasure.jpg' },
+        },
+      },
+    ];
+    (game.state as any).zones = {
+      [p1]: {
+        library: [{ id: 'draw_1', name: 'Drawn Card', type_line: 'Instant', zone: 'library' }],
+        libraryCount: 1,
+        hand: [],
+        handCount: 0,
+        graveyard: [],
+        graveyardCount: 0,
+      },
+    };
+    let drawnCards = 0;
+    (game as any).drawCards = (playerId: string, count: number) => {
+      const playerZones = (game.state as any).zones?.[playerId];
+      if (!playerZones) return;
+      playerZones.hand = playerZones.hand || [];
+      playerZones.library = playerZones.library || [];
+      for (let i = 0; i < count; i++) {
+        const nextCard = playerZones.library.shift();
+        if (!nextCard) break;
+        playerZones.hand.push(nextCard);
+        drawnCards += 1;
+      }
+      playerZones.handCount = playerZones.hand.length;
+      playerZones.libraryCount = playerZones.library.length;
+    };
+    (game.state as any).stack = [
+      {
+        id: 'trigger_sacrifice_another_permanent_for_benefit',
+        type: 'triggered_ability',
+        controller: p1,
+        source: 'source_perm',
+        permanentId: 'source_perm',
+        sourceName: 'Source Walker',
+        description: 'You may sacrifice another permanent. If you do, you gain 3 life and draw a card.',
+        effect: 'You may sacrifice another permanent. If you do, you gain 3 life and draw a card.',
+        mandatory: true,
+      },
+    ];
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(p1, emitted, gameId);
+    const io = createMockIo(emitted, [socket]);
+    registerResolutionHandlers(io as any, socket as any);
+
+    game.resolveTopOfStack();
+
+    expect((game.state as any).life[p1]).toBe(40);
+    expect(((game.state as any).zones[p1].hand || []).map((card: any) => card.id)).toEqual([]);
+
+    const askStep = ResolutionQueueManager.getQueue(gameId).steps.find((candidate: any) =>
+      candidate?.sacrificeAnotherPermanentForBenefitChoice === true &&
+      candidate?.sacrificeAnotherPermanentForBenefitStage === 'ask'
+    ) as any;
+    expect(askStep).toMatchObject({
+      type: ResolutionStepType.OPTION_CHOICE,
+      sourceId: 'source_perm',
+      sourceName: 'Source Walker',
+      sacrificeAnotherPermanentForBenefitLifeGain: 3,
+      sacrificeAnotherPermanentForBenefitDrawCount: 1,
+    });
+
+    await handlers['submitResolutionResponse']({ gameId, stepId: askStep.id, selections: 'sac' });
+
+    const targetStep = ResolutionQueueManager.getQueue(gameId).steps.find((candidate: any) =>
+      candidate?.sacrificeAnotherPermanentForBenefitChoice === true &&
+      candidate?.sacrificeAnotherPermanentForBenefitStage === 'select_sacrifice'
+    ) as any;
+    expect(targetStep).toMatchObject({
+      type: ResolutionStepType.TARGET_SELECTION,
+      sourceId: 'source_perm',
+      sourceName: 'Source Walker',
+      sacrificeAnotherPermanentForBenefitLifeGain: 3,
+      sacrificeAnotherPermanentForBenefitDrawCount: 1,
+    });
+    expect((targetStep.validTargets || []).map((target: any) => target.id)).toEqual(['other_perm']);
+
+    await handlers['submitResolutionResponse']({ gameId, stepId: targetStep.id, selections: ['other_perm'] });
+
+    expect(((game.state as any).battlefield || []).map((permanent: any) => permanent.id)).toEqual(['source_perm']);
+    expect(((game.state as any).zones[p1].graveyard || []).map((card: any) => card.name)).toEqual(['Treasure Token']);
+    expect((game.state as any).life[p1]).toBe(43);
+    expect(drawnCards).toBe(1);
+    expect(((game.state as any).zones[p1].hand || []).map((card: any) => card.id)).toEqual(['draw_1']);
+  });
 });

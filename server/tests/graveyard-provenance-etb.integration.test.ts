@@ -1,7 +1,18 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeAll, describe, expect, it } from 'vitest';
 
+import { createGameIfNotExists, deleteGame, getEvents, initDb } from '../src/db/index.js';
+import { ensureGame } from '../src/socket/util.js';
+import { games } from '../src/socket/socket.js';
 import { executeTriggerEffect, triggerETBEffectsForPermanent } from '../src/state/modules/stack';
 import { applyEvent } from '../src/state/modules/applyEvent';
+
+const liveReplayGameId = 'test_graveyard_provenance_etb_replay_live';
+const replayReplayGameId = 'test_graveyard_provenance_etb_replay_replay';
+
+async function resetGame(gameId: string) {
+  games.delete(gameId as any);
+  await deleteGame(gameId);
+}
 
 function createContext(stateOverrides: Record<string, any> = {}) {
   const state: any = {
@@ -56,6 +67,15 @@ const rocketCard = {
 };
 
 describe('graveyard provenance ETB integration', () => {
+  beforeAll(async () => {
+    await initDb();
+  });
+
+  afterEach(async () => {
+    await resetGame(liveReplayGameId);
+    await resetGame(replayReplayGameId);
+  });
+
   it('marks replayed graveyard-to-battlefield moves with enteredFromZone metadata', () => {
     const ctx = createContext({
       zones: {
@@ -120,6 +140,100 @@ describe('graveyard provenance ETB integration', () => {
     expect(demon.baseToughness).toBe(5);
     expect(demon.card.colors).toEqual(['B']);
     expect(demon.card.keywords).toContain('Flying');
+  });
+
+  it("persists and replays Archfiend's Vessel self-exile token creation", () => {
+    createGameIfNotExists(liveReplayGameId, 'commander', 40, undefined, 'p1');
+    const game = ensureGame(liveReplayGameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const archfiendPermanent = {
+      id: 'arch_perm',
+      controller: 'p1',
+      owner: 'p1',
+      tapped: false,
+      basePower: 1,
+      baseToughness: 1,
+      enteredFromZone: 'graveyard',
+      enteredFromGraveyard: true,
+      card: { ...archfiendCard, zone: 'battlefield', enteredFromZone: 'graveyard', enteredFromGraveyard: true },
+    };
+    (game.state as any).players = [{ id: 'p1', name: 'P1', life: 40 }];
+    (game.state as any).zones = {
+      p1: { hand: [], handCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0, libraryCount: 0 },
+    };
+    (game.state as any).battlefield = [archfiendPermanent];
+    (game.state as any).stack = [];
+
+    triggerETBEffectsForPermanent(game as any, archfiendPermanent, 'p1' as any);
+    const trigger = (game.state as any).stack.find((entry: any) => entry.sourceName === "Archfiend's Vessel");
+    expect(trigger).toBeTruthy();
+
+    executeTriggerEffect(game as any, 'p1' as any, "Archfiend's Vessel", trigger.description, trigger);
+
+    expect(((game.state as any).battlefield || []).some((entry: any) => entry.id === 'arch_perm')).toBe(false);
+    const liveDemon = ((game.state as any).battlefield || []).find((entry: any) => entry.card?.name === 'Demon');
+    expect(liveDemon).toBeTruthy();
+    expect(((game.state as any).zones.p1.exile || []).map((card: any) => card.id)).toEqual(['archfiend_card']);
+
+    const events = getEvents(liveReplayGameId);
+    const exileEvent = events.find((event: any) =>
+      event.type === 'exilePermanent' && event.payload?.reason === 'reflexive_self_exile_create_token'
+    ) as any;
+    const tokenEvent = events.find((event: any) =>
+      event.type === 'executeEffect' &&
+      event.payload?.effectType === 'createToken' &&
+      event.payload?.reason === 'reflexive_self_exile_create_token'
+    ) as any;
+    expect(exileEvent?.payload).toMatchObject({
+      permanentId: 'arch_perm',
+      sourcePermanentId: 'arch_perm',
+      sourceName: "Archfiend's Vessel",
+    });
+    expect(tokenEvent?.payload?.tokenData).toMatchObject({
+      id: liveDemon.id,
+      name: 'Demon',
+      typeLine: 'Token Creature — Demon',
+      power: 5,
+      toughness: 5,
+      colors: ['B'],
+      abilities: ['Flying'],
+    });
+
+    createGameIfNotExists(replayReplayGameId, 'commander', 40, undefined, 'p1');
+    const replayGame = ensureGame(replayReplayGameId);
+    if (!replayGame) throw new Error('ensureGame returned undefined');
+    (replayGame.state as any).players = [{ id: 'p1', name: 'P1', life: 40 }];
+    (replayGame.state as any).zones = {
+      p1: { hand: [], handCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0, libraryCount: 0 },
+    };
+    (replayGame.state as any).battlefield = [
+      {
+        ...archfiendPermanent,
+        card: { ...archfiendPermanent.card },
+      },
+    ];
+
+    replayGame.applyEvent({ type: 'exilePermanent', ...(exileEvent.payload || {}) } as any);
+    replayGame.applyEvent({ type: 'executeEffect', ...(tokenEvent.payload || {}) } as any);
+
+    expect(((replayGame.state as any).battlefield || []).some((entry: any) => entry.id === 'arch_perm')).toBe(false);
+    expect(((replayGame.state as any).zones.p1.exile || []).map((card: any) => card.id)).toEqual(['archfiend_card']);
+    const replayDemon = ((replayGame.state as any).battlefield || []).find((entry: any) => entry.id === liveDemon.id);
+    expect(replayDemon).toMatchObject({
+      id: liveDemon.id,
+      controller: 'p1',
+      owner: 'p1',
+      basePower: 5,
+      baseToughness: 5,
+      isToken: true,
+      card: expect.objectContaining({
+        name: 'Demon',
+        type_line: 'Token Creature — Demon',
+        colors: ['B'],
+        keywords: ['Flying'],
+      }),
+    });
   });
 
   it('queues a delayed tapped return for Prized Amalgam from the graveyard', () => {

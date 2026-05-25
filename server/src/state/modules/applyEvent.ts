@@ -50,6 +50,7 @@ import {
 import { cleanupCardLeavingExile } from "./playable-from-exile";
 import { buildEmbalmOrEternalizeTokenPermanent } from "./graveyard-tokens.js";
 import { clearPreparedPermanent, syncPreparedPermanentAfterControlChange } from "./prepared.js";
+import { transformPermanentToFace } from "./day-night.js";
 import {
   applyDivineReckoningBatchResult,
   applyPrisonersDilemmaBatchResult,
@@ -3543,6 +3544,45 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           ctx.bumpSeq();
         } catch (err) {
           debugWarn(1, 'applyEvent(reflexiveDiscardResolve): failed', err);
+        }
+        break;
+      }
+
+      case "reflexiveConvertResolve": {
+        try {
+          const replayGameId = String((ctx as any).gameId || '').trim();
+          const sourceId = String((e as any).sourceId || '').trim();
+          const resolvedStepId = String((e as any).resolvedStepId || '').trim();
+          const converted = (e as any).converted === true;
+          const faceIndex = Math.max(0, Math.min(1, Math.floor(Number((e as any).faceIndex ?? 1)))) as 0 | 1;
+
+          if (converted && sourceId) {
+            const battlefield = Array.isArray((ctx.state as any)?.battlefield) ? (ctx.state as any).battlefield : [];
+            const permanent = battlefield.find((entry: any) => String(entry?.id || '') === sourceId);
+            if (permanent) {
+              transformPermanentToFace(permanent, faceIndex);
+            }
+          }
+
+          if (replayGameId) {
+            clearReplayQueuedSteps(replayGameId, (step: any) => {
+              if (!step) return false;
+              const stepId = String((step as any)?.id || '').trim();
+              if (resolvedStepId && stepId === resolvedStepId) {
+                return true;
+              }
+
+              return (
+                (step as any)?.reflexiveConvertWhenYouDo === true &&
+                sourceId.length > 0 &&
+                String((step as any)?.sourceId || '').trim() === sourceId
+              );
+            });
+          }
+
+          ctx.bumpSeq();
+        } catch (err) {
+          debugWarn(1, 'applyEvent(reflexiveConvertResolve): failed', err);
         }
         break;
       }

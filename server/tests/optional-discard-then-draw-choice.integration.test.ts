@@ -206,4 +206,96 @@ describe('optional discard then draw choice (integration)', () => {
     });
     expect(((replayQueue.steps[0] as any).hand || []).map((c: any) => c.id)).toEqual(['card_1', 'card_2']);
   });
+
+  it('carries the discarded-land rider from generic trigger text into the discard selection', async () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const p1 = 'p1' as any;
+    (game.state as any).players = [{ id: p1, name: 'P1', spectator: false, life: 40 }];
+    (game.state as any).zones = {
+      [p1]: {
+        hand: [
+          { id: 'land_1', name: 'Forest', type_line: 'Basic Land - Forest', oracle_text: '{T}: Add {G}.' },
+          { id: 'spell_1', name: 'Spell One', type_line: 'Instant', oracle_text: '' },
+        ],
+        handCount: 2,
+        graveyard: [],
+        graveyardCount: 0,
+        library: [
+          { id: 'draw_1', name: 'Draw One', type_line: 'Sorcery', oracle_text: '' },
+          { id: 'draw_2', name: 'Draw Two', type_line: 'Creature - Human', oracle_text: '' },
+        ],
+        libraryCount: 2,
+      },
+    };
+    (game as any).libraries.set(p1, [...(game.state as any).zones[p1].library]);
+    (game.state as any).stack = [
+      {
+        id: 'trigger_optional_discard_land_rider',
+        type: 'triggered_ability',
+        controller: p1,
+        source: 'source_perm',
+        permanentId: 'source_perm',
+        sourceName: 'Rummaging Source',
+        description: 'You may discard a card. If you do, draw a card. If a land card was discarded this way, draw an additional card.',
+        effect: 'You may discard a card. If you do, draw a card. If a land card was discarded this way, draw an additional card.',
+        mandatory: true,
+      },
+    ];
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(p1, emitted, gameId);
+    const io = createMockIo(emitted, [socket]);
+    registerResolutionHandlers(io as any, socket as any);
+
+    game.resolveTopOfStack();
+
+    expect(((game.state as any).zones[p1].hand || []).map((card: any) => card.id)).toEqual(['land_1', 'spell_1']);
+
+    const askStep = ResolutionQueueManager.getQueue(gameId).steps.find((step: any) => step?.optionalDiscardThenDrawChoice === true) as any;
+    expect(askStep).toMatchObject({
+      type: ResolutionStepType.OPTION_CHOICE,
+      sourceId: 'source_perm',
+      sourceName: 'Rummaging Source',
+      optionalDiscardThenDrawCount: 1,
+      optionalDiscardThenDrawCountIfDiscardedLand: 1,
+    });
+
+    await handlers['submitResolutionResponse']({ gameId, stepId: askStep.id, selections: 'discard' });
+
+    const discardStep = ResolutionQueueManager.getQueue(gameId).steps.find((step: any) => step?.type === ResolutionStepType.DISCARD_SELECTION) as any;
+    expect(discardStep).toMatchObject({
+      type: ResolutionStepType.DISCARD_SELECTION,
+      sourceName: 'Rummaging Source',
+      discardCount: 1,
+      afterDiscardDrawCount: 1,
+      afterDiscardDrawCountIfDiscardedLand: 1,
+    });
+
+    const promptEvent = [...getEvents(gameId)].reverse().find((event: any) =>
+      event.type === 'resolveTopOfStackPrompt' &&
+      event.payload?.queuedResolutionStep?.type === ResolutionStepType.DISCARD_SELECTION
+    ) as any;
+    expect(promptEvent?.payload?.queuedResolutionStep).toMatchObject({
+      type: ResolutionStepType.DISCARD_SELECTION,
+      sourceName: 'Rummaging Source',
+      afterDiscardDrawCount: 1,
+      afterDiscardDrawCountIfDiscardedLand: 1,
+    });
+
+    await handlers['submitResolutionResponse']({
+      gameId,
+      stepId: discardStep.id,
+      selections: ['land_1'],
+    });
+
+    const zones = (game.state as any).zones[p1];
+    expect((zones.hand || []).map((card: any) => card.id)).toEqual(['spell_1', 'draw_1', 'draw_2']);
+    expect((zones.graveyard || []).map((card: any) => card.id)).toEqual(['land_1']);
+
+    const drawEvent = [...getEvents(gameId)].reverse().find((event: any) => event.type === 'drawCards') as any;
+    expect(drawEvent?.payload).toEqual({ playerId: p1, count: 2 });
+  });
 });

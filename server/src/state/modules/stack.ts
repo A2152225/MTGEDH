@@ -59,7 +59,7 @@ import { detectETBTappedPattern, evaluateConditionalLandETB, getLandSubtypes } f
 import { queueMayAbilityStep } from '../../socket/may-ability-prompts.js';
 import { queueOptionalPaymentStep } from '../../socket/optional-payment-prompts.js';
 import { broadcastGame, consumeManaFromPool, getEffectivePower, getOrInitManaPool, parseManaCost, resolveManaCostForPoolPayment } from '../../socket/util.js';
-import { buildReflexivePaymentAmountOptions, cardMatchesReflexiveGraveyardExileType, formatReflexiveFixedPaymentLabel, formatReflexiveGraveyardExileLabel, formatReflexiveSacrificeTypeLabel, getAvailableReflexiveManaAmountFromPool, materializeReflexiveSourceText, parseReflexiveAnyAmountManaPayment, parseReflexiveBoundGraveyardSelfExileWhenYouDo, parseReflexiveConditionalBattlefieldSelfExileWhenYouDo, parseReflexiveDiscardWhenYouDo, parseReflexiveFixedPaymentWhenYouDo, parseReflexiveGraveyardExileWhenYouDo, parseReflexiveSacrificeWhenYouDo, permanentMatchesReflexiveSacrificeType } from './reflexive-triggers.js';
+import { buildReflexivePaymentAmountOptions, cardMatchesReflexiveGraveyardExileType, formatReflexiveFixedPaymentLabel, formatReflexiveGraveyardExileLabel, formatReflexiveSacrificeTypeLabel, getAvailableReflexiveManaAmountFromPool, materializeReflexiveSourceText, parseReflexiveAnyAmountManaPayment, parseReflexiveBoundGraveyardSelfExileWhenYouDo, parseReflexiveConditionalBattlefieldSelfExileWhenYouDo, parseReflexiveConvertWhenYouDo, parseReflexiveDiscardWhenYouDo, parseReflexiveFixedPaymentWhenYouDo, parseReflexiveGraveyardExileWhenYouDo, parseReflexiveSacrificeWhenYouDo, permanentMatchesReflexiveSacrificeType } from './reflexive-triggers.js';
 import { getSavedMayAbilityTriggerDecision, getSavedTriggerShortcutPreference } from "../../socket/trigger-shortcuts.js";
 import { ResolutionQueueManager, ResolutionStepType, type CreateResolutionStepConfig } from "../resolution/index.js";
 import type { ChoiceOption } from "../../../../rules-engine/src/choiceEvents.js";
@@ -3952,6 +3952,69 @@ function maybeQueueReflexiveDiscardWhenYouDo(
   } as any);
 
   debug(2, `[resolveTopOfStack] Deferred reflexive discard trigger for ${sourceName} (${triggerController})`);
+  return true;
+}
+
+function maybeQueueReflexiveConvertWhenYouDo(
+  ctx: GameContext,
+  item: any,
+  triggerController: PlayerID,
+  sourceName: string,
+  sourceId: string,
+  description: string,
+): boolean {
+  const parsed = parseReflexiveConvertWhenYouDo(description);
+  if (!parsed) return false;
+
+  if ((ctx as any).isReplaying) {
+    debug(2, `[resolveTopOfStack] Reflexive convert trigger for ${sourceName}: skipping prompt discovery during replay`);
+    return true;
+  }
+
+  const battlefield = Array.isArray((ctx as any).state?.battlefield) ? (ctx as any).state.battlefield : [];
+  const sourcePermanentId = String((item as any).source || (item as any).permanentId || sourceId || '').trim();
+  const sourcePermanent = sourcePermanentId
+    ? battlefield.find((permanent: any) => String(permanent?.id || '') === sourcePermanentId)
+    : undefined;
+  const cardFaces = Array.isArray(sourcePermanent?.card?.card_faces) ? sourcePermanent.card.card_faces : [];
+  if (!sourcePermanent || cardFaces.length < 2) {
+    debug(2, `[resolveTopOfStack] Reflexive convert trigger for ${sourceName}: source permanent cannot convert`);
+    return true;
+  }
+
+  const followupDescription = materializeReflexiveSourceText(parsed.followupText, sourceName);
+  const subjectLabel = parsed.subjectText || sourceName;
+
+  queueResolveTopOfStackPrompt(ctx, {
+    type: ResolutionStepType.OPTION_CHOICE,
+    playerId: triggerController as PlayerID,
+    sourceId: sourcePermanentId || undefined,
+    sourceName,
+    sourceImage: (item as any)?.card?.image_uris?.small || (item as any)?.card?.image_uris?.normal,
+    description: `${sourceName}: ${parsed.isMayAbility ? 'You may ' : ''}convert ${subjectLabel}.`,
+    mandatory: !parsed.isMayAbility,
+    options: [
+      {
+        id: 'convert',
+        label: 'Convert',
+        description: followupDescription,
+      },
+      ...(parsed.isMayAbility
+        ? [{ id: 'decline', label: 'Decline', description: `Do not convert ${subjectLabel}.` }]
+        : []),
+    ],
+    minSelections: 1,
+    maxSelections: 1,
+    reflexiveConvertWhenYouDo: true,
+    reflexiveConvertWhenYouDoController: String(triggerController),
+    reflexiveConvertWhenYouDoSourceName: sourceName,
+    reflexiveConvertWhenYouDoSourcePermanentId: sourcePermanentId || undefined,
+    reflexiveConvertWhenYouDoSubject: subjectLabel,
+    reflexiveConvertWhenYouDoFollowupDescription: followupDescription,
+    reflexiveConvertWhenYouDoOriginalEffect: description,
+  } as any);
+
+  debug(2, `[resolveTopOfStack] Deferred reflexive convert trigger for ${sourceName} (${triggerController})`);
   return true;
 }
 
@@ -9904,11 +9967,27 @@ export function executeTriggerEffect(
       return;
     }
 
+    const permanentSnapshot = {
+      ...(sourcePermanent as any),
+      card: sourcePermanent.card && typeof sourcePermanent.card === 'object' ? { ...(sourcePermanent.card as any) } : sourcePermanent.card,
+    };
+    const gameId = String((ctx as any).gameId || '').trim();
+
+    if (gameId && gameId !== 'unknown' && !(ctx as any).isReplaying && !permanentIsCommanderCard(ctx, sourcePermanent)) {
+      try {
+        appendEvent(gameId, Number((ctx as any).seq?.value ?? (ctx as any).seq ?? (state as any).seq ?? 0), 'exilePermanent', {
+          permanentId: sourcePermanentIdForSelf,
+          sourcePermanentId: sourcePermanentIdForSelf,
+          sourceName,
+          reason: 'reflexive_self_exile_create_token',
+        });
+      } catch (err) {
+        debugWarn(1, `[executeTriggerEffect] appendEvent(exilePermanent self-exile token reflexive) failed for ${sourceName}:`, err);
+      }
+    }
+
     movePermanentToExile(ctx, sourcePermanentIdForSelf);
-    const stillOnBattlefield = Array.isArray(state.battlefield)
-      ? state.battlefield.some((permanent: any) => String(permanent?.id || '') === sourcePermanentIdForSelf)
-      : false;
-    if (stillOnBattlefield) {
+    if (!wasPermanentCardMovedToExile(state, permanentSnapshot)) {
       return;
     }
 
@@ -9926,11 +10005,40 @@ export function executeTriggerEffect(
           .filter(Boolean)
       : [];
 
-    createToken(ctx, controller, tokenSubtype, 1, power, toughness, {
+    const tokenOptions = {
       colors: colorMap[colorWord] ? [colorMap[colorWord]] : [],
       typeLine: `Token Creature — ${tokenSubtype}`,
       abilities,
-    });
+    };
+    const createdTokenIds = createToken(ctx, controller, tokenSubtype, 1, power, toughness, tokenOptions);
+    if (gameId && gameId !== 'unknown' && !(ctx as any).isReplaying) {
+      for (const tokenId of createdTokenIds) {
+        const tokenPermanent = Array.isArray(state.battlefield)
+          ? state.battlefield.find((permanent: any) => String(permanent?.id || '') === String(tokenId))
+          : null;
+        if (!tokenPermanent) continue;
+        try {
+          appendEvent(gameId, Number((ctx as any).seq?.value ?? (ctx as any).seq ?? (state as any).seq ?? 0), 'executeEffect', {
+            effectType: 'createToken',
+            controllerId: controller,
+            sourceId: sourcePermanentIdForSelf,
+            sourceName,
+            reason: 'reflexive_self_exile_create_token',
+            tokenData: {
+              id: tokenPermanent.id,
+              name: tokenSubtype,
+              typeLine: tokenOptions.typeLine,
+              power,
+              toughness,
+              colors: tokenOptions.colors,
+              abilities,
+            },
+          });
+        } catch (err) {
+          debugWarn(1, `[executeTriggerEffect] appendEvent(executeEffect createToken self-exile reflexive) failed for ${sourceName}:`, err);
+        }
+      }
+    }
     return;
   }
 
@@ -11140,11 +11248,15 @@ export function executeTriggerEffect(
     return;
   }
 
-  if (/^you may discard a card\. if you do, draw a card\.?$/i.test(String(desc || '').trim())) {
+  const optionalDiscardThenDrawMatch = String(desc || '').trim().match(
+    /^you may discard a card\. if you do, draw a card(?:\. if a land card (?:is|was) discarded this way, draw an additional card)?\.?$/i
+  );
+  if (optionalDiscardThenDrawMatch) {
+    const hasLandDiscardRider = /if a land card (?:is|was) discarded this way, draw an additional card/i.test(String(desc || ''));
     queueResolveTopOfStackPrompt(ctx, {
       type: ResolutionStepType.OPTION_CHOICE,
       playerId: controller as any,
-      description: `${sourceName}: You may discard a card. If you do, draw a card.`,
+      description: `${sourceName}: You may discard a card. If you do, draw a card.${hasLandDiscardRider ? ' If a land card is discarded this way, draw an additional card.' : ''}`,
       mandatory: true,
       sourceId: String(triggerItem?.source || triggerItem?.permanentId || '').trim() || undefined,
       sourceName,
@@ -11158,8 +11270,42 @@ export function executeTriggerEffect(
       optionalDiscardThenDrawPlayerId: controller,
       optionalDiscardThenDrawSourceName: sourceName,
       optionalDiscardThenDrawCount: 1,
+      ...(hasLandDiscardRider ? { optionalDiscardThenDrawCountIfDiscardedLand: 1 } : null),
     } as any);
     debug(2, `[executeTriggerEffect] Queued optional discard-then-draw choice for ${sourceName}`);
+    return;
+  }
+
+  const sacrificeAnotherPermanentForBenefitMatch = String(desc || '').trim().match(
+    /^you may sacrifice another permanent\. if you do, you gain (a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+) life and draw a card\.?$/i
+  );
+  if (sacrificeAnotherPermanentForBenefitMatch) {
+    const lifeGain = parseNumberWord(sacrificeAnotherPermanentForBenefitMatch[1], 1);
+    const sourcePermanentId = String(
+      triggerItem?.source || triggerItem?.permanentId || triggerItem?.sourceId || triggerItem?.sourcePermanentId || ''
+    ).trim() || undefined;
+    queueResolveTopOfStackPrompt(ctx, {
+      type: ResolutionStepType.OPTION_CHOICE,
+      playerId: controller as any,
+      description: `${sourceName}: You may sacrifice another permanent. If you do, you gain ${lifeGain} life and draw a card.`,
+      mandatory: true,
+      sourceId: sourcePermanentId,
+      sourceName,
+      options: [
+        { id: 'sac', label: 'Sacrifice a permanent' },
+        { id: 'dont', label: "Don't sacrifice" },
+      ],
+      minSelections: 1,
+      maxSelections: 1,
+      sacrificeAnotherPermanentForBenefitChoice: true,
+      sacrificeAnotherPermanentForBenefitStage: 'ask',
+      sacrificeAnotherPermanentForBenefitController: controller,
+      sacrificeAnotherPermanentForBenefitSourceName: sourceName,
+      sacrificeAnotherPermanentForBenefitSourcePermanentId: sourcePermanentId,
+      sacrificeAnotherPermanentForBenefitLifeGain: lifeGain,
+      sacrificeAnotherPermanentForBenefitDrawCount: 1,
+    } as any);
+    debug(2, `[executeTriggerEffect] Queued sacrifice-another-permanent benefit choice for ${sourceName}`);
     return;
   }
 
@@ -16550,6 +16696,11 @@ export function resolveTopOfStack(ctx: GameContext) {
 
     if (maybeQueueReflexiveDiscardWhenYouDo(ctx, item, triggerController as PlayerID, sourceName, sourceId, effectText || trimmedDescription)) {
       debug(2, `[resolveTopOfStack] Deferred reflexive discard trigger for ${sourceName} (${triggerController})`);
+      return;
+    }
+
+    if (maybeQueueReflexiveConvertWhenYouDo(ctx, item, triggerController as PlayerID, sourceName, sourceId, effectText || trimmedDescription)) {
+      debug(2, `[resolveTopOfStack] Deferred reflexive convert trigger for ${sourceName} (${triggerController})`);
       return;
     }
 
