@@ -3438,6 +3438,54 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
         break;
       }
 
+      case "reflexiveFixedPaymentResolve": {
+        try {
+          const replayGameId = String((ctx as any).gameId || '').trim();
+          const playerId = String((e as any).playerId || '').trim();
+          const sourceId = String((e as any).sourceId || '').trim();
+          const resolvedStepId = String((e as any).resolvedStepId || '').trim();
+          const paid = (e as any).paid === true;
+          const manaCost = String((e as any).manaCost || '').trim();
+          const lifeAmount = Math.max(0, Math.floor(Number((e as any).lifeAmount || 0)));
+
+          if (paid && playerId) {
+            if (manaCost) {
+              const pool = getOrInitManaPool(ctx.state as any, playerId) as any;
+              const resolved = resolveManaCostForPoolPayment(pool, manaCost);
+              if (resolved.ok) {
+                consumeManaFromPool(pool as any, resolved.coloredCost, resolved.genericCost, `[replay:reflexiveFixedPayment:${manaCost}]`);
+              }
+            }
+
+            if (lifeAmount > 0) {
+              applyRecordedLifePayment(ctx, playerId, lifeAmount);
+            }
+          }
+
+          if (replayGameId) {
+            clearReplayQueuedSteps(replayGameId, (step: any) => {
+              if (!step) return false;
+              const stepId = String((step as any)?.id || '').trim();
+              if (resolvedStepId && stepId === resolvedStepId) {
+                return true;
+              }
+
+              return (
+                String((step as any)?.type || '') === String(ResolutionStepType.OPTION_CHOICE) &&
+                (step as any)?.reflexiveFixedPaymentChoice === true &&
+                sourceId.length > 0 &&
+                String((step as any)?.sourceId || '').trim() === sourceId
+              );
+            });
+          }
+
+          ctx.bumpSeq();
+        } catch (err) {
+          debugWarn(1, 'applyEvent(reflexiveFixedPaymentResolve): failed', err);
+        }
+        break;
+      }
+
       case "castFromExilePromptResolve": {
         try {
           const replayGameId = String((ctx as any).gameId || '').trim();

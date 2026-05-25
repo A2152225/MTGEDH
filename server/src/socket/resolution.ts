@@ -130,7 +130,7 @@ import { buildTapTriggeredStackItem, getTapTriggers, queueBecomesUntappedTrigger
 import { serializeAbilityActivatedTriggeredStackItem, triggerAbilityActivatedTriggers } from "../state/modules/triggers/ability-activated.js";
 import { clearMayCallback, clearMayCallbacks, consumeMayCallback, queueMayAbilityStep } from './may-ability-prompts.js';
 import { consumeOptionalPaymentCallback, getOptionalPaymentValidationFailure, isOptionalPaymentPayChoice, isOptionalPaymentPromptStep, queueOptionalPaymentStep, queueShockLandPaymentStep } from './optional-payment-prompts.js';
-import { consumeReflexiveManaAmountFromPool, formatReflexiveManaAmount, getAvailableReflexiveManaAmountFromPool, materializeReflexiveFollowupText, parseReflexivePaymentChoiceAmount } from '../state/modules/reflexive-triggers.js';
+import { consumeReflexiveManaAmountFromPool, formatReflexiveFixedPaymentLabel, formatReflexiveManaAmount, getAvailableReflexiveManaAmountFromPool, materializeReflexiveFollowupText, materializeReflexiveSourceText, parseReflexivePaymentChoiceAmount, permanentMatchesReflexiveSacrificeType } from '../state/modules/reflexive-triggers.js';
 import { flushPendingDamageTriggersAfterStepAdvance } from "./step-advance.js";
 import { lookupLocalCardByNameSync } from "../services/localCardLookup.js";
 import { getDominantCreatureType } from "./creature-type.js";
@@ -5696,6 +5696,28 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
               : `Insufficient mana. Available: ${available}, requested: ${amount}.`,
           });
           return;
+        }
+      }
+
+      if (stepAny?.reflexiveFixedPaymentChoice === true && String(choiceId || '').toLowerCase() === 'pay') {
+        const controllerId = String(stepAny?.reflexiveFixedPaymentController || pid);
+        const manaCost = String(stepAny?.reflexiveFixedPaymentManaCost || '').trim();
+        const lifeAmount = Math.max(0, Math.floor(Number(stepAny?.reflexiveFixedPaymentLifeAmount || 0)));
+        if (manaCost) {
+          const validationError = await validateManaCostPayable(controllerId, manaCost);
+          if (validationError) {
+            socket.emit('error', { code: 'INSUFFICIENT_MANA', message: validationError });
+            return;
+          }
+        }
+        if (lifeAmount > 0) {
+          const startingLife = Number((game.state as any)?.startingLife ?? 40);
+          const currentLife = Number((game.state as any)?.life?.[controllerId] ?? startingLife);
+          const lifeValidationError = validateLifePayment(currentLife, lifeAmount, String(stepAny?.sourceName || stepAny?.reflexiveFixedPaymentSourceName || 'Ability'));
+          if (lifeValidationError) {
+            socket.emit('error', { code: 'INSUFFICIENT_LIFE', message: lifeValidationError });
+            return;
+          }
         }
       }
 
@@ -26591,6 +26613,167 @@ async function handleOptionChoiceResponse(
     return;
   }
 
+  if (stepData?.reflexiveFixedPaymentChoice === true) {
+    const choiceId = extractId(selectedOption) || (response.cancelled ? 'decline' : null) || 'decline';
+    const normalizedChoiceId = String(choiceId || '').toLowerCase();
+    const controllerId = String(stepData?.reflexiveFixedPaymentController || playerId);
+    const sourceName = String(stepData?.reflexiveFixedPaymentSourceName || step.sourceName || 'Ability');
+    const sourcePermanentId = String(stepData?.reflexiveFixedPaymentSourcePermanentId || step.sourceId || '').trim();
+    const manaCost = String(stepData?.reflexiveFixedPaymentManaCost || '').trim();
+    const lifeAmount = Math.max(0, Math.floor(Number(stepData?.reflexiveFixedPaymentLifeAmount || 0)));
+    const paymentText = String(stepData?.reflexiveFixedPaymentText || '').trim();
+    const followupText = String(stepData?.reflexiveFixedPaymentFollowupText || '').trim();
+    const resolvedStepId = String((step as any)?.id || '').trim();
+    const paymentLabel = formatReflexiveFixedPaymentLabel({ paymentText, manaCost, lifeAmount });
+
+    if (response.cancelled || normalizedChoiceId === 'decline' || normalizedChoiceId === 'dont' || normalizedChoiceId === 'no') {
+      try {
+        await appendEvent(gameId, (game as any).seq ?? 0, 'reflexiveFixedPaymentResolve', {
+          playerId: controllerId,
+          sourceId: sourcePermanentId || undefined,
+          sourceName,
+          resolvedStepId: resolvedStepId || undefined,
+          choiceId,
+          paid: false,
+          manaCost: manaCost || undefined,
+          lifeAmount: lifeAmount || undefined,
+          paymentText: paymentText || undefined,
+          followupText: followupText || undefined,
+        });
+      } catch (err) {
+        debugWarn(1, '[Resolution] appendEvent(reflexiveFixedPaymentResolve decline) failed:', err);
+      }
+
+      io.to(gameId).emit('chat', {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: 'system',
+        message: `${sourceName}: ${getPlayerName(game, controllerId)} declined to pay.`,
+        ts: Date.now(),
+      });
+
+      if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
+      broadcastGame(io, game, gameId);
+      return;
+    }
+
+    if (normalizedChoiceId !== 'pay') {
+      emitToPlayer(io, controllerId as any, 'error', {
+        code: 'INVALID_CHOICE',
+        message: 'Invalid fixed payment choice.',
+      });
+      return;
+    }
+
+    if (manaCost) {
+      const pool = getOrInitManaPool(game.state, controllerId) as any;
+      const payment = validateAndConsumeManaCostFromPool(pool, manaCost, { logPrefix: `[reflexiveFixedPayment:${sourceName}]` });
+      if (!payment.ok) {
+        const paymentError = String(Reflect.get(payment as object, 'error') || 'Insufficient mana.');
+        emitToPlayer(io, controllerId as any, 'error', {
+          code: 'INSUFFICIENT_MANA',
+          message: paymentError,
+        });
+        return;
+      }
+      broadcastManaPoolUpdate(io, gameId, controllerId, pool as any, `Paid ${manaCost} for ${sourceName}`, game);
+    }
+
+    if (lifeAmount > 0) {
+      const startingLife = Number((game.state as any)?.startingLife ?? 40);
+      const currentLife = Number((game.state as any)?.life?.[controllerId] ?? startingLife);
+      const lifeValidationError = validateLifePayment(currentLife, lifeAmount, sourceName);
+      if (lifeValidationError) {
+        emitToPlayer(io, controllerId as any, 'error', { code: 'INSUFFICIENT_LIFE', message: lifeValidationError });
+        return;
+      }
+
+      (game.state as any).life = (game.state as any).life || {};
+      const newLife = currentLife - lifeAmount;
+      (game.state as any).life[controllerId] = newLife;
+      const playerObj = ((game.state as any).players || []).find((entry: any) => String(entry?.id || '') === controllerId);
+      if (playerObj) playerObj.life = newLife;
+      (game.state as any).lifeLostThisTurn = (game.state as any).lifeLostThisTurn || {};
+      (game.state as any).lifeLostThisTurn[controllerId] = Number((game.state as any).lifeLostThisTurn[controllerId] || 0) + lifeAmount;
+      queueLifePaymentTriggers(game as any, controllerId, lifeAmount, { sourceId: sourcePermanentId || undefined, sourceName });
+    }
+
+    const effectText = materializeReflexiveSourceText(followupText, sourceName);
+    const triggerId = uid('trigger');
+    const targetMetadata = inferFollowupTargetMetadata(game, controllerId, sourceName, sourcePermanentId || undefined, effectText);
+    const effectData = {
+      paidManaCost: manaCost || undefined,
+      paidLifeAmount: lifeAmount || undefined,
+      paymentText: paymentText || paymentLabel,
+    };
+    const stackItem: any = {
+      id: triggerId,
+      type: 'triggered_ability',
+      controller: controllerId,
+      source: sourcePermanentId || null,
+      ...(sourcePermanentId ? { permanentId: sourcePermanentId } : null),
+      sourceName,
+      description: effectText,
+      effect: effectText,
+      triggerType: 'reflexive_fixed_payment',
+      mandatory: true,
+      ...targetMetadata,
+      effectData,
+    };
+
+    game.state.stack = Array.isArray(game.state.stack) ? game.state.stack : [];
+    game.state.stack.push(stackItem);
+
+    try {
+      await appendEvent(gameId, (game as any).seq ?? 0, 'reflexiveFixedPaymentResolve', {
+        playerId: controllerId,
+        sourceId: sourcePermanentId || undefined,
+        sourceName,
+        resolvedStepId: resolvedStepId || undefined,
+        choiceId,
+        paid: true,
+        manaCost: manaCost || undefined,
+        lifeAmount: lifeAmount || undefined,
+        paymentText: paymentText || undefined,
+        followupText,
+        effect: effectText,
+        triggerId,
+      });
+    } catch (err) {
+      debugWarn(1, '[Resolution] appendEvent(reflexiveFixedPaymentResolve) failed:', err);
+    }
+
+    try {
+      await appendEvent(gameId, (game as any).seq ?? 0, 'pushTriggeredAbility', {
+        triggerId,
+        sourceId: sourcePermanentId || null,
+        ...(sourcePermanentId ? { permanentId: sourcePermanentId } : null),
+        sourceName,
+        controllerId,
+        description: effectText,
+        effect: effectText,
+        triggerType: 'reflexive_fixed_payment',
+        mandatory: true,
+        ...targetMetadata,
+        effectData,
+      });
+    } catch (err) {
+      debugWarn(1, '[Resolution] appendEvent(pushTriggeredAbility reflexive fixed payment) failed:', err);
+    }
+
+    io.to(gameId).emit('chat', {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: 'system',
+      message: `${sourceName}: ${getPlayerName(game, controllerId)} paid ${paymentLabel}.`,
+      ts: Date.now(),
+    });
+
+    if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
+    broadcastGame(io, game, gameId);
+    return;
+  }
+
   if (isOptionalPaymentPromptStep(stepData)) {
     const choiceId = extractId(selectedOption);
     const callbackId = String(stepData?.pendingOptionalPaymentCallbackId || '').trim();
@@ -28710,10 +28893,8 @@ async function handleOptionChoiceResponse(
       }
 
       const battlefield = game.state?.battlefield || [];
-      const subtypeLower = subtype.toLowerCase();
-      const validVamps = battlefield
-        .filter((p: any) => p && p.controller === controllerId)
-        .filter((p: any) => String(p.card?.type_line || '').toLowerCase().includes(subtypeLower))
+      const validSacrifices = battlefield
+        .filter((p: any) => permanentMatchesReflexiveSacrificeType(p, controllerId, subtype, sourcePermanentId))
         .map((p: any) => ({
           id: p.id,
           label: p.card?.name || 'Permanent',
@@ -28721,7 +28902,7 @@ async function handleOptionChoiceResponse(
           imageUrl: p.card?.image_uris?.small || p.card?.image_uris?.normal,
         }));
 
-      if (validVamps.length === 0) {
+      if (validSacrifices.length === 0) {
         io.to(gameId).emit('chat', {
           id: `m_${Date.now()}`,
           gameId,
@@ -28740,7 +28921,7 @@ async function handleOptionChoiceResponse(
         mandatory: true,
         sourceId: sourcePermanentId,
         sourceName,
-        validTargets: validVamps,
+        validTargets: validSacrifices,
         targetTypes: ['sacrifice_target'],
         minTargets: 1,
         maxTargets: 1,

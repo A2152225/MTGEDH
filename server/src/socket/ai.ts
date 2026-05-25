@@ -2270,6 +2270,51 @@ function chooseAIReflexiveManaPaymentSelection(
   return { selections: [payableOptions[0].id], cancelled: false };
 }
 
+function chooseAIReflexiveFixedPaymentSelection(
+  game: any,
+  playerId: PlayerID,
+  step: any,
+  options: any[],
+  resolveOptionId: (option: any) => string,
+): { selections: string[]; cancelled: boolean } {
+  const optionIds = options.map(resolveOptionId).filter(Boolean);
+  const payId = optionIds.find((id) => /^pay$/i.test(id)) || 'pay';
+  const declineId = optionIds.find((id) => /^decline$/i.test(id))
+    || optionIds.find((id) => /^(?:no|cancel)$/i.test(id))
+    || 'decline';
+
+  const manaCost = String(step?.reflexiveFixedPaymentManaCost || '').trim();
+  if (manaCost) {
+    try {
+      const pool = getOrInitManaPool(game.state, String(playerId)) as any;
+      const parsedCost = parseManaCost(manaCost);
+      if (!canPayManaCost(pool, parsedCost)) {
+        return { selections: [declineId], cancelled: true };
+      }
+    } catch {
+      return { selections: [declineId], cancelled: true };
+    }
+  }
+
+  const lifeAmount = Math.max(0, Math.floor(Number(step?.reflexiveFixedPaymentLifeAmount || 0)));
+  if (lifeAmount > 0) {
+    const startingLife = Number(game?.state?.startingLife ?? 40);
+    const currentLife = Number(game?.state?.life?.[playerId] ?? startingLife);
+    if (!Number.isFinite(currentLife) || currentLife < lifeAmount || currentLife - lifeAmount <= 3) {
+      return { selections: [declineId], cancelled: true };
+    }
+  }
+
+  const followupText = `${String(step?.reflexiveFixedPaymentFollowupText || '')} ${String(step?.reflexiveFixedPaymentOriginalEffect || '')} ${String(step?.description || '')}`.toLowerCase();
+  const looksBeneficial = /(damage|destroy|exile|counter|draw|create|gain|return|put .*counter|each opponent|target opponent|any target)/i.test(followupText);
+  const looksSelfPunishing = /(you lose|you discard|you sacrifice|you mill|damage to you)/i.test(followupText);
+  if (!looksBeneficial || looksSelfPunishing) {
+    return { selections: [declineId], cancelled: true };
+  }
+
+  return { selections: [payId], cancelled: false };
+}
+
 function getPermanentKeywordSet(permanent: any): Set<string> {
   const keywords = new Set<string>();
 
@@ -2511,6 +2556,10 @@ export function chooseAIOptionSelectionsForStep(
 
   if (step?.reflexiveManaPaymentChoice === true) {
     return chooseAIReflexiveManaPaymentSelection(game, playerId, step, options, resolveOptionId);
+  }
+
+  if (step?.reflexiveFixedPaymentChoice === true) {
+    return chooseAIReflexiveFixedPaymentSelection(game, playerId, step, options, resolveOptionId);
   }
 
   if (step?.mayAbilityPrompt === true) {

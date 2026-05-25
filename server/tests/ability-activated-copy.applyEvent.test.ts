@@ -77,6 +77,86 @@ describe('ability-activated copy retarget metadata via applyEvent', () => {
     ResolutionQueueManager.removeQueue(gameId);
   });
 
+  it('replay reflexiveFixedPaymentResolve consumes recorded mana and life and restores the follow-up once', () => {
+    const gameId = 'test_reflexive_fixed_payment_apply_event';
+    ResolutionQueueManager.removeQueue(gameId);
+    const queuedStep = ResolutionQueueManager.addStep(gameId, {
+      type: 'option_choice' as any,
+      playerId: 'p1' as any,
+      sourceId: 'fixed_payment_source_1',
+      sourceName: 'Fixed Payment Source',
+      description: 'Fixed Payment Source: You may pay {B} and 2 life.',
+      mandatory: false,
+      options: [{ id: 'pay', label: 'Pay {B} and 2 life' }, { id: 'decline', label: 'Decline' }],
+      minSelections: 1,
+      maxSelections: 1,
+      reflexiveFixedPaymentChoice: true,
+      reflexiveFixedPaymentManaCost: '{B}',
+      reflexiveFixedPaymentLifeAmount: 2,
+    } as any);
+    const ctx: any = {
+      gameId,
+      state: {
+        players: [{ id: 'p1', life: 40 }],
+        life: { p1: 40 },
+        lifeLostThisTurn: {},
+        battlefield: [],
+        stack: [],
+        manaPool: {
+          p1: { white: 0, blue: 0, black: 1, red: 0, green: 0, colorless: 0 },
+        },
+      },
+      bumpSeq() {},
+    };
+
+    applyEvent(ctx, {
+      type: 'reflexiveFixedPaymentResolve',
+      playerId: 'p1',
+      sourceId: 'fixed_payment_source_1',
+      resolvedStepId: queuedStep.id,
+      paid: true,
+      manaCost: '{B}',
+      lifeAmount: 2,
+    } as any);
+
+    expect(ctx.state.manaPool.p1.black).toBe(0);
+    expect(ctx.state.life.p1).toBe(38);
+    expect(ctx.state.players[0].life).toBe(38);
+    expect(ctx.state.lifeLostThisTurn.p1).toBe(2);
+    expect(ResolutionQueueManager.getQueue(gameId).steps).toEqual([]);
+    expect(ctx.state.stack).toHaveLength(0);
+
+    const pushPayload = {
+      type: 'pushTriggeredAbility',
+      triggerId: 'trigger_fixed_payment_1',
+      sourceId: 'fixed_payment_source_1',
+      sourceName: 'Fixed Payment Source',
+      controllerId: 'p1',
+      description: 'destroy target creature or planeswalker.',
+      effect: 'destroy target creature or planeswalker.',
+      triggerType: 'reflexive_fixed_payment',
+      mandatory: true,
+      requiresTarget: true,
+      targetType: 'creature or planeswalker',
+      effectData: { paidManaCost: '{B}', paidLifeAmount: 2 },
+    } as any;
+
+    applyEvent(ctx, pushPayload);
+    applyEvent(ctx, pushPayload);
+
+    expect(ctx.state.stack).toHaveLength(1);
+    expect(ctx.state.stack[0]).toMatchObject({
+      id: 'trigger_fixed_payment_1',
+      sourceName: 'Fixed Payment Source',
+      triggerType: 'reflexive_fixed_payment',
+      requiresTarget: true,
+      targetType: 'creature or planeswalker',
+      effectData: { paidManaCost: '{B}', paidLifeAmount: 2 },
+    });
+
+    ResolutionQueueManager.removeQueue(gameId);
+  });
+
   it('replay pushTriggeredAbility preserves ability-activated trigger metadata', () => {
     const ctx: any = {
       state: {

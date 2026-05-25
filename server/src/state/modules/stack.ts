@@ -58,8 +58,8 @@ import { listLocalCardNamesForChoiceSyncIfReady, parseCardNameChoiceCriteriaFrom
 import { detectETBTappedPattern, evaluateConditionalLandETB, getLandSubtypes } from "../../socket/land-helpers.js";
 import { queueMayAbilityStep } from '../../socket/may-ability-prompts.js';
 import { queueOptionalPaymentStep } from '../../socket/optional-payment-prompts.js';
-import { broadcastGame, consumeManaFromPool, getEffectivePower, getOrInitManaPool, parseManaCost } from '../../socket/util.js';
-import { buildReflexivePaymentAmountOptions, getAvailableReflexiveManaAmountFromPool, parseReflexiveAnyAmountManaPayment } from './reflexive-triggers.js';
+import { broadcastGame, consumeManaFromPool, getEffectivePower, getOrInitManaPool, parseManaCost, resolveManaCostForPoolPayment } from '../../socket/util.js';
+import { buildReflexivePaymentAmountOptions, formatReflexiveFixedPaymentLabel, formatReflexiveSacrificeTypeLabel, getAvailableReflexiveManaAmountFromPool, materializeReflexiveSourceText, parseReflexiveAnyAmountManaPayment, parseReflexiveFixedPaymentWhenYouDo, parseReflexiveSacrificeWhenYouDo, permanentMatchesReflexiveSacrificeType } from './reflexive-triggers.js';
 import { getSavedMayAbilityTriggerDecision, getSavedTriggerShortcutPreference } from "../../socket/trigger-shortcuts.js";
 import { ResolutionQueueManager, ResolutionStepType, type CreateResolutionStepConfig } from "../resolution/index.js";
 import type { ChoiceOption } from "../../../../rules-engine/src/choiceEvents.js";
@@ -3738,6 +3738,151 @@ function maybeQueueReflexiveAnyAmountManaPayment(
   } as any);
 
   debug(2, `[resolveTopOfStack] Deferred reflexive any-amount payment trigger for ${sourceName} (${triggerController})`);
+  return true;
+}
+
+function maybeQueueReflexiveFixedPaymentWhenYouDo(
+  ctx: GameContext,
+  item: any,
+  triggerController: PlayerID,
+  sourceName: string,
+  sourceId: string,
+  description: string,
+): boolean {
+  const parsed = parseReflexiveFixedPaymentWhenYouDo(description);
+  if (!parsed) return false;
+
+  if ((ctx as any).isReplaying) {
+    debug(2, `[resolveTopOfStack] Reflexive fixed payment for ${sourceName}: skipping prompt discovery during replay`);
+    return true;
+  }
+
+  const lifeAmount = Math.max(0, Math.floor(Number(parsed.lifeAmount || 0)));
+  if (lifeAmount > 0) {
+    const startingLife = Number((ctx as any)?.state?.startingLife ?? 40);
+    const currentLife = Number((ctx as any)?.state?.life?.[triggerController] ?? startingLife);
+    if (!Number.isFinite(currentLife) || currentLife < lifeAmount) {
+      debug(2, `[resolveTopOfStack] Reflexive fixed payment for ${sourceName}: insufficient life for ${lifeAmount}`);
+      return true;
+    }
+  }
+
+  if (parsed.manaCost) {
+    const pool = getOrInitManaPool((ctx as any).state as any, triggerController) as any;
+    const resolved = resolveManaCostForPoolPayment(pool, parsed.manaCost);
+    if (!resolved.ok) {
+      debug(2, `[resolveTopOfStack] Reflexive fixed payment for ${sourceName}: ${(resolved as any).error || 'insufficient mana'}`);
+      return true;
+    }
+  }
+
+  const sourcePermanentId = String((item as any).source || (item as any).permanentId || '').trim();
+  const promptSourceId = sourcePermanentId || String(sourceId || '').trim();
+  const triggerStackItemId = String((item as any).id || sourceId || '').trim();
+  const paymentLabel = formatReflexiveFixedPaymentLabel(parsed);
+  const followupDescription = materializeReflexiveSourceText(parsed.followupText, sourceName);
+
+  queueResolveTopOfStackPrompt(ctx, {
+    type: ResolutionStepType.OPTION_CHOICE,
+    playerId: triggerController as PlayerID,
+    sourceId: promptSourceId || undefined,
+    sourceName,
+    sourceImage: (item as any)?.card?.image_uris?.small || (item as any)?.card?.image_uris?.normal,
+    description: `${sourceName}: You may pay ${paymentLabel}.`,
+    mandatory: false,
+    options: [
+      {
+        id: 'pay',
+        label: `Pay ${paymentLabel}`,
+        description: followupDescription,
+      },
+      {
+        id: 'decline',
+        label: 'Decline',
+        description: 'Do not pay the optional cost.',
+      },
+    ],
+    minSelections: 1,
+    maxSelections: 1,
+    reflexiveFixedPaymentChoice: true,
+    reflexiveFixedPaymentManaCost: parsed.manaCost,
+    reflexiveFixedPaymentLifeAmount: lifeAmount || undefined,
+    reflexiveFixedPaymentText: parsed.paymentText,
+    reflexiveFixedPaymentFollowupText: parsed.followupText,
+    reflexiveFixedPaymentOriginalEffect: description,
+    reflexiveFixedPaymentController: String(triggerController),
+    reflexiveFixedPaymentSourceName: sourceName,
+    reflexiveFixedPaymentSourcePermanentId: sourcePermanentId || undefined,
+    reflexiveFixedPaymentTriggerStackItemId: triggerStackItemId || undefined,
+  } as any);
+
+  debug(2, `[resolveTopOfStack] Deferred reflexive fixed payment trigger for ${sourceName} (${triggerController})`);
+  return true;
+}
+
+function maybeQueueReflexiveSacrificeWhenYouDo(
+  ctx: GameContext,
+  item: any,
+  triggerController: PlayerID,
+  sourceName: string,
+  sourceId: string,
+  description: string,
+): boolean {
+  const parsed = parseReflexiveSacrificeWhenYouDo(description);
+  if (!parsed) return false;
+
+  if ((ctx as any).isReplaying) {
+    debug(2, `[resolveTopOfStack] Reflexive sacrifice trigger for ${sourceName}: skipping prompt discovery during replay`);
+    return true;
+  }
+
+  const sourcePermanentId = String((item as any).source || (item as any).permanentId || '').trim();
+  const promptSourceId = sourcePermanentId || String(sourceId || '').trim();
+  const battlefield = Array.isArray((ctx as any).state?.battlefield) ? (ctx as any).state.battlefield : [];
+  const validSacrifices = battlefield.filter((permanent: any) =>
+    permanentMatchesReflexiveSacrificeType(permanent, String(triggerController), parsed.sacrificeType, sourcePermanentId || undefined)
+  );
+
+  if (validSacrifices.length === 0) {
+    debug(2, `[resolveTopOfStack] Reflexive sacrifice trigger for ${sourceName}: no ${parsed.sacrificeType} available`);
+    return true;
+  }
+
+  const followupDescription = materializeReflexiveSourceText(parsed.followupText, sourceName);
+  const sacrificeLabel = formatReflexiveSacrificeTypeLabel(parsed.sacrificeType);
+
+  queueResolveTopOfStackPrompt(ctx, {
+    type: ResolutionStepType.OPTION_CHOICE,
+    playerId: triggerController as PlayerID,
+    sourceId: promptSourceId || undefined,
+    sourceName,
+    sourceImage: (item as any)?.card?.image_uris?.small || (item as any)?.card?.image_uris?.normal,
+    description: `${sourceName}: You may sacrifice ${sacrificeLabel}.`,
+    mandatory: false,
+    options: [
+      {
+        id: 'sacrifice',
+        label: `Sacrifice ${sacrificeLabel}`,
+        description: followupDescription,
+      },
+      {
+        id: 'decline',
+        label: 'Decline',
+        description: 'Do not sacrifice anything.',
+      },
+    ],
+    minSelections: 1,
+    maxSelections: 1,
+    sacrificeWhenYouDo: true,
+    sacrificeWhenYouDoStage: 'ask',
+    sacrificeWhenYouDoSubtype: parsed.sacrificeType,
+    sacrificeWhenYouDoController: String(triggerController),
+    sacrificeWhenYouDoSourceName: sourceName,
+    sacrificeWhenYouDoSourcePermanentId: sourcePermanentId || undefined,
+    sacrificeWhenYouDoFollowupDescription: followupDescription,
+  } as any);
+
+  debug(2, `[resolveTopOfStack] Deferred reflexive sacrifice trigger for ${sourceName} (${triggerController})`);
   return true;
 }
 
@@ -15908,6 +16053,16 @@ export function resolveTopOfStack(ctx: GameContext) {
 
     if (maybeQueueReflexiveAnyAmountManaPayment(ctx, item, triggerController as PlayerID, sourceName, sourceId, effectText || trimmedDescription)) {
       debug(2, `[resolveTopOfStack] Deferred reflexive mana payment trigger for ${sourceName} (${triggerController})`);
+      return;
+    }
+
+    if (maybeQueueReflexiveFixedPaymentWhenYouDo(ctx, item, triggerController as PlayerID, sourceName, sourceId, effectText || trimmedDescription)) {
+      debug(2, `[resolveTopOfStack] Deferred reflexive fixed payment trigger for ${sourceName} (${triggerController})`);
+      return;
+    }
+
+    if (maybeQueueReflexiveSacrificeWhenYouDo(ctx, item, triggerController as PlayerID, sourceName, sourceId, effectText || trimmedDescription)) {
+      debug(2, `[resolveTopOfStack] Deferred reflexive sacrifice trigger for ${sourceName} (${triggerController})`);
       return;
     }
 

@@ -2680,4 +2680,147 @@ describe('Death trigger graveyard returns (integration)', () => {
     const opponent = (game.state as any).players.find((player: any) => player.id === opponentId);
     expect(opponent.life).toBe(37);
   });
+
+  it('queues a fixed reflexive mana and life payment and targets the follow-up trigger', async () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const controllerId = 'p1';
+    const opponentId = 'p2';
+    const eventsBefore = getEvents(gameId).length;
+    (game.state as any).players = [
+      { id: controllerId, name: 'P1', spectator: false, life: 40 },
+      { id: opponentId, name: 'P2', spectator: false, life: 40 },
+    ];
+    (game.state as any).turnPlayer = controllerId;
+    (game.state as any).priority = controllerId;
+    (game.state as any).life = { [controllerId]: 40, [opponentId]: 40 };
+    (game.state as any).lifeLostThisTurn = {};
+    (game.state as any).manaPool = {
+      [controllerId]: { white: 0, blue: 0, black: 1, red: 0, green: 0, colorless: 0 },
+      [opponentId]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+    };
+    (game.state as any).battlefield = [
+      {
+        id: 'fixed_payment_source_1',
+        controller: controllerId,
+        owner: controllerId,
+        tapped: false,
+        counters: {},
+        card: {
+          id: 'fixed_payment_source_card_1',
+          name: 'Fixed Payment Source',
+          type_line: 'Creature - Cleric',
+          oracle_text: 'When this creature enters, you may pay {B} and 2 life. When you do, destroy target creature or planeswalker.',
+          zone: 'battlefield',
+          power: '2',
+          toughness: '2',
+        },
+      },
+      {
+        id: 'target_creature_1',
+        controller: opponentId,
+        owner: opponentId,
+        tapped: false,
+        counters: {},
+        card: {
+          id: 'target_creature_card_1',
+          name: 'Target Creature',
+          type_line: 'Creature - Test',
+          oracle_text: '',
+          zone: 'battlefield',
+          power: '2',
+          toughness: '2',
+        },
+      },
+    ];
+    (game.state as any).zones = {
+      [controllerId]: {
+        hand: [], handCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0, library: [], libraryCount: 0,
+      },
+      [opponentId]: {
+        hand: [], handCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0, library: [], libraryCount: 0,
+      },
+    };
+    (game.state as any).stack = [
+      {
+        id: 'trigger_fixed_payment_1',
+        type: 'triggered_ability',
+        controller: controllerId,
+        source: 'fixed_payment_source_1',
+        permanentId: 'fixed_payment_source_1',
+        sourceName: 'Fixed Payment Source',
+        description: 'You may pay {B} and 2 life. When you do, destroy target creature or planeswalker.',
+        effect: 'You may pay {B} and 2 life. When you do, destroy target creature or planeswalker.',
+        mandatory: true,
+      },
+    ];
+
+    game.resolveTopOfStack();
+
+    const queue = ResolutionQueueManager.getQueue(gameId);
+    const paymentStep = queue.steps.find((step: any) => step?.reflexiveFixedPaymentChoice === true) as any;
+    expect(paymentStep).toBeDefined();
+    expect(paymentStep).toMatchObject({
+      type: 'option_choice',
+      playerId: controllerId,
+      sourceId: 'fixed_payment_source_1',
+      reflexiveFixedPaymentManaCost: '{B}',
+      reflexiveFixedPaymentLifeAmount: 2,
+      reflexiveFixedPaymentFollowupText: 'destroy target creature or planeswalker.',
+    });
+    expect(paymentStep.options.map((option: any) => option.id)).toEqual(['pay', 'decline']);
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(controllerId, emitted);
+    socket.rooms.add(gameId);
+    const io = createMockIo(emitted, [socket]);
+    registerResolutionHandlers(io as any, socket as any);
+
+    await handlers.submitResolutionResponse({
+      gameId,
+      stepId: paymentStep.id,
+      selections: ['pay'],
+    });
+
+    expect((game.state as any).manaPool[controllerId].black).toBe(0);
+    expect((game.state as any).life[controllerId]).toBe(38);
+    expect(((game.state as any).players || []).find((player: any) => player.id === controllerId)?.life).toBe(38);
+    expect((game.state as any).lifeLostThisTurn[controllerId]).toBe(2);
+
+    const followupTrigger = ((game.state as any).stack || []).find((item: any) => String(item?.triggerType || '') === 'reflexive_fixed_payment');
+    expect(followupTrigger).toMatchObject({
+      sourceName: 'Fixed Payment Source',
+      requiresTarget: true,
+      targetType: 'creature or planeswalker',
+      effectData: { paidManaCost: '{B}', paidLifeAmount: 2 },
+    });
+    expect(String(followupTrigger?.effect || '')).toBe('destroy target creature or planeswalker.');
+
+    const newEvents = getEvents(gameId).slice(eventsBefore);
+    expect(newEvents.map((event: any) => event.type)).toContain('resolveTopOfStackPrompt');
+    expect(newEvents.map((event: any) => event.type)).toContain('reflexiveFixedPaymentResolve');
+    expect(newEvents.map((event: any) => event.type)).toContain('pushTriggeredAbility');
+    expect(newEvents.find((event: any) => event.type === 'reflexiveFixedPaymentResolve')?.payload).toMatchObject({
+      playerId: controllerId,
+      paid: true,
+      manaCost: '{B}',
+      lifeAmount: 2,
+    });
+
+    game.resolveTopOfStack();
+
+    const targetStep = ResolutionQueueManager.getQueue(gameId).steps.find((step: any) => step?.type === 'target_selection') as any;
+    expect(targetStep).toBeDefined();
+    expect(targetStep.validTargets.map((target: any) => String(target.id))).toContain('target_creature_1');
+
+    await handlers.submitResolutionResponse({
+      gameId,
+      stepId: targetStep.id,
+      selections: ['target_creature_1'],
+    });
+
+    expect(((game.state as any).battlefield || []).map((permanent: any) => permanent.id)).toEqual(['fixed_payment_source_1']);
+  });
 });

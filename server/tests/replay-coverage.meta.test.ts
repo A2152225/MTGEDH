@@ -95,6 +95,7 @@ const REPLAY_GUARDED_EVENT_TYPES = new Set([
   'proliferateResolve',
   'removeManaFromPool',
   'removeManaPoolDoesNotEmpty',
+  'reflexiveFixedPaymentResolve',
   'reflexiveManaPaymentResolve',
   'retargetAbilityCopyResolve',
   'retargetSpellCopyResolve',
