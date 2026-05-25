@@ -3551,14 +3551,15 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
         try {
           const replayGameId = String((ctx as any).gameId || '').trim();
           const playerId = String((e as any).playerId || '').trim();
+          const zoneOwnerId = String((e as any).zoneOwnerId || (e as any).targetPlayerId || playerId).trim();
           const sourceId = String((e as any).sourceId || '').trim();
           const resolvedStepId = String((e as any).resolvedStepId || '').trim();
           const cardIds = Array.isArray((e as any).cardIds)
             ? ((e as any).cardIds as any[]).map((value: any) => String(value || '').trim()).filter(Boolean)
             : [];
 
-          if (playerId && cardIds.length > 0) {
-            const playerZones = ensureReplayPlayerZones(ctx.state as any, playerId);
+          if (zoneOwnerId && cardIds.length > 0) {
+            const playerZones = ensureReplayPlayerZones(ctx.state as any, zoneOwnerId);
             const graveyard = Array.isArray(playerZones.graveyard) ? playerZones.graveyard as any[] : [];
             playerZones.graveyard = graveyard;
             playerZones.exile = Array.isArray(playerZones.exile) ? playerZones.exile : [];
@@ -3576,7 +3577,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
             playerZones.graveyardCount = graveyard.length;
             playerZones.exileCount = exile.length;
             if (movedCard) {
-              recordCardLeftGraveyardThisTurn(ctx as any, playerId, movedCard);
+              recordCardLeftGraveyardThisTurn(ctx as any, zoneOwnerId, movedCard);
             }
           }
 
@@ -3589,7 +3590,8 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
               }
 
               return (
-                (step as any)?.reflexiveGraveyardExileWhenYouDo === true &&
+                ((step as any)?.reflexiveGraveyardExileWhenYouDo === true ||
+                  (step as any)?.reflexiveBoundGraveyardSelfExileWhenYouDo === true) &&
                 sourceId.length > 0 &&
                 String((step as any)?.sourceId || '').trim() === sourceId
               );

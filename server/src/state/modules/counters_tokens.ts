@@ -178,8 +178,17 @@ function inferDeathTriggerStackMetadata(effectText: string, dyingPermanent: any,
   const metadata: DeathTriggerStackMetadata = {};
   const underlyingCard = (dyingPermanent as any)?.faceUpCard || dyingPermanent?.card;
   const underlyingTypeLine = String(underlyingCard?.type_line || '');
+  const boundCardId = String(underlyingCard?.id || '').trim();
+  const boundOwnerId = String(dyingPermanent?.owner || dyingPermanent?.controller || '').trim();
   const dyingSubtypeWords = getSubtypeWordsFromTypeLine(underlyingTypeLine);
   applyBattlefieldReturnCharacteristicMetadata(metadata, normalizedEffectText);
+
+  const isBoundSelfExileReflexive = boundCardId && /(?:^|\.\s*then\s+)you\s+may\s+exile\s+(?:it|this card)\.\s*(?:when|if)\s+you\s+do,?/i.test(normalizedEffectText);
+  if (isBoundSelfExileReflexive) {
+    metadata.boundGraveyardCardId = boundCardId;
+    metadata.boundGraveyardOwnerId = boundOwnerId || undefined;
+    return metadata;
+  }
 
   if (lower.includes("if it's a permanent card") || lower.includes("if it is a permanent card")) {
     if (!isPermanentTypeLine(underlyingTypeLine)) {
@@ -322,8 +331,6 @@ function inferDeathTriggerStackMetadata(effectText: string, dyingPermanent: any,
     return metadata;
   }
 
-  const boundCardId = String(underlyingCard?.id || '').trim();
-  const boundOwnerId = String(dyingPermanent?.owner || dyingPermanent?.controller || '').trim();
   if (!boundCardId) {
     return metadata;
   }

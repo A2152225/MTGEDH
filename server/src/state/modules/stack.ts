@@ -59,7 +59,7 @@ import { detectETBTappedPattern, evaluateConditionalLandETB, getLandSubtypes } f
 import { queueMayAbilityStep } from '../../socket/may-ability-prompts.js';
 import { queueOptionalPaymentStep } from '../../socket/optional-payment-prompts.js';
 import { broadcastGame, consumeManaFromPool, getEffectivePower, getOrInitManaPool, parseManaCost, resolveManaCostForPoolPayment } from '../../socket/util.js';
-import { buildReflexivePaymentAmountOptions, cardMatchesReflexiveGraveyardExileType, formatReflexiveFixedPaymentLabel, formatReflexiveGraveyardExileLabel, formatReflexiveSacrificeTypeLabel, getAvailableReflexiveManaAmountFromPool, materializeReflexiveSourceText, parseReflexiveAnyAmountManaPayment, parseReflexiveDiscardWhenYouDo, parseReflexiveFixedPaymentWhenYouDo, parseReflexiveGraveyardExileWhenYouDo, parseReflexiveSacrificeWhenYouDo, permanentMatchesReflexiveSacrificeType } from './reflexive-triggers.js';
+import { buildReflexivePaymentAmountOptions, cardMatchesReflexiveGraveyardExileType, formatReflexiveFixedPaymentLabel, formatReflexiveGraveyardExileLabel, formatReflexiveSacrificeTypeLabel, getAvailableReflexiveManaAmountFromPool, materializeReflexiveSourceText, parseReflexiveAnyAmountManaPayment, parseReflexiveBoundGraveyardSelfExileWhenYouDo, parseReflexiveDiscardWhenYouDo, parseReflexiveFixedPaymentWhenYouDo, parseReflexiveGraveyardExileWhenYouDo, parseReflexiveSacrificeWhenYouDo, permanentMatchesReflexiveSacrificeType } from './reflexive-triggers.js';
 import { getSavedMayAbilityTriggerDecision, getSavedTriggerShortcutPreference } from "../../socket/trigger-shortcuts.js";
 import { ResolutionQueueManager, ResolutionStepType, type CreateResolutionStepConfig } from "../resolution/index.js";
 import type { ChoiceOption } from "../../../../rules-engine/src/choiceEvents.js";
@@ -1732,9 +1732,13 @@ export function inferTriggeredAbilityTargetMetadata(effectText: string, context?
       } else if (/on top of its owner['’]s library/.test(lower)) {
         targetDestination = 'library_top';
         destinationUsesSelectedCardOwner = true;
+      } else if (lower.includes('on top of your library')) {
+        targetDestination = 'library_top';
       } else if (/on the bottom of its owner['’]s library/.test(lower)) {
         targetDestination = 'library_bottom';
         destinationUsesSelectedCardOwner = true;
+      } else if (lower.includes('on the bottom of your library')) {
+        targetDestination = 'library_bottom';
       }
 
       if (lower.includes('any number of target')) {
@@ -1779,6 +1783,8 @@ export function inferTriggeredAbilityTargetMetadata(effectText: string, context?
         if (!Array.isArray(targetFilterRequiredTypeWords) || targetFilterRequiredTypeWords.length === 0) {
           if (/target\s+noncreature\s*,\s*nonland\s+card/.test(lower) || /target\s+nonland\s*,\s*noncreature\s+card/.test(lower)) {
             targetFilterExcludeTypes = ['creature', 'land'];
+          } else if (lower.includes('target creature or battle card')) {
+            targetFilterTypes = ['creature', 'battle'];
           } else if (lower.includes('target instant card')) {
             targetFilterTypes = ['instant'];
           } else if (lower.includes('target sorcery card')) {
@@ -3946,6 +3952,182 @@ function maybeQueueReflexiveDiscardWhenYouDo(
   } as any);
 
   debug(2, `[resolveTopOfStack] Deferred reflexive discard trigger for ${sourceName} (${triggerController})`);
+  return true;
+}
+
+function findBoundReflexiveGraveyardCard(state: any, cardId: string, preferredOwnerId?: string): { card: any; ownerId: string } | null {
+  const zones = state?.zones || {};
+  const ownerIds = preferredOwnerId
+    ? [String(preferredOwnerId)]
+    : Object.keys(zones || {});
+
+  for (const ownerId of ownerIds) {
+    const graveyard = Array.isArray(zones?.[ownerId]?.graveyard) ? zones[ownerId].graveyard : [];
+    const card = graveyard.find((entry: any) => entry && String(entry.id || '') === cardId);
+    if (card) {
+      return { card, ownerId };
+    }
+  }
+
+  if (preferredOwnerId) {
+    for (const ownerId of Object.keys(zones || {})) {
+      if (String(ownerId) === String(preferredOwnerId)) continue;
+      const graveyard = Array.isArray(zones?.[ownerId]?.graveyard) ? zones[ownerId].graveyard : [];
+      const card = graveyard.find((entry: any) => entry && String(entry.id || '') === cardId);
+      if (card) {
+        return { card, ownerId };
+      }
+    }
+  }
+
+  return null;
+}
+
+function executeReflexiveBoundSelfExilePrelude(
+  ctx: GameContext,
+  preludeText: string | undefined,
+  triggerController: PlayerID,
+  sourceName: string,
+  sourcePermanentId: string,
+): boolean {
+  const normalizedPrelude = String(preludeText || '').replace(/\s+/g, ' ').trim();
+  if (!normalizedPrelude) return true;
+
+  const eachPlayerMillsMatch = normalizedPrelude.match(/^each player mills? (?:a card|([a-z]+|\d+) cards?)$/i);
+  if (!eachPlayerMillsMatch) {
+    debug(2, `[resolveTopOfStack] Reflexive bound graveyard exile prelude for ${sourceName} is not automated: ${normalizedPrelude}`);
+    return false;
+  }
+
+  const millCount = eachPlayerMillsMatch[1]
+    ? parseNumberWord(eachPlayerMillsMatch[1], 1)
+    : 1;
+  if (millCount <= 0) return false;
+
+  const stateAny = (ctx as any).state || {};
+  const players = Array.isArray(stateAny.players) ? stateAny.players : [];
+  const playerIds = players
+    .filter((player: any) => player && player.id && player.hasLost !== true)
+    .map((player: any) => String(player.id));
+  const gameId = String((ctx as any).gameId || '').trim();
+
+  for (const playerId of playerIds) {
+    executeSpellEffect(
+      ctx,
+      { kind: 'MillCards', playerId: playerId as PlayerID, count: millCount } as any,
+      triggerController,
+      sourceName,
+      sourcePermanentId || null,
+    );
+
+    if (gameId && gameId !== 'unknown' && !(ctx as any).isReplaying) {
+      try {
+        appendEvent(gameId, Number((ctx as any).seq?.value ?? (ctx as any).seq ?? stateAny.seq ?? 0), 'mill', {
+          playerId,
+          count: millCount,
+          sourceId: sourcePermanentId || undefined,
+          sourceName,
+          reason: 'reflexive_bound_graveyard_self_exile_prelude',
+        });
+      } catch (err) {
+        debugWarn(1, `[resolveTopOfStack] appendEvent(mill prelude) failed for ${sourceName}:`, err);
+      }
+    }
+  }
+
+  return true;
+}
+
+function maybeQueueReflexiveBoundGraveyardSelfExileWhenYouDo(
+  ctx: GameContext,
+  item: any,
+  triggerController: PlayerID,
+  sourceName: string,
+  sourceId: string,
+  description: string,
+): boolean {
+  const parsed = parseReflexiveBoundGraveyardSelfExileWhenYouDo(description);
+  if (!parsed) return false;
+
+  if ((ctx as any).isReplaying) {
+    debug(2, `[resolveTopOfStack] Reflexive bound graveyard exile trigger for ${sourceName}: skipping prompt discovery during replay`);
+    return true;
+  }
+
+  const sourcePermanentId = String((item as any).source || (item as any).permanentId || '').trim();
+  const dyingCreature = (item as any)?.dyingCreature || null;
+  const boundCardId = String(
+    (item as any)?.boundGraveyardCardId ||
+    dyingCreature?.faceUpCard?.id ||
+    dyingCreature?.card?.id ||
+    '',
+  ).trim();
+  const preferredOwnerId = String(
+    (item as any)?.boundGraveyardOwnerId ||
+    dyingCreature?.owner ||
+    dyingCreature?.controller ||
+    '',
+  ).trim();
+
+  if (!executeReflexiveBoundSelfExilePrelude(ctx, parsed.preludeText, triggerController, sourceName, sourcePermanentId || String(sourceId || '').trim())) {
+    return false;
+  }
+
+  if (!boundCardId) {
+    debug(2, `[resolveTopOfStack] Reflexive bound graveyard exile trigger for ${sourceName}: no bound graveyard card id`);
+    return true;
+  }
+
+  const boundEntry = findBoundReflexiveGraveyardCard((ctx as any).state, boundCardId, preferredOwnerId || undefined);
+  if (!boundEntry) {
+    debug(2, `[resolveTopOfStack] Reflexive bound graveyard exile trigger for ${sourceName}: bound card is not in a graveyard`);
+    return true;
+  }
+
+  const promptSourceId = sourcePermanentId || String(sourceId || '').trim();
+  const followupDescription = materializeReflexiveSourceText(parsed.followupText, sourceName);
+  const boundCardName = String(boundEntry.card?.name || sourceName || 'that card').trim() || 'that card';
+  const sourceSnapshot = (item as any)?.sourcePermanentSnapshot || dyingCreature || null;
+
+  queueResolveTopOfStackPrompt(ctx, {
+    type: ResolutionStepType.OPTION_CHOICE,
+    playerId: triggerController as PlayerID,
+    sourceId: promptSourceId || undefined,
+    sourceName,
+    sourceImage: (item as any)?.card?.image_uris?.small || (item as any)?.card?.image_uris?.normal || boundEntry.card?.image_uris?.small || boundEntry.card?.image_uris?.normal,
+    description: `${sourceName}: You may exile ${boundCardName}.`,
+    mandatory: false,
+    options: [
+      {
+        id: 'exile',
+        label: `Exile ${boundCardName}`,
+        description: followupDescription,
+      },
+      {
+        id: 'decline',
+        label: 'Decline',
+        description: 'Do not exile it.',
+      },
+    ],
+    minSelections: 1,
+    maxSelections: 1,
+    reflexiveBoundGraveyardSelfExileWhenYouDo: true,
+    reflexiveBoundGraveyardSelfExileWhenYouDoStage: 'ask',
+    reflexiveBoundGraveyardSelfExileWhenYouDoController: String(triggerController),
+    reflexiveBoundGraveyardSelfExileWhenYouDoSourceName: sourceName,
+    reflexiveBoundGraveyardSelfExileWhenYouDoSourcePermanentId: sourcePermanentId || undefined,
+    reflexiveBoundGraveyardSelfExileWhenYouDoBoundCardId: boundCardId,
+    reflexiveBoundGraveyardSelfExileWhenYouDoBoundOwnerId: boundEntry.ownerId,
+    reflexiveBoundGraveyardSelfExileWhenYouDoBoundCardName: boundCardName,
+    reflexiveBoundGraveyardSelfExileWhenYouDoFollowupDescription: followupDescription,
+    reflexiveBoundGraveyardSelfExileWhenYouDoFollowupConnector: parsed.followupConnector,
+    reflexiveBoundGraveyardSelfExileWhenYouDoOriginalEffect: description,
+    reflexiveBoundGraveyardSelfExileWhenYouDoSourcePermanentSnapshot: sourceSnapshot && typeof sourceSnapshot === 'object'
+      ? { ...(sourceSnapshot as any), card: sourceSnapshot.card && typeof sourceSnapshot.card === 'object' ? { ...(sourceSnapshot.card as any) } : sourceSnapshot.card }
+      : undefined,
+  } as any);
+
+  debug(2, `[resolveTopOfStack] Deferred reflexive bound graveyard exile trigger for ${sourceName} (${triggerController})`);
   return true;
 }
 
@@ -16204,6 +16386,11 @@ export function resolveTopOfStack(ctx: GameContext) {
 
     if (maybeQueueReflexiveDiscardWhenYouDo(ctx, item, triggerController as PlayerID, sourceName, sourceId, effectText || trimmedDescription)) {
       debug(2, `[resolveTopOfStack] Deferred reflexive discard trigger for ${sourceName} (${triggerController})`);
+      return;
+    }
+
+    if (maybeQueueReflexiveBoundGraveyardSelfExileWhenYouDo(ctx, item, triggerController as PlayerID, sourceName, sourceId, effectText || trimmedDescription)) {
+      debug(2, `[resolveTopOfStack] Deferred reflexive bound graveyard exile trigger for ${sourceName} (${triggerController})`);
       return;
     }
 

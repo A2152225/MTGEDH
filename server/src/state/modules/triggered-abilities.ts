@@ -788,10 +788,6 @@ function collectDeathTriggerEffectText(oracleText: string, match: RegExpMatchArr
     return effect;
   }
 
-  if (!/^you may pay\s+(?:any amount of\s+)?\{[^}]+\}(?:\{[^}]+\})*$/i.test(effect)) {
-    return effect;
-  }
-
   const matchText = String(match?.[0] || '');
   const matchStart = typeof match?.index === 'number'
     ? match.index
@@ -803,9 +799,18 @@ function collectDeathTriggerEffectText(oracleText: string, match: RegExpMatchArr
   const sameLineTail = String(oracleText || '')
     .slice(matchStart + matchText.length)
     .split(/\r?\n/)[0] || '';
-  const continuationMatch = sameLineTail.match(
-    /^\s*\.\s*((?:(?:if|when)\s+you\s+do,?\s+[^.]+\.)(?:\s+(?:if\s+it['’]?s|it['’]?s|then)\b[^.]+\.)*)/i
-  );
+
+  const collectsDirectReflexiveContinuation =
+    /^you may pay\s+(?:any amount of\s+)?\{[^}]+\}(?:\{[^}]+\})*$/i.test(effect) ||
+    /^you may exile (?:it|this card)$/i.test(effect);
+  const collectsThenSelfExileContinuation = /^\s*\.\s*then\s+you\s+may\s+exile\s+this\s+card\.\s*(?:when|if)\s+you\s+do,?/i.test(sameLineTail);
+  if (!collectsDirectReflexiveContinuation && !collectsThenSelfExileContinuation) {
+    return effect;
+  }
+
+  const continuationMatch = collectsThenSelfExileContinuation
+    ? sameLineTail.match(/^\s*\.\s*((?:then\s+you\s+may\s+exile\s+this\s+card\.\s*(?:when|if)\s+you\s+do,?\s+[^.]+\.)(?:\s+(?:if\s+it['’]?s|it['’]?s|then)\b[^.]+\.)*)/i)
+    : sameLineTail.match(/^\s*\.\s*((?:(?:if|when)\s+you\s+do,?\s+[^.]+\.)(?:\s+(?:if\s+it['’]?s|it['’]?s|then)\b[^.]+\.)*)/i);
   const continuation = String(continuationMatch?.[1] || '').trim();
   return continuation ? `${effect}. ${continuation}` : effect;
 }

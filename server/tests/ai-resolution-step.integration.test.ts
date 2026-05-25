@@ -5567,6 +5567,68 @@ describe('AI resolution-step integration', () => {
     expect(completed?.response?.cancelled).toBe(false);
   });
 
+  it('routes bound self-exile-when-you-do ask prompts through AI priority handling and accepts beneficial follow-ups', async () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [
+      { id: playerId, name: 'AI', spectator: false, life: 40 },
+      { id: 'opp1', name: 'Opponent', spectator: false, life: 40 },
+    ];
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).phase = 'main';
+    (game.state as any).step = 'precombat_main';
+    (game.state as any).stack = [];
+    (game.state as any).battlefield = [];
+    (game.state as any).zones = {
+      [playerId]: {
+        hand: [],
+        handCount: 0,
+        library: [],
+        graveyard: [{ id: 'undead_butler_card', name: 'Undead Butler', type_line: 'Creature - Zombie Butler', mana_cost: '{1}{B}', cmc: 2 }],
+        graveyardCount: 1,
+        exile: [],
+      },
+      opp1: { hand: [], handCount: 0, library: [], graveyard: [], exile: [] },
+    };
+
+    registerAIPlayer(gameId, playerId as any);
+
+    const step = ResolutionQueueManager.addStep(gameId, {
+      type: ResolutionStepType.OPTION_CHOICE,
+      playerId: playerId as any,
+      sourceId: 'undead_butler_perm',
+      sourceName: 'Undead Butler',
+      description: 'Undead Butler: You may exile Undead Butler.',
+      mandatory: false,
+      options: [
+        { id: 'exile', label: 'Exile Undead Butler', description: 'return target creature card from your graveyard to your hand.' },
+        { id: 'decline', label: 'Decline', description: 'Do not exile it.' },
+      ],
+      minSelections: 1,
+      maxSelections: 1,
+      reflexiveBoundGraveyardSelfExileWhenYouDo: true,
+      reflexiveBoundGraveyardSelfExileWhenYouDoStage: 'ask',
+      reflexiveBoundGraveyardSelfExileWhenYouDoController: playerId,
+      reflexiveBoundGraveyardSelfExileWhenYouDoSourceName: 'Undead Butler',
+      reflexiveBoundGraveyardSelfExileWhenYouDoBoundCardId: 'undead_butler_card',
+      reflexiveBoundGraveyardSelfExileWhenYouDoBoundOwnerId: playerId,
+      reflexiveBoundGraveyardSelfExileWhenYouDoFollowupDescription: 'return target creature card from your graveyard to your hand.',
+    } as any);
+
+    ResolutionQueueManager.activateStep(gameId, step.id);
+
+    await handleAIPriority(createNoopIo(), gameId, playerId as any);
+
+    const queue = ResolutionQueueManager.getQueue(gameId);
+    expect(queue.steps.some((entry: any) => String(entry.id) === String(step.id))).toBe(false);
+    const completed = queue.completedSteps.find((entry: any) => String(entry.id) === String(step.id));
+    expect(completed?.response?.selections).toEqual(['exile']);
+    expect(completed?.response?.cancelled).toBe(false);
+  });
+
   it('routes fixed reflexive payment prompts through AI priority handling and accepts beneficial follow-ups', async () => {
     createGameIfNotExists(gameId, 'commander', 40);
     const game = ensureGame(gameId);

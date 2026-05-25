@@ -28,6 +28,13 @@ export interface ReflexiveGraveyardExileWhenYouDo {
   followupText: string;
 }
 
+export interface ReflexiveBoundGraveyardSelfExileWhenYouDo {
+  selfReference: 'it' | 'this card';
+  followupConnector: 'when' | 'if';
+  preludeText?: string;
+  followupText: string;
+}
+
 const REFLEXIVE_NUMBER_WORDS: Record<string, number> = {
   a: 1,
   an: 1,
@@ -164,6 +171,26 @@ export function parseReflexiveGraveyardExileWhenYouDo(effectText: string): Refle
   if (exileCount <= 0 || !followupText) return null;
 
   return { exileCount, ...(cardType ? { cardType } : null), followupText };
+}
+
+export function parseReflexiveBoundGraveyardSelfExileWhenYouDo(effectText: string): ReflexiveBoundGraveyardSelfExileWhenYouDo | null {
+  const normalized = String(effectText || '')
+    .replace(/[’]/g, "'")
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!normalized) return null;
+
+  const match = normalized.match(/^(?:(.*?)\.\s*then\s+)?you\s+may\s+exile\s+(it|this\s+card)\.\s*(when|if)\s+you\s+do,?\s*([\s\S]+)$/i);
+  if (!match) return null;
+
+  const preludeText = String(match[1] || '').replace(/\s+/g, ' ').trim();
+  const selfReference = String(match[2] || '').replace(/\s+/g, ' ').trim().toLowerCase() as 'it' | 'this card';
+  const followupConnector = String(match[3] || '').trim().toLowerCase() as 'when' | 'if';
+  const followupText = String(match[4] || '').trim();
+  if ((selfReference !== 'it' && selfReference !== 'this card') || !followupText) return null;
+  if (followupConnector !== 'when' && followupConnector !== 'if') return null;
+
+  return { selfReference, followupConnector, ...(preludeText ? { preludeText } : null), followupText };
 }
 
 export function materializeReflexiveSourceText(followupText: string, sourceName: string): string {

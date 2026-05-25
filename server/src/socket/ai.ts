@@ -2375,6 +2375,35 @@ function chooseAIReflexiveGraveyardExileSelection(
   return { selections: [exileId], cancelled: false };
 }
 
+function chooseAIReflexiveBoundGraveyardSelfExileSelection(
+  game: any,
+  playerId: PlayerID,
+  step: any,
+  options: any[],
+  resolveOptionId: (option: any) => string,
+): { selections: string[]; cancelled: boolean } {
+  const optionIds = options.map(resolveOptionId).filter(Boolean);
+  const exileId = optionIds.find((id) => /^(?:exile|yes|pay)$/i.test(id)) || 'exile';
+  const declineId = optionIds.find((id) => /^decline$/i.test(id))
+    || optionIds.find((id) => /^(?:no|cancel|dont)$/i.test(id))
+    || 'decline';
+  const boundCardId = String(step?.reflexiveBoundGraveyardSelfExileWhenYouDoBoundCardId || '').trim();
+  const boundOwnerId = String(step?.reflexiveBoundGraveyardSelfExileWhenYouDoBoundOwnerId || playerId).trim();
+  const graveyard = Array.isArray(game?.state?.zones?.[boundOwnerId]?.graveyard) ? game.state.zones[boundOwnerId].graveyard : [];
+  if (!boundCardId || !graveyard.some((card: any) => card && String(card.id || '') === boundCardId)) {
+    return { selections: [declineId], cancelled: true };
+  }
+
+  const followupText = String(step?.reflexiveBoundGraveyardSelfExileWhenYouDoFollowupDescription || '').toLowerCase();
+  const looksBeneficial = /(damage|destroy|exile|counter|draw|create|gain|return|can't block|cant block|put .*counter|each opponent|target opponent|any target)/i.test(followupText);
+  const looksSelfPunishing = /(you lose|damage to you|you sacrifice|you discard|you mill)/i.test(followupText);
+  if (!looksBeneficial || looksSelfPunishing) {
+    return { selections: [declineId], cancelled: true };
+  }
+
+  return { selections: [exileId], cancelled: false };
+}
+
 function getPermanentKeywordSet(permanent: any): Set<string> {
   const keywords = new Set<string>();
 
@@ -2628,6 +2657,10 @@ export function chooseAIOptionSelectionsForStep(
 
   if (step?.reflexiveGraveyardExileWhenYouDo === true && String(step?.reflexiveGraveyardExileWhenYouDoStage || '') === 'ask') {
     return chooseAIReflexiveGraveyardExileSelection(game, playerId, step, options, resolveOptionId);
+  }
+
+  if (step?.reflexiveBoundGraveyardSelfExileWhenYouDo === true && String(step?.reflexiveBoundGraveyardSelfExileWhenYouDoStage || '') === 'ask') {
+    return chooseAIReflexiveBoundGraveyardSelfExileSelection(game, playerId, step, options, resolveOptionId);
   }
 
   if (step?.mayAbilityPrompt === true) {

@@ -317,7 +317,7 @@ function serializeTriggeredTargetMetadata(metadata: any): Record<string, any> {
   };
 }
 
-function inferFollowupTargetMetadata(game: any, controllerId: string, sourceName: string, sourcePermanentId: string | undefined, effectText: string): Record<string, any> {
+function inferFollowupTargetMetadata(game: any, controllerId: string, sourceName: string, sourcePermanentId: string | undefined, effectText: string, sourcePermanentSnapshot?: any): Record<string, any> {
   const battlefield = Array.isArray(game?.state?.battlefield) ? game.state.battlefield : [];
   const sourcePermanent = sourcePermanentId
     ? battlefield.find((permanent: any) => String(permanent?.id || '') === String(sourcePermanentId))
@@ -326,7 +326,7 @@ function inferFollowupTargetMetadata(game: any, controllerId: string, sourceName
     gameState: game?.state,
     controllerId,
     sourceName,
-    sourcePermanent,
+    sourcePermanent: sourcePermanent || sourcePermanentSnapshot,
   } as any);
 
   return serializeTriggeredTargetMetadata(metadata);
@@ -28937,6 +28937,152 @@ async function handleOptionChoiceResponse(
         queuedResolutionStep: queuedStep,
       });
 
+      return;
+    }
+
+    return;
+  }
+
+  // ===== GENERIC: "You may exile it. When/If you do, ..." for death-triggered graveyard bindings =====
+  if (stepData?.reflexiveBoundGraveyardSelfExileWhenYouDo === true) {
+    const choiceId = extractId(selectedOption);
+    const stage = String(stepData.reflexiveBoundGraveyardSelfExileWhenYouDoStage || '');
+    const controllerId = String(stepData.reflexiveBoundGraveyardSelfExileWhenYouDoController || playerId);
+    const sourceName = String(stepData.reflexiveBoundGraveyardSelfExileWhenYouDoSourceName || step.sourceName || 'Ability');
+    const sourcePermanentId = String(stepData.reflexiveBoundGraveyardSelfExileWhenYouDoSourcePermanentId || step.sourceId || '').trim();
+    const boundCardId = String(stepData.reflexiveBoundGraveyardSelfExileWhenYouDoBoundCardId || '').trim();
+    const boundOwnerId = String(stepData.reflexiveBoundGraveyardSelfExileWhenYouDoBoundOwnerId || controllerId).trim();
+    const boundCardName = String(stepData.reflexiveBoundGraveyardSelfExileWhenYouDoBoundCardName || 'that card').trim() || 'that card';
+    const followupDescription = String(stepData.reflexiveBoundGraveyardSelfExileWhenYouDoFollowupDescription || '').trim();
+
+    if (stage === 'ask') {
+      if (!choiceId || choiceId === 'decline' || choiceId === 'dont') {
+        io.to(gameId).emit('chat', {
+          id: `m_${Date.now()}`,
+          gameId,
+          from: 'system',
+          message: `${sourceName}: ${getPlayerName(game, controllerId)} chose not to exile ${boundCardName}.`,
+          ts: Date.now(),
+        });
+        if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
+        return;
+      }
+
+      const zones = game.state?.zones || {};
+      const ownerIds = boundOwnerId ? [boundOwnerId, ...Object.keys(zones).filter((ownerId) => String(ownerId) !== boundOwnerId)] : Object.keys(zones);
+      let zoneOwnerId = '';
+      let cardIndex = -1;
+      let graveyard: any[] = [];
+      for (const ownerId of ownerIds) {
+        const candidateGraveyard = Array.isArray(zones?.[ownerId]?.graveyard) ? zones[ownerId].graveyard : [];
+        const candidateIndex = candidateGraveyard.findIndex((card: any) => card && String(card.id || '') === boundCardId);
+        if (candidateIndex !== -1) {
+          zoneOwnerId = String(ownerId);
+          cardIndex = candidateIndex;
+          graveyard = candidateGraveyard;
+          break;
+        }
+      }
+
+      if (!boundCardId || !zoneOwnerId || cardIndex === -1) {
+        io.to(gameId).emit('chat', {
+          id: `m_${Date.now()}`,
+          gameId,
+          from: 'system',
+          message: `${sourceName}: ${boundCardName} is no longer in a graveyard to exile.`,
+          ts: Date.now(),
+        });
+        if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
+        return;
+      }
+
+      const [movedCard] = graveyard.splice(cardIndex, 1);
+      const ownerZones = zones[zoneOwnerId] || (zones[zoneOwnerId] = {});
+      ownerZones.graveyard = graveyard;
+      ownerZones.graveyardCount = graveyard.length;
+      ownerZones.exile = Array.isArray(ownerZones.exile) ? ownerZones.exile : [];
+      ownerZones.exile.push({ ...movedCard, zone: 'exile' });
+      ownerZones.exileCount = ownerZones.exile.length;
+      recordCardLeftGraveyardThisTurn({ state: game.state } as any, zoneOwnerId, movedCard);
+
+      const effectText = materializeReflexiveSourceText(followupDescription, sourceName);
+      const triggerId = uid('trigger');
+      const sourceSnapshot = stepData.reflexiveBoundGraveyardSelfExileWhenYouDoSourcePermanentSnapshot;
+      const targetMetadata = inferFollowupTargetMetadata(game, controllerId, sourceName, sourcePermanentId || undefined, effectText, sourceSnapshot);
+      const effectData = {
+        exiledCardIds: [String(movedCard?.id || boundCardId)],
+        exiledCards: [{ ...(movedCard as any) }],
+        exileCount: 1,
+        boundGraveyardCardId: String(movedCard?.id || boundCardId),
+        boundGraveyardOwnerId: zoneOwnerId,
+      };
+      const stackItem: any = {
+        id: triggerId,
+        type: 'triggered_ability',
+        controller: controllerId,
+        source: sourcePermanentId || null,
+        ...(sourcePermanentId ? { permanentId: sourcePermanentId } : null),
+        sourceName,
+        description: effectText,
+        effect: effectText,
+        triggerType: 'reflexive_graveyard_exile',
+        mandatory: true,
+        ...targetMetadata,
+        effectData,
+        ...(sourceSnapshot && typeof sourceSnapshot === 'object' ? { sourcePermanentSnapshot: sourceSnapshot } : null),
+        ...(sourceSnapshot?.card && typeof sourceSnapshot.card === 'object' ? { card: sourceSnapshot.card } : null),
+      };
+
+      game.state.stack = Array.isArray(game.state.stack) ? game.state.stack : [];
+      game.state.stack.push(stackItem);
+
+      try {
+        appendEvent(gameId, (game as any).seq ?? 0, 'reflexiveGraveyardExileResolve', {
+          playerId: controllerId,
+          zoneOwnerId,
+          sourceId: sourcePermanentId || undefined,
+          sourceName,
+          resolvedStepId: String(step.id || '').trim() || undefined,
+          cardIds: [String(movedCard?.id || boundCardId)],
+          followupText: followupDescription,
+          effect: effectText,
+          triggerId,
+          ...targetMetadata,
+          effectData,
+        });
+      } catch (err) {
+        debugWarn(1, '[Resolution] appendEvent(reflexiveGraveyardExileResolve bound self-exile) failed:', err);
+      }
+
+      try {
+        appendEvent(gameId, (game as any).seq ?? 0, 'pushTriggeredAbility', {
+          triggerId,
+          sourceId: sourcePermanentId || null,
+          ...(sourcePermanentId ? { permanentId: sourcePermanentId } : null),
+          sourceName,
+          controllerId,
+          description: effectText,
+          effect: effectText,
+          triggerType: 'reflexive_graveyard_exile',
+          mandatory: true,
+          ...targetMetadata,
+          effectData,
+          ...(sourceSnapshot && typeof sourceSnapshot === 'object' ? { sourcePermanentSnapshot: sourceSnapshot } : null),
+          ...(sourceSnapshot?.card && typeof sourceSnapshot.card === 'object' ? { card: sourceSnapshot.card } : null),
+        });
+      } catch (err) {
+        debugWarn(1, '[Resolution] appendEvent(pushTriggeredAbility bound reflexive graveyard exile) failed:', err);
+      }
+
+      io.to(gameId).emit('chat', {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: 'system',
+        message: `${sourceName}: ${getPlayerName(game, controllerId)} exiles ${String(movedCard?.name || boundCardName)}.`,
+        ts: Date.now(),
+      });
+
+      if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
       return;
     }
 
