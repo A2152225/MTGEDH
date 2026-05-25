@@ -2315,6 +2315,66 @@ function chooseAIReflexiveFixedPaymentSelection(
   return { selections: [payId], cancelled: false };
 }
 
+function chooseAIReflexiveDiscardSelection(
+  game: any,
+  playerId: PlayerID,
+  step: any,
+  options: any[],
+  resolveOptionId: (option: any) => string,
+): { selections: string[]; cancelled: boolean } {
+  const optionIds = options.map(resolveOptionId).filter(Boolean);
+  const discardId = optionIds.find((id) => /^(?:discard|yes|pay)$/i.test(id)) || 'discard';
+  const declineId = optionIds.find((id) => /^decline$/i.test(id))
+    || optionIds.find((id) => /^(?:no|cancel|dont)$/i.test(id))
+    || 'decline';
+  const discardCount = Math.max(1, Math.floor(Number(step?.reflexiveDiscardWhenYouDoCount || 1)));
+  const hand = getAIHand(game, playerId);
+  if (hand.length < discardCount) {
+    return { selections: [declineId], cancelled: true };
+  }
+
+  const followupText = String(step?.reflexiveDiscardWhenYouDoFollowupDescription || '').toLowerCase();
+  const looksBeneficial = /(damage|destroy|exile|counter|draw|create|gain|return|can't block|cant block|put .*counter|each opponent|target opponent|any target)/i.test(followupText);
+  const looksSelfPunishing = /(you lose|damage to you|you sacrifice|you mill)/i.test(followupText);
+  if (!looksBeneficial || looksSelfPunishing) {
+    return { selections: [declineId], cancelled: true };
+  }
+
+  return { selections: [discardId], cancelled: false };
+}
+
+function chooseAIReflexiveGraveyardExileSelection(
+  game: any,
+  playerId: PlayerID,
+  step: any,
+  options: any[],
+  resolveOptionId: (option: any) => string,
+): { selections: string[]; cancelled: boolean } {
+  const optionIds = options.map(resolveOptionId).filter(Boolean);
+  const exileId = optionIds.find((id) => /^(?:exile|yes|pay)$/i.test(id)) || 'exile';
+  const declineId = optionIds.find((id) => /^decline$/i.test(id))
+    || optionIds.find((id) => /^(?:no|cancel|dont)$/i.test(id))
+    || 'decline';
+  const exileCount = Math.max(1, Math.floor(Number(step?.reflexiveGraveyardExileWhenYouDoCount || 1)));
+  const validTargets = Array.isArray(step?.reflexiveGraveyardExileWhenYouDoValidTargets)
+    ? step.reflexiveGraveyardExileWhenYouDoValidTargets
+    : [];
+  const ownGraveyard = Array.isArray(game?.state?.zones?.[playerId]?.graveyard) ? game.state.zones[playerId].graveyard : [];
+  const availableCount = validTargets.length > 0 ? validTargets.length : ownGraveyard.length;
+  if (availableCount < exileCount) {
+    return { selections: [declineId], cancelled: true };
+  }
+
+  const followupText = String(step?.reflexiveGraveyardExileWhenYouDoFollowupDescription || '').toLowerCase();
+  const looksBeneficial = /(damage|destroy|exile|counter|draw|create|gain|return|can't block|cant block|put .*counter|each opponent|target opponent|any target)/i.test(followupText);
+  const looksSelfPunishing = /(you lose|damage to you|you sacrifice|you discard|you mill)/i.test(followupText);
+  if (!looksBeneficial || looksSelfPunishing) {
+    return { selections: [declineId], cancelled: true };
+  }
+
+  return { selections: [exileId], cancelled: false };
+}
+
 function getPermanentKeywordSet(permanent: any): Set<string> {
   const keywords = new Set<string>();
 
@@ -2560,6 +2620,14 @@ export function chooseAIOptionSelectionsForStep(
 
   if (step?.reflexiveFixedPaymentChoice === true) {
     return chooseAIReflexiveFixedPaymentSelection(game, playerId, step, options, resolveOptionId);
+  }
+
+  if (step?.reflexiveDiscardWhenYouDo === true && String(step?.reflexiveDiscardWhenYouDoStage || '') === 'ask') {
+    return chooseAIReflexiveDiscardSelection(game, playerId, step, options, resolveOptionId);
+  }
+
+  if (step?.reflexiveGraveyardExileWhenYouDo === true && String(step?.reflexiveGraveyardExileWhenYouDoStage || '') === 'ask') {
+    return chooseAIReflexiveGraveyardExileSelection(game, playerId, step, options, resolveOptionId);
   }
 
   if (step?.mayAbilityPrompt === true) {

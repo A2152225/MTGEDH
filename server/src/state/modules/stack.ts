@@ -59,7 +59,7 @@ import { detectETBTappedPattern, evaluateConditionalLandETB, getLandSubtypes } f
 import { queueMayAbilityStep } from '../../socket/may-ability-prompts.js';
 import { queueOptionalPaymentStep } from '../../socket/optional-payment-prompts.js';
 import { broadcastGame, consumeManaFromPool, getEffectivePower, getOrInitManaPool, parseManaCost, resolveManaCostForPoolPayment } from '../../socket/util.js';
-import { buildReflexivePaymentAmountOptions, formatReflexiveFixedPaymentLabel, formatReflexiveSacrificeTypeLabel, getAvailableReflexiveManaAmountFromPool, materializeReflexiveSourceText, parseReflexiveAnyAmountManaPayment, parseReflexiveFixedPaymentWhenYouDo, parseReflexiveSacrificeWhenYouDo, permanentMatchesReflexiveSacrificeType } from './reflexive-triggers.js';
+import { buildReflexivePaymentAmountOptions, cardMatchesReflexiveGraveyardExileType, formatReflexiveFixedPaymentLabel, formatReflexiveGraveyardExileLabel, formatReflexiveSacrificeTypeLabel, getAvailableReflexiveManaAmountFromPool, materializeReflexiveSourceText, parseReflexiveAnyAmountManaPayment, parseReflexiveDiscardWhenYouDo, parseReflexiveFixedPaymentWhenYouDo, parseReflexiveGraveyardExileWhenYouDo, parseReflexiveSacrificeWhenYouDo, permanentMatchesReflexiveSacrificeType } from './reflexive-triggers.js';
 import { getSavedMayAbilityTriggerDecision, getSavedTriggerShortcutPreference } from "../../socket/trigger-shortcuts.js";
 import { ResolutionQueueManager, ResolutionStepType, type CreateResolutionStepConfig } from "../resolution/index.js";
 import type { ChoiceOption } from "../../../../rules-engine/src/choiceEvents.js";
@@ -3883,6 +3883,147 @@ function maybeQueueReflexiveSacrificeWhenYouDo(
   } as any);
 
   debug(2, `[resolveTopOfStack] Deferred reflexive sacrifice trigger for ${sourceName} (${triggerController})`);
+  return true;
+}
+
+function maybeQueueReflexiveDiscardWhenYouDo(
+  ctx: GameContext,
+  item: any,
+  triggerController: PlayerID,
+  sourceName: string,
+  sourceId: string,
+  description: string,
+): boolean {
+  const parsed = parseReflexiveDiscardWhenYouDo(description);
+  if (!parsed) return false;
+
+  if ((ctx as any).isReplaying) {
+    debug(2, `[resolveTopOfStack] Reflexive discard trigger for ${sourceName}: skipping prompt discovery during replay`);
+    return true;
+  }
+
+  const zones = (ctx as any).state?.zones || {};
+  const hand = Array.isArray(zones?.[triggerController]?.hand) ? zones[triggerController].hand : [];
+  if (hand.length < parsed.discardCount) {
+    debug(2, `[resolveTopOfStack] Reflexive discard trigger for ${sourceName}: no card available to discard`);
+    return true;
+  }
+
+  const sourcePermanentId = String((item as any).source || (item as any).permanentId || '').trim();
+  const promptSourceId = sourcePermanentId || String(sourceId || '').trim();
+  const followupDescription = materializeReflexiveSourceText(parsed.followupText, sourceName);
+
+  queueResolveTopOfStackPrompt(ctx, {
+    type: ResolutionStepType.OPTION_CHOICE,
+    playerId: triggerController as PlayerID,
+    sourceId: promptSourceId || undefined,
+    sourceName,
+    sourceImage: (item as any)?.card?.image_uris?.small || (item as any)?.card?.image_uris?.normal,
+    description: `${sourceName}: You may discard a card.`,
+    mandatory: false,
+    options: [
+      {
+        id: 'discard',
+        label: 'Discard a card',
+        description: followupDescription,
+      },
+      {
+        id: 'decline',
+        label: 'Decline',
+        description: 'Do not discard a card.',
+      },
+    ],
+    minSelections: 1,
+    maxSelections: 1,
+    reflexiveDiscardWhenYouDo: true,
+    reflexiveDiscardWhenYouDoStage: 'ask',
+    reflexiveDiscardWhenYouDoCount: parsed.discardCount,
+    reflexiveDiscardWhenYouDoController: String(triggerController),
+    reflexiveDiscardWhenYouDoSourceName: sourceName,
+    reflexiveDiscardWhenYouDoSourcePermanentId: sourcePermanentId || undefined,
+    reflexiveDiscardWhenYouDoFollowupDescription: followupDescription,
+    reflexiveDiscardWhenYouDoOriginalEffect: description,
+  } as any);
+
+  debug(2, `[resolveTopOfStack] Deferred reflexive discard trigger for ${sourceName} (${triggerController})`);
+  return true;
+}
+
+function maybeQueueReflexiveGraveyardExileWhenYouDo(
+  ctx: GameContext,
+  item: any,
+  triggerController: PlayerID,
+  sourceName: string,
+  sourceId: string,
+  description: string,
+): boolean {
+  const parsed = parseReflexiveGraveyardExileWhenYouDo(description);
+  if (!parsed) return false;
+
+  if ((ctx as any).isReplaying) {
+    debug(2, `[resolveTopOfStack] Reflexive graveyard exile trigger for ${sourceName}: skipping prompt discovery during replay`);
+    return true;
+  }
+
+  const zones = (ctx as any).state?.zones || {};
+  const graveyard = Array.isArray(zones?.[triggerController]?.graveyard) ? zones[triggerController].graveyard : [];
+  const validTargets = graveyard
+    .filter((card: any) => cardMatchesReflexiveGraveyardExileType(card, parsed.cardType))
+    .map((card: any) => ({
+      id: String(card?.id || ''),
+      name: String(card?.name || card?.id || 'Card'),
+      typeLine: String(card?.type_line || ''),
+      manaCost: String(card?.mana_cost || ''),
+      imageUrl: card?.image_uris?.small || card?.image_uris?.normal,
+      zoneOwnerId: String(triggerController),
+    }))
+    .filter((card: any) => Boolean(card.id));
+
+  if (validTargets.length < parsed.exileCount) {
+    debug(2, `[resolveTopOfStack] Reflexive graveyard exile trigger for ${sourceName}: not enough matching graveyard cards`);
+    return true;
+  }
+
+  const sourcePermanentId = String((item as any).source || (item as any).permanentId || '').trim();
+  const promptSourceId = sourcePermanentId || String(sourceId || '').trim();
+  const followupDescription = materializeReflexiveSourceText(parsed.followupText, sourceName);
+  const exileLabel = formatReflexiveGraveyardExileLabel(parsed.exileCount, parsed.cardType);
+
+  queueResolveTopOfStackPrompt(ctx, {
+    type: ResolutionStepType.OPTION_CHOICE,
+    playerId: triggerController as PlayerID,
+    sourceId: promptSourceId || undefined,
+    sourceName,
+    sourceImage: (item as any)?.card?.image_uris?.small || (item as any)?.card?.image_uris?.normal,
+    description: `${sourceName}: You may exile ${exileLabel} from your graveyard.`,
+    mandatory: false,
+    options: [
+      {
+        id: 'exile',
+        label: `Exile ${exileLabel}`,
+        description: followupDescription,
+      },
+      {
+        id: 'decline',
+        label: 'Decline',
+        description: 'Do not exile a card from your graveyard.',
+      },
+    ],
+    minSelections: 1,
+    maxSelections: 1,
+    reflexiveGraveyardExileWhenYouDo: true,
+    reflexiveGraveyardExileWhenYouDoStage: 'ask',
+    reflexiveGraveyardExileWhenYouDoCount: parsed.exileCount,
+    reflexiveGraveyardExileWhenYouDoCardType: parsed.cardType || undefined,
+    reflexiveGraveyardExileWhenYouDoController: String(triggerController),
+    reflexiveGraveyardExileWhenYouDoSourceName: sourceName,
+    reflexiveGraveyardExileWhenYouDoSourcePermanentId: sourcePermanentId || undefined,
+    reflexiveGraveyardExileWhenYouDoFollowupDescription: followupDescription,
+    reflexiveGraveyardExileWhenYouDoOriginalEffect: description,
+    reflexiveGraveyardExileWhenYouDoValidTargets: validTargets,
+  } as any);
+
+  debug(2, `[resolveTopOfStack] Deferred reflexive graveyard exile trigger for ${sourceName} (${triggerController})`);
   return true;
 }
 
@@ -16058,6 +16199,16 @@ export function resolveTopOfStack(ctx: GameContext) {
 
     if (maybeQueueReflexiveFixedPaymentWhenYouDo(ctx, item, triggerController as PlayerID, sourceName, sourceId, effectText || trimmedDescription)) {
       debug(2, `[resolveTopOfStack] Deferred reflexive fixed payment trigger for ${sourceName} (${triggerController})`);
+      return;
+    }
+
+    if (maybeQueueReflexiveDiscardWhenYouDo(ctx, item, triggerController as PlayerID, sourceName, sourceId, effectText || trimmedDescription)) {
+      debug(2, `[resolveTopOfStack] Deferred reflexive discard trigger for ${sourceName} (${triggerController})`);
+      return;
+    }
+
+    if (maybeQueueReflexiveGraveyardExileWhenYouDo(ctx, item, triggerController as PlayerID, sourceName, sourceId, effectText || trimmedDescription)) {
+      debug(2, `[resolveTopOfStack] Deferred reflexive graveyard exile trigger for ${sourceName} (${triggerController})`);
       return;
     }
 

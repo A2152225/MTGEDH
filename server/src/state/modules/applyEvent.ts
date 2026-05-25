@@ -3486,6 +3486,123 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
         break;
       }
 
+      case "reflexiveDiscardResolve": {
+        try {
+          const replayGameId = String((ctx as any).gameId || '').trim();
+          const playerId = String((e as any).playerId || '').trim();
+          const sourceId = String((e as any).sourceId || '').trim();
+          const resolvedStepId = String((e as any).resolvedStepId || '').trim();
+          const cardIds = Array.isArray((e as any).cardIds)
+            ? ((e as any).cardIds as any[]).map((value: any) => String(value || '').trim()).filter(Boolean)
+            : [];
+
+          if (playerId && cardIds.length > 0) {
+            const playerZones = ensureReplayPlayerZones(ctx.state as any, playerId);
+            const hand = Array.isArray(playerZones.hand) ? playerZones.hand as any[] : [];
+            playerZones.hand = hand;
+            playerZones.graveyard = Array.isArray(playerZones.graveyard) ? playerZones.graveyard : [];
+            const graveyard = playerZones.graveyard as any[];
+            let movedCount = 0;
+
+            for (const cardId of cardIds) {
+              const handIndex = hand.findIndex((card: any) => card && String(card.id || '') === cardId);
+              if (handIndex === -1) continue;
+              const [card] = hand.splice(handIndex, 1);
+              graveyard.push({ ...card, zone: 'graveyard', discardedByPlayerId: playerId });
+              recordCardPutIntoGraveyardThisTurn(ctx as any, playerId, card, { fromBattlefield: false });
+              checkGraveyardTrigger(ctx, card, playerId);
+              movedCount++;
+            }
+
+            playerZones.handCount = hand.length;
+            playerZones.graveyardCount = graveyard.length;
+            if (movedCount > 0) {
+              const stateAny = ctx.state as any;
+              stateAny.discardedCardThisTurn = stateAny.discardedCardThisTurn || {};
+              stateAny.discardedCardThisTurn[playerId] = true;
+              stateAny.anyPlayerDiscardedCardThisTurn = true;
+            }
+          }
+
+          if (replayGameId) {
+            clearReplayQueuedSteps(replayGameId, (step: any) => {
+              if (!step) return false;
+              const stepId = String((step as any)?.id || '').trim();
+              if (resolvedStepId && stepId === resolvedStepId) {
+                return true;
+              }
+
+              return (
+                (step as any)?.reflexiveDiscardWhenYouDo === true &&
+                sourceId.length > 0 &&
+                String((step as any)?.sourceId || '').trim() === sourceId
+              );
+            });
+          }
+
+          ctx.bumpSeq();
+        } catch (err) {
+          debugWarn(1, 'applyEvent(reflexiveDiscardResolve): failed', err);
+        }
+        break;
+      }
+
+      case "reflexiveGraveyardExileResolve": {
+        try {
+          const replayGameId = String((ctx as any).gameId || '').trim();
+          const playerId = String((e as any).playerId || '').trim();
+          const sourceId = String((e as any).sourceId || '').trim();
+          const resolvedStepId = String((e as any).resolvedStepId || '').trim();
+          const cardIds = Array.isArray((e as any).cardIds)
+            ? ((e as any).cardIds as any[]).map((value: any) => String(value || '').trim()).filter(Boolean)
+            : [];
+
+          if (playerId && cardIds.length > 0) {
+            const playerZones = ensureReplayPlayerZones(ctx.state as any, playerId);
+            const graveyard = Array.isArray(playerZones.graveyard) ? playerZones.graveyard as any[] : [];
+            playerZones.graveyard = graveyard;
+            playerZones.exile = Array.isArray(playerZones.exile) ? playerZones.exile : [];
+            const exile = playerZones.exile as any[];
+            let movedCard: any | undefined;
+
+            for (const cardId of cardIds) {
+              const graveyardIndex = graveyard.findIndex((card: any) => card && String(card.id || '') === cardId);
+              if (graveyardIndex === -1) continue;
+              const [card] = graveyard.splice(graveyardIndex, 1);
+              exile.push({ ...card, zone: 'exile' });
+              movedCard = movedCard || card;
+            }
+
+            playerZones.graveyardCount = graveyard.length;
+            playerZones.exileCount = exile.length;
+            if (movedCard) {
+              recordCardLeftGraveyardThisTurn(ctx as any, playerId, movedCard);
+            }
+          }
+
+          if (replayGameId) {
+            clearReplayQueuedSteps(replayGameId, (step: any) => {
+              if (!step) return false;
+              const stepId = String((step as any)?.id || '').trim();
+              if (resolvedStepId && stepId === resolvedStepId) {
+                return true;
+              }
+
+              return (
+                (step as any)?.reflexiveGraveyardExileWhenYouDo === true &&
+                sourceId.length > 0 &&
+                String((step as any)?.sourceId || '').trim() === sourceId
+              );
+            });
+          }
+
+          ctx.bumpSeq();
+        } catch (err) {
+          debugWarn(1, 'applyEvent(reflexiveGraveyardExileResolve): failed', err);
+        }
+        break;
+      }
+
       case "castFromExilePromptResolve": {
         try {
           const replayGameId = String((ctx as any).gameId || '').trim();

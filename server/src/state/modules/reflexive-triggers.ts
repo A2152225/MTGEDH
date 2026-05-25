@@ -17,6 +17,32 @@ export interface ReflexiveSacrificeWhenYouDo {
   followupText: string;
 }
 
+export interface ReflexiveDiscardWhenYouDo {
+  discardCount: number;
+  followupText: string;
+}
+
+export interface ReflexiveGraveyardExileWhenYouDo {
+  exileCount: number;
+  cardType?: string;
+  followupText: string;
+}
+
+const REFLEXIVE_NUMBER_WORDS: Record<string, number> = {
+  a: 1,
+  an: 1,
+  one: 1,
+  two: 2,
+  three: 3,
+  four: 4,
+  five: 5,
+  six: 6,
+  seven: 7,
+  eight: 8,
+  nine: 9,
+  ten: 10,
+};
+
 const MANA_SYMBOL_TO_POOL_KEY: Record<string, 'white' | 'blue' | 'black' | 'red' | 'green' | 'colorless'> = {
   W: 'white',
   U: 'blue',
@@ -102,6 +128,44 @@ export function parseReflexiveSacrificeWhenYouDo(effectText: string): ReflexiveS
   return { sacrificeType, followupText };
 }
 
+export function parseReflexiveDiscardWhenYouDo(effectText: string): ReflexiveDiscardWhenYouDo | null {
+  const normalized = String(effectText || '')
+    .replace(/[’]/g, "'")
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!normalized) return null;
+
+  const match = normalized.match(/^(?:you\s+may\s+)?discard\s+(?:a|one|1)\s+card\.\s*when\s+you\s+do,?\s*([\s\S]+)$/i);
+  if (!match) return null;
+
+  const followupText = String(match[1] || '').trim();
+  if (!followupText) return null;
+
+  return { discardCount: 1, followupText };
+}
+
+export function parseReflexiveGraveyardExileWhenYouDo(effectText: string): ReflexiveGraveyardExileWhenYouDo | null {
+  const normalized = String(effectText || '')
+    .replace(/[’]/g, "'")
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!normalized) return null;
+
+  const typePattern = '(?:nonland|noncreature|legendary|artifact|creature|enchantment|land|instant|sorcery|planeswalker)(?:\\s+or\\s+(?:artifact|creature|enchantment|land|instant|sorcery|planeswalker))?';
+  const match = normalized.match(new RegExp(`^(?:you\\s+may\\s+)?exile\\s+(a|an|one|two|three|four|five|six|seven|eight|nine|ten|\\d+)\\s+(?:(` + typePattern + `)\\s+)?cards?\\s+from\\s+your\\s+graveyard\\.\\s*when\\s+you\\s+do,?\\s*([\\s\\S]+)$`, 'i'));
+  if (!match) return null;
+
+  const rawCount = String(match[1] || '').trim().toLowerCase();
+  const exileCount = /^\d+$/.test(rawCount)
+    ? Math.max(0, Math.floor(Number(rawCount)))
+    : Math.max(0, Math.floor(Number(REFLEXIVE_NUMBER_WORDS[rawCount] || 0)));
+  const cardType = String(match[2] || '').replace(/\s+/g, ' ').trim().toLowerCase() || undefined;
+  const followupText = String(match[3] || '').trim();
+  if (exileCount <= 0 || !followupText) return null;
+
+  return { exileCount, ...(cardType ? { cardType } : null), followupText };
+}
+
 export function materializeReflexiveSourceText(followupText: string, sourceName: string): string {
   const source = String(sourceName || 'This source').trim() || 'This source';
   let text = String(followupText || '')
@@ -129,6 +193,30 @@ export function formatReflexiveSacrificeTypeLabel(sacrificeType: string): string
 
   const article = /^[aeiou]/i.test(normalizedType) ? 'an' : 'a';
   return `${article} ${normalizedType}`;
+}
+
+export function formatReflexiveGraveyardExileLabel(exileCount: number, cardType?: string): string {
+  const count = Math.max(1, Math.floor(Number(exileCount || 1)));
+  const normalizedType = String(cardType || '').replace(/\s+/g, ' ').trim();
+  const typePrefix = normalizedType ? `${normalizedType} ` : '';
+  if (count === 1) {
+    const article = normalizedType && /^[aeiou]/i.test(normalizedType) ? 'an' : 'a';
+    return `${article} ${typePrefix}card`;
+  }
+
+  return `${count} ${typePrefix}cards`;
+}
+
+export function cardMatchesReflexiveGraveyardExileType(card: any, cardType?: string): boolean {
+  const normalizedType = String(cardType || '').replace(/\s+/g, ' ').trim().toLowerCase();
+  if (!normalizedType) return true;
+
+  const typeLine = String(card?.type_line || card?.card?.type_line || '').toLowerCase();
+  if (normalizedType === 'nonland') return !typeLine.includes('land');
+  if (normalizedType === 'noncreature') return !typeLine.includes('creature');
+
+  const options = normalizedType.split(/\s+or\s+/).map((entry) => entry.trim()).filter(Boolean);
+  return options.some((typeName) => typeLine.includes(typeName));
 }
 
 export function formatReflexiveFixedPaymentLabel(payment: Pick<ReflexiveFixedPaymentWhenYouDo, 'paymentText' | 'manaCost' | 'lifeAmount'>): string {

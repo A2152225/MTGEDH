@@ -130,7 +130,7 @@ import { buildTapTriggeredStackItem, getTapTriggers, queueBecomesUntappedTrigger
 import { serializeAbilityActivatedTriggeredStackItem, triggerAbilityActivatedTriggers } from "../state/modules/triggers/ability-activated.js";
 import { clearMayCallback, clearMayCallbacks, consumeMayCallback, queueMayAbilityStep } from './may-ability-prompts.js';
 import { consumeOptionalPaymentCallback, getOptionalPaymentValidationFailure, isOptionalPaymentPayChoice, isOptionalPaymentPromptStep, queueOptionalPaymentStep, queueShockLandPaymentStep } from './optional-payment-prompts.js';
-import { consumeReflexiveManaAmountFromPool, formatReflexiveFixedPaymentLabel, formatReflexiveManaAmount, getAvailableReflexiveManaAmountFromPool, materializeReflexiveFollowupText, materializeReflexiveSourceText, parseReflexivePaymentChoiceAmount, permanentMatchesReflexiveSacrificeType } from '../state/modules/reflexive-triggers.js';
+import { cardMatchesReflexiveGraveyardExileType, consumeReflexiveManaAmountFromPool, formatReflexiveFixedPaymentLabel, formatReflexiveGraveyardExileLabel, formatReflexiveManaAmount, getAvailableReflexiveManaAmountFromPool, materializeReflexiveFollowupText, materializeReflexiveSourceText, parseReflexivePaymentChoiceAmount, permanentMatchesReflexiveSacrificeType } from '../state/modules/reflexive-triggers.js';
 import { flushPendingDamageTriggersAfterStepAdvance } from "./step-advance.js";
 import { lookupLocalCardByNameSync } from "../services/localCardLookup.js";
 import { getDominantCreatureType } from "./creature-type.js";
@@ -15143,13 +15143,14 @@ async function handleDiscardResponse(
 
   if (!isDiscardCostActivation && !isExileFromHandCostActivation && !isGraveyardCastDiscardActivation && !isCleanupDiscard) {
     try {
+      const shouldPersistResolvedDiscardStepId = dungeonRoomPayment || (step as any)?.reflexiveDiscardWhenYouDo === true;
       const persistedSharedPayload = {
         playerId: pid,
-        ...(dungeonRoomPayment
+        ...(shouldPersistResolvedDiscardStepId
           ? {
               resolvedStepId: String(step.id || '').trim(),
               sourceId: String(step.sourceId || '').trim(),
-              dungeonRoomPayment,
+              ...(dungeonRoomPayment ? { dungeonRoomPayment } : null),
             }
           : {}),
       };
@@ -15804,6 +15805,82 @@ async function handleDiscardResponse(
       });
     } catch {
       // ignore persistence failures
+    }
+  }
+
+  if ((step as any)?.reflexiveDiscardWhenYouDo === true && movedCards.length > 0) {
+    const controllerId = String((step as any)?.reflexiveDiscardWhenYouDoController || pid);
+    const sourceName = String((step as any)?.reflexiveDiscardWhenYouDoSourceName || step.sourceName || 'Ability');
+    const sourcePermanentId = String((step as any)?.reflexiveDiscardWhenYouDoSourcePermanentId || step.sourceId || '').trim();
+    const followupText = String((step as any)?.reflexiveDiscardWhenYouDoFollowupDescription || '').trim();
+    const effectText = materializeReflexiveSourceText(followupText, sourceName);
+    const discardedCardIds = movedCards.map((card: any) => String(card?.id || '')).filter(Boolean);
+    const discardedCards = movedCards.map((card: any) => ({
+      id: String(card?.id || ''),
+      name: card?.name,
+      type_line: card?.type_line,
+      oracle_text: card?.oracle_text,
+      mana_cost: card?.mana_cost,
+      cmc: card?.cmc,
+    }));
+    const triggerId = uid('trigger');
+    const targetMetadata = inferFollowupTargetMetadata(game, controllerId, sourceName, sourcePermanentId || undefined, effectText);
+    const effectData = {
+      discardedCardIds,
+      discardedCards,
+      discardCount: discardedCardIds.length,
+    };
+    const stackItem: any = {
+      id: triggerId,
+      type: 'triggered_ability',
+      controller: controllerId,
+      source: sourcePermanentId || null,
+      ...(sourcePermanentId ? { permanentId: sourcePermanentId } : null),
+      sourceName,
+      description: effectText,
+      effect: effectText,
+      triggerType: 'reflexive_discard',
+      mandatory: true,
+      ...targetMetadata,
+      effectData,
+    };
+
+    game.state.stack = Array.isArray(game.state.stack) ? game.state.stack : [];
+    game.state.stack.push(stackItem);
+
+    try {
+      appendEvent(gameId, (game as any).seq ?? 0, 'reflexiveDiscardResolve', {
+        playerId: controllerId,
+        sourceId: sourcePermanentId || undefined,
+        sourceName,
+        resolvedStepId: String(step.id || '').trim() || undefined,
+        cardIds: discardedCardIds,
+        followupText,
+        effect: effectText,
+        triggerId,
+        ...targetMetadata,
+        effectData,
+      });
+    } catch (err) {
+      debugWarn(1, '[Resolution] appendEvent(reflexiveDiscardResolve) failed:', err);
+    }
+
+    try {
+      appendEvent(gameId, (game as any).seq ?? 0, 'pushTriggeredAbility', {
+        triggerId,
+        sourceId: sourcePermanentId || null,
+        ...(sourcePermanentId ? { permanentId: sourcePermanentId } : null),
+        sourceName,
+        controllerId,
+        description: effectText,
+        effect: effectText,
+        triggerType: 'reflexive_discard',
+        mandatory: true,
+        ...targetMetadata,
+        effectData,
+      });
+    } catch (err) {
+      debugWarn(1, '[Resolution] appendEvent(pushTriggeredAbility reflexive discard) failed:', err);
     }
   }
 
@@ -28866,6 +28943,171 @@ async function handleOptionChoiceResponse(
     return;
   }
 
+  // ===== GENERIC: "You may exile a card from your graveyard. When you do, ..." =====
+  if (stepData?.reflexiveGraveyardExileWhenYouDo === true) {
+    const choiceId = extractId(selectedOption);
+    const stage = String(stepData.reflexiveGraveyardExileWhenYouDoStage || '');
+    const controllerId = String(stepData.reflexiveGraveyardExileWhenYouDoController || playerId);
+    const sourceName = String(stepData.reflexiveGraveyardExileWhenYouDoSourceName || step.sourceName || 'Ability');
+    const sourcePermanentId = String(stepData.reflexiveGraveyardExileWhenYouDoSourcePermanentId || step.sourceId || '').trim();
+    const exileCount = Math.max(1, Math.floor(Number(stepData.reflexiveGraveyardExileWhenYouDoCount || 1)));
+    const cardType = String(stepData.reflexiveGraveyardExileWhenYouDoCardType || '').replace(/\s+/g, ' ').trim() || undefined;
+    const followupDescription = String(stepData.reflexiveGraveyardExileWhenYouDoFollowupDescription || '').trim();
+
+    if (stage === 'ask') {
+      if (!choiceId || choiceId === 'decline' || choiceId === 'dont') {
+        io.to(gameId).emit('chat', {
+          id: `m_${Date.now()}`,
+          gameId,
+          from: 'system',
+          message: `${sourceName}: ${getPlayerName(game, controllerId)} chose not to exile a card from their graveyard.`,
+          ts: Date.now(),
+        });
+        if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
+        return;
+      }
+
+      const zones = game.state?.zones?.[controllerId];
+      const graveyard: any[] = Array.isArray(zones?.graveyard) ? zones.graveyard : [];
+      const validTargets = graveyard
+        .filter((card: any) => cardMatchesReflexiveGraveyardExileType(card, cardType))
+        .map((card: any) => ({
+          id: String(card?.id || ''),
+          name: String(card?.name || card?.id || 'Card'),
+          typeLine: String(card?.type_line || ''),
+          manaCost: String(card?.mana_cost || ''),
+          imageUrl: card?.image_uris?.small || card?.image_uris?.normal,
+          zoneOwnerId: controllerId,
+        }))
+        .filter((target: any) => Boolean(target.id));
+
+      if (validTargets.length < exileCount) {
+        io.to(gameId).emit('chat', {
+          id: `m_${Date.now()}`,
+          gameId,
+          from: 'system',
+          message: `${sourceName}: ${getPlayerName(game, controllerId)} does not have enough matching cards in their graveyard.`,
+          ts: Date.now(),
+        });
+        if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
+        return;
+      }
+
+      const exileLabel = formatReflexiveGraveyardExileLabel(exileCount, cardType);
+      const queuedResolutionStep = ResolutionQueueManager.addStep(gameId, {
+        type: ResolutionStepType.GRAVEYARD_SELECTION,
+        playerId: controllerId as PlayerID,
+        sourceId: sourcePermanentId || undefined,
+        sourceName,
+        effectId: String(step.id || sourcePermanentId || uid('reflexive_graveyard_exile')),
+        cardName: sourceName,
+        title: `${sourceName} - Exile from graveyard`,
+        description: `${sourceName}: Exile ${exileLabel} from your graveyard`,
+        mandatory: true,
+        targetPlayerId: controllerId,
+        minTargets: exileCount,
+        maxTargets: exileCount,
+        destination: 'exile',
+        validTargets,
+        reflexiveGraveyardExileWhenYouDo: true,
+        reflexiveGraveyardExileWhenYouDoStage: 'select_exile',
+        reflexiveGraveyardExileWhenYouDoCount: exileCount,
+        reflexiveGraveyardExileWhenYouDoCardType: cardType || undefined,
+        reflexiveGraveyardExileWhenYouDoController: controllerId,
+        reflexiveGraveyardExileWhenYouDoSourceName: sourceName,
+        reflexiveGraveyardExileWhenYouDoSourcePermanentId: sourcePermanentId || undefined,
+        reflexiveGraveyardExileWhenYouDoFollowupDescription: followupDescription,
+      } as any);
+
+      appendQueuedResolutionPromptEvent(game, gameId, {
+        playerId: controllerId,
+        sourceId: sourcePermanentId,
+        queuedResolutionStep,
+      });
+
+      return;
+    }
+
+    return;
+  }
+
+  // ===== GENERIC: "You may discard a card. When you do, ..." =====
+  if (stepData?.reflexiveDiscardWhenYouDo === true) {
+    const choiceId = extractId(selectedOption);
+    const stage = String(stepData.reflexiveDiscardWhenYouDoStage || '');
+    const controllerId = String(stepData.reflexiveDiscardWhenYouDoController || playerId);
+    const sourceName = String(stepData.reflexiveDiscardWhenYouDoSourceName || step.sourceName || 'Ability');
+    const sourcePermanentId = String(stepData.reflexiveDiscardWhenYouDoSourcePermanentId || step.sourceId || '').trim();
+    const discardCount = Math.max(1, Math.floor(Number(stepData.reflexiveDiscardWhenYouDoCount || 1)));
+    const followupDescription = String(stepData.reflexiveDiscardWhenYouDoFollowupDescription || '').trim();
+
+    if (stage === 'ask') {
+      if (!choiceId || choiceId === 'decline' || choiceId === 'dont') {
+        io.to(gameId).emit('chat', {
+          id: `m_${Date.now()}`,
+          gameId,
+          from: 'system',
+          message: `${sourceName}: ${getPlayerName(game, controllerId)} chose not to discard.`,
+          ts: Date.now(),
+        });
+        if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
+        return;
+      }
+
+      const zones = game.state?.zones?.[controllerId];
+      const hand: any[] = Array.isArray(zones?.hand) ? zones.hand : [];
+      if (hand.length < discardCount) {
+        io.to(gameId).emit('chat', {
+          id: `m_${Date.now()}`,
+          gameId,
+          from: 'system',
+          message: `${sourceName}: ${getPlayerName(game, controllerId)} has no card to discard.`,
+          ts: Date.now(),
+        });
+        if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
+        return;
+      }
+
+      const queuedResolutionStep = ResolutionQueueManager.addStep(gameId, {
+        type: ResolutionStepType.DISCARD_SELECTION,
+        playerId: controllerId as PlayerID,
+        description: `${sourceName}: Discard ${discardCount} card${discardCount === 1 ? '' : 's'}`,
+        mandatory: true,
+        sourceId: sourcePermanentId || undefined,
+        sourceName,
+        discardCount,
+        destination: 'graveyard',
+        hand: hand.map((card: any) => ({
+          id: card.id,
+          name: card.name,
+          type_line: card.type_line,
+          oracle_text: card.oracle_text,
+          image_uris: card.image_uris,
+          mana_cost: card.mana_cost,
+          cmc: card.cmc,
+          colors: card.colors,
+        })),
+        reflexiveDiscardWhenYouDo: true,
+        reflexiveDiscardWhenYouDoStage: 'select_discard',
+        reflexiveDiscardWhenYouDoCount: discardCount,
+        reflexiveDiscardWhenYouDoController: controllerId,
+        reflexiveDiscardWhenYouDoSourceName: sourceName,
+        reflexiveDiscardWhenYouDoSourcePermanentId: sourcePermanentId || undefined,
+        reflexiveDiscardWhenYouDoFollowupDescription: followupDescription,
+      } as any);
+
+      appendQueuedResolutionPromptEvent(game, gameId, {
+        playerId: controllerId,
+        sourceId: sourcePermanentId,
+        queuedResolutionStep,
+      });
+
+      return;
+    }
+
+    return;
+  }
+
   // ===== GENERIC: "You may sacrifice a <Subtype>. When you do, ..." =====
   if (stepData?.sacrificeWhenYouDo === true) {
     const choiceId = extractId(selectedOption);
@@ -30976,6 +31218,7 @@ async function handleGraveyardSelectionResponse(
 
   const movedCards: string[] = [];
   const movedCardIds: string[] = [];
+  const movedCardSnapshots: any[] = [];
   const createdPermanentIds: string[] = [];
   const createdBattlefieldEntries: Array<{ permanent: any; controllerId: string }> = [];
   const touchedZoneOwners = new Set<string>();
@@ -31552,6 +31795,15 @@ async function handleGraveyardSelectionResponse(
     const card = (cardSourceZones.graveyard as any[]).splice(idx, 1)[0];
     movedCardIds.push(String(cardId));
     movedCards.push(String(card?.name || cardId));
+    movedCardSnapshots.push({
+      id: String(card?.id || cardId),
+      name: card?.name,
+      type_line: card?.type_line,
+      oracle_text: card?.oracle_text,
+      mana_cost: card?.mana_cost,
+      cmc: card?.cmc,
+      zoneOwnerId: sourceOwnerId,
+    });
     touchedZoneOwners.add(sourceOwnerId);
     recordCardLeftGraveyardThisTurn({ state: game.state } as any, sourceOwnerId, card);
 
@@ -31684,6 +31936,73 @@ async function handleGraveyardSelectionResponse(
     });
   } catch (e) {
     debugWarn(1, 'appendEvent(confirmGraveyardTargets) failed:', e);
+  }
+
+  if ((step as any)?.reflexiveGraveyardExileWhenYouDo === true && destination === 'exile' && movedCardIds.length > 0) {
+    const controllerId = String((step as any)?.reflexiveGraveyardExileWhenYouDoController || pid);
+    const sourceName = String((step as any)?.reflexiveGraveyardExileWhenYouDoSourceName || step.sourceName || 'Ability');
+    const sourcePermanentId = String((step as any)?.reflexiveGraveyardExileWhenYouDoSourcePermanentId || step.sourceId || '').trim();
+    const followupText = String((step as any)?.reflexiveGraveyardExileWhenYouDoFollowupDescription || '').trim();
+    const effectText = materializeReflexiveSourceText(followupText, sourceName);
+    const triggerId = uid('trigger');
+    const targetMetadata = inferFollowupTargetMetadata(game, controllerId, sourceName, sourcePermanentId || undefined, effectText);
+    const effectData = {
+      exiledCardIds: movedCardIds.slice(),
+      exiledCards: movedCardSnapshots.map((card: any) => ({ ...(card as any) })),
+      exileCount: movedCardIds.length,
+    };
+    const stackItem: any = {
+      id: triggerId,
+      type: 'triggered_ability',
+      controller: controllerId,
+      source: sourcePermanentId || null,
+      ...(sourcePermanentId ? { permanentId: sourcePermanentId } : null),
+      sourceName,
+      description: effectText,
+      effect: effectText,
+      triggerType: 'reflexive_graveyard_exile',
+      mandatory: true,
+      ...targetMetadata,
+      effectData,
+    };
+
+    game.state.stack = Array.isArray(game.state.stack) ? game.state.stack : [];
+    game.state.stack.push(stackItem);
+
+    try {
+      appendEvent(gameId, (game as any).seq ?? 0, 'reflexiveGraveyardExileResolve', {
+        playerId: controllerId,
+        sourceId: sourcePermanentId || undefined,
+        sourceName,
+        resolvedStepId: String(step.id || '').trim() || undefined,
+        cardIds: movedCardIds.slice(),
+        followupText,
+        effect: effectText,
+        triggerId,
+        ...targetMetadata,
+        effectData,
+      });
+    } catch (err) {
+      debugWarn(1, '[Resolution] appendEvent(reflexiveGraveyardExileResolve) failed:', err);
+    }
+
+    try {
+      appendEvent(gameId, (game as any).seq ?? 0, 'pushTriggeredAbility', {
+        triggerId,
+        sourceId: sourcePermanentId || null,
+        ...(sourcePermanentId ? { permanentId: sourcePermanentId } : null),
+        sourceName,
+        controllerId,
+        description: effectText,
+        effect: effectText,
+        triggerType: 'reflexive_graveyard_exile',
+        mandatory: true,
+        ...targetMetadata,
+        effectData,
+      });
+    } catch (err) {
+      debugWarn(1, '[Resolution] appendEvent(pushTriggeredAbility reflexive graveyard exile) failed:', err);
+    }
   }
 
   const triggeredAbilityEffectText = String((step as any)?.triggeredAbilityEffectText || '').trim();
