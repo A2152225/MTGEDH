@@ -2502,6 +2502,91 @@ function chooseAIRevealLandSelection(
   return { selections: [String(matchingOption.id)], cancelled: false };
 }
 
+function chooseAIGrantPlayableFromExileSelection(
+  game: any,
+  playerId: PlayerID,
+  step: any,
+  options: any[],
+  resolveOptionId: (option: any) => string,
+): { selections: string[]; cancelled: boolean } {
+  const optionIds = options.map(resolveOptionId).filter(Boolean);
+  const configuredCardIds = Array.isArray(step?.grantPlayableFromExileCardIds)
+    ? step.grantPlayableFromExileCardIds.map((id: any) => String(id || '').trim()).filter(Boolean)
+    : [];
+  const allowedCardIds = new Set(configuredCardIds.length > 0 ? configuredCardIds : optionIds);
+  const validOptionIds = optionIds.filter((id) => allowedCardIds.has(id));
+  const profile = ensureAIDeckProfile(game, playerId);
+
+  const ranked = validOptionIds
+    .map((id) => {
+      const found = findZoneCardById(game, id, ['exile']);
+      if (!found?.card) return null;
+
+      const card = found.card;
+      const manaValue = Math.max(0, Number(card?.cmc ?? card?.mana_value ?? 0) || 0);
+      const typeLine = String(card?.type_line || '').toLowerCase();
+      const oracleText = String(card?.oracle_text || '').toLowerCase();
+      let score = scoreCardForAIAcquisition(game, playerId, card, 'hand', profile);
+      if (/(draw|destroy|exile|counter|create|treasure|token|return .*battlefield)/i.test(oracleText)) score += 8;
+      if (typeLine.includes('land')) score += 2;
+
+      return { id, score, manaValue };
+    })
+    .filter((entry): entry is { id: string; score: number; manaValue: number } => Boolean(entry))
+    .sort((left, right) => right.score - left.score || left.manaValue - right.manaValue || left.id.localeCompare(right.id));
+
+  const chosenId = ranked[0]?.id || validOptionIds[0] || optionIds[0] || '';
+  return { selections: chosenId ? [chosenId] : [], cancelled: false };
+}
+
+function chooseAIResolvedSpellCopySelection(
+  step: any,
+  options: any[],
+  resolveOptionId: (option: any) => string,
+): { selections: string[]; cancelled: boolean } {
+  const optionIds = options.map(resolveOptionId).filter(Boolean);
+  const copyOption = options.find((option: any) => /copy/i.test(`${String(option?.label || '')} ${String(option?.description || '')}`));
+  const yesId = optionIds.find((id) => id === 'yes') || (copyOption ? resolveOptionId(copyOption) : '');
+  const noId = optionIds.find((id) => id === 'no')
+    || optionIds.find((id) => /^(?:decline|cancel|dont|do_not_copy)$/i.test(id))
+    || optionIds[1]
+    || optionIds[0]
+    || 'no';
+  const copiedSpellSnapshot = step?.resolvedSpellCopySnapshot;
+  const hasCopySnapshot = copiedSpellSnapshot && typeof copiedSpellSnapshot === 'object' && !Array.isArray(copiedSpellSnapshot);
+
+  if (!hasCopySnapshot || !yesId) {
+    return { selections: [noId], cancelled: true };
+  }
+
+  return { selections: [yesId], cancelled: false };
+}
+
+function chooseAICopyRetargetSelection(
+  step: any,
+  options: any[],
+  resolveOptionId: (option: any) => string,
+): { selections: string[]; cancelled: boolean } {
+  const optionIds = options.map(resolveOptionId).filter(Boolean);
+  const retargetOption = options.find((option: any) => /choose new targets?/i.test(`${String(option?.label || '')} ${String(option?.description || '')}`));
+  const retargetId = optionIds.find((id) => id === 'retarget') || (retargetOption ? resolveOptionId(retargetOption) : '');
+  const keepId = optionIds.find((id) => id === 'keep')
+    || optionIds.find((id) => /^(?:no|decline|cancel)$/i.test(id))
+    || optionIds[0]
+    || 'keep';
+  const validTargets = Array.isArray(step?.retargetSpellCopyValidTargets)
+    ? step.retargetSpellCopyValidTargets
+    : Array.isArray(step?.retargetAbilityCopyValidTargets)
+      ? step.retargetAbilityCopyValidTargets
+      : [];
+
+  if (validTargets.length > 0 && retargetId) {
+    return { selections: [retargetId], cancelled: false };
+  }
+
+  return { selections: [keepId], cancelled: false };
+}
+
 function chooseAIReflexiveDiscardSelection(
   game: any,
   playerId: PlayerID,
@@ -2944,6 +3029,18 @@ export function chooseAIOptionSelectionsForStep(
 
   if (step?.revealLandChoice === true) {
     return chooseAIRevealLandSelection(game, playerId, step, options, resolveOptionId);
+  }
+
+  if (step?.grantPlayableFromExileChoice === true) {
+    return chooseAIGrantPlayableFromExileSelection(game, playerId, step, options, resolveOptionId);
+  }
+
+  if (step?.resolvedSpellCopyChoice === true) {
+    return chooseAIResolvedSpellCopySelection(step, options, resolveOptionId);
+  }
+
+  if (step?.retargetSpellCopy === true || step?.retargetAbilityCopy === true) {
+    return chooseAICopyRetargetSelection(step, options, resolveOptionId);
   }
 
   if (step?.reflexiveDiscardWhenYouDo === true && String(step?.reflexiveDiscardWhenYouDoStage || '') === 'ask') {

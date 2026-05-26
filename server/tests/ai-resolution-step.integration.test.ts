@@ -6476,6 +6476,255 @@ describe('AI resolution-step integration', () => {
     expect(completed?.response?.cancelled).toBe(true);
   });
 
+  it('routes grant-playable-from-exile choices through AI priority handling and chooses the highest-value offered card', async () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [
+      { id: playerId, name: 'AI', spectator: false, life: 40 },
+      { id: 'opp1', name: 'Opponent', spectator: false, life: 40 },
+    ];
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).phase = 'main';
+    (game.state as any).step = 'precombat_main';
+    (game.state as any).stack = [];
+    (game.state as any).battlefield = [];
+    (game.state as any).zones = {
+      [playerId]: {
+        hand: [],
+        handCount: 0,
+        library: [],
+        graveyard: [],
+        exile: [
+          { id: 'exiled_land_1', name: 'Forgotten Cave', type_line: 'Land', oracle_text: '', cmc: 0, mana_value: 0 },
+          { id: 'exiled_spell_1', name: 'Clean Answer', type_line: 'Instant', oracle_text: 'Destroy target creature. Draw a card.', cmc: 2, mana_value: 2 },
+        ],
+        exileCount: 2,
+      },
+      opp1: { hand: [], handCount: 0, library: [], graveyard: [], exile: [] },
+    };
+
+    registerAIPlayer(gameId, playerId as any);
+
+    const step = ResolutionQueueManager.addStep(gameId, {
+      type: ResolutionStepType.OPTION_CHOICE,
+      playerId: playerId as any,
+      sourceName: 'Impulse Source',
+      description: 'Impulse Source: Choose an exiled card. You may play it this turn.',
+      mandatory: true,
+      options: [
+        { id: 'exiled_land_1', label: 'Forgotten Cave', description: 'Land' },
+        { id: 'exiled_spell_1', label: 'Clean Answer', description: 'Instant' },
+      ],
+      minSelections: 1,
+      maxSelections: 1,
+      grantPlayableFromExileChoice: true,
+      grantPlayableFromExileController: playerId,
+      grantPlayableFromExileSourceName: 'Impulse Source',
+      grantPlayableFromExileCardIds: ['exiled_land_1', 'exiled_spell_1'],
+    } as any);
+
+    ResolutionQueueManager.activateStep(gameId, step.id);
+
+    await handleAIPriority(createNoopIo(), gameId, playerId as any);
+
+    const queue = ResolutionQueueManager.getQueue(gameId);
+    expect(queue.steps.some((entry: any) => String(entry.id) === String(step.id))).toBe(false);
+    const completed = queue.completedSteps.find((entry: any) => String(entry.id) === String(step.id));
+    expect(completed?.response?.selections).toEqual(['exiled_spell_1']);
+    expect(completed?.response?.cancelled).toBe(false);
+  });
+
+  it('routes grant-playable-from-exile choices through AI priority handling and ignores non-offered exiled cards', async () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [
+      { id: playerId, name: 'AI', spectator: false, life: 40 },
+      { id: 'opp1', name: 'Opponent', spectator: false, life: 40 },
+    ];
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).phase = 'main';
+    (game.state as any).step = 'precombat_main';
+    (game.state as any).stack = [];
+    (game.state as any).battlefield = [];
+    (game.state as any).zones = {
+      [playerId]: {
+        hand: [],
+        handCount: 0,
+        library: [],
+        graveyard: [],
+        exile: [
+          { id: 'allowed_card_1', name: 'Allowed Land', type_line: 'Land', oracle_text: '', cmc: 0, mana_value: 0 },
+          { id: 'not_offered_card_1', name: 'Unauthorized Bomb', type_line: 'Sorcery', oracle_text: 'Draw seven cards.', cmc: 7, mana_value: 7 },
+        ],
+        exileCount: 2,
+      },
+      opp1: { hand: [], handCount: 0, library: [], graveyard: [], exile: [] },
+    };
+
+    registerAIPlayer(gameId, playerId as any);
+
+    const step = ResolutionQueueManager.addStep(gameId, {
+      type: ResolutionStepType.OPTION_CHOICE,
+      playerId: playerId as any,
+      sourceName: 'Impulse Source',
+      description: 'Impulse Source: Choose an exiled card. You may play it this turn.',
+      mandatory: true,
+      options: [
+        { id: 'not_offered_card_1', label: 'Unauthorized Bomb', description: 'Sorcery' },
+        { id: 'allowed_card_1', label: 'Allowed Land', description: 'Land' },
+      ],
+      minSelections: 1,
+      maxSelections: 1,
+      grantPlayableFromExileChoice: true,
+      grantPlayableFromExileController: playerId,
+      grantPlayableFromExileSourceName: 'Impulse Source',
+      grantPlayableFromExileCardIds: ['allowed_card_1'],
+    } as any);
+
+    ResolutionQueueManager.activateStep(gameId, step.id);
+
+    await handleAIPriority(createNoopIo(), gameId, playerId as any);
+
+    const queue = ResolutionQueueManager.getQueue(gameId);
+    expect(queue.steps.some((entry: any) => String(entry.id) === String(step.id))).toBe(false);
+    const completed = queue.completedSteps.find((entry: any) => String(entry.id) === String(step.id));
+    expect(completed?.response?.selections).toEqual(['allowed_card_1']);
+    expect(completed?.response?.cancelled).toBe(false);
+  });
+
+  it('declines resolved-spell copy choices through AI priority handling without a copy snapshot', async () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [
+      { id: playerId, name: 'AI', spectator: false, life: 40 },
+      { id: 'opp1', name: 'Opponent', spectator: false, life: 40 },
+    ];
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).phase = 'main';
+    (game.state as any).step = 'precombat_main';
+    (game.state as any).stack = [];
+    (game.state as any).battlefield = [];
+    (game.state as any).zones = {
+      [playerId]: { hand: [], handCount: 0, library: [], graveyard: [], exile: [] },
+      opp1: { hand: [], handCount: 0, library: [], graveyard: [], exile: [] },
+    };
+
+    registerAIPlayer(gameId, playerId as any);
+
+    const step = ResolutionQueueManager.addStep(gameId, {
+      type: ResolutionStepType.OPTION_CHOICE,
+      playerId: playerId as any,
+      sourceId: 'resolved_spell_1',
+      sourceName: "Sevinne's Reclamation",
+      description: "Sevinne's Reclamation: Copy this spell?",
+      mandatory: false,
+      options: [
+        { id: 'yes', label: 'Copy spell' },
+        { id: 'no', label: 'Do not copy' },
+      ],
+      minSelections: 1,
+      maxSelections: 1,
+      resolvedSpellCopyChoice: true,
+    } as any);
+
+    ResolutionQueueManager.activateStep(gameId, step.id);
+
+    await handleAIPriority(createNoopIo(), gameId, playerId as any);
+
+    const queue = ResolutionQueueManager.getQueue(gameId);
+    expect(queue.steps.some((entry: any) => String(entry.id) === String(step.id))).toBe(false);
+    const completed = queue.completedSteps.find((entry: any) => String(entry.id) === String(step.id));
+    expect(completed?.response?.selections).toEqual(['no']);
+    expect(completed?.response?.cancelled).toBe(true);
+  });
+
+  it('routes copied-spell retarget choices through AI priority handling when a new target is available', async () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [
+      { id: playerId, name: 'AI', spectator: false, life: 40 },
+      { id: 'opp1', name: 'Opponent', spectator: false, life: 40 },
+    ];
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).phase = 'main';
+    (game.state as any).step = 'precombat_main';
+    (game.state as any).battlefield = [];
+    (game.state as any).stack = [
+      {
+        id: 'copy_stack_1',
+        type: 'spell',
+        controller: playerId,
+        isCopy: true,
+        targets: ['old_target'],
+        card: {
+          id: 'sevinne_copy_card',
+          name: "Sevinne's Reclamation",
+          type_line: 'Sorcery',
+          oracle_text: 'Return target permanent card with mana value 3 or less from your graveyard to the battlefield.',
+        },
+      },
+    ];
+    (game.state as any).zones = {
+      [playerId]: {
+        hand: [],
+        handCount: 0,
+        library: [],
+        graveyard: [
+          { id: 'new_target', name: 'Mind Stone', type_line: 'Artifact', oracle_text: '', cmc: 2, mana_value: 2 },
+        ],
+        exile: [],
+      },
+      opp1: { hand: [], handCount: 0, library: [], graveyard: [], exile: [] },
+    };
+
+    registerAIPlayer(gameId, playerId as any);
+
+    const step = ResolutionQueueManager.addStep(gameId, {
+      type: ResolutionStepType.OPTION_CHOICE,
+      playerId: playerId as any,
+      sourceId: 'copy_stack_1',
+      sourceName: "Sevinne's Reclamation",
+      description: "Sevinne's Reclamation: You may choose new targets for the copy.",
+      mandatory: false,
+      options: [
+        { id: 'keep', label: 'Keep current targets' },
+        { id: 'retarget', label: 'Choose new targets' },
+      ],
+      minSelections: 1,
+      maxSelections: 1,
+      retargetSpellCopy: true,
+      retargetSpellCopyStackItemId: 'copy_stack_1',
+      retargetSpellCopyValidTargets: [
+        { id: 'new_target', label: 'Mind Stone', type: 'graveyard_card', zoneOwnerId: playerId, controller: playerId },
+      ],
+      retargetSpellCopyMinTargets: 1,
+      retargetSpellCopyMaxTargets: 1,
+      retargetSpellCopyTargetDescription: 'target permanent card with mana value 3 or less from your graveyard',
+    } as any);
+
+    ResolutionQueueManager.activateStep(gameId, step.id);
+
+    await handleAIPriority(createNoopIo(), gameId, playerId as any);
+
+    const queueAfterChoice = ResolutionQueueManager.getQueue(gameId);
+    expect(queueAfterChoice.steps.some((entry: any) => String(entry.id) === String(step.id))).toBe(false);
+    const completedChoice = queueAfterChoice.completedSteps.find((entry: any) => String(entry.id) === String(step.id));
+    expect(completedChoice?.response?.selections).toEqual(['retarget']);
+    expect(completedChoice?.response?.cancelled).toBe(false);
+  });
+
   it('plays shock lands through the shared option-choice flow instead of pre-paying life inline', async () => {
     createGameIfNotExists(gameId, 'commander', 40);
     const game = ensureGame(gameId);
