@@ -37,6 +37,7 @@ const REPLAY_GUARDED_EVENT_TYPES = new Set([
   'cascadeResolve',
   'castSpellContinuation',
   'changePermanentControl',
+  'chooseDiscardPlanChoiceResolve',
   'chooseLookedAtCardsDestinationResolve',
   'chooseManaColorsChoiceResolve',
   'choosePlayerForLookedAtCardsChoiceResolve',

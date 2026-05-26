@@ -5841,6 +5841,128 @@ describe('AI resolution-step integration', () => {
     expect(completed?.response?.cancelled).toBe(true);
   });
 
+  it('routes choose-discard-plan prompts through AI priority handling when the preferred type is available', async () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [
+      { id: playerId, name: 'AI', spectator: false, life: 40 },
+      { id: 'opp1', name: 'Opponent', spectator: false, life: 40 },
+    ];
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).phase = 'main';
+    (game.state as any).step = 'precombat_main';
+    (game.state as any).stack = [];
+    (game.state as any).zones = {
+      [playerId]: {
+        hand: [
+          { id: 'artifact_1', name: 'Relic', type_line: 'Artifact' },
+          { id: 'spell_1', name: 'Bolt', type_line: 'Instant' },
+        ],
+        handCount: 2,
+        library: [],
+        graveyard: [],
+        exile: [],
+      },
+      opp1: { hand: [], handCount: 0, library: [], graveyard: [], exile: [] },
+    };
+
+    registerAIPlayer(gameId, playerId as any);
+
+    const step = ResolutionQueueManager.addStep(gameId, {
+      type: ResolutionStepType.OPTION_CHOICE,
+      playerId: playerId as any,
+      sourceName: 'Discard Source',
+      description: 'Discard Source: Choose discard option',
+      mandatory: true,
+      options: [
+        { id: 'discard_artifact', label: 'Discard an artifact card' },
+        { id: 'discard_two', label: 'Discard two cards' },
+      ],
+      minSelections: 1,
+      maxSelections: 1,
+      chooseDiscardPlanChoice: true,
+      chooseDiscardPlanPlayerId: playerId,
+      chooseDiscardPlanSourceName: 'Discard Source',
+      chooseDiscardPlanPreferredOptionId: 'discard_artifact',
+      chooseDiscardPlanPreferredType: 'artifact',
+      chooseDiscardPlanPreferredCount: 1,
+      chooseDiscardPlanFallbackCount: 2,
+    } as any);
+
+    ResolutionQueueManager.activateStep(gameId, step.id);
+
+    await handleAIPriority(createNoopIo(), gameId, playerId as any);
+
+    const queue = ResolutionQueueManager.getQueue(gameId);
+    const completed = queue.completedSteps.find((entry: any) => String(entry.id) === String(step.id));
+    expect(completed?.response?.selections).toEqual(['discard_artifact']);
+    expect(completed?.response?.cancelled).toBe(false);
+  });
+
+  it('routes choose-discard-plan prompts through AI priority handling to fallback without the preferred type', async () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [
+      { id: playerId, name: 'AI', spectator: false, life: 40 },
+      { id: 'opp1', name: 'Opponent', spectator: false, life: 40 },
+    ];
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).phase = 'main';
+    (game.state as any).step = 'precombat_main';
+    (game.state as any).stack = [];
+    (game.state as any).zones = {
+      [playerId]: {
+        hand: [
+          { id: 'spell_1', name: 'Bolt', type_line: 'Instant' },
+          { id: 'spell_2', name: 'Opt', type_line: 'Instant' },
+        ],
+        handCount: 2,
+        library: [],
+        graveyard: [],
+        exile: [],
+      },
+      opp1: { hand: [], handCount: 0, library: [], graveyard: [], exile: [] },
+    };
+
+    registerAIPlayer(gameId, playerId as any);
+
+    const step = ResolutionQueueManager.addStep(gameId, {
+      type: ResolutionStepType.OPTION_CHOICE,
+      playerId: playerId as any,
+      sourceName: 'Discard Source',
+      description: 'Discard Source: Choose discard option',
+      mandatory: true,
+      options: [
+        { id: 'discard_artifact', label: 'Discard an artifact card' },
+        { id: 'discard_two', label: 'Discard two cards' },
+      ],
+      minSelections: 1,
+      maxSelections: 1,
+      chooseDiscardPlanChoice: true,
+      chooseDiscardPlanPlayerId: playerId,
+      chooseDiscardPlanSourceName: 'Discard Source',
+      chooseDiscardPlanPreferredOptionId: 'discard_artifact',
+      chooseDiscardPlanPreferredType: 'artifact',
+      chooseDiscardPlanPreferredCount: 1,
+      chooseDiscardPlanFallbackCount: 2,
+    } as any);
+
+    ResolutionQueueManager.activateStep(gameId, step.id);
+
+    await handleAIPriority(createNoopIo(), gameId, playerId as any);
+
+    const queue = ResolutionQueueManager.getQueue(gameId);
+    const completed = queue.completedSteps.find((entry: any) => String(entry.id) === String(step.id));
+    expect(completed?.response?.selections).toEqual(['discard_two']);
+    expect(completed?.response?.cancelled).toBe(false);
+  });
+
   it('routes optional discard-then-draw prompts through AI priority handling when drawable', async () => {
     createGameIfNotExists(gameId, 'commander', 40);
     const game = ensureGame(gameId);

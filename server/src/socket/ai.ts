@@ -2679,6 +2679,28 @@ function chooseAIAttachEquipmentToPermanentChoiceSelection(
   return { selections: chosenId ? [chosenId] : [], cancelled: Boolean(chosenId && declineId && chosenId === declineId) };
 }
 
+function chooseAIChooseDiscardPlanSelection(
+  game: any,
+  playerId: PlayerID,
+  step: any,
+  options: any[],
+  resolveOptionId: (option: any) => string,
+): { selections: string[]; cancelled: boolean } {
+  const controllerId = String(step?.chooseDiscardPlanPlayerId || playerId).trim() as PlayerID;
+  const preferredOptionId = String(step?.chooseDiscardPlanPreferredOptionId || 'preferred').trim();
+  const preferredType = String(step?.chooseDiscardPlanPreferredType || '').trim().toLowerCase();
+  const optionIds = options.map((option: any) => resolveOptionId(option)).filter(Boolean);
+  const preferredOfferedId = optionIds.find((id) => id === preferredOptionId);
+  const fallbackId = optionIds.find((id) => id !== preferredOptionId) || optionIds[0] || '';
+  const hand = getAIHand(game, controllerId);
+  const preferredHand = preferredType
+    ? hand.filter((card: any) => String(card?.type_line || '').toLowerCase().includes(preferredType))
+    : hand;
+  const canUsePreferred = preferredHand.length > 0;
+  const chosenId = canUsePreferred && preferredOfferedId ? preferredOfferedId : fallbackId;
+  return { selections: chosenId ? [chosenId] : [], cancelled: false };
+}
+
 function chooseAIResolvedSpellCopySelection(
   step: any,
   options: any[],
@@ -3193,6 +3215,10 @@ export function chooseAIOptionSelectionsForStep(
 
   if (step?.attachEquipmentToPermanentChoice === true) {
     return chooseAIAttachEquipmentToPermanentChoiceSelection(game, playerId, step, options, resolveOptionId);
+  }
+
+  if (step?.chooseDiscardPlanChoice === true) {
+    return chooseAIChooseDiscardPlanSelection(game, playerId, step, options, resolveOptionId);
   }
 
   if (step?.resolvedSpellCopyChoice === true) {

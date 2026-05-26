@@ -28245,7 +28245,7 @@ async function handleOptionChoiceResponse(
       }));
 
     if (choiceId === preferredOptionId && preferredHand.length > 0) {
-      ResolutionQueueManager.addStep(gameId, {
+      const queuedResolutionStep = ResolutionQueueManager.addStep(gameId, {
         type: ResolutionStepType.DISCARD_SELECTION,
         playerId: controllerId as any,
         description: `${sourceName}: Discard ${preferredCount} ${preferredType || ''} card${preferredCount === 1 ? '' : 's'}`.replace('  ', ' '),
@@ -28254,9 +28254,46 @@ async function handleOptionChoiceResponse(
         discardCount: Math.min(preferredCount, preferredHand.length),
         hand: toHandCards(preferredHand),
       } as any);
+
+      try {
+        await appendEvent(gameId, (game as any).seq || 0, 'chooseDiscardPlanChoiceResolve', {
+          playerId,
+          controllerId,
+          sourceId: String(step.sourceId || '').trim() || undefined,
+          sourceName,
+          resolvedStepId: String(step.id || '').trim() || undefined,
+          choice: choiceId,
+          branch: 'preferred',
+          preferredOptionId,
+          preferredType,
+          preferredCount,
+          fallbackCount,
+          queuedResolutionStep,
+        });
+      } catch (err) {
+        debugWarn(1, '[Resolution] appendEvent(chooseDiscardPlanChoiceResolve) failed:', err);
+      }
     } else {
       const discardCount = Math.min(fallbackCount, hand.length);
       if (discardCount <= 0) {
+        try {
+          await appendEvent(gameId, (game as any).seq || 0, 'chooseDiscardPlanChoiceResolve', {
+            playerId,
+            controllerId,
+            sourceId: String(step.sourceId || '').trim() || undefined,
+            sourceName,
+            resolvedStepId: String(step.id || '').trim() || undefined,
+            choice: choiceId,
+            branch: 'no_cards',
+            preferredOptionId,
+            preferredType,
+            preferredCount,
+            fallbackCount,
+          });
+        } catch (err) {
+          debugWarn(1, '[Resolution] appendEvent(chooseDiscardPlanChoiceResolve) failed:', err);
+        }
+
         io.to(gameId).emit('chat', {
           id: `m_${Date.now()}`,
           gameId,
@@ -28268,7 +28305,7 @@ async function handleOptionChoiceResponse(
         return;
       }
 
-      ResolutionQueueManager.addStep(gameId, {
+      const queuedResolutionStep = ResolutionQueueManager.addStep(gameId, {
         type: ResolutionStepType.DISCARD_SELECTION,
         playerId: controllerId as any,
         description: `${sourceName}: Discard ${discardCount} card${discardCount === 1 ? '' : 's'}`,
@@ -28277,6 +28314,25 @@ async function handleOptionChoiceResponse(
         discardCount,
         hand: toHandCards(hand),
       } as any);
+
+      try {
+        await appendEvent(gameId, (game as any).seq || 0, 'chooseDiscardPlanChoiceResolve', {
+          playerId,
+          controllerId,
+          sourceId: String(step.sourceId || '').trim() || undefined,
+          sourceName,
+          resolvedStepId: String(step.id || '').trim() || undefined,
+          choice: choiceId,
+          branch: 'fallback',
+          preferredOptionId,
+          preferredType,
+          preferredCount,
+          fallbackCount,
+          queuedResolutionStep,
+        });
+      } catch (err) {
+        debugWarn(1, '[Resolution] appendEvent(chooseDiscardPlanChoiceResolve) failed:', err);
+      }
     }
 
     if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();

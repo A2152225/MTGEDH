@@ -9552,6 +9552,47 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
         break;
       }
 
+      case "chooseDiscardPlanChoiceResolve": {
+        try {
+          const replayGameId = String((ctx as any).gameId || '').trim();
+          const playerId = String((e as any).playerId || '').trim();
+          const controllerId = String((e as any).controllerId || playerId).trim() || playerId;
+          const sourceId = String((e as any).sourceId || '').trim();
+          const sourceName = String((e as any).sourceName || '').trim();
+          const resolvedStepId = String((e as any).resolvedStepId || '').trim();
+          const preferredOptionId = String((e as any).preferredOptionId || '').trim();
+
+          if (replayGameId) {
+            clearReplayQueuedSteps(replayGameId, (step: any) => {
+              if (!step) return false;
+              const stepId = String((step as any)?.id || '').trim();
+              if (resolvedStepId && stepId === resolvedStepId) {
+                return true;
+              }
+
+              return (
+                String((step as any)?.type || '') === String(ResolutionStepType.OPTION_CHOICE) &&
+                (step as any)?.chooseDiscardPlanChoice === true &&
+                (!playerId || String((step as any)?.playerId || '').trim() === playerId || String((step as any)?.playerId || '').trim() === controllerId) &&
+                (!sourceId || String((step as any)?.sourceId || '').trim() === sourceId) &&
+                (!sourceName || String((step as any)?.chooseDiscardPlanSourceName || (step as any)?.sourceName || '').trim() === sourceName) &&
+                (!preferredOptionId || String((step as any)?.chooseDiscardPlanPreferredOptionId || '').trim() === preferredOptionId)
+              );
+            });
+
+            addReplayQueuedStepIfMissing(replayGameId, (e as any).queuedResolutionStep, {
+              playerId: controllerId,
+              description: `${sourceName || 'Ability'}: Discard cards`,
+            });
+          }
+
+          ctx.bumpSeq();
+        } catch (err) {
+          debugWarn(1, 'applyEvent(chooseDiscardPlanChoiceResolve): failed', err);
+        }
+        break;
+      }
+
       case "chooseLookedAtCardsDestinationResolve": {
         try {
           const replayGameId = String((ctx as any).gameId || '').trim();

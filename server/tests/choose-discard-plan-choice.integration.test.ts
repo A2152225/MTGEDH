@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, beforeEach, afterEach } from 'vitest';
-import { initDb, createGameIfNotExists, deleteGame } from '../src/db/index.js';
+import { initDb, createGameIfNotExists, deleteGame, getEvents } from '../src/db/index.js';
 import { ensureGame } from '../src/socket/util.js';
 import { registerResolutionHandlers } from '../src/socket/resolution.js';
 import { ResolutionQueueManager, ResolutionStepType } from '../src/state/resolution/index.js';
@@ -108,6 +108,27 @@ describe('choose discard plan choice (integration)', () => {
     expect((queue.steps[0] as any).type).toBe('discard_selection');
     expect((queue.steps[0] as any).discardCount).toBe(1);
     expect(((queue.steps[0] as any).hand || []).map((card: any) => card.id)).toEqual(['artifact_1']);
+
+    const choiceEvent = [...getEvents(gameId)].reverse().find((event: any) => event.type === 'chooseDiscardPlanChoiceResolve') as any;
+    expect(choiceEvent).toBeDefined();
+    expect(choiceEvent.payload).toMatchObject({
+      playerId: p1,
+      controllerId: p1,
+      sourceName: 'Source',
+      resolvedStepId: step.id,
+      choice: 'discard_artifact',
+      branch: 'preferred',
+      preferredOptionId: 'discard_artifact',
+      preferredType: 'artifact',
+      preferredCount: 1,
+      fallbackCount: 2,
+    });
+    expect(choiceEvent.payload.queuedResolutionStep).toMatchObject({
+      type: ResolutionStepType.DISCARD_SELECTION,
+      playerId: p1,
+      discardCount: 1,
+    });
+    expect((choiceEvent.payload.queuedResolutionStep.hand || []).map((card: any) => card.id)).toEqual(['artifact_1']);
   });
 
   it('falls back to the broader discard count when the preferred branch is unavailable', async () => {
@@ -163,5 +184,26 @@ describe('choose discard plan choice (integration)', () => {
     expect((queue.steps[0] as any).type).toBe('discard_selection');
     expect((queue.steps[0] as any).discardCount).toBe(2);
     expect(((queue.steps[0] as any).hand || []).map((card: any) => card.id)).toEqual(['spell_1', 'spell_2']);
+
+    const choiceEvent = [...getEvents(gameId)].reverse().find((event: any) => event.type === 'chooseDiscardPlanChoiceResolve') as any;
+    expect(choiceEvent).toBeDefined();
+    expect(choiceEvent.payload).toMatchObject({
+      playerId: p1,
+      controllerId: p1,
+      sourceName: 'Source',
+      resolvedStepId: step.id,
+      choice: 'discard_artifact',
+      branch: 'fallback',
+      preferredOptionId: 'discard_artifact',
+      preferredType: 'artifact',
+      preferredCount: 1,
+      fallbackCount: 2,
+    });
+    expect(choiceEvent.payload.queuedResolutionStep).toMatchObject({
+      type: ResolutionStepType.DISCARD_SELECTION,
+      playerId: p1,
+      discardCount: 2,
+    });
+    expect((choiceEvent.payload.queuedResolutionStep.hand || []).map((card: any) => card.id)).toEqual(['spell_1', 'spell_2']);
   });
 });
