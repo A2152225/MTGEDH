@@ -2354,6 +2354,154 @@ function chooseAIReflexiveSacrificeSelection(
   return { selections: [sacrificeId], cancelled: false };
 }
 
+function chooseAISacrificeAnotherPermanentForBenefitSelection(
+  game: any,
+  playerId: PlayerID,
+  step: any,
+  options: any[],
+  resolveOptionId: (option: any) => string,
+): { selections: string[]; cancelled: boolean } {
+  const optionIds = options.map(resolveOptionId).filter(Boolean);
+  const sacrificeId = optionIds.find((id) => /^sac$/i.test(id))
+    || optionIds.find((id) => /^(?:sacrifice|yes)$/i.test(id))
+    || 'sac';
+  const declineId = optionIds.find((id) => /^(?:dont|decline|no|cancel)$/i.test(id)) || 'dont';
+
+  const controllerId = String(step?.sacrificeAnotherPermanentForBenefitController || playerId);
+  const sourcePermanentId = String(step?.sacrificeAnotherPermanentForBenefitSourcePermanentId || step?.sourceId || '').trim();
+  const battlefield = Array.isArray(game?.state?.battlefield) ? game.state.battlefield : [];
+  const validSacrifices = battlefield.filter((permanent: any) => (
+    permanent
+      && String(permanent?.controller || '') === controllerId
+      && (!sourcePermanentId || String(permanent?.id || '') !== sourcePermanentId)
+  ));
+  if (validSacrifices.length === 0) {
+    return { selections: [declineId], cancelled: true };
+  }
+
+  const lifeGain = Math.max(0, Math.floor(Number(step?.sacrificeAnotherPermanentForBenefitLifeGain || 0)));
+  const drawCount = Math.max(0, Math.floor(Number(step?.sacrificeAnotherPermanentForBenefitDrawCount || 0)));
+  if (lifeGain <= 0 && drawCount <= 0) {
+    return { selections: [declineId], cancelled: true };
+  }
+
+  return { selections: [sacrificeId], cancelled: false };
+}
+
+function chooseAIOptionalDiscardThenDrawSelection(
+  game: any,
+  playerId: PlayerID,
+  step: any,
+  options: any[],
+  resolveOptionId: (option: any) => string,
+): { selections: string[]; cancelled: boolean } {
+  const optionIds = options.map(resolveOptionId).filter(Boolean);
+  const discardId = optionIds.find((id) => /^discard$/i.test(id)) || 'discard';
+  const declineId = optionIds.find((id) => /^(?:dont|decline|no|cancel)$/i.test(id)) || 'dont';
+
+  const controllerId = String(step?.optionalDiscardThenDrawPlayerId || playerId);
+  const hand = getAIHand(game, controllerId as PlayerID);
+  if (hand.length === 0) {
+    return { selections: [declineId], cancelled: true };
+  }
+
+  const baseDrawCount = Math.max(0, Math.floor(Number(step?.optionalDiscardThenDrawCount || 1)));
+  const landRiderDrawCount = Math.max(0, Math.floor(Number(step?.optionalDiscardThenDrawCountIfDiscardedLand || 0)));
+  const discardCardIds = chooseCardsToDiscard(game, controllerId as PlayerID, 1);
+  const discardCard = hand.find((card: any) => String(card?.id || '') === String(discardCardIds[0] || '')) || hand[0];
+  const willDiscardLand = String(discardCard?.type_line || '').toLowerCase().includes('land');
+  const expectedDrawCount = baseDrawCount + (willDiscardLand ? landRiderDrawCount : 0);
+  const zones = game?.state?.zones?.[controllerId] || {};
+  const mappedLibrary = typeof game?.libraries?.get === 'function' ? game.libraries.get(controllerId) : undefined;
+  const libraryCount = Array.isArray(mappedLibrary)
+    ? mappedLibrary.length
+    : Array.isArray(zones?.library)
+      ? zones.library.length
+      : Math.max(0, Math.floor(Number(zones?.libraryCount || 0)));
+
+  if (expectedDrawCount > 0 && libraryCount < expectedDrawCount) {
+    return { selections: [declineId], cancelled: true };
+  }
+
+  return { selections: [discardId], cancelled: false };
+}
+
+function chooseAIOpponentMayPaySelection(
+  game: any,
+  playerId: PlayerID,
+  step: any,
+  options: any[],
+  resolveOptionId: (option: any) => string,
+): { selections: string[]; cancelled: boolean } {
+  const optionIds = options.map(resolveOptionId).filter(Boolean);
+  const payId = optionIds.find((id) => /^pay$/i.test(id)) || 'pay';
+  const declineId = optionIds.find((id) => /^(?:decline|no|cancel|dont)$/i.test(id)) || 'decline';
+
+  if (getOptionalPaymentValidationFailure(game, String(playerId), step, payId)) {
+    return { selections: [declineId], cancelled: true };
+  }
+
+  if (step?.optionalPaymentPrompt !== true) {
+    const manaCost = String(step?.manaCost || '').trim();
+    if (!manaCost) {
+      return { selections: [declineId], cancelled: true };
+    }
+
+    try {
+      const pool = getOrInitManaPool(game.state, String(playerId)) as any;
+      if (!canPayManaCost(pool, parseManaCost(manaCost))) {
+        return { selections: [declineId], cancelled: true };
+      }
+    } catch {
+      return { selections: [declineId], cancelled: true };
+    }
+  }
+
+  const sourceController = String(step?.sourceController || '').trim();
+  const declineText = `${String(step?.declineEffect || '')} ${String(step?.triggerText || '')} ${String(step?.description || '')}`.toLowerCase();
+  const declineBenefitsOpponent = (!sourceController || sourceController !== String(playerId))
+    && /(draw|treasure|create|token|gain life|search|return .*battlefield|put .*counter|copy)/i.test(declineText);
+
+  if (!declineBenefitsOpponent) {
+    return { selections: [declineId], cancelled: true };
+  }
+
+  return { selections: [payId], cancelled: false };
+}
+
+function chooseAIRevealLandSelection(
+  game: any,
+  playerId: PlayerID,
+  step: any,
+  options: any[],
+  resolveOptionId: (option: any) => string,
+): { selections: string[]; cancelled: boolean } {
+  const optionIds = options.map(resolveOptionId).filter(Boolean);
+  const declineId = optionIds.find((id) => /^decline_reveal$/i.test(id))
+    || optionIds.find((id) => /^(?:decline|no|cancel|dont)$/i.test(id))
+    || 'decline_reveal';
+  const revealTypes = Array.isArray(step?.revealTypes)
+    ? step.revealTypes.map((entry: any) => String(entry || '').trim()).filter(Boolean)
+    : [];
+  const hand = getAIHand(game, playerId);
+
+  const matchingOption = optionIds
+    .filter((id) => id !== declineId)
+    .map((id) => hand.find((card: any) => String(card?.id || '') === id))
+    .find((card: any) => {
+      const typeLine = String(card?.type_line || '').toLowerCase();
+      if (!typeLine.includes('land')) return false;
+      if (revealTypes.length === 0) return true;
+      return revealTypes.some((type) => new RegExp(`\\b${String(type).replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&')}\\b`, 'i').test(typeLine));
+    });
+
+  if (!matchingOption) {
+    return { selections: [declineId], cancelled: true };
+  }
+
+  return { selections: [String(matchingOption.id)], cancelled: false };
+}
+
 function chooseAIReflexiveDiscardSelection(
   game: any,
   playerId: PlayerID,
@@ -2780,6 +2928,22 @@ export function chooseAIOptionSelectionsForStep(
 
   if (step?.sacrificeWhenYouDo === true && String(step?.sacrificeWhenYouDoStage || '') === 'ask') {
     return chooseAIReflexiveSacrificeSelection(game, playerId, step, options, resolveOptionId);
+  }
+
+  if (step?.sacrificeAnotherPermanentForBenefitChoice === true && String(step?.sacrificeAnotherPermanentForBenefitStage || '') === 'ask') {
+    return chooseAISacrificeAnotherPermanentForBenefitSelection(game, playerId, step, options, resolveOptionId);
+  }
+
+  if (step?.optionalDiscardThenDrawChoice === true) {
+    return chooseAIOptionalDiscardThenDrawSelection(game, playerId, step, options, resolveOptionId);
+  }
+
+  if (step?.opponentMayPayChoice === true) {
+    return chooseAIOpponentMayPaySelection(game, playerId, step, options, resolveOptionId);
+  }
+
+  if (step?.revealLandChoice === true) {
+    return chooseAIRevealLandSelection(game, playerId, step, options, resolveOptionId);
   }
 
   if (step?.reflexiveDiscardWhenYouDo === true && String(step?.reflexiveDiscardWhenYouDoStage || '') === 'ask') {

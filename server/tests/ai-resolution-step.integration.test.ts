@@ -5421,6 +5421,120 @@ describe('AI resolution-step integration', () => {
     expect(completed?.response?.cancelled).toBe(true);
   });
 
+  it('routes affordable opponent-may-pay prompts through AI priority handling and pays to deny opposing value', async () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [
+      { id: playerId, name: 'AI', spectator: false, life: 40 },
+      { id: 'opp1', name: 'Opponent', spectator: false, life: 40 },
+    ];
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).phase = 'main';
+    (game.state as any).step = 'precombat_main';
+    (game.state as any).stack = [];
+    (game.state as any).manaPool = {
+      [playerId]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 1 },
+      opp1: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+    };
+    (game.state as any).zones = {
+      [playerId]: { hand: [], library: [], graveyard: [], exile: [] },
+      opp1: { hand: [], library: [], graveyard: [], exile: [] },
+    };
+
+    registerAIPlayer(gameId, playerId as any);
+
+    const step = ResolutionQueueManager.addStep(gameId, {
+      type: ResolutionStepType.OPTION_CHOICE,
+      playerId: playerId as any,
+      description: 'Rhystic Study: Pay {1} or its controller draws a card.',
+      mandatory: true,
+      sourceId: 'rhystic_1',
+      sourceName: 'Rhystic Study',
+      options: [
+        { id: 'pay', label: 'Pay {1}' },
+        { id: 'decline', label: 'Decline', description: 'Draw a card' },
+      ],
+      minSelections: 1,
+      maxSelections: 1,
+      opponentMayPayChoice: true,
+      promptId: 'prompt_1',
+      sourceController: 'opp1',
+      decidingPlayer: playerId,
+      manaCost: '{1}',
+      declineEffect: 'Draw a card',
+    } as any);
+
+    ResolutionQueueManager.activateStep(gameId, step.id);
+
+    await handleAIPriority(createNoopIo(), gameId, playerId as any);
+
+    const queue = ResolutionQueueManager.getQueue(gameId);
+    expect(queue.steps.some((entry: any) => String(entry.id) === String(step.id))).toBe(false);
+    const completed = queue.completedSteps.find((entry: any) => String(entry.id) === String(step.id));
+    expect(completed?.response?.selections).toEqual(['pay']);
+    expect(completed?.response?.cancelled).toBe(false);
+  });
+
+  it('declines opponent-may-pay prompts through AI priority handling when the cost is illegal', async () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [
+      { id: playerId, name: 'AI', spectator: false, life: 40 },
+      { id: 'opp1', name: 'Opponent', spectator: false, life: 40 },
+    ];
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).phase = 'main';
+    (game.state as any).step = 'precombat_main';
+    (game.state as any).stack = [];
+    (game.state as any).manaPool = {
+      [playerId]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+      opp1: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+    };
+    (game.state as any).zones = {
+      [playerId]: { hand: [], library: [], graveyard: [], exile: [] },
+      opp1: { hand: [], library: [], graveyard: [], exile: [] },
+    };
+
+    registerAIPlayer(gameId, playerId as any);
+
+    const step = ResolutionQueueManager.addStep(gameId, {
+      type: ResolutionStepType.OPTION_CHOICE,
+      playerId: playerId as any,
+      description: 'Rhystic Study: Pay {1} or its controller draws a card.',
+      mandatory: true,
+      sourceId: 'rhystic_1',
+      sourceName: 'Rhystic Study',
+      options: [
+        { id: 'pay', label: 'Pay {1}' },
+        { id: 'decline', label: 'Decline', description: 'Draw a card' },
+      ],
+      minSelections: 1,
+      maxSelections: 1,
+      opponentMayPayChoice: true,
+      promptId: 'prompt_1',
+      sourceController: 'opp1',
+      decidingPlayer: playerId,
+      manaCost: '{1}',
+      declineEffect: 'Draw a card',
+    } as any);
+
+    ResolutionQueueManager.activateStep(gameId, step.id);
+
+    await handleAIPriority(createNoopIo(), gameId, playerId as any);
+
+    const queue = ResolutionQueueManager.getQueue(gameId);
+    expect(queue.steps.some((entry: any) => String(entry.id) === String(step.id))).toBe(false);
+    const completed = queue.completedSteps.find((entry: any) => String(entry.id) === String(step.id));
+    expect(completed?.response?.selections).toEqual(['decline']);
+    expect(completed?.response?.cancelled).toBe(true);
+  });
+
   it('auto-resolves reflexive any-amount mana payment prompts with a legal beneficial payment', async () => {
     const io = createNoopIo();
     const aiHandler = initializeAIResolutionHandler(io as any);
@@ -5608,6 +5722,303 @@ describe('AI resolution-step integration', () => {
     expect(queue.steps.some((entry: any) => String(entry.id) === String(step.id))).toBe(false);
     const completed = queue.completedSteps.find((entry: any) => String(entry.id) === String(step.id));
     expect(completed?.response?.selections).toEqual(['decline']);
+    expect(completed?.response?.cancelled).toBe(true);
+  });
+
+  it('routes sacrifice-another-permanent benefit prompts through AI priority handling when legal', async () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [
+      { id: playerId, name: 'AI', spectator: false, life: 40 },
+      { id: 'opp1', name: 'Opponent', spectator: false, life: 40 },
+    ];
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).phase = 'main';
+    (game.state as any).step = 'precombat_main';
+    (game.state as any).stack = [];
+    (game.state as any).battlefield = [
+      { id: 'source_perm', controller: playerId, owner: playerId, card: { name: 'Source Walker', type_line: 'Legendary Planeswalker - Test' } },
+      { id: 'other_perm', controller: playerId, owner: playerId, card: { name: 'Spare Clue', type_line: 'Artifact - Clue' } },
+    ];
+    (game.state as any).zones = {
+      [playerId]: { hand: [], handCount: 0, library: [{ id: 'draw_1', name: 'Drawn Card', type_line: 'Instant' }], graveyard: [], exile: [] },
+      opp1: { hand: [], handCount: 0, library: [], graveyard: [], exile: [] },
+    };
+
+    registerAIPlayer(gameId, playerId as any);
+
+    const step = ResolutionQueueManager.addStep(gameId, {
+      type: ResolutionStepType.OPTION_CHOICE,
+      playerId: playerId as any,
+      sourceId: 'source_perm',
+      sourceName: 'Source Walker',
+      description: 'Source Walker: You may sacrifice another permanent. If you do, you gain 3 life and draw a card.',
+      mandatory: false,
+      options: [
+        { id: 'sac', label: 'Sacrifice a permanent' },
+        { id: 'dont', label: "Don't sacrifice" },
+      ],
+      minSelections: 1,
+      maxSelections: 1,
+      sacrificeAnotherPermanentForBenefitChoice: true,
+      sacrificeAnotherPermanentForBenefitStage: 'ask',
+      sacrificeAnotherPermanentForBenefitController: playerId,
+      sacrificeAnotherPermanentForBenefitSourceName: 'Source Walker',
+      sacrificeAnotherPermanentForBenefitSourcePermanentId: 'source_perm',
+      sacrificeAnotherPermanentForBenefitLifeGain: 3,
+      sacrificeAnotherPermanentForBenefitDrawCount: 1,
+    } as any);
+
+    ResolutionQueueManager.activateStep(gameId, step.id);
+
+    await handleAIPriority(createNoopIo(), gameId, playerId as any);
+
+    const queue = ResolutionQueueManager.getQueue(gameId);
+    expect(queue.steps.some((entry: any) => String(entry.id) === String(step.id))).toBe(false);
+    const completed = queue.completedSteps.find((entry: any) => String(entry.id) === String(step.id));
+    expect(completed?.response?.selections).toEqual(['sac']);
+    expect(completed?.response?.cancelled).toBe(false);
+  });
+
+  it('declines sacrifice-another-permanent benefit prompts through AI priority handling without another permanent', async () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [
+      { id: playerId, name: 'AI', spectator: false, life: 40 },
+      { id: 'opp1', name: 'Opponent', spectator: false, life: 40 },
+    ];
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).phase = 'main';
+    (game.state as any).step = 'precombat_main';
+    (game.state as any).stack = [];
+    (game.state as any).battlefield = [
+      { id: 'source_perm', controller: playerId, owner: playerId, card: { name: 'Source Walker', type_line: 'Legendary Planeswalker - Test' } },
+      { id: 'opp_perm', controller: 'opp1', owner: 'opp1', card: { name: 'Opponent Relic', type_line: 'Artifact' } },
+    ];
+    (game.state as any).zones = {
+      [playerId]: { hand: [], handCount: 0, library: [{ id: 'draw_1', name: 'Drawn Card', type_line: 'Instant' }], graveyard: [], exile: [] },
+      opp1: { hand: [], handCount: 0, library: [], graveyard: [], exile: [] },
+    };
+
+    registerAIPlayer(gameId, playerId as any);
+
+    const step = ResolutionQueueManager.addStep(gameId, {
+      type: ResolutionStepType.OPTION_CHOICE,
+      playerId: playerId as any,
+      sourceId: 'source_perm',
+      sourceName: 'Source Walker',
+      description: 'Source Walker: You may sacrifice another permanent. If you do, you gain 3 life and draw a card.',
+      mandatory: false,
+      options: [
+        { id: 'sac', label: 'Sacrifice a permanent' },
+        { id: 'dont', label: "Don't sacrifice" },
+      ],
+      minSelections: 1,
+      maxSelections: 1,
+      sacrificeAnotherPermanentForBenefitChoice: true,
+      sacrificeAnotherPermanentForBenefitStage: 'ask',
+      sacrificeAnotherPermanentForBenefitController: playerId,
+      sacrificeAnotherPermanentForBenefitSourceName: 'Source Walker',
+      sacrificeAnotherPermanentForBenefitSourcePermanentId: 'source_perm',
+      sacrificeAnotherPermanentForBenefitLifeGain: 3,
+      sacrificeAnotherPermanentForBenefitDrawCount: 1,
+    } as any);
+
+    ResolutionQueueManager.activateStep(gameId, step.id);
+
+    await handleAIPriority(createNoopIo(), gameId, playerId as any);
+
+    const queue = ResolutionQueueManager.getQueue(gameId);
+    expect(queue.steps.some((entry: any) => String(entry.id) === String(step.id))).toBe(false);
+    const completed = queue.completedSteps.find((entry: any) => String(entry.id) === String(step.id));
+    expect(completed?.response?.selections).toEqual(['dont']);
+    expect(completed?.response?.cancelled).toBe(true);
+  });
+
+  it('routes optional discard-then-draw prompts through AI priority handling when drawable', async () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [
+      { id: playerId, name: 'AI', spectator: false, life: 40 },
+      { id: 'opp1', name: 'Opponent', spectator: false, life: 40 },
+    ];
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).phase = 'main';
+    (game.state as any).step = 'precombat_main';
+    (game.state as any).stack = [];
+    (game.state as any).zones = {
+      [playerId]: {
+        hand: [{ id: 'discard_card_1', name: 'Expensive Spell', type_line: 'Sorcery', mana_cost: '{7}', cmc: 7 }],
+        handCount: 1,
+        library: [{ id: 'draw_1', name: 'Drawn Card', type_line: 'Instant' }],
+        libraryCount: 1,
+        graveyard: [],
+        exile: [],
+      },
+      opp1: { hand: [], handCount: 0, library: [], graveyard: [], exile: [] },
+    };
+    (game as any).libraries.set(playerId, [...(game.state as any).zones[playerId].library]);
+
+    registerAIPlayer(gameId, playerId as any);
+
+    const step = ResolutionQueueManager.addStep(gameId, {
+      type: ResolutionStepType.OPTION_CHOICE,
+      playerId: playerId as any,
+      sourceId: 'rummage_source_1',
+      sourceName: 'Rummage Source',
+      description: 'Rummage Source: You may discard a card. If you do, draw a card.',
+      mandatory: true,
+      options: [
+        { id: 'discard', label: 'Discard a card', description: 'Then draw a card.' },
+        { id: 'dont', label: "Don't discard", description: 'Do nothing.' },
+      ],
+      minSelections: 1,
+      maxSelections: 1,
+      optionalDiscardThenDrawChoice: true,
+      optionalDiscardThenDrawPlayerId: playerId,
+      optionalDiscardThenDrawSourceName: 'Rummage Source',
+      optionalDiscardThenDrawCount: 1,
+    } as any);
+
+    ResolutionQueueManager.activateStep(gameId, step.id);
+
+    await handleAIPriority(createNoopIo(), gameId, playerId as any);
+
+    const queue = ResolutionQueueManager.getQueue(gameId);
+    expect(queue.steps.some((entry: any) => String(entry.id) === String(step.id))).toBe(false);
+    const completed = queue.completedSteps.find((entry: any) => String(entry.id) === String(step.id));
+    expect(completed?.response?.selections).toEqual(['discard']);
+    expect(completed?.response?.cancelled).toBe(false);
+  });
+
+  it('routes optional discard-then-draw land-rider prompts through AI priority handling when the chosen discard is nonland', async () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [
+      { id: playerId, name: 'AI', spectator: false, life: 40 },
+      { id: 'opp1', name: 'Opponent', spectator: false, life: 40 },
+    ];
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).phase = 'main';
+    (game.state as any).step = 'precombat_main';
+    (game.state as any).stack = [];
+    (game.state as any).zones = {
+      [playerId]: {
+        hand: [
+          { id: 'land_1', name: 'Forest', type_line: 'Basic Land - Forest' },
+          { id: 'discard_card_1', name: 'Expensive Spell', type_line: 'Sorcery', mana_cost: '{7}', cmc: 7 },
+        ],
+        handCount: 2,
+        library: [{ id: 'draw_1', name: 'Drawn Card', type_line: 'Instant' }],
+        libraryCount: 1,
+        graveyard: [],
+        exile: [],
+      },
+      opp1: { hand: [], handCount: 0, library: [], graveyard: [], exile: [] },
+    };
+    (game as any).libraries.set(playerId, [...(game.state as any).zones[playerId].library]);
+
+    registerAIPlayer(gameId, playerId as any);
+
+    const step = ResolutionQueueManager.addStep(gameId, {
+      type: ResolutionStepType.OPTION_CHOICE,
+      playerId: playerId as any,
+      sourceId: 'rummage_source_1',
+      sourceName: 'Rummage Source',
+      description: 'Rummage Source: You may discard a card. If you do, draw a card. If a land card was discarded this way, draw an additional card.',
+      mandatory: true,
+      options: [
+        { id: 'discard', label: 'Discard a card', description: 'Then draw a card.' },
+        { id: 'dont', label: "Don't discard", description: 'Do nothing.' },
+      ],
+      minSelections: 1,
+      maxSelections: 1,
+      optionalDiscardThenDrawChoice: true,
+      optionalDiscardThenDrawPlayerId: playerId,
+      optionalDiscardThenDrawSourceName: 'Rummage Source',
+      optionalDiscardThenDrawCount: 1,
+      optionalDiscardThenDrawCountIfDiscardedLand: 1,
+    } as any);
+
+    ResolutionQueueManager.activateStep(gameId, step.id);
+
+    await handleAIPriority(createNoopIo(), gameId, playerId as any);
+
+    const queue = ResolutionQueueManager.getQueue(gameId);
+    expect(queue.steps.some((entry: any) => String(entry.id) === String(step.id))).toBe(false);
+    const completed = queue.completedSteps.find((entry: any) => String(entry.id) === String(step.id));
+    expect(completed?.response?.selections).toEqual(['discard']);
+    expect(completed?.response?.cancelled).toBe(false);
+  });
+
+  it('declines optional discard-then-draw prompts through AI priority handling without a hand card', async () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [
+      { id: playerId, name: 'AI', spectator: false, life: 40 },
+      { id: 'opp1', name: 'Opponent', spectator: false, life: 40 },
+    ];
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).phase = 'main';
+    (game.state as any).step = 'precombat_main';
+    (game.state as any).stack = [];
+    (game.state as any).zones = {
+      [playerId]: {
+        hand: [],
+        handCount: 0,
+        library: [{ id: 'draw_1', name: 'Drawn Card', type_line: 'Instant' }],
+        libraryCount: 1,
+        graveyard: [],
+        exile: [],
+      },
+      opp1: { hand: [], handCount: 0, library: [], graveyard: [], exile: [] },
+    };
+    (game as any).libraries.set(playerId, [...(game.state as any).zones[playerId].library]);
+
+    registerAIPlayer(gameId, playerId as any);
+
+    const step = ResolutionQueueManager.addStep(gameId, {
+      type: ResolutionStepType.OPTION_CHOICE,
+      playerId: playerId as any,
+      sourceId: 'rummage_source_1',
+      sourceName: 'Rummage Source',
+      description: 'Rummage Source: You may discard a card. If you do, draw a card.',
+      mandatory: true,
+      options: [
+        { id: 'discard', label: 'Discard a card', description: 'Then draw a card.' },
+        { id: 'dont', label: "Don't discard", description: 'Do nothing.' },
+      ],
+      minSelections: 1,
+      maxSelections: 1,
+      optionalDiscardThenDrawChoice: true,
+      optionalDiscardThenDrawPlayerId: playerId,
+      optionalDiscardThenDrawSourceName: 'Rummage Source',
+      optionalDiscardThenDrawCount: 1,
+    } as any);
+
+    ResolutionQueueManager.activateStep(gameId, step.id);
+
+    await handleAIPriority(createNoopIo(), gameId, playerId as any);
+
+    const queue = ResolutionQueueManager.getQueue(gameId);
+    expect(queue.steps.some((entry: any) => String(entry.id) === String(step.id))).toBe(false);
+    const completed = queue.completedSteps.find((entry: any) => String(entry.id) === String(step.id));
+    expect(completed?.response?.selections).toEqual(['dont']);
     expect(completed?.response?.cancelled).toBe(true);
   });
 
@@ -5940,6 +6351,129 @@ describe('AI resolution-step integration', () => {
     const completed = queue.completedSteps.find((entry: any) => String(entry.id) === String(step.id));
     expect(completed?.response?.selections).toEqual(['pay']);
     expect(completed?.response?.cancelled).toBe(false);
+  });
+
+  it('routes reveal-land choices through AI priority handling and reveals a matching land', async () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [
+      { id: playerId, name: 'AI', spectator: false, life: 40 },
+      { id: 'opp1', name: 'Opponent', spectator: false, life: 40 },
+    ];
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).phase = 'main';
+    (game.state as any).step = 'precombat_main';
+    (game.state as any).stack = [];
+    (game.state as any).battlefield = [
+      { id: 'snarl_1', controller: playerId, owner: playerId, tapped: true, card: { name: 'Shineshadow Snarl', type_line: 'Land' } },
+    ];
+    (game.state as any).zones = {
+      [playerId]: {
+        hand: [
+          { id: 'plains_1', name: 'Plains', type_line: 'Basic Land - Plains' },
+          { id: 'spell_1', name: 'Spare Spell', type_line: 'Instant' },
+        ],
+        handCount: 2,
+        library: [],
+        graveyard: [],
+        exile: [],
+      },
+      opp1: { hand: [], handCount: 0, library: [], graveyard: [], exile: [] },
+    };
+
+    registerAIPlayer(gameId, playerId as any);
+
+    const step = ResolutionQueueManager.addStep(gameId, {
+      type: ResolutionStepType.OPTION_CHOICE,
+      playerId: playerId as any,
+      sourceId: 'snarl_1',
+      sourceName: 'Shineshadow Snarl',
+      description: "You may reveal a Plains or Swamp card from your hand. If you don't, Shineshadow Snarl enters tapped.",
+      mandatory: true,
+      options: [
+        { id: 'plains_1', label: 'Plains', description: 'Basic Land - Plains' },
+        { id: 'decline_reveal', label: "Don't reveal (enter tapped)" },
+      ],
+      minSelections: 1,
+      maxSelections: 1,
+      revealLandChoice: true,
+      permanentId: 'snarl_1',
+      cardName: 'Shineshadow Snarl',
+      revealTypes: ['Plains', 'Swamp'],
+    } as any);
+
+    ResolutionQueueManager.activateStep(gameId, step.id);
+
+    await handleAIPriority(createNoopIo(), gameId, playerId as any);
+
+    const queue = ResolutionQueueManager.getQueue(gameId);
+    expect(queue.steps.some((entry: any) => String(entry.id) === String(step.id))).toBe(false);
+    const completed = queue.completedSteps.find((entry: any) => String(entry.id) === String(step.id));
+    expect(completed?.response?.selections).toEqual(['plains_1']);
+    expect(completed?.response?.cancelled).toBe(false);
+  });
+
+  it('declines reveal-land choices through AI priority handling without a matching land', async () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [
+      { id: playerId, name: 'AI', spectator: false, life: 40 },
+      { id: 'opp1', name: 'Opponent', spectator: false, life: 40 },
+    ];
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).phase = 'main';
+    (game.state as any).step = 'precombat_main';
+    (game.state as any).stack = [];
+    (game.state as any).battlefield = [
+      { id: 'snarl_1', controller: playerId, owner: playerId, tapped: true, card: { name: 'Shineshadow Snarl', type_line: 'Land' } },
+    ];
+    (game.state as any).zones = {
+      [playerId]: {
+        hand: [{ id: 'island_1', name: 'Island', type_line: 'Basic Land - Island' }],
+        handCount: 1,
+        library: [],
+        graveyard: [],
+        exile: [],
+      },
+      opp1: { hand: [], handCount: 0, library: [], graveyard: [], exile: [] },
+    };
+
+    registerAIPlayer(gameId, playerId as any);
+
+    const step = ResolutionQueueManager.addStep(gameId, {
+      type: ResolutionStepType.OPTION_CHOICE,
+      playerId: playerId as any,
+      sourceId: 'snarl_1',
+      sourceName: 'Shineshadow Snarl',
+      description: "You may reveal a Plains or Swamp card from your hand. If you don't, Shineshadow Snarl enters tapped.",
+      mandatory: true,
+      options: [
+        { id: 'island_1', label: 'Island', description: 'Basic Land - Island' },
+        { id: 'decline_reveal', label: "Don't reveal (enter tapped)" },
+      ],
+      minSelections: 1,
+      maxSelections: 1,
+      revealLandChoice: true,
+      permanentId: 'snarl_1',
+      cardName: 'Shineshadow Snarl',
+      revealTypes: ['Plains', 'Swamp'],
+    } as any);
+
+    ResolutionQueueManager.activateStep(gameId, step.id);
+
+    await handleAIPriority(createNoopIo(), gameId, playerId as any);
+
+    const queue = ResolutionQueueManager.getQueue(gameId);
+    expect(queue.steps.some((entry: any) => String(entry.id) === String(step.id))).toBe(false);
+    const completed = queue.completedSteps.find((entry: any) => String(entry.id) === String(step.id));
+    expect(completed?.response?.selections).toEqual(['decline_reveal']);
+    expect(completed?.response?.cancelled).toBe(true);
   });
 
   it('plays shock lands through the shared option-choice flow instead of pre-paying life inline', async () => {
