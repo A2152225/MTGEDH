@@ -5307,6 +5307,120 @@ describe('AI resolution-step integration', () => {
     expect(completed?.response?.cancelled).toBe(false);
   });
 
+  it('routes legal optional payment prompts through AI priority handling and accepts beneficial payoffs', async () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [
+      { id: playerId, name: 'AI', spectator: false, life: 40 },
+      { id: 'opp1', name: 'Opponent', spectator: false, life: 40 },
+    ];
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).phase = 'main';
+    (game.state as any).step = 'precombat_main';
+    (game.state as any).stack = [];
+    (game.state as any).manaPool = {
+      [playerId]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 1 },
+    };
+    (game.state as any).zones = {
+      [playerId]: { hand: [], library: [], graveyard: [], exile: [] },
+      opp1: { hand: [], library: [], graveyard: [], exile: [] },
+    };
+
+    registerAIPlayer(gameId, playerId as any);
+
+    const step = ResolutionQueueManager.addStep(gameId, {
+      type: ResolutionStepType.OPTION_CHOICE,
+      playerId: playerId as any,
+      description: 'Vraska, the Silencer: You may pay {1}. If you do, return that card to the battlefield tapped under your control.',
+      mandatory: false,
+      sourceId: 'vraska_1',
+      sourceName: 'Vraska, the Silencer',
+      options: [
+        { id: 'pay_mana', label: 'Pay {1}', description: 'If you do: return that card to the battlefield tapped under your control.' },
+        { id: 'decline', label: 'Decline', description: 'Do not pay the optional cost.' },
+      ],
+      minSelections: 0,
+      maxSelections: 1,
+      optionalPaymentPrompt: true,
+      optionalPaymentValidationKind: 'mana',
+      optionalPaymentManaCost: '{1}',
+      optionalPaymentPayChoiceId: 'pay_mana',
+      optionalPaymentDeclineChoiceId: 'decline',
+      triggeredAbilityManaPaymentChoice: true,
+      effect: 'return that card to the battlefield tapped under your control',
+    } as any);
+
+    ResolutionQueueManager.activateStep(gameId, step.id);
+
+    await handleAIPriority(createNoopIo(), gameId, playerId as any);
+
+    const queue = ResolutionQueueManager.getQueue(gameId);
+    expect(queue.steps.some((entry: any) => String(entry.id) === String(step.id))).toBe(false);
+    const completed = queue.completedSteps.find((entry: any) => String(entry.id) === String(step.id));
+    expect(completed?.response?.selections).toEqual(['pay_mana']);
+    expect(completed?.response?.cancelled).toBe(false);
+  });
+
+  it('declines optional payment prompts through AI priority handling when the cost is illegal', async () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [
+      { id: playerId, name: 'AI', spectator: false, life: 40 },
+      { id: 'opp1', name: 'Opponent', spectator: false, life: 40 },
+    ];
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).phase = 'main';
+    (game.state as any).step = 'precombat_main';
+    (game.state as any).stack = [];
+    (game.state as any).manaPool = {
+      [playerId]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+    };
+    (game.state as any).zones = {
+      [playerId]: { hand: [], library: [], graveyard: [], exile: [] },
+      opp1: { hand: [], library: [], graveyard: [], exile: [] },
+    };
+
+    registerAIPlayer(gameId, playerId as any);
+
+    const step = ResolutionQueueManager.addStep(gameId, {
+      type: ResolutionStepType.OPTION_CHOICE,
+      playerId: playerId as any,
+      description: 'Vraska, the Silencer: You may pay {1}. If you do, return that card to the battlefield tapped under your control.',
+      mandatory: false,
+      sourceId: 'vraska_1',
+      sourceName: 'Vraska, the Silencer',
+      options: [
+        { id: 'pay_mana', label: 'Pay {1}', description: 'If you do: return that card to the battlefield tapped under your control.' },
+        { id: 'decline', label: 'Decline', description: 'Do not pay the optional cost.' },
+      ],
+      minSelections: 0,
+      maxSelections: 1,
+      optionalPaymentPrompt: true,
+      optionalPaymentValidationKind: 'mana',
+      optionalPaymentManaCost: '{1}',
+      optionalPaymentPayChoiceId: 'pay_mana',
+      optionalPaymentDeclineChoiceId: 'decline',
+      triggeredAbilityManaPaymentChoice: true,
+      effect: 'return that card to the battlefield tapped under your control',
+    } as any);
+
+    ResolutionQueueManager.activateStep(gameId, step.id);
+
+    await handleAIPriority(createNoopIo(), gameId, playerId as any);
+
+    const queue = ResolutionQueueManager.getQueue(gameId);
+    expect(queue.steps.some((entry: any) => String(entry.id) === String(step.id))).toBe(false);
+    const completed = queue.completedSteps.find((entry: any) => String(entry.id) === String(step.id));
+    expect(completed?.response?.selections).toEqual(['decline']);
+    expect(completed?.response?.cancelled).toBe(true);
+  });
+
   it('auto-resolves reflexive any-amount mana payment prompts with a legal beneficial payment', async () => {
     const io = createNoopIo();
     const aiHandler = initializeAIResolutionHandler(io as any);
@@ -5438,6 +5552,63 @@ describe('AI resolution-step integration', () => {
     const completed = queue.completedSteps.find((entry: any) => String(entry.id) === String(step.id));
     expect(completed?.response?.selections).toEqual(['sacrifice']);
     expect(completed?.response?.cancelled).toBe(false);
+  });
+
+  it('declines sacrifice-when-you-do ask prompts through AI priority handling without legal sacrifices', async () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [
+      { id: playerId, name: 'AI', spectator: false, life: 40 },
+      { id: 'opp1', name: 'Opponent', spectator: false, life: 40 },
+    ];
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).phase = 'main';
+    (game.state as any).step = 'precombat_main';
+    (game.state as any).stack = [];
+    (game.state as any).battlefield = [
+      { id: 'ai_artifact_1', controller: playerId, owner: playerId, card: { name: 'Spare Relic', type_line: 'Artifact' } },
+      { id: 'opp_walker_1', controller: 'opp1', owner: 'opp1', card: { name: 'Opponent Walker', type_line: 'Legendary Planeswalker - Test' } },
+    ];
+    (game.state as any).zones = {
+      [playerId]: { hand: [], handCount: 0, library: [], graveyard: [], exile: [] },
+      opp1: { hand: [], handCount: 0, library: [], graveyard: [], exile: [] },
+    };
+
+    registerAIPlayer(gameId, playerId as any);
+
+    const step = ResolutionQueueManager.addStep(gameId, {
+      type: ResolutionStepType.OPTION_CHOICE,
+      playerId: playerId as any,
+      sourceId: 'rite_source_1',
+      sourceName: 'Rite Source',
+      description: 'Rite Source: You may sacrifice a creature.',
+      mandatory: false,
+      options: [
+        { id: 'sacrifice', label: 'Sacrifice a creature', description: 'destroy target creature or planeswalker.' },
+        { id: 'decline', label: 'Decline', description: 'Do not sacrifice anything.' },
+      ],
+      minSelections: 1,
+      maxSelections: 1,
+      sacrificeWhenYouDo: true,
+      sacrificeWhenYouDoStage: 'ask',
+      sacrificeWhenYouDoSubtype: 'creature',
+      sacrificeWhenYouDoController: playerId,
+      sacrificeWhenYouDoSourceName: 'Rite Source',
+      sacrificeWhenYouDoFollowupDescription: 'destroy target creature or planeswalker.',
+    } as any);
+
+    ResolutionQueueManager.activateStep(gameId, step.id);
+
+    await handleAIPriority(createNoopIo(), gameId, playerId as any);
+
+    const queue = ResolutionQueueManager.getQueue(gameId);
+    expect(queue.steps.some((entry: any) => String(entry.id) === String(step.id))).toBe(false);
+    const completed = queue.completedSteps.find((entry: any) => String(entry.id) === String(step.id));
+    expect(completed?.response?.selections).toEqual(['decline']);
+    expect(completed?.response?.cancelled).toBe(true);
   });
 
   it('routes discard-when-you-do ask prompts through AI priority handling and accepts beneficial follow-ups', async () => {
@@ -5626,6 +5797,86 @@ describe('AI resolution-step integration', () => {
     expect(queue.steps.some((entry: any) => String(entry.id) === String(step.id))).toBe(false);
     const completed = queue.completedSteps.find((entry: any) => String(entry.id) === String(step.id));
     expect(completed?.response?.selections).toEqual(['exile']);
+    expect(completed?.response?.cancelled).toBe(false);
+  });
+
+  it('routes convert-when-you-do ask prompts through AI priority handling and accepts beneficial follow-ups', async () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const ratchetFrontOracle = 'Whenever you gain life, you may convert Ratchet. When you do, return target artifact card with mana value less than or equal to the amount of life you gained this turn from your graveyard to the battlefield tapped.';
+    const ratchetBackOracle = 'Living metal. Whenever one or more nontoken artifacts you control are put into a graveyard from the battlefield, convert Ratchet.';
+
+    (game.state as any).players = [
+      { id: playerId, name: 'AI', spectator: false, life: 40 },
+      { id: 'opp1', name: 'Opponent', spectator: false, life: 40 },
+    ];
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).phase = 'main';
+    (game.state as any).step = 'precombat_main';
+    (game.state as any).stack = [];
+    (game.state as any).battlefield = [
+      {
+        id: 'ratchet_perm',
+        controller: playerId,
+        owner: playerId,
+        transformed: false,
+        card: {
+          name: 'Ratchet, Field Medic',
+          type_line: 'Legendary Artifact Creature - Robot',
+          oracle_text: ratchetFrontOracle,
+          card_faces: [
+            { name: 'Ratchet, Field Medic', type_line: 'Legendary Artifact Creature - Robot', oracle_text: ratchetFrontOracle },
+            { name: 'Ratchet, Rescue Racer', type_line: 'Legendary Artifact - Vehicle', oracle_text: ratchetBackOracle },
+          ],
+        },
+      },
+    ];
+    (game.state as any).zones = {
+      [playerId]: {
+        hand: [],
+        handCount: 0,
+        library: [],
+        graveyard: [{ id: 'artifact_1', name: 'Mind Stone', type_line: 'Artifact', mana_cost: '{2}', cmc: 2 }],
+        graveyardCount: 1,
+        exile: [],
+      },
+      opp1: { hand: [], handCount: 0, library: [], graveyard: [], exile: [] },
+    };
+
+    registerAIPlayer(gameId, playerId as any);
+
+    const step = ResolutionQueueManager.addStep(gameId, {
+      type: ResolutionStepType.OPTION_CHOICE,
+      playerId: playerId as any,
+      sourceId: 'ratchet_perm',
+      sourceName: 'Ratchet, Field Medic',
+      description: 'Ratchet, Field Medic: You may convert Ratchet.',
+      mandatory: false,
+      options: [
+        { id: 'convert', label: 'Convert', description: 'return target artifact card from your graveyard to the battlefield tapped.' },
+        { id: 'decline', label: 'Decline', description: 'Do not convert Ratchet.' },
+      ],
+      minSelections: 1,
+      maxSelections: 1,
+      reflexiveConvertWhenYouDo: true,
+      reflexiveConvertWhenYouDoController: playerId,
+      reflexiveConvertWhenYouDoSourceName: 'Ratchet, Field Medic',
+      reflexiveConvertWhenYouDoSourcePermanentId: 'ratchet_perm',
+      reflexiveConvertWhenYouDoSubject: 'Ratchet',
+      reflexiveConvertWhenYouDoFollowupDescription: 'return target artifact card from your graveyard to the battlefield tapped.',
+    } as any);
+
+    ResolutionQueueManager.activateStep(gameId, step.id);
+
+    await handleAIPriority(createNoopIo(), gameId, playerId as any);
+
+    const queue = ResolutionQueueManager.getQueue(gameId);
+    expect(queue.steps.some((entry: any) => String(entry.id) === String(step.id))).toBe(false);
+    const completed = queue.completedSteps.find((entry: any) => String(entry.id) === String(step.id));
+    expect(completed?.response?.selections).toEqual(['convert']);
     expect(completed?.response?.cancelled).toBe(false);
   });
 

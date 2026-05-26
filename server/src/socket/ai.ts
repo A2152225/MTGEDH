@@ -38,7 +38,7 @@ import {
 import { canAct, canPlayLand, canRespond, getCastableCommanderCandidates, getCastableSpellCandidates, getPlayableLandCandidates, isCardPlayableAsLandFromHand, type SharedCommanderCastCandidate, type SharedPlayableLandCandidate, type SharedSpellSourceZone } from "../state/modules/can-respond.js";
 import { applyCostAdjustmentToParsedCost, buildCostAdjustmentPlan } from "../state/modules/cost-adjustments.js";
 import { canCastFromTop, canPlayLandsFromTop } from "../state/modules/game-state-effects.js";
-import { getAvailableReflexiveManaAmountFromPool, parseReflexivePaymentChoiceAmount } from "../state/modules/reflexive-triggers.js";
+import { getAvailableReflexiveManaAmountFromPool, parseReflexivePaymentChoiceAmount, permanentMatchesReflexiveSacrificeType } from "../state/modules/reflexive-triggers.js";
 import { ResolutionQueueManager } from "../state/resolution/ResolutionQueueManager.js";
 import { getPendingInteractions } from "../state/modules/turn.js";
 import { debug, debugWarn, debugError } from "../utils/debug.js";
@@ -49,6 +49,7 @@ import { getDominantCreatureType } from "./creature-type.js";
 import { handlePlayLandRequest, requestCastSpellForSocket, runPostResolutionPermanentPromptChecks } from "./game-actions.js";
 import { flushPendingDamageTriggersAfterStepAdvance } from "./step-advance.js";
 import { syncPreparedPermanentAfterControlChange } from "../state/modules/prepared.js";
+import { getOptionalPaymentValidationFailure } from "./optional-payment-prompts.js";
 
 /** AI timing delays for more natural behavior */
 const AI_THINK_TIME_MS = 500;
@@ -2315,6 +2316,44 @@ function chooseAIReflexiveFixedPaymentSelection(
   return { selections: [payId], cancelled: false };
 }
 
+function chooseAIReflexiveSacrificeSelection(
+  game: any,
+  playerId: PlayerID,
+  step: any,
+  options: any[],
+  resolveOptionId: (option: any) => string,
+): { selections: string[]; cancelled: boolean } {
+  const optionIds = options.map(resolveOptionId).filter(Boolean);
+  const sacrificeId = optionIds.find((id) => /^(?:sacrifice|yes|pay)$/i.test(id)) || 'sacrifice';
+  const declineId = optionIds.find((id) => /^decline$/i.test(id))
+    || optionIds.find((id) => /^(?:no|cancel|dont)$/i.test(id))
+    || 'decline';
+
+  const controllerId = String(step?.sacrificeWhenYouDoController || playerId);
+  const subtype = String(step?.sacrificeWhenYouDoSubtype || '').trim();
+  const sourcePermanentId = String(step?.sacrificeWhenYouDoSourcePermanentId || step?.sourceId || '').trim() || undefined;
+  const battlefield = Array.isArray(game?.state?.battlefield) ? game.state.battlefield : [];
+  const validSacrifices = battlefield.filter((permanent: any) => (
+    permanentMatchesReflexiveSacrificeType(permanent, controllerId, subtype, sourcePermanentId)
+  ));
+  if (validSacrifices.length === 0) {
+    return { selections: [declineId], cancelled: true };
+  }
+
+  const followupText = String(step?.sacrificeWhenYouDoFollowupDescription || step?.sacrificeWhenYouDoFollowupEffect || '').toLowerCase();
+  const damage = Math.max(0, Math.floor(Number(step?.sacrificeWhenYouDoDamage || 0)));
+  const lifeGain = Math.max(0, Math.floor(Number(step?.sacrificeWhenYouDoLifeGain || 0)));
+  const looksBeneficial = damage > 0
+    || lifeGain > 0
+    || /(damage|destroy|exile|counter|draw|create|gain|return|can't block|cant block|put .*counter|each opponent|target opponent|any target|treasure|token)/i.test(followupText);
+  const looksSelfPunishing = /(you lose|damage to you|you discard|you mill)/i.test(followupText);
+  if (!looksBeneficial || looksSelfPunishing) {
+    return { selections: [declineId], cancelled: true };
+  }
+
+  return { selections: [sacrificeId], cancelled: false };
+}
+
 function chooseAIReflexiveDiscardSelection(
   game: any,
   playerId: PlayerID,
@@ -2402,6 +2441,94 @@ function chooseAIReflexiveBoundGraveyardSelfExileSelection(
   }
 
   return { selections: [exileId], cancelled: false };
+}
+
+function chooseAIReflexiveConvertSelection(
+  game: any,
+  playerId: PlayerID,
+  step: any,
+  options: any[],
+  resolveOptionId: (option: any) => string,
+): { selections: string[]; cancelled: boolean } {
+  const optionIds = options.map(resolveOptionId).filter(Boolean);
+  const convertId = optionIds.find((id) => /^(?:convert|yes|pay)$/i.test(id)) || 'convert';
+  const declineId = optionIds.find((id) => /^decline$/i.test(id))
+    || optionIds.find((id) => /^(?:no|cancel|dont)$/i.test(id))
+    || 'decline';
+
+  const sourcePermanentId = String(step?.reflexiveConvertWhenYouDoSourcePermanentId || step?.sourceId || '').trim();
+  const battlefield = Array.isArray(game?.state?.battlefield) ? game.state.battlefield : [];
+  const sourcePermanent = battlefield.find((permanent: any) => String(permanent?.id || '') === sourcePermanentId);
+  const faces = Array.isArray(sourcePermanent?.card?.card_faces) ? sourcePermanent.card.card_faces : [];
+  if (!sourcePermanent || faces.length < 2 || String(sourcePermanent?.controller || '') !== String(playerId)) {
+    return { selections: [declineId], cancelled: true };
+  }
+
+  const followupText = String(step?.reflexiveConvertWhenYouDoFollowupDescription || step?.description || '').toLowerCase();
+  const looksBeneficial = /(damage|destroy|exile|counter|draw|create|gain|return|can't block|cant block|put .*counter|each opponent|target opponent|any target|graveyard to (?:the )?battlefield)/i.test(followupText);
+  const looksSelfPunishing = /(you lose|damage to you|you sacrifice|you discard|you mill)/i.test(followupText);
+  if (!looksBeneficial || looksSelfPunishing) {
+    return { selections: [declineId], cancelled: true };
+  }
+
+  return { selections: [convertId], cancelled: false };
+}
+
+function chooseAIOptionalPaymentPromptSelection(
+  game: any,
+  playerId: PlayerID,
+  step: any,
+  options: any[],
+  resolveOptionId: (option: any) => string,
+): { selections: string[]; cancelled: boolean } {
+  const optionIds = options.map(resolveOptionId).filter(Boolean);
+  const configuredPayId = String(step?.optionalPaymentPayChoiceId || '').trim();
+  const configuredDeclineId = String(step?.optionalPaymentDeclineChoiceId || '').trim();
+  const payId = optionIds.find((id) => id === configuredPayId)
+    || optionIds.find((id) => /^pay(?:_|$)/i.test(id))
+    || configuredPayId
+    || 'pay';
+  const declineId = optionIds.find((id) => id === configuredDeclineId)
+    || optionIds.find((id) => /^(?:decline|no|cancel|dont|do_not_pay)$/i.test(id))
+    || configuredDeclineId
+    || 'decline';
+
+  const validationFailure = getOptionalPaymentValidationFailure(game, String(playerId), step, payId);
+  if (validationFailure) {
+    return { selections: [declineId], cancelled: true };
+  }
+
+  const validationKind = String(step?.optionalPaymentValidationKind || 'none').trim().toLowerCase();
+  if (validationKind === 'life') {
+    const lifeAmount = Math.max(0, Math.floor(Number(step?.optionalPaymentLifeAmount || step?.payLifeAmount || 0)));
+    const currentLife = getAIPlayerLife(game, playerId);
+    if (lifeAmount > 0 && currentLife - lifeAmount <= 3) {
+      return { selections: [declineId], cancelled: true };
+    }
+  }
+
+  const payOption = options.find((option: any) => resolveOptionId(option) === payId) || options[0];
+  const declineOption = options.find((option: any) => resolveOptionId(option) === declineId);
+  const scoringStep = {
+    ...step,
+    description: [
+      step?.description,
+      step?.effect,
+      step?.triggerDescription,
+      step?.payDescription,
+    ].map((part) => String(part || '').trim()).filter(Boolean).join(' '),
+  };
+  const payScore = scoreGenericChoiceOption(scoringStep, payOption);
+  const declineScore = declineOption ? scoreGenericChoiceOption(scoringStep, declineOption) : -8;
+  const payText = `${String(payOption?.label || '')} ${String(payOption?.description || '')} ${String(scoringStep.description || '')}`.toLowerCase();
+  const looksBeneficial = /(copy|damage|destroy|exile|counter|draw|create|gain|return|can't block|cant block|put .*counter|each opponent|target opponent|any target|treasure|token|to (?:the )?battlefield)/i.test(payText);
+  const looksSelfPunishing = /(you lose|damage to you|you discard|you sacrifice|you mill)/i.test(payText);
+
+  if (!looksSelfPunishing && (looksBeneficial || payScore > declineScore)) {
+    return { selections: [payId], cancelled: false };
+  }
+
+  return { selections: [declineId], cancelled: true };
 }
 
 function getPermanentKeywordSet(permanent: any): Set<string> {
@@ -2651,6 +2778,10 @@ export function chooseAIOptionSelectionsForStep(
     return chooseAIReflexiveFixedPaymentSelection(game, playerId, step, options, resolveOptionId);
   }
 
+  if (step?.sacrificeWhenYouDo === true && String(step?.sacrificeWhenYouDoStage || '') === 'ask') {
+    return chooseAIReflexiveSacrificeSelection(game, playerId, step, options, resolveOptionId);
+  }
+
   if (step?.reflexiveDiscardWhenYouDo === true && String(step?.reflexiveDiscardWhenYouDoStage || '') === 'ask') {
     return chooseAIReflexiveDiscardSelection(game, playerId, step, options, resolveOptionId);
   }
@@ -2661,6 +2792,10 @@ export function chooseAIOptionSelectionsForStep(
 
   if (step?.reflexiveBoundGraveyardSelfExileWhenYouDo === true && String(step?.reflexiveBoundGraveyardSelfExileWhenYouDoStage || '') === 'ask') {
     return chooseAIReflexiveBoundGraveyardSelfExileSelection(game, playerId, step, options, resolveOptionId);
+  }
+
+  if (step?.reflexiveConvertWhenYouDo === true) {
+    return chooseAIReflexiveConvertSelection(game, playerId, step, options, resolveOptionId);
   }
 
   if (step?.mayAbilityPrompt === true) {
@@ -2690,6 +2825,10 @@ export function chooseAIOptionSelectionsForStep(
     const wantUntapped = isOwnTurn && phase.includes('main') && hand.some((card: any) => String(card?.mana_cost || '').length > 0);
     const shouldPay = currentLife - payLifeAmount >= 10 && wantUntapped;
     return { selections: [shouldPay ? 'pay_2_life' : 'enter_tapped'], cancelled: false };
+  }
+
+  if (step?.optionalPaymentPrompt === true) {
+    return chooseAIOptionalPaymentPromptSelection(game, playerId, step, options, resolveOptionId);
   }
 
   if (step?.wardPayment === true) {
