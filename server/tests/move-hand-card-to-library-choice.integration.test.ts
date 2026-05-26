@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, beforeEach, afterEach } from 'vitest';
-import { initDb, createGameIfNotExists, deleteGame } from '../src/db/index.js';
+import { initDb, createGameIfNotExists, deleteGame, getEvents } from '../src/db/index.js';
 import { ensureGame } from '../src/socket/util.js';
 import { registerResolutionHandlers } from '../src/socket/resolution.js';
 import { ResolutionQueueManager, ResolutionStepType } from '../src/state/resolution/index.js';
@@ -111,6 +111,18 @@ describe('move chosen hand card to library choice (integration)', () => {
     const lib = (game as any).libraries.get(p1) || [];
     expect(lib.map((c: any) => c.id)).toEqual(['hand_b', 'lib_1']);
     expect(((game.state as any).zones[p1].hand || []).map((c: any) => c.id)).toEqual(['hand_a']);
+
+    const resolvedEvent = [...getEvents(gameId)].reverse().find((event) => event.type === 'moveChosenHandCardToLibraryChoiceResolve') as any;
+    expect(resolvedEvent).toBeDefined();
+    expect(resolvedEvent.payload).toMatchObject({
+      playerId: p1,
+      controllerId: p1,
+      sourceName: 'Source',
+      resolvedStepId: step.id,
+      chosenCardId: 'hand_b',
+      position: 'top',
+      movedCardSnapshot: { id: 'hand_b', name: 'Card B', zone: 'library' },
+    });
   });
 
   it('puts the selected hand card on the bottom of the library', async () => {
@@ -162,5 +174,17 @@ describe('move chosen hand card to library choice (integration)', () => {
     const lib = (game as any).libraries.get(p1) || [];
     expect(lib.map((c: any) => c.id)).toEqual(['lib_1', 'hand_a']);
     expect(((game.state as any).zones[p1].hand || []).map((c: any) => c.id)).toEqual(['hand_b']);
+
+    const resolvedEvent = [...getEvents(gameId)].reverse().find((event) => event.type === 'moveChosenHandCardToLibraryChoiceResolve') as any;
+    expect(resolvedEvent).toBeDefined();
+    expect(resolvedEvent.payload).toMatchObject({
+      playerId: p1,
+      controllerId: p1,
+      sourceName: 'Source',
+      resolvedStepId: step.id,
+      chosenCardId: 'hand_a',
+      position: 'bottom',
+      movedCardSnapshot: { id: 'hand_a', name: 'Card A', zone: 'library' },
+    });
   });
 });

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, beforeEach, afterEach } from 'vitest';
-import { initDb, createGameIfNotExists, deleteGame } from '../src/db/index.js';
+import { initDb, createGameIfNotExists, deleteGame, getEvents } from '../src/db/index.js';
 import { ensureGame } from '../src/socket/util.js';
 import '../src/state/modules/priority.js';
 import { registerResolutionHandlers, initializePriorityResolutionHandler } from '../src/socket/resolution.js';
@@ -129,6 +129,19 @@ describe('choose player for looked-at cards (integration)', () => {
     const queue = ResolutionQueueManager.getQueue(gameId);
     expect(queue.steps).toHaveLength(1);
     expect((queue.steps[0] as any).playerId).toBe(p2);
+
+    const resolvedEvent = [...getEvents(gameId)].reverse().find((event) => event.type === 'choosePlayerForLookedAtCardsChoiceResolve') as any;
+    expect(resolvedEvent).toBeDefined();
+    expect(resolvedEvent.payload).toMatchObject({
+      playerId: p1,
+      controllerId: p1,
+      sourceName: 'Source',
+      resolvedStepId: step.id,
+      chosenPlayerId: p2,
+    });
+    expect(resolvedEvent.payload?.queuedResolutionStep?.playerId).toBe(p2);
+    expect(resolvedEvent.payload?.queuedResolutionStep?.chooseLookedAtCardsDestinationChoice).toBe(true);
+    expect(resolvedEvent.payload?.queuedResolutionStep?.chooseLookedAtCardsDestinationTopCardIds).toEqual(['top_1', 'top_2']);
 
     await handlers2['submitResolutionResponse']({ gameId, stepId: (queue.steps[0] as any).id, selections: 'top_2' });
 

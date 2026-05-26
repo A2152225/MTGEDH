@@ -6724,6 +6724,239 @@ describe('AI resolution-step integration', () => {
     expect(completed?.response?.cancelled).toBe(false);
   });
 
+  it('routes pay-mana-to-look choices through AI priority handling and pays a useful amount', async () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [
+      { id: playerId, name: 'AI', spectator: false, life: 40 },
+      { id: 'opp1', name: 'Opponent', spectator: false, life: 40 },
+    ];
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).phase = 'main';
+    (game.state as any).step = 'precombat_main';
+    (game.state as any).stack = [];
+    (game.state as any).manaPool = { [playerId]: { colorless: 2, blue: 1 } };
+    (game.state as any).zones = {
+      [playerId]: {
+        hand: [],
+        handCount: 0,
+        library: [
+          { id: 'look_1', name: 'Look One', type_line: 'Instant', oracle_text: 'Draw a card.', cmc: 2 },
+          { id: 'look_2', name: 'Look Two', type_line: 'Land', oracle_text: '', cmc: 0 },
+        ],
+        libraryCount: 2,
+        graveyard: [],
+        exile: [],
+      },
+      opp1: { hand: [], handCount: 0, library: [], graveyard: [], exile: [] },
+    };
+
+    registerAIPlayer(gameId, playerId as any);
+
+    const step = ResolutionQueueManager.addStep(gameId, {
+      type: ResolutionStepType.OPTION_CHOICE,
+      playerId: playerId as any,
+      sourceName: 'Look Source',
+      description: 'Look Source: Pay any amount of mana.',
+      mandatory: true,
+      options: [
+        { id: '0', label: '0' },
+        { id: '1', label: '1' },
+        { id: '2', label: '2' },
+        { id: '3', label: '3' },
+      ],
+      minSelections: 1,
+      maxSelections: 1,
+      payManaToLookAndChooseCardChoice: true,
+      payManaToLookAndChooseCardController: playerId,
+      payManaToLookAndChooseCardSourceName: 'Look Source',
+    } as any);
+
+    ResolutionQueueManager.activateStep(gameId, step.id);
+
+    await handleAIPriority(createNoopIo(), gameId, playerId as any);
+
+    const queue = ResolutionQueueManager.getQueue(gameId);
+    expect(queue.steps.some((entry: any) => String(entry.id) === String(step.id))).toBe(false);
+    const completed = queue.completedSteps.find((entry: any) => String(entry.id) === String(step.id));
+    expect(completed?.response?.selections).toEqual(['2']);
+    expect(completed?.response?.cancelled).toBe(false);
+  });
+
+  it('routes choose-mana-colors choices through AI priority handling and chooses the lowest stocked useful color', async () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [
+      { id: playerId, name: 'AI', spectator: false, life: 40 },
+      { id: 'opp1', name: 'Opponent', spectator: false, life: 40 },
+    ];
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).phase = 'main';
+    (game.state as any).step = 'precombat_main';
+    (game.state as any).stack = [];
+    (game.state as any).manaPool = { [playerId]: { white: 3, blue: 0, black: 0, red: 0, green: 0 } };
+    (game.state as any).zones = {
+      [playerId]: { hand: [], handCount: 0, library: [], graveyard: [], exile: [] },
+      opp1: { hand: [], handCount: 0, library: [], graveyard: [], exile: [] },
+    };
+
+    registerAIPlayer(gameId, playerId as any);
+
+    const step = ResolutionQueueManager.addStep(gameId, {
+      type: ResolutionStepType.OPTION_CHOICE,
+      playerId: playerId as any,
+      sourceName: 'Color Source',
+      description: 'Color Source: Choose a color.',
+      mandatory: true,
+      options: [
+        { id: 'white', label: 'White' },
+        { id: 'blue', label: 'Blue' },
+        { id: 'black', label: 'Black' },
+        { id: 'red', label: 'Red' },
+        { id: 'green', label: 'Green' },
+      ],
+      minSelections: 1,
+      maxSelections: 1,
+      chooseManaColorsChoice: true,
+      chooseManaColorsController: playerId,
+      chooseManaColorsSourceName: 'Color Source',
+      chooseManaColorsSourceId: 'source_perm',
+    } as any);
+
+    ResolutionQueueManager.activateStep(gameId, step.id);
+
+    await handleAIPriority(createNoopIo(), gameId, playerId as any);
+
+    const queue = ResolutionQueueManager.getQueue(gameId);
+    const completed = queue.completedSteps.find((entry: any) => String(entry.id) === String(step.id));
+    expect(completed?.response?.selections).toEqual(['blue']);
+    expect(completed?.response?.cancelled).toBe(false);
+  });
+
+  it('routes move-hand-card-to-library choices through AI priority handling and puts back the lowest-value offered card', async () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [
+      { id: playerId, name: 'AI', spectator: false, life: 40 },
+      { id: 'opp1', name: 'Opponent', spectator: false, life: 40 },
+    ];
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).phase = 'main';
+    (game.state as any).step = 'precombat_main';
+    (game.state as any).stack = [];
+    (game.state as any).zones = {
+      [playerId]: {
+        hand: [
+          { id: 'draw_spell', name: 'Useful Draw', type_line: 'Sorcery', oracle_text: 'Draw two cards.', cmc: 3 },
+          { id: 'blank_land', name: 'Blank Land', type_line: 'Land', oracle_text: '', cmc: 0 },
+        ],
+        handCount: 2,
+        library: [],
+        graveyard: [],
+        exile: [],
+      },
+      opp1: { hand: [], handCount: 0, library: [], graveyard: [], exile: [] },
+    };
+
+    registerAIPlayer(gameId, playerId as any);
+
+    const step = ResolutionQueueManager.addStep(gameId, {
+      type: ResolutionStepType.OPTION_CHOICE,
+      playerId: playerId as any,
+      sourceName: 'Library Source',
+      description: 'Library Source: Choose a card from your hand to put on top of your library.',
+      mandatory: true,
+      options: [
+        { id: 'draw_spell', label: 'Useful Draw' },
+        { id: 'blank_land', label: 'Blank Land' },
+      ],
+      minSelections: 1,
+      maxSelections: 1,
+      moveChosenHandCardToLibraryChoice: true,
+      moveChosenHandCardToLibraryController: playerId,
+      moveChosenHandCardToLibrarySourceName: 'Library Source',
+      moveChosenHandCardToLibraryPosition: 'top',
+    } as any);
+
+    ResolutionQueueManager.activateStep(gameId, step.id);
+
+    await handleAIPriority(createNoopIo(), gameId, playerId as any);
+
+    const queue = ResolutionQueueManager.getQueue(gameId);
+    const completed = queue.completedSteps.find((entry: any) => String(entry.id) === String(step.id));
+    expect(completed?.response?.selections).toEqual(['blank_land']);
+    expect(completed?.response?.cancelled).toBe(false);
+  });
+
+  it('routes attach-equipment option choices through AI priority handling when equipment is available', async () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [
+      { id: playerId, name: 'AI', spectator: false, life: 40 },
+      { id: 'opp1', name: 'Opponent', spectator: false, life: 40 },
+    ];
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).phase = 'main';
+    (game.state as any).step = 'precombat_main';
+    (game.state as any).stack = [];
+    (game.state as any).battlefield = [
+      {
+        id: 'new_target',
+        controller: playerId,
+        owner: playerId,
+        card: { name: 'Kor Soldier', type_line: 'Token Creature - Kor Soldier' },
+      },
+      {
+        id: 'equip_1',
+        controller: playerId,
+        owner: playerId,
+        card: { name: 'Sword of Testing', type_line: 'Artifact - Equipment' },
+      },
+    ];
+
+    registerAIPlayer(gameId, playerId as any);
+
+    const step = ResolutionQueueManager.addStep(gameId, {
+      type: ResolutionStepType.OPTION_CHOICE,
+      playerId: playerId as any,
+      sourceName: 'Attach Source',
+      description: 'Attach Source: You may attach an Equipment you control.',
+      mandatory: false,
+      options: [
+        { id: 'attach', label: 'Attach an Equipment' },
+        { id: 'decline', label: 'Decline' },
+      ],
+      minSelections: 1,
+      maxSelections: 1,
+      attachEquipmentToPermanentChoice: true,
+      attachEquipmentToPermanentTargetPermanentId: 'new_target',
+      attachEquipmentToPermanentController: playerId,
+      attachEquipmentToPermanentSourceName: 'Attach Source',
+      attachEquipmentToPermanentTargetName: 'Kor Soldier token',
+    } as any);
+
+    ResolutionQueueManager.activateStep(gameId, step.id);
+
+    await handleAIPriority(createNoopIo(), gameId, playerId as any);
+
+    const queue = ResolutionQueueManager.getQueue(gameId);
+    const completed = queue.completedSteps.find((entry: any) => String(entry.id) === String(step.id));
+    expect(completed?.response?.selections).toEqual(['attach']);
+    expect(completed?.response?.cancelled).toBe(false);
+  });
+
   it('declines resolved-spell copy choices through AI priority handling without a copy snapshot', async () => {
     createGameIfNotExists(gameId, 'commander', 40);
     const game = ensureGame(gameId);

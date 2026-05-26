@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, beforeEach, afterEach } from 'vitest';
-import { initDb, createGameIfNotExists, deleteGame } from '../src/db/index.js';
+import { initDb, createGameIfNotExists, deleteGame, getEvents } from '../src/db/index.js';
 import { ensureGame } from '../src/socket/util.js';
 import { registerResolutionHandlers } from '../src/socket/resolution.js';
 import { ResolutionQueueManager, ResolutionStepType } from '../src/state/resolution/index.js';
@@ -108,6 +108,20 @@ describe('pay mana to look and choose card (integration)', () => {
     expect(queue.steps).toHaveLength(1);
     expect((queue.steps[0] as any).chooseLookedAtCardsDestinationChoice).toBe(true);
     expect((game.state as any).manaPool[p1].colorless).toBe(0);
+
+    const resolvedEvent = [...getEvents(gameId)].reverse().find((event) => event.type === 'payManaToLookAndChooseCardChoiceResolve') as any;
+    expect(resolvedEvent).toBeDefined();
+    expect(resolvedEvent.payload).toMatchObject({
+      playerId: p1,
+      controllerId: p1,
+      sourceName: 'Source',
+      resolvedStepId: step.id,
+      chosenAmount: 2,
+      lookedAtCardIds: ['top_1', 'top_2'],
+      paymentManaDelta: { colorless: -2 },
+    });
+    expect(resolvedEvent.payload?.queuedResolutionStep?.chooseLookedAtCardsDestinationChoice).toBe(true);
+    expect(resolvedEvent.payload?.queuedResolutionStep?.chooseLookedAtCardsDestinationTopCardIds).toEqual(['top_1', 'top_2']);
 
     await handlers['submitResolutionResponse']({ gameId, stepId: (queue.steps[0] as any).id, selections: 'top_2' });
 

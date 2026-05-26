@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, beforeEach, afterEach } from 'vitest';
-import { initDb, createGameIfNotExists, deleteGame } from '../src/db/index.js';
+import { initDb, createGameIfNotExists, deleteGame, getEvents } from '../src/db/index.js';
 import { ensureGame } from '../src/socket/util.js';
 import { registerResolutionHandlers } from '../src/socket/resolution.js';
 import { ResolutionQueueManager, ResolutionStepType } from '../src/state/resolution/index.js';
@@ -102,6 +102,22 @@ describe('choose mana colors choice (integration)', () => {
     await handlers['submitResolutionResponse']({ gameId, stepId: step.id, selections: 'red' });
 
     expect(Number((game.state as any).manaPool?.[p1]?.red || 0)).toBe(10);
+
+    const resolvedEvent = [...getEvents(gameId)].reverse().find((event) => event.type === 'chooseManaColorsChoiceResolve') as any;
+    expect(resolvedEvent).toBeDefined();
+    expect(resolvedEvent.payload).toMatchObject({
+      playerId: p1,
+      controllerId: p1,
+      sourceId: 'source_perm',
+      sourceName: 'Source',
+      resolvedStepId: step.id,
+      chosenColor: 'red',
+      chosenColors: ['red'],
+      restriction: 'unrestricted',
+      selectionsTotal: 1,
+      amountPerSelection: 10,
+      manaAdded: { red: 10 },
+    });
   });
 
   it('queues a second unrestricted mana color choice and merges duplicate colors', async () => {
@@ -147,9 +163,28 @@ describe('choose mana colors choice (integration)', () => {
     expect(queue.steps).toHaveLength(1);
     expect((queue.steps[0] as any).chooseManaColorsChosen).toEqual(['green']);
 
+    const firstResolvedEvent = [...getEvents(gameId)].reverse().find((event) => event.type === 'chooseManaColorsChoiceResolve') as any;
+    expect(firstResolvedEvent).toBeDefined();
+    expect(firstResolvedEvent.payload).toMatchObject({
+      chosenColor: 'green',
+      chosenColors: ['green'],
+      restriction: 'unrestricted',
+      selectionsTotal: 2,
+      amountPerSelection: 1,
+    });
+    expect(firstResolvedEvent.payload?.queuedResolutionStep?.chooseManaColorsChoice).toBe(true);
+    expect(firstResolvedEvent.payload?.queuedResolutionStep?.chooseManaColorsChosen).toEqual(['green']);
+
     await handlers['submitResolutionResponse']({ gameId, stepId: (queue.steps[0] as any).id, selections: 'green' });
 
     expect(Number((game.state as any).manaPool?.[p1]?.green || 0)).toBe(2);
+
+    const finalResolvedEvent = [...getEvents(gameId)].reverse().find((event) => event.type === 'chooseManaColorsChoiceResolve') as any;
+    expect(finalResolvedEvent.payload).toMatchObject({
+      chosenColor: 'green',
+      chosenColors: ['green', 'green'],
+      manaAdded: { green: 2 },
+    });
   });
 
   it('adds restricted mana when configured with a casting restriction', async () => {
@@ -197,5 +232,14 @@ describe('choose mana colors choice (integration)', () => {
     expect(restricted).toHaveLength(2);
     expect(restricted.map((entry) => entry.type)).toEqual(['blue', 'red']);
     expect(restricted.every((entry) => entry.restriction === 'dragon_spells')).toBe(true);
+
+    const resolvedEvent = [...getEvents(gameId)].reverse().find((event) => event.type === 'chooseManaColorsChoiceResolve') as any;
+    expect(resolvedEvent).toBeDefined();
+    expect(resolvedEvent.payload).toMatchObject({
+      chosenColor: 'red',
+      chosenColors: ['blue', 'red'],
+      restriction: 'dragon_spells',
+      manaAdded: { blue: 1, red: 1 },
+    });
   });
 });

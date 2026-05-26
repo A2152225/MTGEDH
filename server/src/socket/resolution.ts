@@ -28968,6 +28968,7 @@ async function handleOptionChoiceResponse(
     const chosenCardId = extractId(selectedOption);
     const controllerId = String(stepData.moveChosenHandCardToLibraryController || playerId);
     const sourceName = String(stepData.moveChosenHandCardToLibrarySourceName || step.sourceName || 'Ability');
+    const sourceId = String(stepData.moveChosenHandCardToLibrarySourceId || step.sourceId || '').trim();
     const position = String(stepData.moveChosenHandCardToLibraryPosition || 'top').toLowerCase() === 'bottom'
       ? 'bottom'
       : 'top';
@@ -29009,6 +29010,21 @@ async function handleOptionChoiceResponse(
 
     z.handCount = (z.hand as any[]).length;
     z.libraryCount = lib.length;
+
+    try {
+      await appendEvent(gameId, (game as any).seq || 0, 'moveChosenHandCardToLibraryChoiceResolve', {
+        playerId,
+        controllerId,
+        sourceId: sourceId || undefined,
+        sourceName,
+        resolvedStepId: String(step.id || '').trim() || undefined,
+        chosenCardId: String(chosenCardId || ''),
+        position,
+        movedCardSnapshot: { ...card, zone: 'library' },
+      });
+    } catch (err) {
+      debugWarn(1, '[Resolution] appendEvent(moveChosenHandCardToLibraryChoiceResolve) failed:', err);
+    }
 
     io.to(gameId).emit('chat', {
       id: `m_${Date.now()}`,
@@ -29508,6 +29524,21 @@ async function handleOptionChoiceResponse(
     if (!targetPermanentId) return;
 
     if (!choiceId || choiceId === 'decline') {
+      try {
+        await appendEvent(gameId, (game as any).seq || 0, 'attachEquipmentToPermanentChoiceResolve', {
+          playerId,
+          controllerId,
+          sourceId: String(step.sourceId || targetPermanentId || '').trim() || undefined,
+          sourceName,
+          resolvedStepId: String(step.id || '').trim() || undefined,
+          choice: 'decline',
+          targetPermanentId,
+          targetName,
+        });
+      } catch (err) {
+        debugWarn(1, '[Resolution] appendEvent(attachEquipmentToPermanentChoiceResolve) failed:', err);
+      }
+
       io.to(gameId).emit('chat', {
         id: `m_${Date.now()}`,
         gameId,
@@ -29531,6 +29562,21 @@ async function handleOptionChoiceResponse(
       }));
 
     if (validEquipment.length === 0) {
+      try {
+        await appendEvent(gameId, (game as any).seq || 0, 'attachEquipmentToPermanentChoiceResolve', {
+          playerId,
+          controllerId,
+          sourceId: String(step.sourceId || targetPermanentId || '').trim() || undefined,
+          sourceName,
+          resolvedStepId: String(step.id || '').trim() || undefined,
+          choice: 'no_equipment',
+          targetPermanentId,
+          targetName,
+        });
+      } catch (err) {
+        debugWarn(1, '[Resolution] appendEvent(attachEquipmentToPermanentChoiceResolve) failed:', err);
+      }
+
       io.to(gameId).emit('chat', {
         id: `m_${Date.now()}`,
         gameId,
@@ -29559,6 +29605,22 @@ async function handleOptionChoiceResponse(
       attachEquipmentToPermanentSourceName: sourceName,
       attachEquipmentToPermanentTargetName: targetName,
     } as any);
+
+    try {
+      await appendEvent(gameId, (game as any).seq || 0, 'attachEquipmentToPermanentChoiceResolve', {
+        playerId,
+        controllerId,
+        sourceId: String(step.sourceId || targetPermanentId || '').trim() || undefined,
+        sourceName,
+        resolvedStepId: String(step.id || '').trim() || undefined,
+        choice: 'attach',
+        targetPermanentId,
+        targetName,
+        queuedResolutionStepId: String(queuedResolutionStep.id || '').trim() || undefined,
+      });
+    } catch (err) {
+      debugWarn(1, '[Resolution] appendEvent(attachEquipmentToPermanentChoiceResolve) failed:', err);
+    }
 
     appendQueuedResolutionPromptEvent(game, gameId, {
       playerId: controllerId,
@@ -30433,6 +30495,7 @@ async function handleOptionChoiceResponse(
     const lib: any[] = Array.isArray(z.library) ? z.library : [];
 
     const pool = { ...(((state as any).manaPool?.[controllerId] || {}) as any) };
+    const paymentManaDelta: Record<string, number> = {};
     let remaining = Math.max(0, chosenX);
     const spendOrder = ['colorless', 'white', 'blue', 'black', 'red', 'green'];
     for (const color of spendOrder) {
@@ -30441,12 +30504,28 @@ async function handleOptionChoiceResponse(
       if (available <= 0) continue;
       const take = Math.min(available, remaining);
       pool[color] = available - take;
+      paymentManaDelta[color] = Number(paymentManaDelta[color] || 0) - take;
       remaining -= take;
     }
     if (!(state as any).manaPool) (state as any).manaPool = {};
     (state as any).manaPool[controllerId] = pool;
 
     if (chosenX <= 0 || lib.length === 0) {
+      try {
+        await appendEvent(gameId, (game as any).seq || 0, 'payManaToLookAndChooseCardChoiceResolve', {
+          playerId,
+          controllerId,
+          sourceId: String(step.sourceId || '').trim() || undefined,
+          sourceName,
+          resolvedStepId: String(step.id || '').trim() || undefined,
+          chosenAmount: chosenX,
+          lookedAtCardIds: [],
+          paymentManaDelta,
+        });
+      } catch (err) {
+        debugWarn(1, '[Resolution] appendEvent(payManaToLookAndChooseCardChoiceResolve) failed:', err);
+      }
+
       io.to(gameId).emit('chat', {
         id: `m_${Date.now()}`,
         gameId,
@@ -30459,7 +30538,7 @@ async function handleOptionChoiceResponse(
     }
 
     const top = lib.slice(0, chosenX);
-    ResolutionQueueManager.addStep(gameId, {
+    const queuedResolutionStep = ResolutionQueueManager.addStep(gameId, {
       type: ResolutionStepType.OPTION_CHOICE,
       playerId: controllerId,
       description: `${sourceName}: Choose a card to put into your hand`,
@@ -30481,6 +30560,22 @@ async function handleOptionChoiceResponse(
       chooseLookedAtCardsDestinationOtherZone: 'bottom_library',
       chooseLookedAtCardsDestinationRandomizeOtherOrder: true,
     } as any);
+
+    try {
+      await appendEvent(gameId, (game as any).seq || 0, 'payManaToLookAndChooseCardChoiceResolve', {
+        playerId,
+        controllerId,
+        sourceId: String(step.sourceId || '').trim() || undefined,
+        sourceName,
+        resolvedStepId: String(step.id || '').trim() || undefined,
+        chosenAmount: chosenX,
+        lookedAtCardIds: top.map((card: any) => String(card?.id || '')).filter(Boolean),
+        paymentManaDelta,
+        queuedResolutionStep,
+      });
+    } catch (err) {
+      debugWarn(1, '[Resolution] appendEvent(payManaToLookAndChooseCardChoiceResolve) failed:', err);
+    }
 
     if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
     return;
@@ -30760,7 +30855,7 @@ async function handleOptionChoiceResponse(
     ];
 
     if (chosenColors.length < selectionsTotal) {
-      ResolutionQueueManager.addStep(gameId, {
+      const queuedResolutionStep = ResolutionQueueManager.addStep(gameId, {
         type: ResolutionStepType.OPTION_CHOICE,
         playerId: controllerId,
         description: isUnrestricted
@@ -30780,6 +30875,24 @@ async function handleOptionChoiceResponse(
         chooseManaColorsAmountPerSelection: amountPerSelection,
         chooseManaColorsChosen: chosenColors,
       } as any);
+
+      try {
+        await appendEvent(gameId, (game as any).seq || 0, 'chooseManaColorsChoiceResolve', {
+          playerId,
+          controllerId,
+          sourceId: String(sourceId || '').trim() || undefined,
+          sourceName,
+          resolvedStepId: String(step.id || '').trim() || undefined,
+          chosenColor,
+          chosenColors,
+          restriction,
+          selectionsTotal,
+          amountPerSelection,
+          queuedResolutionStep,
+        });
+      } catch (err) {
+        debugWarn(1, '[Resolution] appendEvent(chooseManaColorsChoiceResolve) failed:', err);
+      }
 
       if (typeof (game as any).bumpSeq === 'function') {
         (game as any).bumpSeq();
@@ -30808,6 +30921,24 @@ async function handleOptionChoiceResponse(
     const summaryText = Object.entries(colorSummary)
       .map(([color, amount]) => `${amount} ${color}`)
       .join(', ');
+
+    try {
+      await appendEvent(gameId, (game as any).seq || 0, 'chooseManaColorsChoiceResolve', {
+        playerId,
+        controllerId,
+        sourceId: String(sourceId || '').trim() || undefined,
+        sourceName,
+        resolvedStepId: String(step.id || '').trim() || undefined,
+        chosenColor,
+        chosenColors,
+        restriction,
+        selectionsTotal,
+        amountPerSelection,
+        manaAdded: colorSummary,
+      });
+    } catch (err) {
+      debugWarn(1, '[Resolution] appendEvent(chooseManaColorsChoiceResolve) failed:', err);
+    }
 
     io.to(gameId).emit('chat', {
       id: `m_${Date.now()}`,
@@ -30846,7 +30977,7 @@ async function handleOptionChoiceResponse(
       imageUrl: c.image_uris?.normal || c.image_uris?.art_crop || c.image_uris?.small,
     }));
 
-    ResolutionQueueManager.addStep(gameId, {
+    const queuedResolutionStep = ResolutionQueueManager.addStep(gameId, {
       type: ResolutionStepType.OPTION_CHOICE,
       playerId: chosenPlayerId,
       description: String(stepData.choosePlayerForLookedAtCardsDescription || `${sourceName}: Choose a card`),
@@ -30863,6 +30994,20 @@ async function handleOptionChoiceResponse(
       chooseLookedAtCardsDestinationOtherZone: stepData.choosePlayerForLookedAtCardsDestinationOtherZone,
       chooseLookedAtCardsDestinationOtherCardPatch: stepData.choosePlayerForLookedAtCardsDestinationOtherCardPatch,
     } as any);
+
+    try {
+      await appendEvent(gameId, (game as any).seq || 0, 'choosePlayerForLookedAtCardsChoiceResolve', {
+        playerId,
+        controllerId,
+        sourceId: String(step.sourceId || '').trim() || undefined,
+        sourceName,
+        resolvedStepId: String(step.id || '').trim() || undefined,
+        chosenPlayerId,
+        queuedResolutionStep,
+      });
+    } catch (err) {
+      debugWarn(1, '[Resolution] appendEvent(choosePlayerForLookedAtCardsChoiceResolve) failed:', err);
+    }
 
     io.to(gameId).emit('chat', {
       id: `m_${Date.now()}`,

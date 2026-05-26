@@ -136,6 +136,20 @@ describe('attach equipment to permanent (integration)', () => {
     expect((queue.steps[0] as any).attachEquipmentToPermanentSelectEquipment).toBe(true);
 
     const promptEvents = getEvents(gameId).slice(promptEventStart);
+    const choiceEvent = [...promptEvents].reverse().find((event: any) => event.type === 'attachEquipmentToPermanentChoiceResolve') as any;
+    expect(choiceEvent).toBeDefined();
+    expect(choiceEvent.payload).toMatchObject({
+      playerId: p1,
+      controllerId: p1,
+      sourceId: 'new_target',
+      sourceName: 'Source',
+      resolvedStepId: step.id,
+      choice: 'attach',
+      targetPermanentId: 'new_target',
+      targetName: 'Kor Soldier token',
+      queuedResolutionStepId: (queue.steps[0] as any).id,
+    });
+
     const promptEvent = [...promptEvents].reverse().find((event: any) =>
       event.type === 'resolveTopOfStackPrompt' &&
       event.payload?.queuedResolutionStep?.attachEquipmentToPermanentSelectEquipment === true
@@ -231,5 +245,65 @@ describe('attach equipment to permanent (integration)', () => {
     expect(replayEquipment.attachedTo).toBe('new_target');
     expect(replayNewTarget.attachedEquipment || []).toEqual(['equip_1']);
     expect(replayNewTarget.isEquipped).toBe(true);
+  });
+
+  it('persists declining the optional attach-equipment prompt', async () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const p1 = 'p1' as any;
+    (game.state as any).players = [{ id: p1, name: 'P1', spectator: false, life: 40 }];
+    (game.state as any).battlefield = [
+      {
+        id: 'new_target',
+        controller: p1,
+        owner: p1,
+        attachedEquipment: [],
+        isEquipped: false,
+        card: { name: 'Kor Soldier', type_line: 'Token Creature — Kor Soldier' },
+      },
+    ];
+
+    const step = ResolutionQueueManager.addStep(gameId, {
+      type: ResolutionStepType.OPTION_CHOICE,
+      playerId: p1,
+      description: 'Source: You may attach an Equipment you control to the created Kor Soldier token.',
+      mandatory: false,
+      sourceName: 'Source',
+      options: [
+        { id: 'attach', label: 'Attach an Equipment' },
+        { id: 'decline', label: 'Decline' },
+      ],
+      minSelections: 1,
+      maxSelections: 1,
+      attachEquipmentToPermanentChoice: true,
+      attachEquipmentToPermanentTargetPermanentId: 'new_target',
+      attachEquipmentToPermanentController: p1,
+      attachEquipmentToPermanentSourceName: 'Source',
+      attachEquipmentToPermanentTargetName: 'Kor Soldier token',
+    } as any);
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(p1, emitted, gameId);
+    const io = createMockIo(emitted, [socket]);
+    registerResolutionHandlers(io as any, socket as any);
+
+    await handlers['submitResolutionResponse']({ gameId, stepId: step.id, selections: 'decline' });
+
+    const queue = ResolutionQueueManager.getQueue(gameId);
+    expect(queue.steps).toHaveLength(0);
+    const choiceEvent = [...getEvents(gameId)].reverse().find((event: any) => event.type === 'attachEquipmentToPermanentChoiceResolve') as any;
+    expect(choiceEvent).toBeDefined();
+    expect(choiceEvent.payload).toMatchObject({
+      playerId: p1,
+      controllerId: p1,
+      sourceId: 'new_target',
+      sourceName: 'Source',
+      resolvedStepId: step.id,
+      choice: 'decline',
+      targetPermanentId: 'new_target',
+      targetName: 'Kor Soldier token',
+    });
   });
 });

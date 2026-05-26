@@ -351,7 +351,7 @@ import { processLifeChange } from "./game-state-effects";
 import { markEchoPaid, sacrificePermanent } from "./upkeep-triggers";
 import { ResolutionQueueManager, ResolutionStepType } from "../resolution/index.js";
 import { parseManaCost } from "./mana-check.js";
-import { calculateManaProduction, consumeManaFromPool, getOrInitManaPool, recordCreatureSpellHasteManaProduced, resolveManaCostForPoolPayment } from "../../socket/util.js";
+import { addRestrictedManaToPool, calculateManaProduction, consumeManaFromPool, getOrInitManaPool, recordCreatureSpellHasteManaProduced, resolveManaCostForPoolPayment } from "../../socket/util.js";
 import { parseUpgradeAbilities as parseCreatureUpgradeAbilities } from "../../../../rules-engine/src/creatureUpgradeAbilities.js";
 import { detectTutorEffect, getActivatedAbilityScopeText, parseSearchCriteria } from "../../socket/interaction.js";
 import { getOpponentMayPayDrawCount, getOpponentMayPayTreasureCount } from "./opponent-may-pay-utils.js";
@@ -481,6 +481,35 @@ function clearReplayQueuedSteps(gameId: string, predicate: (step: any) => boolea
   } catch {
     // best-effort only
   }
+}
+
+function addReplayQueuedStepIfMissing(
+  gameId: string,
+  rawQueuedStep: unknown,
+  defaults: { playerId?: string; description?: string } = {}
+): void {
+  if (!gameId || !rawQueuedStep || typeof rawQueuedStep !== 'object' || Array.isArray(rawQueuedStep)) return;
+
+  const queuedStep = rawQueuedStep as Record<string, any>;
+  const queuedStepType = String(queuedStep.type || '').trim();
+  if (!queuedStepType) return;
+
+  const queue = ResolutionQueueManager.getQueue(gameId) as any;
+  const queuedStepId = String(queuedStep.id || '').trim();
+  const alreadyPresent = Boolean(
+    (queuedStepId && queue?.activeStep && String((queue.activeStep as any)?.id || '') === queuedStepId) ||
+    (queuedStepId && Array.isArray(queue?.steps) && queue.steps.some((step: any) => String((step as any)?.id || '') === queuedStepId))
+  );
+  if (alreadyPresent) return;
+
+  ResolutionQueueManager.addStep(gameId, {
+    ...queuedStep,
+    ...(queuedStepId ? { id: queuedStepId } : {}),
+    type: queuedStepType as any,
+    playerId: String(queuedStep.playerId || defaults.playerId || '') as any,
+    description: String(queuedStep.description || defaults.description || ''),
+    mandatory: queuedStep.mandatory !== false,
+  } as any);
 }
 
 function matchesDungeonRoomPenaltyChoiceStep(step: any, event: any): boolean {
@@ -9246,6 +9275,279 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           ctx.bumpSeq();
         } catch (err) {
           debugWarn(1, 'applyEvent(grantPlayableFromExileChoiceResolve): failed', err);
+        }
+        break;
+      }
+
+      case "choosePlayerForLookedAtCardsChoiceResolve": {
+        try {
+          const replayGameId = String((ctx as any).gameId || '').trim();
+          const playerId = String((e as any).playerId || '').trim();
+          const controllerId = String((e as any).controllerId || playerId).trim() || playerId;
+          const sourceId = String((e as any).sourceId || '').trim();
+          const sourceName = String((e as any).sourceName || '').trim();
+          const resolvedStepId = String((e as any).resolvedStepId || '').trim();
+          const chosenPlayerId = String((e as any).chosenPlayerId || '').trim();
+          const rawQueuedStep = (e as any).queuedResolutionStep;
+
+          if (replayGameId) {
+            clearReplayQueuedSteps(replayGameId, (step: any) => {
+              if (!step) return false;
+              const stepId = String((step as any)?.id || '').trim();
+              if (resolvedStepId && stepId === resolvedStepId) {
+                return true;
+              }
+
+              return (
+                String((step as any)?.type || '') === String(ResolutionStepType.OPTION_CHOICE) &&
+                (step as any)?.choosePlayerForLookedAtCardsChoice === true &&
+                (!playerId || String((step as any)?.playerId || '').trim() === playerId) &&
+                (!sourceId || String((step as any)?.sourceId || '').trim() === sourceId) &&
+                (!sourceName || String((step as any)?.sourceName || '').trim() === sourceName)
+              );
+            });
+
+            addReplayQueuedStepIfMissing(replayGameId, rawQueuedStep, {
+              playerId: chosenPlayerId || playerId || controllerId,
+              description: `${sourceName || 'Ability'}: Choose a card`,
+            });
+          }
+
+          ctx.bumpSeq();
+        } catch (err) {
+          debugWarn(1, 'applyEvent(choosePlayerForLookedAtCardsChoiceResolve): failed', err);
+        }
+        break;
+      }
+
+      case "payManaToLookAndChooseCardChoiceResolve": {
+        try {
+          const replayGameId = String((ctx as any).gameId || '').trim();
+          const playerId = String((e as any).playerId || '').trim();
+          const controllerId = String((e as any).controllerId || playerId).trim() || playerId;
+          const sourceId = String((e as any).sourceId || '').trim();
+          const sourceName = String((e as any).sourceName || '').trim();
+          const resolvedStepId = String((e as any).resolvedStepId || '').trim();
+          const rawQueuedStep = (e as any).queuedResolutionStep;
+          const paymentManaDelta = (e as any).paymentManaDelta;
+
+          if (controllerId && paymentManaDelta && typeof paymentManaDelta === 'object' && !Array.isArray(paymentManaDelta)) {
+            const pool = getOrInitManaPool(ctx.state as any, controllerId as any) as any;
+            for (const [poolKey, rawAmount] of Object.entries(paymentManaDelta as Record<string, unknown>)) {
+              const amount = Number(rawAmount || 0);
+              if (!Number.isFinite(amount) || amount === 0) continue;
+              pool[poolKey] = Number(pool[poolKey] || 0) + amount;
+            }
+          }
+
+          if (replayGameId) {
+            clearReplayQueuedSteps(replayGameId, (step: any) => {
+              if (!step) return false;
+              const stepId = String((step as any)?.id || '').trim();
+              if (resolvedStepId && stepId === resolvedStepId) {
+                return true;
+              }
+
+              return (
+                String((step as any)?.type || '') === String(ResolutionStepType.OPTION_CHOICE) &&
+                (step as any)?.payManaToLookAndChooseCardChoice === true &&
+                (!playerId || String((step as any)?.playerId || '').trim() === playerId) &&
+                (!sourceId || String((step as any)?.sourceId || '').trim() === sourceId) &&
+                (!sourceName || String((step as any)?.sourceName || '').trim() === sourceName)
+              );
+            });
+
+            addReplayQueuedStepIfMissing(replayGameId, rawQueuedStep, {
+              playerId: controllerId || playerId,
+              description: `${sourceName || 'Ability'}: Choose a card`,
+            });
+          }
+
+          ctx.bumpSeq();
+        } catch (err) {
+          debugWarn(1, 'applyEvent(payManaToLookAndChooseCardChoiceResolve): failed', err);
+        }
+        break;
+      }
+
+      case "chooseManaColorsChoiceResolve": {
+        try {
+          const replayGameId = String((ctx as any).gameId || '').trim();
+          const playerId = String((e as any).playerId || '').trim();
+          const controllerId = String((e as any).controllerId || playerId).trim() || playerId;
+          const sourceId = String((e as any).sourceId || '').trim();
+          const sourceName = String((e as any).sourceName || '').trim();
+          const resolvedStepId = String((e as any).resolvedStepId || '').trim();
+          const restriction = (e as any).restriction || 'unrestricted';
+          const amountPerSelection = Math.max(1, Number((e as any).amountPerSelection || 1));
+          const rawQueuedStep = (e as any).queuedResolutionStep;
+
+          if (replayGameId) {
+            clearReplayQueuedSteps(replayGameId, (step: any) => {
+              if (!step) return false;
+              const stepId = String((step as any)?.id || '').trim();
+              if (resolvedStepId && stepId === resolvedStepId) {
+                return true;
+              }
+
+              return (
+                String((step as any)?.type || '') === String(ResolutionStepType.OPTION_CHOICE) &&
+                (step as any)?.chooseManaColorsChoice === true &&
+                (!playerId || String((step as any)?.playerId || '').trim() === playerId) &&
+                (!sourceId || String((step as any)?.chooseManaColorsSourceId || (step as any)?.sourceId || '').trim() === sourceId) &&
+                (!sourceName || String((step as any)?.chooseManaColorsSourceName || (step as any)?.sourceName || '').trim() === sourceName)
+              );
+            });
+
+            addReplayQueuedStepIfMissing(replayGameId, rawQueuedStep, {
+              playerId: controllerId || playerId,
+              description: `${sourceName || 'Ability'}: Choose a color`,
+            });
+          }
+
+          if (!rawQueuedStep && controllerId) {
+            const isUnrestricted = restriction === 'unrestricted' || restriction === 'none' || restriction === null || restriction === undefined;
+            const rawManaAdded = (e as any).manaAdded;
+            const manaAdded = rawManaAdded && typeof rawManaAdded === 'object' && !Array.isArray(rawManaAdded)
+              ? Object.entries(rawManaAdded as Record<string, unknown>)
+                  .reduce((acc: Record<string, number>, [color, rawAmount]) => {
+                    const amount = Number(rawAmount || 0);
+                    if (Number.isFinite(amount) && amount > 0) acc[String(color).toLowerCase()] = amount;
+                    return acc;
+                  }, {})
+              : (Array.isArray((e as any).chosenColors) ? ((e as any).chosenColors as any[]) : [])
+                  .map((color: any) => String(color || '').toLowerCase())
+                  .filter((color: string) => ['white', 'blue', 'black', 'red', 'green'].includes(color))
+                  .reduce((acc: Record<string, number>, color: string) => {
+                    acc[color] = Number(acc[color] || 0) + amountPerSelection;
+                    return acc;
+                  }, {});
+
+            if (isUnrestricted) {
+              const pool = getOrInitManaPool(ctx.state as any, controllerId as any) as any;
+              for (const [color, amount] of Object.entries(manaAdded)) {
+                pool[color] = Number(pool[color] || 0) + Number(amount || 0);
+              }
+            } else {
+              for (const [color, amount] of Object.entries(manaAdded)) {
+                addRestrictedManaToPool(ctx.state as any, controllerId, color as any, Number(amount || 0), restriction, undefined, sourceId || undefined, sourceName || undefined);
+              }
+            }
+          }
+
+          ctx.bumpSeq();
+        } catch (err) {
+          debugWarn(1, 'applyEvent(chooseManaColorsChoiceResolve): failed', err);
+        }
+        break;
+      }
+
+      case "moveChosenHandCardToLibraryChoiceResolve": {
+        try {
+          const replayGameId = String((ctx as any).gameId || '').trim();
+          const playerId = String((e as any).playerId || '').trim();
+          const controllerId = String((e as any).controllerId || playerId).trim() || playerId;
+          const sourceId = String((e as any).sourceId || '').trim();
+          const sourceName = String((e as any).sourceName || '').trim();
+          const resolvedStepId = String((e as any).resolvedStepId || '').trim();
+          const chosenCardId = String((e as any).chosenCardId || '').trim();
+          const position = String((e as any).position || 'top').toLowerCase() === 'bottom' ? 'bottom' : 'top';
+
+          if (replayGameId) {
+            clearReplayQueuedSteps(replayGameId, (step: any) => {
+              if (!step) return false;
+              const stepId = String((step as any)?.id || '').trim();
+              if (resolvedStepId && stepId === resolvedStepId) {
+                return true;
+              }
+
+              return (
+                String((step as any)?.type || '') === String(ResolutionStepType.OPTION_CHOICE) &&
+                (step as any)?.moveChosenHandCardToLibraryChoice === true &&
+                (!playerId || String((step as any)?.playerId || '').trim() === playerId) &&
+                (!sourceId || String((step as any)?.sourceId || '').trim() === sourceId) &&
+                (!sourceName || String((step as any)?.moveChosenHandCardToLibrarySourceName || (step as any)?.sourceName || '').trim() === sourceName)
+              );
+            });
+          }
+
+          if (controllerId && chosenCardId) {
+            const stateAny = ctx.state as any;
+            const zones = (stateAny.zones = stateAny.zones || {});
+            const zone = (zones[controllerId] = zones[controllerId] || { hand: [], handCount: 0, library: [], libraryCount: 0 });
+            zone.hand = Array.isArray(zone.hand) ? zone.hand : [];
+
+            const library = Array.isArray((ctx as any).libraries?.get?.(controllerId))
+              ? (ctx as any).libraries.get(controllerId)
+              : (Array.isArray(zone.library) ? zone.library : []);
+            const handIndex = (zone.hand as any[]).findIndex((card: any) => String(card?.id || '') === chosenCardId);
+            let movedCard = handIndex >= 0
+              ? (zone.hand as any[]).splice(handIndex, 1)[0]
+              : undefined;
+
+            if (!movedCard && (e as any).movedCardSnapshot && typeof (e as any).movedCardSnapshot === 'object') {
+              const alreadyInLibrary = (library as any[]).some((card: any) => String(card?.id || '') === chosenCardId);
+              if (!alreadyInLibrary) {
+                movedCard = { ...((e as any).movedCardSnapshot as any) };
+              }
+            }
+
+            if (movedCard) {
+              const libraryCard = { ...movedCard, zone: 'library' };
+              if (position === 'bottom') {
+                (library as any[]).push(libraryCard);
+              } else {
+                (library as any[]).unshift(libraryCard);
+              }
+            }
+
+            zone.library = library;
+            zone.handCount = (zone.hand as any[]).length;
+            zone.libraryCount = (library as any[]).length;
+            if ((ctx as any).libraries?.set) {
+              (ctx as any).libraries.set(controllerId, cloneLibraryCards(library as any[]));
+            }
+          }
+
+          ctx.bumpSeq();
+        } catch (err) {
+          debugWarn(1, 'applyEvent(moveChosenHandCardToLibraryChoiceResolve): failed', err);
+        }
+        break;
+      }
+
+      case "attachEquipmentToPermanentChoiceResolve": {
+        try {
+          const replayGameId = String((ctx as any).gameId || '').trim();
+          const playerId = String((e as any).playerId || '').trim();
+          const controllerId = String((e as any).controllerId || playerId).trim() || playerId;
+          const sourceId = String((e as any).sourceId || '').trim();
+          const sourceName = String((e as any).sourceName || '').trim();
+          const resolvedStepId = String((e as any).resolvedStepId || '').trim();
+          const targetPermanentId = String((e as any).targetPermanentId || '').trim();
+
+          if (replayGameId) {
+            clearReplayQueuedSteps(replayGameId, (step: any) => {
+              if (!step) return false;
+              const stepId = String((step as any)?.id || '').trim();
+              if (resolvedStepId && stepId === resolvedStepId) {
+                return true;
+              }
+
+              return (
+                String((step as any)?.type || '') === String(ResolutionStepType.OPTION_CHOICE) &&
+                (step as any)?.attachEquipmentToPermanentChoice === true &&
+                (!playerId || String((step as any)?.playerId || '').trim() === playerId || String((step as any)?.playerId || '').trim() === controllerId) &&
+                (!sourceId || String((step as any)?.sourceId || '').trim() === sourceId || String((step as any)?.attachEquipmentToPermanentTargetPermanentId || '').trim() === sourceId) &&
+                (!targetPermanentId || String((step as any)?.attachEquipmentToPermanentTargetPermanentId || '').trim() === targetPermanentId) &&
+                (!sourceName || String((step as any)?.attachEquipmentToPermanentSourceName || (step as any)?.sourceName || '').trim() === sourceName)
+              );
+            });
+          }
+
+          ctx.bumpSeq();
+        } catch (err) {
+          debugWarn(1, 'applyEvent(attachEquipmentToPermanentChoiceResolve): failed', err);
         }
         break;
       }

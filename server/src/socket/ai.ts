@@ -2584,6 +2584,101 @@ function chooseAILookedAtCardsDestinationSelection(
   return { selections: chosenId ? [chosenId] : [], cancelled: false };
 }
 
+function chooseAIPayManaToLookAndChooseCardSelection(
+  game: any,
+  playerId: PlayerID,
+  step: any,
+  options: any[],
+  resolveOptionId: (option: any) => string,
+): { selections: string[]; cancelled: boolean } {
+  const controllerId = String(step?.payManaToLookAndChooseCardController || playerId).trim() as PlayerID;
+  const pool = game?.state?.manaPool?.[controllerId] || {};
+  const availableMana = ['white', 'blue', 'black', 'red', 'green', 'colorless']
+    .reduce((total, color) => total + Math.max(0, Number(pool[color] || 0) || 0), 0);
+  const libraryCount = getAILibraryCards(game, controllerId).length;
+  const maxUsefulAmount = Math.max(0, Math.min(availableMana, libraryCount));
+  const numericOptions = options
+    .map((option: any) => {
+      const id = resolveOptionId(option);
+      const amount = Math.max(0, Math.floor(Number(id)));
+      return { id, amount };
+    })
+    .filter((entry) => entry.id && Number.isFinite(entry.amount));
+
+  const chosen = numericOptions
+    .filter((entry) => entry.amount <= maxUsefulAmount)
+    .sort((left, right) => right.amount - left.amount || left.id.localeCompare(right.id))[0]
+    || numericOptions.sort((left, right) => left.amount - right.amount || left.id.localeCompare(right.id))[0];
+
+  return { selections: chosen?.id ? [chosen.id] : [], cancelled: false };
+}
+
+function chooseAIChooseManaColorsSelection(
+  game: any,
+  playerId: PlayerID,
+  step: any,
+  options: any[],
+  resolveOptionId: (option: any) => string,
+): { selections: string[]; cancelled: boolean } {
+  const controllerId = String(step?.chooseManaColorsController || playerId).trim() as PlayerID;
+  const colorIdByCode: Record<string, string> = {
+    W: 'white',
+    U: 'blue',
+    B: 'black',
+    R: 'red',
+    G: 'green',
+  };
+  const offeredIds = new Set(options.map((option: any) => resolveOptionId(option)).filter(Boolean));
+  const preferredCode = chooseAIManaColorForActivation(game, controllerId, ['W', 'U', 'B', 'R', 'G']);
+  const preferredId = colorIdByCode[preferredCode] || 'white';
+  const chosenId = offeredIds.has(preferredId)
+    ? preferredId
+    : ['white', 'blue', 'black', 'red', 'green'].find((color) => offeredIds.has(color)) || '';
+
+  return { selections: chosenId ? [chosenId] : [], cancelled: false };
+}
+
+function chooseAIMoveChosenHandCardToLibrarySelection(
+  game: any,
+  playerId: PlayerID,
+  step: any,
+  options: any[],
+  resolveOptionId: (option: any) => string,
+): { selections: string[]; cancelled: boolean } {
+  const controllerId = String(step?.moveChosenHandCardToLibraryController || playerId).trim() as PlayerID;
+  const offeredIds = new Set(options.map((option: any) => resolveOptionId(option)).filter(Boolean));
+  const profile = ensureAIDeckProfile(game, controllerId);
+  const ranked = getAIHand(game, controllerId)
+    .filter((card: any) => offeredIds.has(String(card?.id || '')))
+    .map((card: any) => ({
+      id: String(card?.id || ''),
+      score: scoreCardForAIAcquisition(game, controllerId, card, 'hand', profile),
+    }))
+    .filter((entry) => Boolean(entry.id))
+    .sort((left, right) => left.score - right.score || left.id.localeCompare(right.id));
+
+  const chosenId = ranked[0]?.id || [...offeredIds][0] || '';
+  return { selections: chosenId ? [chosenId] : [], cancelled: false };
+}
+
+function chooseAIAttachEquipmentToPermanentChoiceSelection(
+  game: any,
+  playerId: PlayerID,
+  step: any,
+  options: any[],
+  resolveOptionId: (option: any) => string,
+): { selections: string[]; cancelled: boolean } {
+  const controllerId = String(step?.attachEquipmentToPermanentController || playerId).trim() as PlayerID;
+  const optionIds = options.map((option: any) => resolveOptionId(option)).filter(Boolean);
+  const attachId = optionIds.find((id) => /^attach$/i.test(id)) || optionIds.find((id) => /attach/i.test(id));
+  const declineId = optionIds.find((id) => /^decline$/i.test(id)) || optionIds.find((id) => /decline|no/i.test(id));
+  const hasEquipment = getAIBattlefield(game, controllerId).some((permanent: any) =>
+    String(permanent?.card?.type_line || '').toLowerCase().includes('equipment')
+  );
+  const chosenId = hasEquipment ? (attachId || optionIds[0] || '') : (declineId || optionIds[0] || '');
+  return { selections: chosenId ? [chosenId] : [], cancelled: Boolean(chosenId && declineId && chosenId === declineId) };
+}
+
 function chooseAIResolvedSpellCopySelection(
   step: any,
   options: any[],
@@ -3082,6 +3177,22 @@ export function chooseAIOptionSelectionsForStep(
 
   if (step?.chooseLookedAtCardsDestinationChoice === true) {
     return chooseAILookedAtCardsDestinationSelection(game, playerId, step, options, resolveOptionId);
+  }
+
+  if (step?.payManaToLookAndChooseCardChoice === true) {
+    return chooseAIPayManaToLookAndChooseCardSelection(game, playerId, step, options, resolveOptionId);
+  }
+
+  if (step?.chooseManaColorsChoice === true) {
+    return chooseAIChooseManaColorsSelection(game, playerId, step, options, resolveOptionId);
+  }
+
+  if (step?.moveChosenHandCardToLibraryChoice === true) {
+    return chooseAIMoveChosenHandCardToLibrarySelection(game, playerId, step, options, resolveOptionId);
+  }
+
+  if (step?.attachEquipmentToPermanentChoice === true) {
+    return chooseAIAttachEquipmentToPermanentChoiceSelection(game, playerId, step, options, resolveOptionId);
   }
 
   if (step?.resolvedSpellCopyChoice === true) {
