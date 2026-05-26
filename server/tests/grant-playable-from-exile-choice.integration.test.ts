@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, beforeEach, afterEach } from 'vitest';
-import { initDb, createGameIfNotExists, deleteGame } from '../src/db/index.js';
+import { initDb, createGameIfNotExists, deleteGame, getEvents } from '../src/db/index.js';
 import { ensureGame } from '../src/socket/util.js';
 import { registerResolutionHandlers } from '../src/socket/resolution.js';
 import { ResolutionQueueManager, ResolutionStepType } from '../src/state/resolution/index.js';
@@ -116,6 +116,19 @@ describe('grant playable-from-exile choice (integration)', () => {
 
     expect((game.state as any).playableFromExile?.[p1]?.exiled_a).toBeUndefined();
     expect((game.state as any).playableFromExile?.[p1]?.exiled_b).toBe(7);
+
+    const resolvedEvent = [...getEvents(gameId)].reverse().find((event) => event.type === 'grantPlayableFromExileChoiceResolve') as any;
+    expect(resolvedEvent).toBeDefined();
+    expect(resolvedEvent.payload).toMatchObject({
+      playerId: p1,
+      controllerId: p1,
+      sourceName: 'Source',
+      resolvedStepId: step.id,
+      chosenCardId: 'exiled_b',
+      playableUntilTurn: 7,
+      turnApplied: 7,
+    });
+    expect(resolvedEvent.payload?.cardIds).toEqual(['exiled_a', 'exiled_b']);
 
     const chat = emitted.find((event) => event.event === 'chat');
     expect(chat?.payload?.message).toContain('chose an exiled card to play this turn');

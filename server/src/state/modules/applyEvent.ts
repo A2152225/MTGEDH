@@ -47,7 +47,7 @@ import {
   runSBA,
   movePermanentToExile,
 } from "./counters_tokens";
-import { cleanupCardLeavingExile } from "./playable-from-exile";
+import { cleanupCardLeavingExile, removePlayableFromExileForCard, stripPlayableFromExileTags } from "./playable-from-exile";
 import { buildEmbalmOrEternalizeTokenPermanent } from "./graveyard-tokens.js";
 import { clearPreparedPermanent, syncPreparedPermanentAfterControlChange } from "./prepared.js";
 import { transformPermanentToFace } from "./day-night.js";
@@ -9165,6 +9165,221 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           ctx.bumpSeq();
         } catch (err) {
           debugWarn(1, 'applyEvent(revealLandChoice): failed', err);
+        }
+        break;
+      }
+
+      case "grantPlayableFromExileChoiceResolve": {
+        try {
+          const replayGameId = String((ctx as any).gameId || '').trim();
+          const playerId = String((e as any).playerId || '').trim();
+          const controllerId = String((e as any).controllerId || playerId).trim() || playerId;
+          const sourceId = String((e as any).sourceId || '').trim();
+          const sourceName = String((e as any).sourceName || 'Ability').trim() || 'Ability';
+          const resolvedStepId = String((e as any).resolvedStepId || '').trim();
+          const chosenCardId = String((e as any).chosenCardId || (e as any).cardId || '').trim();
+          const cardIds = Array.isArray((e as any).cardIds)
+            ? (e as any).cardIds.map((id: any) => String(id || '').trim()).filter(Boolean)
+            : [];
+          const allChoiceCardIds = cardIds.length > 0 ? cardIds : (chosenCardId ? [chosenCardId] : []);
+          const stateAny = ctx.state as any;
+          const turnAppliedRaw = Number((e as any).turnApplied);
+          const turnApplied = Number.isFinite(turnAppliedRaw) ? turnAppliedRaw : Number(stateAny.turnNumber || 0) || 0;
+          const playableUntilTurnRaw = Number((e as any).playableUntilTurn);
+          const playableUntilTurn = Number.isFinite(playableUntilTurnRaw) ? playableUntilTurnRaw : turnApplied;
+
+          if (!chosenCardId || !controllerId) {
+            break;
+          }
+
+          const choiceCardIdSet = new Set(allChoiceCardIds);
+          const zones = stateAny.zones && typeof stateAny.zones === 'object' ? stateAny.zones : {};
+          for (const zoneOwnerId of Object.keys(zones)) {
+            const exileZone = Array.isArray(zones[zoneOwnerId]?.exile) ? zones[zoneOwnerId].exile : [];
+            for (const exiledCard of exileZone) {
+              const exiledCardId = String(exiledCard?.id || '').trim();
+              if (!exiledCardId || !choiceCardIdSet.has(exiledCardId)) continue;
+
+              removePlayableFromExileForCard(stateAny, exiledCardId);
+              stripPlayableFromExileTags(exiledCard);
+
+              if (exiledCardId === chosenCardId) {
+                exiledCard.canBePlayedBy = controllerId;
+                exiledCard.playableUntilTurn = playableUntilTurn;
+              }
+            }
+          }
+
+          stateAny.playableFromExile = stateAny.playableFromExile || {};
+          const pfe = (stateAny.playableFromExile[controllerId] = stateAny.playableFromExile[controllerId] || {});
+          pfe[chosenCardId] = playableUntilTurn;
+          upsertDurablePermission(stateAny, buildDurablePlayableFromExilePermission({
+            playerId: controllerId as PlayerID,
+            cardIds: [chosenCardId],
+            action: 'play',
+            duration: playableUntilTurn > turnApplied ? 'until_end_of_next_turn' : 'this_turn',
+            turnApplied,
+            expiresAtTurn: playableUntilTurn,
+            sourceName,
+          }));
+
+          if (replayGameId) {
+            clearReplayQueuedSteps(replayGameId, (step: any) => {
+              if (!step) return false;
+              const stepId = String((step as any)?.id || '').trim();
+              if (resolvedStepId && stepId === resolvedStepId) {
+                return true;
+              }
+
+              const stepCardIds = Array.isArray((step as any)?.grantPlayableFromExileCardIds)
+                ? (step as any).grantPlayableFromExileCardIds.map((id: any) => String(id || '').trim())
+                : [];
+              return (
+                String((step as any)?.type || '') === String(ResolutionStepType.OPTION_CHOICE) &&
+                (step as any)?.grantPlayableFromExileChoice === true &&
+                (!sourceId || String((step as any)?.sourceId || '').trim() === sourceId) &&
+                (stepCardIds.length === 0 || stepCardIds.includes(chosenCardId))
+              );
+            });
+          }
+
+          ctx.bumpSeq();
+        } catch (err) {
+          debugWarn(1, 'applyEvent(grantPlayableFromExileChoiceResolve): failed', err);
+        }
+        break;
+      }
+
+      case "chooseLookedAtCardsDestinationResolve": {
+        try {
+          const replayGameId = String((ctx as any).gameId || '').trim();
+          const playerId = String((e as any).playerId || '').trim();
+          const controllerId = String((e as any).controllerId || playerId).trim() || playerId;
+          const sourceId = String((e as any).sourceId || '').trim();
+          const sourceName = String((e as any).sourceName || '').trim();
+          const resolvedStepId = String((e as any).resolvedStepId || '').trim();
+          const chosenCardId = String((e as any).chosenCardId || '').trim();
+          const topCardIds = Array.isArray((e as any).topCardIds)
+            ? (e as any).topCardIds.map((id: any) => String(id || '').trim()).filter(Boolean)
+            : [];
+          const chosenZone = String((e as any).chosenZone || '').trim().toLowerCase();
+          const otherZone = String((e as any).otherZone || '').trim().toLowerCase();
+          const chosenCardSnapshot = (e as any).chosenCard && typeof (e as any).chosenCard === 'object' && !Array.isArray((e as any).chosenCard)
+            ? { ...((e as any).chosenCard as Record<string, any>) }
+            : undefined;
+          const otherCardSnapshots = Array.isArray((e as any).otherCards)
+            ? (e as any).otherCards.filter((card: any) => card && typeof card === 'object' && !Array.isArray(card)).map((card: any) => ({ ...card }))
+            : [];
+          const otherCardPatch = (e as any).otherCardPatch && typeof (e as any).otherCardPatch === 'object' && !Array.isArray((e as any).otherCardPatch)
+            ? { ...((e as any).otherCardPatch as Record<string, any>) }
+            : undefined;
+
+          if (!controllerId || !chosenCardId || !chosenZone || !otherZone) {
+            break;
+          }
+
+          const zones = (ctx.state as any).zones = (ctx.state as any).zones || {};
+          const z = (zones[controllerId] = zones[controllerId] || {
+            library: [],
+            libraryCount: 0,
+            hand: [],
+            handCount: 0,
+            graveyard: [],
+            graveyardCount: 0,
+            exile: [],
+            exileCount: 0,
+          });
+
+          const lib: any[] = Array.isArray(z.library) ? z.library : (z.library = []);
+          const hand: any[] = Array.isArray(z.hand) ? z.hand : (z.hand = []);
+          const graveyard: any[] = Array.isArray(z.graveyard) ? z.graveyard : (z.graveyard = []);
+          const exile: any[] = Array.isArray(z.exile) ? z.exile : (z.exile = []);
+          const idsToRemove = topCardIds.length > 0
+            ? topCardIds
+            : [chosenCardId, ...otherCardSnapshots.map((card: any) => String(card?.id || '').trim()).filter(Boolean)];
+          const removedCards: any[] = [];
+
+          for (const cardId of idsToRemove) {
+            const cardIndex = lib.findIndex((card: any) => String(card?.id || '') === cardId);
+            if (cardIndex >= 0) {
+              removedCards.push(lib.splice(cardIndex, 1)[0]);
+            }
+          }
+
+          const removedById = new Map(removedCards.map((card: any) => [String(card?.id || ''), card]));
+          const chosenCard = removedById.get(chosenCardId) || chosenCardSnapshot || { id: chosenCardId };
+          const otherCards = otherCardSnapshots.length > 0
+            ? otherCardSnapshots.map((card: any) => removedById.get(String(card?.id || '')) || card)
+            : removedCards.filter((card: any) => String(card?.id || '') !== chosenCardId);
+          const normalizeDestinationZone = (destination: string): string => (
+            destination === 'top_library' || destination === 'bottom_library' ? 'library' : destination
+          );
+          const cloneForDestination = (card: any, destination: string): any => {
+            const destinationZone = normalizeDestinationZone(destination);
+            return {
+              ...(card || {}),
+              zone: destinationZone,
+              ...(destinationZone === 'exile' && otherCardPatch ? otherCardPatch : {}),
+            };
+          };
+          const moveCard = (card: any, destination: string) => {
+            const destinationZone = normalizeDestinationZone(destination);
+            const movedCard = cloneForDestination(card, destination);
+            if (destinationZone === 'hand') {
+              hand.push(movedCard);
+            } else if (destinationZone === 'graveyard') {
+              graveyard.unshift(movedCard);
+            } else if (destination === 'top_library') {
+              lib.unshift(movedCard);
+            } else if (destination === 'bottom_library') {
+              lib.push(movedCard);
+            } else if (destinationZone === 'exile') {
+              exile.push(movedCard);
+            }
+          };
+
+          moveCard(chosenCard, chosenZone);
+          for (const otherCard of otherCards) {
+            moveCard(otherCard, otherZone);
+          }
+
+          z.library = lib;
+          z.hand = hand;
+          z.graveyard = graveyard;
+          z.exile = exile;
+          z.libraryCount = lib.length;
+          z.handCount = hand.length;
+          z.graveyardCount = graveyard.length;
+          z.exileCount = exile.length;
+          if (ctx.libraries?.set) {
+            ctx.libraries.set(controllerId as any, cloneLibraryCards(lib));
+          }
+
+          if (replayGameId) {
+            clearReplayQueuedSteps(replayGameId, (step: any) => {
+              if (!step) return false;
+              const stepId = String((step as any)?.id || '').trim();
+              if (resolvedStepId && stepId === resolvedStepId) {
+                return true;
+              }
+
+              const stepCardIds = Array.isArray((step as any)?.chooseLookedAtCardsDestinationTopCardIds)
+                ? (step as any).chooseLookedAtCardsDestinationTopCardIds.map((id: any) => String(id || '').trim())
+                : [];
+              return (
+                String((step as any)?.type || '') === String(ResolutionStepType.OPTION_CHOICE) &&
+                (step as any)?.chooseLookedAtCardsDestinationChoice === true &&
+                (!playerId || String((step as any)?.playerId || '').trim() === playerId) &&
+                (!sourceId || String((step as any)?.sourceId || '').trim() === sourceId) &&
+                (!sourceName || String((step as any)?.sourceName || '').trim() === sourceName) &&
+                (stepCardIds.length === 0 || stepCardIds.includes(chosenCardId))
+              );
+            });
+          }
+
+          ctx.bumpSeq();
+        } catch (err) {
+          debugWarn(1, 'applyEvent(chooseLookedAtCardsDestinationResolve): failed', err);
         }
         break;
       }

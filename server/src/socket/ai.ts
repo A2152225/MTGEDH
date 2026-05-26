@@ -2539,6 +2539,51 @@ function chooseAIGrantPlayableFromExileSelection(
   return { selections: chosenId ? [chosenId] : [], cancelled: false };
 }
 
+function chooseAILookedAtCardsDestinationSelection(
+  game: any,
+  playerId: PlayerID,
+  step: any,
+  options: any[],
+  resolveOptionId: (option: any) => string,
+): { selections: string[]; cancelled: boolean } {
+  const optionIds = options.map(resolveOptionId).filter(Boolean);
+  const configuredCardIds = Array.isArray(step?.chooseLookedAtCardsDestinationTopCardIds)
+    ? step.chooseLookedAtCardsDestinationTopCardIds.map((id: any) => String(id || '').trim()).filter(Boolean)
+    : [];
+  const allowedCardIds = new Set(configuredCardIds.length > 0 ? configuredCardIds : optionIds);
+  const candidateIds = optionIds.filter((id) => allowedCardIds.has(id));
+  const fallbackIds = candidateIds.length > 0 ? candidateIds : configuredCardIds;
+  const controllerId = String(step?.chooseLookedAtCardsDestinationController || playerId).trim() as PlayerID;
+  const chosenZone = String(step?.chooseLookedAtCardsDestinationChosenZone || 'hand').trim().toLowerCase();
+  const responderIsController = String(controllerId) === String(playerId);
+  const chosenZoneBenefitsController = chosenZone === 'hand' || chosenZone === 'battlefield';
+  const profile = ensureAIDeckProfile(game, controllerId);
+  const controllerLibrary = getAILibraryCards(game, controllerId);
+
+  const ranked = fallbackIds
+    .map((id) => {
+      const card = controllerLibrary.find((entry: any) => String(entry?.id || '') === id)
+        || options.find((option: any) => resolveOptionId(option) === id)
+        || { id };
+      const typeLine = String(card?.type_line || '').toLowerCase();
+      const oracleText = String(card?.oracle_text || '').toLowerCase();
+      let score = scoreCardForAIAcquisition(game, controllerId, card, 'hand', profile);
+      if (/(draw|destroy|exile|counter|create|treasure|token|return .*battlefield|search your library)/i.test(oracleText)) score += 8;
+      if (typeLine.includes('land')) score += 2;
+      const manaValue = Math.max(0, Number(card?.cmc ?? card?.mana_value ?? 0) || 0);
+      return { id, score, manaValue };
+    })
+    .filter((entry) => Boolean(entry.id))
+    .sort((left, right) => {
+      const chooseHigherScore = responderIsController ? chosenZoneBenefitsController : !chosenZoneBenefitsController;
+      const scoreDelta = chooseHigherScore ? right.score - left.score : left.score - right.score;
+      return scoreDelta || left.manaValue - right.manaValue || left.id.localeCompare(right.id);
+    });
+
+  const chosenId = ranked[0]?.id || optionIds.find((id) => allowedCardIds.has(id)) || '';
+  return { selections: chosenId ? [chosenId] : [], cancelled: false };
+}
+
 function chooseAIResolvedSpellCopySelection(
   step: any,
   options: any[],
@@ -3033,6 +3078,10 @@ export function chooseAIOptionSelectionsForStep(
 
   if (step?.grantPlayableFromExileChoice === true) {
     return chooseAIGrantPlayableFromExileSelection(game, playerId, step, options, resolveOptionId);
+  }
+
+  if (step?.chooseLookedAtCardsDestinationChoice === true) {
+    return chooseAILookedAtCardsDestinationSelection(game, playerId, step, options, resolveOptionId);
   }
 
   if (step?.resolvedSpellCopyChoice === true) {

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, beforeEach, afterEach } from 'vitest';
-import { initDb, createGameIfNotExists, deleteGame } from '../src/db/index.js';
+import { initDb, createGameIfNotExists, deleteGame, getEvents } from '../src/db/index.js';
 import { ensureGame } from '../src/socket/util.js';
 import { registerResolutionHandlers } from '../src/socket/resolution.js';
 import { ResolutionQueueManager, ResolutionStepType } from '../src/state/resolution/index.js';
@@ -121,6 +121,21 @@ describe('choose looked-at cards destination (integration)', () => {
 
     expect(((game.state as any).zones[p1].hand || []).map((c: any) => c.id)).toEqual(['top_2']);
     expect(((game.state as any).zones[p1].library || []).map((c: any) => c.id)).toEqual(['rest_1', 'top_1']);
+
+    const resolvedEvent = [...getEvents(gameId)].reverse().find((event) => event.type === 'chooseLookedAtCardsDestinationResolve') as any;
+    expect(resolvedEvent).toBeDefined();
+    expect(resolvedEvent.payload).toMatchObject({
+      playerId: p1,
+      controllerId: p1,
+      sourceName: 'Source',
+      resolvedStepId: step.id,
+      chosenCardId: 'top_2',
+      topCardIds: ['top_1', 'top_2'],
+      chosenZone: 'hand',
+      otherZone: 'bottom_library',
+    });
+    expect(resolvedEvent.payload?.chosenCard?.id).toBe('top_2');
+    expect((resolvedEvent.payload?.otherCards || []).map((card: any) => card.id)).toEqual(['top_1']);
   });
 
   it('puts the chosen card into hand and the other into the graveyard', async () => {

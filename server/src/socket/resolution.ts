@@ -28384,6 +28384,23 @@ async function handleOptionChoiceResponse(
       sourceName,
     }));
 
+    try {
+      await appendEvent(gameId, (game as any).seq || 0, 'grantPlayableFromExileChoiceResolve', {
+        playerId,
+        controllerId,
+        sourceId: String(step.sourceId || '').trim() || undefined,
+        sourceName,
+        resolvedStepId: String(step.id || '').trim() || undefined,
+        chosenCardId: String(chosenCardId),
+        cardIds,
+        playableUntilTurn,
+        turnApplied: currentTurn,
+        playWindowText,
+      });
+    } catch (err) {
+      debugWarn(1, '[Resolution] appendEvent(grantPlayableFromExileChoiceResolve) failed:', err);
+    }
+
     io.to(gameId).emit('chat', {
       id: `m_${Date.now()}`,
       gameId,
@@ -30359,6 +30376,26 @@ async function handleOptionChoiceResponse(
     z.handCount = hand.length;
     z.graveyardCount = gy.length;
     z.exileCount = Array.isArray(z.exile) ? z.exile.length : z.exileCount;
+
+    try {
+      await appendEvent(gameId, (game as any).seq || 0, 'chooseLookedAtCardsDestinationResolve', {
+        playerId,
+        controllerId,
+        sourceId: String(step.sourceId || '').trim() || undefined,
+        sourceName,
+        resolvedStepId: String(step.id || '').trim() || undefined,
+        chosenCardId: String(chosen?.id || chosenCardId),
+        topCardIds,
+        chosenZone,
+        otherZone,
+        chosenCard: chosen ? { ...chosen } : undefined,
+        otherCards: others.map((card: any) => ({ ...card })),
+        otherCardPatch: otherCardPatch ? { ...otherCardPatch } : undefined,
+        randomizeOtherOrder,
+      });
+    } catch (err) {
+      debugWarn(1, '[Resolution] appendEvent(chooseLookedAtCardsDestinationResolve) failed:', err);
+    }
 
     const message =
       chosenZone === 'hand' && otherZone === 'bottom_library'

@@ -6598,6 +6598,132 @@ describe('AI resolution-step integration', () => {
     expect(completed?.response?.cancelled).toBe(false);
   });
 
+  it('routes looked-at-card destination choices through AI priority handling and chooses the best card for its own hand', async () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [
+      { id: playerId, name: 'AI', spectator: false, life: 40 },
+      { id: 'opp1', name: 'Opponent', spectator: false, life: 40 },
+    ];
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).phase = 'main';
+    (game.state as any).step = 'precombat_main';
+    (game.state as any).stack = [];
+    (game.state as any).battlefield = [];
+    (game.state as any).zones = {
+      [playerId]: {
+        hand: [],
+        handCount: 0,
+        library: [
+          { id: 'looked_land_1', name: 'Quiet Land', type_line: 'Land', oracle_text: '', cmc: 0, mana_value: 0 },
+          { id: 'looked_spell_1', name: 'Clean Answer', type_line: 'Instant', oracle_text: 'Destroy target creature. Draw a card.', cmc: 2, mana_value: 2 },
+        ],
+        libraryCount: 2,
+        graveyard: [],
+        exile: [],
+      },
+      opp1: { hand: [], handCount: 0, library: [], graveyard: [], exile: [] },
+    };
+
+    registerAIPlayer(gameId, playerId as any);
+
+    const step = ResolutionQueueManager.addStep(gameId, {
+      type: ResolutionStepType.OPTION_CHOICE,
+      playerId: playerId as any,
+      sourceName: 'Look Source',
+      description: 'Look Source: Put one into your hand and the other on the bottom of your library.',
+      mandatory: true,
+      options: [
+        { id: 'looked_land_1', label: 'Quiet Land', description: 'Land' },
+        { id: 'looked_spell_1', label: 'Clean Answer', description: 'Instant' },
+      ],
+      minSelections: 1,
+      maxSelections: 1,
+      chooseLookedAtCardsDestinationChoice: true,
+      chooseLookedAtCardsDestinationController: playerId,
+      chooseLookedAtCardsDestinationSourceName: 'Look Source',
+      chooseLookedAtCardsDestinationTopCardIds: ['looked_land_1', 'looked_spell_1'],
+      chooseLookedAtCardsDestinationChosenZone: 'hand',
+      chooseLookedAtCardsDestinationOtherZone: 'bottom_library',
+    } as any);
+
+    ResolutionQueueManager.activateStep(gameId, step.id);
+
+    await handleAIPriority(createNoopIo(), gameId, playerId as any);
+
+    const queue = ResolutionQueueManager.getQueue(gameId);
+    expect(queue.steps.some((entry: any) => String(entry.id) === String(step.id))).toBe(false);
+    const completed = queue.completedSteps.find((entry: any) => String(entry.id) === String(step.id));
+    expect(completed?.response?.selections).toEqual(['looked_spell_1']);
+    expect(completed?.response?.cancelled).toBe(false);
+  });
+
+  it('routes looked-at-card destination choices through AI priority handling and gives opponents the lowest-value card', async () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [
+      { id: playerId, name: 'AI', spectator: false, life: 40 },
+      { id: 'opp1', name: 'Opponent', spectator: false, life: 40 },
+    ];
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).phase = 'main';
+    (game.state as any).step = 'precombat_main';
+    (game.state as any).stack = [];
+    (game.state as any).battlefield = [];
+    (game.state as any).zones = {
+      [playerId]: { hand: [], handCount: 0, library: [], graveyard: [], exile: [] },
+      opp1: {
+        hand: [],
+        handCount: 0,
+        library: [
+          { id: 'opp_land_1', name: 'Plain Land', type_line: 'Land', oracle_text: '', cmc: 0, mana_value: 0 },
+          { id: 'opp_bomb_1', name: 'Opponent Bomb', type_line: 'Sorcery', oracle_text: 'Draw seven cards.', cmc: 7, mana_value: 7 },
+        ],
+        libraryCount: 2,
+        graveyard: [],
+        exile: [],
+      },
+    };
+
+    registerAIPlayer(gameId, playerId as any);
+
+    const step = ResolutionQueueManager.addStep(gameId, {
+      type: ResolutionStepType.OPTION_CHOICE,
+      playerId: playerId as any,
+      sourceName: 'Look Source',
+      description: "Look Source: Choose a card to put into Opponent's hand.",
+      mandatory: true,
+      options: [
+        { id: 'opp_bomb_1', label: 'Opponent Bomb', description: 'Sorcery' },
+        { id: 'opp_land_1', label: 'Plain Land', description: 'Land' },
+      ],
+      minSelections: 1,
+      maxSelections: 1,
+      chooseLookedAtCardsDestinationChoice: true,
+      chooseLookedAtCardsDestinationController: 'opp1',
+      chooseLookedAtCardsDestinationSourceName: 'Look Source',
+      chooseLookedAtCardsDestinationTopCardIds: ['opp_land_1', 'opp_bomb_1'],
+      chooseLookedAtCardsDestinationChosenZone: 'hand',
+      chooseLookedAtCardsDestinationOtherZone: 'exile',
+    } as any);
+
+    ResolutionQueueManager.activateStep(gameId, step.id);
+
+    await handleAIPriority(createNoopIo(), gameId, playerId as any);
+
+    const queue = ResolutionQueueManager.getQueue(gameId);
+    expect(queue.steps.some((entry: any) => String(entry.id) === String(step.id))).toBe(false);
+    const completed = queue.completedSteps.find((entry: any) => String(entry.id) === String(step.id));
+    expect(completed?.response?.selections).toEqual(['opp_land_1']);
+    expect(completed?.response?.cancelled).toBe(false);
+  });
+
   it('declines resolved-spell copy choices through AI priority handling without a copy snapshot', async () => {
     createGameIfNotExists(gameId, 'commander', 40);
     const game = ensureGame(gameId);
