@@ -18958,7 +18958,13 @@ async function handleTargetSelectionResponse(
     const lifeGain = Number((step as any).sacrificeAnotherPermanentForBenefitLifeGain || 0);
     const drawCount = Number((step as any).sacrificeAnotherPermanentForBenefitDrawCount || 0);
     const sourceName = String((step as any).sacrificeAnotherPermanentForBenefitSourceName || step.sourceName || 'Ability');
+    const sourcePermanentId = String((step as any).sacrificeAnotherPermanentForBenefitSourcePermanentId || step.sourceId || '').trim();
     const permanentIdToSac = selections[0];
+    const battlefieldBefore = Array.isArray(game.state?.battlefield) ? game.state.battlefield : [];
+    const permanentBefore = battlefieldBefore.find((permanent: any) => permanent && String(permanent.id || '') === String(permanentIdToSac));
+    const sacrificedPermanentSnapshot = permanentBefore && typeof permanentBefore === 'object'
+      ? JSON.parse(JSON.stringify(permanentBefore))
+      : undefined;
 
     const ctx = {
       state: game.state,
@@ -18981,6 +18987,8 @@ async function handleTargetSelectionResponse(
     game.state.life = game.state.life || {};
     const currentLife = game.state.life?.[controllerId] ?? startingLife;
     game.state.life[controllerId] = currentLife + lifeGain;
+    const playerObj = ((game.state as any).players || []).find((player: any) => String(player?.id || '') === controllerId);
+    if (playerObj) playerObj.life = game.state.life[controllerId];
 
     io.to(gameId).emit('chat', {
       id: `m_${Date.now()}`,
@@ -18989,6 +18997,12 @@ async function handleTargetSelectionResponse(
       message: `${sourceName}: ${getPlayerName(game, controllerId)} gains ${lifeGain} life${drawCount > 0 ? ` and draws ${drawCount} card${drawCount === 1 ? '' : 's'}` : ''}.`,
       ts: Date.now(),
     });
+
+    const zonesBeforeDraw = game.state?.zones?.[controllerId];
+    const libBeforeDraw = (game as any).libraries?.get?.(controllerId) || zonesBeforeDraw?.library || [];
+    const drawnCardSnapshots = Array.isArray(libBeforeDraw)
+      ? libBeforeDraw.slice(0, Math.max(0, drawCount)).map((card: any) => ({ ...card, zone: 'hand' }))
+      : [];
 
     if (drawCount > 0 && typeof (game as any).drawCards === 'function') {
       (game as any).drawCards(controllerId, drawCount);
@@ -19010,6 +19024,26 @@ async function handleTargetSelectionResponse(
           (game as any).libraries.set(controllerId, lib);
         }
       }
+    }
+
+    try {
+      await appendEvent(gameId, (game as any).seq ?? 0, 'sacrificeAnotherPermanentForBenefitResolve', {
+        playerId: pid,
+        controllerId,
+        sourceId: sourcePermanentId || undefined,
+        sourceName,
+        resolvedStepId: String(step.id || '').trim() || undefined,
+        sacrificedPermanentId: String(permanentIdToSac || '').trim(),
+        sacrificedName: sacrificedName || sacrificedPermanentSnapshot?.card?.name || undefined,
+        sacrificedPermanentSnapshot,
+        lifeGain,
+        drawCount,
+        lifeBefore: currentLife,
+        lifeAfter: game.state.life[controllerId],
+        drawnCards: drawnCardSnapshots,
+      });
+    } catch (err) {
+      debugWarn(1, '[Resolution] Failed to persist sacrificeAnotherPermanentForBenefitResolve event:', err);
     }
 
     if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
@@ -28373,6 +28407,21 @@ async function handleOptionChoiceResponse(
       choosePileFromSplitSplitMessage: `${sourceName}: ${getPlayerName(game, chosenOpponentId)} separated the cards into two piles.`,
     } as any);
 
+    try {
+      await appendEvent(gameId, (game as any).seq || 0, 'choosePlayerForTwoPileSplitChoiceResolve', {
+        playerId,
+        controllerId,
+        sourceId: String(step.sourceId || '').trim() || undefined,
+        sourceName,
+        resolvedStepId: String(step.id || '').trim() || undefined,
+        chosenOpponentId,
+        itemIds: items.map((item: any) => String(item?.id || '').trim()).filter(Boolean),
+        queuedResolutionStep,
+      });
+    } catch (err) {
+      debugWarn(1, '[Resolution] appendEvent(choosePlayerForTwoPileSplitChoiceResolve) failed:', err);
+    }
+
     appendQueuedResolutionPromptEvent(game, gameId, {
       playerId: chosenOpponentId,
       sourceId: String(step.sourceId || '').trim(),
@@ -29107,6 +29156,22 @@ async function handleOptionChoiceResponse(
 
     if (stage === 'ask') {
       if (choiceId !== 'sac') {
+        try {
+          await appendEvent(gameId, (game as any).seq || 0, 'sacrificeAnotherPermanentForBenefitChoiceResolve', {
+            playerId,
+            controllerId,
+            sourceId: String(sourcePermanentId || step.sourceId || '').trim() || undefined,
+            sourceName,
+            resolvedStepId: String(step.id || '').trim() || undefined,
+            choice: 'decline',
+            sourcePermanentId: sourcePermanentId || undefined,
+            lifeGain,
+            drawCount,
+          });
+        } catch (err) {
+          debugWarn(1, '[Resolution] appendEvent(sacrificeAnotherPermanentForBenefitChoiceResolve) failed:', err);
+        }
+
         io.to(gameId).emit('chat', {
           id: `m_${Date.now()}`,
           gameId,
@@ -29130,6 +29195,22 @@ async function handleOptionChoiceResponse(
         }));
 
       if (valid.length === 0) {
+        try {
+          await appendEvent(gameId, (game as any).seq || 0, 'sacrificeAnotherPermanentForBenefitChoiceResolve', {
+            playerId,
+            controllerId,
+            sourceId: String(sourcePermanentId || step.sourceId || '').trim() || undefined,
+            sourceName,
+            resolvedStepId: String(step.id || '').trim() || undefined,
+            choice: 'no_valid_permanent',
+            sourcePermanentId: sourcePermanentId || undefined,
+            lifeGain,
+            drawCount,
+          });
+        } catch (err) {
+          debugWarn(1, '[Resolution] appendEvent(sacrificeAnotherPermanentForBenefitChoiceResolve) failed:', err);
+        }
+
         io.to(gameId).emit('chat', {
           id: `m_${Date.now()}`,
           gameId,
@@ -29161,6 +29242,24 @@ async function handleOptionChoiceResponse(
         sacrificeAnotherPermanentForBenefitLifeGain: lifeGain,
         sacrificeAnotherPermanentForBenefitDrawCount: drawCount,
       } as any);
+
+      try {
+        await appendEvent(gameId, (game as any).seq || 0, 'sacrificeAnotherPermanentForBenefitChoiceResolve', {
+          playerId,
+          controllerId,
+          sourceId: String(sourcePermanentId || step.sourceId || '').trim() || undefined,
+          sourceName,
+          resolvedStepId: String(step.id || '').trim() || undefined,
+          choice: 'sacrifice',
+          sourcePermanentId: sourcePermanentId || undefined,
+          lifeGain,
+          drawCount,
+          validTargetIds: valid.map((target: any) => String(target?.id || '').trim()).filter(Boolean),
+          queuedResolutionStep: queuedStep,
+        });
+      } catch (err) {
+        debugWarn(1, '[Resolution] appendEvent(sacrificeAnotherPermanentForBenefitChoiceResolve) failed:', err);
+      }
 
       appendQueuedResolutionPromptEvent(game, gameId, {
         playerId: controllerId,

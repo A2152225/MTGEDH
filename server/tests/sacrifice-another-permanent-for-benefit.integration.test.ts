@@ -158,6 +158,27 @@ describe('sacrifice another permanent for benefit (integration)', () => {
     expect((queue.steps[0] as any).type).toBe(ResolutionStepType.TARGET_SELECTION);
     expect(((queue.steps[0] as any).validTargets || []).map((t: any) => t.id)).toEqual(['other_perm']);
 
+    const choiceEvent = [...getEvents(gameId)].reverse().find((event: any) => event.type === 'sacrificeAnotherPermanentForBenefitChoiceResolve') as any;
+    expect(choiceEvent).toBeDefined();
+    expect(choiceEvent.payload).toMatchObject({
+      playerId: p1,
+      controllerId: p1,
+      sourceId: 'source_perm',
+      sourceName: 'Source Walker',
+      resolvedStepId: step.id,
+      choice: 'sacrifice',
+      sourcePermanentId: 'source_perm',
+      lifeGain: 3,
+      drawCount: 1,
+      validTargetIds: ['other_perm'],
+    });
+    expect(choiceEvent.payload.queuedResolutionStep).toMatchObject({
+      type: ResolutionStepType.TARGET_SELECTION,
+      playerId: p1,
+      sacrificeAnotherPermanentForBenefitChoice: true,
+      sacrificeAnotherPermanentForBenefitStage: 'select_sacrifice',
+    });
+
     const promptEvent = getEvents(gameId).find((event: any) => String(event?.type || '') === 'resolveTopOfStackPrompt') as any;
     expect(promptEvent).toBeDefined();
     expect(promptEvent.payload).toMatchObject({
@@ -171,7 +192,8 @@ describe('sacrifice another permanent for benefit (integration)', () => {
       },
     });
 
-    await handlers['submitResolutionResponse']({ gameId, stepId: (queue.steps[0] as any).id, selections: ['other_perm'] });
+    const targetStepId = (queue.steps[0] as any).id;
+    await handlers['submitResolutionResponse']({ gameId, stepId: targetStepId, selections: ['other_perm'] });
 
     expect(((game.state as any).battlefield || []).map((p: any) => p.id)).toEqual(['source_perm']);
     expect(((game.state as any).zones[p1].graveyard || []).map((c: any) => c.name)).toEqual(['Treasure Token']);
@@ -179,6 +201,28 @@ describe('sacrifice another permanent for benefit (integration)', () => {
     expect(drawnCards).toBe(1);
     expect(((game.state as any).zones[p1].hand || []).map((c: any) => c.id)).toEqual(['draw_1']);
     expect((game.state as any).zones[p1].libraryCount).toBe(0);
+
+    const resolveEvent = [...getEvents(gameId)].reverse().find((event: any) => event.type === 'sacrificeAnotherPermanentForBenefitResolve') as any;
+    expect(resolveEvent).toBeDefined();
+    expect(resolveEvent.payload).toMatchObject({
+      playerId: p1,
+      controllerId: p1,
+      sourceId: 'source_perm',
+      sourceName: 'Source Walker',
+      resolvedStepId: targetStepId,
+      sacrificedPermanentId: 'other_perm',
+      sacrificedName: 'Treasure Token',
+      lifeGain: 3,
+      drawCount: 1,
+      lifeBefore: 40,
+      lifeAfter: 43,
+    });
+    expect(resolveEvent.payload.sacrificedPermanentSnapshot).toMatchObject({
+      id: 'other_perm',
+      controller: p1,
+      card: { name: 'Treasure Token' },
+    });
+    expect((resolveEvent.payload.drawnCards || []).map((card: any) => card.id)).toEqual(['draw_1']);
   });
 
   it('queues the sacrifice benefit choice from generic triggered stack text', async () => {

@@ -5963,6 +5963,67 @@ describe('AI resolution-step integration', () => {
     expect(completed?.response?.cancelled).toBe(false);
   });
 
+  it('routes choose-player-for-two-pile-split prompts through AI priority handling', async () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [
+      { id: playerId, name: 'AI', spectator: false, life: 40 },
+      { id: 'opp1', name: 'Opponent 1', spectator: false, life: 40 },
+      { id: 'opp2', name: 'Opponent 2', spectator: false, life: 40 },
+    ];
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).phase = 'main';
+    (game.state as any).step = 'precombat_main';
+    (game.state as any).stack = [];
+
+    registerAIPlayer(gameId, playerId as any);
+
+    const step = ResolutionQueueManager.addStep(gameId, {
+      type: ResolutionStepType.OPTION_CHOICE,
+      playerId: playerId as any,
+      sourceName: 'Split Source',
+      description: 'Split Source: Choose an opponent to separate the revealed cards into two piles.',
+      mandatory: true,
+      options: [
+        { id: 'opp1', label: 'Opponent 1' },
+        { id: 'opp2', label: 'Opponent 2' },
+      ],
+      minSelections: 1,
+      maxSelections: 1,
+      choosePlayerForTwoPileSplitChoice: true,
+      choosePlayerForTwoPileSplitController: playerId,
+      choosePlayerForTwoPileSplitSourceName: 'Split Source',
+      choosePlayerForTwoPileSplitItems: [
+        { id: 'c1', label: 'Card 1' },
+        { id: 'c2', label: 'Card 2' },
+      ],
+      choosePileFromSplitChoice: true,
+      choosePileFromSplitChooserPlayerId: playerId,
+      choosePileFromSplitSourceName: 'Split Source',
+      choosePileFromSplitItems: [
+        { id: 'c1', name: 'Card 1' },
+        { id: 'c2', name: 'Card 2' },
+      ],
+      choosePileFromSplitOriginalOrder: ['c1', 'c2'],
+      choosePileFromSplitChosenAction: 'move_cards',
+      choosePileFromSplitChosenDestination: 'hand',
+      choosePileFromSplitOtherDestination: 'library',
+      choosePileFromSplitMovePlayerId: playerId,
+    } as any);
+
+    ResolutionQueueManager.activateStep(gameId, step.id);
+
+    await handleAIPriority(createNoopIo(), gameId, playerId as any);
+
+    const queue = ResolutionQueueManager.getQueue(gameId);
+    const completed = queue.completedSteps.find((entry: any) => String(entry.id) === String(step.id));
+    expect(completed?.response?.selections).toEqual(['opp1']);
+    expect(completed?.response?.cancelled).toBe(false);
+  });
+
   it('routes optional discard-then-draw prompts through AI priority handling when drawable', async () => {
     createGameIfNotExists(gameId, 'commander', 40);
     const game = ensureGame(gameId);

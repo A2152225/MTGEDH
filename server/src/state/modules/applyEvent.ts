@@ -9593,6 +9593,145 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
         break;
       }
 
+      case "choosePlayerForTwoPileSplitChoiceResolve": {
+        try {
+          const replayGameId = String((ctx as any).gameId || '').trim();
+          const playerId = String((e as any).playerId || '').trim();
+          const controllerId = String((e as any).controllerId || playerId).trim() || playerId;
+          const sourceId = String((e as any).sourceId || '').trim();
+          const sourceName = String((e as any).sourceName || '').trim();
+          const resolvedStepId = String((e as any).resolvedStepId || '').trim();
+          const chosenOpponentId = String((e as any).chosenOpponentId || '').trim();
+
+          if (replayGameId) {
+            clearReplayQueuedSteps(replayGameId, (step: any) => {
+              if (!step) return false;
+              const stepId = String((step as any)?.id || '').trim();
+              if (resolvedStepId && stepId === resolvedStepId) {
+                return true;
+              }
+
+              return (
+                String((step as any)?.type || '') === String(ResolutionStepType.OPTION_CHOICE) &&
+                (step as any)?.choosePlayerForTwoPileSplitChoice === true &&
+                (!playerId || String((step as any)?.playerId || '').trim() === playerId || String((step as any)?.playerId || '').trim() === controllerId) &&
+                (!sourceId || String((step as any)?.sourceId || '').trim() === sourceId) &&
+                (!sourceName || String((step as any)?.choosePlayerForTwoPileSplitSourceName || (step as any)?.sourceName || '').trim() === sourceName)
+              );
+            });
+
+            addReplayQueuedStepIfMissing(replayGameId, (e as any).queuedResolutionStep, {
+              playerId: chosenOpponentId,
+              description: `${sourceName || 'Ability'}: Separate the items into two piles`,
+            });
+          }
+
+          ctx.bumpSeq();
+        } catch (err) {
+          debugWarn(1, 'applyEvent(choosePlayerForTwoPileSplitChoiceResolve): failed', err);
+        }
+        break;
+      }
+
+      case "sacrificeAnotherPermanentForBenefitChoiceResolve": {
+        try {
+          const replayGameId = String((ctx as any).gameId || '').trim();
+          const playerId = String((e as any).playerId || '').trim();
+          const controllerId = String((e as any).controllerId || playerId).trim() || playerId;
+          const sourceId = String((e as any).sourceId || '').trim();
+          const sourceName = String((e as any).sourceName || '').trim();
+          const resolvedStepId = String((e as any).resolvedStepId || '').trim();
+          const sourcePermanentId = String((e as any).sourcePermanentId || sourceId).trim();
+
+          if (replayGameId) {
+            clearReplayQueuedSteps(replayGameId, (step: any) => {
+              if (!step) return false;
+              const stepId = String((step as any)?.id || '').trim();
+              if (resolvedStepId && stepId === resolvedStepId) {
+                return true;
+              }
+
+              return (
+                String((step as any)?.type || '') === String(ResolutionStepType.OPTION_CHOICE) &&
+                (step as any)?.sacrificeAnotherPermanentForBenefitChoice === true &&
+                String((step as any)?.sacrificeAnotherPermanentForBenefitStage || '') === 'ask' &&
+                (!playerId || String((step as any)?.playerId || '').trim() === playerId || String((step as any)?.playerId || '').trim() === controllerId) &&
+                (!sourcePermanentId || String((step as any)?.sacrificeAnotherPermanentForBenefitSourcePermanentId || (step as any)?.sourceId || '').trim() === sourcePermanentId) &&
+                (!sourceName || String((step as any)?.sacrificeAnotherPermanentForBenefitSourceName || (step as any)?.sourceName || '').trim() === sourceName)
+              );
+            });
+
+            addReplayQueuedStepIfMissing(replayGameId, (e as any).queuedResolutionStep, {
+              playerId: controllerId,
+              description: 'Choose a permanent to sacrifice',
+            });
+          }
+
+          ctx.bumpSeq();
+        } catch (err) {
+          debugWarn(1, 'applyEvent(sacrificeAnotherPermanentForBenefitChoiceResolve): failed', err);
+        }
+        break;
+      }
+
+      case "sacrificeAnotherPermanentForBenefitResolve": {
+        try {
+          const replayGameId = String((ctx as any).gameId || '').trim();
+          const playerId = String((e as any).playerId || '').trim();
+          const controllerId = String((e as any).controllerId || playerId).trim() || playerId;
+          const sourceId = String((e as any).sourceId || '').trim();
+          const sourceName = String((e as any).sourceName || '').trim();
+          const resolvedStepId = String((e as any).resolvedStepId || '').trim();
+          const sacrificedPermanentId = String((e as any).sacrificedPermanentId || '').trim();
+          const lifeGain = Number((e as any).lifeGain || 0);
+          const drawCount = Math.max(0, Math.floor(Number((e as any).drawCount || 0)));
+
+          if (replayGameId) {
+            clearReplayQueuedSteps(replayGameId, (step: any) => {
+              if (!step) return false;
+              const stepId = String((step as any)?.id || '').trim();
+              if (resolvedStepId && stepId === resolvedStepId) {
+                return true;
+              }
+
+              return (
+                String((step as any)?.type || '') === String(ResolutionStepType.TARGET_SELECTION) &&
+                (step as any)?.sacrificeAnotherPermanentForBenefitChoice === true &&
+                String((step as any)?.sacrificeAnotherPermanentForBenefitStage || '') === 'select_sacrifice' &&
+                (!controllerId || String((step as any)?.playerId || '').trim() === controllerId || String((step as any)?.sacrificeAnotherPermanentForBenefitController || '').trim() === controllerId) &&
+                (!sourceId || String((step as any)?.sacrificeAnotherPermanentForBenefitSourcePermanentId || (step as any)?.sourceId || '').trim() === sourceId) &&
+                (!sourceName || String((step as any)?.sacrificeAnotherPermanentForBenefitSourceName || (step as any)?.sourceName || '').trim() === sourceName)
+              );
+            });
+          }
+
+          if (sacrificedPermanentId) {
+            applyReplaySacrificedPermanent(ctx, sacrificedPermanentId);
+          }
+
+          if (lifeGain) {
+            const stateAny = ctx.state as any;
+            stateAny.life = stateAny.life || {};
+            const startingLife = Number(stateAny.startingLife || 40) || 40;
+            const currentLife = Number(stateAny.life?.[controllerId] ?? startingLife);
+            stateAny.life[controllerId] = currentLife + lifeGain;
+            const playerObj = Array.isArray(stateAny.players)
+              ? stateAny.players.find((player: any) => String(player?.id || '') === controllerId)
+              : undefined;
+            if (playerObj) playerObj.life = stateAny.life[controllerId];
+          }
+
+          if (drawCount > 0) {
+            drawCards(ctx as any, controllerId as any, drawCount);
+          }
+
+          ctx.bumpSeq();
+        } catch (err) {
+          debugWarn(1, 'applyEvent(sacrificeAnotherPermanentForBenefitResolve): failed', err);
+        }
+        break;
+      }
+
       case "chooseLookedAtCardsDestinationResolve": {
         try {
           const replayGameId = String((ctx as any).gameId || '').trim();

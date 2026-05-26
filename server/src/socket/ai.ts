@@ -2701,6 +2701,25 @@ function chooseAIChooseDiscardPlanSelection(
   return { selections: chosenId ? [chosenId] : [], cancelled: false };
 }
 
+function chooseAIChoosePlayerForTwoPileSplitSelection(
+  game: any,
+  playerId: PlayerID,
+  step: any,
+  options: any[],
+  resolveOptionId: (option: any) => string,
+): { selections: string[]; cancelled: boolean } {
+  const controllerId = String(step?.choosePlayerForTwoPileSplitController || playerId).trim();
+  const optionIds = options.map((option: any) => resolveOptionId(option)).filter(Boolean);
+  const offeredIds = new Set(optionIds);
+  const players = Array.isArray(game?.state?.players) ? game.state.players : [];
+  const opponentId = players
+    .map((entry: any) => String(entry?.id || '').trim())
+    .find((id: string) => id && id !== controllerId && offeredIds.has(id));
+  const fallbackId = optionIds.find((id) => id !== controllerId) || optionIds[0] || '';
+  const chosenId = opponentId || fallbackId;
+  return { selections: chosenId ? [chosenId] : [], cancelled: false };
+}
+
 function chooseAIResolvedSpellCopySelection(
   step: any,
   options: any[],
@@ -3219,6 +3238,10 @@ export function chooseAIOptionSelectionsForStep(
 
   if (step?.chooseDiscardPlanChoice === true) {
     return chooseAIChooseDiscardPlanSelection(game, playerId, step, options, resolveOptionId);
+  }
+
+  if (step?.choosePlayerForTwoPileSplitChoice === true) {
+    return chooseAIChoosePlayerForTwoPileSplitSelection(game, playerId, step, options, resolveOptionId);
   }
 
   if (step?.resolvedSpellCopyChoice === true) {

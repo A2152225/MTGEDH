@@ -137,6 +137,22 @@ describe('choose pile from split choice (integration)', () => {
     expect((queue.steps[0] as any).playerId).toBe(p2);
     expect((queue.steps[0] as any).choosePileFromSplitChoice).toBe(true);
 
+    const choiceEvent = [...getEvents(gameId)].reverse().find((event: any) => event.type === 'choosePlayerForTwoPileSplitChoiceResolve') as any;
+    expect(choiceEvent).toBeDefined();
+    expect(choiceEvent.payload).toMatchObject({
+      playerId: p1,
+      controllerId: p1,
+      sourceName: 'Source',
+      resolvedStepId: step.id,
+      chosenOpponentId: p2,
+      itemIds: ['c1', 'c2', 'c3'],
+    });
+    expect(choiceEvent.payload.queuedResolutionStep).toMatchObject({
+      type: ResolutionStepType.TWO_PILE_SPLIT,
+      playerId: p2,
+      choosePileFromSplitChoice: true,
+    });
+
     const promptEvent = [...getEvents(gameId)].reverse().find((event: any) =>
       event.type === 'resolveTopOfStackPrompt' &&
       event.payload?.queuedResolutionStep?.type === ResolutionStepType.TWO_PILE_SPLIT
