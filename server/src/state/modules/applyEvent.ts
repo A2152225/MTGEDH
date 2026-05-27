@@ -9732,6 +9732,40 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
         break;
       }
 
+      case "forceOfWillExileChoiceResolve": {
+        try {
+          const replayGameId = String((ctx as any).gameId || '').trim();
+          const playerId = String((e as any).playerId || '').trim();
+          const sourceId = String((e as any).sourceId || '').trim();
+          const sourceName = String((e as any).sourceName || (e as any).spellName || '').trim();
+          const resolvedStepId = String((e as any).resolvedStepId || '').trim();
+          const spellCardId = String((e as any).spellCardId || sourceId).trim();
+
+          if (replayGameId) {
+            clearReplayQueuedSteps(replayGameId, (step: any) => {
+              if (!step) return false;
+              const stepId = String((step as any)?.id || '').trim();
+              if (resolvedStepId && stepId === resolvedStepId) {
+                return true;
+              }
+
+              return (
+                String((step as any)?.type || '') === String(ResolutionStepType.OPTION_CHOICE) &&
+                (step as any)?.forceOfWillExileChoice === true &&
+                (!playerId || String((step as any)?.playerId || '').trim() === playerId) &&
+                (!spellCardId || String((step as any)?.forceSpellCardId || (step as any)?.sourceId || '').trim() === spellCardId) &&
+                (!sourceName || String((step as any)?.forceSpellName || (step as any)?.sourceName || '').trim() === sourceName)
+              );
+            });
+          }
+
+          ctx.bumpSeq();
+        } catch (err) {
+          debugWarn(1, 'applyEvent(forceOfWillExileChoiceResolve): failed', err);
+        }
+        break;
+      }
+
       case "chooseLookedAtCardsDestinationResolve": {
         try {
           const replayGameId = String((ctx as any).gameId || '').trim();

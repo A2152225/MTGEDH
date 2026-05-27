@@ -2502,6 +2502,33 @@ function chooseAIRevealLandSelection(
   return { selections: [String(matchingOption.id)], cancelled: false };
 }
 
+function chooseAIMoxDiamondSelection(
+  game: any,
+  playerId: PlayerID,
+  options: any[],
+  resolveOptionId: (option: any) => string,
+): { selections: string[]; cancelled: boolean } {
+  const offeredIds = new Set(options.map((option: any) => resolveOptionId(option)).filter(Boolean));
+  const declineId = options
+    .map((option: any) => resolveOptionId(option))
+    .find((id: string) => id === 'decline_mox_diamond') || 'decline_mox_diamond';
+  const profile = ensureAIDeckProfile(game, playerId);
+  const landCandidates = getAIHand(game, playerId)
+    .filter((card: any) => offeredIds.has(String(card?.id || '')))
+    .filter((card: any) => /\bland\b/i.test(String(card?.type_line || '')))
+    .map((card: any) => ({
+      id: String(card?.id || ''),
+      score: scoreCardForAIAcquisition(game, playerId, card, 'hand', profile),
+    }))
+    .filter((entry) => Boolean(entry.id))
+    .sort((left, right) => left.score - right.score);
+
+  const chosenId = landCandidates[0]?.id || '';
+  return chosenId
+    ? { selections: [chosenId], cancelled: false }
+    : { selections: [declineId], cancelled: false };
+}
+
 function chooseAIGrantPlayableFromExileSelection(
   game: any,
   playerId: PlayerID,
@@ -2718,6 +2745,31 @@ function chooseAIChoosePlayerForTwoPileSplitSelection(
   const fallbackId = optionIds.find((id) => id !== controllerId) || optionIds[0] || '';
   const chosenId = opponentId || fallbackId;
   return { selections: chosenId ? [chosenId] : [], cancelled: false };
+}
+
+function chooseAIForceOfWillExileSelection(
+  game: any,
+  playerId: PlayerID,
+  step: any,
+  options: any[],
+  resolveOptionId: (option: any) => string,
+): { selections: string[]; cancelled: boolean } {
+  const spellCardId = String(step?.forceSpellCardId || step?.sourceId || '').trim();
+  const offeredIds = new Set(options.map((option: any) => resolveOptionId(option)).filter(Boolean));
+  const profile = ensureAIDeckProfile(game, playerId);
+  const blueCandidates = getAIHand(game, playerId)
+    .filter((card: any) => offeredIds.has(String(card?.id || '')))
+    .filter((card: any) => String(card?.id || '') !== spellCardId)
+    .filter((card: any) => Array.isArray(card?.colors) && card.colors.includes('U'))
+    .map((card: any) => ({
+      id: String(card?.id || ''),
+      score: scoreCardForAIAcquisition(game, playerId, card, 'hand', profile),
+    }))
+    .filter((entry) => Boolean(entry.id))
+    .sort((left, right) => left.score - right.score);
+
+  const chosenId = blueCandidates[0]?.id || '';
+  return { selections: chosenId ? [chosenId] : [], cancelled: !chosenId };
 }
 
 function chooseAIResolvedSpellCopySelection(
@@ -3212,6 +3264,10 @@ export function chooseAIOptionSelectionsForStep(
     return chooseAIRevealLandSelection(game, playerId, step, options, resolveOptionId);
   }
 
+  if (step?.moxDiamondChoice === true) {
+    return chooseAIMoxDiamondSelection(game, playerId, options, resolveOptionId);
+  }
+
   if (step?.grantPlayableFromExileChoice === true) {
     return chooseAIGrantPlayableFromExileSelection(game, playerId, step, options, resolveOptionId);
   }
@@ -3242,6 +3298,10 @@ export function chooseAIOptionSelectionsForStep(
 
   if (step?.choosePlayerForTwoPileSplitChoice === true) {
     return chooseAIChoosePlayerForTwoPileSplitSelection(game, playerId, step, options, resolveOptionId);
+  }
+
+  if (step?.forceOfWillExileChoice === true) {
+    return chooseAIForceOfWillExileSelection(game, playerId, step, options, resolveOptionId);
   }
 
   if (step?.resolvedSpellCopyChoice === true) {

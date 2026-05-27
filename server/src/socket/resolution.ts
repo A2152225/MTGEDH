@@ -27291,6 +27291,23 @@ async function handleOptionChoiceResponse(
       }
     }
 
+    try {
+      await appendEvent(gameId, (game as any).seq || 0, 'forceOfWillExileChoiceResolve', {
+        playerId,
+        sourceId: spellCardId,
+        sourceName: spellName,
+        resolvedStepId: String(step.id || '').trim() || undefined,
+        spellCardId,
+        spellName,
+        exileCardId: String(exileCardId),
+        exiledCard: { ...chosenCard, zone: 'exile', exiledForAlternateCost: true, exiledForSpellCardId: spellCardId },
+        requiresLifePayment,
+        lifePaid: requiresLifePayment && lifeAmount > 0 ? lifeAmount : 0,
+      });
+    } catch (err) {
+      debugWarn(1, '[Resolution] appendEvent(forceOfWillExileChoiceResolve) failed:', err);
+    }
+
     appendCastSpellContinuationEvent(gameId, game, {
       playerId,
       cardId: spellCardId,

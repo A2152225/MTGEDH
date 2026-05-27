@@ -6907,6 +6907,67 @@ describe('AI resolution-step integration', () => {
     expect(completed?.response?.cancelled).toBe(false);
   });
 
+  it('routes Force of Will exile choices through AI priority handling and chooses an offered blue card', async () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [
+      { id: playerId, name: 'AI', spectator: false, life: 40 },
+      { id: 'opp1', name: 'Opponent', spectator: false, life: 40 },
+    ];
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).phase = 'main';
+    (game.state as any).step = 'precombat_main';
+    (game.state as any).stack = [];
+    (game.state as any).zones = {
+      [playerId]: {
+        hand: [
+          { id: 'spell_1', name: 'Force of Will', type_line: 'Instant', colors: ['U'], cmc: 5 },
+          { id: 'blue_1', name: 'Ponder', type_line: 'Sorcery', oracle_text: 'Draw a card.', colors: ['U'], cmc: 1 },
+          { id: 'red_1', name: 'Lightning Bolt', type_line: 'Instant', oracle_text: 'Deal 3 damage.', colors: ['R'], cmc: 1 },
+        ],
+        handCount: 3,
+        library: [],
+        graveyard: [],
+        exile: [],
+      },
+      opp1: { hand: [], handCount: 0, library: [], graveyard: [], exile: [] },
+    };
+
+    registerAIPlayer(gameId, playerId as any);
+
+    const step = ResolutionQueueManager.addStep(gameId, {
+      type: ResolutionStepType.OPTION_CHOICE,
+      playerId: playerId as any,
+      sourceId: 'spell_1',
+      sourceName: 'Force of Will',
+      description: 'Choose a blue card to exile',
+      mandatory: true,
+      options: [
+        { id: 'red_1', label: 'Lightning Bolt' },
+        { id: 'blue_1', label: 'Ponder' },
+      ],
+      minSelections: 1,
+      maxSelections: 1,
+      forceOfWillExileChoice: true,
+      forceSpellCardId: 'spell_1',
+      forceSpellName: 'Force of Will',
+      forceRequiresLifePayment: true,
+      forceLifePaymentAmount: 1,
+    } as any);
+
+    ResolutionQueueManager.activateStep(gameId, step.id);
+
+    await handleAIPriority(createNoopIo(), gameId, playerId as any);
+
+    const queue = ResolutionQueueManager.getQueue(gameId);
+    const completed = queue.completedSteps.find((entry: any) => String(entry.id) === String(step.id));
+    expect(completed?.response?.selections).toEqual(['blue_1']);
+    expect(completed?.response?.cancelled).toBe(false);
+  });
+
   it('routes pay-mana-to-look choices through AI priority handling and pays a useful amount', async () => {
     createGameIfNotExists(gameId, 'commander', 40);
     const game = ensureGame(gameId);

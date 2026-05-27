@@ -61,6 +61,56 @@ describe('AI option choice', () => {
     expect(decision).toEqual({ selections: ['pay_2_life'], cancelled: false });
   });
 
+  it('discards an offered land for Mox Diamond', () => {
+    const playerId = 'ai1' as PlayerID;
+    const game = {
+      state: {
+        players: [createPlayer(playerId, 'AI')],
+        zones: {
+          [playerId]: {
+            hand: [
+              { id: 'spell_1', name: 'Useful Spell', type_line: 'Instant', oracle_text: 'Draw two cards.', cmc: 2 },
+              { id: 'land_1', name: 'Plains', type_line: 'Basic Land - Plains', oracle_text: '({T}: Add {W}.)', cmc: 0 },
+            ],
+          },
+        },
+      },
+    } as any;
+
+    const decision = chooseAIOptionSelectionsForStep(game, playerId, {
+      moxDiamondChoice: true,
+      options: [
+        { id: 'decline_mox_diamond', label: 'Do not discard' },
+        { id: 'land_1', label: 'Discard Plains' },
+      ],
+    });
+
+    expect(decision).toEqual({ selections: ['land_1'], cancelled: false });
+  });
+
+  it('declines Mox Diamond when no offered land is available', () => {
+    const playerId = 'ai1' as PlayerID;
+    const game = {
+      state: {
+        players: [createPlayer(playerId, 'AI')],
+        zones: {
+          [playerId]: {
+            hand: [{ id: 'spell_1', name: 'Useful Spell', type_line: 'Instant', oracle_text: 'Draw two cards.', cmc: 2 }],
+          },
+        },
+      },
+    } as any;
+
+    const decision = chooseAIOptionSelectionsForStep(game, playerId, {
+      moxDiamondChoice: true,
+      options: [
+        { id: 'decline_mox_diamond', label: 'Do not discard' },
+      ],
+    });
+
+    expect(decision).toEqual({ selections: ['decline_mox_diamond'], cancelled: false });
+  });
+
   it('declines mana ward when the AI cannot pay', () => {
     const playerId = 'ai1' as PlayerID;
     const game = {

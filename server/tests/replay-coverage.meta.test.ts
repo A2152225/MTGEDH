@@ -69,6 +69,7 @@ const REPLAY_GUARDED_EVENT_TYPES = new Set([
   'executeEffect',
   'fatesealResolve',
   'fight',
+  'forceOfWillExileChoiceResolve',
   'grantPlayableFromExileChoiceResolve',
   'hideawayChoice',
   'joinForcesComplete',

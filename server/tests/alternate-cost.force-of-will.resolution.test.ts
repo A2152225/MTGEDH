@@ -1,5 +1,5 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { initDb, createGameIfNotExists, deleteGame } from '../src/db/index.js';
+import { initDb, createGameIfNotExists, deleteGame, getEvents } from '../src/db/index.js';
 import { ensureGame } from '../src/socket/util.js';
 import { registerResolutionHandlers } from '../src/socket/resolution.js';
 import { ResolutionQueueManager, ResolutionStepType } from '../src/state/resolution/index.js';
@@ -136,6 +136,26 @@ describe('Resolution FORCE alternate cost (Force of Will / Negation style)', () 
     expect(Array.isArray((game.state as any).stack)).toBe(true);
     expect((game.state as any).stack).toHaveLength(1);
     expect(String((game.state as any).stack[0]?.card?.name || '')).toBe('Force of Will');
+
+    const choiceEvent = [...getEvents(gameId)].reverse().find((event: any) => event.type === 'forceOfWillExileChoiceResolve') as any;
+    expect(choiceEvent).toBeDefined();
+    expect(choiceEvent.payload).toMatchObject({
+      playerId: p1,
+      sourceId: 'spell_1',
+      sourceName: 'Force of Will',
+      resolvedStepId: step.id,
+      spellCardId: 'spell_1',
+      spellName: 'Force of Will',
+      exileCardId: 'blue_1',
+      requiresLifePayment: true,
+      lifePaid: 1,
+    });
+    expect(choiceEvent.payload.exiledCard).toMatchObject({
+      id: 'blue_1',
+      zone: 'exile',
+      exiledForAlternateCost: true,
+      exiledForSpellCardId: 'spell_1',
+    });
   });
 
   it('rejects selecting a non-blue card (no state changes)', async () => {
