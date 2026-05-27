@@ -1848,7 +1848,7 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
           .find((step: any) => step?.attackCostPayment === true);
 
         if (!existingPrompt) {
-          ResolutionQueueManager.addStep(gameId, {
+          const attackCostStep = ResolutionQueueManager.addStep(gameId, {
             type: ResolutionStepType.OPTION_CHOICE,
             playerId: playerId as any,
             sourceName: 'Attack Cost',
@@ -1865,6 +1865,16 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
             attackCostBreakdown,
             attackers,
           } as any);
+
+          try {
+            appendEvent(gameId, (game as any).seq ?? 0, 'resolveTopOfStackPrompt', {
+              playerId,
+              sourceId: 'attack-cost',
+              queuedResolutionStep: { ...(attackCostStep as any) },
+            });
+          } catch (err) {
+            debugWarn(1, '[combat] appendEvent(resolveTopOfStackPrompt attackCostPayment) failed:', err);
+          }
         }
 
         if (typeof (game as any).bumpSeq === 'function') {

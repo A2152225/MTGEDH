@@ -16199,6 +16199,26 @@ function handleCommanderZoneResponse(
       }
     }
   }
+
+  try {
+    appendEvent(gameId, (game as any).seq ?? 0, 'commanderZoneChoice', {
+      playerId: pid,
+      sourceId: String(stepData?.sourceId || step.sourceId || commanderId || '').trim() || undefined,
+      sourceName: commanderName,
+      resolvedStepId: String((step as any)?.id || '').trim() || undefined,
+      commanderId,
+      commanderName,
+      moveToCommandZone: goToCommandZone,
+      destinationZone,
+      libraryPosition,
+      card: card && typeof card === 'object' ? JSON.parse(JSON.stringify(card)) : undefined,
+      ...(exileTag ? { exileTag: JSON.parse(JSON.stringify(exileTag)) } : {}),
+      ...(linkedExileData ? { linkedExileData: JSON.parse(JSON.stringify(linkedExileData)) } : {}),
+      ...(flickerReturnData ? { flickerReturnData: JSON.parse(JSON.stringify(flickerReturnData)) } : {}),
+    });
+  } catch (err) {
+    debugWarn(1, '[Resolution] appendEvent(commanderZoneChoice) failed:', err);
+  }
   
   if (typeof game.bumpSeq === "function") {
     game.bumpSeq();
@@ -26421,7 +26441,7 @@ async function handleOptionChoiceResponse(
     return;
   }
 
-  if (stepData?.optionalTriggeredAbilityPrompt === true) {
+  if (stepData?.optionalTriggeredAbilityPrompt === true || isOptionalTriggeredEffectProgramStep(step)) {
     await handleOptionalTriggeredAbilityChoiceResponse(io, game, gameId, step, response);
     return;
   }
@@ -26515,6 +26535,22 @@ async function handleOptionChoiceResponse(
       return;
     }
 
+    try {
+      await appendEvent(gameId, (game as any).seq || 0, 'mutateCastModeChoiceResolve', {
+        playerId,
+        sourceId: mutateCardId,
+        sourceName: String(stepData?.sourceName || step.sourceName || 'Mutate spell'),
+        resolvedStepId: String(step.id || '').trim() || undefined,
+        mutateCardId,
+        ...(faceIndex != null && Number.isFinite(faceIndex) ? { mutateFaceIndex: faceIndex } : {}),
+        choiceId,
+        castMode: choiceId === 'cast_mutate' ? 'mutate' : (choiceId === 'cast_normal' ? 'normal' : 'cancel'),
+        accepted: !response.cancelled && choiceId !== 'cancel',
+      });
+    } catch (err) {
+      debugWarn(1, '[Resolution] appendEvent(mutateCastModeChoiceResolve) failed:', err);
+    }
+
     if (response.cancelled || choiceId === 'cancel') {
       io.to(gameId).emit('chat', {
         id: `m_${Date.now()}`,
@@ -26570,6 +26606,8 @@ async function handleOptionChoiceResponse(
     const basePower = original?.basePower;
     const baseToughness = original?.baseToughness;
     const options = original?.options;
+    let createdTokenIds: string[] = [];
+    let resolvedChoiceId = 'normal';
 
     if (!controllerId || tokenCount <= 0) {
       debugWarn(1, '[Resolution] mirrormindCrownTokenReplacementChoice: missing controllerId/count');
@@ -26585,7 +26623,8 @@ async function handleOptionChoiceResponse(
     try {
       if (!response.cancelled && choiceId === 'replace' && equippedCard) {
         const { createCopyTokensOfCard } = await import('../state/modules/counters_tokens.js');
-        createCopyTokensOfCard(ctx as any, controllerId as any, equippedCard, tokenCount, true);
+        createdTokenIds = createCopyTokensOfCard(ctx as any, controllerId as any, equippedCard, tokenCount, true);
+        resolvedChoiceId = 'replace';
 
         io.to(gameId).emit('chat', {
           id: `m_${Date.now()}`,
@@ -26596,7 +26635,8 @@ async function handleOptionChoiceResponse(
         });
       } else {
         const { createToken } = await import('../state/modules/counters_tokens.js');
-        createToken(ctx as any, controllerId as any, tokenName, tokenCount, basePower, baseToughness, options, true);
+        createdTokenIds = createToken(ctx as any, controllerId as any, tokenName, tokenCount, basePower, baseToughness, options, true);
+        resolvedChoiceId = 'normal';
 
         io.to(gameId).emit('chat', {
           id: `m_${Date.now()}`,
@@ -26608,6 +26648,31 @@ async function handleOptionChoiceResponse(
       }
     } catch (err) {
       debugWarn(1, '[Resolution] mirrormindCrownTokenReplacementChoice failed:', err);
+    }
+
+    try {
+      const battlefield = Array.isArray(game.state?.battlefield) ? game.state.battlefield : [];
+      const createdTokenIdSet = new Set(createdTokenIds.map((id) => String(id)));
+      const createdTokenPermanents = battlefield
+        .filter((permanent: any) => permanent && createdTokenIdSet.has(String(permanent.id || '')))
+        .map((permanent: any) => JSON.parse(JSON.stringify(permanent)));
+
+      await appendEvent(gameId, (game as any).seq || 0, 'mirrormindCrownTokenReplacementChoiceResolve', {
+        playerId: controllerId,
+        sourceId: String(stepData?.mirrormindCrownEquipmentId || step.sourceId || '').trim() || undefined,
+        sourceName: 'Mirrormind Crown',
+        resolvedStepId: String(step.id || '').trim() || undefined,
+        choiceId: resolvedChoiceId,
+        replaced: resolvedChoiceId === 'replace',
+        mirrormindCrownEquipmentId: String(stepData?.mirrormindCrownEquipmentId || step.sourceId || '').trim() || undefined,
+        mirrormindCrownEquippedCreatureId: String(stepData?.mirrormindCrownEquippedCreatureId || '').trim() || undefined,
+        mirrormindCrownEquippedCreatureCard: equippedCard ? JSON.parse(JSON.stringify(equippedCard)) : undefined,
+        mirrormindCrownOriginalTokenCreate: original ? JSON.parse(JSON.stringify(original)) : undefined,
+        createdTokenIds,
+        createdTokenPermanents,
+      });
+    } catch (err) {
+      debugWarn(1, '[Resolution] appendEvent(mirrormindCrownTokenReplacementChoiceResolve) failed:', err);
     }
 
     if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
@@ -33705,10 +33770,30 @@ async function handleMayAbilityResponse(
   const callbackId: string = stepAny.pendingCallbackId ?? '';
   const effectText: string = stepAny.effectText || 'effect';
   const sourceName: string = step.sourceName || 'Ability';
+  const choiceId = extractFirstResolutionSelectionId(response.selections) || (response.cancelled ? 'no' : 'yes');
+  const accepted = !response.cancelled && choiceId !== 'no';
+
+  try {
+    await appendEvent(gameId, (game as any).seq ?? 0, 'mayAbilityResolve', {
+      playerId: pid,
+      sourceId: String(stepAny?.sourceId || step.sourceId || '').trim() || undefined,
+      sourceName,
+      resolvedStepId: String((step as any)?.id || '').trim() || undefined,
+      choice: accepted ? 'yes' : 'no',
+      accepted,
+      effectText,
+      fullAbilityText: stepAny.fullAbilityText,
+      effectKey: stepAny.effectKey,
+      callbackId: callbackId || undefined,
+    });
+  } catch (err) {
+    debugWarn(1, '[Resolution] appendEvent(mayAbilityResolve) failed:', err);
+  }
+
   const callbackEntry = consumeMayCallback(gameId, callbackId);
 
   // If cancelled == true the player said "No"
-  if (response.cancelled) {
+  if (!accepted) {
     if (callbackEntry?.onDecline) {
       try {
         await callbackEntry.onDecline();

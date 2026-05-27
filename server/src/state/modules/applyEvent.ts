@@ -483,6 +483,161 @@ function clearReplayQueuedSteps(gameId: string, predicate: (step: any) => boolea
   }
 }
 
+function cloneReplayPayload<T>(value: T): T {
+  if (value == null || typeof value !== 'object') return value;
+  try {
+    return JSON.parse(JSON.stringify(value)) as T;
+  } catch {
+    return value;
+  }
+}
+
+function incrementReplayTokenCreatedTracking(state: any, controllerId: string, amount: number): void {
+  const count = Math.max(0, Math.floor(Number(amount || 0)));
+  if (!state || !controllerId || count <= 0) return;
+
+  state.tokensCreatedThisTurn = state.tokensCreatedThisTurn || {};
+  state.tokenCreatedThisTurn = state.tokenCreatedThisTurn || {};
+  state.createdTokenThisTurn = state.createdTokenThisTurn || {};
+  state.tokensCreatedThisTurn[controllerId] = Number(state.tokensCreatedThisTurn[controllerId] || 0) + count;
+  state.tokenCreatedThisTurn[controllerId] = Number(state.tokenCreatedThisTurn[controllerId] || 0) + count;
+  state.createdTokenThisTurn[controllerId] = Number(state.createdTokenThisTurn[controllerId] || 0) + count;
+}
+
+function matchesMirrormindOriginalReplayToken(permanent: any, original: any, controllerId: string, desiredTokenIds: Set<string>): boolean {
+  if (!permanent || permanent.isToken !== true) return false;
+  if (desiredTokenIds.has(String(permanent.id || ''))) return false;
+  if (controllerId && String(permanent.controller || '') !== controllerId) return false;
+
+  const originalName = String(original?.name || '').trim();
+  if (originalName && String(permanent?.card?.name || '').trim() !== originalName) return false;
+
+  const originalTypeLine = String(original?.options?.typeLine || '').trim();
+  if (originalTypeLine && String(permanent?.card?.type_line || '').trim() !== originalTypeLine) return false;
+
+  if (original?.basePower != null && Number(permanent?.basePower) !== Number(original.basePower)) return false;
+  if (original?.baseToughness != null && Number(permanent?.baseToughness) !== Number(original.baseToughness)) return false;
+
+  return true;
+}
+
+function restoreMirrormindReplayTokens(ctx: GameContext, event: any): void {
+  const state = ctx.state as any;
+  state.battlefield = Array.isArray(state.battlefield) ? state.battlefield : [];
+
+  const controllerId = String(event?.playerId || event?.mirrormindCrownOriginalTokenCreate?.controller || '').trim();
+  const original = event?.mirrormindCrownOriginalTokenCreate || {};
+  const snapshots = Array.isArray(event?.createdTokenPermanents)
+    ? event.createdTokenPermanents.filter((entry: any) => entry && typeof entry === 'object')
+    : [];
+  const desiredTokenIds = new Set<string>(snapshots.map((entry: any) => String(entry?.id || '')).filter(Boolean));
+
+  let removedReplayCreatedOriginals = 0;
+  if (desiredTokenIds.size > 0) {
+    state.battlefield = state.battlefield.filter((permanent: any) => {
+      if (!matchesMirrormindOriginalReplayToken(permanent, original, controllerId, desiredTokenIds)) {
+        return true;
+      }
+      removedReplayCreatedOriginals += 1;
+      return false;
+    });
+  }
+
+  let addedSnapshots = 0;
+  for (const snapshot of snapshots) {
+    const snapshotId = String(snapshot?.id || '').trim();
+    if (!snapshotId) continue;
+    const alreadyPresent = state.battlefield.some((permanent: any) => String(permanent?.id || '') === snapshotId);
+    if (alreadyPresent) continue;
+    state.battlefield.push(cloneReplayPayload(snapshot));
+    addedSnapshots += 1;
+  }
+
+  const equipmentId = String(event?.mirrormindCrownEquipmentId || event?.sourceId || '').trim();
+  if (equipmentId) {
+    state.mirrormindCrownUsedThisTurn = state.mirrormindCrownUsedThisTurn || {};
+    state.mirrormindCrownUsedThisTurn[equipmentId] = true;
+  }
+
+  incrementReplayTokenCreatedTracking(state, controllerId, Math.max(0, addedSnapshots - removedReplayCreatedOriginals));
+}
+
+function removeReplayCommanderCardFromZones(state: any, playerId: string, commanderId: string, cardId: string): void {
+  const zones = state?.zones?.[playerId];
+  const ids = new Set([commanderId, cardId].map((id) => String(id || '').trim()).filter(Boolean));
+  if (ids.size === 0) return;
+
+  const removeFromArrayZone = (zoneName: string) => {
+    const zone = zones?.[zoneName];
+    if (!Array.isArray(zone)) return;
+    zones[zoneName] = zone.filter((card: any) => !ids.has(String(card?.id || '')));
+    const countKey = `${zoneName}Count`;
+    if (typeof zones[countKey] === 'number') zones[countKey] = zones[zoneName].length;
+  };
+
+  for (const zoneName of ['commandZone', 'graveyard', 'exile', 'hand', 'library']) {
+    removeFromArrayZone(zoneName);
+  }
+
+  if (Array.isArray(state?.battlefield)) {
+    state.battlefield = state.battlefield.filter((permanent: any) => {
+      const permanentId = String(permanent?.id || '').trim();
+      const permanentCardId = String(permanent?.card?.id || '').trim();
+      return !ids.has(permanentId) && !ids.has(permanentCardId);
+    });
+  }
+}
+
+function putReplayCommanderCardInDestination(ctx: GameContext, playerId: string, destinationZone: string, libraryPosition: string, card: any, exileTag?: any): void {
+  if (!playerId || !card || typeof card !== 'object') return;
+  const state = ctx.state as any;
+  state.zones = state.zones || {};
+  const zones = state.zones[playerId] = state.zones[playerId] || {
+    hand: [],
+    handCount: 0,
+    library: [],
+    libraryCount: 0,
+    graveyard: [],
+    graveyardCount: 0,
+    exile: [],
+    exileCount: 0,
+  };
+
+  const zoneName = ['graveyard', 'exile', 'hand', 'library'].includes(destinationZone) ? destinationZone : 'graveyard';
+  const zoneCard = {
+    ...cloneReplayPayload(card),
+    ...(zoneName === 'exile' && exileTag && typeof exileTag === 'object' ? cloneReplayPayload(exileTag) : {}),
+    zone: zoneName,
+  };
+  const cardId = String(zoneCard.id || '').trim();
+
+  if (zoneName === 'library') {
+    const libraryFromContext = (ctx as any).libraries?.get?.(playerId);
+    const library = Array.isArray(libraryFromContext)
+      ? libraryFromContext
+      : (Array.isArray(zones.library) ? zones.library : (zones.library = []));
+    const alreadyPresent = library.some((entry: any) => cardId && String(entry?.id || '') === cardId);
+    if (!alreadyPresent) {
+      if (libraryPosition === 'bottom' || libraryPosition === 'shuffle') {
+        library.push(zoneCard);
+      } else {
+        library.unshift(zoneCard);
+      }
+    }
+    zones.libraryCount = library.length;
+    if ((ctx as any).libraries?.set) (ctx as any).libraries.set(playerId, library);
+    return;
+  }
+
+  zones[zoneName] = Array.isArray(zones[zoneName]) ? zones[zoneName] : [];
+  const alreadyPresent = zones[zoneName].some((entry: any) => cardId && String(entry?.id || '') === cardId);
+  if (!alreadyPresent) {
+    zones[zoneName].push(zoneCard);
+    const countKey = `${zoneName}Count`;
+    zones[countKey] = zones[zoneName].length;
+  }
+}
+
 function addReplayQueuedStepIfMissing(
   gameId: string,
   rawQueuedStep: unknown,
@@ -2069,18 +2224,42 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
       }
 
       case "commanderZoneChoice": {
-        // Handle commander zone choice (e.g., command zone vs graveyard/exile after death)
-        const pid = (e as any).playerId;
-        const commanderId = (e as any).commanderId;
-        const moveToCommandZone = (e as any).moveToCommandZone;
-        
+        const pid = String((e as any).playerId || '').trim();
+        const commanderId = String((e as any).commanderId || '').trim();
+        const moveToCommandZone = (e as any).moveToCommandZone === true;
+        const resolvedStepId = String((e as any).resolvedStepId || '').trim();
+        const destinationZone = String((e as any).destinationZone || (e as any).fromZone || 'graveyard').trim().toLowerCase();
+        const libraryPosition = String((e as any).libraryPosition || 'shuffle').trim().toLowerCase();
+        const card = (e as any).card && typeof (e as any).card === 'object' ? (e as any).card : undefined;
+        const cardId = String(card?.id || '').trim();
+
         try {
-          if (moveToCommandZone) {
-            // Move commander to command zone
-            moveCommanderToCZ(ctx as any, pid, commanderId);
+          const replayGameId = String((ctx as any).gameId || '').trim();
+          if (replayGameId) {
+            clearReplayQueuedSteps(replayGameId, (step: any) => {
+              if (!step) return false;
+              const stepId = String((step as any)?.id || '').trim();
+              if (resolvedStepId && stepId === resolvedStepId) return true;
+              return (
+                String((step as any)?.type || '') === String(ResolutionStepType.OPTION_CHOICE) &&
+                (step as any)?.commanderZoneChoice === true &&
+                (!pid || String((step as any)?.playerId || '').trim() === pid) &&
+                (!commanderId || String((step as any)?.commanderId || (step as any)?.card?.id || '').trim() === commanderId)
+              );
+            });
           }
-          // If not moving to command zone, the commander stays where it was going
-          // (graveyard, exile, etc.) - no additional action needed
+
+          if (moveToCommandZone) {
+            moveCommanderToCZ(ctx as any, pid, commanderId);
+          } else if (pid && (commanderId || cardId)) {
+            removeReplayCommanderCardFromZones(ctx.state as any, pid, commanderId, cardId);
+            putReplayCommanderCardInDestination(ctx as any, pid, destinationZone, libraryPosition, card || { id: commanderId }, (e as any).exileTag);
+
+            const commandZoneInfo = (ctx.state as any)?.commandZone?.[pid];
+            if (commandZoneInfo && Array.isArray(commandZoneInfo.inCommandZone)) {
+              commandZoneInfo.inCommandZone = commandZoneInfo.inCommandZone.filter((id: any) => String(id || '') !== commanderId && String(id || '') !== cardId);
+            }
+          }
           ctx.bumpSeq();
         } catch (err) {
           debugWarn(1, "applyEvent(commanderZoneChoice): failed", err);
@@ -3470,6 +3649,94 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           ctx.bumpSeq();
         } catch (err) {
           debugWarn(1, 'applyEvent(miraclePromptResolve): failed', err);
+        }
+        break;
+      }
+
+      case "mutateCastModeChoiceResolve": {
+        try {
+          const replayGameId = String((ctx as any).gameId || '').trim();
+          const playerId = String((e as any).playerId || '').trim();
+          const sourceId = String((e as any).sourceId || (e as any).mutateCardId || '').trim();
+          const resolvedStepId = String((e as any).resolvedStepId || '').trim();
+
+          if (replayGameId) {
+            clearReplayQueuedSteps(replayGameId, (step: any) => {
+              if (!step) return false;
+              const stepId = String((step as any)?.id || '').trim();
+              if (resolvedStepId && stepId === resolvedStepId) return true;
+              return (
+                String((step as any)?.type || '') === String(ResolutionStepType.OPTION_CHOICE) &&
+                (step as any)?.mutateCastModeChoice === true &&
+                (!playerId || String((step as any)?.playerId || '').trim() === playerId) &&
+                sourceId.length > 0 &&
+                String((step as any)?.mutateCardId || (step as any)?.sourceId || '').trim() === sourceId
+              );
+            });
+          }
+
+          ctx.bumpSeq();
+        } catch (err) {
+          debugWarn(1, 'applyEvent(mutateCastModeChoiceResolve): failed', err);
+        }
+        break;
+      }
+
+      case "mirrormindCrownTokenReplacementChoiceResolve": {
+        try {
+          const replayGameId = String((ctx as any).gameId || '').trim();
+          const playerId = String((e as any).playerId || '').trim();
+          const sourceId = String((e as any).sourceId || (e as any).mirrormindCrownEquipmentId || '').trim();
+          const resolvedStepId = String((e as any).resolvedStepId || '').trim();
+
+          if (replayGameId) {
+            clearReplayQueuedSteps(replayGameId, (step: any) => {
+              if (!step) return false;
+              const stepId = String((step as any)?.id || '').trim();
+              if (resolvedStepId && stepId === resolvedStepId) return true;
+              return (
+                String((step as any)?.type || '') === String(ResolutionStepType.OPTION_CHOICE) &&
+                (step as any)?.mirrormindCrownTokenReplacementChoice === true &&
+                (!playerId || String((step as any)?.playerId || '').trim() === playerId) &&
+                (!sourceId || String((step as any)?.mirrormindCrownEquipmentId || (step as any)?.sourceId || '').trim() === sourceId)
+              );
+            });
+          }
+
+          restoreMirrormindReplayTokens(ctx as any, e as any);
+          ctx.bumpSeq();
+        } catch (err) {
+          debugWarn(1, 'applyEvent(mirrormindCrownTokenReplacementChoiceResolve): failed', err);
+        }
+        break;
+      }
+
+      case "mayAbilityResolve": {
+        try {
+          const replayGameId = String((ctx as any).gameId || '').trim();
+          const playerId = String((e as any).playerId || '').trim();
+          const sourceId = String((e as any).sourceId || '').trim();
+          const resolvedStepId = String((e as any).resolvedStepId || '').trim();
+          const effectKey = String((e as any).effectKey || '').trim();
+
+          if (replayGameId) {
+            clearReplayQueuedSteps(replayGameId, (step: any) => {
+              if (!step) return false;
+              const stepId = String((step as any)?.id || '').trim();
+              if (resolvedStepId && stepId === resolvedStepId) return true;
+              return (
+                String((step as any)?.type || '') === String(ResolutionStepType.OPTION_CHOICE) &&
+                (step as any)?.mayAbilityPrompt === true &&
+                (!playerId || String((step as any)?.playerId || '').trim() === playerId) &&
+                (!sourceId || String((step as any)?.sourceId || '').trim() === sourceId) &&
+                (!effectKey || String((step as any)?.effectKey || '').trim() === effectKey)
+              );
+            });
+          }
+
+          ctx.bumpSeq();
+        } catch (err) {
+          debugWarn(1, 'applyEvent(mayAbilityResolve): failed', err);
         }
         break;
       }
@@ -6027,6 +6294,20 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
         try {
           const battlefield = ctx.state.battlefield || [];
           const playerId = String((e as any).playerId || "").trim();
+
+          if ((e as any).attackCostPaid === true) {
+            const replayGameId = String((ctx as any).gameId || '').trim();
+            if (replayGameId) {
+              clearReplayQueuedSteps(replayGameId, (step: any) => {
+                if (!step) return false;
+                return (
+                  String((step as any)?.type || '') === String(ResolutionStepType.OPTION_CHOICE) &&
+                  (step as any)?.attackCostPayment === true &&
+                  (!playerId || String((step as any)?.playerId || '').trim() === playerId)
+                );
+              });
+            }
+          }
 
           try {
             const tapped = Array.isArray((e as any).tappedPermanents)

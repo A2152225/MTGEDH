@@ -165,6 +165,117 @@ describe('AI option choice', () => {
     expect(decision).toEqual({ selections: ['decline'], cancelled: true });
   });
 
+  it('chooses mutate mode for mutate cast prompts', () => {
+    const playerId = 'ai1' as PlayerID;
+    const game = { state: { players: [createPlayer(playerId, 'AI')] } } as any;
+
+    const decision = chooseAIOptionSelectionsForStep(game, playerId, {
+      mutateCastModeChoice: true,
+      mutateCardId: 'gemrazer_1',
+      options: [
+        { id: 'cast_normal', label: 'Cast Normally' },
+        { id: 'cast_mutate', label: 'Cast with Mutate ({1}{G}{G})' },
+      ],
+    });
+
+    expect(decision).toEqual({ selections: ['cast_mutate'], cancelled: false });
+  });
+
+  it('chooses the Mirrormind Crown replacement when an equipped creature snapshot is available', () => {
+    const playerId = 'ai1' as PlayerID;
+    const game = { state: { players: [createPlayer(playerId, 'AI')] } } as any;
+
+    const decision = chooseAIOptionSelectionsForStep(game, playerId, {
+      mirrormindCrownTokenReplacementChoice: true,
+      mirrormindCrownEquippedCreatureCard: { name: 'Elvish Visionary', type_line: 'Creature - Elf' },
+      options: [
+        { id: 'replace', label: 'Replace with copy tokens' },
+        { id: 'normal', label: 'Create normal tokens' },
+      ],
+    });
+
+    expect(decision).toEqual({ selections: ['replace'], cancelled: false });
+  });
+
+  it('pays attack costs when enough non-attacking mana sources are available', () => {
+    const playerId = 'ai1' as PlayerID;
+    const game = {
+      state: {
+        players: [createPlayer(playerId, 'AI')],
+        battlefield: [
+          {
+            id: 'attacker_1',
+            controller: playerId,
+            tapped: false,
+            card: { name: 'Silvercoat Lion', type_line: 'Creature - Cat', oracle_text: '' },
+          },
+          {
+            id: 'forest_1',
+            controller: playerId,
+            tapped: false,
+            card: { name: 'Forest', type_line: 'Basic Land - Forest', oracle_text: '{T}: Add {G}.' },
+          },
+          {
+            id: 'forest_2',
+            controller: playerId,
+            tapped: false,
+            card: { name: 'Forest', type_line: 'Basic Land - Forest', oracle_text: '{T}: Add {G}.' },
+          },
+        ],
+      },
+    } as any;
+
+    const decision = chooseAIOptionSelectionsForStep(game, playerId, {
+      attackCostPayment: true,
+      attackCostAmount: 2,
+      attackers: [{ creatureId: 'attacker_1', targetPlayerId: 'opp1' }],
+      options: [
+        { id: 'pay_attack_cost', label: 'Pay {2} and attack' },
+        { id: 'cancel_attack', label: 'Cancel attack' },
+      ],
+    });
+
+    expect(decision).toEqual({ selections: ['pay_attack_cost'], cancelled: false });
+  });
+
+  it('moves commanders to the command zone for commander zone prompts', () => {
+    const playerId = 'ai1' as PlayerID;
+    const game = { state: { players: [createPlayer(playerId, 'AI')] } } as any;
+
+    const decision = chooseAIOptionSelectionsForStep(game, playerId, {
+      commanderZoneChoice: true,
+      commanderId: 'commander_1',
+      options: [
+        { id: 'command', label: 'Move to Command Zone' },
+        { id: 'stay', label: 'Let it go to graveyard' },
+      ],
+    });
+
+    expect(decision).toEqual({ selections: ['command'], cancelled: false });
+  });
+
+  it('handles optional triggered effect-program prompts without the legacy flag', () => {
+    const playerId = 'ai1' as PlayerID;
+    const game = {
+      state: {
+        players: [createPlayer(playerId, 'AI')],
+        zones: { [playerId]: { library: [{ id: 'c1' }, { id: 'c2' }, { id: 'c3' }] } },
+      },
+    } as any;
+
+    const decision = chooseAIOptionSelectionsForStep(game, playerId, {
+      effectProgramPrompt: true,
+      effectProgramFamily: 'optional_triggered_ability',
+      effectText: 'draw a card',
+      options: [
+        { id: 'yes', label: 'Yes' },
+        { id: 'no', label: 'No' },
+      ],
+    });
+
+    expect(decision).toEqual({ selections: ['no'], cancelled: true });
+  });
+
   it('declines mana ward when the AI cannot pay', () => {
     const playerId = 'ai1' as PlayerID;
     const game = {

@@ -15,7 +15,7 @@ import type { Server, Socket } from "socket.io";
 import { movePermanentToGraveyard } from "../state/modules/counters_tokens.js";
 import { AIEngine, AIStrategy, AIDecisionType, type AIDecisionContext, type AIPlayerConfig } from "../../../rules-engine/src/AIEngine.js";
 import { cardAnalyzer, CardCategory, SynergyArchetype, type DeckArchetypeProfile } from "../../../rules-engine/src/CardAnalyzer.js";
-import { calculateManaProduction, ensureGame, broadcastGame, getEffectivePower, getEffectiveToughness, getPlayerName, getOrInitManaPool, validateManaPayment } from "./util.js";
+import { calculateManaProduction, ensureGame, broadcastGame, getEffectivePower, getEffectiveToughness, getPlayerName, getOrInitManaPool, validateManaPayment, getMaxGenericManaAvailable } from "./util.js";
 import { appendEvent, gameExistsInDb, isGameCreator } from "../db/index.js";
 import { getDeck, listDecks } from "../db/decks.js";
 import { parseDecklist } from "../services/scryfall.js";
@@ -3263,6 +3263,66 @@ export function chooseAIOptionSelectionsForStep(
   }
 
   const resolveOptionId = (option: any): string => String(option?.id || option?.value || option || '');
+
+  if (step?.mutateCastModeChoice === true) {
+    const mutateOption = options.find((option: any) => resolveOptionId(option) === 'cast_mutate');
+    const normalOption = options.find((option: any) => resolveOptionId(option) === 'cast_normal');
+    const choiceId = mutateOption ? 'cast_mutate' : (normalOption ? 'cast_normal' : resolveOptionId(options[0]));
+    return { selections: [choiceId], cancelled: false };
+  }
+
+  if (step?.mirrormindCrownTokenReplacementChoice === true) {
+    const hasEquippedCreatureSnapshot = Boolean(step?.mirrormindCrownEquippedCreatureCard);
+    const preferredChoice = hasEquippedCreatureSnapshot ? 'replace' : 'normal';
+    const choiceId = options.some((option: any) => resolveOptionId(option) === preferredChoice)
+      ? preferredChoice
+      : resolveOptionId(options[0]);
+    return { selections: [choiceId], cancelled: false };
+  }
+
+  if (step?.attackCostPayment === true) {
+    const amount = Math.max(0, Math.floor(Number(step?.attackCostAmount || 0)));
+    const attackers = Array.isArray(step?.attackers) ? step.attackers : [];
+    const attackerIds = attackers
+      .map((entry: any) => String(entry?.creatureId || entry?.attackerId || '').trim())
+      .filter(Boolean);
+    const available = getMaxGenericManaAvailable(game.state, playerId, { excludedPermanentIds: attackerIds });
+    const canPay = amount <= 0 || available >= amount;
+    const payChoice = options.some((option: any) => resolveOptionId(option) === 'pay_attack_cost') ? 'pay_attack_cost' : resolveOptionId(options[0]);
+    const cancelChoice = options.some((option: any) => resolveOptionId(option) === 'cancel_attack') ? 'cancel_attack' : payChoice;
+    return { selections: [canPay ? payChoice : cancelChoice], cancelled: false };
+  }
+
+  if (step?.commanderZoneChoice === true) {
+    const commandChoice = options.some((option: any) => resolveOptionId(option) === 'command') ? 'command' : resolveOptionId(options[0]);
+    return { selections: [commandChoice], cancelled: false };
+  }
+
+  const isOptionalTriggeredAbilityPrompt =
+    step?.optionalTriggeredAbilityPrompt === true ||
+    String(step?.effectProgramFamily || '').trim() === 'optional_triggered_ability' ||
+    String(step?.effectProgram?.effectProgramFamily || '').trim() === 'optional_triggered_ability';
+
+  if (isOptionalTriggeredAbilityPrompt) {
+    const effectText = String(step?.effectText || step?.fullAbilityText || step?.description || '').toLowerCase();
+    let shouldAccept = true;
+    if (effectText.includes('draw')) {
+      const libraryZone = (game.state as any)?.zones?.[playerId]?.library
+        ?? (game.state as any)?.libraries?.[playerId]
+        ?? [];
+      const deckSize = Array.isArray(libraryZone) ? libraryZone.length : 0;
+      if (deckSize <= 3) {
+        shouldAccept = false;
+      }
+    }
+    if (effectText.includes('sacrifice') || effectText.includes('discard')) {
+      shouldAccept = false;
+    }
+    const choiceId = options.some((option: any) => resolveOptionId(option) === 'yes')
+      ? (shouldAccept ? 'yes' : 'no')
+      : resolveOptionId(options[shouldAccept ? 0 : Math.min(1, options.length - 1)]);
+    return { selections: [choiceId], cancelled: !shouldAccept };
+  }
 
   if (step?.reflexiveManaPaymentChoice === true) {
     return chooseAIReflexiveManaPaymentSelection(game, playerId, step, options, resolveOptionId);
