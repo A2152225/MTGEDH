@@ -483,6 +483,13 @@ function clearReplayQueuedSteps(gameId: string, predicate: (step: any) => boolea
   }
 }
 
+function clearReplayQueuedStepById(gameId: string, resolvedStepId: string): void {
+  const stepId = String(resolvedStepId || '').trim();
+  if (!gameId || !stepId) return;
+
+  clearReplayQueuedSteps(gameId, (step: any) => String(step?.id || '').trim() === stepId);
+}
+
 function cloneReplayPayload<T>(value: T): T {
   if (value == null || typeof value !== 'object') return value;
   try {
@@ -3246,11 +3253,13 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
         const cardId = String((e as any).cardId || '').trim();
 
         try {
+          const replayGameId = String((ctx as any).gameId || '').trim();
+          clearReplayQueuedStepById(replayGameId, String((e as any).resolvedStepId || '').trim());
+
           const rawQueuedStep = (e as any).queuedResolutionStep;
           const rawQueuedSteps = Array.isArray((e as any).queuedResolutionSteps)
             ? ((e as any).queuedResolutionSteps as any[]).filter((step) => step && typeof step === 'object' && !Array.isArray(step))
             : [];
-          const replayGameId = String((ctx as any).gameId || '').trim();
           const pendingSpellCast = (e as any).pendingSpellCast;
           const pendingEffectId = String((e as any).effectId || (pendingSpellCast as any)?.effectId || '').trim();
           const queuedStepsToReplayRaw = rawQueuedSteps.length > 0
@@ -3737,6 +3746,53 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           ctx.bumpSeq();
         } catch (err) {
           debugWarn(1, 'applyEvent(mayAbilityResolve): failed', err);
+        }
+        break;
+      }
+
+      case "upkeepSacrificeResolve": {
+        try {
+          clearReplayQueuedStepById(
+            String((ctx as any).gameId || '').trim(),
+            String((e as any).resolvedStepId || '').trim(),
+          );
+          ctx.bumpSeq();
+        } catch (err) {
+          debugWarn(1, 'applyEvent(upkeepSacrificeResolve): failed', err);
+        }
+        break;
+      }
+
+      case "keywordPromptResolve": {
+        try {
+          const replayGameId = String((ctx as any).gameId || '').trim();
+          const playerId = String((e as any).playerId || '').trim();
+          const resolvedStepId = String((e as any).resolvedStepId || '').trim();
+          const stepType = String((e as any).stepType || '').trim();
+          const sourceId = String((e as any).sourceId || '').trim();
+          const permanentId = String((e as any).permanentId || (e as any).creatureId || '').trim();
+
+          if (replayGameId) {
+            clearReplayQueuedSteps(replayGameId, (step: any) => {
+              if (!step) return false;
+              const candidateStepId = String((step as any)?.id || '').trim();
+              if (resolvedStepId && candidateStepId === resolvedStepId) return true;
+
+              if (stepType && String((step as any)?.type || '').trim() !== stepType) return false;
+              if (playerId && String((step as any)?.playerId || '').trim() !== playerId) return false;
+
+              const candidatePermanentId = String((step as any)?.permanentId || (step as any)?.creatureId || '').trim();
+              const candidateSourceId = String((step as any)?.sourceId || '').trim();
+              if (permanentId && candidatePermanentId && candidatePermanentId !== permanentId) return false;
+              if (sourceId && candidateSourceId && candidateSourceId !== sourceId) return false;
+
+              return Boolean(stepType || playerId || permanentId || sourceId);
+            });
+          }
+
+          ctx.bumpSeq();
+        } catch (err) {
+          debugWarn(1, 'applyEvent(keywordPromptResolve): failed', err);
         }
         break;
       }
@@ -4917,6 +4973,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
 
       case "scryResolve": {
         const pid = String((e as any).playerId || '').trim();
+        const resolvedStepId = String((e as any).resolvedStepId || '').trim();
         try {
           if (!pid) break;
 
@@ -4925,6 +4982,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
             try {
               const queue = ResolutionQueueManager.getQueue(gameId) as any;
               const matchesScryStep = (step: any): boolean => {
+                if (resolvedStepId && String(step?.id || '').trim() === resolvedStepId) return true;
                 return Boolean(step)
                   && String(step?.type || '') === String(ResolutionStepType.SCRY)
                   && String(step?.playerId || '') === pid;
@@ -4973,6 +5031,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
 
       case "surveilResolve": {
         const pid = String((e as any).playerId || '').trim();
+        const resolvedStepId = String((e as any).resolvedStepId || '').trim();
         try {
           if (!pid) break;
 
@@ -4981,6 +5040,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
             try {
               const queue = ResolutionQueueManager.getQueue(gameId) as any;
               const matchesSurveilStep = (step: any): boolean => {
+                if (resolvedStepId && String(step?.id || '').trim() === resolvedStepId) return true;
                 return Boolean(step)
                   && String(step?.type || '') === String(ResolutionStepType.SURVEIL)
                   && String(step?.playerId || '') === pid;
@@ -5614,6 +5674,23 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
 
       case "proliferateResolve": {
         try {
+          const playerId = String((e as any).playerId || '').trim();
+          const resolvedStepId = String((e as any).resolvedStepId || '').trim();
+          const proliferateId = String((e as any).proliferateId || '').trim();
+          const replayGameId = String((ctx as any).gameId || '').trim();
+          if (replayGameId) {
+            clearReplayQueuedSteps(replayGameId, (step: any) => {
+              if (!step) return false;
+              const stepId = String(step?.id || '').trim();
+              if (resolvedStepId && stepId === resolvedStepId) return true;
+              return (
+                String(step?.type || '') === String(ResolutionStepType.PROLIFERATE) &&
+                (!playerId || String(step?.playerId || '').trim() === playerId) &&
+                (!proliferateId || String(step?.proliferateId || '').trim() === proliferateId)
+              );
+            });
+          }
+
           const targetIds = Array.isArray((e as any).targetIds)
             ? ((e as any).targetIds as any[])
                 .map((value: any) => String(value || '').trim())
@@ -5660,7 +5737,23 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
 
       case "fatesealResolve": {
         try {
+          const playerId = String((e as any).playerId || '').trim();
+          const resolvedStepId = String((e as any).resolvedStepId || '').trim();
           const opponentId = String((e as any).opponentId || '').trim();
+          const replayGameId = String((ctx as any).gameId || '').trim();
+          if (replayGameId) {
+            clearReplayQueuedSteps(replayGameId, (step: any) => {
+              if (!step) return false;
+              const stepId = String(step?.id || '').trim();
+              if (resolvedStepId && stepId === resolvedStepId) return true;
+              return (
+                String(step?.type || '') === String(ResolutionStepType.FATESEAL) &&
+                (!playerId || String(step?.playerId || '').trim() === playerId) &&
+                (!opponentId || String(step?.opponentId || '').trim() === opponentId)
+              );
+            });
+          }
+
           if (!opponentId) break;
 
           const keepTopOrder = Array.isArray((e as any).keepTopOrder) ? (e as any).keepTopOrder : [];
@@ -5693,8 +5786,27 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
       case "clashResolve": {
         try {
           const playerId = String((e as any).playerId || '').trim();
+          const resolvedStepId = String((e as any).resolvedStepId || '').trim();
           const revealedCard = (e as any).revealedCard;
           const putOnBottom = Boolean((e as any).putOnBottom);
+          const opponentId = String((e as any).opponentId || '').trim();
+          const revealedCardId = String((revealedCard as any)?.id || '').trim();
+          const replayGameId = String((ctx as any).gameId || '').trim();
+          if (replayGameId) {
+            clearReplayQueuedSteps(replayGameId, (step: any) => {
+              if (!step) return false;
+              const stepId = String(step?.id || '').trim();
+              if (resolvedStepId && stepId === resolvedStepId) return true;
+              const stepRevealedId = String(step?.revealedCard?.id || '').trim();
+              return (
+                String(step?.type || '') === String(ResolutionStepType.CLASH) &&
+                (!playerId || String(step?.playerId || '').trim() === playerId) &&
+                (!opponentId || String(step?.opponentId || '').trim() === opponentId) &&
+                (!revealedCardId || !stepRevealedId || stepRevealedId === revealedCardId)
+              );
+            });
+          }
+
           if (!playerId || !revealedCard) break;
 
           const lib = (ctx as any).libraries?.get?.(playerId);
@@ -5808,6 +5920,11 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
         const mulligansTaken = Math.max(0, Number((e as any).mulligansTaken ?? 0) || 0);
         if (!pid || cardIds.length === 0) break;
         try {
+          clearReplayQueuedStepById(
+            String((ctx as any).gameId || '').trim(),
+            String((e as any).resolvedStepId || '').trim(),
+          );
+
           const zones = ctx.state.zones || {};
           const z = zones[pid];
           if (!z || !Array.isArray(z.hand)) break;
@@ -6155,6 +6272,11 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
         const ids = Array.isArray(idsRaw) ? idsRaw.map((x: any) => String(x)) : [];
         if (ids.length === 0) break;
         try {
+          clearReplayQueuedStepById(
+            String((ctx as any).gameId || '').trim(),
+            String((e as any).resolvedStepId || '').trim(),
+          );
+
           const battlefield = ctx.state.battlefield || [];
           for (const permId of ids) {
             const perm = battlefield.find((p: any) => p && String(p.id) === String(permId));
@@ -6706,6 +6828,11 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
         const counterType = String((e as any).counterType || '').trim();
 
         try {
+          clearReplayQueuedStepById(
+            String((ctx as any).gameId || '').trim(),
+            String((e as any).resolvedStepId || '').trim(),
+          );
+
           if (!sourcePermanentId || !targetPermanentId || !counterType) break;
 
           const battlefield = Array.isArray(ctx.state.battlefield) ? ctx.state.battlefield : [];
@@ -7225,6 +7352,8 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
         try {
           const rawQueuedStep = (e as any).queuedResolutionStep;
           const replayGameId = String((ctx as any).gameId || '').trim();
+          clearReplayQueuedStepById(replayGameId, String((e as any).resolvedStepId || '').trim());
+
           const queuedStepType = String((rawQueuedStep as any)?.type || '').trim();
           if (replayGameId && rawQueuedStep && typeof rawQueuedStep === 'object' && !Array.isArray(rawQueuedStep) && queuedStepType) {
             try {
@@ -7379,6 +7508,8 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
         try {
           const stateAny = ctx.state as any;
           const replayGameId = String((ctx as any).gameId || '').trim();
+          clearReplayQueuedStepById(replayGameId, String((e as any).resolvedStepId || '').trim());
+
           const playerId = (e as any).playerId;
           const permId = (e as any).permanentId;
           const abilityId = (e as any).abilityId;
@@ -10897,6 +11028,22 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
         const creatureType = (e as any).creatureType;
         const cardName = (e as any).cardName;
         try {
+          const replayGameId = String((ctx as any).gameId || '').trim();
+          const resolvedStepId = String((e as any).resolvedStepId || '').trim();
+          const resolvedStepType = String((e as any).resolvedStepType || ResolutionStepType.CREATURE_TYPE_CHOICE).trim();
+          if (replayGameId) {
+            clearReplayQueuedSteps(replayGameId, (step: any) => {
+              if (!step) return false;
+              const stepId = String((step as any)?.id || '').trim();
+              if (resolvedStepId && stepId === resolvedStepId) return true;
+              return (
+                String((step as any)?.type || '').trim() === resolvedStepType &&
+                (!playerId || String((step as any)?.playerId || '').trim() === String(playerId || '').trim()) &&
+                (!permId || String((step as any)?.permanentId || (step as any)?.sourceId || '').trim() === String(permId || '').trim())
+              );
+            });
+          }
+
           if (permId && creatureType) {
             const perm = resolveReplayPermanentByEvent(ctx, {
               permanentId: permId,
@@ -13580,7 +13727,24 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
       case "colorChoice": {
         // Player chose a color for a permanent or spell (e.g., Brave the Elements)
         try {
-          const { permanentId, spellId, color } = e as any;
+          const { permanentId, spellId, color, playerId } = e as any;
+          const replayGameId = String((ctx as any).gameId || '').trim();
+          const resolvedStepId = String((e as any).resolvedStepId || '').trim();
+          const resolvedStepType = String((e as any).resolvedStepType || ResolutionStepType.COLOR_CHOICE).trim();
+          if (replayGameId) {
+            clearReplayQueuedSteps(replayGameId, (step: any) => {
+              if (!step) return false;
+              const stepId = String((step as any)?.id || '').trim();
+              if (resolvedStepId && stepId === resolvedStepId) return true;
+              return (
+                String((step as any)?.type || '').trim() === resolvedStepType &&
+                (!playerId || String((step as any)?.playerId || '').trim() === String(playerId || '').trim()) &&
+                (!permanentId || String((step as any)?.permanentId || (step as any)?.sourceId || '').trim() === String(permanentId || '').trim()) &&
+                (!spellId || String((step as any)?.spellId || '').trim() === String(spellId || '').trim())
+              );
+            });
+          }
+
           const stack = Array.isArray(ctx.state?.stack) ? ctx.state.stack : [];
           const stackItem = stack.find((item: any) =>
             item && (String(item.id || '') === String(spellId || '') || String(item.cardId || '') === String(spellId || ''))
@@ -13614,6 +13778,23 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
         // Player chose a card name for a permanent or spell.
         try {
           const { playerId, permanentId, spellId, chosenName, cardName } = e as any;
+          const replayGameId = String((ctx as any).gameId || '').trim();
+          const resolvedStepId = String((e as any).resolvedStepId || '').trim();
+          const resolvedStepType = String((e as any).resolvedStepType || ResolutionStepType.CARD_NAME_CHOICE).trim();
+          if (replayGameId) {
+            clearReplayQueuedSteps(replayGameId, (step: any) => {
+              if (!step) return false;
+              const stepId = String((step as any)?.id || '').trim();
+              if (resolvedStepId && stepId === resolvedStepId) return true;
+              return (
+                String((step as any)?.type || '').trim() === resolvedStepType &&
+                (!playerId || String((step as any)?.playerId || '').trim() === String(playerId || '').trim()) &&
+                (!permanentId || String((step as any)?.permanentId || (step as any)?.sourceId || '').trim() === String(permanentId || '').trim()) &&
+                (!spellId || String((step as any)?.spellId || '').trim() === String(spellId || '').trim())
+              );
+            });
+          }
+
           const stack = Array.isArray(ctx.state?.stack) ? ctx.state.stack : [];
           const stackItem = stack.find((item: any) =>
             item && (String(item.id || '') === String(spellId || '') || String(item.cardId || '') === String(spellId || ''))
@@ -13650,6 +13831,22 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
         // Player chose a player for a permanent (e.g., Xantcha, Curses)
         try {
           const { playerId, permanentId, chosenPlayer } = e as any;
+          const replayGameId = String((ctx as any).gameId || '').trim();
+          const resolvedStepId = String((e as any).resolvedStepId || '').trim();
+          const resolvedStepType = String((e as any).resolvedStepType || ResolutionStepType.PLAYER_CHOICE).trim();
+          if (replayGameId) {
+            clearReplayQueuedSteps(replayGameId, (step: any) => {
+              if (!step) return false;
+              const stepId = String((step as any)?.id || '').trim();
+              if (resolvedStepId && stepId === resolvedStepId) return true;
+              return (
+                String((step as any)?.type || '').trim() === resolvedStepType &&
+                (!playerId || String((step as any)?.playerId || '').trim() === String(playerId || '').trim()) &&
+                (!permanentId || String((step as any)?.permanentId || (step as any)?.sourceId || '').trim() === String(permanentId || '').trim())
+              );
+            });
+          }
+
           const battlefield = ctx.state.battlefield || [];
           const permanent = battlefield.find((p: any) => p.id === permanentId);
           
@@ -13764,6 +13961,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           const voteId = String((e as any).voteId || '').trim();
           const playerId = String((e as any).playerId || '').trim();
           const choice = String((e as any).choice || '').trim();
+          const resolvedStepId = String((e as any).resolvedStepId || '').trim();
           const voteCountRaw = Number((e as any).voteCount ?? 1);
           const voteCount = Number.isFinite(voteCountRaw) && voteCountRaw > 0 ? Math.floor(voteCountRaw) : 1;
           const persistedChoices = Array.isArray((e as any).choices)
@@ -13775,6 +13973,20 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           if (!voteId || !playerId || !choice) {
             debugWarn(2, `[applyEvent] voteSubmit: invalid payload voteId=${voteId} playerId=${playerId} choice=${choice}`);
             break;
+          }
+
+          const replayGameId = String((ctx as any).gameId || '').trim();
+          if (replayGameId) {
+            clearReplayQueuedSteps(replayGameId, (step: any) => {
+              if (!step) return false;
+              const stepId = String(step?.id || '').trim();
+              if (resolvedStepId && stepId === resolvedStepId) return true;
+              return (
+                String(step?.type || '') === String(ResolutionStepType.VOTE) &&
+                String(step?.playerId || '').trim() === playerId &&
+                String(step?.voteId || '').trim() === voteId
+              );
+            });
           }
 
           const stateAny = ctx.state as any;

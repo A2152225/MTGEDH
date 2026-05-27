@@ -9498,6 +9498,7 @@ async function handleStepResponse(
       try {
         appendEvent(gameId, (game as any).seq ?? 0, 'mulliganPutToBottom', {
           playerId: pid,
+          resolvedStepId: String((step as any).id || ''),
           cardIds,
           mulligansTaken,
         });
@@ -9649,6 +9650,7 @@ async function handleStepResponse(
       try {
         appendEvent(gameId, (game as any).seq ?? 0, 'activateBattlefieldAbility', {
           playerId: pid,
+          resolvedStepId: String((step as any).id || ''),
           permanentId: sourceId,
           abilityId: String(stepData.abilityId || ''),
           cardName: sourceName,
@@ -9857,6 +9859,7 @@ async function handleStepResponse(
         try {
           appendEvent(gameId, (game as any).seq ?? 0, 'activateBattlefieldAbility', {
             playerId: controllerId,
+            resolvedStepId: String((step as any).id || ''),
             permanentId,
             abilityId: abilityId || undefined,
             cardName,
@@ -9915,6 +9918,7 @@ async function handleStepResponse(
         try {
           appendEvent(gameId, (game as any).seq ?? 0, action === 'tap' ? 'permanent_tapped' : 'permanent_untapped', {
             playerId: pid,
+            resolvedStepId: String((step as any).id || ''),
             permanentIds: targetIds,
             source: String(step.sourceName || ''),
             ts: Date.now(),
@@ -10110,6 +10114,7 @@ async function handleStepResponse(
           try {
             appendEvent(gameId, (game as any).seq ?? 0, 'activateBattlefieldAbility', {
               playerId: controllerId,
+              resolvedStepId: String((step as any).id || ''),
               permanentId,
               abilityId: abilityId || undefined,
               cardName,
@@ -10156,6 +10161,7 @@ async function handleStepResponse(
         try {
           appendEvent(gameId, (game as any).seq ?? 0, 'activateBattlefieldAbility', {
             playerId: controllerId,
+            resolvedStepId: String((step as any).id || ''),
             permanentId,
             abilityId: abilityId || undefined,
             cardName,
@@ -10286,6 +10292,7 @@ async function handleStepResponse(
       try {
         appendEvent(gameId, (game as any).seq ?? 0, 'counter_moved', {
           playerId: pid,
+          resolvedStepId: String((step as any).id || ''),
           sourcePermanentId,
           targetPermanentId,
           counterType,
@@ -10597,6 +10604,8 @@ async function handleStepResponse(
 
       appendCastSpellContinuationEvent(gameId, game, {
         playerId: pid,
+        resolvedStepId: String((step as any).id || ''),
+        resolvedStepType: String((step as any).type || ''),
         cardId,
         lifePaid: lifePayment,
         cardUpdates: {
@@ -10988,6 +10997,7 @@ async function handleStepResponse(
           : (typeof (response.selections as any) === 'string' ? String(response.selections) : undefined);
         appendEvent(gameId, (game as any).seq ?? 0, 'activateManaAbility', {
           playerId: pid,
+          resolvedStepId: String((step as any).id || ''),
           permanentId,
           abilityId,
           manaColor,
@@ -13117,6 +13127,8 @@ async function handleStepResponse(
 
         const continuationPayload: Record<string, unknown> = {
           playerId: pid,
+          resolvedStepId: String((step as any).id || ''),
+          resolvedStepType: String((step as any).type || ''),
           cardId,
           ...(spellSourceZone === 'hand'
             ? {
@@ -13365,6 +13377,8 @@ async function handleStepResponse(
 
       const continuationPayload: Record<string, unknown> = {
         playerId: pid,
+        resolvedStepId: String((step as any).id || ''),
+        resolvedStepType: String((step as any).type || ''),
         cardId,
         sacrificedPermanentIds: costType === 'sacrifice' ? selectedIds : [],
         removedCountersForCost: costType === 'remove_counters' ? removedCountersForCost : [],
@@ -13514,6 +13528,8 @@ async function handleStepResponse(
 
       appendCastSpellContinuationEvent(gameId, game, {
         playerId: pid,
+        resolvedStepId: String((step as any).id || ''),
+        resolvedStepType: String((step as any).type || ''),
         cardId,
         cardUpdates: {
           squadTimesPaid: timesPaid,
@@ -13768,6 +13784,29 @@ function emitKeywordChoiceChat(io: Server, gameId: string, sourceName: string, m
     message: `${sourceName}: ${message}`,
     ts: Date.now(),
   });
+}
+
+function appendKeywordPromptResolveEvent(
+  gameId: string,
+  game: any,
+  step: ResolutionStep,
+  response: ResolutionStepResponse,
+  payload: Record<string, any> = {},
+): void {
+  try {
+    appendEvent(gameId, (game as any).seq ?? 0, 'keywordPromptResolve', {
+      playerId: String(response.playerId || step.playerId || ''),
+      resolvedStepId: String((step as any).id || ''),
+      stepType: String(step.type || ''),
+      sourceId: String(step.sourceId || ''),
+      permanentId: String((step as any).permanentId || step.sourceId || ''),
+      sourceName: String(step.sourceName || ''),
+      cancelled: Boolean(response.cancelled),
+      ...payload,
+    });
+  } catch (err) {
+    debugWarn(1, '[Resolution] Failed to persist keyword prompt resolve event:', err);
+  }
 }
 
 function cloneResolutionPermanentSnapshot(permanent: any): any {
@@ -14116,6 +14155,7 @@ function handleRiotChoiceResponse(
 ): void {
   const choiceId = String(extractResolutionChoiceId(response.selections) || '').trim().toLowerCase();
   const permanent = findKeywordChoicePermanent(game, step);
+  appendKeywordPromptResolveEvent(gameId, game, step, response, { keyword: 'riot', choiceId });
   if (!permanent || !choiceId) {
     debugWarn(1, `[Resolution] Riot choice could not be applied for step ${step.id}`);
     return;
@@ -14164,6 +14204,7 @@ function handleUnleashChoiceResponse(
 ): void {
   const choiceId = String(extractResolutionChoiceId(response.selections) || '').trim().toLowerCase();
   const permanent = findKeywordChoicePermanent(game, step);
+  appendKeywordPromptResolveEvent(gameId, game, step, response, { keyword: 'unleash', choiceId });
   if (!permanent || !choiceId) {
     debugWarn(1, `[Resolution] Unleash choice could not be applied for step ${step.id}`);
     return;
@@ -14207,12 +14248,13 @@ async function handleFabricateChoiceResponse(
 ): Promise<void> {
   const choiceId = String(extractResolutionChoiceId(response.selections) || '').trim().toLowerCase();
   const permanent = findKeywordChoicePermanent(game, step);
+  const amount = Math.max(1, Number((step as any).value || 1));
+  appendKeywordPromptResolveEvent(gameId, game, step, response, { keyword: 'fabricate', choiceId, amount });
   if (!permanent || !choiceId) {
     debugWarn(1, `[Resolution] Fabricate choice could not be applied for step ${step.id}`);
     return;
   }
 
-  const amount = Math.max(1, Number((step as any).value || 1));
   const sourceName = String(step.sourceName || permanent.card?.name || 'Fabricate');
 
   if (choiceId === 'counters') {
@@ -14269,12 +14311,13 @@ async function handleTributeChoiceResponse(
 ): Promise<void> {
   const choiceId = String(extractResolutionChoiceId(response.selections) || '').trim().toLowerCase();
   const permanent = findKeywordChoicePermanent(game, step);
+  const amount = Math.max(1, Number((step as any).value || 1));
+  appendKeywordPromptResolveEvent(gameId, game, step, response, { keyword: 'tribute', choiceId, amount });
   if (!permanent || !choiceId) {
     debugWarn(1, `[Resolution] Tribute choice could not be applied for step ${step.id}`);
     return;
   }
 
-  const amount = Math.max(1, Number((step as any).value || 1));
   const sourceName = String(step.sourceName || permanent.card?.name || 'Tribute');
   const controllerId = String((permanent as any).controller || response.playerId || '').trim();
 
@@ -14336,6 +14379,7 @@ function handleMentorTargetResponse(
   response: ResolutionStepResponse
 ): void {
   const targetId = String(extractResolutionChoiceId(response.selections) || '').trim();
+  appendKeywordPromptResolveEvent(gameId, game, step, response, { keyword: 'mentor', targetId });
   const battlefield = Array.isArray(game?.state?.battlefield) ? game.state.battlefield : [];
   const sourcePermanent = findKeywordChoicePermanent(game, step);
   const targetPermanent = battlefield.find((permanent: any) => String(permanent?.id || '') === targetId) || null;
@@ -14373,11 +14417,12 @@ async function handleExploitChoiceResponse(
   step: ResolutionStep,
   response: ResolutionStepResponse
 ): Promise<void> {
+  const selectedPermanentId = String(extractResolutionChoiceId(response.selections) || '').trim();
+  appendKeywordPromptResolveEvent(gameId, game, step, response, { keyword: 'exploit', selectedPermanentId });
   if (response.cancelled) {
     return;
   }
 
-  const selectedPermanentId = String(extractResolutionChoiceId(response.selections) || '').trim();
   const sourcePermanent = findKeywordChoicePermanent(game, step);
   const sourceSnapshot = cloneResolutionPermanentSnapshot(sourcePermanent);
   const controllerId = String(step.playerId || response.playerId || '').trim();
@@ -14467,13 +14512,14 @@ function handleExtortPaymentResponse(
 ): void {
   const stepData = step as any;
   const choiceId = String(extractResolutionChoiceId(response.selections) || '').trim().toLowerCase();
+  const pid = String(response.playerId || step.playerId || '').trim();
+  const manaCost = String(stepData?.manaCost || '{W/B}').trim();
+  const payment = extractResolutionPaymentItems(response.selections as any);
+  appendKeywordPromptResolveEvent(gameId, game, step, response, { keyword: 'extort', choiceId, manaCost, payment });
   if (response.cancelled || choiceId === 'skip') {
     return;
   }
 
-  const pid = String(response.playerId || step.playerId || '').trim();
-  const manaCost = String(stepData?.manaCost || '{W/B}').trim();
-  const payment = extractResolutionPaymentItems(response.selections as any);
   const applied = applySelectedManaPaymentForResolutionCost(game, pid, manaCost, payment);
   if (!applied.ok) {
     const appliedError = applied as { ok: false; code: string; message: string };
@@ -14544,6 +14590,8 @@ function handleModularChoiceResponse(
   response: ResolutionStepResponse
 ): void {
   const targetId = String(extractResolutionChoiceId(response.selections) || '').trim();
+  const amount = Math.max(1, Number((step as any).value || 1));
+  appendKeywordPromptResolveEvent(gameId, game, step, response, { keyword: 'modular', targetId, amount });
   const battlefield = Array.isArray(game?.state?.battlefield) ? game.state.battlefield : [];
   const targetPermanent = battlefield.find((permanent: any) => String(permanent?.id || '') === targetId) || null;
   const validTargetIds = new Set(
@@ -14551,8 +14599,6 @@ function handleModularChoiceResponse(
       .map((target: any) => String(target?.id || '').trim())
       .filter(Boolean)
   );
-  const amount = Math.max(1, Number((step as any).value || 1));
-
   if (!targetPermanent || !targetId || !validTargetIds.has(targetId)) {
     debugWarn(1, `[Resolution] Modular choice could not be applied for step ${step.id}`);
     return;
@@ -14582,6 +14628,7 @@ function handleSoulshiftTargetResponse(
   response: ResolutionStepResponse
 ): void {
   const selectedCardId = String(extractResolutionChoiceId(response.selections) || '').trim();
+  appendKeywordPromptResolveEvent(gameId, game, step, response, { keyword: 'soulshift', selectedCardId });
   const validTargetIds = new Set(
     (Array.isArray((step as any)?.spirits) ? (step as any).spirits : [])
       .map((target: any) => String(target?.id || '').trim())
@@ -20482,6 +20529,8 @@ function handleUpkeepSacrificeResponse(
   if (sacrificedPermanentId) {
     try {
       appendEvent(gameId, (game as any).seq ?? 0, 'sacrificePermanent', {
+        playerId: pid,
+        resolvedStepId: String((step as any).id || ''),
         permanentId: sacrificedPermanentId,
       });
     } catch {
@@ -20535,6 +20584,19 @@ function handleUpkeepSacrificeResponse(
       message: `${sourceName}: ${getPlayerName(game, lifeLossPlayerId)} loses ${lifeLossAfterSacrifice} life. (${currentLife} → ${newLife})`,
       ts: Date.now(),
     });
+  }
+
+  try {
+    appendEvent(gameId, (game as any).seq ?? 0, 'upkeepSacrificeResolve', {
+      playerId: pid,
+      resolvedStepId: String((step as any).id || ''),
+      sourceId: String(sourceId || ''),
+      sourceName: String(sourceName || ''),
+      sacrificeType,
+      sacrificedPermanentId,
+    });
+  } catch (err) {
+    debugWarn(1, '[Resolution] appendEvent(upkeepSacrificeResolve) failed:', err);
   }
 
   if ((stepData as any).afterSacrificeFollowupTargetSelection === true) {
@@ -22078,6 +22140,7 @@ function handleScryResponse(
   try {
     appendEvent(gameId, game.seq ?? 0, "scryResolve", { 
       playerId: pid, 
+      resolvedStepId: String((step as any).id || ''),
       keepTopOrder, 
       bottomOrder 
     });
@@ -22305,6 +22368,7 @@ function handleSurveilResponse(
   try {
     appendEvent(gameId, game.seq ?? 0, "surveilResolve", { 
       playerId: pid, 
+      resolvedStepId: String((step as any).id || ''),
       keepTopOrder, 
       toGraveyard 
     });
@@ -22470,6 +22534,7 @@ function handleProliferateResponse(
   try {
     appendEvent(gameId, game.seq ?? 0, "proliferateResolve", { 
       playerId: pid, 
+      resolvedStepId: String((step as any).id || ''),
       targetIds: selectedTargetIds,
       proliferateId,
     });
@@ -22570,6 +22635,7 @@ function handleFatesealResponse(
   try {
     appendEvent(gameId, game.seq ?? 0, "fatesealResolve", { 
       playerId: pid, 
+      resolvedStepId: String((step as any).id || ''),
       opponentId,
       keepTopOrder, 
       bottomOrder 
@@ -22656,6 +22722,7 @@ function handleClashResponse(
   try {
     appendEvent(gameId, game.seq ?? 0, "clashResolve", { 
       playerId: pid, 
+      resolvedStepId: String((step as any).id || ''),
       revealedCard,
       putOnBottom,
       opponentId
@@ -22737,6 +22804,7 @@ function handleVoteResponse(
   try {
     appendEvent(gameId, game.seq ?? 0, "voteSubmit", { 
       playerId: pid, 
+      resolvedStepId: String((step as any).id || ''),
       voteId,
       choices,
       choice,
@@ -24033,11 +24101,17 @@ function handleDevourSelectionResponse(
   const devourValue = devourStep.devourValue || 0;
   const creatureId = devourStep.creatureId;
   const availableCreatures = devourStep.availableCreatures || [];
+  const selectedIds = Array.isArray(selections) ? selections : [];
+  appendKeywordPromptResolveEvent(gameId, game, step, response, {
+    keyword: 'devour',
+    creatureId,
+    devourValue,
+    selectedIds,
+  });
   
   debug(2, `[Resolution] Devour selection: player=${pid}, devour=${devourValue}, selected ${Array.isArray(selections) ? selections.length : 0} creatures`);
   
   // Validate selections if any
-  const selectedIds = Array.isArray(selections) ? selections : [];
   const availableIds = new Set(availableCreatures.map((c: any) => c.permanentId));
   for (const creatureIdToSac of selectedIds) {
     if (!availableIds.has(creatureIdToSac)) {
@@ -24144,6 +24218,8 @@ async function handleColorChoiceResponse(
       try {
         await appendEvent(gameId, (game as any).seq || 0, "colorChoice", {
           playerId: pid,
+          resolvedStepId: String(step.id || '').trim(),
+          resolvedStepType: String(step.type || '').trim(),
           spellId: spellId,
           cardName: cardName,
           color: colorLower,
@@ -24188,6 +24264,8 @@ async function handleColorChoiceResponse(
   try {
     await appendEvent(gameId, (game as any).seq || 0, "colorChoice", {
       playerId: pid,
+      resolvedStepId: String(step.id || '').trim(),
+      resolvedStepType: String(step.type || '').trim(),
       permanentId: permanentId,
       cardName: cardName,
       color: colorLower,
@@ -24232,7 +24310,10 @@ async function handleCreatureTypeChoiceResponse(
   const permanentId = (step as any).permanentId || (step as any).sourceId;
   const cardName = (step as any).cardName || (step as any).sourceName || 'Permanent';
   
-  applyCreatureTypeSelection(io, game, gameId, pid, permanentId, cardName, selection, false);
+  applyCreatureTypeSelection(io, game, gameId, pid, permanentId, cardName, selection, false, {
+    resolvedStepId: String(step.id || '').trim(),
+    resolvedStepType: String(step.type || '').trim(),
+  });
 }
 
 /**
@@ -24275,6 +24356,8 @@ async function handleCardNameChoiceResponse(
     try {
       await appendEvent(gameId, (game as any).seq || 0, "cardNameChoice", {
         playerId: pid,
+        resolvedStepId: String(step.id || '').trim(),
+        resolvedStepType: String(step.type || '').trim(),
         spellId,
         cardName,
         chosenName: selection,
@@ -24315,6 +24398,8 @@ async function handleCardNameChoiceResponse(
   try {
     await appendEvent(gameId, (game as any).seq || 0, "cardNameChoice", {
       playerId: pid,
+      resolvedStepId: String(step.id || '').trim(),
+      resolvedStepType: String(step.type || '').trim(),
       permanentId: permanentId,
       cardName: cardName,
       chosenName: selection,
@@ -25629,6 +25714,8 @@ async function handlePlayerChoiceResponse(
       try {
         await appendEvent(gameId, (game as any).seq || 0, "playerChoice", {
           playerId: response.playerId,
+          resolvedStepId: String(step.id || '').trim(),
+          resolvedStepType: String(step.type || '').trim(),
           permanentId: permanentId,
           cardName: cardName,
           chosenPlayer: selectedPlayerId,

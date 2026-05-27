@@ -1,17 +1,39 @@
 import { describe, expect, it } from 'vitest';
 
 import { createInitialGameState } from '../src/state/gameState.js';
+import { ResolutionQueueManager, ResolutionStepType } from '../src/state/resolution/index.js';
 import type { PlayerID } from '../../shared/src';
 
 function addPlayer(game: any, id: PlayerID, name: string) {
   game.applyEvent({ type: 'join', playerId: id, name });
 }
 
+function addActiveCreatureTypeStep(gameId: string, playerId: PlayerID, permanentId: string) {
+  const step = ResolutionQueueManager.addStep(gameId, {
+    type: ResolutionStepType.CREATURE_TYPE_CHOICE,
+    playerId,
+    description: 'Choose a creature type.',
+    mandatory: true,
+    permanentId,
+  } as any);
+  ResolutionQueueManager.activateStep(gameId, step.id);
+  return step;
+}
+
+function expectCreatureTypeStepCleared(gameId: string) {
+  const queue = ResolutionQueueManager.getQueue(gameId) as any;
+  expect(queue.activeStep?.type).not.toBe(ResolutionStepType.CREATURE_TYPE_CHOICE);
+  expect((queue.steps || []).some((entry: any) => entry?.type === ResolutionStepType.CREATURE_TYPE_CHOICE)).toBe(false);
+}
+
 describe('creatureTypeSelected replay semantics', () => {
   it('replays chosen creature type onto the selected permanent', () => {
-    const game = createInitialGameState('t_creature_type_selected_replay');
+    const gameId = 't_creature_type_selected_replay';
+    ResolutionQueueManager.removeQueue(gameId);
+    const game = createInitialGameState(gameId);
     const p1 = 'p1' as PlayerID;
     addPlayer(game, p1, 'P1');
+    const step = addActiveCreatureTypeStep(gameId, p1, 'cavern_1');
 
     (game.state as any).battlefield = [
       {
@@ -29,12 +51,16 @@ describe('creatureTypeSelected replay semantics', () => {
     game.applyEvent({
       type: 'creatureTypeSelected',
       playerId: p1,
+      resolvedStepId: step.id,
+      resolvedStepType: ResolutionStepType.CREATURE_TYPE_CHOICE,
       permanentId: 'cavern_1',
       creatureType: 'Wizard',
       cardName: 'Cavern of Souls',
     } as any);
 
     expect(((game.state as any).battlefield || [])[0]?.chosenCreatureType).toBe('Wizard');
+    expectCreatureTypeStepCleared(gameId);
+    ResolutionQueueManager.removeQueue(gameId);
   });
 
   it('replays Morophon mirror state used by live selection handling', () => {

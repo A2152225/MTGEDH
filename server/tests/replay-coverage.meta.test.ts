@@ -8,6 +8,7 @@ const SERVER_DIR = path.resolve(TEST_DIR, '..');
 
 const INTERACTION_EVENT_SOURCE_PATHS = [
   path.join(SERVER_DIR, 'src', 'socket', 'game-actions.ts'),
+  path.join(SERVER_DIR, 'src', 'socket', 'creature-type.ts'),
   path.join(SERVER_DIR, 'src', 'socket', 'interaction.ts'),
   path.join(SERVER_DIR, 'src', 'socket', 'mana-handlers.ts'),
   path.join(SERVER_DIR, 'src', 'socket', 'opponent-may-pay.ts'),
@@ -55,6 +56,7 @@ const REPLAY_GUARDED_EVENT_TYPES = new Set([
   'copyRetargetChoiceResolve',
   'copyTriggeredSpellResolve',
   'crewVehicle',
+  'creatureTypeSelected',
   'discardEffect',
   'divineReckoningBatchResolve',
   'divineReckoningChoiceResolve',
@@ -75,6 +77,7 @@ const REPLAY_GUARDED_EVENT_TYPES = new Set([
   'joinForcesComplete',
   'joinForcesContribution',
   'keepHand',
+  'keywordPromptResolve',
   'kynaiosChoiceComplete',
   'kynaiosChoiceResponse',
   'librarySearchResolve',
@@ -141,6 +144,7 @@ const REPLAY_GUARDED_EVENT_TYPES = new Set([
   'targetSelectionTapUntapPrompt',
   'triggerOrderResponse',
   'untapPermanent',
+  'upkeepSacrificeResolve',
   'wardPaymentResolve',
   'ventureChooseDungeonResolve',
   'ventureChooseRoomResolve',

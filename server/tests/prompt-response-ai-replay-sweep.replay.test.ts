@@ -27,6 +27,17 @@ function addActiveOptionStep(gameId: string, playerId: PlayerID, extra: Record<s
   return step;
 }
 
+function addActiveStep(gameId: string, playerId: PlayerID, extra: Record<string, any>) {
+  const step = ResolutionQueueManager.addStep(gameId, {
+    playerId,
+    description: 'Resolve a prompt.',
+    mandatory: true,
+    ...extra,
+  } as any);
+  ResolutionQueueManager.activateStep(gameId, step.id);
+  return step;
+}
+
 describe('prompt response replay sweep', () => {
   it('replays mutateCastModeChoiceResolve by clearing the cast-mode prompt', () => {
     const gameId = 't_mutate_cast_mode_choice_resolve_replay';
@@ -265,6 +276,231 @@ describe('prompt response replay sweep', () => {
     const attacker = (game.state as any).battlefield.find((permanent: any) => permanent.id === 'attacker_1');
     expect(attacker?.attacking).toBe(p2);
     expect(attacker?.tapped).toBe(true);
+    ResolutionQueueManager.removeQueue(gameId);
+  });
+
+  it('replays mulliganPutToBottom by clearing the hand-to-bottom prompt', () => {
+    const gameId = 't_mulligan_bottom_prompt_clear_replay';
+    ResolutionQueueManager.removeQueue(gameId);
+    const game = createInitialGameState(gameId);
+    const p1 = 'p1' as PlayerID;
+    addPlayer(game, p1, 'P1');
+
+    const zones = (game.state as any).zones[p1];
+    zones.hand = [
+      { id: 'hand_1', name: 'Card One', zone: 'hand' },
+      { id: 'hand_2', name: 'Card Two', zone: 'hand' },
+    ];
+    zones.handCount = 2;
+    game.libraries.set(p1, [] as any);
+
+    const step = addActiveStep(gameId, p1, {
+      type: ResolutionStepType.HAND_TO_BOTTOM,
+      cardsToBottom: 1,
+    });
+
+    game.applyEvent({
+      type: 'mulliganPutToBottom',
+      playerId: p1,
+      resolvedStepId: step.id,
+      cardIds: ['hand_1'],
+      mulligansTaken: 1,
+    } as any);
+
+    const queue = ResolutionQueueManager.getQueue(gameId) as any;
+    expect(queue.activeStep?.type).not.toBe(ResolutionStepType.HAND_TO_BOTTOM);
+    expect((queue.steps || []).some((entry: any) => entry?.type === ResolutionStepType.HAND_TO_BOTTOM)).toBe(false);
+    expect(zones.hand.map((card: any) => card.id)).toEqual(['hand_2']);
+    expect(game.libraries.get(p1)?.map((card: any) => card.id)).toEqual(['hand_1']);
+    ResolutionQueueManager.removeQueue(gameId);
+  });
+
+  it('replays activateBattlefieldAbility by clearing resolved fight prompts', () => {
+    const gameId = 't_fight_target_prompt_clear_replay';
+    ResolutionQueueManager.removeQueue(gameId);
+    const game = createInitialGameState(gameId);
+    const p1 = 'p1' as PlayerID;
+    addPlayer(game, p1, 'P1');
+
+    const step = addActiveStep(gameId, p1, {
+      type: ResolutionStepType.FIGHT_TARGET,
+      sourceId: 'fighter_1',
+      sourceName: 'Fighter',
+    });
+
+    game.applyEvent({
+      type: 'activateBattlefieldAbility',
+      playerId: p1,
+      resolvedStepId: step.id,
+      permanentId: 'fighter_1',
+      abilityType: 'fight',
+      targets: ['target_1'],
+    } as any);
+
+    const queue = ResolutionQueueManager.getQueue(gameId) as any;
+    expect(queue.activeStep?.type).not.toBe(ResolutionStepType.FIGHT_TARGET);
+    expect((queue.steps || []).some((entry: any) => entry?.type === ResolutionStepType.FIGHT_TARGET)).toBe(false);
+    ResolutionQueueManager.removeQueue(gameId);
+  });
+
+  it('replays permanent_tapped by clearing resolved tap/untap prompts', () => {
+    const gameId = 't_tap_untap_target_prompt_clear_replay';
+    ResolutionQueueManager.removeQueue(gameId);
+    const game = createInitialGameState(gameId);
+    const p1 = 'p1' as PlayerID;
+    addPlayer(game, p1, 'P1');
+
+    (game.state as any).battlefield = [
+      { id: 'tap_target_1', controller: p1, tapped: false, card: { name: 'Tap Target', type_line: 'Creature' } },
+    ];
+
+    const step = addActiveStep(gameId, p1, {
+      type: ResolutionStepType.TAP_UNTAP_TARGET,
+      action: 'tap',
+      targetCount: 1,
+    });
+
+    game.applyEvent({
+      type: 'permanent_tapped',
+      playerId: p1,
+      resolvedStepId: step.id,
+      permanentIds: ['tap_target_1'],
+    } as any);
+
+    const queue = ResolutionQueueManager.getQueue(gameId) as any;
+    expect(queue.activeStep?.type).not.toBe(ResolutionStepType.TAP_UNTAP_TARGET);
+    expect((queue.steps || []).some((entry: any) => entry?.type === ResolutionStepType.TAP_UNTAP_TARGET)).toBe(false);
+    expect((game.state as any).battlefield[0].tapped).toBe(true);
+    ResolutionQueueManager.removeQueue(gameId);
+  });
+
+  it('replays counter_moved by clearing resolved counter movement prompts', () => {
+    const gameId = 't_counter_movement_prompt_clear_replay';
+    ResolutionQueueManager.removeQueue(gameId);
+    const game = createInitialGameState(gameId);
+    const p1 = 'p1' as PlayerID;
+    addPlayer(game, p1, 'P1');
+
+    (game.state as any).battlefield = [
+      { id: 'counter_source_1', controller: p1, counters: { charge: 1 }, card: { name: 'Source', type_line: 'Artifact' } },
+      { id: 'counter_target_1', controller: p1, counters: {}, card: { name: 'Target', type_line: 'Artifact' } },
+    ];
+
+    const step = addActiveStep(gameId, p1, {
+      type: ResolutionStepType.COUNTER_MOVEMENT,
+      sourceName: 'Move Counter',
+    });
+
+    game.applyEvent({
+      type: 'counter_moved',
+      playerId: p1,
+      resolvedStepId: step.id,
+      sourcePermanentId: 'counter_source_1',
+      targetPermanentId: 'counter_target_1',
+      counterType: 'charge',
+    } as any);
+
+    const queue = ResolutionQueueManager.getQueue(gameId) as any;
+    expect(queue.activeStep?.type).not.toBe(ResolutionStepType.COUNTER_MOVEMENT);
+    expect((queue.steps || []).some((entry: any) => entry?.type === ResolutionStepType.COUNTER_MOVEMENT)).toBe(false);
+    expect((game.state as any).battlefield[0].counters.charge).toBeUndefined();
+    expect((game.state as any).battlefield[1].counters.charge).toBe(1);
+    ResolutionQueueManager.removeQueue(gameId);
+  });
+
+  it('replays castSpellContinuation by clearing resolved cast-cost prompts', () => {
+    const gameId = 't_cast_cost_prompt_clear_replay';
+    ResolutionQueueManager.removeQueue(gameId);
+    const game = createInitialGameState(gameId);
+    const p1 = 'p1' as PlayerID;
+    addPlayer(game, p1, 'P1');
+
+    for (const promptType of [
+      ResolutionStepType.LIFE_PAYMENT,
+      ResolutionStepType.ADDITIONAL_COST_PAYMENT,
+      ResolutionStepType.SQUAD_COST_PAYMENT,
+    ]) {
+      const step = addActiveStep(gameId, p1, {
+        type: promptType,
+        cardId: `spell_${promptType}`,
+        sourceName: 'Prompt Spell',
+      });
+
+      game.applyEvent({
+        type: 'castSpellContinuation',
+        playerId: p1,
+        resolvedStepId: step.id,
+        resolvedStepType: promptType,
+        cardId: `spell_${promptType}`,
+      } as any);
+
+      const queue = ResolutionQueueManager.getQueue(gameId) as any;
+      expect(queue.activeStep?.id).not.toBe(step.id);
+      expect((queue.steps || []).some((entry: any) => entry?.id === step.id)).toBe(false);
+    }
+
+    ResolutionQueueManager.removeQueue(gameId);
+  });
+
+  it('replays activateManaAbility by clearing resolved mana color prompts', () => {
+    const gameId = 't_mana_color_prompt_clear_replay';
+    ResolutionQueueManager.removeQueue(gameId);
+    const game = createInitialGameState(gameId);
+    const p1 = 'p1' as PlayerID;
+    addPlayer(game, p1, 'P1');
+
+    (game.state as any).battlefield = [
+      { id: 'mana_source_1', controller: p1, tapped: false, card: { name: 'Mana Source', type_line: 'Land' } },
+    ];
+
+    const step = addActiveStep(gameId, p1, {
+      type: ResolutionStepType.MANA_COLOR_SELECTION,
+      permanentId: 'mana_source_1',
+      cardName: 'Mana Source',
+    });
+
+    game.applyEvent({
+      type: 'activateManaAbility',
+      playerId: p1,
+      resolvedStepId: step.id,
+      permanentId: 'mana_source_1',
+      manaColor: 'green',
+      addedMana: { green: 1 },
+    } as any);
+
+    const queue = ResolutionQueueManager.getQueue(gameId) as any;
+    expect(queue.activeStep?.type).not.toBe(ResolutionStepType.MANA_COLOR_SELECTION);
+    expect((queue.steps || []).some((entry: any) => entry?.type === ResolutionStepType.MANA_COLOR_SELECTION)).toBe(false);
+    expect((game.state as any).battlefield[0].tapped).toBe(true);
+    expect((game.state as any).manaPool[p1].green).toBe(1);
+    ResolutionQueueManager.removeQueue(gameId);
+  });
+
+  it('replays upkeepSacrificeResolve by clearing no-op upkeep sacrifice prompts', () => {
+    const gameId = 't_upkeep_sacrifice_prompt_clear_replay';
+    ResolutionQueueManager.removeQueue(gameId);
+    const game = createInitialGameState(gameId);
+    const p1 = 'p1' as PlayerID;
+    addPlayer(game, p1, 'P1');
+
+    const step = addActiveStep(gameId, p1, {
+      type: ResolutionStepType.UPKEEP_SACRIFICE,
+      sourceId: 'source_1',
+      sourceName: 'Upkeep Source',
+    });
+
+    game.applyEvent({
+      type: 'upkeepSacrificeResolve',
+      playerId: p1,
+      resolvedStepId: step.id,
+      sourceId: 'source_1',
+      sourceName: 'Upkeep Source',
+      sacrificeType: 'source',
+    } as any);
+
+    const queue = ResolutionQueueManager.getQueue(gameId) as any;
+    expect(queue.activeStep?.type).not.toBe(ResolutionStepType.UPKEEP_SACRIFICE);
+    expect((queue.steps || []).some((entry: any) => entry?.type === ResolutionStepType.UPKEEP_SACRIFICE)).toBe(false);
     ResolutionQueueManager.removeQueue(gameId);
   });
 });

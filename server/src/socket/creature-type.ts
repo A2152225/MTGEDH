@@ -121,7 +121,8 @@ export function applyCreatureTypeSelection(
   permanentId: string,
   cardName: string,
   chosenTypeValue: string,
-  isAI: boolean
+  isAI: boolean,
+  promptMetadata: { resolvedStepId?: string; resolvedStepType?: string } = {},
 ): void {
   const chosenType = chosenTypeValue;
   
@@ -147,6 +148,8 @@ export function applyCreatureTypeSelection(
   try {
     appendEvent(gameId, (game as any).seq ?? 0, "creatureTypeSelected", {
       playerId,
+      resolvedStepId: String(promptMetadata.resolvedStepId || ''),
+      resolvedStepType: String(promptMetadata.resolvedStepType || ''),
       permanentId,
       creatureType: chosenType,
       cardName,
