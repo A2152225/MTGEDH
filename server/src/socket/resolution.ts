@@ -26437,6 +26437,7 @@ async function handleOptionChoiceResponse(
   if (stepData?.miraclePrompt === true) {
     const choiceId = extractId(selectedOption) || (response.cancelled ? 'decline' : null) || 'decline';
     const miracleCardId = String(stepData?.miracleCardId || step.sourceId || '').trim();
+    const accepted = !response.cancelled && choiceId === 'cast_miracle';
 
     if (!miracleCardId) {
       debugWarn(1, `[Resolution] miraclePrompt: missing miracleCardId/sourceId`);
@@ -26448,7 +26449,22 @@ async function handleOptionChoiceResponse(
     const hand: any[] = Array.isArray(zones?.hand) ? zones.hand : [];
     const cardInHand = hand.find((c: any) => c && String(c.id) === miracleCardId);
 
-    if (response.cancelled || choiceId === 'decline') {
+    try {
+      await appendEvent(gameId, (game as any).seq || 0, 'miraclePromptResolve', {
+        playerId,
+        sourceId: miracleCardId,
+        sourceName: String(stepData?.sourceName || step.sourceName || cardInHand?.name || 'Miracle'),
+        resolvedStepId: String(step.id || '').trim() || undefined,
+        miracleCardId,
+        miracleCost: String(stepData?.miracleCost || '').trim(),
+        choiceId: accepted ? 'cast_miracle' : 'decline',
+        accepted,
+      });
+    } catch (err) {
+      debugWarn(1, '[Resolution] appendEvent(miraclePromptResolve) failed:', err);
+    }
+
+    if (!accepted) {
       if (cardInHand) {
         delete (cardInHand as any).isFirstDrawnThisTurn;
         delete (cardInHand as any).drawnAt;

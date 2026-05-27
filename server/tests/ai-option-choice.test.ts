@@ -111,6 +111,60 @@ describe('AI option choice', () => {
     expect(decision).toEqual({ selections: ['decline_mox_diamond'], cancelled: false });
   });
 
+  it('casts a miracle prompt when the first-drawn card is payable', () => {
+    const playerId = 'ai1' as PlayerID;
+    const game = {
+      state: {
+        players: [createPlayer(playerId, 'AI')],
+        manaPool: { [playerId]: { white: 1, blue: 0, black: 0, red: 0, green: 0, colorless: 0 } },
+        zones: {
+          [playerId]: {
+            hand: [{ id: 'miracle_1', name: 'Terminus', type_line: 'Sorcery', isFirstDrawnThisTurn: true }],
+          },
+        },
+      },
+    } as any;
+
+    const decision = chooseAIOptionSelectionsForStep(game, playerId, {
+      miraclePrompt: true,
+      miracleCardId: 'miracle_1',
+      miracleCost: '{W}',
+      options: [
+        { id: 'cast_miracle', label: 'Cast for Miracle ({W})' },
+        { id: 'decline', label: "Don't cast" },
+      ],
+    });
+
+    expect(decision).toEqual({ selections: ['cast_miracle'], cancelled: false });
+  });
+
+  it('declines miracle prompts when the card is not payable', () => {
+    const playerId = 'ai1' as PlayerID;
+    const game = {
+      state: {
+        players: [createPlayer(playerId, 'AI')],
+        manaPool: { [playerId]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 } },
+        zones: {
+          [playerId]: {
+            hand: [{ id: 'miracle_1', name: 'Terminus', type_line: 'Sorcery', isFirstDrawnThisTurn: true }],
+          },
+        },
+      },
+    } as any;
+
+    const decision = chooseAIOptionSelectionsForStep(game, playerId, {
+      miraclePrompt: true,
+      miracleCardId: 'miracle_1',
+      miracleCost: '{W}',
+      options: [
+        { id: 'cast_miracle', label: 'Cast for Miracle ({W})' },
+        { id: 'decline', label: "Don't cast" },
+      ],
+    });
+
+    expect(decision).toEqual({ selections: ['decline'], cancelled: true });
+  });
+
   it('declines mana ward when the AI cannot pay', () => {
     const playerId = 'ai1' as PlayerID;
     const game = {

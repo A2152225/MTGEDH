@@ -80,6 +80,7 @@ const REPLAY_GUARDED_EVENT_TYPES = new Set([
   'librarySearchResolve',
   'limDulsVaultContinue',
   'limDulsVaultResolve',
+  'miraclePromptResolve',
   'danceWithCalamityContinue',
   'danceWithCalamityBeginCasting',
   'danceWithCalamitySetCastOrder',

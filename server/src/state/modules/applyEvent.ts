@@ -3431,6 +3431,49 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
         break;
       }
 
+      case "miraclePromptResolve": {
+        try {
+          const replayGameId = String((ctx as any).gameId || '').trim();
+          const playerId = String((e as any).playerId || '').trim();
+          const sourceId = String((e as any).sourceId || (e as any).miracleCardId || '').trim();
+          const resolvedStepId = String((e as any).resolvedStepId || '').trim();
+          const accepted = (e as any).accepted === true || String((e as any).choiceId || '').trim() === 'cast_miracle';
+
+          if (!accepted && playerId && sourceId) {
+            const zones = (ctx.state as any)?.zones?.[playerId];
+            const hand: any[] = Array.isArray(zones?.hand) ? zones.hand : [];
+            const card = hand.find((entry: any) => entry && String(entry.id || '') === sourceId);
+            if (card) {
+              delete (card as any).isFirstDrawnThisTurn;
+              delete (card as any).drawnAt;
+            }
+          }
+
+          if (replayGameId) {
+            clearReplayQueuedSteps(replayGameId, (step: any) => {
+              if (!step) return false;
+              const stepId = String((step as any)?.id || '').trim();
+              if (resolvedStepId && stepId === resolvedStepId) {
+                return true;
+              }
+
+              return (
+                String((step as any)?.type || '') === String(ResolutionStepType.OPTION_CHOICE) &&
+                (step as any)?.miraclePrompt === true &&
+                (!playerId || String((step as any)?.playerId || '').trim() === playerId) &&
+                sourceId.length > 0 &&
+                String((step as any)?.miracleCardId || (step as any)?.sourceId || '').trim() === sourceId
+              );
+            });
+          }
+
+          ctx.bumpSeq();
+        } catch (err) {
+          debugWarn(1, 'applyEvent(miraclePromptResolve): failed', err);
+        }
+        break;
+      }
+
       case "reflexiveManaPaymentResolve": {
         try {
           const replayGameId = String((ctx as any).gameId || '').trim();

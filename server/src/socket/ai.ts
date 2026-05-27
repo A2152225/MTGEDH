@@ -2529,6 +2529,34 @@ function chooseAIMoxDiamondSelection(
     : { selections: [declineId], cancelled: false };
 }
 
+function chooseAIMiraclePromptSelection(
+  game: any,
+  playerId: PlayerID,
+  step: any,
+  options: any[],
+  resolveOptionId: (option: any) => string,
+): { selections: string[]; cancelled: boolean } {
+  const optionIds = options.map((option: any) => resolveOptionId(option)).filter(Boolean);
+  const castId = optionIds.find((id) => id === 'cast_miracle') || 'cast_miracle';
+  const declineId = optionIds.find((id) => id === 'decline') || optionIds.find((id) => /^(?:no|decline)$/i.test(id)) || 'decline';
+  const cardId = String(step?.miracleCardId || step?.sourceId || '').trim();
+  const card = getAIHand(game, playerId).find((entry: any) => String(entry?.id || '') === cardId);
+  const miracleCost = String(step?.miracleCost || '').trim();
+
+  if (!card || (card as any).isFirstDrawnThisTurn !== true || !miracleCost) {
+    return { selections: [declineId], cancelled: true };
+  }
+
+  try {
+    const canPay = canPayManaCostWithAvailableSources(game.state, playerId, parseManaCost(miracleCost));
+    return canPay
+      ? { selections: [castId], cancelled: false }
+      : { selections: [declineId], cancelled: true };
+  } catch {
+    return { selections: [declineId], cancelled: true };
+  }
+}
+
 function chooseAIGrantPlayableFromExileSelection(
   game: any,
   playerId: PlayerID,
@@ -3266,6 +3294,10 @@ export function chooseAIOptionSelectionsForStep(
 
   if (step?.moxDiamondChoice === true) {
     return chooseAIMoxDiamondSelection(game, playerId, options, resolveOptionId);
+  }
+
+  if (step?.miraclePrompt === true) {
+    return chooseAIMiraclePromptSelection(game, playerId, step, options, resolveOptionId);
   }
 
   if (step?.grantPlayableFromExileChoice === true) {
