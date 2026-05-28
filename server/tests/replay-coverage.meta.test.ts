@@ -14,9 +14,14 @@ const INTERACTION_EVENT_SOURCE_PATHS = [
   path.join(SERVER_DIR, 'src', 'socket', 'interaction.ts'),
   path.join(SERVER_DIR, 'src', 'socket', 'mana-handlers.ts'),
   path.join(SERVER_DIR, 'src', 'socket', 'opponent-may-pay.ts'),
+  path.join(SERVER_DIR, 'src', 'socket', 'optional-payment-prompts.ts'),
   path.join(SERVER_DIR, 'src', 'socket', 'player-selection.ts'),
   path.join(SERVER_DIR, 'src', 'socket', 'resolution.ts'),
   path.join(SERVER_DIR, 'src', 'state', 'resolution', 'handlers'),
+];
+
+const PROMPT_RESPONSE_EVENT_SOURCE_PATHS = [
+  path.join(SERVER_DIR, 'src', 'state', 'modules', 'stack.ts'),
 ];
 
 const REPLAY_GUARDED_EVENT_TYPES = new Set([
@@ -56,6 +61,7 @@ const REPLAY_GUARDED_EVENT_TYPES = new Set([
   'counter_moved',
   'counterTargetChosen',
   'copyRetargetChoiceResolve',
+  'copyTriggeredAbilityResolve',
   'copyTriggeredSpellResolve',
   'crewVehicle',
   'creatureTypeSelected',
@@ -186,25 +192,45 @@ const REPLAY_GUARD_EXEMPTIONS: Record<string, string> = {
 
 const PROMPT_RESPONSE_CLEANUP_EVENT_TYPES = [
   'bounceLandChoice',
+  'cardNameChoice',
+  'castFromExilePromptResolve',
+  'castFromGraveyardPromptResolve',
+  'clashResolve',
+  'colorChoice',
+  'commanderZoneChoice',
   'counterPlacementResolve',
+  'copyRetargetChoiceResolve',
   'crewVehicle',
   'enlist',
   'exploreResolve',
   'exertChoice',
+  'fatesealResolve',
   'hideawayChoice',
+  'keywordPromptResolve',
   'kynaiosChoiceResponse',
   'librarySearchResolve',
+  'mayAbilityResolve',
+  'miraclePromptResolve',
   'morphTurnFaceUp',
   'moxDiamondChoice',
+  'mutateCastModeChoiceResolve',
   'myriadChoice',
   'opponentMayPayResolve',
+  'optionalPaymentPromptResolve',
+  'playerChoice',
+  'proliferateResolve',
   'revealLandChoice',
+  'retargetAbilityCopyResolve',
+  'retargetSpellCopyResolve',
   'rulesChoiceResolved',
   'sacrificeUnlessPayChoice',
   'shockLandChoice',
+  'scryResolve',
   'suspendCard',
+  'surveilResolve',
   'temptingOfferResponse',
   'triggerOrderResponse',
+  'voteSubmit',
 ];
 
 function walkFiles(dirPath: string): string[] {
@@ -226,6 +252,7 @@ function readFile(filePath: string): string {
 
 function collectPersistedInteractionEventTypes(): string[] {
   const eventTypeRegex = /appendEvent\([^\r\n]*["']([A-Za-z0-9_]+)["']/g;
+  const promptResponseEventTypeRegex = /appendEvent\([^\r\n]*["']([A-Za-z0-9_]*(?:Choice|Resolve|Response|Prompt))["']/g;
   const eventTypes = new Set<string>();
 
   for (const sourcePath of INTERACTION_EVENT_SOURCE_PATHS) {
@@ -236,6 +263,22 @@ function collectPersistedInteractionEventTypes(): string[] {
     for (const filePath of sourceFiles) {
       const content = readFile(filePath);
       for (const match of content.matchAll(eventTypeRegex)) {
+        const eventType = String(match[1] || '').trim();
+        if (eventType) {
+          eventTypes.add(eventType);
+        }
+      }
+    }
+  }
+
+  for (const sourcePath of PROMPT_RESPONSE_EVENT_SOURCE_PATHS) {
+    const sourceFiles = fs.statSync(sourcePath).isDirectory()
+      ? walkFiles(sourcePath).filter(filePath => filePath.endsWith('.ts'))
+      : [sourcePath];
+
+    for (const filePath of sourceFiles) {
+      const content = readFile(filePath);
+      for (const match of content.matchAll(promptResponseEventTypeRegex)) {
         const eventType = String(match[1] || '').trim();
         if (eventType) {
           eventTypes.add(eventType);
