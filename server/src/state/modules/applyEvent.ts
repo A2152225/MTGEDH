@@ -30,6 +30,7 @@ import {
   applySurveil,
   movePermanentToHand,
   applyExplore,
+  applyDredgeDrawReplacementChoice,
 } from "./zones";
 import { setCommander, castCommander, moveCommanderToCZ } from "./commander";
 import { calculateAllPTBonuses, calculateVariablePT, exchangePermanentOracleText, parsePT } from "../utils";
@@ -6262,6 +6263,33 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           ctx.bumpSeq();
         } catch (err) {
           debugWarn(1, "applyEvent(mill): failed", err);
+        }
+        break;
+      }
+
+      case "dredgeDrawReplacementResolve": {
+        const playerId = String((e as any).playerId || '').trim();
+        const resolvedStepId = String((e as any).resolvedStepId || '').trim();
+        try {
+          const replayGameId = String((ctx as any).gameId || '').trim();
+          if (replayGameId) {
+            clearReplayQueuedSteps(replayGameId, (step: any) => {
+              if (!step) return false;
+              const stepId = String(step?.id || '').trim();
+              if (resolvedStepId && stepId === resolvedStepId) return true;
+              return step?.dredgeDrawReplacementChoice === true && (!playerId || String(step?.playerId || '').trim() === playerId);
+            });
+          }
+
+          applyDredgeDrawReplacementChoice(ctx as any, {
+            playerId,
+            choiceId: String((e as any).choiceId || '').trim() || ((e as any).dredgeCardId ? 'dredge' : 'draw'),
+            dredgeCardId: String((e as any).dredgeCardId || '').trim(),
+            dredgeAmount: Number((e as any).dredgeAmount || 0),
+            remainingDrawCountAfterChoice: Number((e as any).remainingDrawCountAfterChoice || 0),
+          });
+        } catch (err) {
+          debugWarn(1, 'applyEvent(dredgeDrawReplacementResolve): failed', err);
         }
         break;
       }
@@ -12988,6 +13016,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
               }
               break;
             }
+
           }
           ctx.bumpSeq();
         } catch (err) {

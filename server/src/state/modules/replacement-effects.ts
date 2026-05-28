@@ -901,7 +901,8 @@ const cardDrawReplacementEvaluator: ReplacementEffectEvaluator = (event) => {
   const originalAmount = Math.max(0, Math.floor(Number(event.count || 0)));
   if (originalAmount <= 0) return null;
 
-  const dredgeOptions = getDredgeOptions(event);
+  const skipDredgeReplacement = event.metadata?.skipDredgeReplacement === true;
+  const dredgeOptions = skipDredgeReplacement ? [] : getDredgeOptions(event);
   if (dredgeOptions.length > 0) {
     return {
       applied: false,

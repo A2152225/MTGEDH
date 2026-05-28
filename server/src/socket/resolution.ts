@@ -69,7 +69,7 @@ import { handleKynaiosChoiceResponse as handleKynaiosChoiceResponseBatched } fro
 import { applyTriggerOrderToStack } from "../state/resolution/handlers/triggerOrder.js";
 import { sacrificePermanent } from "../state/modules/upkeep-triggers.js";
 import { permanentHasCreatureTypeNow } from "../state/creatureTypeNow.js";
-import { drawCards as drawCardsFromZones, movePermanentToHand } from "../state/modules/zones.js";
+import { applyDredgeDrawReplacementChoice, drawCards as drawCardsFromZones, movePermanentToHand } from "../state/modules/zones.js";
 import { dispatchDamageReceivedTrigger, processDamageReceivedTriggers, resolveDamageTrigger, type DamageTriggerInfo } from "../state/modules/triggers/damage-received.js";
 import { getDiscardTriggers } from "../state/modules/triggers/discard.js";
 import { orderTriggersByAPNAP } from "../state/modules/triggers/ordering.js";
@@ -5676,6 +5676,24 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
       };
 
       const choiceId = extractChoiceId(response.selections);
+
+      if (stepAny?.dredgeDrawReplacementChoice === true && choiceId && !['draw', 'decline'].includes(String(choiceId).toLowerCase())) {
+        const dredgeCardId = String(choiceId).replace(/^dredge:/i, '').trim();
+        const dredgeOption = (Array.isArray(stepAny?.dredgeOptions) ? stepAny.dredgeOptions : [])
+          .find((option: any) => String(option?.cardId || '').trim() === dredgeCardId);
+        const dredgeAmount = Math.max(0, Math.floor(Number(dredgeOption?.dredge || 0)));
+        const zones = (game.state as any)?.zones?.[pid];
+        const graveyard = Array.isArray(zones?.graveyard) ? zones.graveyard : [];
+        const library = (game as any).libraries?.get?.(pid) || [];
+        if (!dredgeCardId || !dredgeOption || !graveyard.some((card: any) => String(card?.id || '') === dredgeCardId)) {
+          socket.emit('error', { code: 'INVALID_DREDGE_SELECTION', message: 'Selected dredge card is no longer in your graveyard.' });
+          return;
+        }
+        if (dredgeAmount <= 0 || library.length < dredgeAmount) {
+          socket.emit('error', { code: 'INSUFFICIENT_LIBRARY', message: `Not enough cards in library to dredge ${dredgeAmount || ''}.`.trim() });
+          return;
+        }
+      }
 
       if (isOptionalPaymentPromptStep(stepAny) && isOptionalPaymentPayChoice(stepAny, choiceId)) {
         const validationFailure = getOptionalPaymentValidationFailure(game, String(pid), stepAny, choiceId);
@@ -25910,6 +25928,52 @@ async function handleOptionChoiceResponse(
     if (sel && typeof sel === 'object') return (sel as any).id || (sel as any).value || null;
     return null;
   };
+
+  if (stepData.dredgeDrawReplacementChoice === true) {
+    const rawChoiceId = String(extractId(selectedOption) || 'draw').trim();
+    const normalizedChoiceId = rawChoiceId.toLowerCase();
+    const resolvedStepId = String((step as any).id || '').trim();
+    const dredgeCardId = normalizedChoiceId.startsWith('dredge:') ? rawChoiceId.slice(rawChoiceId.indexOf(':') + 1).trim() : '';
+    const dredgeOption = dredgeCardId
+      ? (Array.isArray(stepData?.dredgeOptions) ? stepData.dredgeOptions : [])
+        .find((option: any) => String(option?.cardId || '').trim() === dredgeCardId)
+      : null;
+    const dredgeAmount = Math.max(0, Math.floor(Number(dredgeOption?.dredge || 0)));
+    const remainingDrawCountAfterChoice = Math.max(0, Math.floor(Number(stepData?.remainingDrawCountAfterChoice || 0)));
+
+    const result = applyDredgeDrawReplacementChoice(game as any, {
+      playerId,
+      choiceId: dredgeCardId ? 'dredge' : 'draw',
+      dredgeCardId,
+      dredgeAmount,
+      remainingDrawCountAfterChoice,
+    });
+
+    if (!result.applied) {
+      emitToPlayer(io, playerId as any, 'error', {
+        code: 'DREDGE_REPLACEMENT_FAILED',
+        message: 'Unable to apply dredge replacement choice.',
+      });
+      return;
+    }
+
+    try {
+      await appendEvent(gameId, (game as any).seq ?? 0, 'dredgeDrawReplacementResolve', {
+        playerId,
+        resolvedStepId,
+        choiceId: dredgeCardId ? 'dredge' : 'draw',
+        ...(dredgeCardId ? { dredgeCardId } : {}),
+        ...(dredgeAmount > 0 ? { dredgeAmount } : {}),
+        remainingDrawCountAfterChoice,
+        ...(Array.isArray(result.milledCards) ? { milledCardIds: result.milledCards.map((card: any) => String(card?.id || '')).filter(Boolean) } : {}),
+      });
+    } catch (err) {
+      debugWarn(1, '[Resolution] Failed to persist dredgeDrawReplacementResolve event:', err);
+    }
+
+    broadcastGame(io, game, gameId);
+    return;
+  }
 
   if (stepData.exertChoice === true) {
     const attackerId = String(stepData.exertAttackerId || stepData.permanentId || step.sourceId || '').trim();

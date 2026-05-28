@@ -325,6 +325,148 @@ export interface DrawResult {
   reason?: string;
 }
 
+function queueDredgeDrawReplacementStep(
+  ctx: GameContext,
+  playerId: string,
+  metadata: any,
+  drawIndex: number,
+  remainingDrawCountAfterChoice: number,
+): boolean {
+  const gameId = String((ctx as any).gameId || '').trim();
+  if (!gameId || gameId === 'unknown' || (ctx as any).isReplaying) return false;
+
+  const dredgeOptions = Array.isArray(metadata?.dredgeOptions) ? metadata.dredgeOptions : [];
+  if (dredgeOptions.length === 0) return false;
+
+  const firstOption = dredgeOptions[0] || {};
+  ResolutionQueueManager.addStep(gameId, {
+    id: uid('dredge_choice'),
+    type: ResolutionStepType.OPTION_CHOICE,
+    playerId: playerId as PlayerID,
+    sourceId: String(firstOption.cardId || 'dredge'),
+    sourceName: String(firstOption.cardName || 'Dredge'),
+    description: 'Replace this draw with dredge?',
+    mandatory: true,
+    minSelections: 1,
+    maxSelections: 1,
+    dredgeDrawReplacementChoice: true,
+    drawIndex,
+    remainingDrawCountAfterChoice,
+    dredgeOptions: dredgeOptions.map((option: any) => ({
+      cardId: String(option?.cardId || '').trim(),
+      cardName: String(option?.cardName || 'Dredge card').trim() || 'Dredge card',
+      dredge: Math.max(0, Math.floor(Number(option?.dredge || 0))),
+    })).filter((option: any) => option.cardId && option.dredge > 0),
+    options: [
+      { id: 'draw', label: 'Draw a card' },
+      ...dredgeOptions
+        .map((option: any) => {
+          const cardId = String(option?.cardId || '').trim();
+          const cardName = String(option?.cardName || 'Dredge card').trim() || 'Dredge card';
+          const dredge = Math.max(0, Math.floor(Number(option?.dredge || 0)));
+          if (!cardId || dredge <= 0) return null;
+          return {
+            id: `dredge:${cardId}`,
+            label: `${cardName} - Dredge ${dredge}`,
+            description: `Mill ${dredge} cards, then return ${cardName} from your graveyard to your hand.`,
+          };
+        })
+        .filter(Boolean),
+    ],
+  } as any);
+  return true;
+}
+
+function findDredgeAmount(card: any): number {
+  const match = String(card?.oracle_text || '').match(/\bdredge\s+(\d+)\b/i);
+  const amount = match ? parseInt(match[1], 10) : 0;
+  return Number.isFinite(amount) && amount > 0 ? amount : 0;
+}
+
+export interface DredgeDrawReplacementResult {
+  applied: boolean;
+  declined?: boolean;
+  reason?: string;
+  dredgeCard?: any;
+  milledCards?: any[];
+  drawnCards?: any[];
+}
+
+export function applyDredgeDrawReplacementChoice(ctx: GameContext, event: {
+  playerId: PlayerID | string;
+  choiceId?: string;
+  dredgeCardId?: string;
+  dredgeAmount?: number;
+  remainingDrawCountAfterChoice?: number;
+}): DredgeDrawReplacementResult {
+  const playerId = String(event?.playerId || '').trim() as PlayerID;
+  if (!playerId) return { applied: false, reason: 'missing_player' };
+
+  const choiceId = String(event?.choiceId || '').trim().toLowerCase();
+  const remainingDrawCountAfterChoice = Math.max(0, Math.floor(Number(event?.remainingDrawCountAfterChoice || 0)));
+
+  if (!choiceId || choiceId === 'draw' || choiceId === 'decline') {
+    const previousSuppress = (ctx as any)._suppressDredgeReplacement === true;
+    (ctx as any)._suppressDredgeReplacement = true;
+    try {
+      const drawnCards = drawCards(ctx, playerId, 1);
+      if (!previousSuppress) delete (ctx as any)._suppressDredgeReplacement;
+      if (remainingDrawCountAfterChoice > 0) {
+        drawCards(ctx, playerId, remainingDrawCountAfterChoice);
+      }
+      return { applied: true, declined: true, drawnCards };
+    } finally {
+      if (previousSuppress) {
+        (ctx as any)._suppressDredgeReplacement = true;
+      } else {
+        delete (ctx as any)._suppressDredgeReplacement;
+      }
+    }
+  }
+
+  const dredgeCardId = String(event?.dredgeCardId || choiceId.replace(/^dredge:/, '')).trim();
+  if (!dredgeCardId) return { applied: false, reason: 'missing_dredge_card' };
+
+  const zones = ctx.state.zones = ctx.state.zones || {};
+  const z = zones[playerId] || (zones[playerId] = { hand: [], handCount: 0, libraryCount: 0, graveyard: [], graveyardCount: 0 } as any);
+  z.hand = Array.isArray(z.hand) ? z.hand : [];
+  z.graveyard = Array.isArray(z.graveyard) ? z.graveyard : [];
+
+  const graveyard = z.graveyard as any[];
+  const dredgeIndex = graveyard.findIndex((card: any) => String(card?.id || '').trim() === dredgeCardId);
+  if (dredgeIndex < 0) return { applied: false, reason: 'dredge_card_not_in_graveyard' };
+
+  const dredgeCard = graveyard[dredgeIndex];
+  const dredgeAmount = Math.max(0, Math.floor(Number(event?.dredgeAmount || findDredgeAmount(dredgeCard))));
+  if (dredgeAmount <= 0) return { applied: false, reason: 'invalid_dredge_amount' };
+
+  const library = ctx.libraries.get(playerId) || [];
+  if (library.length < dredgeAmount) return { applied: false, reason: 'insufficient_library' };
+
+  const milledCards = library.splice(0, dredgeAmount).map((card: any) => ({ ...card, zone: 'graveyard' }));
+  for (const milledCard of milledCards) {
+    graveyard.push(milledCard);
+    recordCardPutIntoGraveyardThisTurn(ctx as any, String(playerId), milledCard, { fromBattlefield: false });
+  }
+
+  const [returnedCard] = graveyard.splice(dredgeIndex, 1);
+  const returnedToHand = { ...returnedCard, zone: 'hand' };
+  (z.hand as any[]).push(returnedToHand);
+  ctx.libraries.set(playerId, library);
+  z.handCount = (z.hand as any[]).length;
+  z.libraryCount = library.length;
+  z.graveyardCount = graveyard.length;
+
+  processMillTriggers(ctx, playerId, milledCards, playerId);
+  ctx.bumpSeq();
+
+  if (remainingDrawCountAfterChoice > 0) {
+    drawCards(ctx, playerId, remainingDrawCountAfterChoice);
+  }
+
+  return { applied: true, dredgeCard: returnedToHand, milledCards };
+}
+
 export function drawCards(ctx: GameContext, playerId: PlayerID, count: number): KnownCardRef[] {
   const zones = ctx.state.zones = ctx.state.zones || {};
   const drawn: KnownCardRef[] = [];
@@ -405,11 +547,23 @@ export function drawCards(ctx: GameContext, playerId: PlayerID, count: number): 
         drawIndex: drawNumber,
         metadata: {
           isFirstDrawStepDraw: currentStep.includes('draw') && drawNumber === 1,
+          skipDredgeReplacement: (ctx as any)._suppressDredgeReplacement === true,
         },
       });
 
       if (replacement.choiceRequired && replacement.effectId === 'dredge-draw-replacement-choice') {
         drawReplacementChoices.push(replacement.metadata);
+        const queued = queueDredgeDrawReplacementStep(
+          ctx,
+          originalPlayerId,
+          replacement.metadata,
+          drawNumber,
+          Math.max(0, normalizedCount - i - 1),
+        );
+        const replayNextEventType = String((ctx as any)._replayNextEventType || '').trim();
+        if (queued || ((ctx as any).isReplaying && replayNextEventType === 'dredgeDrawReplacementResolve')) {
+          break;
+        }
       }
 
       if (replacement.effectId === 'draw-replaced-by-opponent') {
