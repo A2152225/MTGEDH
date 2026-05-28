@@ -378,6 +378,118 @@ describe('AI option choice', () => {
     expect(judgeDecision).toEqual({ selections: ['accept'], cancelled: false });
   });
 
+  it('exerts legal attacking creatures for exert prompts', () => {
+    const playerId = 'ai1' as PlayerID;
+    const game = {
+      state: {
+        players: [createPlayer(playerId, 'AI')],
+        battlefield: [
+          { id: 'attacker_1', controller: playerId, attacking: true, card: { name: 'Glorybringer', type_line: 'Creature - Dragon' } },
+        ],
+      },
+    } as any;
+
+    const decision = chooseAIOptionSelectionsForStep(game, playerId, {
+      exertChoice: true,
+      exertAttackerId: 'attacker_1',
+      options: [
+        { id: 'normal', label: 'Attack normally' },
+        { id: 'exert', label: 'Exert' },
+      ],
+    });
+
+    expect(decision).toEqual({ selections: ['exert'], cancelled: false });
+  });
+
+  it('chooses a deterministic low-index MDFC land face independent of option order', () => {
+    const playerId = 'ai1' as PlayerID;
+    const game = { state: { players: [createPlayer(playerId, 'AI')] } } as any;
+
+    const decision = chooseAIOptionSelectionsForStep(game, playerId, {
+      mdfcFaceChoice: true,
+      options: [
+        { id: '1', label: 'Back Face', description: 'Land - Add one mana of any color.' },
+        { id: '0', label: 'Front Face', description: 'Land - Add one mana of any color.' },
+      ],
+    });
+
+    expect(decision).toEqual({ selections: ['0'], cancelled: false });
+  });
+
+  it('uses reveal-until-nonland spell-bottom prompts when a nonland can be hit', () => {
+    const playerId = 'ai1' as PlayerID;
+    const game = {
+      state: {
+        players: [createPlayer(playerId, 'AI')],
+        stack: [{ id: 'spell_1', type: 'spell' }],
+        zones: {
+          [playerId]: {
+            library: [
+              { id: 'land_1', name: 'Island', type_line: 'Basic Land - Island' },
+              { id: 'spell_2', name: 'Lightning Bolt', type_line: 'Instant' },
+            ],
+          },
+        },
+      },
+    } as any;
+
+    const decision = chooseAIOptionSelectionsForStep(game, playerId, {
+      spellBottomRevealUntilNonlandChoice: true,
+      triggeringStackItemId: 'spell_1',
+      revealFromLibraryPlayerId: playerId,
+      options: [
+        { id: 'no', label: 'Decline' },
+        { id: 'yes', label: 'Use ability' },
+      ],
+    });
+
+    expect(decision).toEqual({ selections: ['yes'], cancelled: false });
+  });
+
+  it('casts free revealed and off-zone spell prompts when the card is available', () => {
+    const playerId = 'ai1' as PlayerID;
+    const game = {
+      state: {
+        players: [createPlayer(playerId, 'AI')],
+        zones: {
+          [playerId]: {
+            exile: [{ id: 'exile_spell_1', name: 'Wildfire', type_line: 'Sorcery' }],
+            graveyard: [{ id: 'grave_spell_1', name: 'Deep Analysis', type_line: 'Sorcery' }],
+          },
+        },
+      },
+    } as any;
+
+    const revealedDecision = chooseAIOptionSelectionsForStep(game, playerId, {
+      castRevealedFromLibraryChoice: true,
+      castRevealedFromLibraryCard: { id: 'hit_1', name: 'Lightning Bolt', type_line: 'Instant' },
+      options: [
+        { id: 'decline', label: 'Decline' },
+        { id: 'cast', label: 'Cast Lightning Bolt' },
+      ],
+    });
+    const exileDecision = chooseAIOptionSelectionsForStep(game, playerId, {
+      castFromExileCardId: 'exile_spell_1',
+      castFromExileCard: { id: 'exile_spell_1', name: 'Wildfire', type_line: 'Sorcery' },
+      options: [
+        { id: 'decline', label: 'Decline' },
+        { id: 'cast', label: 'Cast Wildfire' },
+      ],
+    });
+    const graveyardDecision = chooseAIOptionSelectionsForStep(game, playerId, {
+      castFromGraveyardCardId: 'grave_spell_1',
+      castFromGraveyardCard: { id: 'grave_spell_1', name: 'Deep Analysis', type_line: 'Sorcery' },
+      options: [
+        { id: 'decline', label: 'Decline' },
+        { id: 'cast', label: 'Cast Deep Analysis' },
+      ],
+    });
+
+    expect(revealedDecision).toEqual({ selections: ['cast'], cancelled: false });
+    expect(exileDecision).toEqual({ selections: ['cast'], cancelled: false });
+    expect(graveyardDecision).toEqual({ selections: ['cast'], cancelled: false });
+  });
+
   it('chooses the higher-value pile for its own split-pile hand choice', () => {
     const playerId = 'ai1' as PlayerID;
     const game = {

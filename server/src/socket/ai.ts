@@ -2766,6 +2766,95 @@ function chooseAIAdministrativeConfirmSelection(
   return { selections: chosenId ? [chosenId] : [], cancelled: false };
 }
 
+function chooseAIExertChoiceSelection(
+  game: any,
+  playerId: PlayerID,
+  step: any,
+  options: any[],
+  resolveOptionId: (option: any) => string,
+): { selections: string[]; cancelled: boolean } {
+  const optionIds = options.map((option: any) => resolveOptionId(option)).filter(Boolean);
+  const exertId = optionIds.find((id) => id === 'exert');
+  const declineId = optionIds.find((id) => /^(?:normal|decline|no)$/i.test(id)) || optionIds[0] || '';
+  const attackerId = String(step?.exertAttackerId || step?.permanentId || step?.sourceId || '').trim();
+  const attacker = (Array.isArray(game?.state?.battlefield) ? game.state.battlefield : [])
+    .find((permanent: any) => String(permanent?.id || '') === attackerId);
+  const canExert = Boolean(
+    exertId &&
+    attacker &&
+    String(attacker?.controller || '') === String(playerId) &&
+    attacker?.attacking &&
+    attacker?.exertedThisTurn !== true
+  );
+  const chosenId = canExert ? exertId : declineId;
+  return { selections: chosenId ? [chosenId] : [], cancelled: !canExert && /^(?:decline|no)$/i.test(chosenId) };
+}
+
+function chooseAIMdfcFaceSelection(
+  options: any[],
+  resolveOptionId: (option: any) => string,
+): { selections: string[]; cancelled: boolean } {
+  const ranked = options
+    .map((option: any, index: number) => {
+      const id = resolveOptionId(option);
+      const text = `${String(option?.label || '')} ${String(option?.description || '')}`.toLowerCase();
+      const numericId = Number(id);
+      let score = 0;
+      if (/\bland\b/.test(text)) score += 10;
+      if (/add one mana of any color|add one mana/i.test(text)) score += 4;
+      if (/enters? tapped|comes into play tapped/i.test(text)) score -= 4;
+      return { id, index, numericId: Number.isFinite(numericId) ? numericId : 999, score };
+    })
+    .filter((entry) => Boolean(entry.id))
+    .sort((left, right) => right.score - left.score || left.numericId - right.numericId || left.index - right.index);
+  return { selections: ranked[0]?.id ? [ranked[0].id] : [], cancelled: false };
+}
+
+function chooseAISpellBottomRevealUntilNonlandSelection(
+  game: any,
+  playerId: PlayerID,
+  step: any,
+  options: any[],
+  resolveOptionId: (option: any) => string,
+): { selections: string[]; cancelled: boolean } {
+  const optionIds = options.map((option: any) => resolveOptionId(option)).filter(Boolean);
+  const yesId = optionIds.find((id) => /^(?:yes|use|accept)$/i.test(id)) || optionIds[0] || '';
+  const noId = optionIds.find((id) => /^(?:no|decline|cancel)$/i.test(id)) || yesId;
+  const controllerId = String(step?.revealFromLibraryPlayerId || playerId).trim() as PlayerID;
+  const library = getAILibraryCards(game, controllerId);
+  const hasNonland = library.some((card: any) => !String(card?.type_line || '').toLowerCase().includes('land'));
+  const triggeringStackItemId = String(step?.triggeringStackItemId || '').trim();
+  const stack = Array.isArray(game?.state?.stack) ? game.state.stack : [];
+  const stackItemAvailable = !triggeringStackItemId || stack.some((item: any) => String(item?.id || '') === triggeringStackItemId);
+  const shouldUse = hasNonland && stackItemAvailable;
+  return { selections: [shouldUse ? yesId : noId].filter(Boolean), cancelled: !shouldUse && /^(?:no|decline|cancel)$/i.test(noId) };
+}
+
+function chooseAICastFreePromptSelection(
+  game: any,
+  playerId: PlayerID,
+  step: any,
+  options: any[],
+  resolveOptionId: (option: any) => string,
+): { selections: string[]; cancelled: boolean } {
+  const optionIds = options.map((option: any) => resolveOptionId(option)).filter(Boolean);
+  const castId = optionIds.find((id) => /^(?:cast|play)$/i.test(id));
+  const declineId = optionIds.find((id) => /^(?:decline|no|cancel)$/i.test(id)) || optionIds[0] || '';
+  const cardId = String(step?.castRevealedFromLibraryCard?.id || step?.castFromExileCardId || step?.castFromGraveyardCardId || step?.playFromGraveyardCardId || '').trim();
+  let cardAvailable = Boolean(step?.castRevealedFromLibraryCard || step?.danceWithCalamityCastPrompt === true);
+
+  if (!cardAvailable && cardId) {
+    const zones = game?.state?.zones?.[playerId] || {};
+    const zoneName = step?.castFromExileCardId ? 'exile' : 'graveyard';
+    const zoneCards = Array.isArray(zones?.[zoneName]) ? zones[zoneName] : [];
+    cardAvailable = zoneCards.some((card: any) => String(card?.id || '') === cardId);
+  }
+
+  const shouldCast = Boolean(castId && cardAvailable);
+  const chosenId = shouldCast ? castId : declineId;
+  return { selections: chosenId ? [chosenId] : [], cancelled: !shouldCast && /^(?:decline|no|cancel)$/i.test(chosenId) };
+}
+
 function chooseAIPileFromSplitSelection(
   game: any,
   playerId: PlayerID,
@@ -3685,6 +3774,28 @@ export function chooseAIOptionSelectionsForStep(
 
   if (step?.importWipeConfirm === true || step?.judgeConfirm === true) {
     return chooseAIAdministrativeConfirmSelection(options, resolveOptionId);
+  }
+
+  if (step?.exertChoice === true) {
+    return chooseAIExertChoiceSelection(game, playerId, step, options, resolveOptionId);
+  }
+
+  if (step?.mdfcFaceChoice === true) {
+    return chooseAIMdfcFaceSelection(options, resolveOptionId);
+  }
+
+  if (step?.spellBottomRevealUntilNonlandChoice === true) {
+    return chooseAISpellBottomRevealUntilNonlandSelection(game, playerId, step, options, resolveOptionId);
+  }
+
+  if (
+    step?.castRevealedFromLibraryChoice === true ||
+    step?.danceWithCalamityCastPrompt === true ||
+    Boolean(step?.castFromExileCardId && step?.castFromExileCard) ||
+    Boolean(step?.castFromGraveyardCardId && step?.castFromGraveyardCard) ||
+    Boolean(step?.playFromGraveyardCardId && step?.playFromGraveyardCard)
+  ) {
+    return chooseAICastFreePromptSelection(game, playerId, step, options, resolveOptionId);
   }
 
   if (step?.payManaToLookAndChooseCardChoice === true) {

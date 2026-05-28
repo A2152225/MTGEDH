@@ -422,7 +422,7 @@ The normal cast and activate pipeline must handle all common Magic costs without
   - Generic prompt generation now covers triggered-ability stack items with target metadata.
   - Current guardrails cover battlefield, graveyard, exile, player, and mixed target prompts.
 
-- [ ] Ensure every prompt has AI response support.
+- [x] Ensure every prompt has AI response support.
   - Guardrail progress: explicit AI completion now covers local `suspend_cast` and `morph_turn_face_up` seams. Guardrail: `server/tests/ai-resolution-step.integration.test.ts`.
   - Guardrail progress: AI option-choice handling now recognizes reflexive any-amount mana payment prompts and chooses a legal beneficial `pay_N` amount instead of relying on generic option scoring. Guardrail: `server/tests/ai-resolution-step.integration.test.ts`.
   - Guardrail progress: AI option-choice handling now recognizes fixed reflexive mana/life payment prompts and chooses `pay` for legal beneficial follow-ups. Guardrail: `server/tests/ai-resolution-step.integration.test.ts`.
@@ -452,6 +452,8 @@ The normal cast and activate pipeline must handle all common Magic costs without
   - Guardrail progress: AI option-choice handling now recognizes Blight-or-pay spell additional-cost prompts, paying mana when the combined spell-plus-tax cost is affordable and choosing Blight only when mana is unavailable but a controlled creature can pay the cost. Guardrail: `server/tests/ai-option-choice.test.ts`.
   - Guardrail progress: AI option-choice handling now recognizes Venture dungeon and room prompts, preferring stable value dungeons and immediate resource/card rooms over self-punishing paths. Guardrail: `server/tests/ai-option-choice.test.ts`.
   - Guardrail progress: AI option-choice handling now recognizes administrative import-wipe and judge-confirm prompts, accepting known admin confirms so AI seats do not strand table votes. Guardrail: `server/tests/ai-option-choice.test.ts`.
+  - Guardrail progress: AI option-choice handling now recognizes exert, MDFC face, spell-bottom reveal-until-nonland, cast-revealed-from-library, Dance with Calamity, and generic cast/play-from-exile-or-graveyard prompts. Guardrail: `server/tests/ai-option-choice.test.ts`.
+  - Guardrail complete: option-choice response flags are now statically compared against explicit AI routing with documented exemptions for metadata-only subflags, prompt-producer branches, and legacy mana-payment compatibility. Guardrail: `server/tests/ai-option-choice-coverage.meta.test.ts`.
 - [ ] Ensure every prompt response is replayed through `applyEvent.ts` or equivalent replay support.
   - Guardrail progress: suspend and morph prompt outcomes now append replay evidence and rehydrate through replay. Guardrail: `server/tests/suspend-morph-prompt.replay.test.ts`.
   - Guardrail progress: reflexive any-amount mana payment prompts now persist `reflexiveManaPaymentResolve`, replay the recorded resource spend, and are registered in replay coverage metadata. Guardrails: `server/tests/ability-activated-copy.applyEvent.test.ts`, `server/tests/replay-coverage.meta.test.ts`.
