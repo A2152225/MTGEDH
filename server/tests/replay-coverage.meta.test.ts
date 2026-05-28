@@ -1,10 +1,12 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import ts from 'typescript';
 import { describe, expect, it } from 'vitest';
 
 const TEST_DIR = path.dirname(fileURLToPath(import.meta.url));
 const SERVER_DIR = path.resolve(TEST_DIR, '..');
+const APPLY_EVENT_PATH = path.join(SERVER_DIR, 'src', 'state', 'modules', 'applyEvent.ts');
 
 const INTERACTION_EVENT_SOURCE_PATHS = [
   path.join(SERVER_DIR, 'src', 'socket', 'game-actions.ts'),
@@ -182,6 +184,29 @@ const REPLAY_GUARD_EXEMPTIONS: Record<string, string> = {
   unkeepHand: 'opening-hand progression primitive; the replay guard focuses on completion events instead',
 };
 
+const PROMPT_RESPONSE_CLEANUP_EVENT_TYPES = [
+  'bounceLandChoice',
+  'counterPlacementResolve',
+  'crewVehicle',
+  'enlist',
+  'exploreResolve',
+  'exertChoice',
+  'hideawayChoice',
+  'kynaiosChoiceResponse',
+  'librarySearchResolve',
+  'morphTurnFaceUp',
+  'moxDiamondChoice',
+  'myriadChoice',
+  'opponentMayPayResolve',
+  'revealLandChoice',
+  'rulesChoiceResolved',
+  'sacrificeUnlessPayChoice',
+  'shockLandChoice',
+  'suspendCard',
+  'temptingOfferResponse',
+  'triggerOrderResponse',
+];
+
 function walkFiles(dirPath: string): string[] {
   const files: string[] = [];
   for (const entry of fs.readdirSync(dirPath, { withFileTypes: true })) {
@@ -233,6 +258,57 @@ function findReplayCoverageFiles(eventType: string, replayTestFiles: string[]): 
   return replayTestFiles.filter(filePath => pattern.test(readFile(filePath)));
 }
 
+let applyEventCaseBodyCache: Map<string, string> | null = null;
+
+function collectApplyEventCaseBodies(): Map<string, string> {
+  if (applyEventCaseBodyCache) return applyEventCaseBodyCache;
+
+  const sourceText = readFile(APPLY_EVENT_PATH);
+  const sourceFile = ts.createSourceFile(APPLY_EVENT_PATH, sourceText, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  const clauses: ts.CaseOrDefaultClause[] = [];
+
+  const visit = (node: ts.Node) => {
+    if (ts.isSwitchStatement(node)) {
+      clauses.push(...node.caseBlock.clauses);
+    }
+    ts.forEachChild(node, visit);
+  };
+
+  visit(sourceFile);
+
+  const caseBodies = new Map<string, string>();
+  for (let index = 0; index < clauses.length; index++) {
+    const eventType = caseClauseEventType(clauses[index]);
+    if (!eventType || caseBodies.has(eventType)) continue;
+
+    for (let bodyIndex = index; bodyIndex < clauses.length; bodyIndex++) {
+      const clause = clauses[bodyIndex];
+      if (clause.statements.length > 0) {
+        caseBodies.set(eventType, clause.statements.map(statement => statement.getText(sourceFile)).join('\n'));
+        break;
+      }
+    }
+  }
+
+  applyEventCaseBodyCache = caseBodies;
+  return caseBodies;
+}
+
+function caseClauseEventType(clause: ts.CaseOrDefaultClause): string | null {
+  if (!ts.isCaseClause(clause)) return null;
+  const expression = clause.expression;
+  if (!ts.isStringLiteral(expression)) return null;
+  return expression.text;
+}
+
+function findApplyEventCaseBody(eventType: string): string {
+  return collectApplyEventCaseBodies().get(eventType) || '';
+}
+
+function caseBodyHasPromptCleanup(bodyText: string): boolean {
+  return /\b(clearReplayQueuedStepById|clearReplayQueuedSteps)\b|ResolutionQueueManager\.(completeStep|cancelStep|getQueue)\b/.test(bodyText);
+}
+
 describe('interactive replay coverage guard', () => {
   it('forces every persisted interaction event to be classified as guarded or exempt', () => {
     const discoveredEventTypes = collectPersistedInteractionEventTypes();
@@ -255,5 +331,14 @@ describe('interactive replay coverage guard', () => {
       .map(entry => entry.eventType);
 
     expect(missingCoverage, `Guarded interaction events missing replay coverage: ${missingCoverage.join(', ')}`).toEqual([]);
+  });
+
+  it('keeps prompt-response replay handlers tied to queue cleanup', () => {
+    const missingCleanup = PROMPT_RESPONSE_CLEANUP_EVENT_TYPES
+      .map(eventType => ({ eventType, caseBody: findApplyEventCaseBody(eventType) }))
+      .filter(entry => entry.caseBody.length === 0 || !caseBodyHasPromptCleanup(entry.caseBody))
+      .map(entry => entry.eventType);
+
+    expect(missingCleanup, `Prompt-response replay events missing queue cleanup in applyEvent: ${missingCleanup.join(', ')}`).toEqual([]);
   });
 });
