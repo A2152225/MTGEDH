@@ -317,6 +317,7 @@ export function handleKynaiosChoiceResponse(
   try {
     appendEvent(gameId, (game as any).seq ?? 0, 'kynaiosChoiceResponse', {
       stepId: String((step as any).id || ''),
+      resolvedStepId: String((step as any).id || ''),
       batchId,
       playerId: pid,
       sourceController,

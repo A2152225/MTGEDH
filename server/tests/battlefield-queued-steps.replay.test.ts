@@ -19,6 +19,8 @@ describe('queued battlefield prompt replay semantics', () => {
       't_activate_fight_prompt_replay',
       't_activate_tap_untap_prompt_replay',
       't_activate_crew_prompt_replay',
+      't_crew_vehicle_resolve_prompt_cleanup_replay',
+      't_enlist_resolve_prompt_cleanup_replay',
       't_activate_mana_color_prompt_replay',
       't_activate_battlefield_target_selection_resolved_replay',
       't_activate_battlefield_payment_prompt_replay',
@@ -308,6 +310,122 @@ describe('queued battlefield prompt replay semantics', () => {
     expect((queue.steps[0] as any)?.crewPower).toBe(2);
     expect((queue.steps[0] as any)?.validTargets).toHaveLength(1);
     expect((game.state as any).stack || []).toHaveLength(0);
+  });
+
+  it('replays crew selection by crewing the vehicle and clearing the restored prompt', () => {
+    const gameId = 't_crew_vehicle_resolve_prompt_cleanup_replay';
+    const game = createInitialGameState(gameId);
+    const p1 = 'p1' as PlayerID;
+    addPlayer(game, p1, 'P1');
+
+    (game.state as any).battlefield = [
+      {
+        id: 'vehicle_1',
+        controller: p1,
+        owner: p1,
+        tapped: false,
+        card: { id: 'vehicle_card_1', name: 'Sky Skiff', type_line: 'Artifact - Vehicle', oracle_text: 'Crew 2' },
+      },
+      {
+        id: 'crewer_1',
+        controller: p1,
+        owner: p1,
+        tapped: false,
+        basePower: 2,
+        baseToughness: 2,
+        card: { id: 'crewer_card_1', name: 'Skilled Pilot', type_line: 'Creature - Human Pilot', power: '2', toughness: '2' },
+      },
+    ];
+
+    const step = ResolutionQueueManager.addStep(gameId, {
+      type: ResolutionStepType.TARGET_SELECTION,
+      playerId: p1,
+      description: 'Crew 2.',
+      mandatory: false,
+      sourceId: 'vehicle_1',
+      crewAbility: true,
+      vehicleId: 'vehicle_1',
+      crewPower: 2,
+    } as any);
+    ResolutionQueueManager.activateStep(gameId, step.id);
+
+    game.applyEvent({
+      type: 'crewVehicle',
+      playerId: p1,
+      resolvedStepId: step.id,
+      vehicleId: 'vehicle_1',
+      crewerIds: ['crewer_1'],
+    } as any);
+
+    const battlefield = (game.state as any).battlefield || [];
+    const vehicle = battlefield.find((entry: any) => entry?.id === 'vehicle_1');
+    const crewer = battlefield.find((entry: any) => entry?.id === 'crewer_1');
+    expect(vehicle?.crewed).toBe(true);
+    expect(vehicle?.grantedTypes).toContain('Creature');
+    expect(crewer?.tapped).toBe(true);
+    const queue = ResolutionQueueManager.getQueue(gameId) as any;
+    expect(queue.activeStep?.type).not.toBe(ResolutionStepType.TARGET_SELECTION);
+    expect((queue.steps || []).some((entry: any) => entry?.type === ResolutionStepType.TARGET_SELECTION && entry?.crewAbility === true)).toBe(false);
+  });
+
+  it('replays enlist by tapping the enlisted creature and clearing the restored prompt', () => {
+    const gameId = 't_enlist_resolve_prompt_cleanup_replay';
+    const game = createInitialGameState(gameId);
+    const p1 = 'p1' as PlayerID;
+    addPlayer(game, p1, 'P1');
+
+    (game.state as any).battlefield = [
+      {
+        id: 'attacker_1',
+        controller: p1,
+        owner: p1,
+        tapped: true,
+        attacking: 'p2',
+        basePower: 2,
+        baseToughness: 2,
+        card: { id: 'attacker_card_1', name: 'Attacker', type_line: 'Creature - Soldier', power: '2', toughness: '2' },
+      },
+      {
+        id: 'enlisted_1',
+        controller: p1,
+        owner: p1,
+        tapped: false,
+        summoningSickness: false,
+        basePower: 3,
+        baseToughness: 3,
+        card: { id: 'enlisted_card_1', name: 'Helper', type_line: 'Creature - Soldier', power: '3', toughness: '3' },
+      },
+    ];
+
+    const step = ResolutionQueueManager.addStep(gameId, {
+      type: ResolutionStepType.TARGET_SELECTION,
+      playerId: p1,
+      description: 'Choose a creature to enlist.',
+      mandatory: false,
+      sourceId: 'attacker_1',
+      enlistChoice: true,
+      enlistAttackerId: 'attacker_1',
+    } as any);
+    ResolutionQueueManager.activateStep(gameId, step.id);
+
+    game.applyEvent({
+      type: 'enlist',
+      playerId: p1,
+      resolvedStepId: step.id,
+      attackerId: 'attacker_1',
+      enlistedCreatureId: 'enlisted_1',
+    } as any);
+
+    const battlefield = (game.state as any).battlefield || [];
+    const attacker = battlefield.find((entry: any) => entry?.id === 'attacker_1');
+    const enlisted = battlefield.find((entry: any) => entry?.id === 'enlisted_1');
+    expect(enlisted?.tapped).toBe(true);
+    expect(attacker?.enlistedThisCombat).toBe(true);
+    expect(attacker?.enlistedCreatureIdThisCombat).toBe('enlisted_1');
+    expect(attacker?.temporaryPowerBoost).toBe(3);
+    const queue = ResolutionQueueManager.getQueue(gameId) as any;
+    expect(queue.activeStep?.type).not.toBe(ResolutionStepType.TARGET_SELECTION);
+    expect((queue.steps || []).some((entry: any) => entry?.type === ResolutionStepType.TARGET_SELECTION && entry?.enlistChoice === true)).toBe(false);
   });
 
   it('replays queued mana-color battlefield activations before color choice resolves', () => {

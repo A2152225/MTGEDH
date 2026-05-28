@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { createInitialGameState } from '../src/state/gameState.js';
+import { ResolutionQueueManager, ResolutionStepType } from '../src/state/resolution/index.js';
 import type { PlayerID } from '../../shared/src';
 
 function addPlayer(game: any, id: PlayerID, name: string) {
@@ -9,7 +10,8 @@ function addPlayer(game: any, id: PlayerID, name: string) {
 
 describe('moxDiamondChoice replay semantics', () => {
   it('replays the discard choice by preserving the live battlefield permanent id', () => {
-    const game = createInitialGameState('t_mox_diamond_choice_replay');
+    const gameId = 't_mox_diamond_choice_replay';
+    const game = createInitialGameState(gameId);
     const p1 = 'p1' as PlayerID;
     addPlayer(game, p1, 'P1');
 
@@ -47,9 +49,22 @@ describe('moxDiamondChoice replay semantics', () => {
       },
     };
 
+    ResolutionQueueManager.removeQueue(gameId);
+    ResolutionQueueManager.addStep(gameId, {
+      id: 'mox_diamond_choice_step_1',
+      type: ResolutionStepType.OPTION_CHOICE,
+      playerId: p1,
+      description: 'Discard a land?',
+      mandatory: false,
+      moxDiamondChoice: true,
+      stackItemId: 'stack_mox_1',
+      sourceId: 'stack_mox_1',
+    } as any);
+
     game.applyEvent({
       type: 'moxDiamondChoice',
       playerId: p1,
+      resolvedStepId: 'mox_diamond_choice_step_1',
       stackItemId: 'stack_mox_1',
       discardLandId: 'land_1',
       cardName: 'Mox Diamond',
@@ -63,6 +78,8 @@ describe('moxDiamondChoice replay semantics', () => {
     const zones = (game.state as any).zones?.[p1];
     expect((zones?.hand || []).map((card: any) => card.id)).toEqual([]);
     expect((zones?.graveyard || []).map((card: any) => card.id)).toEqual(['land_1']);
+    expect(ResolutionQueueManager.getQueue(gameId).steps.some((entry: any) => String(entry?.id || '') === 'mox_diamond_choice_step_1')).toBe(false);
+    ResolutionQueueManager.removeQueue(gameId);
   });
 
   it('replays the decline path by moving Mox Diamond from the stack to the graveyard', () => {

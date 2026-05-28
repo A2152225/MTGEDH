@@ -1,10 +1,13 @@
 import { describe, expect, it } from 'vitest';
 
 import { applyEvent } from '../src/state/modules/applyEvent';
+import { ResolutionQueueManager, ResolutionStepType } from '../src/state/resolution/index.js';
 
 describe('myriadChoice replay', () => {
   it('replays myriadChoice by rebuilding the selected token copies from the saved source snapshot', () => {
+    const gameId = 'test_myriad_choice_replay_cleanup';
     const ctx: any = {
+      gameId,
       state: {
         players: [
           { id: 'p1', name: 'P1', spectator: false, life: 40 },
@@ -26,10 +29,22 @@ describe('myriadChoice replay', () => {
       bumpSeq() {},
     };
 
+    ResolutionQueueManager.removeQueue(gameId);
+    ResolutionQueueManager.addStep(gameId, {
+      id: 'myriad_choice_step_1',
+      type: ResolutionStepType.OPTION_CHOICE,
+      playerId: 'p1',
+      description: 'Choose Myriad opponents',
+      mandatory: false,
+      myriadChoice: true,
+      permanentId: 'myriad_attacker',
+    } as any);
+
     applyEvent(ctx, {
       type: 'myriadChoice',
       playerId: 'p1',
       permanentId: 'myriad_attacker',
+      resolvedStepId: 'myriad_choice_step_1',
       sourceName: 'Myriad Attacker',
       sourcePermanentSnapshot: {
         id: 'myriad_attacker',
@@ -63,5 +78,7 @@ describe('myriadChoice replay', () => {
     expect(battlefield.every((permanent: any) => permanent.isToken === true)).toBe(true);
     expect(delayed.map((entry: any) => entry.permanentId)).toEqual(['myriad_live_token_1', 'myriad_live_token_2']);
     expect(ctx.state.tokensCreatedThisTurn?.p1).toBe(2);
+    expect(ResolutionQueueManager.getQueue(gameId).steps.some((entry: any) => String(entry?.id || '') === 'myriad_choice_step_1')).toBe(false);
+    ResolutionQueueManager.removeQueue(gameId);
   });
 });

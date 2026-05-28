@@ -110,6 +110,7 @@ describe('trigger order replay persistence', () => {
     const persisted = [...getEvents(gameId)].reverse().find((event: any) => event.type === 'triggerOrderResponse') as any;
     expect(persisted).toBeDefined();
     expect(persisted.payload?.stepId).toBe(String((step as any).id));
+    expect(persisted.payload?.resolvedStepId).toBe(String((step as any).id));
     expect(persisted.payload?.orderedTriggerIds).toEqual(['trigger_b', 'trigger_a']);
 
     const replayGame = createInitialGameState('test_trigger_order_replay_apply');

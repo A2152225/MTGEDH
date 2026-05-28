@@ -8457,6 +8457,7 @@ async function handleRulesChoiceGroupResponse(
       effectText,
       eventData: executionEventData,
       rulesChoiceGroupId: groupId,
+      resolvedStepIds: completedGroupSteps.map((completed: any) => String(completed?.id || '').trim()).filter(Boolean),
     });
   } catch (err) {
     debugWarn(1, `[Resolution] appendEvent(rulesChoiceResolved) failed:`, err);
@@ -9240,6 +9241,8 @@ async function handleStepResponse(
       game.applyEvent({
         type: 'exploreResolve',
         playerId: pid,
+        resolvedStepId: String((step as any).id || '').trim(),
+        resolvedStepType: ResolutionStepType.EXPLORE_DECISION,
         permanentId,
         revealedCardId: revealedCard.id,
         isLand,
@@ -9248,6 +9251,8 @@ async function handleStepResponse(
 
       appendEvent(gameId, (game as any).seq ?? 0, 'exploreResolve', {
         playerId: pid,
+        resolvedStepId: String((step as any).id || '').trim(),
+        resolvedStepType: ResolutionStepType.EXPLORE_DECISION,
         permanentId,
         revealedCardId: revealedCard.id,
         isLand,
@@ -9336,6 +9341,8 @@ async function handleStepResponse(
         game.applyEvent({
           type: 'exploreResolve',
           playerId: pid,
+          resolvedStepId: String((step as any).id || '').trim(),
+          resolvedStepType: ResolutionStepType.BATCH_EXPLORE_DECISION,
           permanentId,
           revealedCardId: revealedCard.id,
           isLand,
@@ -9344,6 +9351,8 @@ async function handleStepResponse(
 
         appendEvent(gameId, (game as any).seq ?? 0, 'exploreResolve', {
           playerId: pid,
+          resolvedStepId: String((step as any).id || '').trim(),
+          resolvedStepType: ResolutionStepType.BATCH_EXPLORE_DECISION,
           permanentId,
           revealedCardId: revealedCard.id,
           isLand,
@@ -11116,6 +11125,7 @@ async function handleStepResponse(
           try {
             await appendEvent(gameId, (game as any).seq || 0, 'sacrificeUnlessPayChoice', {
               playerId: pid,
+              resolvedStepId: String((step as any).id || '').trim(),
               permanentId,
               payMana: false,
               manaCost,
@@ -11153,6 +11163,7 @@ async function handleStepResponse(
         try {
           await appendEvent(gameId, (game as any).seq || 0, 'sacrificeUnlessPayChoice', {
             playerId: pid,
+            resolvedStepId: String((step as any).id || '').trim(),
             permanentId,
             payMana: true,
             manaCost,
@@ -16942,6 +16953,7 @@ async function handleTargetSelectionResponse(
       (game as any).applyEvent({
         type: 'crewVehicle',
         playerId: pid,
+        resolvedStepId: String(step.id || '').trim(),
         vehicleId,
         crewerIds: selections,
       });
@@ -16951,6 +16963,7 @@ async function handleTargetSelectionResponse(
     try {
       await appendEvent(gameId, (game as any).seq ?? 0, 'crewVehicle', {
         playerId: pid,
+        resolvedStepId: String(step.id || '').trim(),
         vehicleId,
         crewerIds: selections,
       });
@@ -17018,6 +17031,7 @@ async function handleTargetSelectionResponse(
       (game as any).applyEvent({
         type: 'enlist',
         playerId: pid,
+        resolvedStepId: String(step.id || '').trim(),
         attackerId,
         enlistedCreatureId,
       });
@@ -17026,6 +17040,7 @@ async function handleTargetSelectionResponse(
     try {
       await appendEvent(gameId, (game as any).seq ?? 0, 'enlist', {
         playerId: pid,
+        resolvedStepId: String(step.id || '').trim(),
         attackerId,
         enlistedCreatureId,
       });
@@ -20405,6 +20420,7 @@ function handleTriggerOrderResponse(
   try {
     appendEvent(gameId, (game as any).seq ?? 0, 'triggerOrderResponse', {
       stepId: String((step as any).id || ''),
+      resolvedStepId: String((step as any).id || ''),
       playerId: pid,
       orderedTriggerIds: orderedTriggerIds.map((id: any) => String(id || '')).filter(Boolean),
     });
@@ -21143,6 +21159,7 @@ function handleTemptingOfferResponse(
   try {
     appendEvent(gameId, (game as any).seq ?? 0, 'temptingOfferResponse', {
       stepId: String((step as any).id || ''),
+      resolvedStepId: String((step as any).id || ''),
       playerId: pid,
       cardName,
       initiator,
@@ -21541,6 +21558,7 @@ function handleReturnControlledPermanentChoiceResponse(
   try {
     appendEvent(gameId, (game as any).seq ?? 0, 'bounceLandChoice', {
       playerId: pid,
+      resolvedStepId: String((step as any).id || '').trim(),
       returnedLandId: returnPermanentId,
       returnPermanentId,
       destination,
@@ -21674,6 +21692,7 @@ function handleHideawayChoiceResponse(
   try {
     appendEvent(gameId, (game as any).seq ?? 0, 'hideawayChoice', {
       playerId: pid,
+      resolvedStepId: String((step as any).id || '').trim(),
       permanentId,
       selectedCardId,
       lookedAtCardIds: topCards.map((card: any) => String(card?.id || '')),
@@ -23819,6 +23838,7 @@ async function handleLibrarySearchResponse(
     try {
       appendEvent(gameId, game.seq ?? 0, 'librarySearchResolve', {
         playerId: pid,
+        resolvedStepId: String((step as any).id || '').trim(),
         searchOwnerId,
         sourceId: String((step as any).sourceId || ''),
         sourceName,
@@ -24443,6 +24463,17 @@ async function handleSuspendCastResponse(
 
   if (response.cancelled) {
     debug(2, `[Resolution] Suspend cast cancelled: player=${pid}, card=${String(card?.name || '')}`);
+    try {
+      appendEvent(gameId, (game as any).seq ?? 0, 'suspendCard', {
+        playerId: pid,
+        resolvedStepId: String((step as any).id || '').trim(),
+        cardId: card?.id,
+        cardName: card?.name,
+        cancelled: true,
+      });
+    } catch (err) {
+      debugWarn(1, '[Resolution] appendEvent(suspendCard cancelled) failed:', err);
+    }
     return;
   }
 
@@ -24479,6 +24510,7 @@ async function handleSuspendCastResponse(
   try {
     appendEvent(gameId, (game as any).seq ?? 0, 'suspendCard', {
       playerId: pid,
+      resolvedStepId: String((step as any).id || '').trim(),
       cardId: card.id,
       cardName: card.name,
       card: suspendedCard,
@@ -24519,6 +24551,16 @@ function handleMorphTurnFaceUpResponse(
   
   if (response.cancelled) {
     debug(2, `[Resolution] Morph turn face-up cancelled for ${permanentId}`);
+    try {
+      appendEvent(gameId, (game as any).seq ?? 0, 'morphTurnFaceUp', {
+        playerId: pid,
+        resolvedStepId: String((step as any).id || '').trim(),
+        permanentId,
+        cancelled: true,
+      });
+    } catch (err) {
+      debugWarn(1, '[Resolution] appendEvent(morphTurnFaceUp cancelled) failed:', err);
+    }
     return;
   }
   
@@ -24560,6 +24602,7 @@ function handleMorphTurnFaceUpResponse(
   try {
     appendEvent(gameId, (game as any).seq ?? 0, 'morphTurnFaceUp', {
       playerId: pid,
+      resolvedStepId: String((step as any).id || '').trim(),
       permanentId,
       actualCard: { ...actualCard, zone: 'battlefield' },
     });
@@ -25872,10 +25915,22 @@ async function handleOptionChoiceResponse(
     const attackerId = String(stepData.exertAttackerId || stepData.permanentId || step.sourceId || '').trim();
     const choiceId = String(extractId(selectedOption) || '').trim().toLowerCase();
     const sourceName = String(step.sourceName || 'Exert').trim() || 'Exert';
+    const resolvedStepId = String((step as any).id || '').trim();
     const battlefield = Array.isArray((game.state as any)?.battlefield) ? (game.state as any).battlefield : [];
     const attacker = battlefield.find((permanent: any) => String(permanent?.id || '') === attackerId);
 
     if (response.cancelled || choiceId === 'normal' || choiceId === 'decline' || !attackerId) {
+      try {
+        await appendEvent(gameId, (game as any).seq ?? 0, 'exertChoice', {
+          playerId,
+          attackerId,
+          resolvedStepId,
+          exerted: false,
+          cancelled: response.cancelled === true || choiceId === 'decline',
+        });
+      } catch (err) {
+        debugWarn(1, '[Resolution] Failed to persist declined exertChoice event:', err);
+      }
       broadcastGame(io, game, gameId);
       return;
     }
@@ -25910,6 +25965,8 @@ async function handleOptionChoiceResponse(
         type: 'exertChoice',
         playerId,
         attackerId,
+        resolvedStepId,
+        exerted: true,
       });
     }
 
@@ -25917,6 +25974,8 @@ async function handleOptionChoiceResponse(
       await appendEvent(gameId, (game as any).seq ?? 0, 'exertChoice', {
         playerId,
         attackerId,
+        resolvedStepId,
+        exerted: true,
       });
     } catch (err) {
       debugWarn(1, '[Resolution] Failed to persist exertChoice event:', err);
@@ -26022,6 +26081,7 @@ async function handleOptionChoiceResponse(
   if (stepData.myriadChoice === true) {
     const battlefield = Array.isArray((game.state as any)?.battlefield) ? (game.state as any).battlefield : [];
     const sourcePermanentId = String(stepData.permanentId || step.sourceId || '').trim();
+    const resolvedStepId = String((step as any).id || '').trim();
     const sourcePermanent = battlefield.find((permanent: any) => String(permanent?.id || '') === sourcePermanentId);
     if (!sourcePermanent) {
       emitToPlayer(io, playerId as any, 'error', {
@@ -26076,6 +26136,7 @@ async function handleOptionChoiceResponse(
       await appendEvent(gameId, (game as any).seq ?? 0, 'myriadChoice', {
         playerId,
         permanentId: sourcePermanentId,
+        resolvedStepId,
         sourceName,
         sourcePermanentSnapshot,
         selectedOpponentIds,
@@ -27536,6 +27597,7 @@ async function handleOptionChoiceResponse(
     game.applyEvent({
       type: 'opponentMayPayResolve',
       playerId,
+      resolvedStepId: String((step as any).id || '').trim(),
       decidingPlayer: playerId,
       promptId,
       willPay,
@@ -27551,6 +27613,7 @@ async function handleOptionChoiceResponse(
     try {
       appendEvent(gameId, (game as any).seq ?? 0, 'opponentMayPayResolve', {
         playerId,
+        resolvedStepId: String((step as any).id || '').trim(),
         decidingPlayer: playerId,
         promptId,
         willPay,
@@ -27645,6 +27708,7 @@ async function handleOptionChoiceResponse(
     try {
       await appendEvent(gameId, (game as any).seq || 0, 'shockLandChoice', {
         playerId,
+        resolvedStepId: String((step as any).id || '').trim(),
         permanentId,
         payLife: shouldPayLife,
         cardName,
@@ -27712,6 +27776,7 @@ async function handleOptionChoiceResponse(
     try {
       await appendEvent(gameId, (game as any).seq || 0, 'revealLandChoice', {
         playerId,
+        resolvedStepId: String((step as any).id || '').trim(),
         permanentId,
         revealCardId: revealedName ? revealCardId : null,
         cardName,
@@ -27820,6 +27885,7 @@ async function handleOptionChoiceResponse(
     try {
       await appendEvent(gameId, (game as any).seq || 0, 'moxDiamondChoice', {
         playerId,
+        resolvedStepId: String((step as any).id || '').trim(),
         stackItemId,
         discardLandId: discardedLandName ? discardLandId : null,
         cardName: moxName,
@@ -31662,6 +31728,7 @@ async function handleOptionChoiceResponse(
 
       try {
         appendEvent(gameId, (game as any).seq ?? 0, 'counterPlacementResolve', {
+          resolvedStepId: String((step as any).id || '').trim(),
           sourceName,
           sourceController,
           goadedByPlayerId: goadedByPlayerId || undefined,

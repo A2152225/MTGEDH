@@ -111,15 +111,82 @@ describe('exertChoice replay coverage', () => {
       },
     }];
 
+    ResolutionQueueManager.addStep(gameId, {
+      id: 'exert_choice_step_1',
+      type: ResolutionStepType.OPTION_CHOICE,
+      playerId: attackerId,
+      description: 'Exert Combat Celebrant?',
+      mandatory: false,
+      exertChoice: true,
+      exertAttackerId: 'combat_celebrant',
+      permanentId: 'combat_celebrant',
+    } as any);
+
     game.applyEvent({
       type: 'exertChoice',
       playerId: attackerId,
       attackerId: 'combat_celebrant',
+      resolvedStepId: 'exert_choice_step_1',
+      exerted: true,
     } as any);
 
     const attacker = ((game.state as any).battlefield || [])[0] as any;
     expect(attacker.doesntUntapNextTurn).toBe(true);
     expect(attacker.exertedThisTurn).toBe(true);
+    expect(ResolutionQueueManager.getQueue(gameId).steps.some((entry: any) => String(entry?.id || '') === 'exert_choice_step_1')).toBe(false);
+  });
+
+  it('replays declined exertChoice by clearing the restored prompt without exerting', () => {
+    const gameId = createGameId();
+    trackedGameIds.add(gameId);
+    const attackerId = 'p1' as PlayerID;
+    const defenderId = 'p2' as PlayerID;
+    const game = seedCombatGame(gameId, attackerId, defenderId);
+
+    (game.state as any).battlefield = [{
+      id: 'exert_declined_attacker',
+      controller: attackerId,
+      owner: attackerId,
+      tapped: false,
+      summoningSickness: false,
+      counters: {},
+      basePower: 2,
+      baseToughness: 2,
+      attacking: defenderId,
+      card: {
+        id: 'exert_declined_card',
+        name: 'Exert Attacker',
+        type_line: 'Creature - Warrior',
+        oracle_text: 'You may exert this creature as it attacks.',
+        power: '2',
+        toughness: '2',
+      },
+    }];
+
+    ResolutionQueueManager.addStep(gameId, {
+      id: 'exert_choice_decline_step',
+      type: ResolutionStepType.OPTION_CHOICE,
+      playerId: attackerId,
+      description: 'Exert attacker?',
+      mandatory: false,
+      exertChoice: true,
+      exertAttackerId: 'exert_declined_attacker',
+      permanentId: 'exert_declined_attacker',
+    } as any);
+
+    game.applyEvent({
+      type: 'exertChoice',
+      playerId: attackerId,
+      attackerId: 'exert_declined_attacker',
+      resolvedStepId: 'exert_choice_decline_step',
+      exerted: false,
+      cancelled: true,
+    } as any);
+
+    const attacker = ((game.state as any).battlefield || [])[0] as any;
+    expect(attacker.doesntUntapNextTurn).toBeUndefined();
+    expect(attacker.exertedThisTurn).toBeUndefined();
+    expect(ResolutionQueueManager.getQueue(gameId).steps.some((entry: any) => String(entry?.id || '') === 'exert_choice_decline_step')).toBe(false);
   });
 
   it('replays whenever-you-exert watcher triggers like Trueheart Twins', () => {

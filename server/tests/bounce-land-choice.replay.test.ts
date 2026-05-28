@@ -120,6 +120,7 @@ describe('bounce land choice replay persistence', () => {
     const persisted = [...getEvents(gameId)].reverse().find((event: any) => event.type === 'bounceLandChoice') as any;
     expect(persisted).toBeDefined();
     expect(persisted.payload?.playerId).toBe(p1);
+    expect(persisted.payload?.resolvedStepId).toBe(String((step as any).id));
     expect(persisted.payload?.returnedLandId).toBe('forest_1');
     expect(persisted.payload?.stackItemId).toBe('stack_bounce_1');
     expect(persisted.payload?.destination).toBe('hand');
@@ -145,10 +146,26 @@ describe('bounce land choice replay persistence', () => {
       { id: 'stack_bounce_1', type: 'triggered_ability', sourceName: 'Simic Growth Chamber', description: 'Return a land you control to its owner\'s hand.' },
     ];
 
+    ResolutionQueueManager.addStep('test_bounce_land_choice_replay_rehydrated', {
+      id: String((step as any).id),
+      type: ResolutionStepType.RETURN_CONTROLLED_PERMANENT_CHOICE,
+      playerId: p1 as any,
+      description: 'Return a land to hand',
+      mandatory: true,
+      returnControlledPermanentChoice: true,
+      returnControlledPermanentSourceName: 'Simic Growth Chamber',
+      returnControlledPermanentDestination: 'hand',
+      stackItemId: 'stack_bounce_1',
+      returnControlledPermanentOptions: [
+        { permanentId: 'forest_1', cardName: 'Forest' },
+      ],
+    } as any);
+
     replayGame.applyEvent({ type: 'bounceLandChoice', ...(persisted.payload || {}) } as any);
 
     expect(((replayGame.state as any).battlefield || []).map((perm: any) => perm.id)).toEqual(['bounce_land']);
     expect(((replayGame.state as any).zones[p1].hand || []).map((card: any) => card.id)).toEqual(['forest_1']);
     expect((replayGame.state as any).stack || []).toHaveLength(0);
+    expect(ResolutionQueueManager.getQueue('test_bounce_land_choice_replay_rehydrated').steps.some((entry: any) => String(entry?.id || '') === String((step as any).id))).toBe(false);
   });
 });

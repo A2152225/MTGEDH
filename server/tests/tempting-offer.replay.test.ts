@@ -136,6 +136,7 @@ describe('Tempting Offer replay persistence', () => {
 
     const responseEvent = [...getEvents(gameId)].reverse().find((event: any) => event.type === 'temptingOfferResponse') as any;
     expect(responseEvent).toBeDefined();
+    expect(responseEvent.payload?.resolvedStepId).toBe(String((p2Step as any).id));
     expect(responseEvent.payload?.accepted).toBe(true);
     expect(responseEvent.payload?.playerId).toBe('p2');
 

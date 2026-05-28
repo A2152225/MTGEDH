@@ -1,10 +1,13 @@
 import { describe, expect, it } from 'vitest';
 
 import { applyEvent } from '../src/state/modules/applyEvent';
+import { ResolutionQueueManager, ResolutionStepType } from '../src/state/resolution/index.js';
 
 describe('hideawayChoice replay', () => {
   it('replays hideawayChoice by storing the chosen card under the source permanent and updating library order', () => {
+    const gameId = 'test_hideaway_choice_replay_cleanup';
     const ctx: any = {
+      gameId,
       state: {
         battlefield: [
           {
@@ -48,9 +51,25 @@ describe('hideawayChoice replay', () => {
       bumpSeq() {},
     };
 
+    ResolutionQueueManager.removeQueue(gameId);
+    ResolutionQueueManager.addStep(gameId, {
+      id: 'hideaway_choice_step_1',
+      type: ResolutionStepType.HIDEAWAY_CHOICE,
+      playerId: 'p1',
+      description: 'Hide away a card',
+      mandatory: true,
+      permanentId: 'windbrisk_1',
+      sourceId: 'windbrisk_1',
+      hideawayCards: [
+        { id: 'top_1', name: 'Top Card 1' },
+        { id: 'top_2', name: 'Top Card 2' },
+      ],
+    } as any);
+
     applyEvent(ctx, {
       type: 'hideawayChoice',
       playerId: 'p1',
+      resolvedStepId: 'hideaway_choice_step_1',
       permanentId: 'windbrisk_1',
       selectedCardId: 'top_2',
       lookedAtCardIds: ['top_1', 'top_2', 'top_3', 'top_4'],
@@ -66,5 +85,7 @@ describe('hideawayChoice replay', () => {
     expect(library.map((card: any) => card.id)).toEqual(['rest_1', 'top_3', 'top_1', 'top_4']);
     expect(zoneLibrary.map((card: any) => card.id)).toEqual(['rest_1', 'top_3', 'top_1', 'top_4']);
     expect((ctx.state.stack || []).some((item: any) => item.id === 'hideaway_stack_1')).toBe(false);
+    expect(ResolutionQueueManager.getQueue(gameId).steps.some((entry: any) => String(entry?.id || '') === 'hideaway_choice_step_1')).toBe(false);
+    ResolutionQueueManager.removeQueue(gameId);
   });
 });

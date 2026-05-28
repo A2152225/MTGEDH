@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { createInitialGameState } from '../src/state/gameState.js';
+import { ResolutionQueueManager, ResolutionStepType } from '../src/state/resolution/index.js';
 import type { PlayerID } from '../../shared/src';
 
 function addPlayer(game: any, id: PlayerID, name: string) {
@@ -9,7 +10,8 @@ function addPlayer(game: any, id: PlayerID, name: string) {
 
 describe('librarySearchResolve replay semantics', () => {
   it('replays battlefield results using persisted permanent ids', () => {
-    const game = createInitialGameState('t_library_search_resolve_replay_ids');
+    const gameId = 't_library_search_resolve_replay_ids';
+    const game = createInitialGameState(gameId);
     const p1 = 'p1' as PlayerID;
     addPlayer(game, p1, 'P1');
 
@@ -26,9 +28,21 @@ describe('librarySearchResolve replay semantics', () => {
       },
     };
 
+    ResolutionQueueManager.removeQueue(gameId);
+    ResolutionQueueManager.addStep(gameId, {
+      id: 'library_search_step_1',
+      type: ResolutionStepType.LIBRARY_SEARCH,
+      playerId: p1,
+      description: 'Search your library',
+      mandatory: true,
+      sourceName: 'Search Effect',
+    } as any);
+
     game.applyEvent({
       type: 'librarySearchResolve',
       playerId: p1,
+      resolvedStepId: 'library_search_step_1',
+      sourceName: 'Search Effect',
       selectedCardIds: ['library_card_1'],
       selectedCards: [
         {
@@ -50,6 +64,8 @@ describe('librarySearchResolve replay semantics', () => {
     expect(battlefield).toHaveLength(1);
     expect(battlefield[0]?.id).toBe('searched_perm_1');
     expect(battlefield[0]?.card?.id).toBe('library_card_1');
+    expect(ResolutionQueueManager.getQueue(gameId).steps.some((entry: any) => String(entry?.id || '') === 'library_search_step_1')).toBe(false);
+    ResolutionQueueManager.removeQueue(gameId);
   });
 
   it('falls back to deterministic ids for legacy battlefield search events without persisted ids', () => {

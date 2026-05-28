@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { createInitialGameState } from '../src/state/gameState.js';
+import { ResolutionQueueManager, ResolutionStepType } from '../src/state/resolution/index.js';
 import type { PlayerID } from '../../shared/src';
 
 function addPlayer(game: any, id: PlayerID, name: string) {
@@ -9,7 +10,8 @@ function addPlayer(game: any, id: PlayerID, name: string) {
 
 describe('opponent may pay replay semantics', () => {
   it('replays a paid choice by consuming the deciding player mana', () => {
-    const game = createInitialGameState('t_opponent_may_pay_replay_pay');
+    const gameId = 't_opponent_may_pay_replay_pay';
+    const game = createInitialGameState(gameId);
     const p1 = 'p1' as PlayerID;
     const p2 = 'p2' as PlayerID;
 
@@ -20,9 +22,21 @@ describe('opponent may pay replay semantics', () => {
       [p1]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 2 },
     };
 
+    ResolutionQueueManager.removeQueue(gameId);
+    ResolutionQueueManager.addStep(gameId, {
+      id: 'opponent_may_pay_step_1',
+      type: ResolutionStepType.OPTION_CHOICE,
+      playerId: p1,
+      description: 'Pay {2}?',
+      mandatory: false,
+      opponentMayPayChoice: true,
+      promptId: 'prompt_pay',
+    } as any);
+
     game.applyEvent({
       type: 'opponentMayPayResolve',
       playerId: p1,
+      resolvedStepId: 'opponent_may_pay_step_1',
       decidingPlayer: p1,
       promptId: 'prompt_pay',
       willPay: true,
@@ -41,6 +55,8 @@ describe('opponent may pay replay semantics', () => {
       colorless: 0,
     });
     expect(((game.state as any).battlefield || []).some((perm: any) => perm?.card?.name === 'Treasure')).toBe(false);
+    expect(ResolutionQueueManager.getQueue(gameId).steps.some((entry: any) => String(entry?.id || '') === 'opponent_may_pay_step_1')).toBe(false);
+    ResolutionQueueManager.removeQueue(gameId);
   });
 
   it('replays declined draw effects for the source controller', () => {

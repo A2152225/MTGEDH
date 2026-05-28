@@ -147,6 +147,17 @@ describe('suspend and morph prompt replay persistence', () => {
       },
     };
 
+    ResolutionQueueManager.addStep(suspendReplayGameId, {
+      id: String((step as any).id),
+      type: ResolutionStepType.SUSPEND_CAST,
+      playerId: p1 as any,
+      description: 'Suspend Rift Bolt',
+      mandatory: true,
+      card: { ...riftBolt },
+      suspendCost: '{R}',
+      timeCounters: 1,
+    } as any);
+
     replayGame.applyEvent({ type: 'suspendCard', ...(persisted.payload || {}) } as any);
 
     const replayZones = (replayGame.state as any).zones[p1];
@@ -159,6 +170,7 @@ describe('suspend and morph prompt replay persistence', () => {
       suspendedBy: p1,
       zone: 'exile',
     });
+    expect(ResolutionQueueManager.getQueue(suspendReplayGameId).steps.some((entry: any) => String(entry?.id || '') === String((step as any).id))).toBe(false);
   });
 
   it('persists morphTurnFaceUp outcomes from morph prompts and replays the face-up permanent state', async () => {
@@ -239,6 +251,18 @@ describe('suspend and morph prompt replay persistence', () => {
     (replayGame.state as any).players = [{ id: p1, name: 'P1', spectator: false, life: 40 }];
     (replayGame.state as any).battlefield = [{ ...faceDownPermanent, faceUpCard: { ...actualCard }, card: { ...(faceDownPermanent.card as any) } }];
 
+    ResolutionQueueManager.addStep(morphReplayGameId, {
+      id: String((step as any).id),
+      type: ResolutionStepType.MORPH_TURN_FACE_UP,
+      playerId: p1 as any,
+      description: 'Turn Willbender face-up',
+      mandatory: true,
+      permanentId: 'willbender_perm',
+      morphCost: '{1}{U}',
+      actualCard: { ...actualCard },
+      canAfford: true,
+    } as any);
+
     replayGame.applyEvent({ type: 'morphTurnFaceUp', ...(persisted.payload || {}) } as any);
 
     const permanent = ((replayGame.state as any).battlefield || [])[0] as any;
@@ -257,5 +281,6 @@ describe('suspend and morph prompt replay persistence', () => {
     expect(permanent?.morphCost).toBeUndefined();
     expect(permanent?.faceUpCard).toBeUndefined();
     expect(permanent?.canTurnFaceUp).toBeUndefined();
+    expect(ResolutionQueueManager.getQueue(morphReplayGameId).steps.some((entry: any) => String(entry?.id || '') === String((step as any).id))).toBe(false);
   });
 });

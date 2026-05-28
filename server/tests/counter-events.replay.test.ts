@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { createInitialGameState } from '../src/state/gameState.js';
+import { ResolutionQueueManager, ResolutionStepType } from '../src/state/resolution/index.js';
 import type { PlayerID } from '../../shared/src';
 
 function addPlayer(game: any, id: PlayerID, name: string) {
@@ -76,7 +77,8 @@ describe('counter event replay semantics', () => {
   });
 
   it('replays counterPlacementResolve by restoring trigger-added counters and goad state', () => {
-    const game = createInitialGameState('t_counter_placement_resolve_replay');
+    const gameId = 't_counter_placement_resolve_replay';
+    const game = createInitialGameState(gameId);
     const p1 = 'p1' as PlayerID;
     const p2 = 'p2' as PlayerID;
     addPlayer(game, p1, 'P1');
@@ -92,8 +94,21 @@ describe('counter event replay semantics', () => {
       },
     ];
 
+    ResolutionQueueManager.removeQueue(gameId);
+    ResolutionQueueManager.addStep(gameId, {
+      id: 'counter_placement_step_1',
+      type: ResolutionStepType.OPTION_CHOICE,
+      playerId: p2,
+      description: 'Put counters on a creature?',
+      mandatory: false,
+      counterPlacementTrigger: true,
+      sourceName: 'Agitator Ant',
+      sourceController: p1,
+    } as any);
+
     game.applyEvent({
       type: 'counterPlacementResolve',
+      resolvedStepId: 'counter_placement_step_1',
       sourceName: 'Agitator Ant',
       sourceController: p1,
       goadedByPlayerId: p1,
@@ -106,5 +121,7 @@ describe('counter event replay semantics', () => {
     const target = battlefield.find((perm: any) => perm.id === 'target_perm');
     expect(target?.counters).toEqual({ '+1/+1': 2 });
     expect(target?.goaded).toEqual({ [p1]: true });
+    expect(ResolutionQueueManager.getQueue(gameId).steps.some((entry: any) => String(entry?.id || '') === 'counter_placement_step_1')).toBe(false);
+    ResolutionQueueManager.removeQueue(gameId);
   });
 });

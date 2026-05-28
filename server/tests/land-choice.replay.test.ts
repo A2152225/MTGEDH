@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { createInitialGameState } from '../src/state/gameState.js';
+import { ResolutionQueueManager, ResolutionStepType } from '../src/state/resolution/index.js';
 import type { PlayerID } from '../../shared/src';
 
 function addPlayer(game: any, id: PlayerID, name: string) {
@@ -9,7 +10,8 @@ function addPlayer(game: any, id: PlayerID, name: string) {
 
 describe('land choice replay semantics', () => {
   it('replays sacrifice-unless-pay by consuming mana and keeping the permanent', () => {
-    const game = createInitialGameState('t_sacrifice_unless_pay_replay_pay');
+    const gameId = 't_sacrifice_unless_pay_replay_pay';
+    const game = createInitialGameState(gameId);
     const p1 = 'p1' as PlayerID;
     addPlayer(game, p1, 'P1');
 
@@ -34,9 +36,22 @@ describe('land choice replay semantics', () => {
       [p1]: { hand: [], handCount: 0, libraryCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0 },
     };
 
+    ResolutionQueueManager.removeQueue(gameId);
+    ResolutionQueueManager.addStep(gameId, {
+      id: 'sacrifice_unless_pay_step_1',
+      type: ResolutionStepType.OPTION_CHOICE,
+      playerId: p1,
+      description: 'Pay {1}?',
+      mandatory: true,
+      sacrificeUnlessPayChoice: true,
+      permanentId: 'promenade_1',
+      sourceId: 'promenade_1',
+    } as any);
+
     game.applyEvent({
       type: 'sacrificeUnlessPayChoice',
       playerId: p1,
+      resolvedStepId: 'sacrifice_unless_pay_step_1',
       permanentId: 'promenade_1',
       payMana: true,
       manaCost: '{1}',
@@ -46,6 +61,8 @@ describe('land choice replay semantics', () => {
     expect(((game.state as any).battlefield || []).map((perm: any) => perm.id)).toEqual(['promenade_1']);
     expect((game.state as any).zones[p1].graveyard || []).toEqual([]);
     expect((game.state as any).manaPool[p1]).toEqual({ white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 });
+    expect(ResolutionQueueManager.getQueue(gameId).steps.some((entry: any) => String(entry?.id || '') === 'sacrifice_unless_pay_step_1')).toBe(false);
+    ResolutionQueueManager.removeQueue(gameId);
   });
 
   it('replays sacrifice-unless-pay with Treasure-backed auto-pay by preserving the token graveyard snapshot', () => {
@@ -140,7 +157,8 @@ describe('land choice replay semantics', () => {
   });
 
   it('replays reveal-land choice by untapping the land when a card was revealed', () => {
-    const game = createInitialGameState('t_reveal_land_choice_replay_reveal');
+    const gameId = 't_reveal_land_choice_replay_reveal';
+    const game = createInitialGameState(gameId);
     const p1 = 'p1' as PlayerID;
     addPlayer(game, p1, 'P1');
 
@@ -154,15 +172,29 @@ describe('land choice replay semantics', () => {
       },
     ];
 
+    ResolutionQueueManager.removeQueue(gameId);
+    ResolutionQueueManager.addStep(gameId, {
+      id: 'reveal_land_choice_step_1',
+      type: ResolutionStepType.OPTION_CHOICE,
+      playerId: p1,
+      description: 'Reveal a land?',
+      mandatory: false,
+      revealLandChoice: true,
+      permanentId: 'snarl_1',
+    } as any);
+
     game.applyEvent({
       type: 'revealLandChoice',
       playerId: p1,
+      resolvedStepId: 'reveal_land_choice_step_1',
       permanentId: 'snarl_1',
       revealCardId: 'plains_hand_1',
       cardName: 'Shineshadow Snarl',
     } as any);
 
     expect(Boolean((game.state as any).battlefield[0]?.tapped)).toBe(false);
+    expect(ResolutionQueueManager.getQueue(gameId).steps.some((entry: any) => String(entry?.id || '') === 'reveal_land_choice_step_1')).toBe(false);
+    ResolutionQueueManager.removeQueue(gameId);
   });
 
   it('replays reveal-land decline by keeping the land tapped', () => {
@@ -192,7 +224,8 @@ describe('land choice replay semantics', () => {
   });
 
   it('replays shock-land life payment as real life loss this turn', () => {
-    const game = createInitialGameState('t_shock_land_choice_replay_pay');
+    const gameId = 't_shock_land_choice_replay_pay';
+    const game = createInitialGameState(gameId);
     const p1 = 'p1' as PlayerID;
     addPlayer(game, p1, 'P1');
 
@@ -207,9 +240,21 @@ describe('land choice replay semantics', () => {
       },
     ];
 
+    ResolutionQueueManager.removeQueue(gameId);
+    ResolutionQueueManager.addStep(gameId, {
+      id: 'shock_land_choice_step_1',
+      type: ResolutionStepType.OPTION_CHOICE,
+      playerId: p1,
+      description: 'Pay 2 life?',
+      mandatory: false,
+      shockLandChoice: true,
+      permanentId: 'shock_1',
+    } as any);
+
     game.applyEvent({
       type: 'shockLandChoice',
       playerId: p1,
+      resolvedStepId: 'shock_land_choice_step_1',
       permanentId: 'shock_1',
       payLife: true,
       cardName: 'Watery Grave',
@@ -219,6 +264,8 @@ describe('land choice replay semantics', () => {
     expect((game.state as any).players?.[0]?.life).toBe(38);
     expect((game.state as any).lifeLostThisTurn?.[p1]).toBe(2);
     expect(Boolean((game.state as any).battlefield[0]?.tapped)).toBe(false);
+    expect(ResolutionQueueManager.getQueue(gameId).steps.some((entry: any) => String(entry?.id || '') === 'shock_land_choice_step_1')).toBe(false);
+    ResolutionQueueManager.removeQueue(gameId);
   });
 
   it('replays shock-land decline by keeping the land tapped without losing life', () => {
