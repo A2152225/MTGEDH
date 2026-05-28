@@ -19,6 +19,7 @@ describe('resolveTopOfStack prompt replay semantics', () => {
       't_resolve_top_of_stack_prompt_replay_player',
       't_resolve_top_of_stack_prompt_replay_bounce',
       't_resolve_top_of_stack_prompt_replay_spell_color',
+      't_resolve_top_of_stack_prompt_replay_multi_idempotent',
     ]) {
       resetGame(gameId);
     }
@@ -160,5 +161,60 @@ describe('resolveTopOfStack prompt replay semantics', () => {
     expect(String((queue.steps[0] as any)?.id || '')).toBe('queued_resolve_prompt_color_1');
     expect((queue.steps[0] as any)?.type).toBe(ResolutionStepType.COLOR_CHOICE);
     expect((queue.steps[0] as any)?.spellId).toBe('spell_stack_1');
+  });
+
+  it('replays multi-step prompt events without duplicating already-restored steps', () => {
+    const gameId = 't_resolve_top_of_stack_prompt_replay_multi_idempotent';
+
+    const game = createInitialGameState(gameId);
+    const p1 = 'p1' as PlayerID;
+    addPlayer(game, p1, 'P1');
+
+    const event = {
+      type: 'resolveTopOfStackPrompt',
+      playerId: p1,
+      sourceId: 'madness_card_1',
+      queuedResolutionSteps: [
+        {
+          id: 'queued_resolve_prompt_madness_1',
+          type: ResolutionStepType.OPTION_CHOICE,
+          playerId: p1,
+          sourceId: 'madness_card_1',
+          sourceName: 'Fiery Temper',
+          description: 'Cast Fiery Temper for its madness cost?',
+          mandatory: false,
+          options: [
+            { id: 'cast', label: 'Cast' },
+            { id: 'decline', label: 'Decline' },
+          ],
+          madnessCastChoice: true,
+        },
+        {
+          id: 'queued_resolve_prompt_madness_target_1',
+          type: ResolutionStepType.TARGET_SELECTION,
+          playerId: p1,
+          sourceId: 'madness_card_1',
+          sourceName: 'Fiery Temper',
+          description: 'Choose any target for Fiery Temper',
+          mandatory: true,
+          validTargets: [
+            { id: 'opponent_1', label: 'Opponent', targetType: 'player' },
+          ],
+          minTargets: 1,
+          maxTargets: 1,
+          madnessTargetSelection: true,
+        },
+      ],
+    } as any;
+
+    game.applyEvent(event);
+    game.applyEvent(event);
+
+    const queue = ResolutionQueueManager.getQueue(gameId);
+    expect(queue.steps.map((step: any) => String(step?.id || ''))).toEqual([
+      'queued_resolve_prompt_madness_1',
+      'queued_resolve_prompt_madness_target_1',
+    ]);
+    expect(queue.steps).toHaveLength(2);
   });
 });

@@ -3228,7 +3228,18 @@ describe('cast-from-graveyard replay semantics (integration)', () => {
 
     const zones = (game.state as any).zones?.[playerId];
     expect((zones?.exile || []).map((card: any) => card.id)).toContain('moments_peace_1');
-    expect(((game.state as any).damagePreventionEffects || []).some((effect: any) => effect?.combatOnly === true && effect?.targetSourceId === '*')).toBe(true);
+    const preventionEffect = ((game.state as any).damagePreventionEffects || [])
+      .find((effect: any) => effect?.combatOnly === true && effect?.targetSourceId === '*') as any;
+    expect(preventionEffect).toMatchObject({
+      description: 'Prevent all combat damage this turn',
+      sourceName: "Moment's Peace",
+      controllerId: playerId,
+      targetSourceId: '*',
+      combatOnly: true,
+      expiresAtTurn: 1,
+    });
+    expect(String(preventionEffect?.id || '')).toContain(':prevent:combat:1');
+    expect(String(preventionEffect?.sourceId || '')).not.toBe('');
 
     (game as any).nextStep();
 
@@ -3299,7 +3310,18 @@ describe('cast-from-graveyard replay semantics (integration)', () => {
 
     const zones = (game.state as any).zones?.[playerId];
     expect((zones?.exile || []).map((card: any) => card.id)).toContain('moments_peace_replay_1');
-    expect(((game.state as any).damagePreventionEffects || []).some((effect: any) => effect?.combatOnly === true && effect?.targetSourceId === '*')).toBe(true);
+    const preventionEffect = ((game.state as any).damagePreventionEffects || [])
+      .find((effect: any) => effect?.combatOnly === true && effect?.targetSourceId === '*') as any;
+    expect(preventionEffect).toMatchObject({
+      description: 'Prevent all combat damage this turn',
+      sourceName: "Moment's Peace",
+      controllerId: playerId,
+      targetSourceId: '*',
+      combatOnly: true,
+      expiresAtTurn: 1,
+    });
+    expect(String(preventionEffect?.id || '')).toContain(':prevent:combat:1');
+    expect(String(preventionEffect?.sourceId || '')).not.toBe('');
 
     (game as any).nextStep();
 

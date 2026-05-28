@@ -6,6 +6,7 @@ import { describe, expect, it } from 'vitest';
 
 const TEST_DIR = path.dirname(fileURLToPath(import.meta.url));
 const SERVER_DIR = path.resolve(TEST_DIR, '..');
+const SERVER_SRC_DIR = path.join(SERVER_DIR, 'src');
 const APPLY_EVENT_PATH = path.join(SERVER_DIR, 'src', 'state', 'modules', 'applyEvent.ts');
 
 const INTERACTION_EVENT_SOURCE_PATHS = [
@@ -18,10 +19,6 @@ const INTERACTION_EVENT_SOURCE_PATHS = [
   path.join(SERVER_DIR, 'src', 'socket', 'player-selection.ts'),
   path.join(SERVER_DIR, 'src', 'socket', 'resolution.ts'),
   path.join(SERVER_DIR, 'src', 'state', 'resolution', 'handlers'),
-];
-
-const PROMPT_RESPONSE_EVENT_SOURCE_PATHS = [
-  path.join(SERVER_DIR, 'src', 'state', 'modules', 'stack.ts'),
 ];
 
 const REPLAY_GUARDED_EVENT_TYPES = new Set([
@@ -41,6 +38,7 @@ const REPLAY_GUARDED_EVENT_TYPES = new Set([
   'bottomOrderResolve',
   'cardNameChoice',
   'castFromExilePromptResolve',
+  'castFromGraveyardPromptResolve',
   'castRevealedFromLibraryResolve',
   'cascadeResolve',
   'castSpellContinuation',
@@ -129,6 +127,8 @@ const REPLAY_GUARDED_EVENT_TYPES = new Set([
   'reflexiveManaPaymentResolve',
   'retargetAbilityCopyResolve',
   'retargetSpellCopyResolve',
+  'resolvedSpellCopyChoiceResolve',
+  'resolvedSpellCopyResolve',
   'resolveTopOfStackPrompt',
   'rulesChoiceResolved',
   'revealLandChoice',
@@ -167,7 +167,6 @@ const REPLAY_GUARD_EXEMPTIONS: Record<string, string> = {
   allPlayersPassed: 'nextStep reason marker captured by the appendEvent meta regex, not a standalone persisted event type',
   adjustLife: 'non-interactive gameplay primitive; covered by direct life bookkeeping tests rather than prompt-resolution replay guard',
   castSpell: 'core gameplay event, not a queued interaction outcome',
-  castFromGraveyardPromptResolve: 'graveyard-cast prompt resolution is currently covered by targeted integration tests like oskar-rubbish-reclaimer.integration.test.ts rather than replay-named guard files',
   concede: 'lifecycle event, not a replay-specific interaction contract',
   drawCards: 'core gameplay primitive, not a queued interaction outcome',
   foretellCard: 'gameplay action, not a queued interaction outcome',
@@ -175,12 +174,11 @@ const REPLAY_GUARD_EXEMPTIONS: Record<string, string> = {
   mill: 'core gameplay primitive, not a queued interaction outcome',
   mulligan: 'opening-hand progression primitive; the replay guard focuses on completion events instead',
   nextStep: 'turn progression primitive, not a queued interaction outcome',
+  nextTurn: 'turn progression primitive, not a queued interaction outcome',
   permanent_untapped: 'generic state event, not a player-choice resolution contract',
   phaseOutPermanents: 'gameplay state primitive, not a queued interaction outcome',
   playLand: 'core gameplay action, not a queued interaction outcome',
   pushTriggeredAbility: 'stack-construction primitive covered by targeted applyEvent tests, not this replay guard',
-  resolvedSpellCopyChoiceResolve: 'resolved-spell copy choice bookkeeping is currently covered by targeted applyEvent/integration tests rather than replay-named guard files',
-  resolvedSpellCopyResolve: 'resolved-spell copy replay bookkeeping is currently covered by targeted applyEvent/integration tests rather than replay-named guard files',
   restart: 'game lifecycle event, not a queued interaction outcome',
   sacrificePermanent: 'generic gameplay primitive, not a queued interaction outcome',
   setHouseRules: 'configuration event, not a queued interaction outcome',
@@ -222,6 +220,7 @@ const PROMPT_RESPONSE_CLEANUP_EVENT_TYPES = [
   'revealLandChoice',
   'retargetAbilityCopyResolve',
   'retargetSpellCopyResolve',
+  'resolvedSpellCopyChoiceResolve',
   'rulesChoiceResolved',
   'sacrificeUnlessPayChoice',
   'shockLandChoice',
@@ -250,39 +249,51 @@ function readFile(filePath: string): string {
   return fs.readFileSync(filePath, 'utf8');
 }
 
+function sourceFilesForPath(sourcePath: string): string[] {
+  return fs.statSync(sourcePath).isDirectory()
+    ? walkFiles(sourcePath).filter(filePath => filePath.endsWith('.ts'))
+    : [sourcePath];
+}
+
+function collectAppendEventTypes(filePath: string): string[] {
+  const sourceText = readFile(filePath);
+  const sourceFile = ts.createSourceFile(filePath, sourceText, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  const eventTypes = new Set<string>();
+
+  const visit = (node: ts.Node) => {
+    if (ts.isCallExpression(node) && node.expression.getText(sourceFile) === 'appendEvent') {
+      const eventTypeArgument = node.arguments[2];
+      if (eventTypeArgument && ts.isStringLiteralLike(eventTypeArgument)) {
+        eventTypes.add(eventTypeArgument.text);
+      }
+    }
+
+    ts.forEachChild(node, visit);
+  };
+
+  visit(sourceFile);
+  return [...eventTypes];
+}
+
+function isPromptResponseEventType(eventType: string): boolean {
+  return /(?:Choice|Resolve|Response|Prompt)$/.test(eventType);
+}
+
 function collectPersistedInteractionEventTypes(): string[] {
-  const eventTypeRegex = /appendEvent\([^\r\n]*["']([A-Za-z0-9_]+)["']/g;
-  const promptResponseEventTypeRegex = /appendEvent\([^\r\n]*["']([A-Za-z0-9_]*(?:Choice|Resolve|Response|Prompt))["']/g;
   const eventTypes = new Set<string>();
 
   for (const sourcePath of INTERACTION_EVENT_SOURCE_PATHS) {
-    const sourceFiles = fs.statSync(sourcePath).isDirectory()
-      ? walkFiles(sourcePath).filter(filePath => filePath.endsWith('.ts'))
-      : [sourcePath];
-
-    for (const filePath of sourceFiles) {
-      const content = readFile(filePath);
-      for (const match of content.matchAll(eventTypeRegex)) {
-        const eventType = String(match[1] || '').trim();
-        if (eventType) {
-          eventTypes.add(eventType);
-        }
+    for (const filePath of sourceFilesForPath(sourcePath)) {
+      for (const eventType of collectAppendEventTypes(filePath)) {
+        eventTypes.add(eventType);
       }
     }
   }
 
-  for (const sourcePath of PROMPT_RESPONSE_EVENT_SOURCE_PATHS) {
-    const sourceFiles = fs.statSync(sourcePath).isDirectory()
-      ? walkFiles(sourcePath).filter(filePath => filePath.endsWith('.ts'))
-      : [sourcePath];
-
-    for (const filePath of sourceFiles) {
-      const content = readFile(filePath);
-      for (const match of content.matchAll(promptResponseEventTypeRegex)) {
-        const eventType = String(match[1] || '').trim();
-        if (eventType) {
-          eventTypes.add(eventType);
-        }
+  for (const filePath of sourceFilesForPath(SERVER_SRC_DIR)) {
+    for (const eventType of collectAppendEventTypes(filePath)) {
+      if (isPromptResponseEventType(eventType)) {
+        eventTypes.add(eventType);
       }
     }
   }
