@@ -165,6 +165,278 @@ describe('AI option choice', () => {
     expect(decision).toEqual({ selections: ['decline'], cancelled: true });
   });
 
+  it('chooses a valid Dredge draw replacement when the library can support it', () => {
+    const playerId = 'ai1' as PlayerID;
+    const game = {
+      state: {
+        players: [createPlayer(playerId, 'AI')],
+        zones: {
+          [playerId]: {
+            graveyard: [
+              { id: 'stinkweed_imp_1', name: 'Stinkweed Imp', type_line: 'Creature - Imp', oracle_text: 'Flying\nDredge 5', cmc: 3 },
+            ],
+            library: Array.from({ length: 12 }, (_, index) => ({ id: `library_${index + 1}` })),
+          },
+        },
+      },
+    } as any;
+
+    const decision = chooseAIOptionSelectionsForStep(game, playerId, {
+      dredgeDrawReplacementChoice: true,
+      dredgeOptions: [{ cardId: 'stinkweed_imp_1', cardName: 'Stinkweed Imp', dredge: 5 }],
+      options: [
+        { id: 'draw', label: 'Draw a card' },
+        { id: 'dredge:stinkweed_imp_1', label: 'Stinkweed Imp - Dredge 5' },
+      ],
+    });
+
+    expect(decision).toEqual({ selections: ['dredge:stinkweed_imp_1'], cancelled: false });
+  });
+
+  it('draws instead of choosing Dredge when the offered graveyard card is no longer valid', () => {
+    const playerId = 'ai1' as PlayerID;
+    const game = {
+      state: {
+        players: [createPlayer(playerId, 'AI')],
+        zones: {
+          [playerId]: {
+            graveyard: [],
+            library: Array.from({ length: 12 }, (_, index) => ({ id: `library_${index + 1}` })),
+          },
+        },
+      },
+    } as any;
+
+    const decision = chooseAIOptionSelectionsForStep(game, playerId, {
+      dredgeDrawReplacementChoice: true,
+      dredgeOptions: [{ cardId: 'stinkweed_imp_1', cardName: 'Stinkweed Imp', dredge: 5 }],
+      options: [
+        { id: 'draw', label: 'Draw a card' },
+        { id: 'dredge:stinkweed_imp_1', label: 'Stinkweed Imp - Dredge 5' },
+      ],
+    });
+
+    expect(decision).toEqual({ selections: ['draw'], cancelled: false });
+  });
+
+  it('chooses the least developed opponent for Forbidden Orchard tokens', () => {
+    const playerId = 'ai1' as PlayerID;
+    const game = {
+      state: {
+        players: [createPlayer(playerId, 'AI'), createPlayer('opp1', 'Opponent 1'), createPlayer('opp2', 'Opponent 2')],
+        battlefield: [
+          { id: 'opp1_creature_1', controller: 'opp1', card: { name: 'Colossal Dreadmaw', type_line: 'Creature - Dinosaur', power: '6' } },
+          { id: 'opp1_rock_1', controller: 'opp1', card: { name: 'Sol Ring', type_line: 'Artifact' } },
+          { id: 'opp2_land_1', controller: 'opp2', card: { name: 'Island', type_line: 'Basic Land - Island' } },
+        ],
+      },
+    } as any;
+
+    const decision = chooseAIOptionSelectionsForStep(game, playerId, {
+      forbiddenOrchardTargetChoice: true,
+      options: [
+        { id: 'opp1', label: 'Opponent 1' },
+        { id: 'opp2', label: 'Opponent 2' },
+      ],
+    });
+
+    expect(decision).toEqual({ selections: ['opp2'], cancelled: false });
+  });
+
+  it('chooses the least developed opponent for looked-at-card chooser prompts', () => {
+    const playerId = 'ai1' as PlayerID;
+    const game = {
+      state: {
+        players: [createPlayer(playerId, 'AI'), createPlayer('opp1', 'Opponent 1', 40), createPlayer('opp2', 'Opponent 2', 25)],
+        life: { [playerId]: 40, opp1: 40, opp2: 25 },
+        battlefield: [
+          { id: 'opp1_creature_1', controller: 'opp1', card: { name: 'Questing Beast', type_line: 'Creature - Beast', power: '4', toughness: '4' } },
+          { id: 'opp1_artifact_1', controller: 'opp1', card: { name: 'Arcane Signet', type_line: 'Artifact' } },
+          { id: 'opp2_land_1', controller: 'opp2', card: { name: 'Island', type_line: 'Basic Land - Island' } },
+        ],
+      },
+    } as any;
+
+    const decision = chooseAIOptionSelectionsForStep(game, playerId, {
+      choosePlayerForLookedAtCardsChoice: true,
+      options: [
+        { id: 'opp1', label: 'Opponent 1' },
+        { id: 'opp2', label: 'Opponent 2' },
+      ],
+    });
+
+    expect(decision).toEqual({ selections: ['opp2'], cancelled: false });
+  });
+
+  it('pays mana for Blight-or-pay spell additional costs when affordable', () => {
+    const playerId = 'ai1' as PlayerID;
+    const game = {
+      state: {
+        players: [createPlayer(playerId, 'AI')],
+        manaPool: { [playerId]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 5 } },
+        pendingSpellCasts: {
+          cast_1: { effectId: 'cast_1', cardId: 'spell_1', cardName: 'Blight Blast', manaCost: '{1}' },
+        },
+        battlefield: [
+          { id: 'creature_1', controller: playerId, card: { name: 'Useful Creature', type_line: 'Creature - Soldier', power: '2', toughness: '2' } },
+        ],
+      },
+    } as any;
+
+    const decision = chooseAIOptionSelectionsForStep(game, playerId, {
+      spellAdditionalCostBlightOrPay: true,
+      spellAdditionalCostEffectId: 'cast_1',
+      spellAdditionalCostOrPay: '{3}',
+      options: [
+        { id: 'blight_cost', label: 'Blight 1' },
+        { id: 'pay_mana_cost', label: 'Pay {3}' },
+      ],
+    });
+
+    expect(decision).toEqual({ selections: ['pay_mana_cost'], cancelled: false });
+  });
+
+  it('chooses Blight for Blight-or-pay spell additional costs when mana is unavailable', () => {
+    const playerId = 'ai1' as PlayerID;
+    const game = {
+      state: {
+        players: [createPlayer(playerId, 'AI')],
+        manaPool: { [playerId]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 } },
+        pendingSpellCasts: {
+          cast_1: { effectId: 'cast_1', cardId: 'spell_1', cardName: 'Blight Blast', manaCost: '{1}' },
+        },
+        battlefield: [
+          { id: 'creature_1', controller: playerId, card: { name: 'Spare Creature', type_line: 'Creature - Soldier', power: '1', toughness: '1' } },
+        ],
+      },
+    } as any;
+
+    const decision = chooseAIOptionSelectionsForStep(game, playerId, {
+      spellAdditionalCostBlightOrPay: true,
+      spellAdditionalCostEffectId: 'cast_1',
+      spellAdditionalCostOrPay: '{3}',
+      options: [
+        { id: 'pay_mana_cost', label: 'Pay {3}' },
+        { id: 'blight_cost', label: 'Blight 1' },
+      ],
+    });
+
+    expect(decision).toEqual({ selections: ['blight_cost'], cancelled: false });
+  });
+
+  it('chooses Lost Mine for Venture dungeon prompts even when it is not first', () => {
+    const playerId = 'ai1' as PlayerID;
+    const game = { state: { players: [createPlayer(playerId, 'AI')] } } as any;
+
+    const decision = chooseAIOptionSelectionsForStep(game, playerId, {
+      ventureChooseDungeon: true,
+      options: [
+        { id: 'tomb', label: 'Tomb of Annihilation' },
+        { id: 'mad_mage', label: 'Dungeon of the Mad Mage' },
+        { id: 'lost_mine', label: 'Lost Mine of Phandelver' },
+      ],
+    });
+
+    expect(decision).toEqual({ selections: ['lost_mine'], cancelled: false });
+  });
+
+  it('chooses immediate resource rooms for Venture room prompts', () => {
+    const playerId = 'ai1' as PlayerID;
+    const game = { state: { players: [createPlayer(playerId, 'AI')] } } as any;
+
+    const decision = chooseAIOptionSelectionsForStep(game, playerId, {
+      ventureChooseRoom: true,
+      options: [
+        { id: 'twisted_caverns', label: "Twisted Caverns - Target creature can't attack until your next turn." },
+        { id: 'goblin_bazaar', label: 'Goblin Bazaar - Create a Treasure token.' },
+      ],
+    });
+
+    expect(decision).toEqual({ selections: ['goblin_bazaar'], cancelled: false });
+  });
+
+  it('accepts administrative confirmation prompts for AI seats', () => {
+    const playerId = 'ai1' as PlayerID;
+    const game = { state: { players: [createPlayer(playerId, 'AI')] } } as any;
+
+    const importDecision = chooseAIOptionSelectionsForStep(game, playerId, {
+      importWipeConfirm: true,
+      options: [
+        { id: 'decline', label: 'Reject' },
+        { id: 'accept', label: 'Approve' },
+      ],
+    });
+    const judgeDecision = chooseAIOptionSelectionsForStep(game, playerId, {
+      judgeConfirm: true,
+      options: [
+        { id: 'decline', label: 'Reject' },
+        { id: 'accept', label: 'Approve' },
+      ],
+    });
+
+    expect(importDecision).toEqual({ selections: ['accept'], cancelled: false });
+    expect(judgeDecision).toEqual({ selections: ['accept'], cancelled: false });
+  });
+
+  it('chooses the higher-value pile for its own split-pile hand choice', () => {
+    const playerId = 'ai1' as PlayerID;
+    const game = {
+      state: {
+        players: [createPlayer(playerId, 'AI')],
+        zones: { [playerId]: { hand: [] } },
+        battlefield: [],
+      },
+    } as any;
+
+    const decision = chooseAIOptionSelectionsForStep(game, playerId, {
+      choosePileFromSplitChoice: true,
+      choosePileFromSplitChosenAction: 'move_cards',
+      choosePileFromSplitMovePlayerId: playerId,
+      choosePileFromSplitChosenDestination: 'hand',
+      choosePileFromSplitOtherDestination: 'library',
+      choosePileFromSplitItems: [
+        { id: 'c1', name: 'Wastes', type_line: 'Basic Land', oracle_text: 'Add {C}.', cmc: 0 },
+        { id: 'c2', name: 'Impulse', type_line: 'Instant', oracle_text: 'Draw a card.', cmc: 1 },
+        { id: 'c3', name: 'Terminate', type_line: 'Instant', oracle_text: 'Destroy target creature.', cmc: 2 },
+      ],
+      choosePileFromSplitPileA: ['c1'],
+      choosePileFromSplitPileB: ['c2', 'c3'],
+      options: [
+        { id: 'pileA', label: 'Pile A' },
+        { id: 'pileB', label: 'Pile B' },
+      ],
+    });
+
+    expect(decision).toEqual({ selections: ['pileB'], cancelled: false });
+  });
+
+  it('chooses the lower-value pile when it must sacrifice one split pile', () => {
+    const playerId = 'ai1' as PlayerID;
+    const game = {
+      state: {
+        players: [createPlayer(playerId, 'AI')],
+        battlefield: [
+          { id: 'perm1', controller: playerId, card: { name: 'Treasure', type_line: 'Artifact Token', cmc: 0 } },
+          { id: 'perm2', controller: playerId, card: { name: 'Consecrated Sphinx', type_line: 'Creature - Sphinx', oracle_text: 'Whenever an opponent draws a card, you may draw two cards.', cmc: 6 } },
+        ],
+      },
+    } as any;
+
+    const decision = chooseAIOptionSelectionsForStep(game, playerId, {
+      choosePileFromSplitChoice: true,
+      choosePileFromSplitChosenAction: 'sacrifice_permanents',
+      choosePileFromSplitTargetPlayerId: playerId,
+      choosePileFromSplitPileA: ['perm1'],
+      choosePileFromSplitPileB: ['perm2'],
+      options: [
+        { id: 'pileB', label: 'Pile B' },
+        { id: 'pileA', label: 'Pile A' },
+      ],
+    });
+
+    expect(decision).toEqual({ selections: ['pileA'], cancelled: false });
+  });
+
   it('chooses mutate mode for mutate cast prompts', () => {
     const playerId = 'ai1' as PlayerID;
     const game = { state: { players: [createPlayer(playerId, 'AI')] } } as any;

@@ -2557,6 +2557,297 @@ function chooseAIMiraclePromptSelection(
   }
 }
 
+function parseDredgeAmountFromCard(card: any): number {
+  const match = String(card?.oracle_text || '').match(/\bdredge\s+(\d+)\b/i);
+  const amount = match ? parseInt(match[1], 10) : 0;
+  return Number.isFinite(amount) && amount > 0 ? amount : 0;
+}
+
+function chooseAIDredgeDrawReplacementSelection(
+  game: any,
+  playerId: PlayerID,
+  step: any,
+  options: any[],
+  resolveOptionId: (option: any) => string,
+): { selections: string[]; cancelled: boolean } {
+  const optionIds = options.map((option: any) => resolveOptionId(option)).filter(Boolean);
+  const drawId = optionIds.find((id) => /^draw$/i.test(id))
+    || optionIds.find((id) => /^(?:decline|no|cancel)$/i.test(id))
+    || optionIds[0]
+    || 'draw';
+  const offeredDredgeIds = optionIds.filter((id) => /^dredge:/i.test(id));
+  if (offeredDredgeIds.length === 0) {
+    return { selections: [drawId], cancelled: false };
+  }
+
+  const graveyard = Array.isArray(game?.state?.zones?.[playerId]?.graveyard) ? game.state.zones[playerId].graveyard : [];
+  const libraryCount = getAILibraryCards(game, playerId).length;
+  const stepDredgeOptions = Array.isArray(step?.dredgeOptions) ? step.dredgeOptions : [];
+  const profile = ensureAIDeckProfile(game, playerId);
+
+  const ranked = offeredDredgeIds
+    .map((id) => {
+      const cardId = id.slice(id.indexOf(':') + 1).trim();
+      const graveyardCard = graveyard.find((card: any) => String(card?.id || '') === cardId);
+      if (!graveyardCard) return null;
+      const configured = stepDredgeOptions.find((option: any) => String(option?.cardId || '') === cardId);
+      const dredgeAmount = Math.max(0, Math.floor(Number(configured?.dredge || parseDredgeAmountFromCard(graveyardCard))));
+      if (dredgeAmount <= 0 || libraryCount < dredgeAmount) return null;
+      const remainingLibrary = libraryCount - dredgeAmount;
+      if (remainingLibrary <= 1) return null;
+      const score = scoreCardForAIAcquisition(game, playerId, graveyardCard, 'hand', profile) - dredgeAmount;
+      return { id, score, dredgeAmount };
+    })
+    .filter((entry): entry is { id: string; score: number; dredgeAmount: number } => Boolean(entry))
+    .sort((left, right) => right.score - left.score || left.dredgeAmount - right.dredgeAmount || left.id.localeCompare(right.id));
+
+  const chosenId = ranked[0]?.id;
+  return chosenId
+    ? { selections: [chosenId], cancelled: false }
+    : { selections: [drawId], cancelled: false };
+}
+
+function scoreAIPlayerBoardDevelopment(game: any, candidateId: string): number {
+  const battlefield = Array.isArray(game?.state?.battlefield) ? game.state.battlefield : [];
+  const permanents = battlefield.filter((permanent: any) => String(permanent?.controller || '') === candidateId);
+  const permanentScore = permanents.reduce((total: number, permanent: any) => {
+    const card = permanent?.card || permanent;
+    const typeLine = String(card?.type_line || '').toLowerCase();
+    const power = Math.max(0, Number(card?.power ?? permanent?.basePower ?? 0) || 0);
+    const toughness = Math.max(0, Number(card?.toughness ?? permanent?.baseToughness ?? 0) || 0);
+    let score = 1;
+    if (typeLine.includes('creature')) score += 8 + power * 2 + toughness;
+    if (typeLine.includes('artifact') || typeLine.includes('enchantment') || typeLine.includes('planeswalker')) score += 3;
+    return total + score;
+  }, 0);
+
+  const player = (Array.isArray(game?.state?.players) ? game.state.players : [])
+    .find((entry: any) => String(entry?.id || '') === candidateId);
+  const life = Number(game?.state?.life?.[candidateId] ?? player?.life ?? 40);
+  const lifeScore = Number.isFinite(life) ? Math.max(0, life - 20) / 5 : 0;
+  return permanentScore + lifeScore;
+}
+
+function chooseAILeastDevelopedOfferedOpponentSelection(
+  game: any,
+  playerId: PlayerID,
+  options: any[],
+  resolveOptionId: (option: any) => string,
+): { selections: string[]; cancelled: boolean } {
+  const optionIds = options.map((option: any) => resolveOptionId(option)).filter(Boolean);
+  const candidates = optionIds.filter((id) => id !== String(playerId));
+  if (candidates.length === 0) {
+    return { selections: optionIds[0] ? [optionIds[0]] : [], cancelled: false };
+  }
+
+  const ranked = candidates
+    .map((candidateId) => ({ id: candidateId, score: scoreAIPlayerBoardDevelopment(game, candidateId) }))
+    .sort((left, right) => left.score - right.score || left.id.localeCompare(right.id));
+
+  const chosenId = ranked[0]?.id || candidates[0] || '';
+  return { selections: chosenId ? [chosenId] : [], cancelled: false };
+}
+
+function chooseAIForbiddenOrchardTargetSelection(
+  game: any,
+  playerId: PlayerID,
+  options: any[],
+  resolveOptionId: (option: any) => string,
+): { selections: string[]; cancelled: boolean } {
+  return chooseAILeastDevelopedOfferedOpponentSelection(game, playerId, options, resolveOptionId);
+}
+
+function chooseAIPlayerForLookedAtCardsSelection(
+  game: any,
+  playerId: PlayerID,
+  options: any[],
+  resolveOptionId: (option: any) => string,
+): { selections: string[]; cancelled: boolean } {
+  return chooseAILeastDevelopedOfferedOpponentSelection(game, playerId, options, resolveOptionId);
+}
+
+function chooseAISpellAdditionalCostBlightOrPaySelection(
+  game: any,
+  playerId: PlayerID,
+  step: any,
+  options: any[],
+  resolveOptionId: (option: any) => string,
+): { selections: string[]; cancelled: boolean } {
+  const optionIds = options.map((option: any) => resolveOptionId(option)).filter(Boolean);
+  const blightId = optionIds.find((id) => id === 'blight_cost');
+  const payId = optionIds.find((id) => id === 'pay_mana_cost');
+  const controlledCreatures = (Array.isArray(game?.state?.battlefield) ? game.state.battlefield : [])
+    .filter((permanent: any) => String(permanent?.controller || '') === String(playerId))
+    .filter((permanent: any) => String(permanent?.card?.type_line || '').toLowerCase().includes('creature'));
+  const canBlight = controlledCreatures.length > 0;
+
+  let canPay = false;
+  const orPayCost = String(step?.spellAdditionalCostOrPay || '').trim();
+  if (payId && orPayCost) {
+    try {
+      const effectId = String(step?.spellAdditionalCostEffectId || step?.sourceId || '').trim();
+      const pendingCast = effectId ? game?.state?.pendingSpellCasts?.[effectId] : undefined;
+      const baseCost = String(pendingCast?.manaCost || pendingCast?.card?.mana_cost || '').trim();
+      const combinedCost = `${baseCost}${orPayCost}`;
+      canPay = canPayManaCostWithAvailableSources(game.state, playerId, parseManaCost(combinedCost || orPayCost));
+    } catch {
+      canPay = false;
+    }
+  }
+
+  if (payId && canPay) {
+    return { selections: [payId], cancelled: false };
+  }
+  if (blightId && canBlight) {
+    return { selections: [blightId], cancelled: false };
+  }
+  if (payId) {
+    return { selections: [payId], cancelled: false };
+  }
+
+  return { selections: optionIds[0] ? [optionIds[0]] : [], cancelled: false };
+}
+
+function scoreAIVentureOption(option: any, id: string, step: any): number {
+  const label = String(option?.label || option?.description || id || '').toLowerCase();
+  if (step?.ventureChooseDungeon === true) {
+    if (id === 'undercity') return 120;
+    if (id === 'lost_mine') return 100;
+    if (id === 'mad_mage') return 80;
+    if (id === 'tomb') return 15;
+  }
+
+  let score = 0;
+  if (/(draw three|cast one of them without paying)/i.test(label)) score += 80;
+  if (/(reveal the top ten|onto the battlefield)/i.test(label)) score += 75;
+  if (/(draw a card|draw)/i.test(label)) score += 45;
+  if (/(search your library|basic land)/i.test(label)) score += 42;
+  if (/(exile the top|you may play)/i.test(label)) score += 38;
+  if (/treasure/i.test(label)) score += 34;
+  if (/create .*token|create two|create a 4\/1|goblin|skeleton|atropal/i.test(label)) score += 30;
+  if (/\+1\/\+1 counter|put two \+1\/\+1/i.test(label)) score += 24;
+  if (/scry 3/i.test(label)) score += 22;
+  if (/scry 2/i.test(label)) score += 18;
+  if (/scry 1/i.test(label)) score += 12;
+  if (/opponent loses|you gain/i.test(label)) score += 12;
+  if (/target player loses/i.test(label)) score += 10;
+  if (/goad/i.test(label)) score += 8;
+  if (/can't attack|gets -4\/-0/i.test(label)) score += 6;
+  if (/each player loses/i.test(label)) score -= 18;
+  if (/discard/i.test(label)) score -= 22;
+  if (/sacrifice/i.test(label)) score -= 32;
+
+  return score;
+}
+
+function chooseAIVentureOptionSelection(
+  step: any,
+  options: any[],
+  resolveOptionId: (option: any) => string,
+): { selections: string[]; cancelled: boolean } {
+  const ranked = options
+    .map((option: any, index: number) => {
+      const id = resolveOptionId(option);
+      return id ? { id, index, score: scoreAIVentureOption(option, id, step) } : null;
+    })
+    .filter((entry): entry is { id: string; index: number; score: number } => Boolean(entry))
+    .sort((left, right) => right.score - left.score || left.index - right.index || left.id.localeCompare(right.id));
+
+  return { selections: ranked[0]?.id ? [ranked[0].id] : [], cancelled: false };
+}
+
+function chooseAIAdministrativeConfirmSelection(
+  options: any[],
+  resolveOptionId: (option: any) => string,
+): { selections: string[]; cancelled: boolean } {
+  const optionIds = options.map((option: any) => resolveOptionId(option)).filter(Boolean);
+  const acceptId = optionIds.find((id) => /^(?:accept|approve|yes)$/i.test(id));
+  const chosenId = acceptId || optionIds[0] || '';
+  return { selections: chosenId ? [chosenId] : [], cancelled: false };
+}
+
+function chooseAIPileFromSplitSelection(
+  game: any,
+  playerId: PlayerID,
+  step: any,
+  options: any[],
+  resolveOptionId: (option: any) => string,
+): { selections: string[]; cancelled: boolean } {
+  const optionIds = options.map((option: any) => resolveOptionId(option)).filter(Boolean);
+  const validChoices = optionIds.filter((id) => id === 'pileA' || id === 'pileB');
+  if (validChoices.length === 0) {
+    return { selections: optionIds[0] ? [optionIds[0]] : [], cancelled: false };
+  }
+
+  const profile = ensureAIDeckProfile(game, playerId);
+  const items = Array.isArray(step?.choosePileFromSplitItems) ? step.choosePileFromSplitItems : [];
+  const itemsById = new Map(items.map((item: any) => [String(item?.id || ''), item]));
+  const battlefield = Array.isArray(game?.state?.battlefield) ? game.state.battlefield : [];
+  const battlefieldById = new Map(battlefield.map((permanent: any) => [String(permanent?.id || ''), permanent]));
+  const pileA = Array.isArray(step?.choosePileFromSplitPileA) ? step.choosePileFromSplitPileA.map(String) : [];
+  const pileB = Array.isArray(step?.choosePileFromSplitPileB) ? step.choosePileFromSplitPileB.map(String) : [];
+
+  const scoreItem = (id: string) => {
+    const permanent = battlefieldById.get(id) as any;
+    if (permanent) {
+      const card = permanent?.card || permanent;
+      const manaValue = Math.max(0, Number(card?.cmc ?? card?.mana_value ?? 0) || 0);
+      const typeLine = String(card?.type_line || '').toLowerCase();
+      const oracleText = String(card?.oracle_text || '').toLowerCase();
+      const power = Math.max(0, Number(card?.power ?? permanent?.basePower ?? 0) || 0);
+      const toughness = Math.max(0, Number(card?.toughness ?? permanent?.baseToughness ?? 0) || 0);
+      let score = 30 + manaValue * 2;
+      if (typeLine.includes('creature')) score += power * 2 + toughness;
+      if (typeLine.includes('artifact') || typeLine.includes('enchantment') || typeLine.includes('planeswalker')) score += 5;
+      if (/(draw|destroy|exile|counter|create|token|search your library)/i.test(oracleText)) score += 10;
+      if (permanent?.isToken === true) score -= 8;
+      return score;
+    }
+
+    const item = itemsById.get(id);
+    if (!item) return 0;
+    const card = (item as any)?.card || item;
+    return scoreCardForAIAcquisition(game, playerId, card, 'hand', profile);
+  };
+  const scorePile = (ids: string[]) => ids.reduce((total, id) => total + scoreItem(id), 0);
+  const scoreA = scorePile(pileA);
+  const scoreB = scorePile(pileB);
+  const action = String(step?.choosePileFromSplitChosenAction || '').trim();
+
+  const destinationWeight = (destination: string) => {
+    const normalized = String(destination || '').toLowerCase();
+    if (normalized === 'battlefield') return 1.2;
+    if (normalized === 'hand') return 1;
+    if (normalized === 'exile') return 0.25;
+    if (normalized === 'library') return 0;
+    if (normalized === 'graveyard') return -0.5;
+    return 0;
+  };
+
+  const utilityForChoice = (choiceId: 'pileA' | 'pileB') => {
+    const chosenScore = choiceId === 'pileA' ? scoreA : scoreB;
+    const otherScore = choiceId === 'pileA' ? scoreB : scoreA;
+
+    if (action === 'sacrifice_permanents') {
+      const targetPlayerId = String(step?.choosePileFromSplitTargetPlayerId || playerId);
+      return targetPlayerId === String(playerId) ? -chosenScore : chosenScore;
+    }
+
+    const movePlayerId = String(step?.choosePileFromSplitMovePlayerId || playerId);
+    const ownerSign = movePlayerId === String(playerId) ? 1 : -1;
+    const chosenDestination = String(step?.choosePileFromSplitChosenDestination || 'hand');
+    const otherDestination = String(step?.choosePileFromSplitOtherDestination || 'library');
+    return ownerSign * (
+      destinationWeight(chosenDestination) * chosenScore + destinationWeight(otherDestination) * otherScore
+    );
+  };
+
+  const ranked = validChoices
+    .map((id) => ({ id, utility: utilityForChoice(id as 'pileA' | 'pileB') }))
+    .sort((left, right) => right.utility - left.utility || left.id.localeCompare(right.id));
+  return { selections: [ranked[0]?.id || validChoices[0]], cancelled: false };
+}
+
 function chooseAIGrantPlayableFromExileSelection(
   game: any,
   playerId: PlayerID,
@@ -3360,12 +3651,40 @@ export function chooseAIOptionSelectionsForStep(
     return chooseAIMiraclePromptSelection(game, playerId, step, options, resolveOptionId);
   }
 
+  if (step?.dredgeDrawReplacementChoice === true) {
+    return chooseAIDredgeDrawReplacementSelection(game, playerId, step, options, resolveOptionId);
+  }
+
+  if (step?.forbiddenOrchardTargetChoice === true) {
+    return chooseAIForbiddenOrchardTargetSelection(game, playerId, options, resolveOptionId);
+  }
+
+  if (step?.choosePileFromSplitChoice === true) {
+    return chooseAIPileFromSplitSelection(game, playerId, step, options, resolveOptionId);
+  }
+
   if (step?.grantPlayableFromExileChoice === true) {
     return chooseAIGrantPlayableFromExileSelection(game, playerId, step, options, resolveOptionId);
   }
 
   if (step?.chooseLookedAtCardsDestinationChoice === true) {
     return chooseAILookedAtCardsDestinationSelection(game, playerId, step, options, resolveOptionId);
+  }
+
+  if (step?.choosePlayerForLookedAtCardsChoice === true) {
+    return chooseAIPlayerForLookedAtCardsSelection(game, playerId, options, resolveOptionId);
+  }
+
+  if (step?.spellAdditionalCostBlightOrPay === true) {
+    return chooseAISpellAdditionalCostBlightOrPaySelection(game, playerId, step, options, resolveOptionId);
+  }
+
+  if (step?.ventureChooseDungeon === true || step?.ventureChooseRoom === true) {
+    return chooseAIVentureOptionSelection(step, options, resolveOptionId);
+  }
+
+  if (step?.importWipeConfirm === true || step?.judgeConfirm === true) {
+    return chooseAIAdministrativeConfirmSelection(options, resolveOptionId);
   }
 
   if (step?.payManaToLookAndChooseCardChoice === true) {
