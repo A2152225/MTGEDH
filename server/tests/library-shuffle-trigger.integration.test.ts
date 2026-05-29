@@ -136,12 +136,25 @@ describe('library shuffle triggers (integration)', () => {
       causeSourceId: 'tutor_spell_1',
       causeSourceName: 'Test Tutor',
     }));
+    expect(queued?.sourcePermanentSnapshot).toEqual(expect.objectContaining({
+      id: 'probe_perm',
+      controller: p2,
+      owner: p2,
+      card: expect.objectContaining({
+        name: 'Psychogenic Probe',
+      }),
+    }));
 
     const triggerEvents = getEvents(gameId).filter((event: any) =>
       event?.type === 'pushTriggeredAbility' && event?.payload?.sourceName === 'Psychogenic Probe'
     );
     expect(triggerEvents).toHaveLength(1);
     expect(triggerEvents[0]?.payload?.effectData?.shuffledPlayerId).toBe(p1);
+    expect(triggerEvents[0]?.payload?.sourcePermanentSnapshot).toEqual(expect.objectContaining({
+      id: 'probe_perm',
+      controller: p2,
+      owner: p2,
+    }));
 
     game.resolveTopOfStack();
 

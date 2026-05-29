@@ -86,15 +86,83 @@ describe('library-search triggers (integration)', () => {
       searchedLibraryOwnerId: p1,
       searchSourceName: 'Evolving Wilds',
     }));
+    expect(stackItems[0]?.sourcePermanentSnapshot).toEqual(expect.objectContaining({
+      id: 'ob_perm',
+      controller: p2,
+      owner: p2,
+      card: expect.objectContaining({
+        name: 'Ob Nixilis, Unshackled',
+      }),
+    }));
 
     const triggerEvents = getEvents(gameId).filter((event: any) =>
       event?.type === 'pushTriggeredAbility' && event?.payload?.sourceName === 'Ob Nixilis, Unshackled'
     );
     expect(triggerEvents).toHaveLength(1);
+    expect(triggerEvents[0]?.payload?.sourcePermanentSnapshot).toEqual(expect.objectContaining({
+      id: 'ob_perm',
+      controller: p2,
+      owner: p2,
+    }));
 
     game.resolveTopOfStack();
 
     expect((game.state.life as any)[p1]).toBe(30);
     expect((game.state as any).lifeLostThisTurn?.[p1]).toBe(10);
+  });
+
+  it('replays library-search trigger source permanent snapshots', () => {
+    const p1 = 'p1';
+    const p2 = 'p2';
+
+    createGameIfNotExists(gameId, 'commander', 40, undefined, p1);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [
+      { id: p1, name: 'P1', spectator: false, life: 40 },
+      { id: p2, name: 'P2', spectator: false, life: 40 },
+    ];
+    (game.state as any).stack = [];
+
+    game.applyEvent({
+      type: 'pushTriggeredAbility',
+      triggerId: 'library_search_source_snapshot_replay_trigger',
+      sourceId: 'ob_perm',
+      sourceName: 'Ob Nixilis, Unshackled',
+      controllerId: p2,
+      description: 'that player sacrifices a creature of their choice and loses 10 life',
+      triggerType: 'opponent_searches_library',
+      effect: 'that player sacrifices a creature of their choice and loses 10 life',
+      mandatory: true,
+      targetPlayer: p1,
+      triggeringPlayer: p1,
+      effectData: {
+        searchingPlayerId: p1,
+        searchedLibraryOwnerId: p1,
+        searchSourceName: 'Evolving Wilds',
+      },
+      sourcePermanentSnapshot: {
+        id: 'ob_perm',
+        controller: p2,
+        owner: p2,
+        card: {
+          id: 'ob_card',
+          name: 'Ob Nixilis, Unshackled',
+          type_line: 'Legendary Creature - Demon',
+        },
+      },
+    } as any);
+
+    const replayed = ((game.state as any).stack || []).find((item: any) => item?.id === 'library_search_source_snapshot_replay_trigger');
+    expect(replayed?.sourcePermanentSnapshot).toEqual(expect.objectContaining({
+      id: 'ob_perm',
+      controller: p2,
+      owner: p2,
+    }));
+    expect(replayed?.effectData).toEqual(expect.objectContaining({
+      searchingPlayerId: p1,
+      searchedLibraryOwnerId: p1,
+    }));
   });
 });

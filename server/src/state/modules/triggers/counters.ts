@@ -158,6 +158,26 @@ export function getCounterPlacedTriggers(
   return triggers;
 }
 
+function findBattlefieldPermanentById(ctx: GameContext, permanentId: string): any | undefined {
+  const battlefield = Array.isArray(ctx.state?.battlefield) ? ctx.state.battlefield : [];
+  const normalizedPermanentId = String(permanentId || '').trim();
+  if (!normalizedPermanentId) return undefined;
+  return battlefield.find((permanent: any) => String(permanent?.id || '') === normalizedPermanentId);
+}
+
+function snapshotPermanentForCounterTrigger(permanent: any): any | undefined {
+  if (!permanent || typeof permanent !== 'object') return undefined;
+
+  return {
+    id: String(permanent?.id || ''),
+    controller: String(permanent?.controller || ''),
+    owner: String(permanent?.owner || permanent?.controller || ''),
+    tapped: permanent?.tapped === true,
+    counters: permanent?.counters && typeof permanent.counters === 'object' ? { ...permanent.counters } : undefined,
+    card: permanent?.card && typeof permanent.card === 'object' ? { ...(permanent.card as any) } : undefined,
+  };
+}
+
 export function queueCounterPlacedTriggers(
   ctx: GameContext,
   targetPermanent: any,
@@ -187,6 +207,7 @@ export function queueCounterPlacedTriggers(
     }
 
     const triggerId = uid('trigger');
+    const sourcePermanentSnapshot = snapshotPermanentForCounterTrigger(findBattlefieldPermanentById(ctx, trigger.permanentId));
     const stackItem = {
       id: triggerId,
       type: 'triggered_ability',
@@ -197,6 +218,8 @@ export function queueCounterPlacedTriggers(
       description: effect,
       effect,
       ...targetMetadata,
+      ...(sourcePermanentSnapshot?.card ? { card: sourcePermanentSnapshot.card } : null),
+      ...(sourcePermanentSnapshot ? { sourcePermanentSnapshot } : null),
       triggerType: trigger.triggerType,
       mandatory: trigger.mandatory !== false,
       triggeringPermanent: targetPermanentId,
@@ -224,6 +247,8 @@ export function queueCounterPlacedTriggers(
           ...targetMetadata,
           mandatory: trigger.mandatory !== false,
           triggeringPermanent: targetPermanentId,
+          ...(sourcePermanentSnapshot?.card ? { card: sourcePermanentSnapshot.card } : null),
+          ...(sourcePermanentSnapshot ? { sourcePermanentSnapshot } : null),
           effectData: stackItem.effectData,
         });
       } catch (err) {
@@ -375,6 +400,7 @@ export function queueCounterRemovedTriggers(
     }
 
     const triggerId = uid('trigger');
+    const sourcePermanentSnapshot = snapshotPermanentForCounterTrigger(findBattlefieldPermanentById(ctx, trigger.permanentId));
     const stackItem = {
       id: triggerId,
       type: 'triggered_ability',
@@ -385,6 +411,8 @@ export function queueCounterRemovedTriggers(
       description: effect,
       effect,
       ...targetMetadata,
+      ...(sourcePermanentSnapshot?.card ? { card: sourcePermanentSnapshot.card } : null),
+      ...(sourcePermanentSnapshot ? { sourcePermanentSnapshot } : null),
       triggerType: trigger.triggerType,
       mandatory: trigger.mandatory !== false,
       triggeringPermanent: targetPermanentId,
@@ -414,6 +442,8 @@ export function queueCounterRemovedTriggers(
           ...targetMetadata,
           mandatory: trigger.mandatory !== false,
           triggeringPermanent: targetPermanentId,
+          ...(sourcePermanentSnapshot?.card ? { card: sourcePermanentSnapshot.card } : null),
+          ...(sourcePermanentSnapshot ? { sourcePermanentSnapshot } : null),
           effectData: stackItem.effectData,
         });
       } catch (err) {

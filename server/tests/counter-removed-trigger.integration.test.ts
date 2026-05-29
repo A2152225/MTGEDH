@@ -89,11 +89,25 @@ describe('counter-removed triggers (integration)', () => {
       countersRemoved: 1,
       counterType: 'time',
     }));
+    expect(stackItems[0]?.sourcePermanentSnapshot).toEqual(expect.objectContaining({
+      id: 'regenerations_perm',
+      controller: p1,
+      owner: p1,
+      counters: expect.objectContaining({ time: 11 }),
+      card: expect.objectContaining({
+        name: 'Regenerations Restored',
+      }),
+    }));
 
     const triggerEvents = getEvents(gameId).filter((event: any) =>
       event?.type === 'pushTriggeredAbility' && event?.payload?.sourceName === 'Regenerations Restored'
     );
     expect(triggerEvents).toHaveLength(1);
+    expect(triggerEvents[0]?.payload?.sourcePermanentSnapshot).toEqual(expect.objectContaining({
+      id: 'regenerations_perm',
+      controller: p1,
+      owner: p1,
+    }));
 
     game.resolveTopOfStack();
 

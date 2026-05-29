@@ -101,15 +101,116 @@ describe('sacrifice triggers (integration)', () => {
     }));
     expect(sacrificeStackItems[0]?.effectData?.sacrificedPermanentId).toBe('treasure_token_1');
     expect(sacrificeStackItems[0]?.effectData?.sacrificedPermanentWasToken).toBe(true);
+    expect(sacrificeStackItems[0]?.sourcePermanentSnapshot).toEqual(expect.objectContaining({
+      id: 'mirkwood_bats_perm',
+      controller: p1,
+      owner: p1,
+      card: expect.objectContaining({
+        name: 'Mirkwood Bats',
+      }),
+    }));
+    expect(sacrificeStackItems[0]?.sacrificedPermanent).toEqual(expect.objectContaining({
+      id: 'treasure_token_1',
+      controller: p1,
+      owner: p1,
+      isToken: true,
+      card: expect.objectContaining({
+        name: 'Treasure',
+      }),
+    }));
 
     const triggerEvents = getEvents(gameId).filter((event: any) =>
       event?.type === 'pushTriggeredAbility' && event?.payload?.sourceName === 'Mirkwood Bats'
     );
     expect(triggerEvents).toHaveLength(1);
+    expect(triggerEvents[0]?.payload?.sourcePermanentSnapshot).toEqual(expect.objectContaining({
+      id: 'mirkwood_bats_perm',
+      controller: p1,
+      owner: p1,
+    }));
+    expect(triggerEvents[0]?.payload?.sacrificedPermanent).toEqual(expect.objectContaining({
+      id: 'treasure_token_1',
+      controller: p1,
+      owner: p1,
+      isToken: true,
+    }));
 
     game.resolveTopOfStack();
 
     expect((game.state.life as any)[p2]).toBe(39);
     expect((game.state as any).lifeLostThisTurn?.[p2]).toBe(1);
+  });
+
+  it('replays sacrifice trigger source and sacrificed permanent snapshots', () => {
+    const p1 = 'p1';
+    const p2 = 'p2';
+
+    createGameIfNotExists(gameId, 'commander', 40, undefined, p1);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [
+      { id: p1, name: 'P1', spectator: false, life: 40 },
+      { id: p2, name: 'P2', spectator: false, life: 40 },
+    ];
+    (game.state as any).stack = [];
+
+    game.applyEvent({
+      type: 'pushTriggeredAbility',
+      triggerId: 'sacrifice_source_snapshot_replay_trigger',
+      sourceId: 'mirkwood_bats_perm',
+      sourceName: 'Mirkwood Bats',
+      controllerId: p1,
+      description: 'each opponent loses 1 life',
+      triggerType: 'you_sacrifice',
+      effect: 'each opponent loses 1 life',
+      mandatory: true,
+      targetPlayer: p1,
+      triggeringPlayer: p1,
+      effectData: {
+        sacrificingPlayerId: p1,
+        sacrificedPermanentId: 'treasure_token_1',
+        sacrificedCardName: 'Treasure',
+        sacrificedPermanentWasToken: true,
+      },
+      sourcePermanentSnapshot: {
+        id: 'mirkwood_bats_perm',
+        controller: p1,
+        owner: p1,
+        card: {
+          id: 'mirkwood_bats_card',
+          name: 'Mirkwood Bats',
+          type_line: 'Creature - Bat',
+        },
+      },
+      sacrificedPermanent: {
+        id: 'treasure_token_1',
+        controller: p1,
+        owner: p1,
+        isToken: true,
+        card: {
+          id: 'treasure_card_1',
+          name: 'Treasure',
+          type_line: 'Token Artifact - Treasure',
+        },
+      },
+    } as any);
+
+    const replayed = ((game.state as any).stack || []).find((item: any) => item?.id === 'sacrifice_source_snapshot_replay_trigger');
+    expect(replayed?.sourcePermanentSnapshot).toEqual(expect.objectContaining({
+      id: 'mirkwood_bats_perm',
+      controller: p1,
+      owner: p1,
+    }));
+    expect(replayed?.sacrificedPermanent).toEqual(expect.objectContaining({
+      id: 'treasure_token_1',
+      controller: p1,
+      owner: p1,
+      isToken: true,
+    }));
+    expect(replayed?.effectData).toEqual(expect.objectContaining({
+      sacrificingPlayerId: p1,
+      sacrificedPermanentId: 'treasure_token_1',
+    }));
   });
 });

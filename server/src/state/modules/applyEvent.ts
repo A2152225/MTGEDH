@@ -11929,6 +11929,9 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
         const card = (e as any).card;
         const sourcePermanentSnapshot = (e as any).sourcePermanentSnapshot;
         const dyingCreature = (e as any).dyingCreature;
+        const sacrificedPermanent = (e as any).sacrificedPermanent;
+        const discardedCard = (e as any).discardedCard;
+        const milledCard = (e as any).milledCard;
         
         try {
           // Check if this trigger is already on the stack (idempotency for replay)
@@ -12009,6 +12012,9 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
             ...(card && typeof card === 'object' ? { card } : null),
             ...(sourcePermanentSnapshot && typeof sourcePermanentSnapshot === 'object' ? { sourcePermanentSnapshot } : null),
             ...(dyingCreature && typeof dyingCreature === 'object' ? { dyingCreature } : null),
+            ...(sacrificedPermanent && typeof sacrificedPermanent === 'object' ? { sacrificedPermanent } : null),
+            ...(discardedCard && typeof discardedCard === 'object' ? { discardedCard } : null),
+            ...(milledCard && typeof milledCard === 'object' ? { milledCard } : null),
           } as any);
           
           debug(2, `[applyEvent] Pushed triggered ability: ${sourceName} - ${description}`);

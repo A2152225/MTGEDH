@@ -172,6 +172,27 @@ export function getSacrificeTriggers(
   return triggers;
 }
 
+function findBattlefieldPermanentById(ctx: GameContext, permanentId: string): any | undefined {
+  const battlefield = Array.isArray(ctx.state?.battlefield) ? ctx.state.battlefield : [];
+  const normalizedPermanentId = String(permanentId || '').trim();
+  if (!normalizedPermanentId) return undefined;
+  return battlefield.find((permanent: any) => String(permanent?.id || '') === normalizedPermanentId);
+}
+
+function snapshotPermanentForSacrificeTrigger(permanent: any): any | undefined {
+  if (!permanent || typeof permanent !== 'object') return undefined;
+
+  return {
+    id: String(permanent?.id || ''),
+    controller: String(permanent?.controller || ''),
+    owner: String(permanent?.owner || permanent?.controller || ''),
+    tapped: permanent?.tapped === true,
+    isToken: permanent?.isToken === true,
+    counters: permanent?.counters && typeof permanent.counters === 'object' ? { ...permanent.counters } : undefined,
+    card: permanent?.card && typeof permanent.card === 'object' ? { ...(permanent.card as any) } : undefined,
+  };
+}
+
 export function queueSacrificeTriggers(
   ctx: GameContext,
   sacrificingPlayerId: string,
@@ -193,6 +214,7 @@ export function queueSacrificeTriggers(
   const queued: any[] = [];
   const sacrificedPermanentId = String(sacrificedPermanent?.id || '').trim();
   const sacrificedCardName = String(sacrificedPermanent?.card?.name || 'Sacrificed permanent').trim();
+  const sacrificedPermanentSnapshot = snapshotPermanentForSacrificeTrigger(sacrificedPermanent);
 
   for (const trigger of triggers) {
     const effect = String(trigger.effect || '').trim();
@@ -202,6 +224,7 @@ export function queueSacrificeTriggers(
     }
 
     const triggerId = uid('trigger');
+    const sourcePermanentSnapshot = snapshotPermanentForSacrificeTrigger(findBattlefieldPermanentById(ctx, trigger.permanentId));
     const stackItem = {
       id: triggerId,
       type: 'triggered_ability',
@@ -212,6 +235,8 @@ export function queueSacrificeTriggers(
       description: effect,
       effect,
       ...targetMetadata,
+      ...(sourcePermanentSnapshot?.card ? { card: sourcePermanentSnapshot.card } : null),
+      ...(sourcePermanentSnapshot ? { sourcePermanentSnapshot } : null),
       triggerType: trigger.triggerType,
       mandatory: trigger.mandatory !== false,
       triggeringPlayer: sacrificingPlayerId,
@@ -222,7 +247,7 @@ export function queueSacrificeTriggers(
         sacrificedCardName,
         sacrificedPermanentWasToken: sacrificedPermanent?.isToken === true,
       },
-      sacrificedPermanent: { ...sacrificedPermanent },
+      ...(sacrificedPermanentSnapshot ? { sacrificedPermanent: sacrificedPermanentSnapshot } : null),
     } as any;
 
     stateAny.stack.push(stackItem);
@@ -242,6 +267,9 @@ export function queueSacrificeTriggers(
           mandatory: trigger.mandatory !== false,
           targetPlayer: sacrificingPlayerId,
           triggeringPlayer: sacrificingPlayerId,
+          ...(sourcePermanentSnapshot?.card ? { card: sourcePermanentSnapshot.card } : null),
+          ...(sourcePermanentSnapshot ? { sourcePermanentSnapshot } : null),
+          ...(sacrificedPermanentSnapshot ? { sacrificedPermanent: sacrificedPermanentSnapshot } : null),
           effectData: stackItem.effectData,
         });
       } catch (err) {

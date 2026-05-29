@@ -101,9 +101,21 @@ describe('draw triggers (integration)', () => {
       triggerType: 'you_draw',
       triggeringPlayer: p1,
     }));
+    expect(stack[0]?.card?.name).toBe('Psychosis Crawler');
+    expect(stack[0]?.sourcePermanentSnapshot).toEqual(expect.objectContaining({
+      id: 'psychosis_perm',
+      controller: p1,
+      card: expect.objectContaining({ name: 'Psychosis Crawler' }),
+    }));
 
     const triggerEvents = getEvents(gameId).filter((event: any) => event?.type === 'pushTriggeredAbility' && event?.payload?.sourceName === 'Psychosis Crawler');
     expect(triggerEvents).toHaveLength(2);
+    expect(triggerEvents[0]?.payload?.card?.name).toBe('Psychosis Crawler');
+    expect(triggerEvents[0]?.payload?.sourcePermanentSnapshot).toEqual(expect.objectContaining({
+      id: 'psychosis_perm',
+      controller: p1,
+      card: expect.objectContaining({ name: 'Psychosis Crawler' }),
+    }));
 
     game.resolveTopOfStack();
     game.resolveTopOfStack();

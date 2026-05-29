@@ -177,12 +177,32 @@ describe('discard triggers (integration)', () => {
         triggerType: 'opponent_discards',
       }),
     ]));
+    const tinybonesTrigger = stack.find((item: any) => item?.source === 'tinybones_perm');
+    expect(tinybonesTrigger?.card?.name).toBe('Tinybones, Trinket Thief');
+    expect(tinybonesTrigger?.sourcePermanentSnapshot).toEqual(expect.objectContaining({
+      id: 'tinybones_perm',
+      controller: p1,
+      card: expect.objectContaining({ name: 'Tinybones, Trinket Thief' }),
+    }));
+    expect(tinybonesTrigger?.discardedCard).toEqual(expect.objectContaining({ id: 'discard_target_1', name: 'Mind Stone' }));
 
     const triggerEvent = [...getEvents(gameId)].reverse().find((event: any) =>
       event?.type === 'pushTriggeredAbility' && String(event?.payload?.sourceName || '') === 'Tinybones, Trinket Thief'
     ) as any;
     expect(triggerEvent).toBeDefined();
     expect(triggerEvent?.payload?.effect).toBe('create a 1/1 black Rat creature token');
+    expect(triggerEvent?.payload?.sourcePermanentSnapshot).toEqual(expect.objectContaining({
+      id: 'tinybones_perm',
+      controller: p1,
+      card: expect.objectContaining({ name: 'Tinybones, Trinket Thief' }),
+    }));
+    expect(triggerEvent?.payload?.discardedCard).toEqual(expect.objectContaining({ id: 'discard_target_1', name: 'Mind Stone' }));
+
+    (game.state as any).stack = [];
+    game.applyEvent({ type: 'pushTriggeredAbility', ...(triggerEvent?.payload || {}) } as any);
+    const replayedTinybonesTrigger = (((game.state as any).stack || []) as any[]).find((item: any) => item?.source === 'tinybones_perm');
+    expect(replayedTinybonesTrigger?.sourcePermanentSnapshot?.card?.name).toBe('Tinybones, Trinket Thief');
+    expect(replayedTinybonesTrigger?.discardedCard?.id).toBe('discard_target_1');
 
     game.resolveTopOfStack();
 

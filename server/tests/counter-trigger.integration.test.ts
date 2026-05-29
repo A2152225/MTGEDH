@@ -94,15 +94,80 @@ describe('counter placed triggers (integration)', () => {
       effect: 'put that many growth counters on this enchantment',
     }));
     expect(counterStackItems[0]?.effectData?.countersPlaced).toBe(2);
+    expect(counterStackItems[0]?.sourcePermanentSnapshot).toEqual(expect.objectContaining({
+      id: 'simic_ascendancy_perm',
+      controller: p1,
+      owner: p1,
+      card: expect.objectContaining({
+        name: 'Simic Ascendancy',
+      }),
+    }));
 
     const triggerEvents = getEvents(gameId).filter((event: any) =>
       event?.type === 'pushTriggeredAbility' && event?.payload?.sourceName === 'Simic Ascendancy'
     );
     expect(triggerEvents).toHaveLength(1);
+    expect(triggerEvents[0]?.payload?.sourcePermanentSnapshot).toEqual(expect.objectContaining({
+      id: 'simic_ascendancy_perm',
+      controller: p1,
+      owner: p1,
+    }));
 
     game.resolveTopOfStack();
 
     const simic = (((game.state as any).battlefield || []) as any[]).find((perm: any) => perm?.id === 'simic_ascendancy_perm');
     expect(simic?.counters?.growth).toBe(2);
+  });
+
+  it('replays counter trigger source permanent snapshots', () => {
+    const p1 = 'p1';
+
+    createGameIfNotExists(gameId, 'commander', 40, undefined, p1);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [{ id: p1, name: 'P1', spectator: false, life: 40 }];
+    (game.state as any).stack = [];
+
+    game.applyEvent({
+      type: 'pushTriggeredAbility',
+      triggerId: 'counter_source_snapshot_replay_trigger',
+      sourceId: 'simic_ascendancy_perm',
+      sourceName: 'Simic Ascendancy',
+      controllerId: p1,
+      description: 'put that many growth counters on this enchantment',
+      triggerType: 'counters_put_on_creature_you_control',
+      effect: 'put that many growth counters on this enchantment',
+      mandatory: true,
+      triggeringPermanent: 'bear_perm',
+      effectData: {
+        targetPermanentId: 'bear_perm',
+        targetPermanentName: 'Runeclaw Bear',
+        countersPlaced: 2,
+        counterType: '+1/+1',
+      },
+      sourcePermanentSnapshot: {
+        id: 'simic_ascendancy_perm',
+        controller: p1,
+        owner: p1,
+        card: {
+          id: 'simic_ascendancy_card',
+          name: 'Simic Ascendancy',
+          type_line: 'Enchantment',
+        },
+      },
+    } as any);
+
+    const replayed = ((game.state as any).stack || []).find((item: any) => item?.id === 'counter_source_snapshot_replay_trigger');
+    expect(replayed?.sourcePermanentSnapshot).toEqual(expect.objectContaining({
+      id: 'simic_ascendancy_perm',
+      controller: p1,
+      owner: p1,
+    }));
+    expect(replayed?.effectData).toEqual(expect.objectContaining({
+      targetPermanentId: 'bear_perm',
+      countersPlaced: 2,
+      counterType: '+1/+1',
+    }));
   });
 });

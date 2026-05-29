@@ -2258,6 +2258,15 @@ function appendTriggeredAbilityPushEvent(
       mandatory: typeof stackItem.mandatory === 'boolean' ? stackItem.mandatory : true,
       ...(stackItem.effectData && typeof stackItem.effectData === 'object' ? { effectData: stackItem.effectData } : null),
       ...(stackItem.card && typeof stackItem.card === 'object' ? { card: stackItem.card } : null),
+      ...(stackItem.sourcePermanentSnapshot && typeof stackItem.sourcePermanentSnapshot === 'object'
+        ? { sourcePermanentSnapshot: stackItem.sourcePermanentSnapshot }
+        : null),
+      ...(stackItem.discardedCard && typeof stackItem.discardedCard === 'object'
+        ? { discardedCard: stackItem.discardedCard }
+        : null),
+      ...(stackItem.milledCard && typeof stackItem.milledCard === 'object'
+        ? { milledCard: stackItem.milledCard }
+        : null),
     });
   } catch (err) {
     debugWarn(1, '[Resolution] appendEvent(pushTriggeredAbility) failed:', err);
@@ -2399,6 +2408,10 @@ function queueDiscardTriggeredAbilities(
     const primaryCardId = String(primaryCard?.id || '').trim();
     const primaryCardName = String(primaryCard?.name || 'that card').trim() || 'that card';
     const triggerId = uid('trigger');
+    const sourcePermanent = Array.isArray(stateAny.battlefield)
+      ? stateAny.battlefield.find((permanent: any) => String(permanent?.id || '') === String(trigger.permanentId || ''))
+      : undefined;
+    const sourcePermanentSnapshot = cloneResolutionPermanentSnapshot(sourcePermanent);
     const stackItem = {
       id: triggerId,
       type: 'triggered_ability',
@@ -2409,6 +2422,8 @@ function queueDiscardTriggeredAbilities(
       description: effect,
       effect,
       ...targetMetadata,
+      ...(sourcePermanentSnapshot?.card ? { card: sourcePermanentSnapshot.card } : null),
+      ...(sourcePermanentSnapshot ? { sourcePermanentSnapshot } : null),
       triggerType: trigger.triggerType,
       triggeringPlayer: String(discardingPlayerId),
       targetPlayer: String(discardingPlayerId),

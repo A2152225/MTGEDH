@@ -638,6 +638,25 @@ export function processDrawTriggers(ctx: GameContext, drawingPlayerId: PlayerID,
   const players = (ctx.state as any).players || [];
   const gameId = String((ctx as any).gameId || '').trim();
 
+  const snapshotPermanentForTriggerContext = (permanent: any): any | undefined => {
+    if (!permanent || typeof permanent !== 'object') return undefined;
+    return {
+      id: String(permanent?.id || ''),
+      controller: String(permanent?.controller || ''),
+      owner: String(permanent?.owner || permanent?.controller || ''),
+      tapped: permanent?.tapped === true,
+      counters: permanent?.counters && typeof permanent.counters === 'object' ? { ...permanent.counters } : undefined,
+      card: permanent?.card && typeof permanent.card === 'object' ? { ...(permanent.card as any) } : undefined,
+    };
+  };
+
+  const sourcePermanentSnapshotFor = (permanentId: string): any | undefined => {
+    const normalizedPermanentId = String(permanentId || '').trim();
+    if (!normalizedPermanentId) return undefined;
+    const permanent = battlefield.find((entry: any) => String(entry?.id || '') === normalizedPermanentId);
+    return snapshotPermanentForTriggerContext(permanent);
+  };
+
   const drawTriggers = orderTriggersByAPNAP(ctx, getCardDrawTriggers(ctx, String(drawingPlayerId)));
   const queueGenericDrawTrigger = (trigger: any, drawIndex: number) => {
     const effect = String(trigger?.effect || '').trim();
@@ -657,6 +676,7 @@ export function processDrawTriggers(ctx: GameContext, drawingPlayerId: PlayerID,
 
     ctx.state.stack = Array.isArray(ctx.state.stack) ? ctx.state.stack : [];
     const triggerId = uid('trigger');
+    const sourcePermanentSnapshot = sourcePermanentSnapshotFor(trigger.permanentId);
     const stackItem = {
       id: triggerId,
       type: 'triggered_ability',
@@ -667,6 +687,8 @@ export function processDrawTriggers(ctx: GameContext, drawingPlayerId: PlayerID,
       description: effect,
       effect,
       ...targetMetadata,
+      ...(sourcePermanentSnapshot?.card ? { card: sourcePermanentSnapshot.card } : null),
+      ...(sourcePermanentSnapshot ? { sourcePermanentSnapshot } : null),
       triggerType: trigger.triggerType,
       mandatory: trigger.mandatory !== false,
       triggeringPlayer: drawingPlayerId,
@@ -693,6 +715,8 @@ export function processDrawTriggers(ctx: GameContext, drawingPlayerId: PlayerID,
           mandatory: trigger.mandatory !== false,
           targetPlayer: drawingPlayerId,
           triggeringPlayer: drawingPlayerId,
+          ...(sourcePermanentSnapshot?.card ? { card: sourcePermanentSnapshot.card } : null),
+          ...(sourcePermanentSnapshot ? { sourcePermanentSnapshot } : null),
           effectData: stackItem.effectData,
         });
       } catch (err) {
@@ -733,6 +757,7 @@ export function processDrawTriggers(ctx: GameContext, drawingPlayerId: PlayerID,
 
       for (let index = 0; index < cardsDrawn; index++) {
         const triggerId = uid('trigger');
+        const sourcePermanentSnapshot = snapshotPermanentForTriggerContext(perm);
         const stackItem = {
           id: triggerId,
           type: 'triggered_ability',
@@ -743,6 +768,8 @@ export function processDrawTriggers(ctx: GameContext, drawingPlayerId: PlayerID,
           effect: 'Create a Treasure token',
           triggerType: 'smothering_tithe',
           mandatory: true,
+          ...(sourcePermanentSnapshot?.card ? { card: sourcePermanentSnapshot.card } : null),
+          ...(sourcePermanentSnapshot ? { sourcePermanentSnapshot } : null),
           targetPlayer: drawingPlayerId,
           triggeringPlayer: drawingPlayerId,
           effectData: {
@@ -767,6 +794,8 @@ export function processDrawTriggers(ctx: GameContext, drawingPlayerId: PlayerID,
               mandatory: true,
               targetPlayer: drawingPlayerId,
               triggeringPlayer: drawingPlayerId,
+              ...(sourcePermanentSnapshot?.card ? { card: sourcePermanentSnapshot.card } : null),
+              ...(sourcePermanentSnapshot ? { sourcePermanentSnapshot } : null),
               effectData: stackItem.effectData,
             });
           } catch (err) {
@@ -799,6 +828,26 @@ export function processMillTriggers(
   const gameId = String((ctx as any).gameId || '').trim();
   const stateAny = ctx.state as any;
   stateAny.stack = Array.isArray(stateAny.stack) ? stateAny.stack : [];
+  const battlefield = Array.isArray(stateAny.battlefield) ? stateAny.battlefield : [];
+
+  const snapshotPermanentForTriggerContext = (permanent: any): any | undefined => {
+    if (!permanent || typeof permanent !== 'object') return undefined;
+    return {
+      id: String(permanent?.id || ''),
+      controller: String(permanent?.controller || ''),
+      owner: String(permanent?.owner || permanent?.controller || ''),
+      tapped: permanent?.tapped === true,
+      counters: permanent?.counters && typeof permanent.counters === 'object' ? { ...permanent.counters } : undefined,
+      card: permanent?.card && typeof permanent.card === 'object' ? { ...(permanent.card as any) } : undefined,
+    };
+  };
+
+  const sourcePermanentSnapshotFor = (permanentId: string): any | undefined => {
+    const normalizedPermanentId = String(permanentId || '').trim();
+    if (!normalizedPermanentId) return undefined;
+    const permanent = battlefield.find((entry: any) => String(entry?.id || '') === normalizedPermanentId);
+    return snapshotPermanentForTriggerContext(permanent);
+  };
 
   const isPermanentCard = (typeLine: string): boolean => {
     const normalized = String(typeLine || '').toLowerCase();
@@ -843,6 +892,7 @@ export function processMillTriggers(
     const primaryCardId = String(primaryCard?.id || '').trim();
     const primaryCardName = String(primaryCard?.name || 'that card').trim() || 'that card';
     const triggerId = uid('trigger');
+    const sourcePermanentSnapshot = sourcePermanentSnapshotFor(String(trigger.permanentId || ''));
     const stackItem = {
       id: triggerId,
       type: 'triggered_ability',
@@ -853,6 +903,8 @@ export function processMillTriggers(
       description: effect,
       effect,
       ...targetMetadata,
+      ...(sourcePermanentSnapshot?.card ? { card: sourcePermanentSnapshot.card } : null),
+      ...(sourcePermanentSnapshot ? { sourcePermanentSnapshot } : null),
       triggerType: trigger.triggerType,
       mandatory: trigger.mandatory !== false,
       triggeringPlayer: String(millingPlayerId),
@@ -886,6 +938,9 @@ export function processMillTriggers(
           mandatory: trigger.mandatory !== false,
           targetPlayer: String(millingPlayerId),
           triggeringPlayer: String(millingPlayerId),
+          ...(sourcePermanentSnapshot?.card ? { card: sourcePermanentSnapshot.card } : null),
+          ...(sourcePermanentSnapshot ? { sourcePermanentSnapshot } : null),
+          ...(stackItem.milledCard && typeof stackItem.milledCard === 'object' ? { milledCard: stackItem.milledCard } : null),
           effectData: stackItem.effectData,
         });
       } catch (err) {

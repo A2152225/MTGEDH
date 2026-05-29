@@ -116,11 +116,30 @@ describe('mill triggers (integration)', () => {
       targetPlayer: p2,
     }));
     expect(zellixTriggers[0]?.effectData?.milledCardsCount).toBe(2);
+    expect(zellixTriggers[0]?.card?.name).toBe('Zellix, Sanity Flayer');
+    expect(zellixTriggers[0]?.sourcePermanentSnapshot).toEqual(expect.objectContaining({
+      id: 'zellix_perm',
+      controller: p1,
+      card: expect.objectContaining({ name: 'Zellix, Sanity Flayer' }),
+    }));
+    expect(zellixTriggers[0]?.milledCard).toEqual(expect.objectContaining({ id: 'mill_creature_1', name: 'Merfolk Looter' }));
 
     const triggerEvents = getEvents(gameId).filter((event: any) =>
       event?.type === 'pushTriggeredAbility' && event?.payload?.sourceName === 'Zellix, Sanity Flayer'
     );
     expect(triggerEvents).toHaveLength(1);
+    expect(triggerEvents[0]?.payload?.sourcePermanentSnapshot).toEqual(expect.objectContaining({
+      id: 'zellix_perm',
+      controller: p1,
+      card: expect.objectContaining({ name: 'Zellix, Sanity Flayer' }),
+    }));
+    expect(triggerEvents[0]?.payload?.milledCard).toEqual(expect.objectContaining({ id: 'mill_creature_1', name: 'Merfolk Looter' }));
+
+    (game.state as any).stack = [];
+    game.applyEvent({ type: 'pushTriggeredAbility', ...(triggerEvents[0]?.payload || {}) } as any);
+    const replayedZellixTrigger = (((game.state as any).stack || []) as any[]).find((item: any) => item?.source === 'zellix_perm');
+    expect(replayedZellixTrigger?.sourcePermanentSnapshot?.card?.name).toBe('Zellix, Sanity Flayer');
+    expect(replayedZellixTrigger?.milledCard?.id).toBe('mill_creature_1');
 
     game.resolveTopOfStack();
 
