@@ -16,6 +16,7 @@
 
 import type { GameContext } from "../context.js";
 import type { PlayerID } from "../../../../shared/src/types.js";
+import { appendEvent } from '../../db/index.js';
 import { drawCards } from "./zones.js";
 import { recalculatePlayerEffects, applyCombatDamageReplacement, canDamageBePrevented, clearTemporaryLandBonuses, processLifeChange } from "./game-state-effects.js";
 import { clearTemporaryEtbTriggers, detectEntersWithCounters, triggerETBEffectsForPermanent } from "./stack.js";
@@ -59,6 +60,42 @@ function ts() {
 
 function isFiniteNumber(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value);
+}
+
+function shouldUsePersistedCombatDamageTriggersDuringReplay(ctx: GameContext): boolean {
+  if (!(ctx as any).isReplaying) return false;
+  return String((ctx as any)._replayNextEventType || '') === 'pushTriggeredAbility';
+}
+
+function persistCombatDamageTriggeredAbility(ctx: GameContext, stackItem: any, reason: string): void {
+  const gameId = String((ctx as any).gameId || '').trim();
+  if (!gameId || gameId === 'unknown' || (ctx as any).isReplaying) return;
+
+  try {
+    appendEvent(gameId, Number((ctx as any).seq?.value ?? (ctx as any).seq ?? 0), 'pushTriggeredAbility', {
+      triggerId: stackItem.id,
+      sourceId: stackItem.source,
+      permanentId: stackItem.permanentId || stackItem.source,
+      sourceName: stackItem.sourceName,
+      controllerId: stackItem.controller,
+      description: stackItem.description,
+      triggerType: stackItem.triggerType,
+      effect: stackItem.effect,
+      mandatory: stackItem.mandatory !== false,
+      ...(Array.isArray(stackItem.targets) ? { targets: stackItem.targets } : null),
+      ...(stackItem.targetPlayer ? { targetPlayer: stackItem.targetPlayer } : null),
+      ...(stackItem.defendingPlayer ? { defendingPlayer: stackItem.defendingPlayer } : null),
+      ...(stackItem.damagedPlayerId ? { damagedPlayerId: stackItem.damagedPlayerId } : null),
+      ...(stackItem.attackingPlayerId ? { attackingPlayerId: stackItem.attackingPlayerId } : null),
+      ...(typeof stackItem.damageAmount === 'number' ? { damageAmount: stackItem.damageAmount } : null),
+      ...(Array.isArray(stackItem.damageSourcePermanentIds) ? { damageSourcePermanentIds: stackItem.damageSourcePermanentIds } : null),
+      ...(typeof stackItem.damageIncludedWarriorSource === 'boolean' ? { damageIncludedWarriorSource: stackItem.damageIncludedWarriorSource } : null),
+      ...(stackItem.effectData && typeof stackItem.effectData === 'object' ? { effectData: stackItem.effectData } : null),
+      ...(stackItem.card && typeof stackItem.card === 'object' ? { card: stackItem.card } : null),
+    });
+  } catch (err) {
+    debugWarn(1, `${ts()} [dealCombatDamage] Failed to persist ${reason} trigger:`, err);
+  }
 }
 
 function isCombatDamagePreventedForPermanent(permanent: any): boolean {
@@ -1758,6 +1795,7 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
   lifeGainForPlayers: Record<string, number>;
   creaturesDestroyed: string[];
   attackersThatDealtDamage?: Record<string, Set<string>>; // defendingPlayerId -> Set of attacker IDs
+  attackerDamageToPlayers?: Record<string, Record<string, number>>; // defendingPlayerId -> attackerId -> damage amount
 } {
   debug(2, `${ts()} [COMBAT_DAMAGE] ========== ENTERING dealCombatDamage (firstStrike=${isFirstStrikePhase}) ==========`);
   
@@ -1766,6 +1804,7 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
     lifeGainForPlayers: {} as Record<string, number>,
     creaturesDestroyed: [] as string[],
     attackersThatDealtDamage: {} as Record<string, Set<string>>,
+    attackerDamageToPlayers: {} as Record<string, Record<string, number>>,
   };
   
   try {
@@ -1988,6 +2027,9 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
               result.attackersThatDealtDamage[defendingPlayerId] = new Set();
             }
             result.attackersThatDealtDamage[defendingPlayerId].add(attacker.id);
+            result.attackerDamageToPlayers[defendingPlayerId] = result.attackerDamageToPlayers[defendingPlayerId] || {};
+            result.attackerDamageToPlayers[defendingPlayerId][attacker.id] =
+              (result.attackerDamageToPlayers[defendingPlayerId][attacker.id] || 0) + actualDamage;
             
             debug(2, `${ts()} [dealCombatDamage] ${card.name || 'Attacker'} dealt ${actualDamage} combat damage to ${defendingPlayerId} (${currentLife} -> ${life[defendingPlayerId]})`);
             
@@ -2213,6 +2255,9 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
                 result.attackersThatDealtDamage[defendingPlayerId] = new Set();
               }
               result.attackersThatDealtDamage[defendingPlayerId].add(attacker.id);
+              result.attackerDamageToPlayers[defendingPlayerId] = result.attackerDamageToPlayers[defendingPlayerId] || {};
+              result.attackerDamageToPlayers[defendingPlayerId][attacker.id] =
+                (result.attackerDamageToPlayers[defendingPlayerId][attacker.id] || 0) + trampleDamageToPlayer;
               
               debug(2, `${ts()} [dealCombatDamage] ${card.name || 'Attacker'} trample: dealt ${trampleDamageToPlayer} excess damage to ${defendingPlayerId}`);
               
@@ -2411,7 +2456,9 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
     // Queue per-attacker combat damage triggers onto the stack.
     // This covers triggers like: "Whenever ~ deals combat damage to a player, ..."
     // IMPORTANT: do this before SBA, because SBA may move creatures off the battlefield.
-    try {
+    if (shouldUsePersistedCombatDamageTriggersDuringReplay(ctx)) {
+      debug(2, `${ts()} [dealCombatDamage] Replay has persisted combat damage trigger events; skipping live rediscovery`);
+    } else try {
       const state = (ctx as any).state;
       state.stack = state.stack || [];
 
@@ -2463,7 +2510,8 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
               // Defensive: if evaluation fails, do not block.
             }
 
-            state.stack.push({
+            const damageAmount = Math.max(0, Number(result.attackerDamageToPlayers?.[String(defendingPlayerId)]?.[String(attackerId)] || 0));
+            const stackItem = {
               id: uid('trigger'),
               type: 'triggered_ability',
               controller: attackerPerm.controller,
@@ -2475,9 +2523,21 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
               mandatory: trigger.mandatory !== false,
               effect: trigger.effect || text,
               targets: [],
+              targetPlayer: String(defendingPlayerId),
               defendingPlayer: String(defendingPlayerId),
+              damagedPlayerId: String(defendingPlayerId),
+              damageAmount,
+              damageSourcePermanentIds: [String(attackerPerm.id)],
+              effectData: {
+                sourcePermanentId: String(attackerPerm.id),
+                damagedPlayerId: String(defendingPlayerId),
+                damageAmount,
+              },
               card: attackerPerm.card,
-            } as any);
+            } as any;
+
+            state.stack.push(stackItem);
+            persistCombatDamageTriggeredAbility(ctx, stackItem, 'per-attacker combat damage');
 
             debug(2, `${ts()} [dealCombatDamage] Pushed combat damage trigger onto stack: ${attackerPerm.card?.name || trigger.cardName} - ${text}`);
           }
@@ -2489,7 +2549,9 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
 
     // Queue defender-side combat damage triggers for permanents controlled by players who were dealt combat damage.
     // This covers text like "When you're dealt combat damage, ..."
-    try {
+    if (shouldUsePersistedCombatDamageTriggersDuringReplay(ctx)) {
+      debug(2, `${ts()} [dealCombatDamage] Replay has persisted defender combat damage trigger events; skipping live rediscovery`);
+    } else try {
       const state = (ctx as any).state;
       state.stack = state.stack || [];
 
@@ -2577,7 +2639,8 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
               // Defensive: if evaluation fails, do not block.
             }
 
-            state.stack.push({
+            const damageAmount = Number(totalDamage || 0);
+            const stackItem = {
               id: uid('trigger'),
               type: 'triggered_ability',
               controller: perm.controller,
@@ -2589,11 +2652,21 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
               mandatory: trigger.mandatory !== false,
               effect: trigger.effect || text,
               targets: [],
+              targetPlayer: String(damagedPlayerId),
+              defendingPlayer: String(damagedPlayerId),
               damagedPlayerId: String(damagedPlayerId),
               attackingPlayerId,
-              damageAmount: Number(totalDamage || 0),
+              damageAmount,
+              effectData: {
+                damagedPlayerId: String(damagedPlayerId),
+                attackingPlayerId,
+                damageAmount,
+              },
               card: perm.card,
-            } as any);
+            } as any;
+
+            state.stack.push(stackItem);
+            persistCombatDamageTriggeredAbility(ctx, stackItem, 'defender combat damage');
 
             debug(2, `${ts()} [dealCombatDamage] Pushed defender combat damage trigger onto stack: ${perm.card?.name || trigger.cardName} - ${text}`);
           }

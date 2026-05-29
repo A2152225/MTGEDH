@@ -44,9 +44,21 @@ describe('venture and initiative replay semantics', () => {
 
     addPlayer(game, playerId, 'P1');
 
+    ResolutionQueueManager.addStep('t_venture_choose_dungeon_resolve_replay', {
+      id: 'venture_dungeon_step_1',
+      type: ResolutionStepType.OPTION_CHOICE,
+      playerId,
+      description: 'Choose a dungeon',
+      mandatory: true,
+      ventureChooseDungeon: true,
+      options: [{ id: 'undercity', label: 'Undercity' }],
+    } as any);
+    expect(ResolutionQueueManager.getQueue('t_venture_choose_dungeon_resolve_replay').steps).toHaveLength(1);
+
     game.applyEvent({
       type: 'ventureChooseDungeonResolve',
       playerId,
+      resolvedStepId: 'venture_dungeon_step_1',
       dungeonId: 'undercity',
       dungeonName: 'Undercity',
       roomIndex: 0,
@@ -64,6 +76,7 @@ describe('venture and initiative replay semantics', () => {
       currentRoomName: 'Secret Entrance',
       roomPath: ['secret_entrance'],
     });
+    expect(ResolutionQueueManager.getQueue('t_venture_choose_dungeon_resolve_replay').steps).toHaveLength(0);
   });
 
   it('replays ventureChooseDungeonResolve and applies deterministic entry effects', () => {
@@ -98,9 +111,22 @@ describe('venture and initiative replay semantics', () => {
 
     addPlayer(game, playerId, 'P1');
 
+    ResolutionQueueManager.addStep('t_venture_choose_room_resolve_replay', {
+      id: 'venture_room_step_1',
+      type: ResolutionStepType.OPTION_CHOICE,
+      playerId,
+      description: 'Choose the next room',
+      mandatory: true,
+      ventureChooseRoom: true,
+      ventureDungeonId: 'lost_mine',
+      options: [{ id: 'mine_tunnels', label: 'Mine Tunnels' }],
+    } as any);
+    expect(ResolutionQueueManager.getQueue('t_venture_choose_room_resolve_replay').steps).toHaveLength(1);
+
     game.applyEvent({
       type: 'ventureChooseRoomResolve',
       playerId,
+      resolvedStepId: 'venture_room_step_1',
       dungeonId: 'lost_mine',
       dungeonName: 'Lost Mine of Phandelver',
       roomIndex: 1,
@@ -119,6 +145,7 @@ describe('venture and initiative replay semantics', () => {
       currentRoomName: 'Mine Tunnels',
       roomPath: ['cave_entrance', 'mine_tunnels'],
     });
+    expect(ResolutionQueueManager.getQueue('t_venture_choose_room_resolve_replay').steps).toHaveLength(0);
   });
 
   it('replays a room-enter token event by restoring the authoritative token snapshot', () => {

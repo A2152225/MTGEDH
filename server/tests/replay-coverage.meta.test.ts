@@ -190,10 +190,20 @@ const REPLAY_GUARD_EXEMPTIONS: Record<string, string> = {
 };
 
 const PROMPT_RESPONSE_CLEANUP_EVENT_TYPES = [
+  'attachEquipmentToPermanentChoiceResolve',
   'bounceLandChoice',
+  'bottomOrderResolve',
   'cardNameChoice',
   'castFromExilePromptResolve',
   'castFromGraveyardPromptResolve',
+  'castRevealedFromLibraryResolve',
+  'cascadeResolve',
+  'chooseDiscardPlanChoiceResolve',
+  'chooseLookedAtCardsDestinationResolve',
+  'chooseManaColorsChoiceResolve',
+  'choosePileFromSplitResolve',
+  'choosePlayerForLookedAtCardsChoiceResolve',
+  'choosePlayerForTwoPileSplitChoiceResolve',
   'clashResolve',
   'colorChoice',
   'commanderZoneChoice',
@@ -201,38 +211,80 @@ const PROMPT_RESPONSE_CLEANUP_EVENT_TYPES = [
   'copyRetargetChoiceResolve',
   'crewVehicle',
   'dredgeDrawReplacementResolve',
+  'divineReckoningBatchResolve',
+  'divineReckoningChoiceResolve',
+  'dungeonRoomFreeCastChoiceResolve',
+  'dungeonRoomPenaltyChoiceResolve',
+  'dungeonRoomThroneResolve',
+  'dungeonTargetCreatureResolve',
+  'dungeonTargetPlayerResolve',
   'enlist',
   'exploreResolve',
   'exertChoice',
   'fatesealResolve',
+  'forceOfWillExileChoiceResolve',
+  'grantPlayableFromExileChoiceResolve',
   'hideawayChoice',
   'keywordPromptResolve',
   'kynaiosChoiceResponse',
   'librarySearchResolve',
+  'limDulsVaultResolve',
   'mayAbilityResolve',
   'miraclePromptResolve',
+  'mirrormindCrownTokenReplacementChoiceResolve',
   'morphTurnFaceUp',
+  'moveChosenHandCardToLibraryChoiceResolve',
   'moxDiamondChoice',
   'mutateCastModeChoiceResolve',
   'myriadChoice',
   'opponentMayPayResolve',
   'optionalPaymentPromptResolve',
+  'optionalTriggeredAbilityChoice',
+  'payManaToLookAndChooseCardChoiceResolve',
   'playerChoice',
+  'ponderEffectResolve',
   'proliferateResolve',
+  'prisonersDilemmaBatchResolve',
+  'prisonersDilemmaChoiceResolve',
+  'reflexiveConvertResolve',
+  'reflexiveDiscardResolve',
+  'reflexiveFixedPaymentResolve',
+  'reflexiveGraveyardExileResolve',
+  'reflexiveManaPaymentResolve',
   'revealLandChoice',
   'retargetAbilityCopyResolve',
   'retargetSpellCopyResolve',
   'resolvedSpellCopyChoiceResolve',
   'rulesChoiceResolved',
+  'sacrificeAnotherPermanentForBenefitChoiceResolve',
+  'sacrificeAnotherPermanentForBenefitResolve',
+  'sacrificeSelectionResolve',
   'sacrificeUnlessPayChoice',
+  'sacrificeWhenYouDoResolve',
   'shockLandChoice',
   'scryResolve',
+  'spellBottomRevealUntilNonlandResolve',
   'suspendCard',
   'surveilResolve',
   'temptingOfferResponse',
   'triggerOrderResponse',
+  'upkeepSacrificeResolve',
+  'ventureChooseDungeonResolve',
+  'ventureChooseRoomResolve',
   'voteSubmit',
+  'wardPaymentResolve',
 ];
+
+const PROMPT_LIKE_REPLAY_EVENT_EXEMPTIONS: Record<string, string> = {
+  copyTriggeredAbilityResolve: 'copy resolution creates a stack object; prompt cleanup belongs to copyRetargetChoiceResolve/retargetAbilityCopyResolve when a prompt is involved',
+  copyTriggeredSpellResolve: 'copy resolution creates a stack object; prompt cleanup belongs to copyRetargetChoiceResolve/retargetSpellCopyResolve when a prompt is involved',
+  danceWithCalamityResolve: 'spell resolution event that starts the push-your-luck flow, not a prompt response',
+  optionChoice: 'legacy permanent option storage event; not emitted from a queued Resolution Queue prompt response',
+  resolvedSpellCopyResolve: 'copy creation event after resolvedSpellCopyChoiceResolve, not the prompt response itself',
+  resolveTopOfStackPrompt: 'prompt-producer event that restores a queued step during replay',
+  targetSelectionTapUntapPrompt: 'prompt-producer event that restores a queued target-selection step during replay',
+  targetSelectionWardPrompt: 'prompt-producer event that restores a queued ward-payment step during replay',
+};
 
 function walkFiles(dirPath: string): string[] {
   const files: string[] = [];
@@ -396,5 +448,18 @@ describe('interactive replay coverage guard', () => {
       .map(entry => entry.eventType);
 
     expect(missingCleanup, `Prompt-response replay events missing queue cleanup in applyEvent: ${missingCleanup.join(', ')}`).toEqual([]);
+  });
+
+  it('classifies guarded prompt-like replay events by cleanup contract', () => {
+    const classifiedPromptLikeEvents = new Set([
+      ...PROMPT_RESPONSE_CLEANUP_EVENT_TYPES,
+      ...Object.keys(PROMPT_LIKE_REPLAY_EVENT_EXEMPTIONS),
+    ]);
+    const unclassifiedPromptLikeEvents = [...REPLAY_GUARDED_EVENT_TYPES]
+      .filter(isPromptResponseEventType)
+      .filter(eventType => !classifiedPromptLikeEvents.has(eventType))
+      .sort();
+
+    expect(unclassifiedPromptLikeEvents, `Guarded prompt-like replay events need cleanup metadata or an exemption: ${unclassifiedPromptLikeEvents.join(', ')}`).toEqual([]);
   });
 });

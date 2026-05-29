@@ -30523,6 +30523,7 @@ async function handleOptionChoiceResponse(
         'ventureChooseDungeonResolve',
         {
           playerId: String(playerId || '').trim(),
+          resolvedStepId: String(step.id || '').trim() || undefined,
           dungeonId: normalizedChoiceId,
           dungeonName,
           roomIndex: dungeonProgress.roomIndex,
@@ -30585,6 +30586,7 @@ async function handleOptionChoiceResponse(
         'ventureChooseRoomResolve',
         {
           playerId: String(playerId || '').trim(),
+          resolvedStepId: String(step.id || '').trim() || undefined,
           dungeonId: advancement.progress.dungeonId,
           dungeonName: advancement.progress.dungeonName,
           roomIndex: advancement.progress.roomIndex,
@@ -31059,6 +31061,7 @@ async function handleOptionChoiceResponse(
     }
 
     const sourceName = String(stepData.choosePileFromSplitSourceName || step.sourceName || 'Ability');
+    const resolvedStepId = String(step.id || '').trim() || undefined;
     const items: any[] = Array.isArray(stepData.choosePileFromSplitItems) ? stepData.choosePileFromSplitItems : [];
     const originalOrder: string[] = Array.isArray(stepData.choosePileFromSplitOriginalOrder)
       ? stepData.choosePileFromSplitOriginalOrder.map(String)
@@ -31110,6 +31113,10 @@ async function handleOptionChoiceResponse(
 
       try {
         appendEvent(gameId, (game as any).seq ?? 0, 'choosePileFromSplitResolve', {
+          playerId,
+          sourceName,
+          resolvedStepId,
+          choiceId,
           action: 'move_cards',
           movePlayerId,
           chosenDestination,
@@ -31186,6 +31193,10 @@ async function handleOptionChoiceResponse(
 
       try {
         appendEvent(gameId, (game as any).seq ?? 0, 'choosePileFromSplitResolve', {
+          playerId,
+          sourceName,
+          resolvedStepId,
+          choiceId,
           action: 'sacrifice_permanents',
           targetPlayerId,
           permanentIds: toSacrifice,

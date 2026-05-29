@@ -156,6 +156,11 @@ describe('combat trigger persistence', () => {
       targetPlayer: 'p2',
       defendingPlayer: 'p2',
       triggeringPlayer: p1,
+      damagedPlayerId: 'p2',
+      attackingPlayerId: p1,
+      damageAmount: 3,
+      damageSourcePermanentIds: ['attacker_1'],
+      damageIncludedWarriorSource: false,
     } as any);
 
     const stack = (game.state as any).stack || [];
@@ -167,6 +172,85 @@ describe('combat trigger persistence', () => {
       targetPlayer: 'p2',
       defendingPlayer: 'p2',
       triggeringPlayer: p1,
+      damagedPlayerId: 'p2',
+      attackingPlayerId: p1,
+      damageAmount: 3,
+      damageSourcePermanentIds: ['attacker_1'],
+      damageIncludedWarriorSource: false,
+    });
+  });
+
+  it('persists combat damage trigger stack pushes as pushTriggeredAbility events', async () => {
+    const gameId = `test_combat_damage_trigger_persistence_${Date.now()}`;
+    trackedGameIds.add(gameId);
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const p1 = 'p1';
+    const p2 = 'p2';
+
+    (game.state as any).players = [
+      { id: p1, name: 'P1', spectator: false, life: 40 },
+      { id: p2, name: 'P2', spectator: false, life: 40 },
+    ];
+    (game.state as any).startingLife = 40;
+    (game.state as any).life = { [p1]: 40, [p2]: 40 };
+    (game.state as any).turnPlayer = p1;
+    (game.state as any).activePlayer = p1;
+    (game.state as any).phase = 'combat';
+    (game.state as any).step = 'declareBlockers';
+    (game.state as any).priority = p1;
+    (game.state as any).stack = [];
+    (game.state as any).zones = {
+      [p1]: { hand: [], graveyard: [], exile: [], handCount: 0, graveyardCount: 0, exileCount: 0 },
+      [p2]: { hand: [], graveyard: [], exile: [], handCount: 0, graveyardCount: 0, exileCount: 0 },
+    };
+    (game.state as any).battlefield = [
+      {
+        id: 'damage_attacker_1',
+        controller: p1,
+        owner: p1,
+        basePower: 3,
+        baseToughness: 3,
+        tapped: true,
+        summoningSickness: false,
+        attacking: p2,
+        blockedBy: [],
+        card: {
+          id: 'damage_attacker_card_1',
+          name: 'Damage Scout',
+          type_line: 'Creature — Scout',
+          oracle_text: 'Whenever ~ deals combat damage to a player, draw a card.',
+          power: '3',
+          toughness: '3',
+        },
+      },
+    ];
+
+    game.applyEvent({ type: 'nextStep' });
+
+    const stack = (game.state as any).stack || [];
+    expect(stack.some((item: any) => item?.type === 'triggered_ability' && item?.sourceName === 'Damage Scout')).toBe(true);
+
+    const events = getEvents(gameId);
+    const triggerEvent = events.find((event) => event.type === 'pushTriggeredAbility' && (event as any).payload?.sourceName === 'Damage Scout');
+    expect(triggerEvent).toBeTruthy();
+    expect((triggerEvent as any).payload).toMatchObject({
+      sourceName: 'Damage Scout',
+      controllerId: p1,
+      description: 'draw a card',
+      effect: 'draw a card',
+      triggerType: 'deals_combat_damage',
+      targetPlayer: p2,
+      defendingPlayer: p2,
+      damagedPlayerId: p2,
+      damageAmount: 3,
+      effectData: {
+        sourcePermanentId: 'damage_attacker_1',
+        damagedPlayerId: p2,
+        damageAmount: 3,
+      },
     });
   });
 

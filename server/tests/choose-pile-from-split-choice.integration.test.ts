@@ -315,7 +315,12 @@ describe('choose pile from split choice (integration)', () => {
 
     const resolveEvent = [...getEvents(gameId)].reverse().find((event: any) => event.type === 'choosePileFromSplitResolve') as any;
     expect(resolveEvent).toBeDefined();
+    expect(resolveEvent.payload?.resolvedStepId).toBe(step.id);
     expect(resolveEvent.payload).toMatchObject({
+      playerId: p1,
+      sourceName: 'Source',
+      resolvedStepId: step.id,
+      choiceId: 'pileA',
       action: 'move_cards',
       movePlayerId: p1,
       chosenDestination: 'hand',
@@ -339,9 +344,21 @@ describe('choose pile from split choice (integration)', () => {
         graveyardCount: 0,
       },
     };
+    ResolutionQueueManager.addStep(replayGameId, {
+      id: resolveEvent.payload.resolvedStepId,
+      type: ResolutionStepType.OPTION_CHOICE,
+      playerId: p1,
+      description: 'Replay choose a pile',
+      mandatory: true,
+      sourceName: 'Source',
+      choosePileFromSplitChoice: true,
+      options: [{ id: 'pileA', label: 'Pile A' }, { id: 'pileB', label: 'Pile B' }],
+    } as any);
+    expect(ResolutionQueueManager.getQueue(replayGameId).steps).toHaveLength(1);
     replayGame.applyEvent({ type: 'choosePileFromSplitResolve', ...(resolveEvent.payload || {}) } as any);
     expect(((replayGame.state as any).zones[p1].hand || []).map((c: any) => c.id)).toEqual(['c1', 'c3']);
     expect(((replayGame.state as any).zones[p1].library || []).map((c: any) => c.id)).toEqual(['c2']);
+    expect(ResolutionQueueManager.getQueue(replayGameId).steps).toHaveLength(0);
   });
 
   it('sacrifices the chosen pile of permanents', async () => {
@@ -393,7 +410,11 @@ describe('choose pile from split choice (integration)', () => {
 
     const resolveEvent = [...getEvents(gameId)].reverse().find((event: any) => event.type === 'choosePileFromSplitResolve') as any;
     expect(resolveEvent).toBeDefined();
-    expect(resolveEvent.payload).toEqual({
+    expect(resolveEvent.payload).toMatchObject({
+      playerId: p1,
+      sourceName: 'Source',
+      resolvedStepId: step.id,
+      choiceId: 'pileB',
       action: 'sacrifice_permanents',
       targetPlayerId: p1,
       permanentIds: ['perm2'],
@@ -412,8 +433,20 @@ describe('choose pile from split choice (integration)', () => {
       { id: 'perm2', controller: p1, owner: p1, isToken: true, card: { id: 'perm2_card', name: 'Perm 2', type_line: 'Artifact' } },
       { id: 'perm3', controller: p1, owner: p1, card: { name: 'Perm 3', type_line: 'Enchantment' } },
     ];
+    ResolutionQueueManager.addStep(replayGameId, {
+      id: resolveEvent.payload.resolvedStepId,
+      type: ResolutionStepType.OPTION_CHOICE,
+      playerId: p1,
+      description: 'Replay choose a pile to sacrifice',
+      mandatory: true,
+      sourceName: 'Source',
+      choosePileFromSplitChoice: true,
+      options: [{ id: 'pileA', label: 'Pile A' }, { id: 'pileB', label: 'Pile B' }],
+    } as any);
+    expect(ResolutionQueueManager.getQueue(replayGameId).steps).toHaveLength(1);
     replayGame.applyEvent({ type: 'choosePileFromSplitResolve', ...(resolveEvent.payload || {}) } as any);
     expect(((replayGame.state as any).battlefield || []).map((perm: any) => perm.id)).toEqual(['perm1', 'perm3']);
     expect((((replayGame.state as any).zones?.[p1]?.graveyard) || []).map((card: any) => card.name)).toEqual(['Perm 2']);
+    expect(ResolutionQueueManager.getQueue(replayGameId).steps).toHaveLength(0);
   });
 });

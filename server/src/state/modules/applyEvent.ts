@@ -11910,6 +11910,11 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
         const targetPlayer = (e as any).targetPlayer;
         const defendingPlayer = (e as any).defendingPlayer;
         const triggeringPlayer = (e as any).triggeringPlayer;
+        const damagedPlayerId = (e as any).damagedPlayerId;
+        const attackingPlayerId = (e as any).attackingPlayerId;
+        const damageAmount = (e as any).damageAmount;
+        const damageSourcePermanentIds = (e as any).damageSourcePermanentIds;
+        const damageIncludedWarriorSource = (e as any).damageIncludedWarriorSource;
         const activatedAbilityIsManaAbility = (e as any).activatedAbilityIsManaAbility;
         const triggeringStackItemId = (e as any).triggeringStackItemId;
         const triggeringPermanentId = (e as any).triggeringPermanentId;
@@ -11985,6 +11990,11 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
             ...(targetPlayer ? { targetPlayer } : null),
             ...(defendingPlayer ? { defendingPlayer } : null),
             ...(triggeringPlayer != null ? { triggeringPlayer } : null),
+            ...(damagedPlayerId ? { damagedPlayerId } : null),
+            ...(attackingPlayerId ? { attackingPlayerId } : null),
+            ...(typeof damageAmount === 'number' ? { damageAmount } : null),
+            ...(Array.isArray(damageSourcePermanentIds) ? { damageSourcePermanentIds } : null),
+            ...(typeof damageIncludedWarriorSource === 'boolean' ? { damageIncludedWarriorSource } : null),
             ...(typeof activatedAbilityIsManaAbility === 'boolean' ? { activatedAbilityIsManaAbility } : null),
             ...(triggeringStackItemId ? { triggeringStackItemId } : null),
             ...(triggeringPermanentId ? { triggeringPermanentId } : null),
@@ -12242,6 +12252,16 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
 
       case "choosePileFromSplitResolve": {
         try {
+          const gameId = String((ctx as any).gameId || '').trim();
+          const resolvedStepId = String((e as any).resolvedStepId || '').trim();
+          if (gameId) {
+            clearReplayQueuedSteps(gameId, (step: any) => {
+              if (!step) return false;
+              if (resolvedStepId && String(step?.id || '').trim() === resolvedStepId) return true;
+              return false;
+            });
+          }
+
           const action = String((e as any).action || '').trim();
           if (action === 'move_cards') {
             const movePlayerId = String((e as any).movePlayerId || '').trim();
@@ -12671,6 +12691,20 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           const playerId = String((e as any).playerId || '').trim();
           if (!playerId) break;
 
+          const gameId = String((ctx as any).gameId || '').trim();
+          const resolvedStepId = String((e as any).resolvedStepId || '').trim();
+          if (gameId) {
+            clearReplayQueuedSteps(gameId, (step: any) => {
+              if (!step) return false;
+              if (resolvedStepId && String(step?.id || '').trim() === resolvedStepId) return true;
+              return (
+                String(step?.type || '') === String(ResolutionStepType.OPTION_CHOICE) &&
+                (step as any)?.ventureChooseDungeon === true &&
+                String(step?.playerId || '').trim() === playerId
+              );
+            });
+          }
+
           const stateAny = ctx.state as any;
           stateAny.dungeonProgress = stateAny.dungeonProgress || {};
           const normalizedProgress = normalizeDungeonProgress(e);
@@ -12689,6 +12723,22 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
         try {
           const playerId = String((e as any).playerId || '').trim();
           if (!playerId) break;
+
+          const gameId = String((ctx as any).gameId || '').trim();
+          const resolvedStepId = String((e as any).resolvedStepId || '').trim();
+          const dungeonId = String((e as any).dungeonId || '').trim();
+          if (gameId) {
+            clearReplayQueuedSteps(gameId, (step: any) => {
+              if (!step) return false;
+              if (resolvedStepId && String(step?.id || '').trim() === resolvedStepId) return true;
+              return (
+                String(step?.type || '') === String(ResolutionStepType.OPTION_CHOICE) &&
+                (step as any)?.ventureChooseRoom === true &&
+                String(step?.playerId || '').trim() === playerId &&
+                (!dungeonId || String((step as any)?.ventureDungeonId || '').trim() === dungeonId)
+              );
+            });
+          }
 
           const stateAny = ctx.state as any;
           stateAny.dungeonProgress = stateAny.dungeonProgress || {};
