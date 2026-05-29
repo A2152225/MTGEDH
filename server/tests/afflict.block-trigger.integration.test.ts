@@ -163,6 +163,55 @@ describe('afflict block trigger automation', () => {
     expect(((game.state as any).stack || []).length).toBe(0);
   });
 
+  it('orders simultaneous block and blocked triggers by APNAP before stack push', async () => {
+    const gameId = createGameId();
+    trackedGameIds.add(gameId);
+    const attackingPlayerId = 'p1' as PlayerID;
+    const defendingPlayerId = 'p2' as PlayerID;
+    const game = seedCombatGame(gameId, attackingPlayerId, defendingPlayerId);
+
+    (game.state as any).battlefield = [
+      createCreature('afflict_attacker', attackingPlayerId, 'Afflict Attacker', 'Afflict 2', 3, 3),
+      createCreature('block_trigger_blocker', defendingPlayerId, 'Block Trigger Blocker', 'Whenever ~ blocks, draw a card.', 2, 2),
+    ];
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const attackerSocket = createMockSocket(attackingPlayerId, emitted, gameId);
+    const defenderSocket = createMockSocket(defendingPlayerId, emitted, gameId);
+    const io = createMockIo(emitted, [attackerSocket.socket, defenderSocket.socket]);
+    registerCombatHandlers(io as any, attackerSocket.socket as any);
+    registerCombatHandlers(io as any, defenderSocket.socket as any);
+
+    await attackerSocket.handlers.declareAttackers({
+      gameId,
+      attackers: [{ creatureId: 'afflict_attacker', targetPlayerId: defendingPlayerId }],
+    });
+
+    (game.state as any).step = 'declareBlockers';
+
+    await defenderSocket.handlers.declareBlockers({
+      gameId,
+      blockers: [{ blockerId: 'block_trigger_blocker', attackerId: 'afflict_attacker' }],
+    });
+
+    const blockTriggerStackItems = (((game.state as any).stack || []) as any[]).filter((item: any) =>
+      item?.type === 'triggered_ability' && (item?.source === 'afflict_attacker' || item?.source === 'block_trigger_blocker')
+    );
+    expect(blockTriggerStackItems.map((item: any) => item.source)).toEqual([
+      'afflict_attacker',
+      'block_trigger_blocker',
+    ]);
+
+    const triggerEvents = getEvents(gameId).filter((event: any) => {
+      const payload = (event as any).payload || {};
+      return event.type === 'pushTriggeredAbility' && (payload.sourceId === 'afflict_attacker' || payload.sourceId === 'block_trigger_blocker');
+    });
+    expect(triggerEvents.map((event: any) => event.payload?.sourceId)).toEqual([
+      'afflict_attacker',
+      'block_trigger_blocker',
+    ]);
+  });
+
   it('replays a persisted afflict trigger and uses the defending player snapshot for life loss', () => {
     const gameId = createGameId();
     trackedGameIds.add(gameId);

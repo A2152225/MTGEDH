@@ -120,15 +120,82 @@ describe('life-loss triggers (integration)', () => {
       effect: 'you gain that much life',
     }));
     expect(lifeLossStackItems[0]?.effectData?.lifeLost).toBe(4);
+    expect(lifeLossStackItems[0]?.sourcePermanentSnapshot).toEqual(expect.objectContaining({
+      id: 'exquisite_blood_perm',
+      controller: p1,
+      owner: p1,
+      card: expect.objectContaining({
+        name: 'Exquisite Blood',
+      }),
+    }));
 
     const triggerEvents = getEvents(gameId).filter((event: any) =>
       event?.type === 'pushTriggeredAbility' && event?.payload?.sourceName === 'Exquisite Blood'
     );
     expect(triggerEvents).toHaveLength(1);
+    expect(triggerEvents[0]?.payload?.sourcePermanentSnapshot).toEqual(expect.objectContaining({
+      id: 'exquisite_blood_perm',
+      controller: p1,
+      owner: p1,
+    }));
 
     game.resolveTopOfStack();
 
     expect((game.state.life as any)[p1]).toBe(44);
+  });
+
+  it('replays life-loss trigger source permanent snapshots', () => {
+    const p1 = 'p1';
+    const p2 = 'p2';
+
+    createGameIfNotExists(gameId, 'commander', 40, undefined, p1);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [
+      { id: p1, name: 'P1', spectator: false, life: 40 },
+      { id: p2, name: 'P2', spectator: false, life: 40 },
+    ];
+    (game.state as any).stack = [];
+
+    game.applyEvent({
+      type: 'pushTriggeredAbility',
+      triggerId: 'life_loss_source_snapshot_replay_trigger',
+      sourceId: 'exquisite_blood_perm',
+      sourceName: 'Exquisite Blood',
+      controllerId: p1,
+      description: 'you gain that much life',
+      triggerType: 'opponent_loses_life',
+      effect: 'you gain that much life',
+      mandatory: true,
+      targetPlayer: p2,
+      triggeringPlayer: p2,
+      effectData: {
+        losingPlayerId: p2,
+        lifeLost: 4,
+      },
+      sourcePermanentSnapshot: {
+        id: 'exquisite_blood_perm',
+        controller: p1,
+        owner: p1,
+        card: {
+          id: 'exquisite_blood_card',
+          name: 'Exquisite Blood',
+          type_line: 'Enchantment',
+        },
+      },
+    } as any);
+
+    const replayed = ((game.state as any).stack || []).find((item: any) => item?.id === 'life_loss_source_snapshot_replay_trigger');
+    expect(replayed?.sourcePermanentSnapshot).toEqual(expect.objectContaining({
+      id: 'exquisite_blood_perm',
+      controller: p1,
+      owner: p1,
+    }));
+    expect(replayed?.effectData).toEqual(expect.objectContaining({
+      losingPlayerId: p2,
+      lifeLost: 4,
+    }));
   });
 
   it('queues simultaneous life-loss triggers in APNAP order', () => {

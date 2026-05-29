@@ -22,6 +22,7 @@ import { queueOptionalPaymentStep } from "./optional-payment-prompts.js";
 import { flushPendingDamageTriggersAfterStepAdvance } from "./step-advance.js";
 import { inferTriggeredAbilityTargetMetadata } from "../state/modules/stack.js";
 import { getEnergyCount, spendEnergyCounters } from "../state/utils.js";
+import { orderTriggersByAPNAP } from "../state/modules/triggers/ordering.js";
 
 function persistTriggeredAbilityPush(
   gameId: string,
@@ -2826,7 +2827,7 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
             blockedCreatures,
             playerId
           );
-          const triggers = [...blockTriggers, ...blockedTriggers];
+          const triggers = orderTriggersByAPNAP(ctx as any, [...blockTriggers, ...blockedTriggers]);
           
           // Push triggers to stack and notify clients
           if (triggers.length > 0) {

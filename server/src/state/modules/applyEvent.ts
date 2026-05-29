@@ -11917,6 +11917,8 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
         const damageIncludedWarriorSource = (e as any).damageIncludedWarriorSource;
         const activatedAbilityIsManaAbility = (e as any).activatedAbilityIsManaAbility;
         const triggeringStackItemId = (e as any).triggeringStackItemId;
+        const triggeringSpellCastSourceZone = (e as any).triggeringSpellCastSourceZone;
+        const triggeringSpell = (e as any).triggeringSpell;
         const triggeringPermanentId = (e as any).triggeringPermanentId;
         const interveningIfSubjectPermanentId = (e as any).interveningIfSubjectPermanentId;
         const interveningIfSubjectSnapshot = (e as any).interveningIfSubjectSnapshot;
@@ -11997,6 +11999,8 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
             ...(typeof damageIncludedWarriorSource === 'boolean' ? { damageIncludedWarriorSource } : null),
             ...(typeof activatedAbilityIsManaAbility === 'boolean' ? { activatedAbilityIsManaAbility } : null),
             ...(triggeringStackItemId ? { triggeringStackItemId } : null),
+            ...(triggeringSpellCastSourceZone ? { triggeringSpellCastSourceZone } : null),
+            ...(triggeringSpell && typeof triggeringSpell === 'object' ? { triggeringSpell } : null),
             ...(triggeringPermanentId ? { triggeringPermanentId } : null),
             ...(interveningIfSubjectPermanentId ? { interveningIfSubjectPermanentId } : null),
             ...(interveningIfSubjectSnapshot && typeof interveningIfSubjectSnapshot === 'object' ? { interveningIfSubjectSnapshot } : null),

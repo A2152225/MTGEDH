@@ -1535,6 +1535,7 @@ export function getBlockTriggersForCreatures(
       triggers.push({
         permanentId: trigger.permanentId,
         cardName: trigger.cardName,
+        controllerId: trigger.controllerId,
         triggerType: 'blocks',
         description: trigger.description,
         effect: trigger.effect,

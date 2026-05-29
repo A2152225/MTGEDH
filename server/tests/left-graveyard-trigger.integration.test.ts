@@ -96,11 +96,24 @@ describe('left-graveyard triggers (integration)', () => {
       fromZone: 'graveyard',
       toZone: 'unknown',
     }));
+    expect(stackItems[0]?.sourcePermanentSnapshot).toEqual(expect.objectContaining({
+      id: 'syr_konrad_perm',
+      controller: p1,
+      owner: p1,
+      card: expect.objectContaining({
+        name: 'Syr Konrad, the Grim',
+      }),
+    }));
 
     const triggerEvents = getEvents(gameId).filter((event: any) =>
       event?.type === 'pushTriggeredAbility' && event?.payload?.sourceName === 'Syr Konrad, the Grim'
     );
     expect(triggerEvents).toHaveLength(1);
+    expect(triggerEvents[0]?.payload?.sourcePermanentSnapshot).toEqual(expect.objectContaining({
+      id: 'syr_konrad_perm',
+      controller: p1,
+      owner: p1,
+    }));
 
     game.resolveTopOfStack();
 

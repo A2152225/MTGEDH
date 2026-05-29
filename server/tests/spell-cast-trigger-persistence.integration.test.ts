@@ -99,7 +99,8 @@ describe('cast spell trigger persistence (integration)', () => {
   const heroicFlashbackAuraGameId = 'test_spell_cast_trigger_persistence_heroic_flashback_aura';
   const jumpStartTargetGameId = 'test_spell_cast_trigger_persistence_jump_start_target';
   const disturbTriggerGameId = 'test_spell_cast_trigger_persistence_disturb_trigger';
-  const resetGameIds = [merrowGameId, rhysticGameId, vegaHandGameId, vegaExileGameId, appaHandGameId, appaExileGameId, grafkeeperFlashbackGameId, rhysticFlashbackGameId, ominousRoostFlashbackGameId, ominousRoostFlashbackAuraGameId, heroicFlashbackGameId, heroicFlashbackAuraGameId, jumpStartTargetGameId, disturbTriggerGameId];
+  const sourceZoneReplayGameId = 'test_spell_cast_trigger_persistence_replay_source_zone';
+  const resetGameIds = [merrowGameId, rhysticGameId, vegaHandGameId, vegaExileGameId, appaHandGameId, appaExileGameId, grafkeeperFlashbackGameId, rhysticFlashbackGameId, ominousRoostFlashbackGameId, ominousRoostFlashbackAuraGameId, heroicFlashbackGameId, heroicFlashbackAuraGameId, jumpStartTargetGameId, disturbTriggerGameId, sourceZoneReplayGameId];
 
   beforeAll(async () => {
     await initDb();
@@ -179,6 +180,12 @@ describe('cast spell trigger persistence (integration)', () => {
       sourceName: 'Merrow Reejerey',
       triggerType: 'cast_creature_type',
       mandatory: false,
+      triggeringPlayer: 'p1',
+      triggeringSpellCastSourceZone: 'hand',
+      effectData: expect.objectContaining({
+        casterId: 'p1',
+        castSourceZone: 'hand',
+      }),
       requiresTarget: true,
       targetType: 'permanent',
     });
@@ -187,6 +194,12 @@ describe('cast spell trigger persistence (integration)', () => {
       (item: any) => item?.type === 'triggered_ability' && item?.sourceName === 'Merrow Reejerey'
     );
     expect(persistedTrigger).toMatchObject({
+      triggeringPlayer: 'p1',
+      triggeringSpellCastSourceZone: 'hand',
+      effectData: expect.objectContaining({
+        casterId: 'p1',
+        castSourceZone: 'hand',
+      }),
       requiresTarget: true,
       targetType: 'permanent',
     });
@@ -243,9 +256,11 @@ describe('cast spell trigger persistence (integration)', () => {
       triggerType: 'rhystic_study',
       targetPlayer: 'p1',
       triggeringPlayer: 'p1',
-      effectData: {
+      triggeringSpellCastSourceZone: 'hand',
+      effectData: expect.objectContaining({
         casterId: 'p1',
-      },
+        castSourceZone: 'hand',
+      }),
     });
 
     const persistedTrigger = ((game.state as any).stack || []).find(
@@ -254,8 +269,10 @@ describe('cast spell trigger persistence (integration)', () => {
     expect(persistedTrigger).toMatchObject({
       targetPlayer: 'p1',
       triggeringPlayer: 'p1',
+      triggeringSpellCastSourceZone: 'hand',
       effectData: expect.objectContaining({
         casterId: 'p1',
+        castSourceZone: 'hand',
       }),
     });
   });
@@ -534,6 +551,12 @@ describe('cast spell trigger persistence (integration)', () => {
       sourceName: 'Devoted Grafkeeper',
       triggerType: 'cast_creature_type',
       mandatory: true,
+      triggeringPlayer: 'p1',
+      triggeringSpellCastSourceZone: 'graveyard',
+      effectData: expect.objectContaining({
+        casterId: 'p1',
+        castSourceZone: 'graveyard',
+      }),
       requiresTarget: true,
       targetType: 'creature',
     });
@@ -542,6 +565,12 @@ describe('cast spell trigger persistence (integration)', () => {
       (item: any) => item?.type === 'triggered_ability' && item?.sourceName === 'Devoted Grafkeeper'
     );
     expect(persistedTrigger).toMatchObject({
+      triggeringPlayer: 'p1',
+      triggeringSpellCastSourceZone: 'graveyard',
+      effectData: expect.objectContaining({
+        casterId: 'p1',
+        castSourceZone: 'graveyard',
+      }),
       requiresTarget: true,
       targetType: 'creature',
     });
@@ -601,9 +630,45 @@ describe('cast spell trigger persistence (integration)', () => {
       triggerType: 'rhystic_study',
       targetPlayer: 'p1',
       triggeringPlayer: 'p1',
+      triggeringSpellCastSourceZone: 'graveyard',
+      effectData: expect.objectContaining({
+        casterId: 'p1',
+        castSourceZone: 'graveyard',
+      }),
+    });
+  });
+
+  it('replays spell-cast trigger source-zone context from pushTriggeredAbility', () => {
+    const game = setupCastingGame(sourceZoneReplayGameId);
+
+    game.applyEvent({
+      type: 'pushTriggeredAbility',
+      triggerId: 'spell_cast_source_zone_replay_trigger',
+      sourceId: 'grafkeeper_1',
+      sourceName: 'Devoted Grafkeeper',
+      controllerId: 'p1',
+      description: 'Whenever you cast a spell from your graveyard, tap target creature you don\'t control.',
+      triggerType: 'cast_creature_type',
+      effect: 'tap target creature you don\'t control',
+      mandatory: true,
+      triggeringPlayer: 'p1',
+      triggeringSpellCastSourceZone: 'graveyard',
       effectData: {
         casterId: 'p1',
+        castSourceZone: 'graveyard',
       },
+    } as any);
+
+    const replayedTrigger = ((game.state as any).stack || []).find(
+      (item: any) => item?.id === 'spell_cast_source_zone_replay_trigger'
+    );
+    expect(replayedTrigger).toMatchObject({
+      triggeringPlayer: 'p1',
+      triggeringSpellCastSourceZone: 'graveyard',
+      effectData: expect.objectContaining({
+        casterId: 'p1',
+        castSourceZone: 'graveyard',
+      }),
     });
   });
 

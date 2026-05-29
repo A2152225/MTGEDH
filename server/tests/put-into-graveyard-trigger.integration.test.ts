@@ -98,11 +98,24 @@ describe('put-into-graveyard triggers (integration)', () => {
       fromZone: 'nonbattlefield',
       toZone: 'graveyard',
     }));
+    expect(stackItems[0]?.sourcePermanentSnapshot).toEqual(expect.objectContaining({
+      id: 'vulturous_zombie_perm',
+      controller: p1,
+      owner: p1,
+      card: expect.objectContaining({
+        name: 'Vulturous Zombie',
+      }),
+    }));
 
     const triggerEvents = getEvents(gameId).filter((event: any) =>
       event?.type === 'pushTriggeredAbility' && event?.payload?.sourceName === 'Vulturous Zombie'
     );
     expect(triggerEvents).toHaveLength(1);
+    expect(triggerEvents[0]?.payload?.sourcePermanentSnapshot).toEqual(expect.objectContaining({
+      id: 'vulturous_zombie_perm',
+      controller: p1,
+      owner: p1,
+    }));
 
     game.resolveTopOfStack();
 
@@ -251,6 +264,63 @@ describe('put-into-graveyard triggers (integration)', () => {
 
     expect((game.state as any).life[p1]).toBe(40);
     expect((game.state as any).life[p2]).toBe(39);
+  });
+
+  it('replays zone-change trigger source permanent snapshots', () => {
+    const p1 = 'p1';
+    const p2 = 'p2';
+
+    createGameIfNotExists(gameId, 'commander', 40, undefined, p1);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [
+      { id: p1, name: 'P1', spectator: false, life: 40 },
+      { id: p2, name: 'P2', spectator: false, life: 40 },
+    ];
+    (game.state as any).stack = [];
+
+    game.applyEvent({
+      type: 'pushTriggeredAbility',
+      triggerId: 'zone_change_source_snapshot_replay_trigger',
+      sourceId: 'vulturous_zombie_perm',
+      sourceName: 'Vulturous Zombie',
+      controllerId: p1,
+      description: 'put a +1/+1 counter on this creature',
+      triggerType: 'card_put_into_graveyard',
+      effect: 'put a +1/+1 counter on this creature',
+      mandatory: true,
+      effectData: {
+        graveyardCardId: 'milled_card',
+        graveyardCardName: 'Island',
+        graveyardCardOwner: p2,
+        graveyardCardController: p2,
+        graveyardCardTypeLine: 'Basic Land - Island',
+        fromZone: 'nonbattlefield',
+        toZone: 'graveyard',
+      },
+      sourcePermanentSnapshot: {
+        id: 'vulturous_zombie_perm',
+        controller: p1,
+        owner: p1,
+        card: {
+          id: 'vulturous_zombie_card',
+          name: 'Vulturous Zombie',
+          type_line: 'Creature - Plant Zombie',
+        },
+      },
+    } as any);
+
+    const replayed = ((game.state as any).stack || []).find((item: any) => item?.id === 'zone_change_source_snapshot_replay_trigger');
+    expect(replayed?.sourcePermanentSnapshot).toEqual(expect.objectContaining({
+      id: 'vulturous_zombie_perm',
+      controller: p1,
+      owner: p1,
+    }));
+    expect(replayed?.effectData).toEqual(expect.objectContaining({
+      graveyardCardId: 'milled_card',
+      graveyardCardOwner: p2,
+    }));
   });
 
   it('does not rediscover live graveyard-entry triggers while replaying', () => {

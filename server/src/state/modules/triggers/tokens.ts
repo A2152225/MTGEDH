@@ -97,6 +97,31 @@ export function getTokenCreatedTriggers(
   return triggers;
 }
 
+function snapshotPermanentForTriggerContext(permanent: any): any | undefined {
+  if (!permanent || typeof permanent !== 'object') return undefined;
+
+  return {
+    id: String(permanent?.id || ''),
+    controller: String(permanent?.controller || ''),
+    owner: String(permanent?.owner || permanent?.controller || ''),
+    tapped: permanent?.tapped === true,
+    isToken: permanent?.isToken === true,
+    basePower: permanent?.basePower,
+    baseToughness: permanent?.baseToughness,
+    counters: permanent?.counters && typeof permanent.counters === 'object' ? { ...permanent.counters } : undefined,
+    card: permanent?.card && typeof permanent.card === 'object'
+      ? {
+          id: String(permanent.card?.id || ''),
+          name: String(permanent.card?.name || ''),
+          type_line: String(permanent.card?.type_line || ''),
+          oracle_text: String(permanent.card?.oracle_text || ''),
+          power: permanent.card?.power,
+          toughness: permanent.card?.toughness,
+        }
+      : undefined,
+  };
+}
+
 export function queueTokenCreatedTriggers(
   ctx: GameContext,
   tokenControllerId: string,
@@ -114,6 +139,11 @@ export function queueTokenCreatedTriggers(
   const stateAny = ctx.state as any;
   stateAny.stack = Array.isArray(stateAny.stack) ? stateAny.stack : [];
   const gameId = String((ctx as any).gameId || (ctx as any).id || '').trim();
+  const battlefield = Array.isArray(stateAny.battlefield) ? stateAny.battlefield : [];
+  const createdTokenSnapshots = tokenIds
+    .map((tokenId) => battlefield.find((permanent: any) => String(permanent?.id || '') === tokenId))
+    .map((permanent: any) => snapshotPermanentForTriggerContext(permanent))
+    .filter(Boolean);
   const queued: any[] = [];
 
   for (const trigger of triggers) {
@@ -127,6 +157,8 @@ export function queueTokenCreatedTriggers(
     for (let index = 0; index < triggerCount; index++) {
       const triggerId = uid('trigger');
       const createdTokenId = trigger.perToken ? tokenIds[index] : undefined;
+      const sourcePermanent = battlefield.find((permanent: any) => String(permanent?.id || '') === trigger.permanentId);
+      const sourcePermanentSnapshot = snapshotPermanentForTriggerContext(sourcePermanent);
       const stackItem = {
         id: triggerId,
         type: 'triggered_ability',
@@ -147,10 +179,10 @@ export function queueTokenCreatedTriggers(
           tokensCreated: tokenIds.length,
           tokenName: String(tokenSnapshot.name || '').trim(),
           tokenTypeLine: String(tokenSnapshot.typeLine || '').trim(),
+          createdTokenSnapshots,
         },
-        card: Array.isArray(stateAny.battlefield)
-          ? stateAny.battlefield.find((permanent: any) => String(permanent?.id || '') === trigger.permanentId)?.card
-          : undefined,
+        ...(sourcePermanentSnapshot ? { sourcePermanentSnapshot } : null),
+        card: sourcePermanent?.card,
       } as any;
 
       stateAny.stack.push(stackItem);
@@ -170,6 +202,7 @@ export function queueTokenCreatedTriggers(
             mandatory: trigger.mandatory !== false,
             triggeringPlayer: controllerId,
             effectData: stackItem.effectData,
+            ...(sourcePermanentSnapshot ? { sourcePermanentSnapshot } : null),
           });
         } catch (err) {
           debugWarn(1, '[tokenCreatedTrigger] Failed to persist generic token-created trigger:', err);

@@ -1941,7 +1941,7 @@ export function finalizeGraveyardSpellCast(params: {
   if (normalizedTargets.length > 0) {
     processHeroicTriggersForTargets(params.game, params.playerId, normalizedTargets, params.io as any, params.gameId);
   }
-  processOpponentSpellCastTriggersForCast(params.gameId, params.game, params.io as any, params.playerId, stackItem.card);
+  processOpponentSpellCastTriggersForCast(params.gameId, params.game, params.io as any, params.playerId, stackItem.card, 'graveyard');
 
   return 'cast';
 }

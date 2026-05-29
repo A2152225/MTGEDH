@@ -127,11 +127,24 @@ describe('lifegain triggers (integration)', () => {
       triggeringPlayer: p1,
       effect: "put a +1/+1 counter on ajani's pridemate",
     }));
+    expect(lifegainStackItems[0]?.sourcePermanentSnapshot).toEqual(expect.objectContaining({
+      id: 'ajani_perm',
+      controller: p1,
+      owner: p1,
+      card: expect.objectContaining({
+        name: "Ajani's Pridemate",
+      }),
+    }));
 
     const triggerEvents = getEvents(gameId).filter((event: any) =>
       event?.type === 'pushTriggeredAbility' && event?.payload?.sourceName === "Ajani's Pridemate"
     );
     expect(triggerEvents).toHaveLength(1);
+    expect(triggerEvents[0]?.payload?.sourcePermanentSnapshot).toEqual(expect.objectContaining({
+      id: 'ajani_perm',
+      controller: p1,
+      owner: p1,
+    }));
 
     game.resolveTopOfStack();
 
@@ -245,6 +258,14 @@ describe('lifegain triggers (integration)', () => {
       effect: expect.stringContaining('when you do, return target artifact card with mana value less than or equal to the amount of life you gained this turn'),
     }));
     expect(lifegainStackItem?.requiresTarget).toBeUndefined();
+    expect(lifegainStackItem?.sourcePermanentSnapshot).toEqual(expect.objectContaining({
+      id: 'ratchet_perm',
+      controller: p1,
+      owner: p1,
+      card: expect.objectContaining({
+        name: 'Ratchet, Field Medic',
+      }),
+    }));
 
     game.resolveTopOfStack();
 

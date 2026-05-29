@@ -83,6 +83,28 @@ export function getExiledFromBattlefieldTriggers(
   return triggers;
 }
 
+function findBattlefieldPermanentById(ctx: GameContext, permanentId: string): any | undefined {
+  const battlefield = Array.isArray(ctx.state?.battlefield) ? ctx.state.battlefield : [];
+  const normalizedPermanentId = String(permanentId || '').trim();
+  if (!normalizedPermanentId) return undefined;
+  return battlefield.find((permanent: any) => String(permanent?.id || '') === normalizedPermanentId);
+}
+
+function snapshotPermanentForZoneChangeTrigger(permanent: any): any | undefined {
+  if (!permanent || typeof permanent !== 'object') return undefined;
+
+  return {
+    id: String(permanent?.id || ''),
+    controller: String(permanent?.controller || ''),
+    owner: String(permanent?.owner || permanent?.controller || ''),
+    tapped: permanent?.tapped === true,
+    counters: permanent?.counters && typeof permanent.counters === 'object' ? { ...permanent.counters } : undefined,
+    card: permanent?.card && typeof permanent.card === 'object'
+      ? { ...(permanent.card as any) }
+      : undefined,
+  };
+}
+
 export function queueExiledFromBattlefieldTriggers(
   ctx: GameContext,
   exiledPermanent: any,
@@ -105,6 +127,7 @@ export function queueExiledFromBattlefieldTriggers(
 
     const triggerId = uid('trigger');
     const exiledPermanentId = String(exiledPermanent.id || '');
+    const sourcePermanentSnapshot = snapshotPermanentForZoneChangeTrigger(findBattlefieldPermanentById(ctx, trigger.permanentId));
     const stackItem = {
       id: triggerId,
       type: 'triggered_ability',
@@ -115,6 +138,8 @@ export function queueExiledFromBattlefieldTriggers(
       description: effect,
       effect,
       ...targetMetadata,
+      ...(sourcePermanentSnapshot?.card ? { card: sourcePermanentSnapshot.card } : null),
+      ...(sourcePermanentSnapshot ? { sourcePermanentSnapshot } : null),
       triggerType: trigger.triggerType,
       mandatory: trigger.mandatory !== false,
       triggeringPermanent: exiledPermanentId,
@@ -146,6 +171,8 @@ export function queueExiledFromBattlefieldTriggers(
           ...targetMetadata,
           mandatory: trigger.mandatory !== false,
           triggeringPermanent: exiledPermanentId,
+          ...(sourcePermanentSnapshot?.card ? { card: sourcePermanentSnapshot.card } : null),
+          ...(sourcePermanentSnapshot ? { sourcePermanentSnapshot } : null),
           effectData: stackItem.effectData,
         });
       } catch (err) {
@@ -321,6 +348,7 @@ export function queuePutIntoGraveyardTriggers(
     if (!effect || hasUnsupportedTargetRequirement(targetMetadata)) continue;
 
     const triggerId = uid('trigger');
+    const sourcePermanentSnapshot = snapshotPermanentForZoneChangeTrigger(findBattlefieldPermanentById(ctx, trigger.permanentId));
     const stackItem = {
       id: triggerId,
       type: 'triggered_ability',
@@ -331,6 +359,8 @@ export function queuePutIntoGraveyardTriggers(
       description: effect,
       effect,
       ...targetMetadata,
+      ...(sourcePermanentSnapshot?.card ? { card: sourcePermanentSnapshot.card } : null),
+      ...(sourcePermanentSnapshot ? { sourcePermanentSnapshot } : null),
       triggerType: trigger.triggerType,
       mandatory: trigger.mandatory !== false,
       effectData: {
@@ -359,6 +389,8 @@ export function queuePutIntoGraveyardTriggers(
           effect,
           ...targetMetadata,
           mandatory: trigger.mandatory !== false,
+          ...(sourcePermanentSnapshot?.card ? { card: sourcePermanentSnapshot.card } : null),
+          ...(sourcePermanentSnapshot ? { sourcePermanentSnapshot } : null),
           effectData: stackItem.effectData,
         });
       } catch (err) {
@@ -488,6 +520,7 @@ export function queueLeftGraveyardTriggers(
     if (!effect || hasUnsupportedTargetRequirement(targetMetadata)) continue;
 
     const triggerId = uid('trigger');
+    const sourcePermanentSnapshot = snapshotPermanentForZoneChangeTrigger(findBattlefieldPermanentById(ctx, trigger.permanentId));
     const stackItem = {
       id: triggerId,
       type: 'triggered_ability',
@@ -498,6 +531,8 @@ export function queueLeftGraveyardTriggers(
       description: effect,
       effect,
       ...targetMetadata,
+      ...(sourcePermanentSnapshot?.card ? { card: sourcePermanentSnapshot.card } : null),
+      ...(sourcePermanentSnapshot ? { sourcePermanentSnapshot } : null),
       triggerType: trigger.triggerType,
       mandatory: trigger.mandatory !== false,
       effectData: {
@@ -525,6 +560,8 @@ export function queueLeftGraveyardTriggers(
           effect,
           ...targetMetadata,
           mandatory: trigger.mandatory !== false,
+          ...(sourcePermanentSnapshot?.card ? { card: sourcePermanentSnapshot.card } : null),
+          ...(sourcePermanentSnapshot ? { sourcePermanentSnapshot } : null),
           effectData: stackItem.effectData,
         });
       } catch (err) {

@@ -3152,6 +3152,13 @@ export function processSpellCastTriggersForCast(
 ): void {
   try {
     const ctxForInterveningIf = { state: game.state } as any;
+    const normalizedCastSourceZone = normalizeSpellCastSourceZone(castSourceZone);
+    const triggeringSpellSnapshot = {
+      id: spellCard?.id,
+      name: spellCard?.name,
+      type_line: spellCard?.type_line,
+      ...(normalizedCastSourceZone ? { castSourceZone: normalizedCastSourceZone } : null),
+    };
     const stackArr: any[] = Array.isArray((game.state as any)?.stack) ? (game.state as any).stack : [];
     let triggeringStackItem: any = null;
     const normalizedTriggeringStackItemId = String(triggeringStackItemId || '').trim();
@@ -3277,6 +3284,15 @@ export function processSpellCastTriggersForCast(
           triggerType: 'cast_creature_type',
           effect: trigger.effect,
           mandatory: trigger.mandatory,
+          triggeringPlayer: String(casterId),
+          ...(resolvedTriggeringStackItemId ? { triggeringStackItemId: resolvedTriggeringStackItemId } : null),
+          ...(normalizedCastSourceZone ? { triggeringSpellCastSourceZone: normalizedCastSourceZone } : null),
+          effectData: {
+            casterId: String(casterId),
+            ...(normalizedCastSourceZone ? { castSourceZone: normalizedCastSourceZone, sourceCastZone: normalizedCastSourceZone } : null),
+            ...(resolvedTriggeringStackItemId ? { triggeringStackItemId: resolvedTriggeringStackItemId } : null),
+            triggeringSpell: triggeringSpellSnapshot,
+          },
           ...(inferredTargetMetadata.requiresTarget ? { requiresTarget: true, needsTargetSelection: true } : null),
           ...(inferredTargetMetadata.targetType ? { targetType: inferredTargetMetadata.targetType } : null),
           ...(inferredTargetMetadata.targetConstraint ? { targetConstraint: inferredTargetMetadata.targetConstraint } : null),
@@ -3315,6 +3331,10 @@ export function processSpellCastTriggersForCast(
             triggerType: 'cast_creature_type',
             effect: trigger.effect,
             mandatory: trigger.mandatory,
+            triggeringPlayer: String(casterId),
+            ...(resolvedTriggeringStackItemId ? { triggeringStackItemId: resolvedTriggeringStackItemId } : null),
+            ...(normalizedCastSourceZone ? { triggeringSpellCastSourceZone: normalizedCastSourceZone } : null),
+            effectData: stackItem.effectData,
             ...(inferredTargetMetadata.requiresTarget ? { requiresTarget: true, needsTargetSelection: true } : null),
             ...(inferredTargetMetadata.targetType ? { targetType: inferredTargetMetadata.targetType } : null),
             ...(inferredTargetMetadata.targetConstraint ? { targetConstraint: inferredTargetMetadata.targetConstraint } : null),
@@ -3485,6 +3505,15 @@ export function processSpellCastTriggersForCast(
           triggerType: 'cast_creature_type',
           effect: trigger.effect,
           mandatory: trigger.mandatory,
+          triggeringPlayer: String(casterId),
+          ...(resolvedTriggeringStackItemId ? { triggeringStackItemId: resolvedTriggeringStackItemId } : null),
+          ...(normalizedCastSourceZone ? { triggeringSpellCastSourceZone: normalizedCastSourceZone } : null),
+          effectData: {
+            casterId: String(casterId),
+            ...(normalizedCastSourceZone ? { castSourceZone: normalizedCastSourceZone, sourceCastZone: normalizedCastSourceZone } : null),
+            ...(resolvedTriggeringStackItemId ? { triggeringStackItemId: resolvedTriggeringStackItemId } : null),
+            triggeringSpell: triggeringSpellSnapshot,
+          },
           requiresTarget: true,
           targetType: trigger.targetType || 'permanent',
         } as any);
@@ -3499,6 +3528,15 @@ export function processSpellCastTriggersForCast(
             triggerType: 'cast_creature_type',
             effect: trigger.effect,
             mandatory: trigger.mandatory,
+            triggeringPlayer: String(casterId),
+            ...(resolvedTriggeringStackItemId ? { triggeringStackItemId: resolvedTriggeringStackItemId } : null),
+            ...(normalizedCastSourceZone ? { triggeringSpellCastSourceZone: normalizedCastSourceZone } : null),
+            effectData: {
+              casterId: String(casterId),
+              ...(normalizedCastSourceZone ? { castSourceZone: normalizedCastSourceZone, sourceCastZone: normalizedCastSourceZone } : null),
+              ...(resolvedTriggeringStackItemId ? { triggeringStackItemId: resolvedTriggeringStackItemId } : null),
+              triggeringSpell: triggeringSpellSnapshot,
+            },
             requiresTarget: true,
             targetType: trigger.targetType || 'permanent',
           });
@@ -3527,11 +3565,19 @@ export function processOpponentSpellCastTriggersForCast(
   io: Server,
   casterId: string,
   spellCard: any,
+  castSourceZone?: SpellCastSourceZone,
 ): void {
   try {
     const allPlayerIds = (game.state?.players || []).map((player: any) => player.id);
     const battlefield = game.state?.battlefield || [];
     const ctxForInterveningIf = { state: game.state } as any;
+    const normalizedCastSourceZone = normalizeSpellCastSourceZone(castSourceZone);
+    const triggeringSpellSnapshot = {
+      id: spellCard?.id,
+      name: spellCard?.name,
+      type_line: spellCard?.type_line,
+      ...(normalizedCastSourceZone ? { castSourceZone: normalizedCastSourceZone } : null),
+    };
     const spellTypeLine = String(spellCard?.type_line || '').toLowerCase();
     const isNoncreatureSpell = !spellTypeLine.includes('creature');
     const noncreatureSpellsThisTurn = (game.state?.noncreatureSpellsCastThisTurn || {})[casterId] || 0;
@@ -3590,8 +3636,11 @@ export function processOpponentSpellCastTriggersForCast(
         mandatory: trigger.mandatory,
         targetPlayer: String((trigger as any).casterId || casterId || ''),
         triggeringPlayer: String((trigger as any).casterId || casterId || ''),
+        ...(normalizedCastSourceZone ? { triggeringSpellCastSourceZone: normalizedCastSourceZone } : null),
         effectData: {
           casterId: trigger.casterId,
+          ...(normalizedCastSourceZone ? { castSourceZone: normalizedCastSourceZone, sourceCastZone: normalizedCastSourceZone } : null),
+          triggeringSpell: triggeringSpellSnapshot,
           paymentCost: trigger.paymentCost,
           paymentAmount: trigger.paymentAmount,
           benefitIfNotPaid: trigger.benefitIfNotPaid,
@@ -3611,6 +3660,7 @@ export function processOpponentSpellCastTriggersForCast(
           mandatory: trigger.mandatory,
           targetPlayer: stackItem.targetPlayer,
           triggeringPlayer: stackItem.triggeringPlayer,
+          ...(normalizedCastSourceZone ? { triggeringSpellCastSourceZone: normalizedCastSourceZone } : null),
           effectData: stackItem.effectData,
         });
       } catch (err) {
@@ -11641,8 +11691,16 @@ export function registerGameActions(io: Server, socket: Socket) {
             // Context for resolution-time checks and pronoun binding (e.g., "that player")
             targetPlayer: String((trigger as any).casterId || playerId || ''),
             triggeringPlayer: String((trigger as any).casterId || playerId || ''),
+            ...(castSourceZone ? { triggeringSpellCastSourceZone: castSourceZone } : null),
             effectData: {
               casterId: trigger.casterId,
+              ...(castSourceZone ? { castSourceZone, sourceCastZone: castSourceZone } : null),
+              triggeringSpell: {
+                id: cardInHand?.id,
+                name: cardInHand?.name,
+                type_line: cardInHand?.type_line,
+                ...(castSourceZone ? { castSourceZone } : null),
+              },
               paymentCost: trigger.paymentCost,
               paymentAmount: trigger.paymentAmount,
               benefitIfNotPaid: trigger.benefitIfNotPaid,
@@ -11661,6 +11719,7 @@ export function registerGameActions(io: Server, socket: Socket) {
             mandatory: trigger.mandatory,
             targetPlayer: stackItem.targetPlayer,
             triggeringPlayer: stackItem.triggeringPlayer,
+            ...(castSourceZone ? { triggeringSpellCastSourceZone: castSourceZone } : null),
             effectData: stackItem.effectData,
           }, 'opponent spell-cast');
           

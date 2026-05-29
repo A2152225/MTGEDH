@@ -36,6 +36,7 @@ import { dispatchDamageReceivedTrigger, processDamageReceivedTriggers } from "./
 import { queueBecomesUntappedTriggers } from "./triggers/tap-untap.js";
 import { getUpkeepTriggersForPlayer, autoProcessCumulativeUpkeepMana, recordUpkeepBegan } from "./upkeep-triggers.js";
 import { isInterveningIfSatisfied } from "./triggers/intervening-if.js";
+import { orderTriggersByAPNAP } from "./triggers/ordering.js";
 import { parseCreatureKeywords } from "./combat-mechanics.js";
 import { runSBA, createToken, updateCounters } from "./counters_tokens.js";
 import { applyDamageToPermanentWithCounterEffects, applyShieldCounterDamagePrevention } from "./counter-common-effects.js";
@@ -95,6 +96,39 @@ function persistCombatDamageTriggeredAbility(ctx: GameContext, stackItem: any, r
     });
   } catch (err) {
     debugWarn(1, `${ts()} [dealCombatDamage] Failed to persist ${reason} trigger:`, err);
+  }
+}
+
+interface CombatDamageTriggerQueueEntry {
+  stackItem: any;
+  reason: string;
+}
+
+function orderCombatDamageTriggerQueueEntries(
+  ctx: GameContext,
+  entries: CombatDamageTriggerQueueEntry[]
+): CombatDamageTriggerQueueEntry[] {
+  const sortableEntries = entries.map((entry) => ({
+    controllerId: String(entry.stackItem?.controller || '').trim(),
+    entry,
+  }));
+
+  return orderTriggersByAPNAP(ctx, sortableEntries).map((orderedEntry) => orderedEntry.entry);
+}
+
+function pushCombatDamageTriggerQueueEntries(
+  ctx: GameContext,
+  entries: CombatDamageTriggerQueueEntry[]
+): void {
+  if (entries.length === 0) return;
+
+  const state = (ctx as any).state;
+  state.stack = Array.isArray(state.stack) ? state.stack : [];
+
+  for (const entry of orderCombatDamageTriggerQueueEntries(ctx, entries)) {
+    state.stack.push(entry.stackItem);
+    persistCombatDamageTriggeredAbility(ctx, entry.stackItem, entry.reason);
+    debug(2, `${ts()} [dealCombatDamage] Pushed ${entry.reason} trigger onto stack: ${entry.stackItem?.sourceName || 'Unknown'} - ${entry.stackItem?.description || ''}`);
   }
 }
 
@@ -2453,15 +2487,14 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
     
     debug(2, `${ts()} [dealCombatDamage] Combat damage complete. Damage to players: ${JSON.stringify(result.damageToPlayers)}, Life gained: ${JSON.stringify(result.lifeGainForPlayers)}, Creatures destroyed: ${result.creaturesDestroyed.length}`);
 
+    const pendingCombatDamageTriggerEntries: CombatDamageTriggerQueueEntry[] = [];
+
     // Queue per-attacker combat damage triggers onto the stack.
     // This covers triggers like: "Whenever ~ deals combat damage to a player, ..."
     // IMPORTANT: do this before SBA, because SBA may move creatures off the battlefield.
     if (shouldUsePersistedCombatDamageTriggersDuringReplay(ctx)) {
       debug(2, `${ts()} [dealCombatDamage] Replay has persisted combat damage trigger events; skipping live rediscovery`);
     } else try {
-      const state = (ctx as any).state;
-      state.stack = state.stack || [];
-
       for (const [defendingPlayerId, attackerIds] of Object.entries(result.attackersThatDealtDamage || {})) {
         const ids = (attackerIds instanceof Set)
           ? Array.from(attackerIds)
@@ -2536,10 +2569,7 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
               card: attackerPerm.card,
             } as any;
 
-            state.stack.push(stackItem);
-            persistCombatDamageTriggeredAbility(ctx, stackItem, 'per-attacker combat damage');
-
-            debug(2, `${ts()} [dealCombatDamage] Pushed combat damage trigger onto stack: ${attackerPerm.card?.name || trigger.cardName} - ${text}`);
+            pendingCombatDamageTriggerEntries.push({ stackItem, reason: 'per-attacker combat damage' });
           }
         }
       }
@@ -2553,7 +2583,6 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
       debug(2, `${ts()} [dealCombatDamage] Replay has persisted defender combat damage trigger events; skipping live rediscovery`);
     } else try {
       const state = (ctx as any).state;
-      state.stack = state.stack || [];
 
       for (const [damagedPlayerId, totalDamage] of Object.entries(result.damageToPlayers || {})) {
         if (Number(totalDamage || 0) <= 0) continue;
@@ -2665,16 +2694,15 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
               card: perm.card,
             } as any;
 
-            state.stack.push(stackItem);
-            persistCombatDamageTriggeredAbility(ctx, stackItem, 'defender combat damage');
-
-            debug(2, `${ts()} [dealCombatDamage] Pushed defender combat damage trigger onto stack: ${perm.card?.name || trigger.cardName} - ${text}`);
+            pendingCombatDamageTriggerEntries.push({ stackItem, reason: 'defender combat damage' });
           }
         }
       }
     } catch (err) {
       debugWarn(1, `${ts()} [dealCombatDamage] Failed to queue defender-side combat damage triggers:`, err);
     }
+
+    pushCombatDamageTriggerQueueEntries(ctx, pendingCombatDamageTriggerEntries);
     
     // Run state-based actions to destroy creatures that have lethal damage
     // This will move creatures with 0 or less toughness (after damage) to the graveyard

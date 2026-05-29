@@ -387,6 +387,26 @@ export function detectLifegainTriggers(
   return triggers;
 }
 
+function findBattlefieldPermanentById(ctx: GameContext, permanentId: string): any | undefined {
+  const battlefield = Array.isArray(ctx.state?.battlefield) ? ctx.state.battlefield : [];
+  const normalizedPermanentId = String(permanentId || '').trim();
+  if (!normalizedPermanentId) return undefined;
+  return battlefield.find((permanent: any) => String(permanent?.id || '') === normalizedPermanentId);
+}
+
+function snapshotPermanentForLifegainTrigger(permanent: any): any | undefined {
+  if (!permanent || typeof permanent !== 'object') return undefined;
+
+  return {
+    id: String(permanent?.id || ''),
+    controller: String(permanent?.controller || ''),
+    owner: String(permanent?.owner || permanent?.controller || ''),
+    tapped: permanent?.tapped === true,
+    counters: permanent?.counters && typeof permanent.counters === 'object' ? { ...permanent.counters } : undefined,
+    card: permanent?.card && typeof permanent.card === 'object' ? { ...(permanent.card as any) } : undefined,
+  };
+}
+
 export function queueLifegainTriggers(
   ctx: GameContext,
   playerId: string,
@@ -424,6 +444,7 @@ export function queueLifegainTriggers(
     }
 
     const triggerId = uid('trigger');
+    const sourcePermanentSnapshot = snapshotPermanentForLifegainTrigger(findBattlefieldPermanentById(ctx, trigger.permanentId));
     const stackItem = {
       id: triggerId,
       type: 'triggered_ability',
@@ -434,6 +455,8 @@ export function queueLifegainTriggers(
       description: effect,
       effect,
       ...targetMetadata,
+      ...(sourcePermanentSnapshot?.card ? { card: sourcePermanentSnapshot.card } : null),
+      ...(sourcePermanentSnapshot ? { sourcePermanentSnapshot } : null),
       triggerType: 'lifegain',
       mandatory: !trigger.isMayAbility,
       triggeringPlayer: playerId,
@@ -464,6 +487,8 @@ export function queueLifegainTriggers(
           mandatory: !trigger.isMayAbility,
           targetPlayer: playerId,
           triggeringPlayer: playerId,
+          ...(sourcePermanentSnapshot?.card ? { card: sourcePermanentSnapshot.card } : null),
+          ...(sourcePermanentSnapshot ? { sourcePermanentSnapshot } : null),
           effectData: stackItem.effectData,
         });
       } catch (err) {

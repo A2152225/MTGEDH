@@ -159,11 +159,24 @@ describe('exiled-from-battlefield triggers (integration)', () => {
       fromZone: 'battlefield',
       toZone: 'exile',
     }));
+    expect(stackItems[0]?.sourcePermanentSnapshot).toEqual(expect.objectContaining({
+      id: 'soulherder_perm',
+      controller: p1,
+      owner: p1,
+      card: expect.objectContaining({
+        name: 'Soulherder',
+      }),
+    }));
 
     const triggerEvents = getEvents(gameId).filter((event: any) =>
       event?.type === 'pushTriggeredAbility' && event?.payload?.sourceName === 'Soulherder'
     );
     expect(triggerEvents).toHaveLength(1);
+    expect(triggerEvents[0]?.payload?.sourcePermanentSnapshot).toEqual(expect.objectContaining({
+      id: 'soulherder_perm',
+      controller: p1,
+      owner: p1,
+    }));
 
     game.resolveTopOfStack();
 

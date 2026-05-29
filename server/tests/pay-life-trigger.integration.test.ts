@@ -101,6 +101,14 @@ describe('pay-life triggers (integration)', () => {
       amount: 3,
       paymentSourceName: 'Force of Will',
     }));
+    expect(fontTrigger?.sourcePermanentSnapshot).toEqual(expect.objectContaining({
+      id: 'font_perm',
+      controller: p1,
+      owner: p1,
+      card: expect.objectContaining({
+        name: 'Font of Agonies',
+      }),
+    }));
 
     const lifeLossTrigger = stackItems.find((item: any) => item?.source === 'exquisite_blood_perm');
     expect(lifeLossTrigger?.effectData).toEqual(expect.objectContaining({
@@ -109,9 +117,29 @@ describe('pay-life triggers (integration)', () => {
       wasLifePayment: true,
       paymentSourceName: 'Force of Will',
     }));
+    expect(lifeLossTrigger?.sourcePermanentSnapshot).toEqual(expect.objectContaining({
+      id: 'exquisite_blood_perm',
+      controller: p2,
+      owner: p2,
+      card: expect.objectContaining({
+        name: 'Exquisite Blood',
+      }),
+    }));
 
     const triggerEvents = getEvents(gameId).filter((event: any) => event?.type === 'pushTriggeredAbility');
     expect(triggerEvents.map((event: any) => event?.payload?.sourceName).sort()).toEqual(['Exquisite Blood', 'Font of Agonies']);
+    const fontEvent = triggerEvents.find((event: any) => event?.payload?.sourceName === 'Font of Agonies');
+    expect(fontEvent?.payload?.sourcePermanentSnapshot).toEqual(expect.objectContaining({
+      id: 'font_perm',
+      controller: p1,
+      owner: p1,
+    }));
+    const exquisiteBloodEvent = triggerEvents.find((event: any) => event?.payload?.sourceName === 'Exquisite Blood');
+    expect(exquisiteBloodEvent?.payload?.sourcePermanentSnapshot).toEqual(expect.objectContaining({
+      id: 'exquisite_blood_perm',
+      controller: p2,
+      owner: p2,
+    }));
 
     const fontStackIndex = ((game.state as any).stack || []).findIndex((item: any) => item?.source === 'font_perm');
     const [fontStackItem] = ((game.state as any).stack as any[]).splice(fontStackIndex, 1);
