@@ -2511,34 +2511,46 @@ function queueTapTriggersForTappedPermanents(
     bumpSeq: typeof game.bumpSeq === 'function' ? game.bumpSeq.bind(game) : (() => {}),
   } as any;
 
+  const orderedTapTriggerEntries = orderTriggersByAPNAP(
+    ctx,
+    uniqueTappedIds.flatMap((tappedPermanentId) => {
+      const tappedPermanent = battlefield.find((perm: any) => perm && String(perm.id) === tappedPermanentId);
+      if (!tappedPermanent) return [];
+
+      const tappedPermanentController = String(tappedPermanent.controller || tappedByPlayerId || '').trim();
+      return getTapTriggers(ctx, tappedPermanent, tappedPermanentController).map((trigger) => ({
+        controllerId: String(trigger.controllerId || tappedPermanentController),
+        trigger,
+        tappedPermanentId,
+      }));
+    })
+  );
+
   let addedStackTrigger = false;
-  for (const tappedPermanentId of uniqueTappedIds) {
-    const tappedPermanent = battlefield.find((perm: any) => perm && String(perm.id) === tappedPermanentId);
-    if (!tappedPermanent) continue;
+  for (const entry of orderedTapTriggerEntries) {
+    const trigger = entry.trigger;
+    const tappedPermanentId = entry.tappedPermanentId;
 
-    const tapTriggers = getTapTriggers(ctx, tappedPermanent, tappedByPlayerId);
-    for (const trigger of tapTriggers) {
-      if (trigger.mandatory === false) {
-        queueMayAbilityStep(
-          io,
-          gameId,
-          game,
-          String(trigger.controllerId),
-          String(trigger.cardName || 'Triggered ability'),
-          String(trigger.effect || trigger.description || '').trim(),
-          String(trigger.description || trigger.effect || '').trim() || undefined,
-          async () => {
-            pushTapTriggerOntoStack(io, game, gameId, trigger, tappedPermanentId);
-            if (typeof game.bumpSeq === 'function') game.bumpSeq();
-            broadcastGame(io, game, gameId);
-          }
-        );
-        continue;
-      }
-
-      pushTapTriggerOntoStack(io, game, gameId, trigger, tappedPermanentId);
-      addedStackTrigger = true;
+    if (trigger.mandatory === false) {
+      queueMayAbilityStep(
+        io,
+        gameId,
+        game,
+        String(trigger.controllerId),
+        String(trigger.cardName || 'Triggered ability'),
+        String(trigger.effect || trigger.description || '').trim(),
+        String(trigger.description || trigger.effect || '').trim() || undefined,
+        async () => {
+          pushTapTriggerOntoStack(io, game, gameId, trigger, tappedPermanentId);
+          if (typeof game.bumpSeq === 'function') game.bumpSeq();
+          broadcastGame(io, game, gameId);
+        }
+      );
+      continue;
     }
+
+    pushTapTriggerOntoStack(io, game, gameId, trigger, tappedPermanentId);
+    addedStackTrigger = true;
   }
 
   if (addedStackTrigger && typeof game.bumpSeq === 'function') {
@@ -31982,12 +31994,46 @@ async function handleOptionChoiceResponse(
     const perm = battlefield.find((p: any) => p.id === targetId);
     if (!perm) return;
     const choice = Array.isArray(selectedOption) ? selectedOption[0] : selectedOption;
+    let changed = false;
     if (choice === 'tap') {
-      (perm as any).tapped = true;
+      if (!(perm as any).tapped) {
+        (perm as any).tapped = true;
+        changed = true;
+        queueTapTriggersForTappedPermanents(io, game, gameId, [String(targetId)], String((perm as any)?.controller || step.playerId || ''));
+        try {
+          appendEvent(gameId, (game as any).seq ?? 0, 'permanent_tapped', {
+            playerId: String(step.playerId || ''),
+            resolvedStepId: String((step as any).id || ''),
+            permanentIds: [String(targetId)],
+            source: String(step.sourceName || ''),
+            ts: Date.now(),
+          });
+        } catch (e) {
+          debugWarn(1, '[Resolution] appendEvent(permanent_tapped) failed:', e);
+        }
+      }
       debug(2, `[Resolution] Tap/Untap: tapped ${perm.card?.name || perm.id}`);
     } else if (choice === 'untap') {
-      (perm as any).tapped = false;
+      if ((perm as any).tapped) {
+        (perm as any).tapped = false;
+        changed = true;
+        queueBecomesUntappedTriggers(game as any, perm);
+        try {
+          appendEvent(gameId, (game as any).seq ?? 0, 'permanent_untapped', {
+            playerId: String(step.playerId || ''),
+            resolvedStepId: String((step as any).id || ''),
+            permanentIds: [String(targetId)],
+            source: String(step.sourceName || ''),
+            ts: Date.now(),
+          });
+        } catch (e) {
+          debugWarn(1, '[Resolution] appendEvent(permanent_untapped) failed:', e);
+        }
+      }
       debug(2, `[Resolution] Tap/Untap: untapped ${perm.card?.name || perm.id}`);
+    }
+    if (changed && typeof game.bumpSeq === 'function') {
+      game.bumpSeq();
     }
     broadcastGame(io, game, gameId);
     return;

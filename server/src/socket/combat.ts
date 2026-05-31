@@ -86,6 +86,67 @@ function enqueueSupportedExertChoiceSteps(
   }
 }
 
+function enqueueSupportedEnlistChoiceSteps(
+  gameId: string,
+  battlefield: any[],
+  decisionPlayerId: string,
+  attackerIds: string[],
+): void {
+  for (const attackerId of attackerIds) {
+    const attacker = battlefield.find((p: any) => p && String(p.id) === String(attackerId));
+    if (!attacker) continue;
+
+    const oracleText = String((attacker as any)?.card?.oracle_text || '');
+    if (!/\benlist\b/i.test(oracleText)) continue;
+
+    const attackerControllerId = String((attacker as any)?.controller || '');
+
+    const valid = battlefield
+      .filter((p: any) => {
+        if (!p) return false;
+        if (String(p.controller || '') !== attackerControllerId) return false;
+        if (String(p.id) === String(attackerId)) return false;
+        const tl = String(p.card?.type_line || '').toLowerCase();
+        if (!tl.includes('creature')) return false;
+        if (p.tapped) return false;
+        if (p.attacking) return false;
+        if ((p as any).summoningSickness && !creatureHasHaste(p, battlefield as any, attackerControllerId)) return false;
+        return true;
+      })
+      .map((p: any) => ({
+        id: String(p.id),
+        label: `${p.card?.name || 'Creature'} (${getEffectivePower(p)}/${getEffectiveToughness(p)})`,
+        description: String(p.card?.type_line || 'Creature'),
+        imageUrl: p.card?.image_uris?.small || p.card?.image_uris?.normal,
+      }));
+
+    if (valid.length === 0) continue;
+
+    const existing = ResolutionQueueManager
+      .getStepsForPlayer(gameId, decisionPlayerId as any)
+      .find((s: any) => s?.type === ResolutionStepType.TARGET_SELECTION && (s as any)?.enlistChoice === true && String(s?.sourceId) === String(attackerId));
+
+    if (!existing) {
+      ResolutionQueueManager.addStep(gameId, {
+        type: ResolutionStepType.TARGET_SELECTION,
+        playerId: decisionPlayerId as any,
+        sourceId: attackerId,
+        sourceName: String((attacker as any)?.card?.name || 'Enlist'),
+        sourceImage: (attacker as any)?.card?.image_uris?.small || (attacker as any)?.card?.image_uris?.normal,
+        description: 'Enlist — You may tap another untapped nonattacking creature you control.',
+        mandatory: false,
+        validTargets: valid,
+        targetTypes: ['enlist_creature'],
+        minTargets: 1,
+        maxTargets: 1,
+        targetDescription: 'creature to tap for enlist',
+        enlistChoice: true,
+        enlistAttackerId: attackerId,
+      } as any);
+    }
+  }
+}
+
 export type PendingAttackTriggerManaPayment = {
   permanentId: string;
   cardName: string;
@@ -442,8 +503,16 @@ function processTapTriggersForAttackers(
     // Push tap triggers to stack and notify clients
     if (allTapTriggers.length > 0) {
       debug(2, `[combat] Found ${allTapTriggers.length} tap trigger(s) for game ${gameId}`);
+
+      const orderedTapTriggers = orderTriggersByAPNAP(
+        ctx as any,
+        allTapTriggers.map((entry) => ({
+          controllerId: String(entry?.trigger?.controllerId || attackingPlayerId || ''),
+          entry,
+        })),
+      ).map((orderedEntry: any) => orderedEntry.entry);
       
-      for (const tapTrigger of allTapTriggers) {
+      for (const tapTrigger of orderedTapTriggers) {
         const trigger = tapTrigger.trigger;
         // Intervening-if (Rule 603.4): if recognized and false at trigger time, do not trigger.
         const triggerControllerId = (trigger.controllerId || attackingPlayerId) as PlayerID;
@@ -1389,60 +1458,7 @@ export async function executeDeclareAttackers(
   // enlist action as its own event so replay is deterministic.
   try {
     enqueueSupportedExertChoiceSteps(gameId, battlefield as any[], String(playerId), attackerIds.map((id) => String(id)));
-
-    for (const attackerId of attackerIds) {
-      const attacker = battlefield.find((p: any) => p && String(p.id) === String(attackerId));
-      if (!attacker) continue;
-      const oracleText = String((attacker as any)?.card?.oracle_text || '');
-      if (!/\benlist\b/i.test(oracleText)) continue;
-
-      // Valid enlisted creatures: another untapped, nonattacking creature you control.
-      const valid = battlefield
-        .filter((p: any) => {
-          if (!p) return false;
-          if (String(p.controller || '') !== String(playerId)) return false;
-          if (String(p.id) === String(attackerId)) return false;
-          const tl = String(p.card?.type_line || '').toLowerCase();
-          if (!tl.includes('creature')) return false;
-          if (p.tapped) return false;
-          if (p.attacking) return false;
-          if ((p as any).summoningSickness && !creatureHasHaste(p, battlefield as any, playerId)) return false;
-          return true;
-        })
-        .map((p: any) => ({
-          id: String(p.id),
-          label: `${p.card?.name || 'Creature'} (${getEffectivePower(p)}/${getEffectiveToughness(p)})`,
-          description: String(p.card?.type_line || 'Creature'),
-          imageUrl: p.card?.image_uris?.small || p.card?.image_uris?.normal,
-        }));
-
-      if (valid.length === 0) continue;
-
-      const existing = ResolutionQueueManager
-        .getStepsForPlayer(gameId, playerId as any)
-        .find((s: any) => s?.type === ResolutionStepType.TARGET_SELECTION && (s as any)?.enlistChoice === true && String(s?.sourceId) === String(attackerId));
-
-      if (!existing) {
-        ResolutionQueueManager.addStep(gameId, {
-          type: ResolutionStepType.TARGET_SELECTION,
-          playerId: playerId as any,
-          sourceId: attackerId,
-          sourceName: String((attacker as any)?.card?.name || 'Enlist'),
-          sourceImage: (attacker as any)?.card?.image_uris?.small || (attacker as any)?.card?.image_uris?.normal,
-          description: 'Enlist — You may tap another untapped nonattacking creature you control.',
-          mandatory: false,
-          validTargets: valid,
-          targetTypes: ['enlist_creature'],
-          minTargets: 1,
-          maxTargets: 1,
-          targetDescription: 'creature to tap for enlist',
-
-          // Custom payload consumed by socket/resolution.ts
-          enlistChoice: true,
-          enlistAttackerId: attackerId,
-        } as any);
-      }
-    }
+    enqueueSupportedEnlistChoiceSteps(gameId, battlefield as any[], String(playerId), attackerIds.map((id) => String(id)));
   } catch (e) {
     debugWarn(1, '[combat] Failed to enqueue enlist choice steps:', e);
   }
@@ -1944,57 +1960,7 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
       // optional enlist choice here as well to match executeDeclareAttackers used by AI and paid attacks.
       try {
         enqueueSupportedExertChoiceSteps(gameId, battlefield as any[], String(playerId), attackerIds.map((id) => String(id)));
-
-        for (const attackerId of attackerIds) {
-          const attacker = battlefield.find((p: any) => p && String(p.id) === String(attackerId));
-          if (!attacker) continue;
-          const oracleText = String((attacker as any)?.card?.oracle_text || '');
-          if (!/\benlist\b/i.test(oracleText)) continue;
-
-          const valid = battlefield
-            .filter((p: any) => {
-              if (!p) return false;
-              if (String(p.controller || '') !== String(playerId)) return false;
-              if (String(p.id) === String(attackerId)) return false;
-              const tl = String(p.card?.type_line || '').toLowerCase();
-              if (!tl.includes('creature')) return false;
-              if (p.tapped) return false;
-              if (p.attacking) return false;
-              if ((p as any).summoningSickness && !creatureHasHaste(p, battlefield as any, playerId)) return false;
-              return true;
-            })
-            .map((p: any) => ({
-              id: String(p.id),
-              label: `${p.card?.name || 'Creature'} (${getEffectivePower(p)}/${getEffectiveToughness(p)})`,
-              description: String(p.card?.type_line || 'Creature'),
-              imageUrl: p.card?.image_uris?.small || p.card?.image_uris?.normal,
-            }));
-
-          if (valid.length === 0) continue;
-
-          const existing = ResolutionQueueManager
-            .getStepsForPlayer(gameId, playerId as any)
-            .find((s: any) => s?.type === ResolutionStepType.TARGET_SELECTION && (s as any)?.enlistChoice === true && String(s?.sourceId) === String(attackerId));
-
-          if (!existing) {
-            ResolutionQueueManager.addStep(gameId, {
-              type: ResolutionStepType.TARGET_SELECTION,
-              playerId: playerId as any,
-              sourceId: attackerId,
-              sourceName: String((attacker as any)?.card?.name || 'Enlist'),
-              sourceImage: (attacker as any)?.card?.image_uris?.small || (attacker as any)?.card?.image_uris?.normal,
-              description: 'Enlist — You may tap another untapped nonattacking creature you control.',
-              mandatory: false,
-              validTargets: valid,
-              targetTypes: ['enlist_creature'],
-              minTargets: 1,
-              maxTargets: 1,
-              targetDescription: 'creature to tap for enlist',
-              enlistChoice: true,
-              enlistAttackerId: attackerId,
-            } as any);
-          }
-        }
+        enqueueSupportedEnlistChoiceSteps(gameId, battlefield as any[], String(playerId), attackerIds.map((id) => String(id)));
       } catch (e) {
         debugWarn(1, '[combat] Failed to enqueue enlist choice steps:', e);
       }
@@ -2110,12 +2076,19 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
             }
           };
           
-          const triggers = getAttackTriggersForCreatures(
+          const triggers = orderTriggersByAPNAP(
             ctx as any,
-            attackingCreatures,
-            playerId,
-            firstDefender
-          );
+            getAttackTriggersForCreatures(
+              ctx as any,
+              attackingCreatures,
+              playerId,
+              firstDefender
+            ).map((trigger, originalIndex) => ({
+              controllerId: String((trigger as any).controllerId || playerId || ''),
+              originalIndex,
+              trigger,
+            }))
+          ).map((entry: any) => entry.trigger);
           
           // Push triggers to stack and notify clients
           if (triggers.length > 0) {
@@ -3388,6 +3361,13 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
         }
       }
 
+      try {
+        enqueueSupportedExertChoiceSteps(gameId, battlefield as any[], String(playerId), attackerIds.map((id) => String(id)));
+        enqueueSupportedEnlistChoiceSteps(gameId, battlefield as any[], String(playerId), attackerIds.map((id) => String(id)));
+      } catch (e) {
+        debugWarn(1, '[combat] Failed to enqueue controlled attack-time choice steps:', e);
+      }
+
       // Process tap triggers for creatures that became tapped from attacking
       processTapTriggersForAttackers(io, game, gameId, attackers, battlefield, playerId);
 
@@ -3430,6 +3410,316 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
         message: `🎯 ${combatControl.sourceName}: ${getPlayerName(game, playerId)} declares ${attackers.length} attacker${attackers.length !== 1 ? "s" : ""} (controlled: ${controllerNames.join(", ")}).`,
         ts: Date.now(),
       });
+
+      // Process attack triggers for controlled combat declarations
+      try {
+        const attackingCreatures = battlefield.filter((perm: any) => attackerIds.includes(perm.id));
+        const firstDefender = attackers[0]?.targetPlayerId;
+
+        if (attackingCreatures.length > 0 && firstDefender) {
+          const ctx = {
+            state: game.state,
+            bumpSeq: () => {
+              if (typeof (game as any).bumpSeq === "function") {
+                (game as any).bumpSeq();
+              }
+            }
+          };
+
+          const triggers = orderTriggersByAPNAP(
+            ctx as any,
+            getAttackTriggersForCreatures(
+              ctx as any,
+              attackingCreatures,
+              playerId,
+              firstDefender
+            ).map((trigger, originalIndex) => ({
+              controllerId: String((trigger as any).controllerId || playerId || ''),
+              originalIndex,
+              trigger,
+            }))
+          ).map((entry: any) => entry.trigger);
+
+          if (triggers.length > 0) {
+            debug(2, `[combat] Found ${triggers.length} controlled attack trigger(s) for game ${gameId}`);
+
+            for (const trigger of triggers) {
+              const triggerControllerId = ((trigger as any).controllerId || playerId) as PlayerID;
+              try {
+                const controller = String(triggerControllerId);
+                const sourcePerm = battlefield.find((p: any) => p?.id === (trigger as any).permanentId);
+
+                const raw = String(trigger.description || (trigger as any).effect || '').trim();
+                let textForEval = raw;
+                const hasTriggerPrefix = /^(?:when|whenever|at)\b/i.test(textForEval);
+                if (!hasTriggerPrefix) {
+                  const oracleLower = String(sourcePerm?.card?.oracle_text || '').toLowerCase();
+                  if (oracleLower.includes('attacks a player')) {
+                    textForEval = `Whenever ~ attacks a player, ${textForEval}`;
+                  } else {
+                    textForEval = `Whenever ~ attacks, ${textForEval}`;
+                  }
+                }
+
+                const valueObj = (trigger as any).value && typeof (trigger as any).value === 'object' ? (trigger as any).value : undefined;
+                const defendingPlayerId = String(
+                  valueObj?.defendingPlayerId ||
+                    valueObj?.defendingPlayer ||
+                    (sourcePerm && typeof (sourcePerm as any).attacking === 'string' ? (sourcePerm as any).attacking : '') ||
+                    firstDefender ||
+                    ''
+                );
+
+                const needsThatPlayerRef = /\bthat player\b/i.test(textForEval);
+
+                const ok = isInterveningIfSatisfied(
+                  ctx as any,
+                  controller,
+                  textForEval,
+                  sourcePerm,
+                  defendingPlayerId
+                    ? {
+                        defendingPlayerId,
+                        thoseCreatureIds: attackerIds,
+                        ...(needsThatPlayerRef
+                          ? {
+                              thatPlayerId: defendingPlayerId,
+                              referencedPlayerId: defendingPlayerId,
+                              theirPlayerId: defendingPlayerId,
+                            }
+                          : {}),
+                      }
+                    : undefined
+                );
+                if (ok === false) {
+                  debug(2, `[combat] Skipping controlled attack trigger due to unmet intervening-if: ${trigger.cardName} - ${trigger.description}`);
+                  continue;
+                }
+              } catch {
+                // Conservative fallback: keep the trigger if evaluation fails.
+              }
+
+              if ((trigger.manaCost || (trigger as any).energyCost) && !trigger.mandatory) {
+                const permanent = battlefield.find((p: any) => p?.id === trigger.permanentId);
+                const cardImageUrl =
+                  permanent?.card?.image_uris?.small || permanent?.card?.image_uris?.normal;
+                const energyCost = Number((trigger as any).energyCost || 0);
+                const paymentCost = energyCost > 0 ? formatEnergyCost(energyCost) : String(trigger.manaCost || '');
+                const validationKind = energyCost > 0 ? 'energy' : 'mana';
+                const payChoiceId = energyCost > 0 ? 'pay_energy' : 'pay_mana';
+
+                queueOptionalPaymentStep(gameId, {
+                  playerId: triggerControllerId,
+                  sourceId: String(trigger.permanentId || ''),
+                  sourceName: trigger.cardName,
+                  sourceImage: cardImageUrl,
+                  description: trigger.description || `${trigger.cardName}: You may pay ${paymentCost}.`,
+                  mandatory: false,
+                  minSelections: 0,
+                  maxSelections: 1,
+                  priority: -1,
+                  payChoiceId,
+                  payLabel: `Pay ${paymentCost}`,
+                  payDescription: `If you do: ${trigger.effect || 'resolve effect'}`,
+                  declineChoiceId: 'decline',
+                  declineLabel: 'Decline',
+                  declineDescription: 'Do not pay the optional cost.',
+                  validationKind,
+                  manaCost: energyCost > 0 ? undefined : trigger.manaCost,
+                  energyAmount: energyCost > 0 ? energyCost : undefined,
+                  stepData: {
+                    attackTriggerManaPaymentChoice: true,
+                    permanentId: trigger.permanentId,
+                    cardName: trigger.cardName,
+                    manaCost: energyCost > 0 ? undefined : trigger.manaCost,
+                    energyCost: energyCost > 0 ? energyCost : undefined,
+                    effect: trigger.effect,
+                    triggerDescription: trigger.description,
+                  },
+                  onPay: async () => {
+                    resolveAttackTriggerManaPaymentChoice(
+                      io,
+                      game,
+                      gameId,
+                      triggerControllerId as any,
+                      {
+                        permanentId: String(trigger.permanentId || ''),
+                        cardName: String(trigger.cardName || ''),
+                        effect: String(trigger.effect || ''),
+                        manaCost: String(trigger.manaCost || paymentCost || ''),
+                        energyCost: energyCost > 0 ? energyCost : undefined,
+                        description: String(trigger.description || ''),
+                      },
+                      true
+                    );
+                  },
+                  onDecline: async () => {
+                    resolveAttackTriggerManaPaymentChoice(
+                      io,
+                      game,
+                      gameId,
+                      triggerControllerId as any,
+                      {
+                        permanentId: String(trigger.permanentId || ''),
+                        cardName: String(trigger.cardName || ''),
+                        effect: String(trigger.effect || ''),
+                        manaCost: String(trigger.manaCost || paymentCost || ''),
+                        energyCost: energyCost > 0 ? energyCost : undefined,
+                        description: String(trigger.description || ''),
+                      },
+                      false
+                    );
+                  },
+                });
+
+                debug(
+                  2,
+                  `[combat] Enqueued controlled attack trigger mana payment choice for ${trigger.cardName}: ${trigger.manaCost} to ${trigger.effect}`
+                );
+              } else if ((trigger.triggerType as string) === 'firebending') {
+                const manaAmount = typeof trigger.value === 'number' ? trigger.value : 1;
+
+                game.state.manaPool = game.state.manaPool || {};
+                game.state.manaPool[playerId] = game.state.manaPool[playerId] || {
+                  white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0
+                };
+
+                game.state.manaPool[playerId].red = (game.state.manaPool[playerId].red || 0) + manaAmount;
+
+                game.state.firebendingMana = game.state.firebendingMana || {};
+                game.state.firebendingMana[playerId] = (game.state.firebendingMana[playerId] || 0) + manaAmount;
+
+                io.to(gameId).emit("chat", {
+                  id: `m_${Date.now()}`,
+                  gameId,
+                  from: "system",
+                  message: `🔥 ${trigger.cardName}'s firebending adds ${'{R}'.repeat(manaAmount)} (until end of combat)`,
+                  ts: Date.now(),
+                });
+
+                broadcastManaPoolUpdate(io, gameId, playerId, game.state.manaPool[playerId] as any, `Firebending from ${trigger.cardName}`, game);
+
+                debug(2, `[combat] Controlled firebending trigger from ${trigger.cardName}: added ${manaAmount} red mana`);
+              } else {
+                game.state.stack = game.state.stack || [];
+                const triggerId = `trigger_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+                const sourcePerm = battlefield.find((p: any) => p?.id === trigger.permanentId);
+                const targetMetadata = inferTriggeredAbilityTargetMetadata(String(trigger.description || trigger.effect || ''), {
+                  gameState: game.state,
+                  controllerId: String(triggerControllerId),
+                  sourceName: String(trigger.cardName || sourcePerm?.card?.name || ''),
+                  sourcePermanent: sourcePerm,
+                } as any);
+                const stackItem: any = {
+                  id: triggerId,
+                  type: 'triggered_ability',
+                  controller: triggerControllerId,
+                  source: trigger.permanentId,
+                  sourceName: trigger.cardName,
+                  description: trigger.description,
+                  triggerType: trigger.triggerType,
+                  mandatory: trigger.mandatory,
+                  triggeringPlayer: playerId,
+                  ...(targetMetadata.requiresTarget ? { requiresTarget: true, needsTargetSelection: true } : null),
+                  ...(targetMetadata.targetType ? { targetType: targetMetadata.targetType } : null),
+                  ...(targetMetadata.targetConstraint ? { targetConstraint: targetMetadata.targetConstraint } : null),
+                  ...(targetMetadata.targetZone ? { targetZone: targetMetadata.targetZone } : null),
+                  ...(targetMetadata.targetDestination ? { targetDestination: targetMetadata.targetDestination } : null),
+                  ...(targetMetadata.targetGraveyardScope ? { targetGraveyardScope: targetMetadata.targetGraveyardScope } : null),
+                  ...(targetMetadata.destinationUsesSelectedCardOwner === true ? { destinationUsesSelectedCardOwner: true } : null),
+                  ...(targetMetadata.battlefieldControllerMode ? { battlefieldControllerMode: targetMetadata.battlefieldControllerMode } : null),
+                  ...(targetMetadata.battlefieldCounters ? { battlefieldCounters: targetMetadata.battlefieldCounters } : null),
+                  ...(targetMetadata.targetAction ? { targetAction: targetMetadata.targetAction } : null),
+                  ...(Array.isArray(targetMetadata.targetFilterTypes) ? { targetFilterTypes: targetMetadata.targetFilterTypes } : null),
+                  ...(Array.isArray(targetMetadata.targetFilterRequiredTypeWords) ? { targetFilterRequiredTypeWords: targetMetadata.targetFilterRequiredTypeWords } : null),
+                  ...(Array.isArray(targetMetadata.targetFilterExcludeTypes) ? { targetFilterExcludeTypes: targetMetadata.targetFilterExcludeTypes } : null),
+                  ...(targetMetadata.targetFilterPermanentOnly === true ? { targetFilterPermanentOnly: true } : null),
+                  ...(typeof targetMetadata.targetFilterExactManaValue === 'number' ? { targetFilterExactManaValue: targetMetadata.targetFilterExactManaValue } : null),
+                  ...(typeof targetMetadata.targetFilterMinManaValue === 'number' ? { targetFilterMinManaValue: targetMetadata.targetFilterMinManaValue } : null),
+                  ...(typeof targetMetadata.targetFilterMaxManaValue === 'number' ? { targetFilterMaxManaValue: targetMetadata.targetFilterMaxManaValue } : null),
+                  ...(typeof targetMetadata.targetTotalPowerLimit === 'number' ? { targetTotalPowerLimit: targetMetadata.targetTotalPowerLimit } : null),
+                  ...(targetMetadata.targetCastWithoutPayingManaCost === true ? { targetCastWithoutPayingManaCost: true } : null),
+                  ...(targetMetadata.targetCastIsOptional === true ? { targetCastIsOptional: true } : null),
+                  ...(typeof targetMetadata.minTargets === 'number' ? { minTargets: targetMetadata.minTargets } : null),
+                  ...(typeof targetMetadata.maxTargets === 'number' ? { maxTargets: targetMetadata.maxTargets } : null),
+                };
+
+                if (typeof trigger.value === 'number') {
+                  stackItem.value = trigger.value;
+                } else if (typeof trigger.value === 'object') {
+                  stackItem.effectData = trigger.value;
+                }
+
+                const effectData = stackItem.effectData && typeof stackItem.effectData === 'object' ? stackItem.effectData : undefined;
+                const defendingPlayerId = String(
+                  (effectData as any)?.defendingPlayerId ||
+                    (effectData as any)?.defendingPlayer ||
+                    (sourcePerm && typeof (sourcePerm as any).attacking === 'string' ? (sourcePerm as any).attacking : '') ||
+                    firstDefender ||
+                    ''
+                );
+                if (defendingPlayerId) {
+                  stackItem.defendingPlayer = defendingPlayerId;
+                  stackItem.targetPlayer = defendingPlayerId;
+                  if (effectData) {
+                    (effectData as any).defendingPlayer = (effectData as any).defendingPlayer || defendingPlayerId;
+                    (effectData as any).defendingPlayerId = (effectData as any).defendingPlayerId || defendingPlayerId;
+                  }
+                }
+
+                game.state.stack.push(stackItem);
+                persistTriggeredAbilityPush(gameId, game, {
+                  triggerId,
+                  sourceId: trigger.permanentId,
+                  sourceName: trigger.cardName,
+                  controllerId: triggerControllerId,
+                  description: trigger.description,
+                  triggerType: trigger.triggerType,
+                  effect: trigger.description,
+                  mandatory: trigger.mandatory,
+                  triggeringPlayer: playerId,
+                  ...(targetMetadata.requiresTarget ? { requiresTarget: true, needsTargetSelection: true } : null),
+                  ...(targetMetadata.targetType ? { targetType: targetMetadata.targetType } : null),
+                  ...(targetMetadata.targetConstraint ? { targetConstraint: targetMetadata.targetConstraint } : null),
+                  ...(targetMetadata.targetZone ? { targetZone: targetMetadata.targetZone } : null),
+                  ...(targetMetadata.targetDestination ? { targetDestination: targetMetadata.targetDestination } : null),
+                  ...(targetMetadata.targetGraveyardScope ? { targetGraveyardScope: targetMetadata.targetGraveyardScope } : null),
+                  ...(targetMetadata.destinationUsesSelectedCardOwner === true ? { destinationUsesSelectedCardOwner: true } : null),
+                  ...(targetMetadata.battlefieldControllerMode ? { battlefieldControllerMode: targetMetadata.battlefieldControllerMode } : null),
+                  ...(targetMetadata.battlefieldCounters ? { battlefieldCounters: targetMetadata.battlefieldCounters } : null),
+                  ...(targetMetadata.targetAction ? { targetAction: targetMetadata.targetAction } : null),
+                  ...(Array.isArray(targetMetadata.targetFilterTypes) ? { targetFilterTypes: targetMetadata.targetFilterTypes } : null),
+                  ...(Array.isArray(targetMetadata.targetFilterRequiredTypeWords) ? { targetFilterRequiredTypeWords: targetMetadata.targetFilterRequiredTypeWords } : null),
+                  ...(Array.isArray(targetMetadata.targetFilterExcludeTypes) ? { targetFilterExcludeTypes: targetMetadata.targetFilterExcludeTypes } : null),
+                  ...(targetMetadata.targetFilterPermanentOnly === true ? { targetFilterPermanentOnly: true } : null),
+                  ...(typeof targetMetadata.targetFilterExactManaValue === 'number' ? { targetFilterExactManaValue: targetMetadata.targetFilterExactManaValue } : null),
+                  ...(typeof targetMetadata.targetFilterMinManaValue === 'number' ? { targetFilterMinManaValue: targetMetadata.targetFilterMinManaValue } : null),
+                  ...(typeof targetMetadata.targetFilterMaxManaValue === 'number' ? { targetFilterMaxManaValue: targetMetadata.targetFilterMaxManaValue } : null),
+                  ...(typeof targetMetadata.targetTotalPowerLimit === 'number' ? { targetTotalPowerLimit: targetMetadata.targetTotalPowerLimit } : null),
+                  ...(targetMetadata.targetCastWithoutPayingManaCost === true ? { targetCastWithoutPayingManaCost: true } : null),
+                  ...(targetMetadata.targetCastIsOptional === true ? { targetCastIsOptional: true } : null),
+                  ...(typeof targetMetadata.minTargets === 'number' ? { minTargets: targetMetadata.minTargets } : null),
+                  ...(typeof targetMetadata.maxTargets === 'number' ? { maxTargets: targetMetadata.maxTargets } : null),
+                  ...(typeof stackItem.value !== 'undefined' ? { value: stackItem.value } : {}),
+                  ...(stackItem.effectData && typeof stackItem.effectData === 'object' ? { effectData: stackItem.effectData } : {}),
+                  ...(stackItem.targetPlayer ? { targetPlayer: stackItem.targetPlayer } : {}),
+                  ...(stackItem.defendingPlayer ? { defendingPlayer: stackItem.defendingPlayer } : {}),
+                }, `controlled attack ${trigger.triggerType || 'trigger'}`);
+
+                io.to(gameId).emit("chat", {
+                  id: `m_${Date.now()}`,
+                  gameId,
+                  from: "system",
+                  message: `⚡ ${trigger.cardName}'s triggered ability: ${trigger.description}`,
+                  ts: Date.now(),
+                });
+              }
+            }
+          }
+        }
+      } catch (triggerErr) {
+        debugWarn(1, "[combat] Error processing controlled attack triggers:", triggerErr);
+      }
 
       if (typeof (game as any).bumpSeq === "function") {
         (game as any).bumpSeq();

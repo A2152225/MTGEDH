@@ -18398,6 +18398,7 @@ export function resolveTopOfStack(ctx: GameContext) {
       
       if (etbTriggers.length > 0) {
         debug(2, `[resolveTopOfStack] Found ${etbTriggers.length} ETB trigger(s) for ${effectiveCard.name || 'permanent'}`);
+        const pendingEtbStackItems: any[] = [];
         
         for (const trigger of etbTriggers) {
           // Handle Job Select and Living Weapon immediately (they don't go on stack - they're part of ETB)
@@ -18559,10 +18560,22 @@ export function resolveTopOfStack(ctx: GameContext) {
             interveningIfSubjectSnapshot: buildInterveningIfSubjectSnapshot(newPermanent),
           } as any;
 
+          pendingEtbStackItems.push(stackItem);
+        }
+
+        const orderedEtbStackItems = orderTriggersByAPNAP(
+          ctx as any,
+          pendingEtbStackItems.map((stackItem, originalIndex) => ({
+            controllerId: String(stackItem?.controller || ''),
+            originalIndex,
+            stackItem,
+          })),
+        ).map((entry: any) => entry.stackItem);
+
+        for (const stackItem of orderedEtbStackItems) {
           state.stack.push(stackItem);
           persistTriggeredAbilityPush(ctx, stackItem);
-          
-          debug(2, `[resolveTopOfStack] ⚡ ${trigger.cardName}'s triggered ability (controlled by ${triggerController}): ${trigger.description}`);
+          debug(2, `[resolveTopOfStack] ⚡ ${stackItem.sourceName}'s triggered ability (controlled by ${stackItem.controller}): ${stackItem.description}`);
         }
       }
       } catch (err) {

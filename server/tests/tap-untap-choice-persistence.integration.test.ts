@@ -120,4 +120,109 @@ describe('tap/untap follow-up prompt persistence', () => {
     expect(persistedEvent?.payload?.queuedResolutionStep?.targetId).toBe('target_perm_1');
     expect(String(persistedEvent?.payload?.queuedResolutionStep?.id || '')).toBe(String(decisionStep.id || ''));
   });
+
+  it('queues tap triggers for the tapped permanent controller after an opponent tap decision resolves', async () => {
+    createGameIfNotExists(gameId, 'commander', 40, undefined, playerId);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const p1 = 'p1';
+    const p2 = 'p2';
+
+    (game.state as any).players = [
+      { id: p1, name: 'P1', spectator: false, life: 40 },
+      { id: p2, name: 'P2', spectator: false, life: 40 },
+    ];
+    (game.state as any).battlefield = [
+      {
+        id: 'reejerey_1',
+        controller: p1,
+        owner: p1,
+        tapped: false,
+        card: { id: 'reejerey_card', name: 'Merrow Reejerey', type_line: 'Creature — Merfolk Soldier', oracle_text: '' },
+      },
+      {
+        id: 'judge_p2',
+        controller: p2,
+        owner: p2,
+        tapped: false,
+        card: {
+          id: 'judge_p2_card',
+          name: 'Judge of Currents',
+          type_line: 'Creature — Merfolk Wizard',
+          oracle_text: 'Whenever a Merfolk you control becomes tapped, you may gain 1 life.',
+        },
+      },
+    ];
+
+    ResolutionQueueManager.addStep(gameId, {
+      type: ResolutionStepType.TARGET_SELECTION,
+      playerId: p1 as any,
+      description: 'Merrow Reejerey: Tap or untap target permanent',
+      mandatory: true,
+      sourceId: 'trigger_merrow_p1',
+      sourceName: 'Merrow Reejerey',
+      validTargets: [
+        {
+          id: 'judge_p2',
+          label: 'Judge of Currents',
+          description: 'Creature — Merfolk Wizard',
+        },
+      ],
+      targetTypes: ['permanent'],
+      minTargets: 1,
+      maxTargets: 1,
+      action: 'tap_or_untap_target',
+    } as any);
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket: socketP1, handlers: handlersP1 } = createMockSocket(p1, emitted, gameId);
+    const { socket: socketP2, handlers: handlersP2 } = createMockSocket(p2, emitted, gameId);
+    const io = createMockIo(emitted, [socketP1, socketP2]);
+    registerResolutionHandlers(io as any, socketP1 as any);
+    registerResolutionHandlers(io as any, socketP2 as any);
+
+    const targetStep = ResolutionQueueManager.getQueue(gameId).steps.find((entry: any) => entry.type === 'target_selection') as any;
+    expect(targetStep).toBeDefined();
+
+    await handlersP1['submitResolutionResponse']({
+      gameId,
+      stepId: String(targetStep.id),
+      selections: ['judge_p2'],
+    });
+
+    const decisionStep = ResolutionQueueManager.getQueue(gameId).steps.find((entry: any) => (entry as any).action === 'tap_or_untap_decision') as any;
+    expect(decisionStep).toBeDefined();
+
+    await handlersP1['submitResolutionResponse']({
+      gameId,
+      stepId: String(decisionStep.id),
+      selections: 'tap',
+    });
+
+    const judgePermanent = ((game.state as any).battlefield || []).find((perm: any) => perm?.id === 'judge_p2');
+    expect(Boolean(judgePermanent?.tapped)).toBe(true);
+
+    const queueAfterTap = ResolutionQueueManager.getQueue(gameId);
+    const judgeStep = queueAfterTap.steps.find((entry: any) => String((entry as any)?.sourceName || '') === 'Judge of Currents') as any;
+    if (judgeStep) {
+      expect(String(judgeStep.playerId || '')).toBe(p2);
+      expect(Boolean(judgeStep.mayAbilityPrompt)).toBe(true);
+      expect(String(judgeStep.effectText || '')).toContain('gain 1 life');
+
+      await handlersP2['submitResolutionResponse']({
+        gameId,
+        stepId: String(judgeStep.id),
+        selections: 'yes',
+      });
+    }
+
+    const judgePushEvent = [...getEvents(gameId)].reverse().find(
+      (event: any) => event?.type === 'pushTriggeredAbility' && String(event?.payload?.sourceName || '') === 'Judge of Currents'
+    ) as any;
+    expect(judgePushEvent).toBeTruthy();
+    expect(String(judgePushEvent?.payload?.controllerId || '')).toBe(p2);
+    expect(String(judgePushEvent?.payload?.triggeringPermanentId || '')).toBe('judge_p2');
+    expect(String(judgePushEvent?.payload?.effectData?.tappedPermanentController || '')).toBe(p2);
+  });
 });

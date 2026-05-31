@@ -2771,7 +2771,6 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
     // Examples:
     // - "Whenever one or more creatures you control deal combat damage to a player, create a Treasure token."
     // - "Whenever one or more creatures you control deal combat damage to a player, untap all lands you control."
-    
     for (const [defendingPlayerId, attackerIds] of Object.entries(result.attackersThatDealtDamage || {})) {
       // Find all controllers who had creatures deal damage to this player
       const controllersWhoDamaged = new Set<string>();

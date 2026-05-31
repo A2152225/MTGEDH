@@ -225,6 +225,82 @@ describe('enlist choice keyword automation (integration)', () => {
     expect(emitted.some((entry) => entry.event === 'error')).toBe(false);
   });
 
+  it('queues enlist during controlled attackers for the combat-controlling player', async () => {
+    const gameId = createGameId();
+    trackedGameIds.add(gameId);
+    const controllerId = 'p1' as PlayerID;
+    const playerId = 'p2' as PlayerID;
+    const opponentId = 'p3' as PlayerID;
+    const game = seedCombatGame(gameId, playerId, opponentId);
+
+    (game.state as any).players = [
+      { id: controllerId, name: 'Controller', spectator: false, life: 40 },
+      { id: playerId, name: 'Attacker', spectator: false, life: 40 },
+      { id: opponentId, name: 'Defender', spectator: false, life: 40 },
+    ];
+    (game.state as any).life = { [controllerId]: 40, [playerId]: 40, [opponentId]: 40 };
+    (game.state as any).zones = {
+      [controllerId]: { hand: [], handCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0, library: [], libraryCount: 0 },
+      [playerId]: { hand: [], handCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0, library: [], libraryCount: 0 },
+      [opponentId]: { hand: [], handCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0, library: [], libraryCount: 0 },
+    };
+
+    (game.state as any).battlefield = [
+      createEnlistAttacker(playerId),
+      {
+        id: 'helper_valid',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        counters: {},
+        summoningSickness: false,
+        basePower: 3,
+        baseToughness: 3,
+        card: {
+          id: 'helper_valid_card',
+          name: 'Ready Helper',
+          type_line: 'Creature — Soldier',
+          oracle_text: '',
+          power: '3',
+          toughness: '3',
+        },
+      },
+    ];
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket: controllerSocket, handlers: controllerHandlers } = createMockSocket(controllerId, emitted, gameId);
+    const { socket: attackerSocket } = createMockSocket(playerId, emitted, gameId);
+    const { socket: defenderSocket } = createMockSocket(opponentId, emitted, gameId);
+    const io = createMockIo(emitted, [controllerSocket, attackerSocket, defenderSocket]);
+    registerResolutionHandlers(io as any, controllerSocket as any);
+    registerResolutionHandlers(io as any, attackerSocket as any);
+    registerResolutionHandlers(io as any, defenderSocket as any);
+    registerCombatHandlers(io as any, controllerSocket as any);
+    registerCombatHandlers(io as any, attackerSocket as any);
+    registerCombatHandlers(io as any, defenderSocket as any);
+
+    await controllerHandlers.applyCombatControl({
+      gameId,
+      sourceId: 'master_warcraft',
+      sourceName: 'Master Warcraft',
+      controlsAttackers: true,
+      controlsBlockers: false,
+    });
+
+    await controllerHandlers.declareControlledAttackers({
+      gameId,
+      attackers: [{ creatureId: 'enlist_attacker', targetPlayerId: opponentId }],
+    });
+
+    const step = ResolutionQueueManager.getStepsForPlayer(gameId, controllerId).find(
+      (entry: any) => entry?.type === ResolutionStepType.TARGET_SELECTION && entry?.enlistChoice === true
+    ) as any;
+
+    expect(step).toBeDefined();
+    expect((step.validTargets || []).map((entry: any) => entry.id)).toEqual(['helper_valid']);
+    expect((step as any).enlistAttackerId).toBe('enlist_attacker');
+  });
+
   it('adds the enlisted creature power through submitResolutionResponse and applies boosted combat damage', async () => {
     const gameId = createGameId();
     trackedGameIds.add(gameId);

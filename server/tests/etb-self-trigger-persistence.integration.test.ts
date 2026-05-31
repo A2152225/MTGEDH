@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 
 import { getEvents, deleteGame, createGameIfNotExists, initDb } from '../src/db/index.js';
+import { ensureGame } from '../src/socket/util.js';
 import { triggerETBEffectsForPermanent, triggerETBEffectsForToken } from '../src/state/modules/stack.js';
 
 describe('triggerETBEffectsForPermanent self trigger persistence', () => {
@@ -360,6 +361,84 @@ describe('triggerETBEffectsForPermanent self trigger persistence', () => {
       .slice(eventStart)
       .filter((event: any) => event.type === 'pushTriggeredAbility' && (event.payload?.sourceName === 'P2 Token Watcher' || event.payload?.sourceName === 'P3 Token Watcher'));
     expect(persistedTriggers.map((event: any) => event.payload?.sourceName)).toEqual(['P3 Token Watcher', 'P2 Token Watcher']);
+  });
+
+  it('orders spell-resolution ETB watcher triggers by APNAP before persistence', () => {
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const p1 = 'p1';
+    const p2 = 'p2';
+    const p3 = 'p3';
+    const eventStart = getEvents(gameId).length;
+
+    (game.state as any).players = [
+      { id: p1, name: 'P1', spectator: false, life: 40 },
+      { id: p2, name: 'P2', spectator: false, life: 40 },
+      { id: p3, name: 'P3', spectator: false, life: 40 },
+    ];
+    (game.state as any).activePlayer = p3;
+    (game.state as any).turnPlayer = p1;
+    (game.state as any).battlefield = [
+      {
+        id: 'resolve_watcher_p2',
+        controller: p2,
+        owner: p2,
+        tapped: false,
+        counters: {},
+        card: {
+          id: 'resolve_watcher_p2_card',
+          name: 'Resolve P2 Watcher',
+          type_line: 'Enchantment',
+          oracle_text: "Whenever a creature enters the battlefield under an opponent's control, you gain 1 life.",
+          zone: 'battlefield',
+        },
+      },
+      {
+        id: 'resolve_watcher_p3',
+        controller: p3,
+        owner: p3,
+        tapped: false,
+        counters: {},
+        card: {
+          id: 'resolve_watcher_p3_card',
+          name: 'Resolve P3 Watcher',
+          type_line: 'Enchantment',
+          oracle_text: "Whenever a creature enters the battlefield under an opponent's control, you gain 1 life.",
+          zone: 'battlefield',
+        },
+      },
+    ];
+    (game.state as any).stack = [
+      {
+        id: 'resolve_etb_spell',
+        type: 'spell',
+        controller: p1,
+        card: {
+          id: 'resolve_etb_spell_card',
+          name: 'Resolve ETB Bear',
+          type_line: 'Creature - Bear',
+          oracle_text: '',
+          zone: 'stack',
+          power: '2',
+          toughness: '2',
+        },
+      },
+    ];
+
+    game.resolveTopOfStack();
+
+    const liveTriggers = ((game.state as any).stack || []).filter(
+      (entry: any) => entry?.type === 'triggered_ability' && (entry?.sourceName === 'Resolve P2 Watcher' || entry?.sourceName === 'Resolve P3 Watcher')
+    );
+    expect(liveTriggers.map((entry: any) => entry.sourceName)).toEqual(['Resolve P3 Watcher', 'Resolve P2 Watcher']);
+    expect(liveTriggers.map((entry: any) => entry.controller)).toEqual([p3, p2]);
+
+    const persistedTriggers = getEvents(gameId)
+      .slice(eventStart)
+      .filter((event: any) => event.type === 'pushTriggeredAbility' && (event.payload?.sourceName === 'Resolve P2 Watcher' || event.payload?.sourceName === 'Resolve P3 Watcher'));
+    expect(persistedTriggers.map((event: any) => event.payload?.sourceName)).toEqual(['Resolve P3 Watcher', 'Resolve P2 Watcher']);
+    expect(persistedTriggers.map((event: any) => event.payload?.controllerId)).toEqual([p3, p2]);
   });
 });
 

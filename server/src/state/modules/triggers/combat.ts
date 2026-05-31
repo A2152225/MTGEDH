@@ -829,7 +829,12 @@ export function getAttackTriggersForCreatures(
   // Check each attacking creature for attack triggers
   for (const attacker of attackingCreatures) {
     const attackerTriggers = detectAttackTriggers(attacker.card, attacker);
-    triggers.push(...attackerTriggers);
+    triggers.push(
+      ...attackerTriggers.map((trigger) => ({
+        ...trigger,
+        controllerId: String((trigger as any).controllerId || attacker?.controller || attackingPlayer || ''),
+      }))
+    );
   }
   
   // Check all permanents for "whenever a creature you control attacks" triggers
@@ -840,11 +845,17 @@ export function getAttackTriggersForCreatures(
     for (const trigger of permTriggers) {
       if (trigger.triggerType === 'creature_attacks') {
         for (const _ of attackingCreatures) {
-          triggers.push({ ...trigger });
+          triggers.push({
+            ...trigger,
+            controllerId: String((trigger as any).controllerId || permanent?.controller || attackingPlayer || ''),
+          });
         }
       }
       if (trigger.triggerType === 'exalted' && attackingCreatures.length === 1) {
-        triggers.push(trigger);
+        triggers.push({
+          ...trigger,
+          controllerId: String((trigger as any).controllerId || permanent?.controller || attackingPlayer || ''),
+        });
       }
     }
   }
@@ -856,6 +867,7 @@ export function getAttackTriggersForCreatures(
       triggers.push({
         permanentId: attachTrigger.permanentId,
         cardName: attachTrigger.cardName,
+        controllerId: String(attachTrigger.controllerId || ''),
         description: attachTrigger.effect,
         triggerType: 'equipment_attack',
         mandatory: attachTrigger.mandatory,
@@ -905,6 +917,7 @@ export function getAttackTriggersForCreatures(
             triggers.push({
               permanentId: attacker.id,
               cardName: attacker.card?.name || 'Commander',
+              controllerId: String(attacker?.controller || attackingPlayer || ''),
               description: grantedAbility,
               triggerType: 'attacks',
               mandatory: true,

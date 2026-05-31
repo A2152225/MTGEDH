@@ -291,6 +291,65 @@ describe('supported exert attack automation (integration)', () => {
     ).toBe(false);
   });
 
+  it('queues Combat Celebrant exert as an option choice during controlled attackers', async () => {
+    const gameId = createGameId();
+    trackedGameIds.add(gameId);
+    const controllerId = 'p1' as PlayerID;
+    const attackerId = 'p2' as PlayerID;
+    const defenderId = 'p3' as PlayerID;
+    const game = seedCombatGame(gameId, attackerId, defenderId);
+
+    (game.state as any).players = [
+      { id: controllerId, name: 'Controller', spectator: false, life: 40 },
+      { id: attackerId, name: 'Attacker', spectator: false, life: 40 },
+      { id: defenderId, name: 'Defender', spectator: false, life: 40 },
+    ];
+    (game.state as any).life = { [controllerId]: 40, [attackerId]: 40, [defenderId]: 40 };
+    (game.state as any).zones = {
+      [controllerId]: { hand: [], handCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0, library: [], libraryCount: 0 },
+      [attackerId]: { hand: [], handCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0, library: [], libraryCount: 0 },
+      [defenderId]: { hand: [], handCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0, library: [], libraryCount: 0 },
+    };
+
+    (game.state as any).battlefield = [
+      createAttacker(
+        'controlled_combat_celebrant',
+        attackerId,
+        'Combat Celebrant',
+        "If this creature hasn't been exerted this turn, you may exert it as it attacks. When you do, untap all other creatures you control and after this phase, there is an additional combat phase. (An exerted creature won't untap during your next untap step.)",
+        4,
+        1,
+      ),
+    ];
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket: controllerSocket, handlers: controllerHandlers } = createMockSocket(controllerId, emitted, gameId);
+    const { socket: attackerSocket } = createMockSocket(attackerId, emitted, gameId);
+    const { socket: defenderSocket } = createMockSocket(defenderId, emitted, gameId);
+    const io = createMockIo(emitted, [controllerSocket, attackerSocket, defenderSocket]);
+    registerCombatHandlers(io as any, controllerSocket as any);
+    registerCombatHandlers(io as any, attackerSocket as any);
+    registerCombatHandlers(io as any, defenderSocket as any);
+
+    await controllerHandlers.applyCombatControl({
+      gameId,
+      sourceId: 'master_warcraft',
+      sourceName: 'Master Warcraft',
+      controlsAttackers: true,
+      controlsBlockers: false,
+    });
+
+    await controllerHandlers.declareControlledAttackers({
+      gameId,
+      attackers: [{ creatureId: 'controlled_combat_celebrant', targetPlayerId: defenderId }],
+    });
+
+    const step = findExertStep(gameId, controllerId) as any;
+    expect(step).toBeDefined();
+    expect((step.options || []).map((entry: any) => entry.id)).toEqual(['exert', 'normal']);
+    expect((step as any).exertAttackerId).toBe('controlled_combat_celebrant');
+  });
+
   it('exerting Champion of Rhonas marks the attacker and pushes a reflexive trigger that resolves into the existing hand-to-battlefield modal flow', async () => {
     const gameId = createGameId();
     trackedGameIds.add(gameId);

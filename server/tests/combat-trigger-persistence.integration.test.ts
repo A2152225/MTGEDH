@@ -136,6 +136,337 @@ describe('combat trigger persistence', () => {
     });
   });
 
+  it('orders simultaneous attack triggers by APNAP before stack push', async () => {
+    const gameId = `test_combat_attack_trigger_apnap_${Date.now()}`;
+    trackedGameIds.add(gameId);
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const p1 = 'p1';
+    const p2 = 'p2';
+    const p3 = 'p3';
+
+    (game.state as any).players = [
+      { id: p1, name: 'P1', spectator: false, life: 40 },
+      { id: p2, name: 'P2', spectator: false, life: 40 },
+      { id: p3, name: 'P3', spectator: false, life: 40 },
+    ];
+    (game.state as any).startingLife = 40;
+    (game.state as any).life = { [p1]: 40, [p2]: 40, [p3]: 40 };
+    (game.state as any).turnPlayer = p1;
+    (game.state as any).activePlayer = p1;
+    (game.state as any).step = 'declareAttackers';
+    (game.state as any).phase = 'combat';
+    (game.state as any).priority = p1;
+    (game.state as any).stack = [];
+    (game.state as any).zones = {
+      [p1]: { hand: [], graveyard: [], exile: [], handCount: 0, graveyardCount: 0, exileCount: 0 },
+      [p2]: { hand: [], graveyard: [], exile: [], handCount: 0, graveyardCount: 0, exileCount: 0 },
+      [p3]: { hand: [], graveyard: [], exile: [], handCount: 0, graveyardCount: 0, exileCount: 0 },
+    };
+    (game.state as any).battlefield = [
+      {
+        id: 'attack_apnap_attacker',
+        controller: p1,
+        owner: p1,
+        basePower: 3,
+        baseToughness: 3,
+        tapped: false,
+        summoningSickness: false,
+        card: {
+          id: 'attack_apnap_attacker_card',
+          name: 'Attack APNAP Attacker',
+          type_line: 'Creature - Soldier',
+          oracle_text: '',
+          power: '3',
+          toughness: '3',
+        },
+      },
+      {
+        id: 'p3_attack_aura',
+        controller: p3,
+        owner: p3,
+        attachedTo: 'attack_apnap_attacker',
+        tapped: false,
+        card: {
+          id: 'p3_attack_aura_card',
+          name: 'P3 Attack Aura',
+          type_line: 'Enchantment - Aura',
+          oracle_text: 'Whenever enchanted creature attacks, scry 1.',
+        },
+      },
+      {
+        id: 'p2_attack_aura',
+        controller: p2,
+        owner: p2,
+        attachedTo: 'attack_apnap_attacker',
+        tapped: false,
+        card: {
+          id: 'p2_attack_aura_card',
+          name: 'P2 Attack Aura',
+          type_line: 'Enchantment - Aura',
+          oracle_text: 'Whenever enchanted creature attacks, gain 1 life.',
+        },
+      },
+    ];
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(p1, emitted);
+    socket.rooms.add(gameId);
+    (socket.data as any).gameId = gameId;
+
+    const io = createMockIo(emitted, [socket]);
+    registerCombatHandlers(io as any, socket as any);
+
+    await handlers['declareAttackers']({
+      gameId,
+      attackers: [{ creatureId: 'attack_apnap_attacker', targetPlayerId: p2 }],
+    });
+
+    const attackTriggers = ((game.state as any).stack || []).filter((item: any) =>
+      item?.type === 'triggered_ability' && String(item?.sourceName || '').includes('Attack Aura')
+    );
+    expect(attackTriggers.map((item: any) => item.sourceName)).toEqual([
+      'P2 Attack Aura',
+      'P3 Attack Aura',
+    ]);
+    expect(attackTriggers.map((item: any) => item.controller)).toEqual([p2, p3]);
+
+    const triggerEvents = getEvents(gameId).filter((event: any) =>
+      event?.type === 'pushTriggeredAbility' && String(event?.payload?.sourceName || '').includes('Attack Aura')
+    );
+    expect(triggerEvents.map((event: any) => event.payload?.sourceName)).toEqual([
+      'P2 Attack Aura',
+      'P3 Attack Aura',
+    ]);
+    expect(triggerEvents.map((event: any) => event.payload?.controllerId)).toEqual([p2, p3]);
+  });
+
+  it('orders controlled-combat tap triggers by APNAP before stack push', async () => {
+    const gameId = `test_controlled_combat_tap_trigger_apnap_${Date.now()}`;
+    trackedGameIds.add(gameId);
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const p1 = 'p1';
+    const p2 = 'p2';
+    const p3 = 'p3';
+    const p4 = 'p4';
+
+    (game.state as any).players = [
+      { id: p1, name: 'P1', spectator: false, life: 40 },
+      { id: p2, name: 'P2', spectator: false, life: 40 },
+      { id: p3, name: 'P3', spectator: false, life: 40 },
+      { id: p4, name: 'P4', spectator: false, life: 40 },
+    ];
+    (game.state as any).startingLife = 40;
+    (game.state as any).life = { [p1]: 40, [p2]: 40, [p3]: 40, [p4]: 40 };
+    (game.state as any).turnPlayer = p1;
+    (game.state as any).activePlayer = p1;
+    (game.state as any).step = 'declareAttackers';
+    (game.state as any).phase = 'combat';
+    (game.state as any).priority = p1;
+    (game.state as any).stack = [];
+    (game.state as any).zones = {
+      [p1]: { hand: [], graveyard: [], exile: [], handCount: 0, graveyardCount: 0, exileCount: 0 },
+      [p2]: { hand: [], graveyard: [], exile: [], handCount: 0, graveyardCount: 0, exileCount: 0 },
+      [p3]: { hand: [], graveyard: [], exile: [], handCount: 0, graveyardCount: 0, exileCount: 0 },
+      [p4]: { hand: [], graveyard: [], exile: [], handCount: 0, graveyardCount: 0, exileCount: 0 },
+    };
+    (game.state as any).battlefield = [
+      {
+        id: 'p3_tap_attacker',
+        controller: p3,
+        owner: p3,
+        basePower: 2,
+        baseToughness: 2,
+        tapped: false,
+        summoningSickness: false,
+        card: {
+          id: 'p3_tap_attacker_card',
+          name: 'P3 Tap Attacker',
+          type_line: 'Creature - Wizard',
+          oracle_text: 'Whenever this creature becomes tapped, scry 1.',
+          power: '2',
+          toughness: '2',
+        },
+      },
+      {
+        id: 'p2_tap_attacker',
+        controller: p2,
+        owner: p2,
+        basePower: 2,
+        baseToughness: 2,
+        tapped: false,
+        summoningSickness: false,
+        card: {
+          id: 'p2_tap_attacker_card',
+          name: 'P2 Tap Attacker',
+          type_line: 'Creature - Wizard',
+          oracle_text: 'Whenever this creature becomes tapped, draw a card.',
+          power: '2',
+          toughness: '2',
+        },
+      },
+    ];
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(p1, emitted);
+    socket.rooms.add(gameId);
+    (socket.data as any).gameId = gameId;
+
+    const io = createMockIo(emitted, [socket]);
+    registerCombatHandlers(io as any, socket as any);
+
+    await handlers['applyCombatControl']({
+      gameId,
+      sourceId: 'master_warcraft',
+      sourceName: 'Master Warcraft',
+      controlsAttackers: true,
+      controlsBlockers: false,
+    });
+
+    await handlers['declareControlledAttackers']({
+      gameId,
+      attackers: [
+        { creatureId: 'p3_tap_attacker', targetPlayerId: p4 },
+        { creatureId: 'p2_tap_attacker', targetPlayerId: p4 },
+      ],
+    });
+
+    const tapTriggers = ((game.state as any).stack || []).filter((item: any) =>
+      item?.type === 'triggered_ability' && String(item?.sourceName || '').includes('Tap Attacker')
+    );
+    expect(tapTriggers.map((item: any) => item.sourceName)).toEqual([
+      'P2 Tap Attacker',
+      'P3 Tap Attacker',
+    ]);
+    expect(tapTriggers.map((item: any) => item.controller)).toEqual([p2, p3]);
+
+    const triggerEvents = getEvents(gameId).filter((event: any) =>
+      event?.type === 'pushTriggeredAbility' && String(event?.payload?.sourceName || '').includes('Tap Attacker')
+    );
+    expect(triggerEvents.map((event: any) => event.payload?.sourceName)).toEqual([
+      'P2 Tap Attacker',
+      'P3 Tap Attacker',
+    ]);
+    expect(triggerEvents.map((event: any) => event.payload?.controllerId)).toEqual([p2, p3]);
+  });
+
+  it('queues controlled-combat attack triggers in APNAP order before stack push', async () => {
+    const gameId = `test_controlled_combat_attack_trigger_apnap_${Date.now()}`;
+    trackedGameIds.add(gameId);
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const p1 = 'p1';
+    const p2 = 'p2';
+    const p3 = 'p3';
+    const p4 = 'p4';
+
+    (game.state as any).players = [
+      { id: p1, name: 'P1', spectator: false, life: 40 },
+      { id: p2, name: 'P2', spectator: false, life: 40 },
+      { id: p3, name: 'P3', spectator: false, life: 40 },
+      { id: p4, name: 'P4', spectator: false, life: 40 },
+    ];
+    (game.state as any).startingLife = 40;
+    (game.state as any).life = { [p1]: 40, [p2]: 40, [p3]: 40, [p4]: 40 };
+    (game.state as any).turnPlayer = p1;
+    (game.state as any).activePlayer = p1;
+    (game.state as any).step = 'declareAttackers';
+    (game.state as any).phase = 'combat';
+    (game.state as any).priority = p1;
+    (game.state as any).stack = [];
+    (game.state as any).zones = {
+      [p1]: { hand: [], graveyard: [], exile: [], handCount: 0, graveyardCount: 0, exileCount: 0 },
+      [p2]: { hand: [], graveyard: [], exile: [], handCount: 0, graveyardCount: 0, exileCount: 0 },
+      [p3]: { hand: [], graveyard: [], exile: [], handCount: 0, graveyardCount: 0, exileCount: 0 },
+      [p4]: { hand: [], graveyard: [], exile: [], handCount: 0, graveyardCount: 0, exileCount: 0 },
+    };
+    (game.state as any).battlefield = [
+      {
+        id: 'p3_attack_attacker',
+        controller: p3,
+        owner: p3,
+        basePower: 2,
+        baseToughness: 2,
+        tapped: false,
+        summoningSickness: false,
+        card: {
+          id: 'p3_attack_attacker_card',
+          name: 'P3 Attack Attacker',
+          type_line: 'Creature - Wizard',
+          oracle_text: 'Whenever ~ attacks, scry 1.',
+          power: '2',
+          toughness: '2',
+        },
+      },
+      {
+        id: 'p2_attack_attacker',
+        controller: p2,
+        owner: p2,
+        basePower: 2,
+        baseToughness: 2,
+        tapped: false,
+        summoningSickness: false,
+        card: {
+          id: 'p2_attack_attacker_card',
+          name: 'P2 Attack Attacker',
+          type_line: 'Creature - Wizard',
+          oracle_text: 'Whenever ~ attacks, draw a card.',
+          power: '2',
+          toughness: '2',
+        },
+      },
+    ];
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(p1, emitted);
+    socket.rooms.add(gameId);
+    (socket.data as any).gameId = gameId;
+
+    const io = createMockIo(emitted, [socket]);
+    registerCombatHandlers(io as any, socket as any);
+
+    await handlers['applyCombatControl']({
+      gameId,
+      sourceId: 'master_warcraft',
+      sourceName: 'Master Warcraft',
+      controlsAttackers: true,
+      controlsBlockers: false,
+    });
+
+    await handlers['declareControlledAttackers']({
+      gameId,
+      attackers: [
+        { creatureId: 'p3_attack_attacker', targetPlayerId: p4 },
+        { creatureId: 'p2_attack_attacker', targetPlayerId: p4 },
+      ],
+    });
+
+    const attackTriggers = ((game.state as any).stack || []).filter((item: any) =>
+      item?.type === 'triggered_ability' && String(item?.sourceName || '').includes('Attack Attacker')
+    );
+    expect(attackTriggers.map((item: any) => item.sourceName)).toEqual([
+      'P2 Attack Attacker',
+      'P3 Attack Attacker',
+    ]);
+    expect(attackTriggers.map((item: any) => item.controller)).toEqual([p2, p3]);
+
+    const triggerEvents = getEvents(gameId).filter((event: any) =>
+      event?.type === 'pushTriggeredAbility' && String(event?.payload?.sourceName || '').includes('Attack Attacker')
+    );
+    expect(triggerEvents.map((event: any) => event.payload?.sourceName)).toEqual([
+      'P2 Attack Attacker',
+      'P3 Attack Attacker',
+    ]);
+    expect(triggerEvents.map((event: any) => event.payload?.controllerId)).toEqual([p2, p3]);
+  });
+
   it('replays persisted combat trigger metadata including value and defending player', () => {
     const game = createInitialGameState('t_combat_trigger_replay');
     const p1 = 'p1' as PlayerID;
