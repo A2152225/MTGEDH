@@ -77,7 +77,12 @@ describe('Combat damage batched triggers - intervening-if at trigger time', () =
 
     g.applyEvent({ type: 'nextStep' }); // DAMAGE (combat damage is dealt here)
 
+    const triggerStack = ((g.state as any).stack || []).filter((item: any) =>
+      item?.type === 'triggered_ability' && item?.sourceName === 'Test Batched Trigger'
+    );
+
     // No artifacts controlled -> intervening-if false -> land should remain tapped
+    expect(triggerStack).toHaveLength(0);
     const landAfter = g.state.battlefield.find((p: any) => p?.id === 'land_1') as any;
     expect(landAfter.tapped).toBe(true);
   });
@@ -142,6 +147,13 @@ describe('Combat damage batched triggers - intervening-if at trigger time', () =
 
     g.applyEvent({ type: 'nextStep' }); // DAMAGE
 
+    const triggerStack = ((g.state as any).stack || []).filter((item: any) =>
+      item?.type === 'triggered_ability' && item?.sourceName === 'Test Batched Trigger'
+    );
+    expect(triggerStack).toHaveLength(1);
+
+    g.applyEvent({ type: 'resolveTopOfStack' } as any);
+
     const landAfter = g.state.battlefield.find((p: any) => p?.id === 'land_1') as any;
     expect(landAfter.tapped).toBe(false);
   });
@@ -202,6 +214,11 @@ describe('Combat damage batched triggers - intervening-if at trigger time', () =
 
     g.applyEvent({ type: 'nextStep' }); // DAMAGE
 
+    const triggerStack = ((g.state as any).stack || []).filter((item: any) =>
+      item?.type === 'triggered_ability' && item?.sourceName === 'Test Batched Trigger'
+    );
+
+    expect(triggerStack).toHaveLength(0);
     const landAfter = g.state.battlefield.find((p: any) => p?.id === 'land_1') as any;
     expect(landAfter.tapped).toBe(true);
   });
@@ -262,6 +279,13 @@ describe('Combat damage batched triggers - intervening-if at trigger time', () =
 
     g.applyEvent({ type: 'nextStep' }); // DAMAGE
 
+    const triggerStack = ((g.state as any).stack || []).filter((item: any) =>
+      item?.type === 'triggered_ability' && item?.sourceName === 'Test Batched Trigger'
+    );
+    expect(triggerStack).toHaveLength(1);
+
+    g.applyEvent({ type: 'resolveTopOfStack' } as any);
+
     const landAfter = g.state.battlefield.find((p: any) => p?.id === 'land_1') as any;
     expect(landAfter.tapped).toBe(false);
   });
@@ -320,6 +344,13 @@ describe('Combat damage batched triggers - intervening-if at trigger time', () =
     attacker.blockedBy = [];
 
     g.applyEvent({ type: 'nextStep' });
+
+    const triggerStack = ((g.state as any).stack || []).filter((item: any) =>
+      item?.type === 'triggered_ability' && item?.sourceName === "Nature's Will"
+    );
+    expect(triggerStack).toHaveLength(1);
+
+    g.applyEvent({ type: 'resolveTopOfStack' } as any);
 
     const attackerLandAfter = g.state.battlefield.find((p: any) => p?.id === 'attacker_land_1') as any;
     const defendingLandAfter = g.state.battlefield.find((p: any) => p?.id === 'defending_land_1') as any;

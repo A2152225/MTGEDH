@@ -33881,6 +33881,9 @@ async function handleModalChoiceResponse(
       const sourceName = String(triggerData.sourceName || modalStep.sourceName || 'Triggered ability').trim() || 'Triggered ability';
       const sourceId = String(triggerData.sourceId || triggerData.source || modalStep.sourceId || modalStep.source || '').trim();
       const triggerType = String(triggerData.triggerType || 'triggered_ability').trim() || 'triggered_ability';
+      const sourcePermanentSnapshot = getResolutionSourcePermanentSnapshot(game, modalStep as any, sourceId || undefined);
+      const normalizedSourceId = String(sourceId || sourcePermanentSnapshot?.id || '').trim();
+      const sourceContext = buildTriggeredAbilitySourceContext(sourcePermanentSnapshot);
       const ctx = {
         state: game.state,
         gameId,
@@ -33895,7 +33898,7 @@ async function handleModalChoiceResponse(
 
       const sourcePermanent = Array.isArray(game.state?.battlefield)
         ? (game.state.battlefield as any[]).find((permanent: any) => {
-            if (sourceId && String(permanent?.id || '') === sourceId) {
+            if (normalizedSourceId && String(permanent?.id || '') === normalizedSourceId) {
               return true;
             }
             return String(permanent?.card?.name || permanent?.name || '').trim() === sourceName;
@@ -33907,20 +33910,21 @@ async function handleModalChoiceResponse(
           gameState: game.state,
           controllerId,
           sourceName,
-          sourcePermanent,
+          sourcePermanent: sourcePermanent || sourcePermanentSnapshot,
         });
         const syntheticTriggerId = uid('trigger');
         const syntheticTriggerItem = {
           id: syntheticTriggerId,
           type: 'triggered_ability',
           controller: controllerId,
-          source: sourceId,
-          sourceId,
+          source: normalizedSourceId,
+          sourceId: normalizedSourceId,
           sourceName,
           description: effectText,
           triggerType,
           mandatory: triggerData.mandatory !== false,
           effect: effectText,
+          ...sourceContext,
           ...(metadata.requiresTarget ? { requiresTarget: true, needsTargetSelection: true } : null),
           ...(metadata.targetType ? { targetType: metadata.targetType } : null),
           ...(metadata.targetConstraint ? { targetConstraint: metadata.targetConstraint } : null),
@@ -33951,14 +33955,15 @@ async function handleModalChoiceResponse(
         try {
           appendEvent(gameId, (game as any).seq ?? 0, 'pushTriggeredAbility', {
             triggerId: syntheticTriggerId,
-            sourceId,
-            permanentId: sourceId,
+            sourceId: normalizedSourceId,
+            permanentId: normalizedSourceId,
             sourceName,
             controllerId,
             description: effectText,
             triggerType,
             effect: effectText,
             mandatory: triggerData.mandatory !== false,
+            ...sourceContext,
             ...(metadata.requiresTarget ? { requiresTarget: true, needsTargetSelection: true } : null),
             ...(metadata.targetType ? { targetType: metadata.targetType } : null),
             ...(metadata.targetConstraint ? { targetConstraint: metadata.targetConstraint } : null),

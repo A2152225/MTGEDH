@@ -2756,6 +2756,107 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
       debugWarn(1, `${ts()} [dealCombatDamage] Failed to queue defender-side combat damage triggers:`, err);
     }
 
+    // Queue batched combat damage triggers onto the stack.
+    // These still trigger during damage dealing, but should use the same queued/persisted
+    // APNAP path as other combat-damage trigger families instead of executing inline.
+    if (shouldUsePersistedCombatDamageTriggersDuringReplay(ctx)) {
+      debug(2, `${ts()} [dealCombatDamage] Replay has persisted batched combat damage trigger events; skipping live rediscovery`);
+    } else try {
+      for (const [defendingPlayerId, attackerIds] of Object.entries(result.attackersThatDealtDamage || {})) {
+        const damagingIds = attackerIds instanceof Set
+          ? Array.from(attackerIds)
+          : (Array.isArray(attackerIds) ? attackerIds : []);
+        if (damagingIds.length === 0) continue;
+
+        const damageByController = new Map<string, { attackerIds: string[]; damageAmount: number }>();
+        for (const attackerId of damagingIds as any[]) {
+          const attackerPerm = battlefield.find((p: any) => p?.id === attackerId);
+          const controllerId = String(attackerPerm?.controller || '').trim();
+          if (!controllerId) continue;
+
+          const entry = damageByController.get(controllerId) || { attackerIds: [], damageAmount: 0 };
+          entry.attackerIds.push(String(attackerId));
+          entry.damageAmount += Math.max(0, Number(result.attackerDamageToPlayers?.[String(defendingPlayerId)]?.[String(attackerId)] || 0));
+          damageByController.set(controllerId, entry);
+        }
+
+        for (const [controllerId, controllerDamage] of damageByController.entries()) {
+          if (controllerDamage.attackerIds.length === 0) continue;
+
+          for (const perm of battlefield) {
+            if (String(perm?.controller || '') !== String(controllerId) || !perm?.card) continue;
+
+            const triggers = detectCombatDamageTriggers(perm.card, perm);
+            const batchedTriggers = triggers.filter((trigger) =>
+              trigger.triggerType === 'creatures_deal_combat_damage_batched' && trigger.batched
+            );
+
+            for (const trigger of batchedTriggers) {
+              const text = String(trigger.description || trigger.effect || '').trim();
+              if (!text) continue;
+
+              try {
+                const synthetic = `Whenever one or more creatures you control deal combat damage to a player, ${text}`;
+                const needsThatPlayerRef = /\bthat player\b/i.test(synthetic);
+                const ok = isInterveningIfSatisfied(
+                  ctx as any,
+                  String(controllerId),
+                  synthetic,
+                  perm,
+                  {
+                    defendingPlayerId: String(defendingPlayerId),
+                    ...(needsThatPlayerRef
+                      ? {
+                          thatPlayerId: String(defendingPlayerId),
+                          referencedPlayerId: String(defendingPlayerId),
+                          theirPlayerId: String(defendingPlayerId),
+                        }
+                      : {}),
+                  }
+                );
+                if (ok === false) {
+                  debug(2, `${ts()} [dealCombatDamage] Skipping batched trigger from ${trigger.cardName} due to intervening-if being false: ${text}`);
+                  continue;
+                }
+              } catch {
+                // Defensive: if evaluation fails, do not block.
+              }
+
+              const stackItem = {
+                id: uid('trigger'),
+                type: 'triggered_ability',
+                controller: perm.controller,
+                source: perm.id,
+                permanentId: perm.id,
+                sourceName: perm.card?.name || trigger.cardName,
+                description: text,
+                triggerType: trigger.triggerType,
+                mandatory: trigger.mandatory !== false,
+                effect: trigger.effect || text,
+                targets: [],
+                targetPlayer: String(defendingPlayerId),
+                defendingPlayer: String(defendingPlayerId),
+                damagedPlayerId: String(defendingPlayerId),
+                damageAmount: controllerDamage.damageAmount,
+                damageSourcePermanentIds: [...controllerDamage.attackerIds],
+                effectData: {
+                  sourcePermanentId: String(perm.id),
+                  damagedPlayerId: String(defendingPlayerId),
+                  damageAmount: controllerDamage.damageAmount,
+                  damageSourcePermanentIds: [...controllerDamage.attackerIds],
+                },
+                card: perm.card,
+              } as any;
+
+              pendingCombatDamageTriggerEntries.push({ stackItem, reason: 'batched combat damage' });
+            }
+          }
+        }
+      }
+    } catch (err) {
+      debugWarn(1, `${ts()} [dealCombatDamage] Failed to queue batched combat damage triggers:`, err);
+    }
+
     pushCombatDamageTriggerQueueEntries(ctx, pendingCombatDamageTriggerEntries);
     
     // Run state-based actions to destroy creatures that have lethal damage
@@ -2764,110 +2865,6 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
       runSBA(ctx);
     } catch (sbaErr) {
       debugWarn(1, `${ts()} [dealCombatDamage] SBA failed:`, sbaErr);
-    }
-    
-    // Check for batched combat damage triggers (e.g., Professional Face-Breaker, Nature's Will)
-    // These trigger once per combat damage step if ANY creatures dealt damage to a player
-    // Examples:
-    // - "Whenever one or more creatures you control deal combat damage to a player, create a Treasure token."
-    // - "Whenever one or more creatures you control deal combat damage to a player, untap all lands you control."
-    for (const [defendingPlayerId, attackerIds] of Object.entries(result.attackersThatDealtDamage || {})) {
-      // Find all controllers who had creatures deal damage to this player
-      const controllersWhoDamaged = new Set<string>();
-      for (const attackerId of attackerIds) {
-        const attacker = attackers.find((a: any) => a.id === attackerId);
-        if (attacker?.controller) {
-          controllersWhoDamaged.add(attacker.controller);
-        }
-      }
-      
-      // For each controller who had creatures deal damage to this player
-      for (const controllerId of controllersWhoDamaged) {
-        // Check all permanents for batched combat damage triggers
-        for (const perm of battlefield) {
-          if (perm?.controller !== controllerId) continue;
-          
-          const triggers = detectCombatDamageTriggers(perm.card, perm);
-          const batchedTriggers = triggers.filter(t => 
-            t.triggerType === 'creatures_deal_combat_damage_batched' && t.batched
-          );
-          
-          for (const trigger of batchedTriggers) {
-            debug(2, `${ts()} [dealCombatDamage] Batched combat damage trigger from ${trigger.cardName}: ${trigger.description}`);
-
-            // Intervening-if (CR 603.4): if recognized and false at trigger time, it doesn't trigger.
-            // These batched triggers are executed immediately here, so filter before executing.
-            try {
-              const text = String(trigger.description || trigger.effect || '');
-              const synthetic = `Whenever one or more creatures you control deal combat damage to a player, ${text}`;
-              const needsThatPlayerRef = /\bthat player\b/i.test(synthetic);
-              const ok = isInterveningIfSatisfied(
-                ctx as any,
-                String(controllerId),
-                synthetic,
-                perm,
-                {
-                  defendingPlayerId: String(defendingPlayerId),
-                  ...(needsThatPlayerRef
-                    ? {
-                        thatPlayerId: String(defendingPlayerId),
-                        referencedPlayerId: String(defendingPlayerId),
-                        theirPlayerId: String(defendingPlayerId),
-                      }
-                    : {}),
-                }
-              );
-              if (ok === false) {
-                debug(2, `${ts()} [dealCombatDamage] Skipping batched trigger from ${trigger.cardName} due to intervening-if being false: ${text}`);
-                continue;
-              }
-            } catch {
-              // Defensive: if evaluation fails, do not block.
-            }
-            
-            const effectLower = (trigger.description || trigger.effect || '').toLowerCase();
-            
-            // Nature's Will / Bear Umbra / Sword of Feast and Famine: untap all lands you control
-            if (effectLower.includes('untap all lands you control')) {
-              try {
-                untapLandsForPlayer(ctx, controllerId);
-                debug(2, `${ts()} [dealCombatDamage] Untapped all lands for ${controllerId} from ${trigger.cardName}`);
-              } catch (untapErr) {
-                debugError(1, `${ts()} [dealCombatDamage] Failed to untap lands:`, untapErr);
-              }
-            }
-
-            if (
-              effectLower.includes('tap all lands defending player controls') ||
-              effectLower.includes('tap all lands that player controls')
-            ) {
-              try {
-                for (const permanent of battlefield) {
-                  if (!permanent || String(permanent.controller || '') !== String(defendingPlayerId)) continue;
-                  const permanentTypeLine = String(permanent.card?.type_line || '').toLowerCase();
-                  if (!permanentTypeLine.includes('land')) continue;
-                  (permanent as any).tapped = true;
-                }
-                debug(2, `${ts()} [dealCombatDamage] Tapped all lands for defending player ${defendingPlayerId} from ${trigger.cardName}`);
-              } catch (tapErr) {
-                debugError(1, `${ts()} [dealCombatDamage] Failed to tap defending lands:`, tapErr);
-              }
-            }
-            
-            // Professional Face-Breaker: create a Treasure token
-            // Check if the card name matches Professional Face-Breaker exactly
-            const isProfessionalFaceBreaker = trigger.cardName.toLowerCase() === 'professional face-breaker';
-            if (isProfessionalFaceBreaker || effectLower.includes('create a treasure')) {
-              try {
-                createToken(ctx, controllerId, 'Treasure', 1);
-                debug(2, `${ts()} [dealCombatDamage] Created 1 Treasure token for ${controllerId} from ${trigger.cardName}`);
-              } catch (tokenErr) {
-                debugError(1, `${ts()} [dealCombatDamage] Failed to create Treasure token:`, tokenErr);
-              }
-            }
-          }
-        }
-      }
     }
     
   } catch (err) {
@@ -5119,7 +5116,15 @@ export function nextStep(ctx: GameContext) {
           // Group by controller for proper APNAP ordering (Rule 101.4)
           const triggersByController = new Map<string, typeof triggers>();
           for (const trigger of triggers) {
-            const controller = trigger.controllerId || turnPlayer;
+            const battlefield = (ctx as any).state?.battlefield || [];
+            const sourcePerm = battlefield.find((p: any) => p?.id === trigger.permanentId);
+            const controller = String(
+              trigger.controllerId ||
+              trigger.stackItem?.controller ||
+              sourcePerm?.controller ||
+              turnPlayer ||
+              ''
+            ).trim();
 
             // Intervening-if (Rule 603.4): if the condition is recognized and false at trigger time,
             // the ability does not trigger and must not be put on the stack.
@@ -5153,8 +5158,6 @@ export function nextStep(ctx: GameContext) {
                 }
               }
 
-              const battlefield = (ctx as any).state?.battlefield || [];
-              const sourcePerm = battlefield.find((p: any) => p?.id === trigger.permanentId);
               const needsThatPlayerRef = /\bthat player\b/i.test(textForEval);
               const ok = isInterveningIfSatisfied(
                 ctx as any,
@@ -5186,7 +5189,11 @@ export function nextStep(ctx: GameContext) {
           const players = Array.isArray((ctx as any).state.players) 
             ? (ctx as any).state.players.map((p: any) => p.id) 
             : [];
-          const orderedPlayers = [turnPlayer, ...players.filter((p: string) => p !== turnPlayer)];
+          const activePlayerId = String((ctx as any).state?.activePlayer || turnPlayer || '').trim();
+          const activeIndex = players.indexOf(activePlayerId);
+          const orderedPlayers = activeIndex >= 0
+            ? [...players.slice(activeIndex), ...players.slice(0, activeIndex)]
+            : [turnPlayer, ...players.filter((p: string) => p !== turnPlayer)];
           
           // Process triggers in APNAP order (active player's triggers first)
           for (const playerId of orderedPlayers) {

@@ -700,6 +700,126 @@ describe('combat trigger persistence', () => {
     ]);
   });
 
+  it('orders simultaneous batched combat damage triggers by APNAP before stack push', async () => {
+    const gameId = `test_batched_combat_damage_trigger_apnap_${Date.now()}`;
+    trackedGameIds.add(gameId);
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const p1 = 'p1';
+    const p2 = 'p2';
+    const p3 = 'p3';
+
+    (game.state as any).players = [
+      { id: p1, name: 'P1', spectator: false, life: 40 },
+      { id: p2, name: 'P2', spectator: false, life: 40 },
+      { id: p3, name: 'P3', spectator: false, life: 40 },
+    ];
+    (game.state as any).startingLife = 40;
+    (game.state as any).life = { [p1]: 40, [p2]: 40, [p3]: 40 };
+    (game.state as any).turnPlayer = p1;
+    (game.state as any).activePlayer = p1;
+    (game.state as any).phase = 'combat';
+    (game.state as any).step = 'declareBlockers';
+    (game.state as any).priority = p1;
+    (game.state as any).stack = [];
+    (game.state as any).zones = {
+      [p1]: { hand: [], graveyard: [], exile: [], handCount: 0, graveyardCount: 0, exileCount: 0 },
+      [p2]: { hand: [], graveyard: [], exile: [], handCount: 0, graveyardCount: 0, exileCount: 0 },
+      [p3]: { hand: [], graveyard: [], exile: [], handCount: 0, graveyardCount: 0, exileCount: 0 },
+    };
+    (game.state as any).battlefield = [
+      {
+        id: 'attacker_from_p3',
+        controller: p3,
+        owner: p3,
+        basePower: 2,
+        baseToughness: 2,
+        tapped: true,
+        summoningSickness: false,
+        attacking: p1,
+        blockedBy: [],
+        card: {
+          id: 'attacker_from_p3_card',
+          name: 'Attacker From P3',
+          type_line: 'Creature - Soldier',
+          oracle_text: '',
+          power: '2',
+          toughness: '2',
+        },
+      },
+      {
+        id: 'attacker_from_p2',
+        controller: p2,
+        owner: p2,
+        basePower: 2,
+        baseToughness: 2,
+        tapped: true,
+        summoningSickness: false,
+        attacking: p1,
+        blockedBy: [],
+        card: {
+          id: 'attacker_from_p2_card',
+          name: 'Attacker From P2',
+          type_line: 'Creature - Soldier',
+          oracle_text: '',
+          power: '2',
+          toughness: '2',
+        },
+      },
+      {
+        id: 'p3_batched_trigger',
+        controller: p3,
+        owner: p3,
+        tapped: false,
+        counters: {},
+        card: {
+          id: 'p3_batched_trigger_card',
+          name: 'P3 Batched Trigger',
+          type_line: 'Enchantment',
+          oracle_text: 'Whenever one or more creatures you control deal combat damage to a player, create a Treasure token.',
+        },
+      },
+      {
+        id: 'p2_batched_trigger',
+        controller: p2,
+        owner: p2,
+        tapped: false,
+        counters: {},
+        card: {
+          id: 'p2_batched_trigger_card',
+          name: 'P2 Batched Trigger',
+          type_line: 'Enchantment',
+          oracle_text: 'Whenever one or more creatures you control deal combat damage to a player, create a Treasure token.',
+        },
+      },
+    ];
+
+    game.applyEvent({ type: 'nextStep' });
+
+    const combatDamageTriggers = ((game.state as any).stack || []).filter((item: any) =>
+      item?.type === 'triggered_ability' && String(item?.sourceName || '').includes('Batched Trigger')
+    );
+    expect(combatDamageTriggers.map((item: any) => item.sourceName)).toEqual([
+      'P2 Batched Trigger',
+      'P3 Batched Trigger',
+    ]);
+    expect(combatDamageTriggers.map((item: any) => item.controller)).toEqual([p2, p3]);
+
+    const triggerEvents = getEvents(gameId).filter((event: any) =>
+      event?.type === 'pushTriggeredAbility' && String(event?.payload?.sourceName || '').includes('Batched Trigger')
+    );
+    expect(triggerEvents.map((event: any) => event.payload?.sourceName)).toEqual([
+      'P2 Batched Trigger',
+      'P3 Batched Trigger',
+    ]);
+    expect(triggerEvents.map((event: any) => event.payload?.triggerType)).toEqual([
+      'creatures_deal_combat_damage_batched',
+      'creatures_deal_combat_damage_batched',
+    ]);
+  });
+
   it('grants Agent of the Shadow Thieves attack trigger to a battlefield commander flagged with isCommander', async () => {
     const gameId = `test_agent_background_attack_trigger_${Date.now()}`;
     trackedGameIds.add(gameId);

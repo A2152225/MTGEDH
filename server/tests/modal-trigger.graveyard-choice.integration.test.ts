@@ -388,6 +388,8 @@ describe('Triggered modal choice graveyard targeting (integration)', () => {
     registerResolutionHandlers(io as any, socket as any);
     registerInteractionHandlers(io as any, socket as any);
 
+    const eventsBefore = getEvents(gameId).length;
+
     await handlers.submitResolutionResponse({
       gameId,
       stepId: modalStep.id,
@@ -398,7 +400,27 @@ describe('Triggered modal choice graveyard targeting (integration)', () => {
     expect(updatedQueue.steps).toHaveLength(1);
     const graveyardStep = updatedQueue.steps[0] as any;
     expect(graveyardStep.type).toBe('graveyard_selection');
+    expect(graveyardStep?.sourcePermanentSnapshot).toMatchObject({
+      id: 'abiding_grace_1',
+      controller: playerId,
+      owner: playerId,
+      card: { name: 'Abiding Grace' },
+    });
     expect(graveyardStep.validTargets.map((target: any) => String(target.id))).toEqual(['gy_creature_mv1']);
+
+    const newEvents = getEvents(gameId).slice(eventsBefore);
+    const pushEvent = [...newEvents].reverse().find((event: any) =>
+      event?.type === 'pushTriggeredAbility'
+      && event?.payload?.targetZone === 'graveyard'
+    ) as any;
+    expect(pushEvent).toBeDefined();
+    expect(pushEvent?.payload?.sourceId).toBe('abiding_grace_1');
+    expect(pushEvent?.payload?.sourcePermanentSnapshot).toMatchObject({
+      id: 'abiding_grace_1',
+      controller: playerId,
+      owner: playerId,
+      card: { name: 'Abiding Grace' },
+    });
   });
 
   it('uses source-power graveyard mana thresholds when a modal trigger option references the source name', async () => {

@@ -134,11 +134,15 @@ describe('replay nextStep persistence integration', () => {
     clearPriorityTimer('replay_cleanup_timeout_reverts_prepared_control');
     ResolutionQueueManager.removeQueue('replay_begin_combat_triggers_persist_nextstep');
     ResolutionQueueManager.removeQueue('replay_begin_combat_triggers_persist_nextstep_replay');
+    ResolutionQueueManager.removeQueue('replay_upkeep_triggers_apnap_nextstep');
+    ResolutionQueueManager.removeQueue('replay_upkeep_triggers_apnap_nextstep_replay');
     games.delete('replay_autopass_persists_nextstep');
     games.delete('replay_cleanup_timeout_persists_nextstep');
     games.delete('replay_cleanup_timeout_reverts_prepared_control');
     games.delete('replay_begin_combat_triggers_persist_nextstep');
     games.delete('replay_begin_combat_triggers_persist_nextstep_replay');
+    games.delete('replay_upkeep_triggers_apnap_nextstep');
+    games.delete('replay_upkeep_triggers_apnap_nextstep_replay');
     vi.useRealTimers();
   });
 
@@ -416,5 +420,130 @@ describe('replay nextStep persistence integration', () => {
     expect(((replayTriggerOrderStep as any)?.triggers || []).map((trigger: any) => String(trigger.id))).toEqual(
       ((liveTriggerOrderStep as any)?.triggers || []).map((trigger: any) => String(trigger.id)),
     );
+  });
+
+  it('orders multiplayer upkeep triggers by APNAP when the active player is not first in player order', () => {
+    const gameId = 'replay_upkeep_triggers_apnap_nextstep';
+    const replayGameId = 'replay_upkeep_triggers_apnap_nextstep_replay';
+    const players = [
+      { id: 'p1', seat: 0, name: 'Player 1', spectator: false },
+      { id: 'p2', seat: 1, name: 'Player 2', spectator: false },
+      { id: 'p3', seat: 2, name: 'Player 3', spectator: false },
+    ];
+    const battlefield = [
+      {
+        id: 'upkeep_source_p1',
+        controller: 'p1',
+        owner: 'p1',
+        tapped: false,
+        card: {
+          id: 'upkeep_source_p1_card',
+          name: 'P1 Upkeep Source',
+          type_line: 'Enchantment',
+          oracle_text: 'At the beginning of each upkeep, draw a card.',
+        },
+      },
+      {
+        id: 'upkeep_source_p3',
+        controller: 'p3',
+        owner: 'p3',
+        tapped: false,
+        card: {
+          id: 'upkeep_source_p3_card',
+          name: 'P3 Upkeep Source',
+          type_line: 'Enchantment',
+          oracle_text: 'At the beginning of each upkeep, draw a card.',
+        },
+      },
+    ];
+
+    createGameIfNotExists(gameId, 'commander', 40);
+    const { game } = createStepPersistenceHarness(gameId, {
+      phase: 'beginning',
+      step: 'UNTAP',
+      turnPlayer: 'p2',
+      activePlayer: 'p2',
+      priority: 'p2',
+      players,
+      battlefield,
+      zones: {
+        p1: { hand: [], handCount: 0, library: [], libraryCount: 0, graveyard: [], graveyardCount: 0, exile: [] },
+        p2: { hand: [], handCount: 0, library: [], libraryCount: 0, graveyard: [], graveyardCount: 0, exile: [] },
+        p3: { hand: [], handCount: 0, library: [], libraryCount: 0, graveyard: [], graveyardCount: 0, exile: [] },
+      },
+      manaPool: {
+        p1: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+        p2: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+        p3: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+      },
+      priorityPassedBy: new Set<string>(),
+    });
+
+    const eventStart = getEvents(gameId).length;
+    game.nextStep();
+
+    const liveStack = (((game.state as any).stack || []) as any[]).filter((item: any) =>
+      item?.type === 'triggered_ability' && String(item?.sourceName || '').includes('Upkeep Source')
+    );
+    const replayEvents = [
+      { type: 'nextStep' },
+      ...toReplayEvents(gameId, eventStart),
+    ];
+
+    expect(String((game.state as any).step || '').toUpperCase()).toBe('UPKEEP');
+    expect(liveStack.map((item: any) => item.sourceName)).toEqual([
+      'P3 Upkeep Source',
+      'P1 Upkeep Source',
+    ]);
+    expect(replayEvents.filter((event: any) => event.type === 'pushTriggeredAbility').map((event: any) => event.sourceName)).toEqual([
+      'P3 Upkeep Source',
+      'P1 Upkeep Source',
+    ]);
+
+    const replayGame = createInitialGameState(replayGameId);
+    replayGame.applyEvent({ type: 'join', playerId: 'p1', name: 'Player 1' } as any);
+    replayGame.applyEvent({ type: 'join', playerId: 'p2', name: 'Player 2' } as any);
+    replayGame.applyEvent({ type: 'join', playerId: 'p3', name: 'Player 3' } as any);
+    Object.assign(replayGame.state as any, {
+      turnPlayer: 'p2',
+      activePlayer: 'p2',
+      priority: 'p2',
+      turnNumber: 1,
+      turn: 1,
+      phase: 'beginning',
+      step: 'UNTAP',
+      players,
+      stack: [],
+      battlefield: battlefield.map((permanent: any) => ({
+        ...permanent,
+        card: { ...permanent.card },
+      })),
+      zones: {
+        p1: { hand: [], handCount: 0, library: [], libraryCount: 0, graveyard: [], graveyardCount: 0, exile: [] },
+        p2: { hand: [], handCount: 0, library: [], libraryCount: 0, graveyard: [], graveyardCount: 0, exile: [] },
+        p3: { hand: [], handCount: 0, library: [], libraryCount: 0, graveyard: [], graveyardCount: 0, exile: [] },
+      },
+      manaPool: {
+        p1: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+        p2: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+        p3: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+      },
+      priorityPassedBy: new Set<string>(),
+    });
+
+    if (typeof replayGame.replay !== 'function') {
+      throw new Error('replayGame.replay is not available');
+    }
+    replayGame.replay(replayEvents as any);
+
+    const replayStack = (((replayGame.state as any).stack || []) as any[]).filter((item: any) =>
+      item?.type === 'triggered_ability' && String(item?.sourceName || '').includes('Upkeep Source')
+    );
+
+    expect(String((replayGame.state as any).step || '').toUpperCase()).toBe('UPKEEP');
+    expect(replayStack.map((item: any) => item.sourceName)).toEqual([
+      'P3 Upkeep Source',
+      'P1 Upkeep Source',
+    ]);
   });
 });

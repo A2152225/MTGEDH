@@ -12285,19 +12285,51 @@ export function executeTriggerEffect(
     return;
   }
 
-  if (desc.includes('untap all lands you control')) {
+  const untapAllControlledLands = desc.includes('untap all lands you control');
+  const tapAllDamagedPlayerLands =
+    desc.includes('tap all lands that player controls') ||
+    desc.includes('tap all lands defending player controls');
+
+  if (untapAllControlledLands || tapAllDamagedPlayerLands) {
     const battlefield = Array.isArray(state.battlefield) ? state.battlefield : [];
     let untappedCount = 0;
+    let tappedCount = 0;
 
-    for (const permanent of battlefield) {
-      if (!permanent || permanent.controller !== controller || !permanent.tapped) continue;
-      const typeLine = String(permanent.card?.type_line || '').toLowerCase();
-      if (!typeLine.includes('land')) continue;
-      permanent.tapped = false;
-      untappedCount++;
+    if (untapAllControlledLands) {
+      for (const permanent of battlefield) {
+        if (!permanent || permanent.controller !== controller || !permanent.tapped) continue;
+        const typeLine = String(permanent.card?.type_line || '').toLowerCase();
+        if (!typeLine.includes('land')) continue;
+        permanent.tapped = false;
+        untappedCount++;
+      }
     }
 
-    debug(2, `[executeTriggerEffect] ${sourceName}: untapped ${untappedCount} land(s) for ${controller}`);
+    if (tapAllDamagedPlayerLands) {
+      const damagedPlayerId = String(
+        triggerItem?.effectData?.damagedPlayerId ||
+        triggerItem?.damagedPlayerId ||
+        triggerItem?.defendingPlayer ||
+        triggerItem?.targetPlayer ||
+        ''
+      ).trim();
+
+      if (damagedPlayerId) {
+        for (const permanent of battlefield) {
+          if (!permanent || permanent.controller !== damagedPlayerId || permanent.tapped) continue;
+          const typeLine = String(permanent.card?.type_line || '').toLowerCase();
+          if (!typeLine.includes('land')) continue;
+          permanent.tapped = true;
+          tappedCount++;
+        }
+      }
+    }
+
+    if (tapAllDamagedPlayerLands) {
+      debug(2, `[executeTriggerEffect] ${sourceName}: untapped ${untappedCount} land(s) for ${controller} and tapped ${tappedCount} land(s) for the damaged player`);
+    } else {
+      debug(2, `[executeTriggerEffect] ${sourceName}: untapped ${untappedCount} land(s) for ${controller}`);
+    }
     return;
   }
 
@@ -17084,6 +17116,14 @@ export function resolveTopOfStack(ctx: GameContext) {
         
         const gameId = (ctx as any).gameId || 'unknown';
         const battlefield = state.battlefield || [];
+        const sourcePermanentSnapshot = buildTriggerSourcePermanentSnapshot(getTriggerSourcePermanent((ctx as any).state, item));
+        const modalSourceId = String(
+          (item as any).permanentId
+          || (item as any).source
+          || (item as any).sourceId
+          || sourcePermanentSnapshot?.id
+          || ''
+        ).trim();
         
         // For SOLDIER Military Program, check if player controls a commander
         let canChooseBoth = false;
@@ -17150,6 +17190,7 @@ export function resolveTopOfStack(ctx: GameContext) {
             playerId: triggerController as PlayerID,
             description: `${sourceName}: ${canChooseBoth ? 'Choose one or both' : 'Choose one'}`,
             mandatory: true,
+            ...(modalSourceId ? { sourceId: modalSourceId } : null),
             sourceName: sourceName,
             sourceImage: (item as any).imageUrl,
             promptTitle: sourceName,
@@ -17157,11 +17198,12 @@ export function resolveTopOfStack(ctx: GameContext) {
             options: options,
             minSelections: 1,
             maxSelections: canChooseBoth ? 2 : 1,
+            ...(sourcePermanentSnapshot ? { sourcePermanentSnapshot } : null),
             // Store trigger data for resolution handler
             triggerData: {
               triggerType,
               sourceName,
-              sourceId,
+              ...(modalSourceId ? { sourceId: modalSourceId } : null),
               isSoldierProgram,
               canChooseBoth,
               modalTrigger: !isSoldierProgram,
@@ -17313,6 +17355,7 @@ export function resolveTopOfStack(ctx: GameContext) {
         const targetTotalPowerLimit = typeof (item as any).targetTotalPowerLimit === 'number'
           ? Number((item as any).targetTotalPowerLimit)
           : undefined;
+        const sourcePermanentSnapshot = buildTriggerSourcePermanentSnapshot(getTriggerSourcePermanent((ctx as any).state, item));
         const validTargets = graveyardOwners
           .flatMap((graveyardOwner) => {
             const playerZones = zones[graveyardOwner] || {};
@@ -17378,6 +17421,7 @@ export function resolveTopOfStack(ctx: GameContext) {
               : undefined,
             battlefieldFaceDown: (item as any).battlefieldFaceDown === true,
             battlefieldSuspected: (item as any).battlefieldSuspected === true,
+            ...(sourcePermanentSnapshot ? { sourcePermanentSnapshot } : null),
             validTargets,
             triggeredAbilityGraveyardSelection: true,
             triggeredAbilityCastFromGraveyard: targetAction === 'cast',
