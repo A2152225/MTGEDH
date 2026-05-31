@@ -40,8 +40,11 @@ function createMockSocket(playerId: string, emitted: Array<{ room?: string; even
   return { socket, handlers };
 }
 
-function seedKynaiosQueue(game: any, gameId: string) {
+function seedKynaiosQueue(game: any, gameId: string, p2HandCards?: Array<Record<string, any>>) {
   const batchId = 'kynaios_batch_1';
+  const landsInHand = Array.isArray(p2HandCards) && p2HandCards.length > 0
+    ? p2HandCards.map((card) => ({ ...card }))
+    : [{ id: 'plains_1', name: 'Plains', type_line: 'Basic Land — Plains', zone: 'hand' }];
   (game.state as any).players = [
     { id: 'p1', name: 'P1', spectator: false, life: 40 },
     { id: 'p2', name: 'P2', spectator: false, life: 40 },
@@ -52,7 +55,7 @@ function seedKynaiosQueue(game: any, gameId: string) {
   (game.state as any).activePlayer = 'p1';
   (game.state as any).zones = {
     p1: { hand: [], handCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0, libraryCount: 0 },
-    p2: { hand: [{ id: 'plains_1', name: 'Plains', type_line: 'Basic Land — Plains', zone: 'hand' }], handCount: 1, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0, libraryCount: 0 },
+    p2: { hand: landsInHand, handCount: landsInHand.length, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0, libraryCount: 0 },
     p3: { hand: [], handCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0, libraryCount: 0 },
   };
   (game.state as any).battlefield = [];
@@ -86,12 +89,12 @@ function seedKynaiosQueue(game: any, gameId: string) {
       isController: false,
       sourceController: 'p1',
       canPlayLand: true,
-      landsInHand: [{ id: 'plains_1', name: 'Plains' }],
+      landsInHand: landsInHand.map((card) => ({ id: String(card.id), name: String(card.name) })),
       options: ['play_land', 'draw_card'],
       landPlayOrFallbackIsController: false,
       landPlayOrFallbackSourceController: 'p1',
       landPlayOrFallbackCanPlayLand: true,
-      landPlayOrFallbackLandsInHand: [{ id: 'plains_1', name: 'Plains' }],
+      landPlayOrFallbackLandsInHand: landsInHand.map((card) => ({ id: String(card.id), name: String(card.name) })),
       landPlayOrFallbackOptions: ['play_land', 'draw_card'],
     },
     {
@@ -237,6 +240,99 @@ describe('Kynaios choice replay persistence', () => {
     expect(((replayGame.state as any).battlefield || []).map((perm: any) => perm.id)).toEqual([responseEvent.payload.createdPermanentId]);
     expect((replayGame.state as any).battlefield[0]?.card?.name).toBe('Plains');
     expect((replayGame.state as any).zones.p2.handCount).toBe(0);
+  });
+
+  it('plays a Kynaios land with a graveyard-target ETB through the normal self-ETB metadata and prompt wiring', async () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    seedKynaiosQueue(game, gameId, [
+      {
+        id: 'mire_1',
+        name: 'Mire Refuge',
+        type_line: 'Land',
+        oracle_text: 'When Mire Refuge enters, return target creature card from your graveyard to your hand.',
+        zone: 'hand',
+      },
+    ]);
+
+    (game.state as any).zones.p2.graveyard = [
+      { id: 'p2_bear', name: 'P2 Bear', type_line: 'Creature — Bear', mana_cost: '{1}{G}', zone: 'graveyard', power: '2', toughness: '2' },
+      { id: 'p2_bolt', name: 'P2 Bolt', type_line: 'Instant', mana_cost: '{R}', zone: 'graveyard' },
+    ];
+    (game.state as any).zones.p2.graveyardCount = 2;
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket('p2', emitted);
+    socket.rooms.add(gameId);
+    const io = createMockIo(emitted, [socket]);
+    registerResolutionHandlers(io as any, socket as any);
+
+    const queue = ResolutionQueueManager.getQueue(gameId);
+    const p2Step = queue.steps.find((step: any) => step.type === ResolutionStepType.KYNAIOS_CHOICE && step.playerId === 'p2');
+    expect(p2Step).toBeDefined();
+
+    await handlers['submitResolutionResponse']({
+      gameId,
+      stepId: String((p2Step as any).id),
+      selections: { choice: 'play_land', landCardId: 'mire_1' },
+    });
+
+    const responseEvent = [...getEvents(gameId)].reverse().find((event: any) => event.type === 'kynaiosChoiceResponse') as any;
+    expect(responseEvent?.payload?.createdPermanentId).toBeDefined();
+
+    const triggerStackItem = (((game.state as any).stack || []) as any[]).find((entry: any) => entry?.type === 'triggered_ability' && entry?.sourceName === 'Mire Refuge') as any;
+    expect(triggerStackItem).toBeTruthy();
+    expect(triggerStackItem).toMatchObject({
+      source: responseEvent.payload.createdPermanentId,
+      permanentId: responseEvent.payload.createdPermanentId,
+      sourceName: 'Mire Refuge',
+      targetZone: 'graveyard',
+      targetDestination: 'hand',
+      targetGraveyardScope: 'your',
+      targetFilterTypes: ['creature'],
+    });
+
+    const triggerEvent = [...getEvents(gameId)].reverse().find((event: any) => {
+      const payload = (event as any).payload || {};
+      return event.type === 'pushTriggeredAbility' && payload.sourceName === 'Mire Refuge';
+    }) as any;
+    expect(triggerEvent).toBeDefined();
+    expect(triggerEvent.payload).toMatchObject({
+      sourceId: responseEvent.payload.createdPermanentId,
+      permanentId: responseEvent.payload.createdPermanentId,
+      sourceName: 'Mire Refuge',
+      targetZone: 'graveyard',
+      targetDestination: 'hand',
+      targetGraveyardScope: 'your',
+      targetFilterTypes: ['creature'],
+    });
+
+    const graveyardSteps = ResolutionQueueManager
+      .getStepsForPlayer(gameId, 'p2' as any)
+      .filter((step: any) => step.type === ResolutionStepType.GRAVEYARD_SELECTION && step.triggeredAbilityGraveyardChoice === true);
+    expect(graveyardSteps).toHaveLength(1);
+    expect((graveyardSteps[0] as any).validTargets.map((target: any) => target.id)).toEqual(['p2_bear']);
+    expect((graveyardSteps[0] as any).destination).toBe('hand');
+
+    const replayGame = createInitialGameState('test_kynaios_choice_trigger_replay');
+    replayGame.applyEvent({
+      type: 'pushTriggeredAbility',
+      ...(triggerEvent.payload || {}),
+    } as any);
+
+    const replayedStack = (replayGame.state as any).stack || [];
+    expect(replayedStack).toHaveLength(1);
+    expect(replayedStack[0]).toMatchObject({
+      source: responseEvent.payload.createdPermanentId,
+      permanentId: responseEvent.payload.createdPermanentId,
+      sourceName: 'Mire Refuge',
+      targetZone: 'graveyard',
+      targetDestination: 'hand',
+      targetGraveyardScope: 'your',
+      targetFilterTypes: ['creature'],
+    });
   });
 
   it('replays Kynaios batch completion by restoring the opponent draws', () => {

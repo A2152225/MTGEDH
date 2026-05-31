@@ -7723,6 +7723,13 @@ function shouldFizzleStackSpellForMissingTargets(state: any, item: any, effectiv
     return false;
   }
 
+  const isMutatingSpell =
+    (effectiveCard as any)?.isMutating === true ||
+    String(item?.alternateCostId || effectiveCard?.alternateCostId || '').toLowerCase().trim() === 'mutate';
+  if (isMutatingSpell) {
+    return false;
+  }
+
   const targets = Array.isArray(item?.targets) ? item.targets : [];
   if (targets.length === 0) return false;
 

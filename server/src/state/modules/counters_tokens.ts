@@ -513,6 +513,7 @@ function pushDeathTriggerOntoStack(ctx: GameContext, trigger: any, dyingPermanen
     appendEvent(gameId, state.seq ?? 0, 'pushTriggeredAbility', {
       triggerId,
       sourceId: trigger.source.permanentId,
+      permanentId: trigger.source.permanentId,
       sourceName: trigger.source.cardName,
       controllerId: trigger.source.controllerId,
       description: effectText,

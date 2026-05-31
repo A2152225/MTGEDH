@@ -3280,6 +3280,7 @@ export function processSpellCastTriggersForCast(
           type: 'triggered_ability',
           controller: String(trigger.controllerId || casterId),
           source: trigger.permanentId,
+          permanentId: trigger.permanentId,
           sourceName: trigger.cardName,
           description: trigger.description,
           triggerType: 'cast_creature_type',
@@ -3501,6 +3502,7 @@ export function processSpellCastTriggersForCast(
           type: 'triggered_ability',
           controller: casterId,
           source: trigger.permanentId,
+          permanentId: trigger.permanentId,
           sourceName: trigger.cardName,
           description: trigger.description,
           triggerType: 'cast_creature_type',
@@ -3523,6 +3525,7 @@ export function processSpellCastTriggersForCast(
           appendEvent(gameId, (game as any).seq ?? 0, 'pushTriggeredAbility', {
             triggerId,
             sourceId: trigger.permanentId,
+            permanentId: trigger.permanentId,
             sourceName: trigger.cardName,
             controllerId: casterId,
             description: trigger.description,
@@ -3634,6 +3637,7 @@ export function processOpponentSpellCastTriggersForCast(
         type: 'triggered_ability',
         controller: trigger.controllerId,
         source: trigger.permanentId,
+        permanentId: trigger.permanentId,
         sourceName: trigger.cardName,
         description: trigger.description,
         triggerType: trigger.triggerType,
@@ -3656,6 +3660,7 @@ export function processOpponentSpellCastTriggersForCast(
         appendEvent(gameId, (game as any).seq ?? 0, 'pushTriggeredAbility', {
           triggerId,
           sourceId: trigger.permanentId,
+          permanentId: trigger.permanentId,
           sourceName: trigger.cardName,
           controllerId: trigger.controllerId,
           description: trigger.description,
@@ -11691,6 +11696,7 @@ export function registerGameActions(io: Server, socket: Socket) {
             type: 'triggered_ability',
             controller: trigger.controllerId, // The Esper Sentinel/Rhystic Study controller
             source: trigger.permanentId,
+            permanentId: trigger.permanentId,
             sourceName: trigger.cardName,
             description: trigger.description,
             triggerType: trigger.triggerType,
@@ -11718,6 +11724,7 @@ export function registerGameActions(io: Server, socket: Socket) {
           persistTriggeredAbilityPush({
             triggerId,
             sourceId: trigger.permanentId,
+            permanentId: trigger.permanentId,
             sourceName: trigger.cardName,
             controllerId: trigger.controllerId,
             description: trigger.description,
@@ -13432,6 +13439,7 @@ export function registerGameActions(io: Server, socket: Socket) {
                 type: 'triggered_ability',
                 controller: playerId,
                 source: item.sourceId,
+                permanentId: item.sourceId,
                 sourceName: item.sourceName,
                 description: item.effect,
                 triggerType,
@@ -13443,6 +13451,7 @@ export function registerGameActions(io: Server, socket: Socket) {
               persistTriggeredAbilityPush({
                 triggerId: item.id,
                 sourceId: item.sourceId,
+                permanentId: item.sourceId,
                 sourceName: item.sourceName,
                 controllerId: playerId,
                 description: item.effect,
@@ -13478,6 +13487,7 @@ export function registerGameActions(io: Server, socket: Socket) {
               type: 'triggered_ability',
               controller: playerId,
               source: trigger.permanentId,
+              permanentId: trigger.permanentId,
               sourceName: trigger.cardName,
               description: trigger.description || trigger.effect,
               triggerType: triggerType,
@@ -13489,6 +13499,7 @@ export function registerGameActions(io: Server, socket: Socket) {
             persistTriggeredAbilityPush({
               triggerId,
               sourceId: trigger.permanentId,
+              permanentId: trigger.permanentId,
               sourceName: trigger.cardName,
               controllerId: playerId,
               description: trigger.description || trigger.effect,

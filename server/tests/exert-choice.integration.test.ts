@@ -407,6 +407,26 @@ describe('supported exert attack automation (integration)', () => {
     expect(events.some((event: any) => event?.type === 'exertChoice' && event?.payload?.attackerId === 'champion_of_rhonas')).toBe(true);
     expect(events.some((event: any) => event?.type === 'pushTriggeredAbility' && event?.payload?.triggerType === 'exert')).toBe(true);
 
+    const triggerEvent = [...events].reverse().find(
+      (event: any) => event?.type === 'pushTriggeredAbility' && event?.payload?.triggerType === 'exert'
+    ) as any;
+    expect(triggerEvent?.payload).toMatchObject({
+      sourceId: 'champion_of_rhonas',
+      permanentId: 'champion_of_rhonas',
+      sourceName: 'Champion of Rhonas',
+      triggerType: 'exert',
+    });
+
+    (game.state as any).stack = [];
+    game.applyEvent({ type: 'pushTriggeredAbility', ...(triggerEvent?.payload || {}) } as any);
+
+    const replayedTrigger = (((game.state as any).stack || []) as any[])[0] as any;
+    expect(replayedTrigger).toEqual(expect.objectContaining({
+      source: 'champion_of_rhonas',
+      sourceName: 'Champion of Rhonas',
+      triggerType: 'exert',
+    }));
+
     game.applyEvent({ type: 'resolveTopOfStack' } as any);
 
     const modalStep = ResolutionQueueManager.getStepsForPlayer(gameId, attackerId).find(

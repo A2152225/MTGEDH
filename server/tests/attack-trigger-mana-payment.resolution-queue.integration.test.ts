@@ -1,7 +1,8 @@
 import { describe, it, expect, beforeAll, beforeEach, afterEach } from 'vitest';
-import { initDb, createGameIfNotExists, deleteGame } from '../src/db/index.js';
+import { initDb, createGameIfNotExists, deleteGame, getEvents } from '../src/db/index.js';
 import { ensureGame } from '../src/socket/util.js';
 import '../src/state/modules/priority.js';
+import { createInitialGameState } from '../src/state/gameState.js';
 import { registerResolutionHandlers, initializePriorityResolutionHandler } from '../src/socket/resolution.js';
 import { registerCombatHandlers } from '../src/socket/combat.js';
 import { registerGameActions } from '../src/socket/game-actions.js';
@@ -374,6 +375,39 @@ describe('Attack trigger mana payment via Resolution Queue (integration)', () =>
     const paidTrigger = (((game.state as any).stack || []) as any[]).find((entry: any) => String(entry?.source || '') === 'filigree_1');
     expect(paidTrigger).toMatchObject({
       type: 'triggered_ability',
+      source: 'filigree_1',
+      permanentId: 'filigree_1',
+      sourceName: 'Filigree Racer',
+      targetZone: 'graveyard',
+      targetGraveyardScope: 'your',
+      targetFilterTypes: ['instant', 'sorcery'],
+    });
+
+    const triggerEvent = [...getEvents(gameId)].reverse().find((event: any) => {
+      const payload = (event as any).payload || {};
+      return event.type === 'pushTriggeredAbility' && payload.triggerType === 'reflexive_attack_payment' && payload.sourceId === 'filigree_1';
+    }) as any;
+    expect(triggerEvent).toBeTruthy();
+    expect(triggerEvent.payload).toMatchObject({
+      sourceId: 'filigree_1',
+      permanentId: 'filigree_1',
+      sourceName: 'Filigree Racer',
+      targetZone: 'graveyard',
+      targetGraveyardScope: 'your',
+      targetFilterTypes: ['instant', 'sorcery'],
+    });
+
+    const replayGame = createInitialGameState('test_filigree_racer_paid_trigger_replay');
+    replayGame.applyEvent({
+      type: 'pushTriggeredAbility',
+      ...(triggerEvent.payload || {}),
+    } as any);
+
+    const replayedStack = (replayGame.state as any).stack || [];
+    expect(replayedStack).toHaveLength(1);
+    expect(replayedStack[0]).toMatchObject({
+      source: 'filigree_1',
+      permanentId: 'filigree_1',
       sourceName: 'Filigree Racer',
       targetZone: 'graveyard',
       targetGraveyardScope: 'your',

@@ -9,12 +9,11 @@ import { appendEvent } from '../../../db/index.js';
 import { debugWarn } from '../../../utils/debug.js';
 import { applyCounterModifications } from '../../modules/counters_tokens.js';
 import {
-  buildTriggerSourcePermanentSnapshot,
   checkPermanentEntersTapped,
   detectEntersWithCounters,
+  queueSelfETBTriggersForPermanent,
   triggerETBEffectsForPermanent,
 } from '../../modules/stack.js';
-import { getETBTriggersForPermanent } from '../../modules/triggered-abilities.js';
 
 function drawKynaiosCard(game: any, playerId: PlayerID): void {
   if (typeof game?.drawCards === 'function') {
@@ -103,83 +102,16 @@ export function moveKynaiosLandFromHandToBattlefield(
   zones.handCount = zones.hand.length;
 
   if (options?.triggerEtb) {
-    const selfEtbTriggerTypes = new Set([
-      'etb_modal_choice',
-      'job_select',
-      'living_weapon',
-      'etb_sacrifice_unless_pay',
-      'etb_bounce_land',
-      'etb_gain_life',
-      'etb_draw',
-      'etb_search',
-      'etb_create_token',
-      'etb_counter',
-    ]);
-
-    game.state.stack = Array.isArray(game.state.stack) ? game.state.stack : [];
-    for (const trigger of getETBTriggersForPermanent(card, permanent)) {
-      if (!selfEtbTriggerTypes.has(String(trigger?.triggerType || ''))) continue;
-      const triggerAny = trigger as any;
-
-      const triggerId = `trigger_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-      const sourcePermanentSnapshot = buildTriggerSourcePermanentSnapshot(permanent);
-      const stackItem = {
-        id: triggerId,
-        type: 'triggered_ability',
-        controller: playerId,
-        source: permanent.id,
-        sourceName: trigger.cardName,
-        description: trigger.description,
-        triggerType: trigger.triggerType,
-        mandatory: trigger.mandatory,
-        permanentId: permanent.id,
-        effect: trigger.effect || trigger.description,
-        requiresChoice: trigger.requiresChoice,
-        requiresTarget: trigger.requiresTarget,
-        targetType: trigger.targetType,
-        targetConstraint: trigger.targetConstraint,
-        needsTargetSelection: trigger.requiresTarget || false,
-        isModal: triggerAny.isModal,
-        modalOptions: triggerAny.modalOptions,
-        targetPlayer: triggerAny.targetPlayer,
-        value: trigger.value,
-        effectData: triggerAny.effectData,
-        ...(sourcePermanentSnapshot?.card ? { card: sourcePermanentSnapshot.card } : null),
-        ...(sourcePermanentSnapshot ? { sourcePermanentSnapshot } : null),
-      } as any;
-
-      game.state.stack.push(stackItem);
-
-      if (options.gameId) {
-        try {
-          appendEvent(options.gameId, (game as any).seq ?? 0, 'pushTriggeredAbility', {
-            triggerId,
-            sourceId: permanent.id,
-            permanentId: permanent.id,
-            sourceName: trigger.cardName,
-            controllerId: playerId,
-            description: trigger.description,
-            triggerType: trigger.triggerType,
-            effect: trigger.effect || trigger.description,
-            mandatory: trigger.mandatory,
-            requiresChoice: trigger.requiresChoice,
-            requiresTarget: trigger.requiresTarget,
-            targetType: trigger.targetType,
-            targetConstraint: trigger.targetConstraint,
-            needsTargetSelection: trigger.requiresTarget || false,
-            isModal: triggerAny.isModal,
-            modalOptions: triggerAny.modalOptions,
-            targetPlayer: triggerAny.targetPlayer,
-            value: trigger.value,
-            effectData: triggerAny.effectData,
-            ...(sourcePermanentSnapshot?.card ? { card: sourcePermanentSnapshot.card } : null),
-            ...(sourcePermanentSnapshot ? { sourcePermanentSnapshot } : null),
-          });
-        } catch (err) {
-          debugWarn(1, '[Kynaios] appendEvent(pushTriggeredAbility self ETB) failed:', err);
-        }
-      }
-    }
+    queueSelfETBTriggersForPermanent(
+      {
+        state: game.state,
+        gameId: options.gameId,
+        libraries: game.libraries,
+        players: game.state?.players,
+      } as any,
+      permanent,
+      playerId,
+    );
 
     triggerETBEffectsForPermanent(
       {

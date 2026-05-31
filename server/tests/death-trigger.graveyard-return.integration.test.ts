@@ -2683,6 +2683,27 @@ describe('Death trigger graveyard returns (integration)', () => {
       owner: controllerId,
       card: { name: 'Leyline Tyrant' },
     });
+    expect(pushEvent?.payload?.card).toMatchObject({
+      name: 'Leyline Tyrant',
+    });
+
+    (game.state as any).stack = [];
+    game.applyEvent({ type: 'pushTriggeredAbility', ...(pushEvent?.payload || {}) } as any);
+
+    const replayedFollowupTrigger = ((game.state as any).stack || []).find((item: any) => String(item?.triggerType || '') === 'reflexive_mana_payment');
+    expect(replayedFollowupTrigger).toMatchObject({
+      sourceName: 'Leyline Tyrant',
+      requiresTarget: true,
+      targetType: 'any',
+      effectData: { reflexivePaymentAmount: 3, paidManaAmount: 3 },
+      card: { name: 'Leyline Tyrant' },
+    });
+    expect(replayedFollowupTrigger?.sourcePermanentSnapshot).toMatchObject({
+      id: 'leyline_tyrant_1',
+      controller: controllerId,
+      owner: controllerId,
+      card: { name: 'Leyline Tyrant' },
+    });
 
     game.resolveTopOfStack();
 
@@ -2841,6 +2862,27 @@ describe('Death trigger graveyard returns (integration)', () => {
       lifeAmount: 2,
     });
     expect(pushEvent?.payload?.sourcePermanentSnapshot).toMatchObject({
+      id: 'fixed_payment_source_1',
+      controller: controllerId,
+      owner: controllerId,
+      card: { name: 'Fixed Payment Source' },
+    });
+    expect(pushEvent?.payload?.card).toMatchObject({
+      name: 'Fixed Payment Source',
+    });
+
+    (game.state as any).stack = [];
+    game.applyEvent({ type: 'pushTriggeredAbility', ...(pushEvent?.payload || {}) } as any);
+
+    const replayedFixedPaymentTrigger = ((game.state as any).stack || []).find((item: any) => String(item?.triggerType || '') === 'reflexive_fixed_payment');
+    expect(replayedFixedPaymentTrigger).toMatchObject({
+      sourceName: 'Fixed Payment Source',
+      requiresTarget: true,
+      targetType: 'creature or planeswalker',
+      effectData: { paidManaCost: '{B}', paidLifeAmount: 2 },
+      card: { name: 'Fixed Payment Source' },
+    });
+    expect(replayedFixedPaymentTrigger?.sourcePermanentSnapshot).toMatchObject({
       id: 'fixed_payment_source_1',
       controller: controllerId,
       owner: controllerId,

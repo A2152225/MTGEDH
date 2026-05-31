@@ -119,6 +119,26 @@ describe('draw triggers (integration)', () => {
       controller: p1,
       card: expect.objectContaining({ name: 'Psychosis Crawler' }),
     }));
+    expect(triggerEvents[0]?.payload).toMatchObject({
+      sourceId: 'psychosis_perm',
+      permanentId: 'psychosis_perm',
+      targetPlayer: p1,
+      triggeringPlayer: p1,
+    });
+
+    (game.state as any).stack = [];
+    for (const triggerEvent of triggerEvents) {
+      game.applyEvent({ type: 'pushTriggeredAbility', ...(triggerEvent?.payload || {}) } as any);
+    }
+
+    const replayedStack = (((game.state as any).stack || []) as any[]).filter((item: any) => item?.source === 'psychosis_perm');
+    expect(replayedStack).toHaveLength(2);
+    expect(replayedStack[0]).toEqual(expect.objectContaining({
+      source: 'psychosis_perm',
+      permanentId: 'psychosis_perm',
+      targetPlayer: p1,
+      triggeringPlayer: p1,
+    }));
 
     game.resolveTopOfStack();
     game.resolveTopOfStack();
@@ -190,5 +210,19 @@ describe('draw triggers (integration)', () => {
       (event: any) => event?.type === 'pushTriggeredAbility' && event?.payload?.sourceName === 'Smothering Tithe'
     );
     expect(titheEvents.map((event: any) => event?.payload?.controllerId)).toEqual([p3, p2]);
+    expect(titheEvents.map((event: any) => event?.payload?.permanentId)).toEqual(['smothering_tithe_p3', 'smothering_tithe_p2']);
+    expect(titheEvents.map((event: any) => event?.payload?.targetPlayer)).toEqual([p1, p1]);
+
+    (game.state as any).stack = [];
+    for (const titheEvent of titheEvents) {
+      game.applyEvent({ type: 'pushTriggeredAbility', ...(titheEvent?.payload || {}) } as any);
+    }
+
+    const replayedTitheStack = (((game.state as any).stack || []) as any[]).filter(
+      (item: any) => item?.type === 'triggered_ability' && item?.sourceName === 'Smothering Tithe'
+    );
+    expect(replayedTitheStack.map((item: any) => item?.controller)).toEqual([p3, p2]);
+    expect(replayedTitheStack.map((item: any) => item?.permanentId)).toEqual(['smothering_tithe_p3', 'smothering_tithe_p2']);
+    expect(replayedTitheStack.map((item: any) => item?.targetPlayer)).toEqual([p1, p1]);
   });
 });

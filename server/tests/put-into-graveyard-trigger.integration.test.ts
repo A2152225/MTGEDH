@@ -111,10 +111,26 @@ describe('put-into-graveyard triggers (integration)', () => {
       event?.type === 'pushTriggeredAbility' && event?.payload?.sourceName === 'Vulturous Zombie'
     );
     expect(triggerEvents).toHaveLength(1);
+    expect(triggerEvents[0]?.payload).toMatchObject({
+      sourceId: 'vulturous_zombie_perm',
+      permanentId: 'vulturous_zombie_perm',
+    });
     expect(triggerEvents[0]?.payload?.sourcePermanentSnapshot).toEqual(expect.objectContaining({
       id: 'vulturous_zombie_perm',
       controller: p1,
       owner: p1,
+    }));
+
+    (game.state as any).stack = [];
+    game.applyEvent({ type: 'pushTriggeredAbility', ...(triggerEvents[0]?.payload || {}) } as any);
+
+    const replayedTrigger = (((game.state as any).stack || []) as any[]).find((item: any) => item?.source === 'vulturous_zombie_perm');
+    expect(replayedTrigger).toEqual(expect.objectContaining({
+      source: 'vulturous_zombie_perm',
+      permanentId: 'vulturous_zombie_perm',
+      effectData: expect.objectContaining({
+        graveyardCardId: 'milled_card',
+      }),
     }));
 
     game.resolveTopOfStack();

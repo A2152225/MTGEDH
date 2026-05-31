@@ -706,6 +706,7 @@ export function processDrawTriggers(ctx: GameContext, drawingPlayerId: PlayerID,
         appendEvent(gameId, Number((ctx as any).seq?.value ?? (ctx as any).seq ?? 0), 'pushTriggeredAbility', {
           triggerId,
           sourceId: trigger.permanentId,
+          permanentId: trigger.permanentId,
           sourceName,
           controllerId: trigger.controllerId,
           description: effect,
@@ -797,6 +798,7 @@ export function processDrawTriggers(ctx: GameContext, drawingPlayerId: PlayerID,
             appendEvent(gameId, Number((ctx as any).seq?.value ?? 0), 'pushTriggeredAbility', {
               triggerId,
               sourceId: perm.id,
+              permanentId: perm.id,
               sourceName: perm.card?.name || 'Smothering Tithe',
               controllerId: perm.controller,
               description: stackItem.description,
@@ -939,6 +941,7 @@ export function processMillTriggers(
         appendEvent(gameId, Number((ctx as any).seq?.value ?? (ctx as any).seq ?? 0), 'pushTriggeredAbility', {
           triggerId,
           sourceId: String(trigger.permanentId || triggerId),
+          permanentId: String(trigger.permanentId || triggerId),
           sourceName: String(trigger.cardName || 'Mill trigger'),
           controllerId: String(trigger.controllerId),
           description: effect,

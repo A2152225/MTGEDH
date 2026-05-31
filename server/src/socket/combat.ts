@@ -205,6 +205,7 @@ function pushPaidAttackTriggerEffectOntoStack(
     type: 'triggered_ability',
     controller: playerId,
     source: pendingTrigger.permanentId,
+    permanentId: pendingTrigger.permanentId,
     sourceName: pendingTrigger.cardName,
     description: effectText,
     effect: effectText,
@@ -239,6 +240,7 @@ function pushPaidAttackTriggerEffectOntoStack(
   persistTriggeredAbilityPush(gameId, game, {
     triggerId,
     sourceId: pendingTrigger.permanentId,
+    permanentId: pendingTrigger.permanentId,
     sourceName: pendingTrigger.cardName,
     controllerId: playerId,
     description: effectText,
@@ -2277,6 +2279,7 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
                   type: 'triggered_ability',
                   controller: triggerControllerId,
                   source: trigger.permanentId,
+                  permanentId: trigger.permanentId,
                   sourceName: trigger.cardName,
                   description: trigger.description,
                   triggerType: trigger.triggerType,
@@ -2336,6 +2339,7 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
                 persistTriggeredAbilityPush(gameId, game, {
                   triggerId,
                   sourceId: trigger.permanentId,
+                  permanentId: trigger.permanentId,
                   sourceName: trigger.cardName,
                   controllerId: triggerControllerId,
                   description: trigger.description,
@@ -2872,6 +2876,7 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
                 type: 'triggered_ability',
                 controller: triggerControllerId,
                 source: trigger.permanentId,
+                permanentId: trigger.permanentId,
                 sourceName: trigger.cardName,
                 description: trigger.description,
                 triggerType: stackTriggerType,
@@ -2889,6 +2894,7 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
               persistTriggeredAbilityPush(gameId, game, {
                 triggerId,
                 sourceId: trigger.permanentId,
+                permanentId: trigger.permanentId,
                 sourceName: trigger.cardName,
                 controllerId: triggerControllerId,
                 description: trigger.description,
@@ -3615,6 +3621,7 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
                   type: 'triggered_ability',
                   controller: triggerControllerId,
                   source: trigger.permanentId,
+                  permanentId: trigger.permanentId,
                   sourceName: trigger.cardName,
                   description: trigger.description,
                   triggerType: trigger.triggerType,
@@ -3671,6 +3678,7 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
                 persistTriggeredAbilityPush(gameId, game, {
                   triggerId,
                   sourceId: trigger.permanentId,
+                  permanentId: trigger.permanentId,
                   sourceName: trigger.cardName,
                   controllerId: triggerControllerId,
                   description: trigger.description,

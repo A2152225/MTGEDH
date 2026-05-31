@@ -258,6 +258,7 @@ export function queueSacrificeTriggers(
         appendEvent(gameId, Number((ctx as any).seq?.value ?? (ctx as any).seq ?? 0), 'pushTriggeredAbility', {
           triggerId,
           sourceId: trigger.permanentId,
+          permanentId: trigger.permanentId,
           sourceName: trigger.cardName,
           controllerId: trigger.controllerId,
           description: effect,

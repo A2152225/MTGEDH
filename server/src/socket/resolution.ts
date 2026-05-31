@@ -2256,6 +2256,13 @@ function appendTriggeredAbilityPushEvent(
       triggerType: stackItem.triggerType,
       ...(stackItem.effect ? { effect: stackItem.effect } : null),
       mandatory: typeof stackItem.mandatory === 'boolean' ? stackItem.mandatory : true,
+      ...serializeTriggeredTargetMetadata(stackItem),
+      ...(Array.isArray(stackItem.targets)
+        ? { targets: stackItem.targets.map((entry: any) => String(entry || '')).filter(Boolean) }
+        : null),
+      ...(stackItem.targetPlayer ? { targetPlayer: stackItem.targetPlayer } : null),
+      ...(stackItem.defendingPlayer ? { defendingPlayer: stackItem.defendingPlayer } : null),
+      ...(stackItem.triggeringPlayer != null ? { triggeringPlayer: stackItem.triggeringPlayer } : null),
       ...(stackItem.effectData && typeof stackItem.effectData === 'object' ? { effectData: stackItem.effectData } : null),
       ...(stackItem.card && typeof stackItem.card === 'object' ? { card: stackItem.card } : null),
       ...(stackItem.sourcePermanentSnapshot && typeof stackItem.sourcePermanentSnapshot === 'object'

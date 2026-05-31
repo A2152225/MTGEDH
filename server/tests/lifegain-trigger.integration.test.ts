@@ -140,10 +140,27 @@ describe('lifegain triggers (integration)', () => {
       event?.type === 'pushTriggeredAbility' && event?.payload?.sourceName === "Ajani's Pridemate"
     );
     expect(triggerEvents).toHaveLength(1);
+    expect(triggerEvents[0]?.payload).toMatchObject({
+      sourceId: 'ajani_perm',
+      permanentId: 'ajani_perm',
+      targetPlayer: p1,
+      triggeringPlayer: p1,
+    });
     expect(triggerEvents[0]?.payload?.sourcePermanentSnapshot).toEqual(expect.objectContaining({
       id: 'ajani_perm',
       controller: p1,
       owner: p1,
+    }));
+
+    (game.state as any).stack = [];
+    game.applyEvent({ type: 'pushTriggeredAbility', ...(triggerEvents[0]?.payload || {}) } as any);
+
+    const replayedTrigger = (((game.state as any).stack || []) as any[]).find((item: any) => item?.source === 'ajani_perm');
+    expect(replayedTrigger).toEqual(expect.objectContaining({
+      source: 'ajani_perm',
+      permanentId: 'ajani_perm',
+      targetPlayer: p1,
+      triggeringPlayer: p1,
     }));
 
     game.resolveTopOfStack();

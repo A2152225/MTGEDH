@@ -121,17 +121,43 @@ describe('combat trigger persistence', () => {
     });
 
     const stack = (game.state as any).stack || [];
-    expect(stack.some((item: any) => item?.type === 'triggered_ability' && String(item?.sourceName || '') === 'Signal Scout')).toBe(true);
+    const liveTrigger = stack.find((item: any) => item?.type === 'triggered_ability' && String(item?.sourceName || '') === 'Signal Scout') as any;
+    expect(liveTrigger).toBeTruthy();
+    expect(liveTrigger).toMatchObject({
+      source: 'attacker_1',
+      permanentId: 'attacker_1',
+      triggeringPlayer: p1,
+    });
 
     const events = getEvents(gameId);
     const triggerEvent = events.find((event) => event.type === 'pushTriggeredAbility');
     expect(triggerEvent).toBeTruthy();
     expect((triggerEvent as any).payload).toMatchObject({
+      sourceId: 'attacker_1',
+      permanentId: 'attacker_1',
       sourceName: 'Signal Scout',
       controllerId: p1,
       description: 'draw a card.',
       effect: 'draw a card.',
       triggerType: 'attacks',
+      triggeringPlayer: p1,
+    });
+
+    const replayGame = createInitialGameState('combat_trigger_replay_attack');
+    addPlayer(replayGame, p1, 'P1');
+    addPlayer(replayGame, p2, 'P2');
+
+    replayGame.applyEvent({
+      type: 'pushTriggeredAbility',
+      ...((triggerEvent as any).payload || {}),
+    } as any);
+
+    const replayedStack = (replayGame.state as any).stack || [];
+    expect(replayedStack).toHaveLength(1);
+    expect(replayedStack[0]).toMatchObject({
+      source: 'attacker_1',
+      permanentId: 'attacker_1',
+      sourceName: 'Signal Scout',
       triggeringPlayer: p1,
     });
   });
@@ -456,6 +482,10 @@ describe('combat trigger persistence', () => {
       'P3 Attack Attacker',
     ]);
     expect(attackTriggers.map((item: any) => item.controller)).toEqual([p2, p3]);
+    expect(attackTriggers.map((item: any) => item.permanentId)).toEqual([
+      'p2_attack_attacker',
+      'p3_attack_attacker',
+    ]);
 
     const triggerEvents = getEvents(gameId).filter((event: any) =>
       event?.type === 'pushTriggeredAbility' && String(event?.payload?.sourceName || '').includes('Attack Attacker')
@@ -465,6 +495,28 @@ describe('combat trigger persistence', () => {
       'P3 Attack Attacker',
     ]);
     expect(triggerEvents.map((event: any) => event.payload?.controllerId)).toEqual([p2, p3]);
+    expect(triggerEvents.map((event: any) => event.payload?.permanentId)).toEqual([
+      'p2_attack_attacker',
+      'p3_attack_attacker',
+    ]);
+
+    const replayGame = createInitialGameState('t_controlled_attack_trigger_replay');
+    addPlayer(replayGame, p2 as any, 'P2');
+    addPlayer(replayGame, p3 as any, 'P3');
+
+    replayGame.applyEvent({
+      type: 'pushTriggeredAbility',
+      ...(triggerEvents[0]?.payload || {}),
+    } as any);
+
+    const replayedStack = (replayGame.state as any).stack || [];
+    expect(replayedStack).toHaveLength(1);
+    expect(replayedStack[0]).toMatchObject({
+      source: 'p2_attack_attacker',
+      permanentId: 'p2_attack_attacker',
+      sourceName: 'P2 Attack Attacker',
+      controller: p2,
+    });
   });
 
   it('replays persisted combat trigger metadata including value and defending player', () => {

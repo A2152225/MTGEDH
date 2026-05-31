@@ -401,6 +401,25 @@ describe('discard triggers (integration)', () => {
       targetPlayer: p2,
     }));
 
+    const triggerEvent = [...getEvents(gameId)].reverse().find((event: any) =>
+      event?.type === 'pushTriggeredAbility' && String(event?.payload?.sourceName || '') === "Liliana's Caress"
+    ) as any;
+    expect(triggerEvent?.payload).toMatchObject({
+      sourceId: 'caress_perm',
+      targetPlayer: p2,
+      triggeringPlayer: p2,
+    });
+
+    (game.state as any).stack = [];
+    game.applyEvent({ type: 'pushTriggeredAbility', ...(triggerEvent?.payload || {}) } as any);
+
+    const replayedCaressTrigger = (((game.state as any).stack || []) as any[]).find((item: any) => item?.source === 'caress_perm');
+    expect(replayedCaressTrigger).toEqual(expect.objectContaining({
+      effect: 'that player loses 2 life',
+      triggeringPlayer: p2,
+      targetPlayer: p2,
+    }));
+
     game.resolveTopOfStack();
 
     expect((game.state as any).life?.[p2]).toBe(38);

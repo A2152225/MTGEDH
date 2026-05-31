@@ -178,6 +178,7 @@ describe('cast spell trigger persistence (integration)', () => {
     ) as any;
     expect(merrowTriggerEvent).toBeDefined();
     expect(merrowTriggerEvent.payload).toMatchObject({
+      permanentId: 'reejerey_1',
       sourceName: 'Merrow Reejerey',
       triggerType: 'cast_creature_type',
       mandatory: false,
@@ -195,12 +196,28 @@ describe('cast spell trigger persistence (integration)', () => {
       (item: any) => item?.type === 'triggered_ability' && item?.sourceName === 'Merrow Reejerey'
     );
     expect(persistedTrigger).toMatchObject({
+      permanentId: 'reejerey_1',
       triggeringPlayer: 'p1',
       triggeringSpellCastSourceZone: 'hand',
       effectData: expect.objectContaining({
         casterId: 'p1',
         castSourceZone: 'hand',
       }),
+      requiresTarget: true,
+      targetType: 'permanent',
+    });
+
+    (game.state as any).stack = [];
+    game.applyEvent({ type: 'pushTriggeredAbility', ...(merrowTriggerEvent.payload || {}) } as any);
+
+    const replayedTrigger = ((game.state as any).stack || []).find(
+      (item: any) => item?.type === 'triggered_ability' && item?.sourceName === 'Merrow Reejerey'
+    );
+    expect(replayedTrigger).toMatchObject({
+      source: 'reejerey_1',
+      permanentId: 'reejerey_1',
+      triggeringPlayer: 'p1',
+      triggeringSpellCastSourceZone: 'hand',
       requiresTarget: true,
       targetType: 'permanent',
     });
@@ -253,6 +270,7 @@ describe('cast spell trigger persistence (integration)', () => {
     ) as any;
     expect(rhysticTriggerEvent).toBeDefined();
     expect(rhysticTriggerEvent.payload).toMatchObject({
+      permanentId: 'rhystic_1',
       sourceName: 'Rhystic Study',
       triggerType: 'rhystic_study',
       targetPlayer: 'p1',
@@ -268,6 +286,7 @@ describe('cast spell trigger persistence (integration)', () => {
       (item: any) => item?.type === 'triggered_ability' && item?.sourceName === 'Rhystic Study'
     );
     expect(persistedTrigger).toMatchObject({
+      permanentId: 'rhystic_1',
       targetPlayer: 'p1',
       triggeringPlayer: 'p1',
       triggeringSpellCastSourceZone: 'hand',
@@ -275,6 +294,20 @@ describe('cast spell trigger persistence (integration)', () => {
         casterId: 'p1',
         castSourceZone: 'hand',
       }),
+    });
+
+    (game.state as any).stack = [];
+    game.applyEvent({ type: 'pushTriggeredAbility', ...(rhysticTriggerEvent.payload || {}) } as any);
+
+    const replayedRhysticTrigger = ((game.state as any).stack || []).find(
+      (item: any) => item?.type === 'triggered_ability' && item?.sourceName === 'Rhystic Study'
+    );
+    expect(replayedRhysticTrigger).toMatchObject({
+      source: 'rhystic_1',
+      permanentId: 'rhystic_1',
+      targetPlayer: 'p1',
+      triggeringPlayer: 'p1',
+      triggeringSpellCastSourceZone: 'hand',
     });
   });
 

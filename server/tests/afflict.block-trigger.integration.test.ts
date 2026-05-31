@@ -201,12 +201,20 @@ describe('afflict block trigger automation', () => {
       'afflict_attacker',
       'block_trigger_blocker',
     ]);
+    expect(blockTriggerStackItems.map((item: any) => item.permanentId)).toEqual([
+      'afflict_attacker',
+      'block_trigger_blocker',
+    ]);
 
     const triggerEvents = getEvents(gameId).filter((event: any) => {
       const payload = (event as any).payload || {};
       return event.type === 'pushTriggeredAbility' && (payload.sourceId === 'afflict_attacker' || payload.sourceId === 'block_trigger_blocker');
     });
     expect(triggerEvents.map((event: any) => event.payload?.sourceId)).toEqual([
+      'afflict_attacker',
+      'block_trigger_blocker',
+    ]);
+    expect(triggerEvents.map((event: any) => event.payload?.permanentId)).toEqual([
       'afflict_attacker',
       'block_trigger_blocker',
     ]);

@@ -109,10 +109,26 @@ describe('left-graveyard triggers (integration)', () => {
       event?.type === 'pushTriggeredAbility' && event?.payload?.sourceName === 'Syr Konrad, the Grim'
     );
     expect(triggerEvents).toHaveLength(1);
+    expect(triggerEvents[0]?.payload).toMatchObject({
+      sourceId: 'syr_konrad_perm',
+      permanentId: 'syr_konrad_perm',
+    });
     expect(triggerEvents[0]?.payload?.sourcePermanentSnapshot).toEqual(expect.objectContaining({
       id: 'syr_konrad_perm',
       controller: p1,
       owner: p1,
+    }));
+
+    (game.state as any).stack = [];
+    game.applyEvent({ type: 'pushTriggeredAbility', ...(triggerEvents[0]?.payload || {}) } as any);
+
+    const replayedTrigger = (((game.state as any).stack || []) as any[]).find((item: any) => item?.source === 'syr_konrad_perm');
+    expect(replayedTrigger).toEqual(expect.objectContaining({
+      source: 'syr_konrad_perm',
+      permanentId: 'syr_konrad_perm',
+      effectData: expect.objectContaining({
+        leftGraveyardCardId: 'returning_creature',
+      }),
     }));
 
     game.resolveTopOfStack();
