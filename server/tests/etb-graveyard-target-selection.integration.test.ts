@@ -2,7 +2,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 import type { PlayerID } from '../../shared/src/index.js';
 import GameManager from '../src/GameManager.js';
-import { createGameIfNotExists, deleteGame, initDb } from '../src/db/index.js';
+import { createGameIfNotExists, deleteGame, getEvents, initDb } from '../src/db/index.js';
 import { executeTriggerEffect, queueSelfETBTriggersForPermanent } from '../src/state/modules/stack.js';
 import { ResolutionQueueManager, ResolutionStepType } from '../src/state/resolution/index.js';
 import { initializePriorityResolutionHandler } from '../src/socket/resolution.js';
@@ -109,6 +109,7 @@ describe('ETB triggered ability: graveyard target selection wiring (later11)', (
     (game.state as any).zones[playerId].graveyard.push(nonCreatureCard);
     (game.state as any).zones[playerId].graveyardCount = 2;
 
+    const eventStart = getEvents(gameId).length;
     queueSelfETBTriggersForPermanent(game as any, sourcePermanent, playerId as any);
 
     // The trigger should be on the stack...
@@ -116,6 +117,24 @@ describe('ETB triggered ability: graveyard target selection wiring (later11)', (
     expect(stack.length).toBeGreaterThanOrEqual(1);
     const triggerItem = stack[stack.length - 1];
     expect(triggerItem?.type).toBe('triggered_ability');
+    expect(triggerItem?.card?.name).toBe('Test Gearhulk');
+    expect(triggerItem?.sourcePermanentSnapshot).toEqual(expect.objectContaining({
+      id: 'gearhulk_perm',
+      controller: playerId,
+      owner: playerId,
+      card: expect.objectContaining({ name: 'Test Gearhulk' }),
+    }));
+
+    const triggerEvent = getEvents(gameId)
+      .slice(eventStart)
+      .find((event: any) => event?.type === 'pushTriggeredAbility' && event?.payload?.sourceId === 'gearhulk_perm') as any;
+    expect(triggerEvent?.payload?.card?.name).toBe('Test Gearhulk');
+    expect(triggerEvent?.payload?.sourcePermanentSnapshot).toEqual(expect.objectContaining({
+      id: 'gearhulk_perm',
+      controller: playerId,
+      owner: playerId,
+      card: expect.objectContaining({ name: 'Test Gearhulk' }),
+    }));
 
     // ...and a GRAVEYARD_SELECTION step should be queued for the controller.
     const steps = ResolutionQueueManager.getStepsForPlayer(gameId, playerId as any);

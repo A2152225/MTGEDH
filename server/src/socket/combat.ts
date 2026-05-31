@@ -447,9 +447,9 @@ function processTapTriggersForAttackers(
         const trigger = tapTrigger.trigger;
         // Intervening-if (Rule 603.4): if recognized and false at trigger time, do not trigger.
         const triggerControllerId = (trigger.controllerId || attackingPlayerId) as PlayerID;
+        const sourcePerm = battlefield.find((p: any) => String(p?.id || '') === String(trigger.permanentId || ''));
         try {
           const controller = String(triggerControllerId);
-          const sourcePerm = battlefield.find((p: any) => p?.id === trigger.permanentId);
           const textForEval = (() => {
             const raw = String(trigger.description || trigger.effect || "").trim();
             if (!raw) return raw;
@@ -483,7 +483,7 @@ function processTapTriggersForAttackers(
         const stackItem: any = buildTapTriggeredStackItem({
           ...trigger,
           controllerId: String(triggerControllerId),
-        } as any, tapTrigger.tappedPermanentId, triggerId, battlefield.find((p: any) => String(p?.id || '') === String(tapTrigger.tappedPermanentId || '')));
+        } as any, tapTrigger.tappedPermanentId, triggerId, battlefield.find((p: any) => String(p?.id || '') === String(tapTrigger.tappedPermanentId || '')), sourcePerm);
         game.state.stack.push(stackItem);
 
         try {

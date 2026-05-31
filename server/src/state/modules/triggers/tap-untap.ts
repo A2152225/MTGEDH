@@ -66,6 +66,8 @@ export type TapTriggeredStackItem = {
   triggerType: 'tap' | 'untap';
   mandatory: boolean;
   triggeringPermanentId: string;
+  card?: any;
+  sourcePermanentSnapshot?: any;
   effectData?: {
     tappedPermanentId?: string;
     tappedPermanentName?: string;
@@ -85,7 +87,9 @@ export function buildTapTriggeredStackItem(
   tappedPermanentId: string,
   triggerId: string,
   tappedPermanent?: any,
+  sourcePermanent?: any,
 ): TapTriggeredStackItem {
+  const sourcePermanentSnapshot = snapshotPermanentForTapUntapTrigger(sourcePermanent);
   const stackItem: TapTriggeredStackItem = {
     id: triggerId,
     type: 'triggered_ability',
@@ -97,6 +101,8 @@ export function buildTapTriggeredStackItem(
     triggerType: 'tap',
     mandatory: Boolean(trigger.mandatory),
     triggeringPermanentId: String(tappedPermanentId || ''),
+    ...(sourcePermanentSnapshot?.card ? { card: sourcePermanentSnapshot.card } : null),
+    ...(sourcePermanentSnapshot ? { sourcePermanentSnapshot } : null),
     effectData: {
       tappedPermanentId: String(tappedPermanentId || ''),
       tappedPermanentName: String(tappedPermanent?.card?.name || ''),
@@ -127,8 +133,32 @@ export function serializeTapTriggeredStackItem(stackItem: TapTriggeredStackItem)
     effect: stackItem.effect,
     mandatory: stackItem.mandatory,
     triggeringPermanentId: stackItem.triggeringPermanentId,
+    permanentId: stackItem.source,
+    ...(stackItem.card && typeof stackItem.card === 'object' ? { card: stackItem.card } : null),
+    ...(stackItem.sourcePermanentSnapshot && typeof stackItem.sourcePermanentSnapshot === 'object'
+      ? { sourcePermanentSnapshot: stackItem.sourcePermanentSnapshot }
+      : null),
     ...(stackItem.effectData ? { effectData: stackItem.effectData } : null),
   };
+}
+
+function snapshotPermanentForTapUntapTrigger(permanent: any): any | undefined {
+  if (!permanent || typeof permanent !== 'object') return undefined;
+  return {
+    id: String(permanent?.id || ''),
+    controller: String(permanent?.controller || ''),
+    owner: String(permanent?.owner || permanent?.controller || ''),
+    tapped: permanent?.tapped === true,
+    counters: permanent?.counters && typeof permanent.counters === 'object' ? { ...permanent.counters } : undefined,
+    card: permanent?.card && typeof permanent.card === 'object' ? { ...(permanent.card as any) } : undefined,
+  };
+}
+
+function findBattlefieldPermanentById(ctx: GameContext, permanentId: string): any | undefined {
+  const normalizedPermanentId = String(permanentId || '').trim();
+  if (!normalizedPermanentId) return undefined;
+  const battlefield = Array.isArray((ctx.state as any)?.battlefield) ? (ctx.state as any).battlefield : [];
+  return battlefield.find((permanent: any) => String(permanent?.id || '') === normalizedPermanentId);
 }
 
 // ============================================================================
@@ -678,6 +708,7 @@ export function queueBecomesUntappedTriggers(
     if (!effect || hasUnsupportedTargetRequirement(targetMetadata)) continue;
 
     const triggerId = uid('trigger');
+    const sourcePermanentSnapshot = snapshotPermanentForTapUntapTrigger(findBattlefieldPermanentById(ctx, trigger.permanentId));
     const effectData = {
       untappedPermanentId: String(untappedPermanent.id || ''),
       untappedPermanentName: String(untappedPermanent?.card?.name || ''),
@@ -696,6 +727,8 @@ export function queueBecomesUntappedTriggers(
       ...targetMetadata,
       triggerType: 'untap',
       mandatory: trigger.mandatory !== false,
+      ...(sourcePermanentSnapshot?.card ? { card: sourcePermanentSnapshot.card } : null),
+      ...(sourcePermanentSnapshot ? { sourcePermanentSnapshot } : null),
       triggeringPermanentId: String(untappedPermanent.id || ''),
       effectData,
     } as any;
@@ -716,6 +749,8 @@ export function queueBecomesUntappedTriggers(
           ...targetMetadata,
           mandatory: trigger.mandatory !== false,
           triggeringPermanentId: String(untappedPermanent.id || ''),
+          ...(sourcePermanentSnapshot?.card ? { card: sourcePermanentSnapshot.card } : null),
+          ...(sourcePermanentSnapshot ? { sourcePermanentSnapshot } : null),
           effectData,
         });
       } catch (err) {

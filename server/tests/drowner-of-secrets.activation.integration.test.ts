@@ -195,6 +195,13 @@ describe('Drowner of Secrets activation (integration)', () => {
     expect(stackAfterJudge.map((item: any) => item.sourceName)).toEqual(
       expect.arrayContaining(['Drowner of Secrets', 'Judge of Currents'])
     );
+    const judgeStackItem = stackAfterJudge.find((item: any) => item?.sourceName === 'Judge of Currents') as any;
+    expect(judgeStackItem?.card?.name).toBe('Judge of Currents');
+    expect(judgeStackItem?.sourcePermanentSnapshot).toEqual(expect.objectContaining({
+      id: 'judge',
+      controller: p1,
+      card: expect.objectContaining({ name: 'Judge of Currents' }),
+    }));
 
     const triggerPushEvents = getEvents(gameId).filter((event) => String(event?.type) === 'pushTriggeredAbility');
     expect(triggerPushEvents.length).toBeGreaterThan(0);
@@ -209,6 +216,18 @@ describe('Drowner of Secrets activation (integration)', () => {
       tappedPermanentController: p1,
       tappedPermanentTypeLine: 'Creature — Merfolk Wizard',
     }));
+    expect(lastTriggerPush?.payload?.card?.name).toBe('Judge of Currents');
+    expect(lastTriggerPush?.payload?.sourcePermanentSnapshot).toEqual(expect.objectContaining({
+      id: 'judge',
+      controller: p1,
+      card: expect.objectContaining({ name: 'Judge of Currents' }),
+    }));
+
+    (game.state as any).stack = [];
+    game.applyEvent({ type: 'pushTriggeredAbility', ...(lastTriggerPush?.payload || {}) } as any);
+    const replayedJudgeTrigger = (((game.state as any).stack || []) as any[]).find((item: any) => item?.source === 'judge');
+    expect(replayedJudgeTrigger?.sourcePermanentSnapshot?.card?.name).toBe('Judge of Currents');
+    expect(replayedJudgeTrigger?.effectData?.tappedPermanentId).toBe('judge');
   });
 
   it('mills the chosen player when the live targeted activation resolves', async () => {

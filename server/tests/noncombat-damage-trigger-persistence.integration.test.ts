@@ -90,10 +90,20 @@ describe('noncombat damage-to-player triggers (integration)', () => {
       type: 'triggered_ability',
       triggerType: 'deals_damage',
       sourceName: 'Test Pinger',
+      permanentId: 'pinger_perm',
       targetPlayer: p2,
       defendingPlayer: p2,
       effect: 'draw a card',
     }));
+    expect(damageTriggers[0]?.card?.name).toBe('Test Pinger');
+    expect(damageTriggers[0]?.sourcePermanentSnapshot).toEqual(expect.objectContaining({
+      id: 'pinger_perm',
+      controller: p1,
+      owner: p1,
+      card: expect.objectContaining({ name: 'Test Pinger' }),
+    }));
+    expect(damageTriggers[0]?.damageSourcePermanentIds).toEqual(['pinger_perm']);
+    expect(damageTriggers[0]?.damageIncludedWarriorSource).toBe(false);
     expect(damageTriggers[0]?.effectData).toEqual(expect.objectContaining({
       sourcePermanentId: 'pinger_perm',
       damagedPlayerId: p2,
@@ -104,10 +114,39 @@ describe('noncombat damage-to-player triggers (integration)', () => {
       event?.type === 'pushTriggeredAbility' && event?.payload?.sourceName === 'Test Pinger'
     );
     expect(triggerEvents).toHaveLength(1);
+    expect(triggerEvents[0]?.payload).toEqual(expect.objectContaining({
+      permanentId: 'pinger_perm',
+      damagedPlayerId: p2,
+      damageAmount: 1,
+      damageSourcePermanentIds: ['pinger_perm'],
+      damageIncludedWarriorSource: false,
+      card: expect.objectContaining({ name: 'Test Pinger' }),
+      sourcePermanentSnapshot: expect.objectContaining({
+        id: 'pinger_perm',
+        controller: p1,
+        owner: p1,
+        card: expect.objectContaining({ name: 'Test Pinger' }),
+      }),
+    }));
     expect(triggerEvents[0]?.payload?.effectData).toEqual(expect.objectContaining({
       sourcePermanentId: 'pinger_perm',
       damagedPlayerId: p2,
       damageAmount: 1,
     }));
+
+    (game.state as any).stack = [];
+    game.applyEvent({ type: 'pushTriggeredAbility', ...(triggerEvents[0]?.payload || {}) } as any);
+    const replayedTrigger = ((game.state as any).stack || [])[0] as any;
+    expect(replayedTrigger).toEqual(expect.objectContaining({
+      source: 'pinger_perm',
+      permanentId: 'pinger_perm',
+      targetPlayer: p2,
+      defendingPlayer: p2,
+      damagedPlayerId: p2,
+      damageAmount: 1,
+      damageSourcePermanentIds: ['pinger_perm'],
+      damageIncludedWarriorSource: false,
+    }));
+    expect(replayedTrigger?.sourcePermanentSnapshot?.card?.name).toBe('Test Pinger');
   });
 });

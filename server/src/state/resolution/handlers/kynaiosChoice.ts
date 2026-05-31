@@ -9,6 +9,7 @@ import { appendEvent } from '../../../db/index.js';
 import { debugWarn } from '../../../utils/debug.js';
 import { applyCounterModifications } from '../../modules/counters_tokens.js';
 import {
+  buildTriggerSourcePermanentSnapshot,
   checkPermanentEntersTapped,
   detectEntersWithCounters,
   triggerETBEffectsForPermanent,
@@ -121,6 +122,7 @@ export function moveKynaiosLandFromHandToBattlefield(
       const triggerAny = trigger as any;
 
       const triggerId = `trigger_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      const sourcePermanentSnapshot = buildTriggerSourcePermanentSnapshot(permanent);
       const stackItem = {
         id: triggerId,
         type: 'triggered_ability',
@@ -142,6 +144,8 @@ export function moveKynaiosLandFromHandToBattlefield(
         targetPlayer: triggerAny.targetPlayer,
         value: trigger.value,
         effectData: triggerAny.effectData,
+        ...(sourcePermanentSnapshot?.card ? { card: sourcePermanentSnapshot.card } : null),
+        ...(sourcePermanentSnapshot ? { sourcePermanentSnapshot } : null),
       } as any;
 
       game.state.stack.push(stackItem);
@@ -168,6 +172,8 @@ export function moveKynaiosLandFromHandToBattlefield(
             targetPlayer: triggerAny.targetPlayer,
             value: trigger.value,
             effectData: triggerAny.effectData,
+            ...(sourcePermanentSnapshot?.card ? { card: sourcePermanentSnapshot.card } : null),
+            ...(sourcePermanentSnapshot ? { sourcePermanentSnapshot } : null),
           });
         } catch (err) {
           debugWarn(1, '[Kynaios] appendEvent(pushTriggeredAbility self ETB) failed:', err);

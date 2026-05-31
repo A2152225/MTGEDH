@@ -106,11 +106,29 @@ describe('becomes-untapped triggers (integration)', () => {
       untappedPermanentController: p2,
       untappedPermanentTypeLine: 'Creature - Elf Druid',
     }));
+    expect(stackItems[0]?.card?.name).toBe('Mesmeric Orb');
+    expect(stackItems[0]?.sourcePermanentSnapshot).toEqual(expect.objectContaining({
+      id: 'orb_perm',
+      controller: p1,
+      card: expect.objectContaining({ name: 'Mesmeric Orb' }),
+    }));
 
     const triggerEvents = getEvents(gameId).filter((event: any) =>
       event?.type === 'pushTriggeredAbility' && event?.payload?.sourceName === 'Mesmeric Orb'
     );
     expect(triggerEvents).toHaveLength(1);
+    expect(triggerEvents[0]?.payload?.card?.name).toBe('Mesmeric Orb');
+    expect(triggerEvents[0]?.payload?.sourcePermanentSnapshot).toEqual(expect.objectContaining({
+      id: 'orb_perm',
+      controller: p1,
+      card: expect.objectContaining({ name: 'Mesmeric Orb' }),
+    }));
+
+    (game.state as any).stack = [];
+    game.applyEvent({ type: 'pushTriggeredAbility', ...(triggerEvents[0]?.payload || {}) } as any);
+    const replayedOrbTrigger = (((game.state as any).stack || []) as any[]).find((item: any) => item?.source === 'orb_perm');
+    expect(replayedOrbTrigger?.sourcePermanentSnapshot?.card?.name).toBe('Mesmeric Orb');
+    expect(replayedOrbTrigger?.effectData?.untappedPermanentId).toBe('elves_perm');
 
     game.resolveTopOfStack();
 

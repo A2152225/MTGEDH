@@ -236,12 +236,34 @@ describe('embalm and eternalize graveyard replay semantics (integration)', () =>
     expect((game.state as any).stack).toHaveLength(1);
     expect((game.state as any).stack[0]?.source).toBe(battlefield[0]?.id);
     expect(String((game.state as any).stack[0]?.sourceName || '')).toBe('Champion of Wits');
+    expect((game.state as any).stack[0]?.card?.name).toBe('Champion of Wits');
+    expect((game.state as any).stack[0]?.sourcePermanentSnapshot).toEqual(expect.objectContaining({
+      id: battlefield[0]?.id,
+      controller: playerId,
+      owner: playerId,
+      isToken: true,
+      card: expect.objectContaining({ name: 'Champion of Wits' }),
+    }));
 
     const triggerEvents = getEvents(gameId).slice(eventStart);
     const persistedTrigger = triggerEvents.find((event: any) => event.type === 'pushTriggeredAbility') as any;
     expect(persistedTrigger).toBeTruthy();
     expect(String(persistedTrigger?.payload?.sourceId || '')).toBe(String(battlefield[0]?.id || ''));
     expect(String(persistedTrigger?.payload?.sourceName || '')).toBe('Champion of Wits');
+    expect(persistedTrigger?.payload?.card?.name).toBe('Champion of Wits');
+    expect(persistedTrigger?.payload?.sourcePermanentSnapshot).toEqual(expect.objectContaining({
+      id: battlefield[0]?.id,
+      controller: playerId,
+      owner: playerId,
+      isToken: true,
+      card: expect.objectContaining({ name: 'Champion of Wits' }),
+    }));
+
+    (game.state as any).stack = [];
+    game.applyEvent({ type: 'pushTriggeredAbility', ...(persistedTrigger?.payload || {}) } as any);
+    const replayedTrigger = ((game.state as any).stack || [])[0] as any;
+    expect(replayedTrigger?.sourcePermanentSnapshot?.card?.name).toBe('Champion of Wits');
+    expect(replayedTrigger?.sourcePermanentSnapshot?.isToken).toBe(true);
   });
 
   it('queues and persists external ETB watcher triggers for live embalm token entries', async () => {
@@ -317,6 +339,13 @@ describe('embalm and eternalize graveyard replay semantics (integration)', () =>
       sourceName: 'Soul Warden',
       triggerType: 'creature_etb',
     });
+    expect(liveTrigger?.card?.name).toBe('Soul Warden');
+    expect(liveTrigger?.sourcePermanentSnapshot).toEqual(expect.objectContaining({
+      id: 'soul_warden_perm_2',
+      controller: playerId,
+      owner: playerId,
+      card: expect.objectContaining({ name: 'Soul Warden' }),
+    }));
 
     const persistedTrigger = getEvents(gameId)
       .slice(eventStart)
@@ -328,6 +357,19 @@ describe('embalm and eternalize graveyard replay semantics (integration)', () =>
       sourceName: 'Soul Warden',
       triggerType: 'creature_etb',
     });
+    expect(persistedTrigger.payload.card?.name).toBe('Soul Warden');
+    expect(persistedTrigger.payload.sourcePermanentSnapshot).toEqual(expect.objectContaining({
+      id: 'soul_warden_perm_2',
+      controller: playerId,
+      owner: playerId,
+      card: expect.objectContaining({ name: 'Soul Warden' }),
+    }));
+
+    (game.state as any).stack = [];
+    game.applyEvent({ type: 'pushTriggeredAbility', ...(persistedTrigger?.payload || {}) } as any);
+    const replayedTrigger = ((game.state as any).stack || [])[0] as any;
+    expect(replayedTrigger?.sourcePermanentSnapshot?.card?.name).toBe('Soul Warden');
+    expect(replayedTrigger?.interveningIfSubjectSnapshot?.card?.name).toBe('Sacred Cat');
   });
 
   it('replays external ETB watcher triggers after embalm rebuilds the token entry', () => {

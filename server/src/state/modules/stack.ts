@@ -1337,6 +1337,26 @@ function buildInterveningIfSubjectSnapshot(permanent: any): any | undefined {
   };
 }
 
+export function buildTriggerSourcePermanentSnapshot(permanent: any): any | undefined {
+  if (!permanent || typeof permanent !== 'object') return undefined;
+
+  return {
+    id: permanent.id,
+    controller: permanent.controller,
+    owner: permanent.owner,
+    tapped: permanent.tapped,
+    isToken: permanent.isToken,
+    token: permanent.token,
+    enteredFromZone: permanent.enteredFromZone,
+    enteredFromGraveyard: permanent.enteredFromGraveyard,
+    enteredFromCast: permanent.enteredFromCast,
+    castSourceZone: permanent.castSourceZone,
+    castFromHand: permanent.castFromHand,
+    counters: permanent.counters && typeof permanent.counters === 'object' ? { ...(permanent.counters as any) } : undefined,
+    card: permanent.card && typeof permanent.card === 'object' ? { ...(permanent.card as any) } : undefined,
+  };
+}
+
 function resolveBoundGraveyardReturnEffect(
   ctx: GameContext,
   state: any,
@@ -2620,6 +2640,7 @@ export function queueSelfETBTriggersForPermanent(
 
     state.stack = state.stack || [];
     const triggerId = uid('trigger');
+    const sourcePermanentSnapshot = buildTriggerSourcePermanentSnapshot(permanent);
 
     // Enrich graveyard / zone / filter metadata for self-ETB triggered abilities so
     // that downstream target-selection (TARGET_SELECTION step builders in
@@ -2657,6 +2678,8 @@ export function queueSelfETBTriggersForPermanent(
       targetPlayer: triggerAny.targetPlayer,
       value: trigger.value,
       effectData: triggerAny.effectData,
+      ...(sourcePermanentSnapshot?.card ? { card: sourcePermanentSnapshot.card } : null),
+      ...(sourcePermanentSnapshot ? { sourcePermanentSnapshot } : null),
       ...(enrichedMetadata.targetZone ? { targetZone: enrichedMetadata.targetZone } : null),
       ...(enrichedMetadata.targetDestination ? { targetDestination: enrichedMetadata.targetDestination } : null),
       ...(enrichedMetadata.targetGraveyardScope ? { targetGraveyardScope: enrichedMetadata.targetGraveyardScope } : null),
@@ -2702,6 +2725,8 @@ export function queueSelfETBTriggersForPermanent(
           targetPlayer: triggerAny.targetPlayer,
           value: trigger.value,
           effectData: triggerAny.effectData,
+          ...(sourcePermanentSnapshot?.card ? { card: sourcePermanentSnapshot.card } : null),
+          ...(sourcePermanentSnapshot ? { sourcePermanentSnapshot } : null),
           ...(enrichedMetadata.targetZone ? { targetZone: enrichedMetadata.targetZone } : null),
           ...(enrichedMetadata.targetDestination ? { targetDestination: enrichedMetadata.targetDestination } : null),
           ...(enrichedMetadata.targetGraveyardScope ? { targetGraveyardScope: enrichedMetadata.targetGraveyardScope } : null),
@@ -7983,6 +8008,9 @@ function persistTriggeredAbilityPush(ctx: GameContext, stackItem: any): void {
       ...(typeof stackItem.value !== 'undefined' ? { value: stackItem.value } : null),
       ...(stackItem.effectData && typeof stackItem.effectData === 'object' ? { effectData: stackItem.effectData } : null),
       ...(stackItem.card && typeof stackItem.card === 'object' ? { card: stackItem.card } : null),
+      ...(stackItem.sourcePermanentSnapshot && typeof stackItem.sourcePermanentSnapshot === 'object'
+        ? { sourcePermanentSnapshot: stackItem.sourcePermanentSnapshot }
+        : null),
     });
   } catch (err) {
     debugWarn(1, '[persistTriggeredAbilityPush] appendEvent(pushTriggeredAbility) failed:', err);
@@ -8596,10 +8624,14 @@ export function triggerETBEffectsForToken(
           type: 'triggered_ability',
           controller: triggerController,
           source: perm.id,
+          permanentId: perm.id,
           sourceName: trigger.cardName,
           description: trigger.description,
           triggerType: trigger.triggerType,
           mandatory: trigger.mandatory,
+          effect: trigger.effect || trigger.description,
+          card: perm.card,
+          sourcePermanentSnapshot: buildTriggerSourcePermanentSnapshot(perm),
           interveningIfSubjectPermanentId: token.id,
           interveningIfSubjectSnapshot: buildInterveningIfSubjectSnapshot(token),
           ...(triggeringPlayerForStack ? { triggeringPlayer: triggeringPlayerForStack } : {}),
@@ -8664,10 +8696,14 @@ export function triggerETBEffectsForToken(
           type: 'triggered_ability',
           controller: triggerController,
           source: perm.id,
+          permanentId: perm.id,
           sourceName: trigger.cardName,
           description: trigger.description,
           triggerType: trigger.triggerType,
           mandatory: trigger.mandatory,
+          effect: trigger.effect || trigger.description,
+          card: perm.card,
+          sourcePermanentSnapshot: buildTriggerSourcePermanentSnapshot(perm),
           interveningIfSubjectPermanentId: token.id,
           interveningIfSubjectSnapshot: buildInterveningIfSubjectSnapshot(token),
           ...(triggeringPlayerForStack ? { triggeringPlayer: triggeringPlayerForStack } : {}),
@@ -8718,10 +8754,14 @@ export function triggerETBEffectsForToken(
           type: 'triggered_ability',
           controller: triggerController,
           source: perm.id,
+          permanentId: perm.id,
           sourceName: trigger.cardName,
           description: trigger.description,
           triggerType: trigger.triggerType,
           mandatory: trigger.mandatory,
+          effect: trigger.effect || trigger.description,
+          card: perm.card,
+          sourcePermanentSnapshot: buildTriggerSourcePermanentSnapshot(perm),
           interveningIfSubjectPermanentId: token.id,
           interveningIfSubjectSnapshot: buildInterveningIfSubjectSnapshot(token),
         } as any;
@@ -8774,10 +8814,14 @@ export function triggerETBEffectsForToken(
             type: 'triggered_ability',
             controller: triggerController,
             source: perm.id,
+            permanentId: perm.id,
             sourceName: trigger.cardName,
             description: trigger.description,
             triggerType: trigger.triggerType,
             mandatory: trigger.mandatory,
+            effect: trigger.effect || trigger.description,
+            card: perm.card,
+            sourcePermanentSnapshot: buildTriggerSourcePermanentSnapshot(perm),
             // Store the entering creature's controller for effects like "that player loses 1 life"
             targetPlayer: controller,
             interveningIfSubjectPermanentId: token.id,
@@ -9053,10 +9097,14 @@ export function triggerETBEffectsForPermanent(
           type: 'triggered_ability',
           controller: triggerController,
           source: perm.id,
+          permanentId: perm.id,
           sourceName: trigger.cardName,
           description: trigger.description,
           triggerType: trigger.triggerType,
           mandatory: trigger.mandatory,
+          effect: trigger.effect || trigger.description,
+          card: perm.card,
+          sourcePermanentSnapshot: buildTriggerSourcePermanentSnapshot(perm),
           interveningIfSubjectPermanentId: permanent.id,
           interveningIfSubjectSnapshot: buildInterveningIfSubjectSnapshot(permanent),
           ...(triggeringPlayerForStack ? { triggeringPlayer: triggeringPlayerForStack } : {}),
@@ -9121,10 +9169,14 @@ export function triggerETBEffectsForPermanent(
           type: 'triggered_ability',
           controller: triggerController,
           source: perm.id,
+          permanentId: perm.id,
           sourceName: trigger.cardName,
           description: trigger.description,
           triggerType: trigger.triggerType,
           mandatory: trigger.mandatory,
+          effect: trigger.effect || trigger.description,
+          card: perm.card,
+          sourcePermanentSnapshot: buildTriggerSourcePermanentSnapshot(perm),
           interveningIfSubjectPermanentId: permanent.id,
           interveningIfSubjectSnapshot: buildInterveningIfSubjectSnapshot(permanent),
           ...(triggeringPlayerForStack ? { triggeringPlayer: triggeringPlayerForStack } : {}),
@@ -9177,10 +9229,14 @@ export function triggerETBEffectsForPermanent(
           type: 'triggered_ability',
           controller: triggerController,
           source: perm.id,
+          permanentId: perm.id,
           sourceName: trigger.cardName,
           description: trigger.description,
           triggerType: trigger.triggerType,
           mandatory: trigger.mandatory,
+          effect: trigger.effect || trigger.description,
+          card: perm.card,
+          sourcePermanentSnapshot: buildTriggerSourcePermanentSnapshot(perm),
           interveningIfSubjectPermanentId: permanent.id,
           interveningIfSubjectSnapshot: buildInterveningIfSubjectSnapshot(permanent),
           ...(triggeringPlayerForStack ? { triggeringPlayer: triggeringPlayerForStack } : {}),
@@ -9234,10 +9290,14 @@ export function triggerETBEffectsForPermanent(
             type: 'triggered_ability',
             controller: triggerController,
             source: perm.id,
+            permanentId: perm.id,
             sourceName: trigger.cardName,
             description: trigger.description,
             triggerType: trigger.triggerType,
             mandatory: trigger.mandatory,
+            effect: trigger.effect || trigger.description,
+            card: perm.card,
+            sourcePermanentSnapshot: buildTriggerSourcePermanentSnapshot(perm),
             // Store the entering creature's controller for effects like "that player loses 1 life"
             targetPlayer: controller,
             interveningIfSubjectPermanentId: permanent.id,
@@ -9304,10 +9364,14 @@ export function triggerETBEffectsForPermanent(
         type: 'triggered_ability' as const,
         controller: triggerController,
         source: permanent.id,
+        permanentId: permanent.id,
         sourceName: trigger.cardName,
         description: trigger.description,
         triggerType: trigger.triggerType,
         mandatory: trigger.mandatory,
+        effect: trigger.effect || trigger.description,
+        card: permanent.card,
+        sourcePermanentSnapshot: buildTriggerSourcePermanentSnapshot(permanent),
         // Targeting properties (optional)
         requiresTarget: trigger.requiresTarget || false,
         targetType: trigger.targetType,
@@ -22649,6 +22713,10 @@ function queueDealsDamageToPlayerTriggersFromPermanent(
     }
 
     const triggerId = uid('trigger');
+    const sourcePermanentSnapshot = buildTriggerSourcePermanentSnapshot(sourcePerm);
+    const damageAmountValue = Math.max(0, Number(damageAmount) || 0);
+    const damageSourcePermanentIds = [String(sourcePerm.id)];
+    const damageIncludedWarriorSource = typeLineHasAllWords(String(sourcePerm?.card?.type_line || '').toLowerCase(), 'warrior');
     const stackItem = {
       id: triggerId,
       type: 'triggered_ability',
@@ -22665,14 +22733,15 @@ function queueDealsDamageToPlayerTriggersFromPermanent(
       defendingPlayer: String(damagedPlayerId),
       // Persist damage-source context so resolution-time intervening-if checks can
       // be deterministic for templates like "if any of that damage was dealt by a Warrior".
-      damageSourcePermanentIds: [String(sourcePerm.id)],
-      damageIncludedWarriorSource: typeLineHasAllWords(String(sourcePerm?.card?.type_line || '').toLowerCase(), 'warrior'),
+      damageSourcePermanentIds,
+      damageIncludedWarriorSource,
       effectData: {
         sourcePermanentId: String(sourcePerm.id),
         damagedPlayerId: String(damagedPlayerId),
-        damageAmount: Math.max(0, Number(damageAmount) || 0),
+        damageAmount: damageAmountValue,
       },
       card: sourcePerm.card,
+      ...(sourcePermanentSnapshot ? { sourcePermanentSnapshot } : null),
     } as any;
 
     state.stack.push(stackItem);
@@ -22683,6 +22752,7 @@ function queueDealsDamageToPlayerTriggersFromPermanent(
         appendEvent(gameId, Number((ctx as any).seq?.value ?? (ctx as any).seq ?? 0), 'pushTriggeredAbility', {
           triggerId,
           sourceId: String(sourcePerm.id),
+          permanentId: String(sourcePerm.id),
           sourceName: sourcePerm.card?.name || trigger.cardName,
           controllerId: sourcePerm.controller,
           description: text,
@@ -22691,6 +22761,12 @@ function queueDealsDamageToPlayerTriggersFromPermanent(
           mandatory: trigger.mandatory !== false,
           targetPlayer: String(damagedPlayerId),
           defendingPlayer: String(damagedPlayerId),
+          damagedPlayerId: String(damagedPlayerId),
+          damageAmount: damageAmountValue,
+          damageSourcePermanentIds,
+          damageIncludedWarriorSource,
+          card: sourcePerm.card,
+          ...(sourcePermanentSnapshot ? { sourcePermanentSnapshot } : null),
           effectData: stackItem.effectData,
         });
       } catch (err) {

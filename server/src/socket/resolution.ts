@@ -2473,7 +2473,10 @@ function pushTapTriggerOntoStack(
   const tappedPermanent = Array.isArray(game.state?.battlefield)
     ? game.state.battlefield.find((perm: any) => String(perm?.id || '') === String(tappedPermanentId || ''))
     : undefined;
-  const stackItem = buildTapTriggeredStackItem(trigger, tappedPermanentId, triggerId, tappedPermanent);
+  const sourcePermanent = Array.isArray(game.state?.battlefield)
+    ? game.state.battlefield.find((perm: any) => String(perm?.id || '') === String(trigger?.permanentId || ''))
+    : undefined;
+  const stackItem = buildTapTriggeredStackItem(trigger, tappedPermanentId, triggerId, tappedPermanent, sourcePermanent);
 
   game.state.stack.push(stackItem);
 
