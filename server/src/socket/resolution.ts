@@ -13872,6 +13872,34 @@ function cloneResolutionPermanentSnapshot(permanent: any): any {
   };
 }
 
+function getResolutionSourcePermanentSnapshot(game: any, stepData: any, sourcePermanentId?: string): any {
+  if (stepData?.sourcePermanentSnapshot && typeof stepData.sourcePermanentSnapshot === 'object') {
+    return cloneResolutionPermanentSnapshot(stepData.sourcePermanentSnapshot);
+  }
+
+  const normalizedSourceId = String(sourcePermanentId || '').trim();
+  if (!normalizedSourceId) {
+    return undefined;
+  }
+
+  const battlefield = Array.isArray(game?.state?.battlefield) ? game.state.battlefield : [];
+  const sourcePermanent = battlefield.find((permanent: any) => String(permanent?.id || '') === normalizedSourceId);
+  return cloneResolutionPermanentSnapshot(sourcePermanent);
+}
+
+function buildTriggeredAbilitySourceContext(sourcePermanentSnapshot: any): Record<string, any> {
+  if (!sourcePermanentSnapshot || typeof sourcePermanentSnapshot !== 'object') {
+    return {};
+  }
+
+  return {
+    ...(sourcePermanentSnapshot.card && typeof sourcePermanentSnapshot.card === 'object'
+      ? { card: { ...(sourcePermanentSnapshot.card as any) } }
+      : null),
+    sourcePermanentSnapshot,
+  };
+}
+
 function normalizeExploitTriggerText(value: string): string {
   return String(value || '')
     .replace(/[’]/g, "'")
@@ -13954,7 +13982,16 @@ function pushExploitTriggeredEffectOntoStack(
   controllerId: string,
   sourceName: string,
   trigger: { fullText: string; effectText: string },
+  options?: {
+    exploitedPermanentId?: string;
+    exploitedPermanentName?: string;
+    exploitedPermanentSnapshot?: any;
+  },
 ): void {
+  if ((game as any)?.isReplaying) {
+    return;
+  }
+
   const metadata = inferTriggeredAbilityTargetMetadata(trigger.effectText, {
     gameState: game.state,
     controllerId,
@@ -13962,6 +13999,13 @@ function pushExploitTriggeredEffectOntoStack(
     sourcePermanent: sourceForMetadata,
   });
   const triggerId = uid('trigger');
+  const effectData = {
+    ...(options?.exploitedPermanentId ? { exploitedPermanentId: String(options.exploitedPermanentId) } : null),
+    ...(options?.exploitedPermanentName ? { exploitedPermanentName: String(options.exploitedPermanentName) } : null),
+    ...(options?.exploitedPermanentSnapshot && typeof options.exploitedPermanentSnapshot === 'object'
+      ? { exploitedPermanentSnapshot: options.exploitedPermanentSnapshot }
+      : null),
+  } as Record<string, any>;
   const payload = {
     triggerId,
     sourceId: String(sourceForMetadata?.id || sourceSnapshot?.id || ''),
@@ -13995,6 +14039,7 @@ function pushExploitTriggeredEffectOntoStack(
     ...(metadata.targetCastIsOptional === true ? { targetCastIsOptional: true } : null),
     ...(typeof metadata.minTargets === 'number' ? { minTargets: metadata.minTargets } : null),
     ...(typeof metadata.maxTargets === 'number' ? { maxTargets: metadata.maxTargets } : null),
+    ...(Object.keys(effectData).length > 0 ? { effectData } : null),
     ...(sourceForMetadata?.card && typeof sourceForMetadata.card === 'object' ? { card: { ...sourceForMetadata.card } } : null),
     ...(sourceSnapshot && typeof sourceSnapshot === 'object' ? { sourcePermanentSnapshot: sourceSnapshot } : null),
   } as any;
@@ -14026,6 +14071,10 @@ function pushExertTriggeredAbilityOntoStack(
     preselectedTargetsPersisted?: boolean;
   },
 ): void {
+  if ((game as any)?.isReplaying) {
+    return;
+  }
+
   const sourceSnapshot = cloneResolutionPermanentSnapshot(sourcePermanent);
   const sourceForMetadata = sourcePermanent || sourceSnapshot;
   const sourceName = String(sourcePermanent?.card?.name || sourceSnapshot?.card?.name || 'Exert').trim() || 'Exert';
@@ -14039,6 +14088,12 @@ function pushExertTriggeredAbilityOntoStack(
   const normalizedTargets = Array.isArray(targets)
     ? targets.map((entry) => String(entry || '').trim()).filter(Boolean)
     : [];
+  const exertedPermanentId = String(sourcePermanent?.id || sourceSnapshot?.id || '').trim();
+  const effectData = {
+    ...(exertedPermanentId ? { exertedPermanentId } : null),
+    ...(sourceName ? { exertedPermanentName: sourceName } : null),
+    ...(sourceSnapshot && typeof sourceSnapshot === 'object' ? { exertedPermanentSnapshot: sourceSnapshot } : null),
+  } as Record<string, any>;
   const triggerId = uid('trigger');
   const payload = {
     triggerId,
@@ -14078,6 +14133,7 @@ function pushExertTriggeredAbilityOntoStack(
     ...(defendingPlayerId && !defendingPlayerId.startsWith('perm_') ? { defendingPlayer: defendingPlayerId } : null),
     ...(options?.boundGraveyardCardId ? { boundGraveyardCardId: String(options.boundGraveyardCardId) } : null),
     ...(options?.boundGraveyardOwnerId ? { boundGraveyardOwnerId: String(options.boundGraveyardOwnerId) } : null),
+    ...(Object.keys(effectData).length > 0 ? { effectData } : null),
     ...(sourcePermanent?.card && typeof sourcePermanent.card === 'object' ? { card: { ...sourcePermanent.card } } : null),
     ...(sourceSnapshot && typeof sourceSnapshot === 'object' ? { sourcePermanentSnapshot: sourceSnapshot } : null),
   } as any;
@@ -14514,6 +14570,8 @@ async function handleExploitChoiceResponse(
   const currentSourcePermanent = currentBattlefield.find((permanent: any) => String(permanent?.id || '').trim() === String((step as any)?.permanentId || step.sourceId || '').trim()) || null;
   const sourceCard = currentSourcePermanent?.card || sourceSnapshot?.card;
   const exploitTriggers = extractSelfExploitTriggeredEffects(sourceCard, sourceName);
+  const exploitedPermanentSnapshot = cloneResolutionPermanentSnapshot(selectedPermanent);
+  const exploitedPermanentName = String(selectedPermanent?.card?.name || exploitedPermanentSnapshot?.card?.name || '').trim();
 
   for (const trigger of exploitTriggers) {
     pushExploitTriggeredEffectOntoStack(
@@ -14524,6 +14582,13 @@ async function handleExploitChoiceResponse(
       controllerId,
       sourceName,
       trigger,
+      {
+        exploitedPermanentId: selectedPermanentId,
+        ...(exploitedPermanentName ? { exploitedPermanentName } : null),
+        ...(exploitedPermanentSnapshot && typeof exploitedPermanentSnapshot === 'object'
+          ? { exploitedPermanentSnapshot }
+          : null),
+      },
     );
   }
 
@@ -14540,6 +14605,13 @@ async function handleExploitChoiceResponse(
         controllerId,
         watcherName,
         trigger,
+        {
+          exploitedPermanentId: selectedPermanentId,
+          ...(exploitedPermanentName ? { exploitedPermanentName } : null),
+          ...(exploitedPermanentSnapshot && typeof exploitedPermanentSnapshot === 'object'
+            ? { exploitedPermanentSnapshot }
+            : null),
+        },
       );
     }
   }
@@ -15907,6 +15979,8 @@ async function handleDiscardResponse(
     const controllerId = String((step as any)?.reflexiveDiscardWhenYouDoController || pid);
     const sourceName = String((step as any)?.reflexiveDiscardWhenYouDoSourceName || step.sourceName || 'Ability');
     const sourcePermanentId = String((step as any)?.reflexiveDiscardWhenYouDoSourcePermanentId || step.sourceId || '').trim();
+    const sourcePermanentSnapshot = getResolutionSourcePermanentSnapshot(game, step as any, sourcePermanentId || undefined);
+    const sourceContext = buildTriggeredAbilitySourceContext(sourcePermanentSnapshot);
     const followupText = String((step as any)?.reflexiveDiscardWhenYouDoFollowupDescription || '').trim();
     const effectText = materializeReflexiveSourceText(followupText, sourceName);
     const discardedCardIds = movedCards.map((card: any) => String(card?.id || '')).filter(Boolean);
@@ -15919,7 +15993,14 @@ async function handleDiscardResponse(
       cmc: card?.cmc,
     }));
     const triggerId = uid('trigger');
-    const targetMetadata = inferFollowupTargetMetadata(game, controllerId, sourceName, sourcePermanentId || undefined, effectText);
+    const targetMetadata = inferFollowupTargetMetadata(
+      game,
+      controllerId,
+      sourceName,
+      sourcePermanentId || undefined,
+      effectText,
+      sourcePermanentSnapshot,
+    );
     const effectData = {
       discardedCardIds,
       discardedCards,
@@ -15937,6 +16018,7 @@ async function handleDiscardResponse(
       triggerType: 'reflexive_discard',
       mandatory: true,
       ...targetMetadata,
+      ...sourceContext,
       effectData,
     };
 
@@ -15972,6 +16054,7 @@ async function handleDiscardResponse(
         triggerType: 'reflexive_discard',
         mandatory: true,
         ...targetMetadata,
+        ...sourceContext,
         effectData,
       });
     } catch (err) {
@@ -18998,6 +19081,8 @@ async function handleTargetSelectionResponse(
     const controllerId = String((step as any).sacrificeWhenYouDoController || pid);
     const sourceName = String((step as any).sacrificeWhenYouDoSourceName || step.sourceName || 'Ability');
     const sourcePermanentId = (step as any).sacrificeWhenYouDoSourcePermanentId as string | undefined;
+    const sourcePermanentSnapshot = getResolutionSourcePermanentSnapshot(game, step as any, sourcePermanentId || undefined);
+    const sourceContext = buildTriggeredAbilitySourceContext(sourcePermanentSnapshot);
     const explicitFollowupDescription = String(
       (step as any).sacrificeWhenYouDoFollowupDescription ||
       (step as any).sacrificeWhenYouDoFollowupEffect ||
@@ -19009,7 +19094,7 @@ async function handleTargetSelectionResponse(
     const triggerId = `trigger_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     const triggerDescription = explicitFollowupDescription || `${sourceName} deals ${damage} damage to any target and you gain ${lifeGain} life.`;
     const targetMetadata = explicitFollowupDescription
-      ? inferFollowupTargetMetadata(game, controllerId, sourceName, sourcePermanentId, triggerDescription)
+      ? inferFollowupTargetMetadata(game, controllerId, sourceName, sourcePermanentId, triggerDescription, sourcePermanentSnapshot)
       : { requiresTarget: true, needsTargetSelection: true, targetType: 'any_target' };
     const targetType = String((targetMetadata as any).targetType || '').trim();
     const targetDescription = String(
@@ -19029,6 +19114,7 @@ async function handleTargetSelectionResponse(
       description: triggerDescription,
       effect: triggerDescription,
       targetDescription,
+      ...sourceContext,
       ...targetMetadata,
     };
 
@@ -19061,6 +19147,7 @@ async function handleTargetSelectionResponse(
         description: triggerDescription,
         effect: triggerDescription,
         mandatory: true,
+        ...sourceContext,
         ...targetMetadata,
       });
     } catch (err) {
@@ -26919,6 +27006,8 @@ async function handleOptionChoiceResponse(
     const controllerId = String(stepData?.reflexiveManaPaymentController || playerId);
     const sourceName = String(stepData?.reflexiveManaPaymentSourceName || step.sourceName || 'Ability');
     const sourcePermanentId = String(stepData?.reflexiveManaPaymentSourcePermanentId || step.sourceId || '').trim();
+    const sourcePermanentSnapshot = getResolutionSourcePermanentSnapshot(game, stepData, sourcePermanentId || undefined);
+    const sourceContext = buildTriggeredAbilitySourceContext(sourcePermanentSnapshot);
     const followupText = String(stepData?.reflexiveManaPaymentFollowupText || '').trim();
     const resolvedStepId = String((step as any)?.id || '').trim();
 
@@ -26964,7 +27053,14 @@ async function handleOptionChoiceResponse(
 
     const effectText = materializeReflexiveFollowupText(followupText, sourceName, paidAmount);
     const triggerId = uid('trigger');
-    const targetMetadata = inferFollowupTargetMetadata(game, controllerId, sourceName, sourcePermanentId || undefined, effectText);
+    const targetMetadata = inferFollowupTargetMetadata(
+      game,
+      controllerId,
+      sourceName,
+      sourcePermanentId || undefined,
+      effectText,
+      sourcePermanentSnapshot,
+    );
     const effectData = {
       reflexivePaymentAmount: paidAmount,
       paidManaAmount: paidAmount,
@@ -26982,6 +27078,7 @@ async function handleOptionChoiceResponse(
       triggerType: 'reflexive_mana_payment',
       mandatory: true,
       ...targetMetadata,
+      ...sourceContext,
       effectData,
     };
 
@@ -27017,6 +27114,7 @@ async function handleOptionChoiceResponse(
         triggerType: 'reflexive_mana_payment',
         mandatory: true,
         ...targetMetadata,
+        ...sourceContext,
         effectData,
       });
     } catch (err) {
@@ -27042,6 +27140,8 @@ async function handleOptionChoiceResponse(
     const controllerId = String(stepData?.reflexiveFixedPaymentController || playerId);
     const sourceName = String(stepData?.reflexiveFixedPaymentSourceName || step.sourceName || 'Ability');
     const sourcePermanentId = String(stepData?.reflexiveFixedPaymentSourcePermanentId || step.sourceId || '').trim();
+    const sourcePermanentSnapshot = getResolutionSourcePermanentSnapshot(game, stepData, sourcePermanentId || undefined);
+    const sourceContext = buildTriggeredAbilitySourceContext(sourcePermanentSnapshot);
     const manaCost = String(stepData?.reflexiveFixedPaymentManaCost || '').trim();
     const lifeAmount = Math.max(0, Math.floor(Number(stepData?.reflexiveFixedPaymentLifeAmount || 0)));
     const paymentText = String(stepData?.reflexiveFixedPaymentText || '').trim();
@@ -27123,7 +27223,14 @@ async function handleOptionChoiceResponse(
 
     const effectText = materializeReflexiveSourceText(followupText, sourceName);
     const triggerId = uid('trigger');
-    const targetMetadata = inferFollowupTargetMetadata(game, controllerId, sourceName, sourcePermanentId || undefined, effectText);
+    const targetMetadata = inferFollowupTargetMetadata(
+      game,
+      controllerId,
+      sourceName,
+      sourcePermanentId || undefined,
+      effectText,
+      sourcePermanentSnapshot,
+    );
     const effectData = {
       paidManaCost: manaCost || undefined,
       paidLifeAmount: lifeAmount || undefined,
@@ -27141,6 +27248,7 @@ async function handleOptionChoiceResponse(
       triggerType: 'reflexive_fixed_payment',
       mandatory: true,
       ...targetMetadata,
+      ...sourceContext,
       effectData,
     };
 
@@ -27178,6 +27286,7 @@ async function handleOptionChoiceResponse(
         triggerType: 'reflexive_fixed_payment',
         mandatory: true,
         ...targetMetadata,
+        ...sourceContext,
         effectData,
       });
     } catch (err) {
@@ -27207,6 +27316,7 @@ async function handleOptionChoiceResponse(
     const followupText = String(stepData?.reflexiveConvertWhenYouDoFollowupDescription || '').trim();
     const subjectLabel = String(stepData?.reflexiveConvertWhenYouDoSubject || sourceName).trim() || sourceName;
     const resolvedStepId = String((step as any)?.id || '').trim();
+    const queuedSourcePermanentSnapshot = getResolutionSourcePermanentSnapshot(game, stepData, sourcePermanentId || undefined);
 
     if (response.cancelled || choiceId === 'decline' || choiceId === 'no' || choiceId === 'dont') {
       try {
@@ -27262,7 +27372,16 @@ async function handleOptionChoiceResponse(
 
     const effectText = materializeReflexiveSourceText(followupText, sourceName);
     const triggerId = uid('trigger');
-    const targetMetadata = inferFollowupTargetMetadata(game, controllerId, sourceName, sourcePermanentId || undefined, effectText, sourceSnapshot);
+    const sourcePermanentSnapshot = queuedSourcePermanentSnapshot || sourceSnapshot;
+    const sourceContext = buildTriggeredAbilitySourceContext(sourcePermanentSnapshot);
+    const targetMetadata = inferFollowupTargetMetadata(
+      game,
+      controllerId,
+      sourceName,
+      sourcePermanentId || undefined,
+      effectText,
+      sourcePermanentSnapshot,
+    );
     const battlefieldTapped = /\bto\s+the\s+battlefield\s+tapped\b/i.test(effectText);
     const effectData = {
       converted: true,
@@ -27282,6 +27401,7 @@ async function handleOptionChoiceResponse(
       mandatory: true,
       ...targetMetadata,
       ...(battlefieldTapped ? { battlefieldTapped: true } : null),
+      ...sourceContext,
       effectData,
     };
 
@@ -27319,6 +27439,7 @@ async function handleOptionChoiceResponse(
         mandatory: true,
         ...targetMetadata,
         ...(battlefieldTapped ? { battlefieldTapped: true } : null),
+        ...sourceContext,
         effectData,
       });
     } catch (err) {
@@ -29759,6 +29880,7 @@ async function handleOptionChoiceResponse(
     const controllerId = String(stepData.reflexiveGraveyardExileWhenYouDoController || playerId);
     const sourceName = String(stepData.reflexiveGraveyardExileWhenYouDoSourceName || step.sourceName || 'Ability');
     const sourcePermanentId = String(stepData.reflexiveGraveyardExileWhenYouDoSourcePermanentId || step.sourceId || '').trim();
+    const sourcePermanentSnapshot = getResolutionSourcePermanentSnapshot(game, stepData, sourcePermanentId || undefined);
     const exileCount = Math.max(1, Math.floor(Number(stepData.reflexiveGraveyardExileWhenYouDoCount || 1)));
     const cardType = String(stepData.reflexiveGraveyardExileWhenYouDoCardType || '').replace(/\s+/g, ' ').trim() || undefined;
     const followupDescription = String(stepData.reflexiveGraveyardExileWhenYouDoFollowupDescription || '').trim();
@@ -29826,6 +29948,7 @@ async function handleOptionChoiceResponse(
         reflexiveGraveyardExileWhenYouDoSourceName: sourceName,
         reflexiveGraveyardExileWhenYouDoSourcePermanentId: sourcePermanentId || undefined,
         reflexiveGraveyardExileWhenYouDoFollowupDescription: followupDescription,
+        ...(sourcePermanentSnapshot ? { sourcePermanentSnapshot } : null),
       } as any);
 
       appendQueuedResolutionPromptEvent(game, gameId, {
@@ -29847,6 +29970,7 @@ async function handleOptionChoiceResponse(
     const controllerId = String(stepData.reflexiveDiscardWhenYouDoController || playerId);
     const sourceName = String(stepData.reflexiveDiscardWhenYouDoSourceName || step.sourceName || 'Ability');
     const sourcePermanentId = String(stepData.reflexiveDiscardWhenYouDoSourcePermanentId || step.sourceId || '').trim();
+    const sourcePermanentSnapshot = getResolutionSourcePermanentSnapshot(game, stepData, sourcePermanentId || undefined);
     const discardCount = Math.max(1, Math.floor(Number(stepData.reflexiveDiscardWhenYouDoCount || 1)));
     const followupDescription = String(stepData.reflexiveDiscardWhenYouDoFollowupDescription || '').trim();
 
@@ -29903,6 +30027,7 @@ async function handleOptionChoiceResponse(
         reflexiveDiscardWhenYouDoSourceName: sourceName,
         reflexiveDiscardWhenYouDoSourcePermanentId: sourcePermanentId || undefined,
         reflexiveDiscardWhenYouDoFollowupDescription: followupDescription,
+        ...(sourcePermanentSnapshot ? { sourcePermanentSnapshot } : null),
       } as any);
 
       appendQueuedResolutionPromptEvent(game, gameId, {
@@ -29927,6 +30052,7 @@ async function handleOptionChoiceResponse(
     const lifeGain = Number(stepData.sacrificeWhenYouDoLifeGain || 0);
     const sourceName = String(stepData.sacrificeWhenYouDoSourceName || step.sourceName || 'Ability');
     const sourcePermanentId = stepData.sacrificeWhenYouDoSourcePermanentId as string | undefined;
+    const sourcePermanentSnapshot = getResolutionSourcePermanentSnapshot(game, stepData, sourcePermanentId || undefined);
     const followupDescription = String(stepData.sacrificeWhenYouDoFollowupDescription || stepData.sacrificeWhenYouDoFollowupEffect || '').trim();
     const followupTargetDescription = String(stepData.sacrificeWhenYouDoTargetDescription || '').trim();
 
@@ -29987,6 +30113,7 @@ async function handleOptionChoiceResponse(
         sacrificeWhenYouDoSourcePermanentId: sourcePermanentId,
         ...(followupDescription ? { sacrificeWhenYouDoFollowupDescription: followupDescription } : null),
         ...(followupTargetDescription ? { sacrificeWhenYouDoTargetDescription: followupTargetDescription } : null),
+        ...(sourcePermanentSnapshot ? { sourcePermanentSnapshot } : null),
       } as any);
 
       appendQueuedResolutionPromptEvent(game, gameId, {
@@ -32914,10 +33041,19 @@ async function handleGraveyardSelectionResponse(
     const controllerId = String((step as any)?.reflexiveGraveyardExileWhenYouDoController || pid);
     const sourceName = String((step as any)?.reflexiveGraveyardExileWhenYouDoSourceName || step.sourceName || 'Ability');
     const sourcePermanentId = String((step as any)?.reflexiveGraveyardExileWhenYouDoSourcePermanentId || step.sourceId || '').trim();
+    const sourcePermanentSnapshot = getResolutionSourcePermanentSnapshot(game, step as any, sourcePermanentId || undefined);
+    const sourceContext = buildTriggeredAbilitySourceContext(sourcePermanentSnapshot);
     const followupText = String((step as any)?.reflexiveGraveyardExileWhenYouDoFollowupDescription || '').trim();
     const effectText = materializeReflexiveSourceText(followupText, sourceName);
     const triggerId = uid('trigger');
-    const targetMetadata = inferFollowupTargetMetadata(game, controllerId, sourceName, sourcePermanentId || undefined, effectText);
+    const targetMetadata = inferFollowupTargetMetadata(
+      game,
+      controllerId,
+      sourceName,
+      sourcePermanentId || undefined,
+      effectText,
+      sourcePermanentSnapshot,
+    );
     const effectData = {
       exiledCardIds: movedCardIds.slice(),
       exiledCards: movedCardSnapshots.map((card: any) => ({ ...(card as any) })),
@@ -32935,6 +33071,7 @@ async function handleGraveyardSelectionResponse(
       triggerType: 'reflexive_graveyard_exile',
       mandatory: true,
       ...targetMetadata,
+      ...sourceContext,
       effectData,
     };
 
@@ -32970,6 +33107,7 @@ async function handleGraveyardSelectionResponse(
         triggerType: 'reflexive_graveyard_exile',
         mandatory: true,
         ...targetMetadata,
+        ...sourceContext,
         effectData,
       });
     } catch (err) {

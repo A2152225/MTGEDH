@@ -277,6 +277,12 @@ describe('lifegain triggers (integration)', () => {
       sourceId: 'ratchet_perm',
       reflexiveConvertWhenYouDoSourcePermanentId: 'ratchet_perm',
     }));
+    expect(convertStep?.sourcePermanentSnapshot).toMatchObject({
+      id: 'ratchet_perm',
+      controller: p1,
+      owner: p1,
+      card: { name: 'Ratchet, Field Medic' },
+    });
     expect(convertStep.options.map((option: any) => option.id)).toEqual(['convert', 'decline']);
 
     await handlers.submitResolutionResponse({
@@ -301,6 +307,12 @@ describe('lifegain triggers (integration)', () => {
       targetFilterMaxManaValue: 3,
       battlefieldTapped: true,
     }));
+    expect(followupStackItem?.sourcePermanentSnapshot).toMatchObject({
+      id: 'ratchet_perm',
+      controller: p1,
+      owner: p1,
+      card: { name: 'Ratchet, Field Medic' },
+    });
 
     const convertEvent = getEvents(gameId).find((event: any) => event.type === 'reflexiveConvertResolve') as any;
     expect(convertEvent?.payload).toMatchObject({
@@ -317,6 +329,12 @@ describe('lifegain triggers (integration)', () => {
       targetFilterTypes: ['artifact'],
       targetFilterMaxManaValue: 3,
       battlefieldTapped: true,
+    });
+    expect(followupEvent?.payload?.sourcePermanentSnapshot).toMatchObject({
+      id: 'ratchet_perm',
+      controller: p1,
+      owner: p1,
+      card: { name: 'Ratchet, Field Medic' },
     });
 
     game.resolveTopOfStack();

@@ -22,6 +22,7 @@ import { checkAndPromptOpeningHandActions, isOpeningHandBattlefieldCard } from "
 import { detectSpellCastTriggers, getBeginningOfCombatTriggers, getEndStepTriggers, getLandfallTriggers, detectETBTriggers, detectEldraziEffect, type SpellCastTrigger } from "../state/modules/triggered-abilities";
 import { inferTriggeredAbilityTargetMetadata } from "../state/modules/stack.js";
 import { getOpponentSpellCastTriggers, type OpponentSpellCastTriggerType } from "../state/modules/triggers/index.js";
+import { orderTriggersByAPNAP } from "../state/modules/triggers/ordering.js";
 import { isInterveningIfSatisfied } from "../state/modules/triggers/intervening-if";
 import { getUpkeepTriggersForPlayer, autoProcessCumulativeUpkeepMana, sacrificePermanent } from "../state/modules/upkeep-triggers";
 import { categorizeSpell, evaluateTargeting, matchesGraveyardCardTargetType as matchesSharedGraveyardCardTargetType, parseTargetRequirements, requiresTargeting } from "../rules-engine/targeting";
@@ -3588,12 +3589,15 @@ export function processOpponentSpellCastTriggersForCast(
       game.state.noncreatureSpellsCastThisTurn[casterId] = noncreatureSpellsThisTurn + 1;
     }
 
-    const opponentTriggers = getOpponentSpellCastTriggers(
-      battlefield,
-      casterId,
-      spellCard,
-      allPlayerIds,
-      isFirstNoncreatureThisTurn,
+    const opponentTriggers = orderTriggersByAPNAP(
+      { state: game.state } as any,
+      getOpponentSpellCastTriggers(
+        battlefield,
+        casterId,
+        spellCard,
+        allPlayerIds,
+        isFirstNoncreatureThisTurn,
+      ),
     );
 
     for (const trigger of opponentTriggers) {
@@ -11636,12 +11640,15 @@ export function registerGameActions(io: Server, socket: Socket) {
           game.state.noncreatureSpellsCastThisTurn[playerId] = noncreatureSpellsThisTurn + 1;
         }
         
-        const opponentTriggers = getOpponentSpellCastTriggers(
-          battlefield,
-          playerId, // The caster (opponent to the trigger controllers)
-          cardInHand,
-          allPlayerIds,
-          isFirstNoncreatureThisTurn
+        const opponentTriggers = orderTriggersByAPNAP(
+          { state: game.state } as any,
+          getOpponentSpellCastTriggers(
+            battlefield,
+            playerId, // The caster (opponent to the trigger controllers)
+            cardInHand,
+            allPlayerIds,
+            isFirstNoncreatureThisTurn
+          ),
         );
         
         for (const trigger of opponentTriggers) {

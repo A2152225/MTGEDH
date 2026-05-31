@@ -11923,6 +11923,9 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
         const interveningIfSubjectPermanentId = (e as any).interveningIfSubjectPermanentId;
         const interveningIfSubjectSnapshot = (e as any).interveningIfSubjectSnapshot;
         const effectData = (e as any).effectData;
+        const initiativeVentureTrigger = (e as any).initiativeVentureTrigger;
+        const reboundCardId = (e as any).reboundCardId;
+        const paradigmCardId = (e as any).paradigmCardId;
         const targets = Array.isArray((e as any).targets)
           ? (e as any).targets.map((entry: any) => String(entry || '')).filter(Boolean)
           : undefined;
@@ -12008,6 +12011,9 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
             ...(interveningIfSubjectPermanentId ? { interveningIfSubjectPermanentId } : null),
             ...(interveningIfSubjectSnapshot && typeof interveningIfSubjectSnapshot === 'object' ? { interveningIfSubjectSnapshot } : null),
             ...(effectData && typeof effectData === 'object' ? { effectData } : null),
+            ...(initiativeVentureTrigger === true ? { initiativeVentureTrigger: true } : null),
+            ...(reboundCardId ? { reboundCardId } : null),
+            ...(paradigmCardId ? { paradigmCardId } : null),
             ...(Array.isArray(targets) ? { targets } : null),
             ...(card && typeof card === 'object' ? { card } : null),
             ...(sourcePermanentSnapshot && typeof sourcePermanentSnapshot === 'object' ? { sourcePermanentSnapshot } : null),
@@ -12021,6 +12027,51 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           ctx.bumpSeq();
         } catch (err) {
           debugWarn(1, "applyEvent(pushTriggeredAbility): failed", err);
+        }
+        break;
+      }
+
+      case "queueTriggerOrderStep": {
+        try {
+          const gameId = String((ctx as any).gameId || '').trim();
+          const stepId = String((e as any).stepId || '').trim();
+          const playerId = String((e as any).playerId || '').trim();
+          const description = String((e as any).description || '').trim();
+          const mandatory = (e as any).mandatory !== false;
+          const requireAll = (e as any).requireAll === true;
+          const triggers = Array.isArray((e as any).triggers)
+            ? ((e as any).triggers as any[])
+                .map((trigger: any) => ({
+                  id: String(trigger?.id || '').trim(),
+                  sourceName: String(trigger?.sourceName || '').trim(),
+                  effect: String(trigger?.effect || '').trim(),
+                  ...(trigger?.imageUrl ? { imageUrl: String(trigger.imageUrl) } : null),
+                }))
+                .filter((trigger: any) => Boolean(trigger.id))
+            : [];
+
+          if (gameId && playerId && triggers.length > 1) {
+            const existingStep = ResolutionQueueManager
+              .getQueue(gameId)
+              .steps
+              .find((step: any) => step && String(step.id || '').trim() === stepId);
+
+            if (!existingStep) {
+              ResolutionQueueManager.addStep(gameId, {
+                ...(stepId ? { id: stepId } : null),
+                type: ResolutionStepType.TRIGGER_ORDER,
+                playerId: playerId as PlayerID,
+                description: description || `Choose the order to put ${triggers.length} triggered abilities on the stack`,
+                mandatory,
+                triggers,
+                requireAll,
+              } as any);
+            }
+          }
+
+          ctx.bumpSeq();
+        } catch (err) {
+          debugWarn(1, 'applyEvent(queueTriggerOrderStep): failed', err);
         }
         break;
       }
@@ -12112,12 +12163,14 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           const playerId = String((e as any).playerId || '').trim();
           const sourceName = String((e as any).sourceName || 'Ability');
           const sourcePermanentId = (e as any).sourcePermanentId;
+          const sourcePermanentSnapshot = (e as any).sourcePermanentSnapshot;
           const sacrificedPermanentId = String((e as any).sacrificedPermanentId || '').trim();
           const damage = Number((e as any).damage || 0);
           const lifeGain = Number((e as any).lifeGain || 0);
           const triggerId = String((e as any).triggerId || '').trim();
           const description = String((e as any).description || `${sourceName} deals ${damage} damage to any target and you gain ${lifeGain} life.`).trim();
           const effect = String((e as any).effect || description).trim();
+          const card = (e as any).card || sourcePermanentSnapshot?.card;
           const requiresTarget = (e as any).requiresTarget === true;
           const targetType = String((e as any).targetType || (requiresTarget ? 'any_target' : '')).trim();
           const targetConstraint = String((e as any).targetConstraint || '').trim().toLowerCase();
@@ -12147,6 +12200,8 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
                 description,
                 effect,
                 mandatory: true,
+                ...(card && typeof card === 'object' ? { card } : null),
+                ...(sourcePermanentSnapshot && typeof sourcePermanentSnapshot === 'object' ? { sourcePermanentSnapshot } : null),
                 ...(requiresTarget ? { requiresTarget: true, needsTargetSelection: true } : null),
                 ...(targetType ? { targetType } : null),
                 ...(targetConstraint ? { targetConstraint } : null),
@@ -12226,6 +12281,8 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
                     description,
                     effect,
                     mandatory: true,
+                    ...(card && typeof card === 'object' ? { card } : null),
+                    ...(sourcePermanentSnapshot && typeof sourcePermanentSnapshot === 'object' ? { sourcePermanentSnapshot } : null),
                     ...(requiresTarget ? { requiresTarget: true, needsTargetSelection: true } : null),
                     ...(targetType ? { targetType } : null),
                   };

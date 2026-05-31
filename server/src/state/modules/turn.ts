@@ -68,6 +68,60 @@ function shouldUsePersistedCombatDamageTriggersDuringReplay(ctx: GameContext): b
   return String((ctx as any)._replayNextEventType || '') === 'pushTriggeredAbility';
 }
 
+function shouldUsePersistedTurnStepTriggersDuringReplay(ctx: GameContext): boolean {
+  if (!(ctx as any).isReplaying) return false;
+  return String((ctx as any)._replayNextEventType || '') === 'pushTriggeredAbility';
+}
+
+function persistTurnStepTriggeredAbility(ctx: GameContext, stackItem: any, reason: string): void {
+  const gameId = String((ctx as any).gameId || '').trim();
+  if (!gameId || gameId === 'unknown' || (ctx as any).isReplaying || !stackItem) return;
+
+  try {
+    const {
+      id: triggerId,
+      type: _type,
+      controller: controllerId,
+      source: sourceId,
+      ...rest
+    } = stackItem as Record<string, any>;
+
+    appendEvent(gameId, Number((ctx as any).seq?.value ?? (ctx as any).seq ?? 0), 'pushTriggeredAbility', {
+      triggerId,
+      sourceId,
+      controllerId,
+      ...rest,
+    });
+  } catch (err) {
+    debugWarn(1, `${ts()} [nextStep] Failed to persist ${reason} trigger:`, err);
+  }
+}
+
+function persistTurnStepTriggerOrderStep(ctx: GameContext, step: any, reason: string): void {
+  const gameId = String((ctx as any).gameId || '').trim();
+  if (!gameId || gameId === 'unknown' || (ctx as any).isReplaying || !step) return;
+
+  try {
+    appendEvent(gameId, Number((ctx as any).seq?.value ?? (ctx as any).seq ?? 0), 'queueTriggerOrderStep', {
+      stepId: String(step.id || '').trim(),
+      playerId: String(step.playerId || '').trim(),
+      description: String(step.description || '').trim(),
+      mandatory: step.mandatory !== false,
+      triggers: Array.isArray(step.triggers)
+        ? step.triggers.map((trigger: any) => ({
+            id: String(trigger?.id || '').trim(),
+            sourceName: String(trigger?.sourceName || '').trim(),
+            effect: String(trigger?.effect || '').trim(),
+            ...(trigger?.imageUrl ? { imageUrl: String(trigger.imageUrl) } : null),
+          }))
+        : [],
+      requireAll: step.requireAll === true,
+    });
+  } catch (err) {
+    debugWarn(1, `${ts()} [nextStep] Failed to persist ${reason} trigger-order step:`, err);
+  }
+}
+
 function persistCombatDamageTriggeredAbility(ctx: GameContext, stackItem: any, reason: string): void {
   const gameId = String((ctx as any).gameId || '').trim();
   if (!gameId || gameId === 'unknown' || (ctx as any).isReplaying) return;
@@ -5048,12 +5102,18 @@ export function nextStep(ctx: GameContext) {
       const turnPlayer = (ctx as any).state?.turnPlayer;
       if (turnPlayer) {
         (ctx as any).state.stack = (ctx as any).state.stack || [];
+        const usePersistedTurnStepTriggers = shouldUsePersistedTurnStepTriggersDuringReplay(ctx);
         
         // Helper function to process triggers with APNAP ordering
         // Per MTG Rule 101.4: When multiple triggered abilities controlled by the same player
         // trigger at the same time, that player chooses the order to put them on the stack.
         const pushTriggersToStack = (triggers: any[], triggerType: string, idPrefix: string) => {
           if (triggers.length === 0) return;
+
+          if (usePersistedTurnStepTriggers) {
+            debug(2, `${ts()} [nextStep] Replay mode using persisted ${triggerType} trigger pushes; skipping live stack mutation`);
+            return;
+          }
           
           debug(2, `${ts()} [nextStep] Found ${triggers.length} ${triggerType} trigger(s)`);
           
@@ -5166,7 +5226,7 @@ export function nextStep(ctx: GameContext) {
                 // Add all triggers to the stack first (they will be reordered by the player)
                 for (const item of triggerItems) {
                   const extra = item.stackItem && typeof item.stackItem === 'object' ? item.stackItem : {};
-                  (ctx as any).state.stack.push({
+                  const stackItem = {
                     ...extra,
                     id: item.id,
                     type: 'triggered_ability',
@@ -5180,11 +5240,13 @@ export function nextStep(ctx: GameContext) {
                     requiresChoice: item.requiresChoice,
                     ...(Array.isArray(item.modalOptions) ? { modalOptions: item.modalOptions } : null),
                     triggeringPlayer: turnPlayer,
-                  });
+                  };
+                  (ctx as any).state.stack.push(stackItem);
+                  persistTurnStepTriggeredAbility(ctx, stackItem, `${triggerType} nextStep`);
                 }
                 
                 // Add Resolution Queue step for trigger ordering
-                ResolutionQueueManager.addStep(gameId, {
+                const triggerOrderStep = ResolutionQueueManager.addStep(gameId, {
                   type: ResolutionStepType.TRIGGER_ORDER,
                   playerId: playerId as PlayerID,
                   description: `Choose the order to put ${triggerItems.length} triggered abilities on the stack`,
@@ -5197,6 +5259,7 @@ export function nextStep(ctx: GameContext) {
                   })),
                   requireAll: true, // Player must order all triggers
                 });
+                persistTurnStepTriggerOrderStep(ctx, triggerOrderStep, `${triggerType} nextStep`);
                 
                 debug(2, `${ts()} [nextStep] Added TRIGGER_ORDER step for ${playerId} with ${triggerItems.length} triggers`);
               } else {
@@ -5207,7 +5270,7 @@ export function nextStep(ctx: GameContext) {
               const trigger = playerTriggers[0];
               const triggerId = `${idPrefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
               const extra = trigger.stackItem && typeof trigger.stackItem === 'object' ? trigger.stackItem : {};
-              (ctx as any).state.stack.push({
+              const stackItem = {
                 ...extra,
                 id: triggerId,
                 type: 'triggered_ability',
@@ -5221,7 +5284,9 @@ export function nextStep(ctx: GameContext) {
                 requiresChoice: trigger.requiresChoice,  // Preserve modal choice flag
                 ...(Array.isArray(trigger.modalOptions) ? { modalOptions: trigger.modalOptions } : null),
                 triggeringPlayer: turnPlayer,
-              });
+              };
+              (ctx as any).state.stack.push(stackItem);
+              persistTurnStepTriggeredAbility(ctx, stackItem, `${triggerType} nextStep`);
               debug(2, `${ts()} [nextStep] ⚡ Pushed ${triggerType} trigger: ${trigger.cardName} - ${trigger.description || trigger.effect}${trigger.requiresChoice ? ' (modal)' : ''}`);
             }
           }
@@ -5235,18 +5300,24 @@ export function nextStep(ctx: GameContext) {
 
           const initiativeHolder = String(((ctx as any).state as any)?.initiative || '').trim();
           if (initiativeHolder && initiativeHolder === String(turnPlayer)) {
-            ((ctx as any).state as any).stack = ((ctx as any).state as any).stack || [];
-            ((ctx as any).state as any).stack.push({
-              id: uid('initiative_trigger'),
-              type: 'triggered_ability',
-              controller: turnPlayer,
-              sourceName: 'The Initiative',
-              description: 'Venture into Undercity.',
-              effect: 'Venture into Undercity.',
-              triggerType: 'upkeep',
-              mandatory: true,
-              initiativeVentureTrigger: true,
-            });
+            if (!usePersistedTurnStepTriggers) {
+              const initiativeTrigger = {
+                id: uid('initiative_trigger'),
+                type: 'triggered_ability',
+                controller: turnPlayer,
+                sourceName: 'The Initiative',
+                description: 'Venture into Undercity.',
+                effect: 'Venture into Undercity.',
+                triggerType: 'upkeep',
+                mandatory: true,
+                initiativeVentureTrigger: true,
+              };
+              ((ctx as any).state as any).stack = ((ctx as any).state as any).stack || [];
+              ((ctx as any).state as any).stack.push(initiativeTrigger);
+              persistTurnStepTriggeredAbility(ctx, initiativeTrigger, 'initiative upkeep');
+            } else {
+              debug(2, `${ts()} [nextStep] Replay mode using persisted initiative upkeep trigger push`);
+            }
           }
 
           // FIRST: Auto-process cumulative upkeep mana effects (e.g., Braid of Fire)
@@ -5329,29 +5400,34 @@ export function nextStep(ctx: GameContext) {
               debug(2, `${ts()} [nextStep] Rebound: Found ${card.name} ready to cast from exile`);
               
               // Create a triggered ability for the rebound - player may cast it
-              const reboundTriggerId = uid("rebound_trigger");
-              const reboundTrigger = {
-                id: reboundTriggerId,
-                type: 'triggered_ability',
-                controller: turnPlayer,
-                source: card.id,
-                sourceName: card.name,
-                description: `You may cast ${card.name} from exile without paying its mana cost.`,
-                triggerType: 'rebound',
-                mandatory: false, // "you may cast"
-                reboundCardId: card.id, // Track which card this is for
-                card: card, // Include card data for display
-              };
-              
-              (ctx as any).state.stack = (ctx as any).state.stack || [];
-              (ctx as any).state.stack.push(reboundTrigger);
+              if (!usePersistedTurnStepTriggers) {
+                const reboundTriggerId = uid("rebound_trigger");
+                const reboundTrigger = {
+                  id: reboundTriggerId,
+                  type: 'triggered_ability',
+                  controller: turnPlayer,
+                  source: card.id,
+                  sourceName: card.name,
+                  description: `You may cast ${card.name} from exile without paying its mana cost.`,
+                  triggerType: 'rebound',
+                  mandatory: false, // "you may cast"
+                  reboundCardId: card.id, // Track which card this is for
+                  card: card, // Include card data for display
+                };
+                
+                (ctx as any).state.stack = (ctx as any).state.stack || [];
+                (ctx as any).state.stack.push(reboundTrigger);
+                persistTurnStepTriggeredAbility(ctx, reboundTrigger, 'rebound upkeep');
+              } else {
+                debug(2, `${ts()} [nextStep] Replay mode using persisted rebound trigger push for ${card.name}`);
+              }
               
               // Mark the card as having triggered (so it doesn't trigger again)
               // The card will be moved to graveyard when the trigger resolves (whether cast or declined)
               card.reboundTriggered = true;
               
               // Emit chat message
-              if ((ctx as any).io && (ctx as any).gameId) {
+              if (!usePersistedTurnStepTriggers && (ctx as any).io && (ctx as any).gameId) {
                 (ctx as any).io.to((ctx as any).gameId).emit("chat", {
                   id: `m_${Date.now()}`,
                   gameId: (ctx as any).gameId,
@@ -5388,31 +5464,36 @@ export function nextStep(ctx: GameContext) {
             );
 
             for (const card of paradigmCards) {
-              const paradigmTriggerId = uid('paradigm_trigger');
-              const paradigmTrigger = {
-                id: paradigmTriggerId,
-                type: 'triggered_ability',
-                controller: turnPlayer,
-                source: card.id,
-                sourceName: card.name,
-                description: `You may cast a copy of ${card.name} from exile without paying its mana cost.`,
-                triggerType: 'paradigm',
-                mandatory: true,
-                paradigmCardId: card.id,
-                card,
-              };
+              if (!usePersistedTurnStepTriggers) {
+                const paradigmTriggerId = uid('paradigm_trigger');
+                const paradigmTrigger = {
+                  id: paradigmTriggerId,
+                  type: 'triggered_ability',
+                  controller: turnPlayer,
+                  source: card.id,
+                  sourceName: card.name,
+                  description: `You may cast a copy of ${card.name} from exile without paying its mana cost.`,
+                  triggerType: 'paradigm',
+                  mandatory: true,
+                  paradigmCardId: card.id,
+                  card,
+                };
 
-              (ctx as any).state.stack = (ctx as any).state.stack || [];
-              (ctx as any).state.stack.push(paradigmTrigger);
+                (ctx as any).state.stack = (ctx as any).state.stack || [];
+                (ctx as any).state.stack.push(paradigmTrigger);
+                persistTurnStepTriggeredAbility(ctx, paradigmTrigger, 'paradigm precombat main');
 
-              if ((ctx as any).io && (ctx as any).gameId) {
-                (ctx as any).io.to((ctx as any).gameId).emit('chat', {
-                  id: `m_${Date.now()}`,
-                  gameId: (ctx as any).gameId,
-                  from: 'system',
-                  message: `🧠 Paradigm: ${card.name} can be copied from exile.`,
-                  ts: Date.now(),
-                });
+                if ((ctx as any).io && (ctx as any).gameId) {
+                  (ctx as any).io.to((ctx as any).gameId).emit('chat', {
+                    id: `m_${Date.now()}`,
+                    gameId: (ctx as any).gameId,
+                    from: 'system',
+                    message: `🧠 Paradigm: ${card.name} can be copied from exile.`,
+                    ts: Date.now(),
+                  });
+                }
+              } else {
+                debug(2, `${ts()} [nextStep] Replay mode using persisted paradigm trigger push for ${card.name}`);
               }
 
               debug(2, `${ts()} [nextStep] Paradigm: Added trigger for ${card.name} to stack`);

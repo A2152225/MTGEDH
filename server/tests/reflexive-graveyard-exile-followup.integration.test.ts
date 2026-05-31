@@ -150,6 +150,12 @@ describe('reflexive graveyard-exile follow-up prompts (integration replay)', () 
       reflexiveGraveyardExileWhenYouDoCardType: 'creature',
       reflexiveGraveyardExileWhenYouDoFollowupDescription: 'destroy target creature or planeswalker.',
     });
+    expect(askStep?.sourcePermanentSnapshot).toMatchObject({
+      id: 'source_perm',
+      controller: 'p1',
+      owner: 'p1',
+      card: { name: 'Graveyard Exile Source' },
+    });
     expect((askStep.reflexiveGraveyardExileWhenYouDoValidTargets || []).map((card: any) => card.id)).toEqual(['grave_creature_1']);
 
     const emitted: Array<{ room?: string; event: string; payload: any }> = [];
@@ -175,6 +181,12 @@ describe('reflexive graveyard-exile follow-up prompts (integration replay)', () 
       targetPlayerId: 'p1',
       reflexiveGraveyardExileWhenYouDoStage: 'select_exile',
     });
+    expect(exileStep?.sourcePermanentSnapshot).toMatchObject({
+      id: 'source_perm',
+      controller: 'p1',
+      owner: 'p1',
+      card: { name: 'Graveyard Exile Source' },
+    });
     expect((exileStep.validTargets || []).map((card: any) => card.id)).toEqual(['grave_creature_1']);
 
     await handlers.submitResolutionResponse({
@@ -195,6 +207,12 @@ describe('reflexive graveyard-exile follow-up prompts (integration replay)', () 
       requiresTarget: true,
       targetType: 'creature or planeswalker',
       effectData: { exiledCardIds: ['grave_creature_1'], exileCount: 1 },
+    });
+    expect(followupTrigger?.sourcePermanentSnapshot).toMatchObject({
+      id: 'source_perm',
+      controller: 'p1',
+      owner: 'p1',
+      card: { name: 'Graveyard Exile Source' },
     });
 
     const newEvents = getEvents(gameId).slice(eventStart);
@@ -220,6 +238,12 @@ describe('reflexive graveyard-exile follow-up prompts (integration replay)', () 
       sourceId: 'source_perm',
       permanentId: 'source_perm',
       triggerType: 'reflexive_graveyard_exile',
+    });
+    expect(pushEvent?.payload?.sourcePermanentSnapshot).toMatchObject({
+      id: 'source_perm',
+      controller: 'p1',
+      owner: 'p1',
+      card: { name: 'Graveyard Exile Source' },
     });
 
     game.resolveTopOfStack();
@@ -276,6 +300,12 @@ describe('reflexive graveyard-exile follow-up prompts (integration replay)', () 
       triggerType: 'reflexive_graveyard_exile',
       requiresTarget: true,
       targetType: 'creature or planeswalker',
+      sourcePermanentSnapshot: {
+        id: 'source_perm',
+        controller: 'p1',
+        owner: 'p1',
+        card: { name: 'Graveyard Exile Source' },
+      },
     });
   });
 });

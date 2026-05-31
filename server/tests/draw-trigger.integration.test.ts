@@ -19,6 +19,7 @@ async function resetGame(gameId: string) {
 
 describe('draw triggers (integration)', () => {
   const gameId = 'test_draw_trigger_psychosis';
+  const smotheringTitheApnapGameId = 'test_draw_trigger_smothering_tithe_apnap';
 
   beforeAll(async () => {
     await initDb();
@@ -26,10 +27,12 @@ describe('draw triggers (integration)', () => {
 
   beforeEach(async () => {
     await resetGame(gameId);
+    await resetGame(smotheringTitheApnapGameId);
   });
 
   afterEach(async () => {
     await resetGame(gameId);
+    await resetGame(smotheringTitheApnapGameId);
   });
 
   it('pushes generic draw triggers from game.drawCards and resolves Psychosis Crawler life loss', () => {
@@ -122,5 +125,70 @@ describe('draw triggers (integration)', () => {
 
     expect((game.state as any).life?.[p2]).toBe(38);
     expect((game.state as any).life?.[p1]).toBe(40);
+  });
+
+  it('orders simultaneous Smothering Tithe triggers by APNAP before stack push', () => {
+    const p1 = 'p1';
+    const p2 = 'p2';
+    const p3 = 'p3';
+
+    createGameIfNotExists(smotheringTitheApnapGameId, 'commander', 40, undefined, p1);
+    const game = ensureGame(smotheringTitheApnapGameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [
+      { id: p1, name: 'Drawer', spectator: false, life: 40 },
+      { id: p2, name: 'Tithe P2', spectator: false, life: 40 },
+      { id: p3, name: 'Tithe P3', spectator: false, life: 40 },
+    ];
+    (game.state as any).life = { [p1]: 40, [p2]: 40, [p3]: 40 };
+    (game.state as any).turnPlayer = p1;
+    (game.state as any).activePlayer = p3;
+    (game.state as any).zones = {
+      [p1]: { hand: [], handCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0, libraryCount: 1 },
+      [p2]: { hand: [], handCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0, libraryCount: 0 },
+      [p3]: { hand: [], handCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0, libraryCount: 0 },
+    };
+    (game.state as any).battlefield = [
+      {
+        id: 'smothering_tithe_p2',
+        controller: p2,
+        owner: p2,
+        tapped: false,
+        card: {
+          id: 'smothering_tithe_p2_card',
+          name: 'Smothering Tithe',
+          type_line: 'Enchantment',
+          oracle_text: 'Whenever an opponent draws a card, that player may pay {2}. If the player doesn\'t, you create a Treasure token.',
+        },
+      },
+      {
+        id: 'smothering_tithe_p3',
+        controller: p3,
+        owner: p3,
+        tapped: false,
+        card: {
+          id: 'smothering_tithe_p3_card',
+          name: 'Smothering Tithe',
+          type_line: 'Enchantment',
+          oracle_text: 'Whenever an opponent draws a card, that player may pay {2}. If the player doesn\'t, you create a Treasure token.',
+        },
+      },
+    ];
+    game.libraries.set(p1 as any, [
+      { id: 'draw_card_apnap_1', name: 'Plains', type_line: 'Basic Land — Plains', oracle_text: '' },
+    ] as any);
+
+    (game as any).drawCards(p1, 1);
+
+    const titheStack = (((game.state as any).stack || []) as any[]).filter(
+      (item: any) => item?.type === 'triggered_ability' && item?.sourceName === 'Smothering Tithe'
+    );
+    expect(titheStack.map((item: any) => item.controller)).toEqual([p3, p2]);
+
+    const titheEvents = getEvents(smotheringTitheApnapGameId).filter(
+      (event: any) => event?.type === 'pushTriggeredAbility' && event?.payload?.sourceName === 'Smothering Tithe'
+    );
+    expect(titheEvents.map((event: any) => event?.payload?.controllerId)).toEqual([p3, p2]);
   });
 });

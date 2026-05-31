@@ -3,6 +3,7 @@ import type { PlayerID } from "../../../../../shared/src/types.js";
 import { uid } from "../../utils.js";
 import { debug } from "../../../utils/debug.js";
 import { isInterveningIfSatisfied } from './intervening-if.js';
+import { orderTriggersByAPNAP } from './ordering.js';
 
 export type AbilityActivatedEvent = {
   activatedBy: PlayerID;
@@ -19,15 +20,21 @@ export type AbilityActivatedTriggeredStackItem = {
   type: 'triggered_ability';
   controller: PlayerID;
   source: string;
+  permanentId?: string;
   sourceName: string;
   description: string;
   effect: string;
   triggerType: 'ability_activated';
   mandatory: boolean;
   triggeringPlayer: PlayerID;
+  triggeringPermanentId?: string;
   activatedAbilityIsManaAbility: boolean;
   triggeringStackItemId?: string;
+  sourcePermanentSnapshot?: any;
+  card?: any;
+  effectData?: Record<string, unknown>;
   requiresTarget?: boolean;
+  needsTargetSelection?: boolean;
   targetType?: 'player' | 'creature' | 'permanent';
 };
 
@@ -42,7 +49,26 @@ function sourceHasType(source: any, type: string): boolean {
   return tl.includes(type.toLowerCase());
 }
 
-function pushTriggeredAbility(
+function cloneAbilityActivatedPermanentSnapshot(permanent: any): any {
+  if (!permanent || typeof permanent !== 'object') return undefined;
+  return {
+    ...permanent,
+    ...(permanent.card && typeof permanent.card === 'object' ? { card: { ...permanent.card } } : null),
+    ...(permanent.counters && typeof permanent.counters === 'object' ? { counters: { ...permanent.counters } } : null),
+  };
+}
+
+function orderAbilityActivatedTriggersByAPNAP(
+  ctx: GameContext,
+  triggers: AbilityActivatedTriggeredStackItem[]
+): AbilityActivatedTriggeredStackItem[] {
+  return orderTriggersByAPNAP(
+    ctx,
+    triggers.map((item) => ({ controllerId: String(item.controller || ''), item }))
+  ).map((entry) => entry.item);
+}
+
+function buildTriggeredAbility(
   ctx: GameContext,
   triggerSource: any,
   controller: PlayerID,
@@ -52,23 +78,37 @@ function pushTriggeredAbility(
   extra?: Partial<AbilityActivatedTriggeredStackItem>
 ): AbilityActivatedTriggeredStackItem {
   const state: any = ctx.state as any;
-  state.stack = state.stack || [];
+  const battlefield: any[] = Array.isArray(state?.battlefield) ? state.battlefield : [];
+  const triggerSourceId = String(triggerSource?.id || '');
+  const sourcePermanentSnapshot = cloneAbilityActivatedPermanentSnapshot(triggerSource);
+  const activatedSourcePermanent = battlefield.find((permanent: any) => permanent && String(permanent.id || '') === String(e.sourcePermanentId || ''));
+  const activatedSourcePermanentSnapshot = cloneAbilityActivatedPermanentSnapshot(activatedSourcePermanent);
+  const effectData = {
+    ...((extra?.effectData && typeof extra.effectData === 'object') ? extra.effectData : {}),
+    activatedAbilitySourcePermanentId: String(e.sourcePermanentId || ''),
+    ...(e.abilityText ? { activatedAbilityText: e.abilityText } : null),
+    ...(activatedSourcePermanentSnapshot ? { activatedSourcePermanentSnapshot } : null),
+  };
   const triggerItem: AbilityActivatedTriggeredStackItem = {
     id: uid('trigger'),
     type: 'triggered_ability',
     controller,
-    source: String(triggerSource?.id || ''),
+    source: triggerSourceId,
+    ...(triggerSourceId ? { permanentId: triggerSourceId } : null),
     sourceName: triggerSource?.card?.name || 'Triggered ability',
     description, // effect-only for execution
     effect: fullOracleForInterveningIf, // full line so intervening-if extraction works
     triggerType: 'ability_activated',
     mandatory: false,
     triggeringPlayer: e.activatedBy,
+    triggeringPermanentId: String(e.sourcePermanentId || ''),
     activatedAbilityIsManaAbility: e.isManaAbility,
     triggeringStackItemId: e.stackItemId,
     ...(extra || {}),
+    ...(triggerSource?.card && typeof triggerSource.card === 'object' ? { card: { ...triggerSource.card } } : null),
+    ...(sourcePermanentSnapshot ? { sourcePermanentSnapshot } : null),
+    effectData,
   };
-  state.stack.push(triggerItem as any);
   return triggerItem;
 }
 
@@ -76,6 +116,7 @@ export function serializeAbilityActivatedTriggeredStackItem(triggerItem: Ability
   return {
     triggerId: triggerItem.id,
     sourceId: triggerItem.source,
+    ...(triggerItem.permanentId || triggerItem.source ? { permanentId: triggerItem.permanentId || triggerItem.source } : {}),
     sourceName: triggerItem.sourceName,
     controllerId: triggerItem.controller,
     description: triggerItem.description,
@@ -83,9 +124,13 @@ export function serializeAbilityActivatedTriggeredStackItem(triggerItem: Ability
     effect: triggerItem.effect,
     mandatory: triggerItem.mandatory,
     triggeringPlayer: triggerItem.triggeringPlayer,
+    triggeringPermanentId: triggerItem.triggeringPermanentId,
     activatedAbilityIsManaAbility: triggerItem.activatedAbilityIsManaAbility,
     triggeringStackItemId: triggerItem.triggeringStackItemId,
-    ...(triggerItem.requiresTarget ? { requiresTarget: true } : {}),
+    ...(triggerItem.card && typeof triggerItem.card === 'object' ? { card: { ...triggerItem.card } } : {}),
+    ...(triggerItem.sourcePermanentSnapshot && typeof triggerItem.sourcePermanentSnapshot === 'object' ? { sourcePermanentSnapshot: triggerItem.sourcePermanentSnapshot } : {}),
+    ...(triggerItem.effectData && typeof triggerItem.effectData === 'object' ? { effectData: triggerItem.effectData } : {}),
+    ...(triggerItem.requiresTarget ? { requiresTarget: true, needsTargetSelection: true } : {}),
     ...(triggerItem.targetType ? { targetType: triggerItem.targetType } : {}),
   };
 }
@@ -99,8 +144,11 @@ export function serializeAbilityActivatedTriggeredStackItem(triggerItem: Ability
 export function triggerAbilityActivatedTriggers(ctx: GameContext, e: AbilityActivatedEvent): AbilityActivatedTriggeredStackItem[] {
   const state: any = ctx.state as any;
   const battlefield: any[] = Array.isArray(state?.battlefield) ? state.battlefield : [];
-  const sourcePermanent = battlefield.find((p) => p && p.id === e.sourcePermanentId);
   const createdTriggers: AbilityActivatedTriggeredStackItem[] = [];
+
+  if ((ctx as any).isReplaying) return createdTriggers;
+
+  const sourcePermanent = battlefield.find((p) => p && p.id === e.sourcePermanentId);
 
   if (!sourcePermanent) return createdTriggers;
 
@@ -130,7 +178,7 @@ export function triggerAbilityActivatedTriggers(ctx: GameContext, e: AbilityActi
       } as any);
       if (ok === false) continue;
 
-      createdTriggers.push(pushTriggeredAbility(
+      createdTriggers.push(buildTriggeredAbility(
         ctx,
         permanent,
         controller,
@@ -157,7 +205,7 @@ export function triggerAbilityActivatedTriggers(ctx: GameContext, e: AbilityActi
         activatedAbilityIsManaAbility: e.isManaAbility,
       } as any);
       if (ok === false) continue;
-      createdTriggers.push(pushTriggeredAbility(ctx, permanent, controller, 'You may pay {R}. If you do, copy that ability.', full, e));
+      createdTriggers.push(buildTriggeredAbility(ctx, permanent, controller, 'You may pay {R}. If you do, copy that ability.', full, e));
       continue;
     }
 
@@ -171,7 +219,7 @@ export function triggerAbilityActivatedTriggers(ctx: GameContext, e: AbilityActi
         activatedAbilityIsManaAbility: e.isManaAbility,
       } as any);
       if (ok === false) continue;
-      createdTriggers.push(pushTriggeredAbility(ctx, permanent, controller, 'You may pay {2}. If you do, copy that ability. You may choose new targets for the copy.', full, e));
+      createdTriggers.push(buildTriggeredAbility(ctx, permanent, controller, 'You may pay {2}. If you do, copy that ability. You may choose new targets for the copy.', full, e));
       continue;
     }
 
@@ -195,7 +243,7 @@ export function triggerAbilityActivatedTriggers(ctx: GameContext, e: AbilityActi
       if (ok === false) continue;
 
       createdTriggers.push(
-        pushTriggeredAbility(
+        buildTriggeredAbility(
           ctx,
           permanent,
           controller,
@@ -238,7 +286,7 @@ export function triggerAbilityActivatedTriggers(ctx: GameContext, e: AbilityActi
           : 'Copy that ability. You may choose new targets for the copy.';
 
       createdTriggers.push(
-        pushTriggeredAbility(ctx, permanent, controller, effectOnly, full, e, {
+        buildTriggeredAbility(ctx, permanent, controller, effectOnly, full, e, {
           mandatory: nameLower !== "battlemage's bracers",
         })
       );
@@ -246,5 +294,11 @@ export function triggerAbilityActivatedTriggers(ctx: GameContext, e: AbilityActi
     }
   }
 
-  return createdTriggers;
+  const orderedTriggers = orderAbilityActivatedTriggersByAPNAP(ctx, createdTriggers);
+  if (orderedTriggers.length > 0) {
+    state.stack = state.stack || [];
+    state.stack.push(...orderedTriggers as any[]);
+  }
+
+  return orderedTriggers;
 }

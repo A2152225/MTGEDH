@@ -87,6 +87,16 @@ describe('reflexive convert replay semantics', () => {
       targetFilterTypes: ['artifact'],
       targetFilterMaxManaValue: 3,
       battlefieldTapped: true,
+      sourcePermanentSnapshot: {
+        id: 'ratchet_perm',
+        controller: p1,
+        owner: p1,
+        card: {
+          name: 'Ratchet, Field Medic',
+          type_line: 'Legendary Artifact Creature - Robot',
+          oracle_text: frontOracle,
+        },
+      },
       effectData: {
         converted: true,
         convertedFromFaceIndex: 0,
@@ -107,6 +117,12 @@ describe('reflexive convert replay semantics', () => {
       targetFilterTypes: ['artifact'],
       targetFilterMaxManaValue: 3,
       battlefieldTapped: true,
+      sourcePermanentSnapshot: {
+        id: 'ratchet_perm',
+        controller: p1,
+        owner: p1,
+        card: { name: 'Ratchet, Field Medic' },
+      },
     });
   });
 });

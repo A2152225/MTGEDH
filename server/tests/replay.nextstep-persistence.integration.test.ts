@@ -7,6 +7,7 @@ import { createContext } from '../src/state/context.js';
 import { passPriority } from '../src/state/modules/priority.js';
 import { setPermanentPrepared } from '../src/state/modules/prepared.js';
 import { nextStep } from '../src/state/modules/turn.js';
+import { ResolutionQueueManager, ResolutionStepType } from '../src/state/resolution/index.js';
 import { viewFor } from '../src/state/modules/view.js';
 import { createInitialGameState } from '../src/state/index.js';
 import type { PlayerID } from '../../shared/src/index.js';
@@ -110,8 +111,8 @@ function createStepPersistenceHarness(
   return { ctx, game, io: createNoopIo() };
 }
 
-function toReplayEvents(gameId: string) {
-  return getEvents(gameId).map((event: any) =>
+function toReplayEvents(gameId: string, startIndex = 0) {
+  return getEvents(gameId).slice(startIndex).map((event: any) =>
     event?.payload && typeof event.payload === 'object'
       ? { type: event.type, ...(event.payload as Record<string, unknown>) }
       : { type: event.type },
@@ -131,9 +132,13 @@ describe('replay nextStep persistence integration', () => {
     clearPriorityTimer('replay_autopass_persists_nextstep');
     clearPriorityTimer('replay_cleanup_timeout_persists_nextstep');
     clearPriorityTimer('replay_cleanup_timeout_reverts_prepared_control');
+    ResolutionQueueManager.removeQueue('replay_begin_combat_triggers_persist_nextstep');
+    ResolutionQueueManager.removeQueue('replay_begin_combat_triggers_persist_nextstep_replay');
     games.delete('replay_autopass_persists_nextstep');
     games.delete('replay_cleanup_timeout_persists_nextstep');
     games.delete('replay_cleanup_timeout_reverts_prepared_control');
+    games.delete('replay_begin_combat_triggers_persist_nextstep');
+    games.delete('replay_begin_combat_triggers_persist_nextstep_replay');
     vi.useRealTimers();
   });
 
@@ -319,5 +324,97 @@ describe('replay nextStep persistence integration', () => {
     expect((replayGame.state as any).turnNumber).toBe(2);
     expect((replayGame.state as any).turn).toBe(2);
     expect(String((replayGame.state as any).step || '').toUpperCase()).toBe('UNTAP');
+  });
+
+  it('persists and replays beginning-of-combat trigger batches without live rediscovery', () => {
+    const gameId = 'replay_begin_combat_triggers_persist_nextstep';
+    const replayGameId = 'replay_begin_combat_triggers_persist_nextstep_replay';
+    const battlefield = [
+      {
+        id: 'combat_source_alpha',
+        controller: 'p1',
+        owner: 'p1',
+        tapped: false,
+        card: {
+          id: 'combat_source_alpha_card',
+          name: 'Combat Source Alpha',
+          type_line: 'Enchantment',
+          oracle_text: 'At the beginning of combat on your turn, draw a card.',
+        },
+      },
+      {
+        id: 'combat_source_beta',
+        controller: 'p1',
+        owner: 'p1',
+        tapped: false,
+        card: {
+          id: 'combat_source_beta_card',
+          name: 'Combat Source Beta',
+          type_line: 'Enchantment',
+          oracle_text: 'At the beginning of combat on your turn, create a 1/1 red Goblin creature token.',
+        },
+      },
+    ];
+
+    createGameIfNotExists(gameId, 'commander', 40);
+    const { game } = createStepPersistenceHarness(gameId, {
+      phase: 'precombatMain',
+      step: 'MAIN1',
+      priority: 'p1',
+      priorityPassedBy: new Set<string>(),
+      battlefield,
+    });
+
+    const eventStart = getEvents(gameId).length;
+    game.nextStep();
+
+    const liveStack = ((game.state as any).stack || []) as any[];
+    const liveQueue = ResolutionQueueManager.getQueue(gameId);
+    const liveTriggerOrderStep = liveQueue.steps.find((step: any) => step?.type === ResolutionStepType.TRIGGER_ORDER);
+    const replayEvents = [
+      { type: 'nextStep' },
+      ...toReplayEvents(gameId, eventStart),
+    ];
+
+    expect(String((game.state as any).step || '').toUpperCase()).toBe('BEGIN_COMBAT');
+    expect(liveStack).toHaveLength(2);
+    expect(liveTriggerOrderStep).toBeDefined();
+    expect(replayEvents.filter((event: any) => event.type === 'pushTriggeredAbility')).toHaveLength(2);
+    expect(replayEvents.some((event: any) => event.type === 'queueTriggerOrderStep')).toBe(true);
+
+    const replayGame = createInitialGameState(replayGameId);
+    replayGame.applyEvent({ type: 'join', playerId: 'p1', name: 'Player 1' } as any);
+    replayGame.applyEvent({ type: 'join', playerId: 'p2', name: 'Player 2' } as any);
+    Object.assign(replayGame.state as any, {
+      turnPlayer: 'p1',
+      priority: 'p1',
+      turnNumber: 1,
+      turn: 1,
+      phase: 'precombatMain',
+      step: 'MAIN1',
+      stack: [],
+      battlefield: battlefield.map((permanent: any) => ({
+        ...permanent,
+        card: { ...permanent.card },
+      })),
+      priorityPassedBy: new Set<string>(),
+    });
+
+    if (typeof replayGame.replay !== 'function') {
+      throw new Error('replayGame.replay is not available');
+    }
+    replayGame.replay(replayEvents as any);
+
+    const replayStack = ((replayGame.state as any).stack || []) as any[];
+    const replayQueue = ResolutionQueueManager.getQueue(replayGameId);
+    const replayTriggerOrderStep = replayQueue.steps.find((step: any) => step?.type === ResolutionStepType.TRIGGER_ORDER);
+
+    expect(String((replayGame.state as any).step || '').toUpperCase()).toBe('BEGIN_COMBAT');
+    expect(replayStack).toHaveLength(2);
+    expect(replayStack.map((item: any) => String(item.id))).toEqual(liveStack.map((item: any) => String(item.id)));
+    expect(replayTriggerOrderStep).toBeDefined();
+    expect(((replayTriggerOrderStep as any)?.triggers || []).map((trigger: any) => String(trigger.id))).toEqual(
+      ((liveTriggerOrderStep as any)?.triggers || []).map((trigger: any) => String(trigger.id)),
+    );
   });
 });

@@ -78,6 +78,73 @@ describe('Intervening-if filtering for additional trigger pipelines', () => {
     expect(stack2.some((s: any) => s?.type === 'triggered_ability' && s?.sourceName === 'Test Death Enchantment')).toBe(true);
   });
 
+  it('orders simultaneous death triggers by APNAP before stack push', () => {
+    const g = createInitialGameState('t_death_apnap_order');
+    const p1 = 'p1' as PlayerID;
+    const p2 = 'p2' as PlayerID;
+    const p3 = 'p3' as PlayerID;
+
+    (g.state as any).players = [
+      { id: p1, name: 'P1' },
+      { id: p2, name: 'P2' },
+      { id: p3, name: 'P3' },
+    ];
+    (g.state as any).turnPlayer = p1;
+    (g.state as any).activePlayer = p3;
+
+    g.state.battlefield.push(
+      {
+        id: 'watcher_p2',
+        controller: p2,
+        owner: p2,
+        tapped: false,
+        card: {
+          id: 'watcher_p2_card',
+          name: 'P2 Death Watcher',
+          type_line: 'Enchantment',
+          oracle_text: 'Whenever a creature dies, draw a card.',
+        },
+      } as any,
+      {
+        id: 'watcher_p3',
+        controller: p3,
+        owner: p3,
+        tapped: false,
+        card: {
+          id: 'watcher_p3_card',
+          name: 'P3 Death Watcher',
+          type_line: 'Enchantment',
+          oracle_text: 'Whenever a creature dies, draw a card.',
+        },
+      } as any,
+      {
+        id: 'dying_3',
+        controller: p1,
+        owner: p1,
+        tapped: false,
+        card: {
+          id: 'dying_3_card',
+          name: 'Dying Creature 3',
+          type_line: 'Creature — Beast',
+          power: '1',
+          toughness: '1',
+        },
+      } as any,
+    );
+
+    (g as any).movePermanentToGraveyard('dying_3', true);
+
+    const deathTriggers = (g.state.stack || []).filter(
+      (item: any) => item?.type === 'triggered_ability' && (
+        item?.sourceName === 'P2 Death Watcher' || item?.sourceName === 'P3 Death Watcher'
+      )
+    );
+    expect(deathTriggers.map((item: any) => item.sourceName)).toEqual([
+      'P3 Death Watcher',
+      'P2 Death Watcher',
+    ]);
+  });
+
   it('filters card-draw triggers when intervening-if is false at trigger time', () => {
     const p1 = 'p1' as PlayerID;
 

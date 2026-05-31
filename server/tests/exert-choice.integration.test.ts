@@ -948,7 +948,11 @@ describe('supported exert attack automation (integration)', () => {
       source: 'rohirrim_chargers',
       sourceName: 'Rohirrim Chargers',
       effect: 'reveal cards from the top of your library until you reveal an Equipment card. Put that card onto the battlefield attached to that creature, then put the rest on the bottom of your library in a random order.',
-      effectData: expect.objectContaining({ exertedPermanentId: 'rohirrim_chargers' }),
+      effectData: expect.objectContaining({
+        exertedPermanentId: 'rohirrim_chargers',
+        exertedPermanentName: 'Rohirrim Chargers',
+        exertedPermanentSnapshot: expect.objectContaining({ id: 'rohirrim_chargers' }),
+      }),
     }));
 
     game.applyEvent({ type: 'resolveTopOfStack' } as any);

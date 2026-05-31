@@ -22,6 +22,7 @@ import { detectKeywords } from "./keyword-detection.js";
 import { moveRemovedPermanentToExile } from "./zones.js";
 import { registerLinkedExile } from "./triggers/linked-exile.js";
 import { queueCounterPlacedTriggers, queueCounterRemovedTriggers } from "./triggers/counters.js";
+import { orderTriggersByAPNAP } from "./triggers/ordering.js";
 import { queueExiledFromBattlefieldTriggers } from "./triggers/zone-change.js";
 import { queueTokenCreatedTriggers } from "./triggers/tokens.js";
 import { evaluateCounterPlacementReplacementEvent, evaluateTokenCreationReplacementEvent } from "./replacement-effects.js";
@@ -1415,10 +1416,17 @@ export function movePermanentToGraveyard(ctx: GameContext, permanentId: string, 
       );
       if (deathTriggers.length > 0) {
         debug(2, `[movePermanentToGraveyard] Found ${deathTriggers.length} death trigger(s) for ${isToken ? 'token ' : ''}${card?.name || perm.id}`);
+        const orderedDeathTriggers = orderTriggersByAPNAP(
+          ctx,
+          deathTriggers.map((trigger) => ({
+            ...trigger,
+            controllerId: String(trigger?.source?.controllerId || ''),
+          })),
+        );
         
         // Push death triggers onto the stack
         state.stack = state.stack || [];
-        for (const trigger of deathTriggers) {
+        for (const trigger of orderedDeathTriggers) {
           // Intervening-if (Rule 603.4): if recognized and false at trigger time, do not trigger.
           const sourcePerm = trigger?.source?.permanentId === perm.id
             ? perm

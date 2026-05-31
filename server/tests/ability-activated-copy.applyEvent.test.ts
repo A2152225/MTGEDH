@@ -282,6 +282,7 @@ describe('ability-activated copy retarget metadata via applyEvent', () => {
       type: 'triggered_ability',
       controller: 'p1',
       source: 'vazi_1',
+      permanentId: 'vazi_1',
       sourceName: 'Vazi, Keen Negotiator',
       description: 'Put a +1/+1 counter on target creature, then draw a card.',
       effect:
@@ -289,8 +290,26 @@ describe('ability-activated copy retarget metadata via applyEvent', () => {
       triggerType: 'ability_activated',
       mandatory: true,
       triggeringPlayer: 'p2',
+      triggeringPermanentId: 'treasure_device_1',
       activatedAbilityIsManaAbility: false,
       triggeringStackItemId: 'ability_stack_1',
+      card: { id: 'vazi_card_1', name: 'Vazi, Keen Negotiator' },
+      sourcePermanentSnapshot: {
+        id: 'vazi_1',
+        controller: 'p1',
+        owner: 'p1',
+        card: { id: 'vazi_card_1', name: 'Vazi, Keen Negotiator' },
+      },
+      effectData: {
+        activatedAbilitySourcePermanentId: 'treasure_device_1',
+        activatedAbilityText: '{2}: Draw a card.',
+        activatedSourcePermanentSnapshot: {
+          id: 'treasure_device_1',
+          controller: 'p2',
+          owner: 'p2',
+          card: { id: 'device_card_1', name: 'Treasure-Fueled Device' },
+        },
+      },
       requiresTarget: true,
       targetType: 'creature',
     });
@@ -298,15 +317,34 @@ describe('ability-activated copy retarget metadata via applyEvent', () => {
     expect(payload).toMatchObject({
       triggerId: 'trigger_vazi_1',
       sourceId: 'vazi_1',
+      permanentId: 'vazi_1',
       sourceName: 'Vazi, Keen Negotiator',
       controllerId: 'p1',
       triggerType: 'ability_activated',
       mandatory: true,
       triggeringPlayer: 'p2',
+      triggeringPermanentId: 'treasure_device_1',
       activatedAbilityIsManaAbility: false,
       triggeringStackItemId: 'ability_stack_1',
       requiresTarget: true,
+      needsTargetSelection: true,
       targetType: 'creature',
+      sourcePermanentSnapshot: {
+        id: 'vazi_1',
+        controller: 'p1',
+        owner: 'p1',
+        card: { id: 'vazi_card_1', name: 'Vazi, Keen Negotiator' },
+      },
+      effectData: {
+        activatedAbilitySourcePermanentId: 'treasure_device_1',
+        activatedAbilityText: '{2}: Draw a card.',
+        activatedSourcePermanentSnapshot: {
+          id: 'treasure_device_1',
+          controller: 'p2',
+          owner: 'p2',
+          card: { id: 'device_card_1', name: 'Treasure-Fueled Device' },
+        },
+      },
     });
 
     const ctx: any = {
@@ -328,15 +366,34 @@ describe('ability-activated copy retarget metadata via applyEvent', () => {
       type: 'triggered_ability',
       controller: 'p1',
       source: 'vazi_1',
+      permanentId: 'vazi_1',
       sourceName: 'Vazi, Keen Negotiator',
       description: 'Put a +1/+1 counter on target creature, then draw a card.',
       triggerType: 'ability_activated',
       mandatory: true,
       triggeringPlayer: 'p2',
+      triggeringPermanentId: 'treasure_device_1',
       activatedAbilityIsManaAbility: false,
       triggeringStackItemId: 'ability_stack_1',
       requiresTarget: true,
+      needsTargetSelection: true,
       targetType: 'creature',
+      sourcePermanentSnapshot: {
+        id: 'vazi_1',
+        controller: 'p1',
+        owner: 'p1',
+        card: { id: 'vazi_card_1', name: 'Vazi, Keen Negotiator' },
+      },
+      effectData: {
+        activatedAbilitySourcePermanentId: 'treasure_device_1',
+        activatedAbilityText: '{2}: Draw a card.',
+        activatedSourcePermanentSnapshot: {
+          id: 'treasure_device_1',
+          controller: 'p2',
+          owner: 'p2',
+          card: { id: 'device_card_1', name: 'Treasure-Fueled Device' },
+        },
+      },
     });
   });
 

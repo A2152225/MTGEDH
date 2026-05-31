@@ -745,9 +745,19 @@ describe('exertChoice replay coverage', () => {
       triggerType: 'whenever_you_exert',
       effect: 'reveal cards from the top of your library until you reveal an Equipment card. Put that card onto the battlefield attached to that creature, then put the rest on the bottom of your library in a random order.',
       mandatory: true,
-      effectData: { exertedPermanentId: 'rohirrim_chargers' },
+      effectData: {
+        exertedPermanentId: 'rohirrim_chargers',
+        exertedPermanentName: 'Rohirrim Chargers',
+        exertedPermanentSnapshot: { ...((game.state as any).battlefield[0] as any) },
+      },
       card: { ...((game.state as any).battlefield[0] as any).card },
     } as any);
+
+    expect((((game.state as any).stack || []) as any[])[0]).toEqual(expect.objectContaining({
+      effectData: expect.objectContaining({
+        exertedPermanentSnapshot: expect.objectContaining({ id: 'rohirrim_chargers' }),
+      }),
+    }));
 
     game.applyEvent({ type: 'resolveTopOfStack' } as any);
 

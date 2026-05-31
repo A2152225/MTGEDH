@@ -140,6 +140,12 @@ describe('reflexive discard follow-up prompts (integration)', () => {
       reflexiveDiscardWhenYouDoCount: 1,
       reflexiveDiscardWhenYouDoFollowupDescription: 'destroy target creature or planeswalker.',
     });
+    expect(askStep?.sourcePermanentSnapshot).toMatchObject({
+      id: 'source_perm',
+      controller: 'p1',
+      owner: 'p1',
+      card: { name: 'Discard Source' },
+    });
     expect(askStep.options.map((option: any) => option.id)).toEqual(['discard', 'decline']);
 
     const emitted: Array<{ room?: string; event: string; payload: any }> = [];
@@ -162,6 +168,12 @@ describe('reflexive discard follow-up prompts (integration)', () => {
       discardCount: 1,
       reflexiveDiscardWhenYouDoStage: 'select_discard',
     });
+    expect(discardStep?.sourcePermanentSnapshot).toMatchObject({
+      id: 'source_perm',
+      controller: 'p1',
+      owner: 'p1',
+      card: { name: 'Discard Source' },
+    });
     expect((discardStep.hand || []).map((card: any) => card.id)).toEqual(['discard_card_1']);
 
     await handlers.submitResolutionResponse({
@@ -182,6 +194,12 @@ describe('reflexive discard follow-up prompts (integration)', () => {
       requiresTarget: true,
       targetType: 'creature or planeswalker',
       effectData: { discardedCardIds: ['discard_card_1'], discardCount: 1 },
+    });
+    expect(followupTrigger?.sourcePermanentSnapshot).toMatchObject({
+      id: 'source_perm',
+      controller: 'p1',
+      owner: 'p1',
+      card: { name: 'Discard Source' },
     });
 
     const newEvents = getEvents(gameId).slice(eventStart);
@@ -208,6 +226,12 @@ describe('reflexive discard follow-up prompts (integration)', () => {
       sourceId: 'source_perm',
       permanentId: 'source_perm',
       triggerType: 'reflexive_discard',
+    });
+    expect(pushEvent?.payload?.sourcePermanentSnapshot).toMatchObject({
+      id: 'source_perm',
+      controller: 'p1',
+      owner: 'p1',
+      card: { name: 'Discard Source' },
     });
 
     game.resolveTopOfStack();
@@ -258,6 +282,12 @@ describe('reflexive discard follow-up prompts (integration)', () => {
       triggerType: 'reflexive_discard',
       requiresTarget: true,
       targetType: 'creature or planeswalker',
+      sourcePermanentSnapshot: {
+        id: 'source_perm',
+        controller: 'p1',
+        owner: 'p1',
+        card: { name: 'Discard Source' },
+      },
     });
   });
 });

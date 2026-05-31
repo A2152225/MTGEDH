@@ -165,4 +165,75 @@ describe('library-search triggers (integration)', () => {
       searchedLibraryOwnerId: p1,
     }));
   });
+
+  it('queues simultaneous library-search triggers in APNAP order', async () => {
+    const p1 = 'p1';
+    const p2 = 'p2';
+    const p3 = 'p3';
+
+    createGameIfNotExists(gameId, 'commander', 40, undefined, p1);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [
+      { id: p1, name: 'P1', spectator: false, life: 40 },
+      { id: p2, name: 'P2', spectator: false, life: 40 },
+      { id: p3, name: 'P3', spectator: false, life: 40 },
+    ];
+    (game.state as any).activePlayer = p3;
+    (game.state as any).turnPlayer = p3;
+    (game.state as any).life = { [p1]: 40, [p2]: 40, [p3]: 40 };
+    (game.state as any).zones = {
+      [p1]: { hand: [], handCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0, libraryCount: 0 },
+      [p2]: { hand: [], handCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0, libraryCount: 0 },
+      [p3]: { hand: [], handCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0, libraryCount: 0 },
+    };
+    (game.state as any).battlefield = [
+      {
+        id: 'p1_search_trigger_perm',
+        controller: p1,
+        owner: p1,
+        tapped: false,
+        counters: {},
+        card: {
+          id: 'p1_search_trigger_card',
+          name: 'P1 Search Trigger',
+          type_line: 'Enchantment',
+          oracle_text: 'Whenever an opponent searches their library, that player loses 1 life.',
+        },
+      },
+      {
+        id: 'p3_search_trigger_perm',
+        controller: p3,
+        owner: p3,
+        tapped: false,
+        counters: {},
+        card: {
+          id: 'p3_search_trigger_card',
+          name: 'P3 Search Trigger',
+          type_line: 'Enchantment',
+          oracle_text: 'Whenever an opponent searches their library, that player loses 1 life.',
+        },
+      },
+    ];
+    (game.state as any).stack = [];
+
+    queueLibrarySearchTriggers(game as any, p2, { sourceName: 'Fabled Passage', searchedLibraryOwnerId: p2 });
+
+    expect(((game.state as any).stack || []).map((item: any) => item.sourceName)).toEqual([
+      'P3 Search Trigger',
+      'P1 Search Trigger',
+    ]);
+
+    const triggerEvents = getEvents(gameId).filter((event: any) =>
+      event?.type === 'pushTriggeredAbility' && (
+        event?.payload?.sourceName === 'P1 Search Trigger' ||
+        event?.payload?.sourceName === 'P3 Search Trigger'
+      )
+    );
+    expect(triggerEvents.map((event: any) => event?.payload?.sourceName)).toEqual([
+      'P3 Search Trigger',
+      'P1 Search Trigger',
+    ]);
+  });
 });

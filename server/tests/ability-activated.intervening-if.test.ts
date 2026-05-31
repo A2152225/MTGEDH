@@ -72,4 +72,102 @@ describe('Ability-activated triggers + intervening-if plumbing', () => {
     const stackLenAfter = ((g.state as any).stack || []).length;
     expect(stackLenAfter).toBe(stackLenBefore);
   });
+
+  it('skips live ability-activated rediscovery during replay', () => {
+    const g = createInitialGameState('t_ability_activated_replay_guard');
+    const p1 = 'p1' as PlayerID;
+    const p2 = 'p2' as PlayerID;
+    addPlayer(g, p1, 'P1');
+    addPlayer(g, p2, 'P2');
+
+    (g.state as any).battlefield = [
+      {
+        id: 'hm',
+        controller: p1,
+        owner: p1,
+        card: { id: 'hm_card', name: 'Harsh Mentor', type_line: 'Creature - Human Cleric' },
+      },
+      {
+        id: 'artifact',
+        controller: p2,
+        owner: p2,
+        card: { id: 'artifact_card', name: 'Test Artifact', type_line: 'Artifact' },
+      },
+    ];
+    (g as any).isReplaying = true;
+
+    const triggers = triggerAbilityActivatedTriggers(g as any, {
+      activatedBy: p2,
+      sourcePermanentId: 'artifact',
+      isManaAbility: false,
+      abilityText: 'Draw a card.',
+      stackItemId: 'ability_stack_1',
+    });
+
+    expect(triggers).toHaveLength(0);
+    expect(((g.state as any).stack || []).filter((item: any) => item.type === 'triggered_ability')).toHaveLength(0);
+  });
+
+  it('orders simultaneous ability-activated triggers by APNAP and preserves trigger context', () => {
+    const g = createInitialGameState('t_ability_activated_apnap_context');
+    const p1 = 'p1' as PlayerID;
+    const p2 = 'p2' as PlayerID;
+    const p3 = 'p3' as PlayerID;
+    addPlayer(g, p1, 'P1');
+    addPlayer(g, p2, 'P2');
+    addPlayer(g, p3, 'P3');
+    (g.state as any).activePlayer = p2;
+
+    (g.state as any).battlefield = [
+      {
+        id: 'hm_p1',
+        controller: p1,
+        owner: p1,
+        card: { id: 'hm_card_p1', name: 'Harsh Mentor', type_line: 'Creature - Human Cleric' },
+      },
+      {
+        id: 'hm_p3',
+        controller: p3,
+        owner: p3,
+        card: { id: 'hm_card_p3', name: 'Harsh Mentor', type_line: 'Creature - Human Cleric' },
+      },
+      {
+        id: 'artifact_p2',
+        controller: p2,
+        owner: p2,
+        tapped: false,
+        counters: { charge: 2 },
+        card: { id: 'artifact_card', name: 'Test Artifact', type_line: 'Artifact' },
+      },
+    ];
+
+    const triggers = triggerAbilityActivatedTriggers(g as any, {
+      activatedBy: p2,
+      sourcePermanentId: 'artifact_p2',
+      isManaAbility: false,
+      abilityText: 'Draw a card.',
+      stackItemId: 'ability_stack_1',
+    });
+
+    expect(triggers.map((trigger: any) => trigger.source)).toEqual(['hm_p3', 'hm_p1']);
+    expect(((g.state as any).stack || []).map((item: any) => item.source)).toEqual(['hm_p3', 'hm_p1']);
+    expect((triggers[0] as any).sourcePermanentSnapshot).toMatchObject({
+      id: 'hm_p3',
+      controller: p3,
+      owner: p3,
+      card: { id: 'hm_card_p3', name: 'Harsh Mentor' },
+    });
+    expect((triggers[0] as any).triggeringPermanentId).toBe('artifact_p2');
+    expect((triggers[0] as any).effectData).toMatchObject({
+      activatedAbilitySourcePermanentId: 'artifact_p2',
+      activatedAbilityText: 'Draw a card.',
+      activatedSourcePermanentSnapshot: {
+        id: 'artifact_p2',
+        controller: p2,
+        owner: p2,
+        counters: { charge: 2 },
+        card: { id: 'artifact_card', name: 'Test Artifact' },
+      },
+    });
+  });
 });

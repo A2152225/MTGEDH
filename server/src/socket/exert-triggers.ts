@@ -48,10 +48,18 @@ export function pushWheneverYouExertTriggersOntoStack(
   controllerId: string,
   exertedPermanentId?: string,
 ): void {
+  if ((game as any)?.isReplaying) {
+    return;
+  }
+
   const battlefield = Array.isArray((game.state as any)?.battlefield) ? (game.state as any).battlefield : [];
   const normalizedExertedPermanentId = String(exertedPermanentId || '').trim();
+  const exertedPermanent = normalizedExertedPermanentId
+    ? battlefield.find((entry: any) => entry && String(entry.id || '') === normalizedExertedPermanentId) as any
+    : null;
+  const exertedPermanentSnapshot = cloneExertTriggerPermanentSnapshot(exertedPermanent);
+  const exertedPermanentName = String(exertedPermanent?.card?.name || exertedPermanentSnapshot?.card?.name || '').trim();
   if (normalizedExertedPermanentId) {
-    const exertedPermanent = battlefield.find((entry: any) => entry && String(entry.id || '') === normalizedExertedPermanentId) as any;
     if (exertedPermanent) {
       const exertedTypeLine = String(exertedPermanent?.card?.type_line || '').toLowerCase();
       if (!exertedTypeLine.includes('creature')) {
@@ -113,7 +121,17 @@ export function pushWheneverYouExertTriggersOntoStack(
         ...(metadata.targetCastIsOptional === true ? { targetCastIsOptional: true } : null),
         ...(typeof metadata.minTargets === 'number' ? { minTargets: metadata.minTargets } : null),
         ...(typeof metadata.maxTargets === 'number' ? { maxTargets: metadata.maxTargets } : null),
-        ...(normalizedExertedPermanentId ? { effectData: { exertedPermanentId: normalizedExertedPermanentId } } : null),
+        ...(normalizedExertedPermanentId
+          ? {
+              effectData: {
+                exertedPermanentId: normalizedExertedPermanentId,
+                ...(exertedPermanentName ? { exertedPermanentName } : null),
+                ...(exertedPermanentSnapshot && typeof exertedPermanentSnapshot === 'object'
+                  ? { exertedPermanentSnapshot }
+                  : null),
+              },
+            }
+          : null),
         ...(permanent?.card && typeof permanent.card === 'object' ? { card: { ...permanent.card } } : null),
         ...(sourceSnapshot && typeof sourceSnapshot === 'object' ? { sourcePermanentSnapshot: sourceSnapshot } : null),
       } as any;

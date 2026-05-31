@@ -339,6 +339,12 @@ describe('after sacrifice followup target selection (integration)', () => {
       requiresTarget: true,
       targetType: 'any_target',
     });
+    expect(triggerEvent.payload?.sourcePermanentSnapshot).toMatchObject({
+      id: 'source_perm',
+      controller: p1,
+      owner: p1,
+      card: { name: 'Blood Rite' },
+    });
 
     const replayGameId = `${gameId}_replay`;
   await resetGame(replayGameId);
@@ -397,6 +403,12 @@ describe('after sacrifice followup target selection (integration)', () => {
       sourceName: 'Blood Rite',
       requiresTarget: true,
       targetType: 'any_target',
+      sourcePermanentSnapshot: {
+        id: 'source_perm',
+        controller: p1,
+        owner: p1,
+        card: { name: 'Blood Rite' },
+      },
     });
 
     const replayQueue = ResolutionQueueManager.getQueue(replayGameId);
@@ -558,6 +570,12 @@ describe('after sacrifice followup target selection (integration)', () => {
       sacrificeWhenYouDoSubtype: 'creature',
       sacrificeWhenYouDoFollowupDescription: 'destroy target creature or planeswalker.',
     });
+    expect(askStep?.sourcePermanentSnapshot).toMatchObject({
+      id: 'source_perm',
+      controller: p1,
+      owner: p1,
+      card: { name: 'Rite Source' },
+    });
     expect(askStep.options.map((option: any) => option.id)).toEqual(['sacrifice', 'decline']);
 
     const promptEvent = getEvents(gameId).slice(eventStart).find((event: any) =>
@@ -567,6 +585,12 @@ describe('after sacrifice followup target selection (integration)', () => {
       sacrificeWhenYouDo: true,
       sacrificeWhenYouDoStage: 'ask',
       sacrificeWhenYouDoFollowupDescription: 'destroy target creature or planeswalker.',
+    });
+    expect(promptEvent?.payload?.queuedResolutionStep?.sourcePermanentSnapshot).toMatchObject({
+      id: 'source_perm',
+      controller: p1,
+      owner: p1,
+      card: { name: 'Rite Source' },
     });
 
     const emitted: Array<{ room?: string; event: string; payload: any }> = [];
@@ -583,6 +607,12 @@ describe('after sacrifice followup target selection (integration)', () => {
     queue = ResolutionQueueManager.getQueue(gameId);
     const sacrificeStep = queue.steps.find((step: any) => step?.sacrificeWhenYouDoStage === 'select_sacrifice') as any;
     expect(sacrificeStep).toBeDefined();
+    expect(sacrificeStep?.sourcePermanentSnapshot).toMatchObject({
+      id: 'source_perm',
+      controller: p1,
+      owner: p1,
+      card: { name: 'Rite Source' },
+    });
     expect((sacrificeStep.validTargets || []).map((target: any) => target.id)).toEqual(['sacrifice_me']);
 
     await handlers['submitResolutionResponse']({
@@ -597,6 +627,12 @@ describe('after sacrifice followup target selection (integration)', () => {
       description: 'destroy target creature or planeswalker.',
       requiresTarget: true,
       targetType: 'creature or planeswalker',
+      sourcePermanentSnapshot: {
+        id: 'source_perm',
+        controller: p1,
+        owner: p1,
+        card: { name: 'Rite Source' },
+      },
     });
     expect(((game.state as any).zones[p1].graveyard || []).map((card: any) => card.name)).toEqual(['Disposable Creature']);
 
@@ -694,6 +730,12 @@ describe('after sacrifice followup target selection (integration)', () => {
       sacrificeWhenYouDoStage: 'select_sacrifice',
       targetDescription: 'Vampire you control',
     });
+    expect((liveQueue.steps[0] as any)?.sourcePermanentSnapshot).toMatchObject({
+      id: 'source_perm',
+      controller: p1,
+      owner: p1,
+      card: { name: 'Blood Rite' },
+    });
     expect(((liveQueue.steps[0] as any).validTargets || []).map((target: any) => target.id)).toEqual([
       'vampire_1',
       'vampire_2',
@@ -711,6 +753,12 @@ describe('after sacrifice followup target selection (integration)', () => {
       sacrificeWhenYouDo: true,
       sacrificeWhenYouDoStage: 'select_sacrifice',
       targetDescription: 'Vampire you control',
+    });
+    expect(promptEvent.payload?.queuedResolutionStep?.sourcePermanentSnapshot).toMatchObject({
+      id: 'source_perm',
+      controller: p1,
+      owner: p1,
+      card: { name: 'Blood Rite' },
     });
 
     const replayGameId = `${gameId}_ask_stage_replay`;

@@ -40,6 +40,7 @@ import {
 } from "./triggered-abilities.js";
 import { dispatchDamageReceivedTrigger, processDamageReceivedTriggers } from "./triggers/damage-received.js";
 import { queueLifeLossTriggers } from "./triggers/life-loss.js";
+import { orderTriggersByAPNAP } from "./triggers/ordering.js";
 import { queueBecomesUntappedTriggers } from "./triggers/tap-untap.js";
 import { applyDamageToPermanentWithCounterEffects, getCounterLeaveBattlefieldReplacement } from "./counter-common-effects.js";
 import { detectCombatDamageTriggers } from "./triggers/index.js";
@@ -3744,6 +3745,7 @@ function maybeQueueReflexiveAnyAmountManaPayment(
   const sourcePermanentId = String((item as any).source || (item as any).permanentId || '').trim();
   const promptSourceId = sourcePermanentId || String(sourceId || '').trim();
   const triggerStackItemId = String((item as any).id || sourceId || '').trim();
+  const sourcePermanentSnapshot = buildTriggerSourcePermanentSnapshot(getTriggerSourcePermanent((ctx as any).state, item));
   const paymentUnitLabel = parsed.paymentUnit === 'mana' ? 'mana' : parsed.paymentUnit;
 
   queueResolveTopOfStackPrompt(ctx, {
@@ -3766,6 +3768,7 @@ function maybeQueueReflexiveAnyAmountManaPayment(
     reflexiveManaPaymentSourceName: sourceName,
     reflexiveManaPaymentSourcePermanentId: sourcePermanentId || undefined,
     reflexiveManaPaymentTriggerStackItemId: triggerStackItemId || undefined,
+    ...(sourcePermanentSnapshot ? { sourcePermanentSnapshot } : null),
   } as any);
 
   debug(2, `[resolveTopOfStack] Deferred reflexive any-amount payment trigger for ${sourceName} (${triggerController})`);
@@ -3810,6 +3813,7 @@ function maybeQueueReflexiveFixedPaymentWhenYouDo(
   const sourcePermanentId = String((item as any).source || (item as any).permanentId || '').trim();
   const promptSourceId = sourcePermanentId || String(sourceId || '').trim();
   const triggerStackItemId = String((item as any).id || sourceId || '').trim();
+  const sourcePermanentSnapshot = buildTriggerSourcePermanentSnapshot(getTriggerSourcePermanent((ctx as any).state, item));
   const paymentLabel = formatReflexiveFixedPaymentLabel(parsed);
   const followupDescription = materializeReflexiveSourceText(parsed.followupText, sourceName);
 
@@ -3845,6 +3849,7 @@ function maybeQueueReflexiveFixedPaymentWhenYouDo(
     reflexiveFixedPaymentSourceName: sourceName,
     reflexiveFixedPaymentSourcePermanentId: sourcePermanentId || undefined,
     reflexiveFixedPaymentTriggerStackItemId: triggerStackItemId || undefined,
+    ...(sourcePermanentSnapshot ? { sourcePermanentSnapshot } : null),
   } as any);
 
   debug(2, `[resolveTopOfStack] Deferred reflexive fixed payment trigger for ${sourceName} (${triggerController})`);
@@ -3869,6 +3874,7 @@ function maybeQueueReflexiveSacrificeWhenYouDo(
 
   const sourcePermanentId = String((item as any).source || (item as any).permanentId || '').trim();
   const promptSourceId = sourcePermanentId || String(sourceId || '').trim();
+  const sourcePermanentSnapshot = buildTriggerSourcePermanentSnapshot(getTriggerSourcePermanent((ctx as any).state, item));
   const battlefield = Array.isArray((ctx as any).state?.battlefield) ? (ctx as any).state.battlefield : [];
   const validSacrifices = battlefield.filter((permanent: any) =>
     permanentMatchesReflexiveSacrificeType(permanent, String(triggerController), parsed.sacrificeType, sourcePermanentId || undefined)
@@ -3911,6 +3917,7 @@ function maybeQueueReflexiveSacrificeWhenYouDo(
     sacrificeWhenYouDoSourceName: sourceName,
     sacrificeWhenYouDoSourcePermanentId: sourcePermanentId || undefined,
     sacrificeWhenYouDoFollowupDescription: followupDescription,
+    ...(sourcePermanentSnapshot ? { sourcePermanentSnapshot } : null),
   } as any);
 
   debug(2, `[resolveTopOfStack] Deferred reflexive sacrifice trigger for ${sourceName} (${triggerController})`);
@@ -3942,6 +3949,7 @@ function maybeQueueReflexiveDiscardWhenYouDo(
 
   const sourcePermanentId = String((item as any).source || (item as any).permanentId || '').trim();
   const promptSourceId = sourcePermanentId || String(sourceId || '').trim();
+  const sourcePermanentSnapshot = buildTriggerSourcePermanentSnapshot(getTriggerSourcePermanent((ctx as any).state, item));
   const followupDescription = materializeReflexiveSourceText(parsed.followupText, sourceName);
 
   queueResolveTopOfStackPrompt(ctx, {
@@ -3974,6 +3982,7 @@ function maybeQueueReflexiveDiscardWhenYouDo(
     reflexiveDiscardWhenYouDoSourcePermanentId: sourcePermanentId || undefined,
     reflexiveDiscardWhenYouDoFollowupDescription: followupDescription,
     reflexiveDiscardWhenYouDoOriginalEffect: description,
+    ...(sourcePermanentSnapshot ? { sourcePermanentSnapshot } : null),
   } as any);
 
   debug(2, `[resolveTopOfStack] Deferred reflexive discard trigger for ${sourceName} (${triggerController})`);
@@ -3998,6 +4007,7 @@ function maybeQueueReflexiveConvertWhenYouDo(
 
   const battlefield = Array.isArray((ctx as any).state?.battlefield) ? (ctx as any).state.battlefield : [];
   const sourcePermanentId = String((item as any).source || (item as any).permanentId || sourceId || '').trim();
+  const sourcePermanentSnapshot = buildTriggerSourcePermanentSnapshot(getTriggerSourcePermanent((ctx as any).state, item));
   const sourcePermanent = sourcePermanentId
     ? battlefield.find((permanent: any) => String(permanent?.id || '') === sourcePermanentId)
     : undefined;
@@ -4037,6 +4047,7 @@ function maybeQueueReflexiveConvertWhenYouDo(
     reflexiveConvertWhenYouDoSubject: subjectLabel,
     reflexiveConvertWhenYouDoFollowupDescription: followupDescription,
     reflexiveConvertWhenYouDoOriginalEffect: description,
+    ...(sourcePermanentSnapshot ? { sourcePermanentSnapshot } : null),
   } as any);
 
   debug(2, `[resolveTopOfStack] Deferred reflexive convert trigger for ${sourceName} (${triggerController})`);
@@ -4414,6 +4425,7 @@ function maybeQueueReflexiveGraveyardExileWhenYouDo(
 
   const sourcePermanentId = String((item as any).source || (item as any).permanentId || '').trim();
   const promptSourceId = sourcePermanentId || String(sourceId || '').trim();
+  const sourcePermanentSnapshot = buildTriggerSourcePermanentSnapshot(getTriggerSourcePermanent((ctx as any).state, item));
   const followupDescription = materializeReflexiveSourceText(parsed.followupText, sourceName);
   const exileLabel = formatReflexiveGraveyardExileLabel(parsed.exileCount, parsed.cardType);
 
@@ -4449,6 +4461,7 @@ function maybeQueueReflexiveGraveyardExileWhenYouDo(
     reflexiveGraveyardExileWhenYouDoFollowupDescription: followupDescription,
     reflexiveGraveyardExileWhenYouDoOriginalEffect: description,
     reflexiveGraveyardExileWhenYouDoValidTargets: validTargets,
+    ...(sourcePermanentSnapshot ? { sourcePermanentSnapshot } : null),
   } as any);
 
   debug(2, `[resolveTopOfStack] Deferred reflexive graveyard exile trigger for ${sourceName} (${triggerController})`);
@@ -7880,6 +7893,8 @@ function queueGraveyardResidentCreatureEntryTriggers(
     return;
   }
 
+  const pendingGraveyardResidentTriggers: any[] = [];
+
   for (const [zoneOwnerId, playerZones] of Object.entries(zones as Record<string, any>)) {
     const graveyard = Array.isArray(playerZones?.graveyard) ? playerZones.graveyard : [];
     for (const card of graveyard) {
@@ -7933,11 +7948,24 @@ function queueGraveyardResidentCreatureEntryTriggers(
         interveningIfSubjectSnapshot: buildInterveningIfSubjectSnapshot(enteringPermanent),
       } as any;
 
-      state.stack = state.stack || [];
-      state.stack.push(stackItem);
-      persistTriggeredAbilityPush(ctx, stackItem);
+      pendingGraveyardResidentTriggers.push(stackItem);
       debug(2, `[triggerETBEffectsForPermanent] ${stackItem.sourceName} triggered from graveyard: ${effectText}`);
     }
+  }
+
+  state.stack = state.stack || [];
+  const orderedGraveyardResidentTriggers = orderTriggersByAPNAP(
+    ctx as any,
+    pendingGraveyardResidentTriggers.map((stackItem, originalIndex) => ({
+      controllerId: String(stackItem?.controller || ''),
+      originalIndex,
+      stackItem,
+    })),
+  ).map((entry: any) => entry.stackItem);
+
+  for (const stackItem of orderedGraveyardResidentTriggers) {
+    state.stack.push(stackItem);
+    persistTriggeredAbilityPush(ctx, stackItem);
   }
 }
 
@@ -8539,6 +8567,7 @@ export function triggerETBEffectsForToken(
     byController[key] = byController[key] || {};
     byController[key][String(token.id)] = true;
   }
+  const pendingExternalEtbTriggers: any[] = [];
   
   // Check all other permanents for triggers that fire when creatures/permanents enter
   for (const perm of state.battlefield) {
@@ -8636,8 +8665,7 @@ export function triggerETBEffectsForToken(
           interveningIfSubjectSnapshot: buildInterveningIfSubjectSnapshot(token),
           ...(triggeringPlayerForStack ? { triggeringPlayer: triggeringPlayerForStack } : {}),
         } as any;
-        state.stack.push(stackItem);
-        persistTriggeredAbilityPush(ctx, stackItem);
+        pendingExternalEtbTriggers.push(stackItem);
         
         debug(2, `[triggerETBEffectsForToken] ⚡ ${trigger.cardName}'s triggered ability for token: ${trigger.description}`);
       }
@@ -8708,8 +8736,7 @@ export function triggerETBEffectsForToken(
           interveningIfSubjectSnapshot: buildInterveningIfSubjectSnapshot(token),
           ...(triggeringPlayerForStack ? { triggeringPlayer: triggeringPlayerForStack } : {}),
         } as any;
-        state.stack.push(stackItem);
-        persistTriggeredAbilityPush(ctx, stackItem);
+        pendingExternalEtbTriggers.push(stackItem);
         
         debug(2, `[triggerETBEffectsForToken] ⚡ ${trigger.cardName}'s triggered ability for token: ${trigger.description}`);
       }
@@ -8765,8 +8792,7 @@ export function triggerETBEffectsForToken(
           interveningIfSubjectPermanentId: token.id,
           interveningIfSubjectSnapshot: buildInterveningIfSubjectSnapshot(token),
         } as any;
-        state.stack.push(stackItem);
-        persistTriggeredAbilityPush(ctx, stackItem);
+        pendingExternalEtbTriggers.push(stackItem);
         
         debug(2, `[triggerETBEffectsForToken] ⚡ ${trigger.cardName}'s triggered ability for token: ${trigger.description}`);
       }
@@ -8827,13 +8853,27 @@ export function triggerETBEffectsForToken(
             interveningIfSubjectPermanentId: token.id,
             interveningIfSubjectSnapshot: buildInterveningIfSubjectSnapshot(token),
           } as any;
-          state.stack.push(stackItem);
-          persistTriggeredAbilityPush(ctx, stackItem);
+          pendingExternalEtbTriggers.push(stackItem);
           
           debug(2, `[triggerETBEffectsForToken] ⚡ ${trigger.cardName}'s opponent creature ETB trigger: ${trigger.description}`);
         }
       }
     }
+  }
+
+  state.stack = state.stack || [];
+  const orderedExternalEtbTriggers = orderTriggersByAPNAP(
+    ctx as any,
+    pendingExternalEtbTriggers.map((stackItem, originalIndex) => ({
+      controllerId: String(stackItem?.controller || ''),
+      originalIndex,
+      stackItem,
+    })),
+  ).map((entry: any) => entry.stackItem);
+
+  for (const stackItem of orderedExternalEtbTriggers) {
+    state.stack.push(stackItem);
+    persistTriggeredAbilityPush(ctx, stackItem);
   }
 
   queueTemporaryEtbTriggersForEntry(ctx, token, controller, {
@@ -9015,6 +9055,7 @@ export function triggerETBEffectsForPermanent(
   }
 
   queueSupportedETBKeywordChoices(ctx, permanent, controller);
+  const pendingExternalEtbTriggers: any[] = [];
   
   // Check all other permanents for triggers that fire when creatures/permanents enter
   for (const perm of state.battlefield) {
@@ -9109,8 +9150,7 @@ export function triggerETBEffectsForPermanent(
           interveningIfSubjectSnapshot: buildInterveningIfSubjectSnapshot(permanent),
           ...(triggeringPlayerForStack ? { triggeringPlayer: triggeringPlayerForStack } : {}),
         } as any;
-        state.stack.push(stackItem);
-        persistTriggeredAbilityPush(ctx, stackItem);
+        pendingExternalEtbTriggers.push(stackItem);
         
         debug(2, `[triggerETBEffectsForPermanent] ⚡ ${trigger.cardName}'s triggered ability: ${trigger.description}`);
       }
@@ -9181,8 +9221,7 @@ export function triggerETBEffectsForPermanent(
           interveningIfSubjectSnapshot: buildInterveningIfSubjectSnapshot(permanent),
           ...(triggeringPlayerForStack ? { triggeringPlayer: triggeringPlayerForStack } : {}),
         } as any;
-        state.stack.push(stackItem);
-        persistTriggeredAbilityPush(ctx, stackItem);
+        pendingExternalEtbTriggers.push(stackItem);
         
         debug(2, `[triggerETBEffectsForPermanent] ⚡ ${trigger.cardName}'s triggered ability: ${trigger.description}`);
       }
@@ -9241,8 +9280,7 @@ export function triggerETBEffectsForPermanent(
           interveningIfSubjectSnapshot: buildInterveningIfSubjectSnapshot(permanent),
           ...(triggeringPlayerForStack ? { triggeringPlayer: triggeringPlayerForStack } : {}),
         } as any;
-        state.stack.push(stackItem);
-        persistTriggeredAbilityPush(ctx, stackItem);
+        pendingExternalEtbTriggers.push(stackItem);
         
         debug(2, `[triggerETBEffectsForPermanent] ⚡ ${trigger.cardName}'s triggered ability: ${trigger.description}`);
       }
@@ -9303,13 +9341,26 @@ export function triggerETBEffectsForPermanent(
             interveningIfSubjectPermanentId: permanent.id,
             interveningIfSubjectSnapshot: buildInterveningIfSubjectSnapshot(permanent),
           } as any;
-          state.stack.push(stackItem);
-          persistTriggeredAbilityPush(ctx, stackItem);
+          pendingExternalEtbTriggers.push(stackItem);
           
           debug(2, `[triggerETBEffectsForPermanent] ⚡ ${trigger.cardName}'s opponent creature ETB trigger: ${trigger.description}`);
         }
       }
     }
+  }
+
+  const orderedExternalEtbTriggers = orderTriggersByAPNAP(
+    ctx as any,
+    pendingExternalEtbTriggers.map((stackItem, originalIndex) => ({
+      controllerId: String(stackItem?.controller || ''),
+      originalIndex,
+      stackItem,
+    })),
+  ).map((entry: any) => entry.stackItem);
+
+  for (const stackItem of orderedExternalEtbTriggers) {
+    state.stack.push(stackItem);
+    persistTriggeredAbilityPush(ctx, stackItem);
   }
 
   queueTemporaryEtbTriggersForEntry(ctx, permanent, controller, {

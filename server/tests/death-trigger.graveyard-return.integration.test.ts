@@ -2631,6 +2631,12 @@ describe('Death trigger graveyard returns (integration)', () => {
       reflexiveManaPaymentUnit: '{R}',
       reflexiveManaPaymentMaxAmount: 4,
     });
+    expect(paymentStep?.sourcePermanentSnapshot).toMatchObject({
+      id: 'leyline_tyrant_1',
+      controller: controllerId,
+      owner: controllerId,
+      card: { name: 'Leyline Tyrant' },
+    });
     expect(paymentStep.options.map((option: any) => option.id)).toEqual(['pay_1', 'pay_2', 'pay_3', 'pay_4', 'decline']);
 
     const emitted: Array<{ room?: string; event: string; payload: any }> = [];
@@ -2653,9 +2659,16 @@ describe('Death trigger graveyard returns (integration)', () => {
       targetType: 'any',
       effectData: { reflexivePaymentAmount: 3, paidManaAmount: 3 },
     });
+    expect(followupTrigger?.sourcePermanentSnapshot).toMatchObject({
+      id: 'leyline_tyrant_1',
+      controller: controllerId,
+      owner: controllerId,
+      card: { name: 'Leyline Tyrant' },
+    });
     expect(String(followupTrigger?.effect || '')).toContain('deals 3 damage to any target');
 
     const newEvents = getEvents(gameId).slice(eventsBefore);
+    const pushEvent = [...newEvents].reverse().find((event: any) => event.type === 'pushTriggeredAbility' && event.payload?.triggerType === 'reflexive_mana_payment') as any;
     expect(newEvents.map((event: any) => event.type)).toContain('resolveTopOfStackPrompt');
     expect(newEvents.map((event: any) => event.type)).toContain('reflexiveManaPaymentResolve');
     expect(newEvents.map((event: any) => event.type)).toContain('pushTriggeredAbility');
@@ -2663,6 +2676,12 @@ describe('Death trigger graveyard returns (integration)', () => {
       playerId: controllerId,
       paidAmount: 3,
       paymentUnit: '{R}',
+    });
+    expect(pushEvent?.payload?.sourcePermanentSnapshot).toMatchObject({
+      id: 'leyline_tyrant_1',
+      controller: controllerId,
+      owner: controllerId,
+      card: { name: 'Leyline Tyrant' },
     });
 
     game.resolveTopOfStack();
@@ -2770,6 +2789,12 @@ describe('Death trigger graveyard returns (integration)', () => {
       reflexiveFixedPaymentLifeAmount: 2,
       reflexiveFixedPaymentFollowupText: 'destroy target creature or planeswalker.',
     });
+    expect(paymentStep?.sourcePermanentSnapshot).toMatchObject({
+      id: 'fixed_payment_source_1',
+      controller: controllerId,
+      owner: controllerId,
+      card: { name: 'Fixed Payment Source' },
+    });
     expect(paymentStep.options.map((option: any) => option.id)).toEqual(['pay', 'decline']);
 
     const emitted: Array<{ room?: string; event: string; payload: any }> = [];
@@ -2796,9 +2821,16 @@ describe('Death trigger graveyard returns (integration)', () => {
       targetType: 'creature or planeswalker',
       effectData: { paidManaCost: '{B}', paidLifeAmount: 2 },
     });
+    expect(followupTrigger?.sourcePermanentSnapshot).toMatchObject({
+      id: 'fixed_payment_source_1',
+      controller: controllerId,
+      owner: controllerId,
+      card: { name: 'Fixed Payment Source' },
+    });
     expect(String(followupTrigger?.effect || '')).toBe('destroy target creature or planeswalker.');
 
     const newEvents = getEvents(gameId).slice(eventsBefore);
+    const pushEvent = [...newEvents].reverse().find((event: any) => event.type === 'pushTriggeredAbility' && event.payload?.triggerType === 'reflexive_fixed_payment') as any;
     expect(newEvents.map((event: any) => event.type)).toContain('resolveTopOfStackPrompt');
     expect(newEvents.map((event: any) => event.type)).toContain('reflexiveFixedPaymentResolve');
     expect(newEvents.map((event: any) => event.type)).toContain('pushTriggeredAbility');
@@ -2807,6 +2839,12 @@ describe('Death trigger graveyard returns (integration)', () => {
       paid: true,
       manaCost: '{B}',
       lifeAmount: 2,
+    });
+    expect(pushEvent?.payload?.sourcePermanentSnapshot).toMatchObject({
+      id: 'fixed_payment_source_1',
+      controller: controllerId,
+      owner: controllerId,
+      card: { name: 'Fixed Payment Source' },
     });
 
     game.resolveTopOfStack();

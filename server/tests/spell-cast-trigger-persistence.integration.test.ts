@@ -100,7 +100,8 @@ describe('cast spell trigger persistence (integration)', () => {
   const jumpStartTargetGameId = 'test_spell_cast_trigger_persistence_jump_start_target';
   const disturbTriggerGameId = 'test_spell_cast_trigger_persistence_disturb_trigger';
   const sourceZoneReplayGameId = 'test_spell_cast_trigger_persistence_replay_source_zone';
-  const resetGameIds = [merrowGameId, rhysticGameId, vegaHandGameId, vegaExileGameId, appaHandGameId, appaExileGameId, grafkeeperFlashbackGameId, rhysticFlashbackGameId, ominousRoostFlashbackGameId, ominousRoostFlashbackAuraGameId, heroicFlashbackGameId, heroicFlashbackAuraGameId, jumpStartTargetGameId, disturbTriggerGameId, sourceZoneReplayGameId];
+  const rhysticApnapGameId = 'test_spell_cast_trigger_persistence_rhystic_apnap';
+  const resetGameIds = [merrowGameId, rhysticGameId, vegaHandGameId, vegaExileGameId, appaHandGameId, appaExileGameId, grafkeeperFlashbackGameId, rhysticFlashbackGameId, ominousRoostFlashbackGameId, ominousRoostFlashbackAuraGameId, heroicFlashbackGameId, heroicFlashbackAuraGameId, jumpStartTargetGameId, disturbTriggerGameId, sourceZoneReplayGameId, rhysticApnapGameId];
 
   beforeAll(async () => {
     await initDb();
@@ -227,7 +228,7 @@ describe('cast spell trigger persistence (integration)', () => {
         name: 'Test Insight',
         mana_cost: '{0}',
         manaCost: '{0}',
-        type_line: 'Sorcery',
+        type_line: 'Instant',
         oracle_text: 'Draw a card.',
       },
     ];
@@ -275,6 +276,95 @@ describe('cast spell trigger persistence (integration)', () => {
         castSourceZone: 'hand',
       }),
     });
+  });
+
+  it('orders simultaneous opponent spell-cast triggers by APNAP before stack push', async () => {
+    const game = setupCastingGame(rhysticApnapGameId);
+    (game.state as any).players = [
+      { id: 'p1', name: 'P1', spectator: false, life: 40 },
+      { id: 'p2', name: 'P2', spectator: false, life: 40 },
+      { id: 'p3', name: 'P3', spectator: false, life: 40 },
+    ];
+    (game.state as any).activePlayer = 'p3';
+    (game.state as any).turnPlayer = 'p1';
+    (game.state as any).life = { p1: 40, p2: 40, p3: 40 };
+    (game.state as any).manaPool = {
+      p1: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+      p2: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+      p3: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+    };
+    (game.state as any).zones = {
+      p1: { hand: [], handCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0 },
+      p2: { hand: [], handCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0 },
+      p3: { hand: [], handCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0 },
+    };
+    (game.state as any).battlefield = [
+      {
+        id: 'p2_rhystic_1',
+        controller: 'p2',
+        owner: 'p2',
+        tapped: false,
+        card: {
+          id: 'p2_rhystic_card',
+          name: 'P2 Study',
+          type_line: 'Enchantment',
+          oracle_text: 'Whenever an opponent casts a spell, you may draw a card unless that player pays {1}.',
+        },
+      },
+      {
+        id: 'p3_rhystic_1',
+        controller: 'p3',
+        owner: 'p3',
+        tapped: false,
+        card: {
+          id: 'p3_rhystic_card',
+          name: 'P3 Study',
+          type_line: 'Enchantment',
+          oracle_text: 'Whenever an opponent casts a spell, you may draw a card unless that player pays {1}.',
+        },
+      },
+    ];
+    (game.state as any).zones.p1.hand = [
+      {
+        id: 'noncreature_spell_1',
+        name: 'Test Insight',
+        mana_cost: '{0}',
+        manaCost: '{0}',
+        type_line: 'Sorcery',
+        oracle_text: 'Draw a card.',
+      },
+    ];
+    (game.state as any).zones.p1.handCount = 1;
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket('p1', rhysticApnapGameId, emitted);
+    const io = createMockIo(emitted, [socket]);
+    registerGameActions(io as any, socket as any);
+
+    await handlers['castSpellFromHand']({
+      gameId: rhysticApnapGameId,
+      cardId: 'noncreature_spell_1',
+      targets: [],
+    });
+
+    const spellCastTriggers = (((game.state as any).stack || []) as any[])
+      .filter((item: any) => item?.type === 'triggered_ability')
+      .filter((item: any) => item?.sourceName === 'P2 Study' || item?.sourceName === 'P3 Study');
+    expect(spellCastTriggers.map((item: any) => item.sourceName)).toEqual([
+      'P3 Study',
+      'P2 Study',
+    ]);
+
+    const triggerPushEvents = getEvents(rhysticApnapGameId).filter((event: any) =>
+      String(event?.type) === 'pushTriggeredAbility' && (
+        String(event?.payload?.sourceName || '') === 'P2 Study' ||
+        String(event?.payload?.sourceName || '') === 'P3 Study'
+      )
+    );
+    expect(triggerPushEvents.map((event: any) => event?.payload?.sourceName)).toEqual([
+      'P3 Study',
+      'P2 Study',
+    ]);
   });
 
   it('does not fire from-anywhere-other-than-hand triggers on ordinary hand casts', async () => {

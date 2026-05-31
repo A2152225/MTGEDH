@@ -733,6 +733,21 @@ export function processDrawTriggers(ctx: GameContext, drawingPlayerId: PlayerID,
     }
   }
   
+  const smotheringTithePermanents = orderTriggersByAPNAP(
+    ctx,
+    battlefield
+      .filter((perm: any) => {
+        if (!perm || !perm.card || perm.controller === drawingPlayerId) return false;
+        const permName = String(perm.card.name || '').toLowerCase();
+        const oracleText = String(perm.card.oracle_text || '').toLowerCase();
+        return permName.includes('smothering tithe') ||
+          (oracleText.includes('whenever an opponent draws a card') &&
+            oracleText.includes('may pay {2}') &&
+            oracleText.includes('treasure token'));
+      })
+      .map((perm: any) => ({ controllerId: perm.controller, permanent: perm })),
+  );
+
   for (const perm of battlefield) {
     if (!perm || !perm.card) continue;
     
@@ -746,13 +761,9 @@ export function processDrawTriggers(ctx: GameContext, drawingPlayerId: PlayerID,
       debug(2, `[drawTrigger] Niv-Mizzet: ${cardsDrawn} damage trigger(s)`);
     }
 
-    if (
-      perm.controller !== drawingPlayerId &&
-      (permName.includes('smothering tithe') ||
-        (oracleText.includes('whenever an opponent draws a card') &&
-          oracleText.includes('may pay {2}') &&
-          oracleText.includes('treasure token')))
-    ) {
+  }
+
+  for (const { permanent: perm } of smotheringTithePermanents) {
       ctx.state.stack = Array.isArray(ctx.state.stack) ? ctx.state.stack : [];
 
       for (let index = 0; index < cardsDrawn; index++) {
@@ -803,7 +814,6 @@ export function processDrawTriggers(ctx: GameContext, drawingPlayerId: PlayerID,
           }
         }
       }
-    }
   }
 }
 

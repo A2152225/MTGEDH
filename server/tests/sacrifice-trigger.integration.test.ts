@@ -213,4 +213,91 @@ describe('sacrifice triggers (integration)', () => {
       sacrificedPermanentId: 'treasure_token_1',
     }));
   });
+
+  it('queues simultaneous sacrifice triggers in APNAP order', () => {
+    const p1 = 'p1';
+    const p2 = 'p2';
+    const p3 = 'p3';
+
+    createGameIfNotExists(gameId, 'commander', 40, undefined, p1);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [
+      { id: p1, name: 'P1', spectator: false, life: 40 },
+      { id: p2, name: 'P2', spectator: false, life: 40 },
+      { id: p3, name: 'P3', spectator: false, life: 40 },
+    ];
+    (game.state as any).activePlayer = p3;
+    (game.state as any).turnPlayer = p3;
+    (game.state as any).life = { [p1]: 40, [p2]: 40, [p3]: 40 };
+    (game.state as any).zones = {
+      [p1]: { hand: [], handCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0, libraryCount: 0 },
+      [p2]: { hand: [], handCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0, libraryCount: 0 },
+      [p3]: { hand: [], handCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0, libraryCount: 0 },
+    };
+    (game.state as any).battlefield = [
+      {
+        id: 'p1_sac_trigger_perm',
+        controller: p1,
+        owner: p1,
+        tapped: false,
+        counters: {},
+        card: {
+          id: 'p1_sac_trigger_card',
+          name: 'P1 Sac Trigger',
+          type_line: 'Enchantment',
+          oracle_text: 'Whenever a player sacrifices a permanent, you gain 1 life.',
+        },
+      },
+      {
+        id: 'p3_sac_trigger_perm',
+        controller: p3,
+        owner: p3,
+        tapped: false,
+        counters: {},
+        card: {
+          id: 'p3_sac_trigger_card',
+          name: 'P3 Sac Trigger',
+          type_line: 'Enchantment',
+          oracle_text: 'Whenever a player sacrifices a permanent, you gain 1 life.',
+        },
+      },
+      {
+        id: 'treasure_token_1',
+        controller: p2,
+        owner: p2,
+        tapped: false,
+        counters: {},
+        isToken: true,
+        card: {
+          id: 'treasure_card_1',
+          name: 'Treasure',
+          type_line: 'Token Artifact - Treasure',
+          oracle_text: '{T}, Sacrifice this artifact: Add one mana of any color.',
+          zone: 'battlefield',
+        },
+      },
+    ];
+    (game.state as any).stack = [];
+
+    const sacrificedName = sacrificePermanent(game as any, 'treasure_token_1', p2);
+    expect(sacrificedName).toBe('Treasure');
+
+    expect((((game.state as any).stack || []) as any[]).map((item: any) => item.sourceName)).toEqual([
+      'P3 Sac Trigger',
+      'P1 Sac Trigger',
+    ]);
+
+    const triggerEvents = getEvents(gameId).filter((event: any) =>
+      event?.type === 'pushTriggeredAbility' && (
+        event?.payload?.sourceName === 'P1 Sac Trigger' ||
+        event?.payload?.sourceName === 'P3 Sac Trigger'
+      )
+    );
+    expect(triggerEvents.map((event: any) => event?.payload?.sourceName)).toEqual([
+      'P3 Sac Trigger',
+      'P1 Sac Trigger',
+    ]);
+  });
 });
