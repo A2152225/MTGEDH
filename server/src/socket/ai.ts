@@ -46,7 +46,9 @@ import { runSBA } from "../state/modules/counters_tokens.js";
 import { movePermanentToHand } from "../state/modules/zones.js";
 import { isOpeningHandBattlefieldCard } from "./opening-hand.js";
 import { getDominantCreatureType } from "./creature-type.js";
-import { handlePlayLandRequest, requestCastSpellForSocket, runPostResolutionPermanentPromptChecks } from "./game-actions.js";
+import { handlePlayLandRequest, requestCastSpellForSocket, runPostResolutionPermanentPromptChecks, getEffectiveAdditionalCost } from "./game-actions.js";
+import { buildCounterRemovalCostOptions } from "../state/modules/counter-removal-costs.js";
+import { type AdditionalCostResult } from "./land-helpers.js";
 import { flushPendingDamageTriggersAfterStepAdvance } from "./step-advance.js";
 import { syncPreparedPermanentAfterControlChange } from "../state/modules/prepared.js";
 import { getOptionalPaymentValidationFailure } from "./optional-payment-prompts.js";
@@ -5646,6 +5648,118 @@ function calculateAvailableMana(game: any, playerId: PlayerID): { total: number;
 }
 
 /**
+ * Check if the AI has the necessary resources to pay any non-mana additional costs of a prospective spell cast.
+ * This prevents the AI from getting stuck in an infinite casting loop for spells with unpayable costs (e.g. sacrificing a creature when none exist).
+ */
+function canAIPayAdditionalCost(
+  game: any,
+  playerId: PlayerID,
+  candidate: any,
+  additionalCost: AdditionalCostResult
+): boolean {
+  if (!additionalCost) return true;
+
+  try {
+    switch (additionalCost.type) {
+      case 'pay_life': {
+        const player = game.state?.players?.find((p: any) => p.id === playerId);
+        const currentLife = player?.life ?? 40;
+        return currentLife > additionalCost.amount;
+      }
+
+      case 'discard': {
+        const player = game.state?.players?.find((p: any) => p.id === playerId);
+        const hand = player?.hand || [];
+        const isSourceInHand = candidate.sourceZone === 'hand';
+        const otherHandCount = isSourceInHand
+          ? hand.filter((c: any) => String(c.id) !== String(candidate.card?.id)).length
+          : hand.length;
+        return otherHandCount >= additionalCost.amount;
+      }
+
+      case 'reveal': {
+        const player = game.state?.players?.find((p: any) => p.id === playerId);
+        const hand = player?.hand || [];
+        const isSourceInHand = candidate.sourceZone === 'hand';
+        const otherHand = isSourceInHand
+          ? hand.filter((c: any) => String(c.id) !== String(candidate.card?.id))
+          : hand;
+        
+        if (!additionalCost.filter) {
+          return otherHand.length >= additionalCost.amount;
+        }
+
+        const filterStr = String(additionalCost.filter).toLowerCase();
+        const validRevealCards = otherHand.filter((c: any) => {
+          const typeLine = String(c?.type_line || '').toLowerCase();
+          const name = String(c?.name || '').toLowerCase();
+          return typeLine.includes(filterStr) || name.includes(filterStr);
+        });
+
+        return validRevealCards.length >= additionalCost.amount;
+      }
+
+      case 'sacrifice': {
+        const battlefield = game.state?.battlefield || [];
+        const filterStr = (additionalCost.filter || '').trim().toLowerCase();
+        const validSacrificeTargets = battlefield.filter((p: any) => {
+          if (String(p.controller || '') !== String(playerId)) return false;
+          if (!filterStr) return true;
+          const typeLine = String(p.card?.type_line || '').toLowerCase();
+          const name = String(p.card?.name || '').toLowerCase();
+          const parts = filterStr.split(/\s+or\s+/);
+          return parts.some(part => typeLine.includes(part) || name.includes(part));
+        });
+        return validSacrificeTargets.length >= additionalCost.amount;
+      }
+
+      case 'remove_counters': {
+        const availableCountersCount = buildCounterRemovalCostOptions(game.state, String(playerId), {
+          amount: additionalCost.amount,
+          filter: additionalCost.filter || 'creature',
+          counterType: additionalCost.counterType,
+          distributed: true,
+        }).length;
+        return availableCountersCount >= additionalCost.amount;
+      }
+
+      case 'collect_evidence': {
+        const gy = game.state?.zones?.[playerId]?.graveyard || game.state?.players?.find((p: any) => p.id === playerId)?.graveyard || [];
+        if (additionalCost.collectEvidenceIsOptional) {
+          return true;
+        }
+        let totalCmc = 0;
+        for (const card of gy) {
+          if (typeof card.cmc === 'number') {
+            totalCmc += card.cmc;
+          } else {
+            const cost = parseManaCost(card.mana_cost || '');
+            const cmc = cost.generic + Object.values(cost.colors).reduce((sum: number, count: number) => sum + count, 0);
+            totalCmc += cmc;
+          }
+        }
+        return totalCmc >= (additionalCost.collectEvidenceValue || 0);
+      }
+
+      case 'blight': {
+        const battlefield = game.state?.battlefield || [];
+        const validBlightTargets = battlefield.filter((p: any) => 
+          p && String(p.controller || '') === String(playerId) &&
+          String(p.card?.type_line || '').toLowerCase().includes('creature')
+        );
+        return validBlightTargets.length >= (additionalCost.blightN || 0);
+      }
+
+      default:
+        return true;
+    }
+  } catch (err) {
+    debugWarn(1, '[AI] Error validating additional cost payability:', err);
+    return true;
+  }
+}
+
+/**
  * Find all supported spells the AI can currently afford to cast.
  * This includes hand spells plus the top card of the library when the same
  * player-side permission helpers allow it.
@@ -5680,6 +5794,17 @@ function findCastableSpells(
   const castable = sharedCandidates
     .filter((candidate) => candidate.payability === 'normal' && candidate.cost)
     .filter((candidate) => {
+      // Check additional non-mana costs first to make sure AI can pay them before checking mana payment plan
+      const card = candidate.card;
+      const castCard = candidate.castCard || card;
+      if (castCard) {
+        const addCost = getEffectiveAdditionalCost(castCard, castCard.oracle_text || '');
+        if (addCost && !canAIPayAdditionalCost(game, playerId, candidate, addCost)) {
+          debug(1, `[AI] findCastableSpells: Skipping spell ${castCard.name} because additional cost cannot be paid:`, addCost);
+          return false;
+        }
+      }
+
       const excludedHandCardIds = candidate.sourceZone === 'hand'
         ? [String(candidate.card?.id || '').trim()].filter(Boolean)
         : [];
@@ -5880,6 +6005,17 @@ function findCastableCommander(
   const responseOnly = options?.responseOnly === true;
   const candidate = getCastableCommanderCandidates(getAIActionContext(game), playerId)
     .filter((entry) => !responseOnly || entry.grantsFlash === true)
+    .filter((entry) => {
+      const card = entry.card;
+      if (card) {
+        const addCost = getEffectiveAdditionalCost(card, card.oracle_text || '');
+        if (addCost && !canAIPayAdditionalCost(game, playerId, entry, addCost)) {
+          debug(1, `[AI] findCastableCommander: Skipping Commander ${card.name} because additional cost cannot be paid:`, addCost);
+          return false;
+        }
+      }
+      return true;
+    })
     .find((entry) => entry.cost && canAIAssembleSpellPaymentPlan(game, playerId, entry.payableCost || entry.cost)) || null;
 
   if (!candidate) {

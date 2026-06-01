@@ -24,7 +24,7 @@ import { buildGraveyardCastingPermissionId, getActiveGraveyardCastingPermissions
 import { detectActivatedAbilityConditionRequirement } from "./activated-ability-conditions";
 import { applyCostAdjustmentToParsedCost, buildCostAdjustmentPlan, getCostAdjustmentForCard as getSharedCostAdjustmentForCard, type CostAdjustmentPlan } from "./cost-adjustments";
 import { collectStaticEffectSources } from "./static-effect-sources";
-import { creatureHasHaste } from "../../socket/game-actions.js";
+import { creatureHasHaste, getEffectiveAdditionalCost } from "../../socket/game-actions.js";
 import { debug, debugWarn, debugError } from "../../utils/debug.js";
 import { cardManaValue } from "../utils";
 import { getCurrentGoaders } from "./goad-effects.js";
@@ -162,7 +162,7 @@ export type SharedSpellCastMethod = 'normal' | 'flashback' | 'jump-start' | 'ret
 export type SharedLandSourceZone = SharedSpellSourceZone;
 
 export interface SharedSourceGrantedAdditionalCost {
-  type: 'discard' | 'sacrifice' | 'remove_counters';
+  type: 'discard' | 'sacrifice' | 'remove_counters' | 'pay_life' | 'reveal';
   amount: number;
   filter?: string;
   counterType?: string;
@@ -324,7 +324,9 @@ export function getCommandZoneCommanderCandidates(
       const payableCost = spendManaAsThoughAnyType
         ? normalizeParsedCostForAnyTypeManaSpending(adjustedCost)
         : adjustedCost;
-      const canPayCost = canPayManaCostWithAvailableSources(state, playerId, payableCost);
+      const addCost = getEffectiveAdditionalCost(commander, commander.oracle_text || commander.oracleText || '');
+      const canPayCost = canPayManaCostWithAvailableSources(state, playerId, payableCost)
+        && (!addCost || canPaySourceGrantedAdditionalCost(state, playerId, commander, addCost as any));
 
       const typeLine = String(commander?.type_line || commander?.typeLine || '').toLowerCase();
       const cmc = adjustedCost.generic + Object.values(adjustedCost.colors).reduce((sum, value) => sum + value, 0);
@@ -1011,11 +1013,33 @@ function canPaySourceGrantedAdditionalCost(state: any, playerId: PlayerID, card:
     return true;
   }
 
+  if (cost.type === 'pay_life') {
+    const startingLife = state?.startingLife || 40;
+    const currentLife = state?.life?.[playerId] ?? startingLife;
+    return currentLife >= amount;
+  }
+
   if (cost.type === 'discard') {
     const hand = Array.isArray(state?.zones?.[playerId]?.hand) ? state.zones[playerId].hand : [];
-    const eligible = cost.filter
-      ? hand.filter((entry: any) => String(entry?.type_line || entry?.typeLine || '').toLowerCase().includes(String(cost.filter).toLowerCase()))
-      : hand;
+    const isSourceInHand = String(card?.id || '') && hand.some((h: any) => String(h.id) === String(card.id));
+    const eligible = hand.filter((entry: any) => {
+      if (isSourceInHand && String(entry.id) === String(card.id)) return false;
+      if (!cost.filter) return true;
+      return String(entry?.type_line || entry?.typeLine || '').toLowerCase().includes(String(cost.filter).toLowerCase());
+    });
+    return eligible.length >= amount;
+  }
+
+  if (cost.type === 'reveal') {
+    const hand = Array.isArray(state?.zones?.[playerId]?.hand) ? state.zones[playerId].hand : [];
+    const isSourceInHand = String(card?.id || '') && hand.some((h: any) => String(h.id) === String(card.id));
+    const eligible = hand.filter((entry: any) => {
+      if (isSourceInHand && String(entry.id) === String(card.id)) return false;
+      if (!cost.filter) return true;
+      const typeLine = String(entry?.type_line || '').toLowerCase();
+      const name = String(entry?.name || '').toLowerCase();
+      return typeLine.includes(String(cost.filter).toLowerCase()) || name.includes(String(cost.filter).toLowerCase());
+    });
     return eligible.length >= amount;
   }
 
@@ -1485,6 +1509,11 @@ export function getCastableSpellCandidates(
         }
 
         if (!hasValidTargetsForSpell(state, playerId, castCard)) {
+          continue;
+        }
+
+        const addCost = getEffectiveAdditionalCost(castCard, castCard.oracle_text || castCard.oracleText || '');
+        if (addCost && !canPaySourceGrantedAdditionalCost(state, playerId, card, addCost as any)) {
           continue;
         }
 

@@ -378,7 +378,7 @@ export function calculateHarmonizeOptions(
   return options;
 }
 
-function getEffectiveAdditionalCost(card: any, oracleText: string): AdditionalCostResult | null {
+export function getEffectiveAdditionalCost(card: any, oracleText: string): AdditionalCostResult | null {
   const sourceGrantedAdditionalCost = (card as any)?.sourceGrantedAdditionalCost;
   if (sourceGrantedAdditionalCost && typeof sourceGrantedAdditionalCost === 'object') {
     const type = String((sourceGrantedAdditionalCost as any).type || '').trim().toLowerCase();
