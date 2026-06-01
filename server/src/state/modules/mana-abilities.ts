@@ -134,7 +134,7 @@ function getCommanderColorIdentity(gameState: any, playerId: string): Set<string
     if (!commander) continue;
     
     // color_identity is an array like ['W', 'U', 'B', 'R', 'G']
-    const colorIdentity = commander.color_identity || [];
+    const colorIdentity = commander.color_identity || commander.colorIdentity || [];
     
     for (const color of colorIdentity) {
       const colorUpper = color.toUpperCase();

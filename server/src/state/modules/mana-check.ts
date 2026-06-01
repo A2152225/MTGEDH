@@ -270,142 +270,180 @@ export function canPayManaCost(
     C: "colorless",
   };
 
-  // Make a copy of the pool to track what's been spent
-  // NOTE: remainingPool may include marker keys like anyColor / choiceColors_*.
-  const remainingPool: Record<string, number> = { ...pool };
-  let remainingLife = lifeAvailable;
+  const letterToManaKey: Record<string, string> = {
+    W: "white",
+    U: "blue",
+    B: "black",
+    R: "red",
+    G: "green",
+    C: "colorless",
+  };
+
+  // Reconstruct exact individual mana sources to enforce mutual exclusion
+  const specific: Record<string, number> = {
+    white: pool.white || 0,
+    blue: pool.blue || 0,
+    black: pool.black || 0,
+    red: pool.red || 0,
+    green: pool.green || 0,
+    colorless: pool.colorless || 0,
+  };
+
+  const anyColorCount = pool.anyColor || 0;
   
-  // Track how many anyColor sources we've used
-  // When we pay a colored cost, if that color came from an anyColor source,
-  // we need to decrement anyColor
-  let anyColorUsed = 0;
+  // Find all choice markers
+  const choiceSources: Array<{ key: string; colors: string[]; count: number }> = [];
+  for (const [key, val] of Object.entries(pool)) {
+    if (key.startsWith('choiceColors_') && val > 0) {
+      const letters = key.slice('choiceColors_'.length).split('');
+      choiceSources.push({
+        key,
+        colors: letters,
+        count: val,
+      });
+    }
+  }
+
+  // De-inflate the specific counts
+  // 1. Subtract anyColor contributions (each anyColor source contributed +1 to W, U, B, R, G)
+  if (anyColorCount > 0) {
+    specific.white = Math.max(0, specific.white - anyColorCount);
+    specific.blue = Math.max(0, specific.blue - anyColorCount);
+    specific.black = Math.max(0, specific.black - anyColorCount);
+    specific.red = Math.max(0, specific.red - anyColorCount);
+    specific.green = Math.max(0, specific.green - anyColorCount);
+  }
+
+  // 2. Subtract choice contributions (each choice source contributed +1 to each of its colors)
+  for (const cs of choiceSources) {
+    for (const letter of cs.colors) {
+      const xKey = letterToManaKey[letter];
+      if (xKey) {
+        specific[xKey] = Math.max(0, specific[xKey] - cs.count);
+      }
+    }
+  }
+
+  // Build list of individual mana sources
+  const sources: Array<{ allowed: Set<string> }> = [];
   
-  // First, pay all non-hybrid colored costs
+  for (const [colorKey, count] of Object.entries(specific)) {
+    for (let i = 0; i < count; i++) {
+      sources.push({ allowed: new Set([colorKey]) });
+    }
+  }
+  
+  for (let i = 0; i < anyColorCount; i++) {
+    sources.push({ allowed: new Set(['white', 'blue', 'black', 'red', 'green']) });
+  }
+  
+  for (const cs of choiceSources) {
+    const allowedSet = new Set<string>();
+    for (const letter of cs.colors) {
+      const xKey = letterToManaKey[letter];
+      if (xKey) allowedSet.add(xKey);
+    }
+    for (let i = 0; i < cs.count; i++) {
+      sources.push({ allowed: allowedSet });
+    }
+  }
+
+  const reqColors: string[] = [];
   for (const [color, needed] of Object.entries(parsedCost.colors)) {
     if (needed === 0) continue;
     const colorKey = manaColorMap[color];
-    if (!colorKey) continue;
-    
-    const available = remainingPool[colorKey] || 0;
-    if (available < needed) {
-      return false; // Can't pay this colored requirement
-    }
-    
-    // When paying colored costs, track if we're using anyColor sources
-    // If pool.anyColor > 0, then the colored mana might be from anyColor sources
-    // For each colored mana we spend, if anyColor > anyColorUsed, we're using an anyColor source
-    for (let i = 0; i < needed; i++) {
-      if (remainingPool.anyColor && anyColorUsed < remainingPool.anyColor) {
-        anyColorUsed++;
+    if (colorKey) {
+      for (let i = 0; i < needed; i++) {
+        reqColors.push(colorKey);
       }
     }
-    
-    remainingPool[colorKey] -= needed;
   }
-  
-  // Apply anyColor reduction after paying colored costs
-  applyAnyColorReduction(remainingPool, anyColorUsed);
-  
-  // Then, pay hybrid costs (can use any of the specified colors)
-  if (parsedCost.hybrid && parsedCost.hybrid.length > 0) {
-    for (const hybridOptions of parsedCost.hybrid) {
-      let paid = false;
-      
-      // Check if this is a Phyrexian cost (has LIFE: option)
-      const isPhyrexianCost = hybridOptions.some(o => o.startsWith('LIFE:'));
-      
-      // Try to pay with one of the hybrid options
-      for (const option of hybridOptions) {
+
+  const hybrids = parsedCost.hybrid || [];
+
+  function dfs(
+    reqIdx: number,
+    hybridIdx: number,
+    life: number,
+    usedSources: boolean[]
+  ): boolean {
+    if (reqIdx < reqColors.length) {
+      const neededColor = reqColors[reqIdx];
+      for (let i = 0; i < sources.length; i++) {
+        if (!usedSources[i] && sources[i].allowed.has(neededColor)) {
+          usedSources[i] = true;
+          if (dfs(reqIdx + 1, hybridIdx, life, usedSources)) {
+            return true;
+          }
+          usedSources[i] = false;
+        }
+      }
+      return false;
+    }
+
+    if (hybridIdx < hybrids.length) {
+      const options = hybrids[hybridIdx];
+      for (const option of options) {
         if (option.startsWith('LIFE:')) {
-          // Phyrexian mana - can pay with life
-          const lifeAmount = parseInt(option.split(':')[1], 10);
-          if (remainingLife >= lifeAmount) {
-            remainingLife -= lifeAmount;
-            paid = true;
-            break;
+          const lCost = parseInt(option.split(':')[1], 10) || 2;
+          if (life >= lCost) {
+            if (dfs(reqIdx, hybridIdx + 1, life - lCost, usedSources)) {
+              return true;
+            }
           }
         } else if (option.startsWith('GENERIC:')) {
-          // Can pay with N generic mana (e.g., GENERIC:2, GENERIC:3)
-          const genericAmount = parseInt(option.split(':')[1], 10);
-          const totalRemaining = getTotalManaFromPool(remainingPool);
-          if (totalRemaining >= genericAmount) {
-            // Deduct N from any available mana (prefer colorless first)
-            let toPay = genericAmount;
-            if (remainingPool.colorless >= toPay) {
-              remainingPool.colorless -= toPay;
-              toPay = 0;
-            } else if (remainingPool.colorless > 0) {
-              toPay -= remainingPool.colorless;
-              remainingPool.colorless = 0;
-            }
-            // Pay remainder from any colors (may need to combine multiple)
-            if (toPay > 0) {
-              for (const colorKey of Object.keys(remainingPool)) {
-                if (colorKey === 'colorless' || colorKey === 'anyColor') continue; // Skip special keys
-                if (colorKey.startsWith('choiceColors_')) continue; // Skip choice-source markers
-                const available = remainingPool[colorKey as keyof typeof remainingPool];
-                if (available > 0) {
-                  const toDeduct = Math.min(available, toPay);
-                  remainingPool[colorKey as keyof typeof remainingPool] -= toDeduct;
-                  toPay -= toDeduct;
-                  
-                  // Track anyColor usage
-                  if (remainingPool.anyColor) {
-                    const colorUsed = Math.min(toDeduct, remainingPool.anyColor - anyColorUsed);
-                    anyColorUsed += colorUsed;
-                  }
-                  
-                  if (toPay === 0) break;
-                }
+          const gCost = parseInt(option.split(':')[1], 10) || 2;
+          let unusedCount = 0;
+          for (let i = 0; i < sources.length; i++) {
+            if (!usedSources[i]) unusedCount++;
+          }
+          if (unusedCount >= gCost) {
+            const markedIndices: number[] = [];
+            let needed = gCost;
+            for (let i = 0; i < sources.length; i++) {
+              if (!usedSources[i]) {
+                usedSources[i] = true;
+                markedIndices.push(i);
+                needed--;
+                if (needed === 0) break;
               }
             }
-            if (toPay === 0) {
-              // Apply anyColor reduction for hybrid payment
-              applyAnyColorReduction(remainingPool, anyColorUsed);
-              anyColorUsed = 0; // Reset since we've applied it
-              paid = true;
-              break;
+            if (dfs(reqIdx, hybridIdx + 1, life, usedSources)) {
+              return true;
+            }
+            for (const idx of markedIndices) {
+              usedSources[idx] = false;
             }
           }
         } else {
-          // Try to pay with this specific color
           const colorKey = manaColorMap[option];
-          if (colorKey && remainingPool[colorKey] > 0) {
-            // For Phyrexian costs, check if paying with color would leave enough for generic
-            if (isPhyrexianCost) {
-              // Calculate if we'd have enough after paying this color
-              const totalAfterColorPayment = getTotalManaFromPool(remainingPool) - 1;
-              if (totalAfterColorPayment < parsedCost.generic) {
-                // Not enough mana left for generic if we pay with color
-                // Skip this option and try life payment instead
-                continue;
+          if (colorKey) {
+            for (let i = 0; i < sources.length; i++) {
+              if (!usedSources[i] && sources[i].allowed.has(colorKey)) {
+                usedSources[i] = true;
+                if (dfs(reqIdx, hybridIdx + 1, life, usedSources)) {
+                  return true;
+                }
+                usedSources[i] = false;
               }
             }
-            
-            // Track anyColor usage
-            if (remainingPool.anyColor && anyColorUsed < remainingPool.anyColor) {
-              anyColorUsed++;
-            }
-            
-            remainingPool[colorKey] -= 1;
-            paid = true;
-            break;
           }
         }
       }
-      
-      if (!paid) {
-        return false; // Couldn't pay this hybrid cost
+      return false;
+    }
+
+    let leftoverCount = 0;
+    for (let i = 0; i < sources.length; i++) {
+      if (!usedSources[i]) {
+        leftoverCount++;
       }
     }
-    
-    // Apply anyColor reduction from hybrid costs
-    applyAnyColorReduction(remainingPool, anyColorUsed);
+    return leftoverCount >= parsedCost.generic;
   }
 
-  // Finally, check if we have enough remaining for generic cost
-  const totalRemaining = getTotalManaFromPool(remainingPool);
-  return totalRemaining >= parsedCost.generic;
+  const used = new Array(sources.length).fill(false);
+  return dfs(0, 0, lifeAvailable, used);
 }
 
 /**
@@ -1212,7 +1250,10 @@ function buildExactManaSources(state: any, playerId: PlayerID): ExactManaSource[
       if (!hasHaste) continue;
     }
 
-    if (/^(plains|island|swamp|mountain|forest)$/i.test(cardName)) {
+    const isBasicLandName = /^(plains|island|swamp|mountain|forest)$/i.test(cardName);
+    const isSnowCoveredBasic = /^snow-covered\s+(plains|island|swamp|mountain|forest)$/i.test(cardName);
+    if (isBasicLandName || isSnowCoveredBasic) {
+      const baseName = cardName.replace(/^snow-covered\s+/i, '');
       const landToColor: Record<string, SimpleManaKey> = {
         plains: 'white',
         island: 'blue',
@@ -1220,7 +1261,7 @@ function buildExactManaSources(state: any, playerId: PlayerID): ExactManaSource[
         mountain: 'red',
         forest: 'green',
       };
-      const colorKey = landToColor[cardName];
+      const colorKey = landToColor[baseName];
       if (colorKey) {
         sources.push({
           id: String(permanent.id || `${cardName}_${sources.length}`),
@@ -1395,20 +1436,22 @@ function getOpponentPermanentColors(state: any, playerId: PlayerID, onlyLands: b
     // Filter to only lands if requested (for cards like Exotic Orchard that say "land")
     if (onlyLands && !typeLine.includes("land")) continue;
     
-    // Check basic lands first
-    if (/^(plains|island|swamp|mountain|forest)$/i.test(cardName)) {
-      const landToColor: Record<string, string> = {
-        'plains': 'white',
-        'island': 'blue',
-        'swamp': 'black',
-        'mountain': 'red',
-        'forest': 'green',
-      };
-      const colorKey = landToColor[cardName];
-      if (colorKey) {
-        opponentColors.add(colorKey);
+    // Check basic lands and land subtypes first (Rule 305.6)
+    const isBasicOrSubtype = /^(plains|island|swamp|mountain|forest)$/i.test(cardName) ||
+      /^snow-covered\s+(plains|island|swamp|mountain|forest)$/i.test(cardName) ||
+      typeLine.includes("plains") || typeLine.includes("island") || typeLine.includes("swamp") || typeLine.includes("mountain") || typeLine.includes("forest");
+    
+    if (isBasicOrSubtype) {
+      if (/plains/i.test(cardName) || typeLine.includes("plains")) opponentColors.add("white");
+      if (/island/i.test(cardName) || typeLine.includes("island")) opponentColors.add("blue");
+      if (/swamp/i.test(cardName) || typeLine.includes("swamp")) opponentColors.add("black");
+      if (/mountain/i.test(cardName) || typeLine.includes("mountain")) opponentColors.add("red");
+      if (/forest/i.test(cardName) || typeLine.includes("forest")) opponentColors.add("green");
+      
+      // Skip further parsing for basic-named lands with no other abilities (keeps it clean)
+      if (/^(plains|island|swamp|mountain|forest)$/i.test(cardName) || /^snow-covered\s+(plains|island|swamp|mountain|forest)$/i.test(cardName)) {
+        continue;
       }
-      continue;
     }
     
     // Per Rule 106.7, check ALL abilities that could produce mana if they resolved
@@ -1449,8 +1492,14 @@ function getOpponentPermanentColors(state: any, playerId: PlayerID, onlyLands: b
         const hasCounterReplacement = /if\s+.*\s+has\s+(?:a|an)\s+(\w+)\s+counter.*instead\s+add\s+one\s+mana\s+of\s+any\s+color/i.test(fullAbilityContext);
         
         if (hasCommanderCondition) {
-          // Command Tower type - need to check opponent's commander
-          // For now, conservatively don't add colors (would need commander info)
+          // Command Tower type - check the controller's commander
+          const controllerId = permanent.controller;
+          if (controllerId) {
+            const commanderColors = getCommanderColorIdentity(state, controllerId);
+            for (const col of commanderColors) {
+              opponentColors.add(col);
+            }
+          }
           continue;
         } else if (hasLandCondition || hasPermanentCondition) {
           // Exotic Orchard type - skip to avoid infinite recursion
@@ -1526,17 +1575,22 @@ function getControlledPermanentColors(
 
     if (onlyLands && !typeLine.includes('land')) continue;
 
-    if (/^(plains|island|swamp|mountain|forest)$/i.test(cardName)) {
-      const landToColor: Record<string, string> = {
-        plains: 'white',
-        island: 'blue',
-        swamp: 'black',
-        mountain: 'red',
-        forest: 'green',
-      };
-      const colorKey = landToColor[cardName];
-      if (colorKey) controlledColors.add(colorKey);
-      continue;
+    // Check basic lands and land subtypes first (Rule 305.6)
+    const isBasicOrSubtype = /^(plains|island|swamp|mountain|forest)$/i.test(cardName) ||
+      /^snow-covered\s+(plains|island|swamp|mountain|forest)$/i.test(cardName) ||
+      typeLine.includes("plains") || typeLine.includes("island") || typeLine.includes("swamp") || typeLine.includes("mountain") || typeLine.includes("forest");
+    
+    if (isBasicOrSubtype) {
+      if (/plains/i.test(cardName) || typeLine.includes("plains")) controlledColors.add("white");
+      if (/island/i.test(cardName) || typeLine.includes("island")) controlledColors.add("blue");
+      if (/swamp/i.test(cardName) || typeLine.includes("swamp")) controlledColors.add("black");
+      if (/mountain/i.test(cardName) || typeLine.includes("mountain")) controlledColors.add("red");
+      if (/forest/i.test(cardName) || typeLine.includes("forest")) controlledColors.add("green");
+      
+      // Skip further parsing for basic-named lands with no other abilities (keeps it clean)
+      if (/^(plains|island|swamp|mountain|forest)$/i.test(cardName) || /^snow-covered\s+(plains|island|swamp|mountain|forest)$/i.test(cardName)) {
+        continue;
+      }
     }
 
     const manaAbilityPattern = /(?:^|[.:])\s*(?:.*?(?:tap|enters|beginning|end|whenever|when))?\s*(?:.*?)add\s+([^.\n]+)/gi;
@@ -1558,7 +1612,13 @@ function getControlledPermanentColors(
         const hasControlledPermanentCondition = /that (?:a |an )?permanent you control could produce|among permanents you control/i.test(fullAbilityContext);
         const hasCounterReplacement = /if\s+.*\s+has\s+(?:a|an)\s+(\w+)\s+counter.*instead\s+add\s+one\s+mana\s+of\s+any\s+color/i.test(fullAbilityContext);
 
-        if (hasCommanderCondition || hasOpponentLandCondition || hasOpponentPermanentCondition) {
+        if (hasCommanderCondition) {
+          const commanderColors = getCommanderColorIdentity(state, playerId);
+          for (const col of commanderColors) {
+            controlledColors.add(col);
+          }
+          continue;
+        } else if (hasOpponentLandCondition || hasOpponentPermanentCondition) {
           continue;
         } else if (hasControlledLandCondition || hasControlledPermanentCondition) {
           const nestedColors = getControlledPermanentColors(
@@ -1659,7 +1719,10 @@ export function getAvailableMana(state: any, playerId: PlayerID): Record<string,
     
     // Special case: Basic lands (Mountain, Island, etc.)
     // Handle these first since they don't have oracle text with mana abilities
-    if (/^(plains|island|swamp|mountain|forest)$/i.test(cardName)) {
+    const isBasicLandName = /^(plains|island|swamp|mountain|forest)$/i.test(cardName);
+    const isSnowCoveredBasic = /^snow-covered\s+(plains|island|swamp|mountain|forest)$/i.test(cardName);
+    if (isBasicLandName || isSnowCoveredBasic) {
+      const baseName = cardName.replace(/^snow-covered\s+/i, '');
       const landToColor: Record<string, string> = {
         'plains': 'white',
         'island': 'blue',
@@ -1667,7 +1730,7 @@ export function getAvailableMana(state: any, playerId: PlayerID): Record<string,
         'mountain': 'red',
         'forest': 'green',
       };
-      const colorKey = landToColor[cardName];
+      const colorKey = landToColor[baseName];
       if (colorKey) {
         pool[colorKey] = (pool[colorKey] || 0) + 1;
       }
@@ -1874,34 +1937,47 @@ export function getAvailableMana(state: any, playerId: PlayerID): Record<string,
         // This is an OR mana ability - only count as 1 mana
         // We still track it as potentially producing any of the colors for cost-checking
         // but don't double-count the total mana available
-        // Extract the first mana symbol to add to the pool (player's choice will come later)
-        const firstManaMatch = fullManaText.match(/\{([wubrgc])\}/i);
-        if (firstManaMatch) {
-          const color = firstManaMatch[1].toUpperCase();
-          const colorKey = {
-            'W': 'white',
-            'U': 'blue',
-            'B': 'black',
-            'R': 'red',
-            'G': 'green',
-            'C': 'colorless',
-          }[color];
-          
-          if (colorKey) {
-            // For OR mana, we mark it as potentially producing any of the colors
-            // For simplicity, we add 1 to all available colors in the OR clause
-            // This is for COST CHECKING purposes - actual production requires player choice
-            const orManaSymbols = fullManaText.match(/\{([wubrgc])\}/gi) || [];
-            const orColors = orManaSymbols.map(sym => sym.replace(/[{}]/g, '').toUpperCase());
-            
-            // Only add 1 to the first color for total count purposes
-            // The canPayManaCost function will handle the actual choice
-            pool[colorKey] = (pool[colorKey] || 0) + 1;
-            
-            // Skip to next match to avoid double-counting OR mana
-            continue;
+        const orManaSymbols = fullManaText.match(/\{([wubrgc])\}/gi) || [];
+        const orColors = orManaSymbols.map(sym => sym.replace(/[{}]/g, '').toUpperCase());
+        const optionLetters = new Set(orColors);
+        
+        if (optionLetters.size >= 2) {
+          const lettersSorted = Array.from(optionLetters).sort().join('');
+          for (const letter of optionLetters) {
+            const colKey = {
+              'W': 'white',
+              'U': 'blue',
+              'B': 'black',
+              'R': 'red',
+              'G': 'green',
+              'C': 'colorless',
+            }[letter];
+            if (colKey) {
+              pool[colKey] = (pool[colKey] || 0) + 1;
+            }
+          }
+          const markerKey = `choiceColors_${lettersSorted}`;
+          (pool as any)[markerKey] = Number((pool as any)[markerKey] || 0) + 1;
+        } else {
+          const firstManaMatch = fullManaText.match(/\{([wubrgc])\}/i);
+          if (firstManaMatch) {
+            const color = firstManaMatch[1].toUpperCase();
+            const colorKey = {
+              'W': 'white',
+              'U': 'blue',
+              'B': 'black',
+              'R': 'red',
+              'G': 'green',
+              'C': 'colorless',
+            }[color];
+            if (colorKey) {
+              pool[colorKey] = (pool[colorKey] || 0) + 1;
+            }
           }
         }
+        
+        // Skip to next match to avoid double-counting OR mana
+        continue;
       }
       
       // Check if this produces multiple mana at once (e.g., Sol Ring "{C}{C}", bounce lands "{B}{R}")
@@ -2002,8 +2078,24 @@ export function getAvailableMana(state: any, playerId: PlayerID): Record<string,
           pool[colorKey] = (pool[colorKey] || 0) + 1;
         }
 
-        // Note: We don't track these in 'anyColor' because they're not truly "any color"
-        // They're restricted to what opponents can produce
+        // Add a choiceColors marker so that other modules and canPayManaCost do not overcount
+        // these potential color options as multiple distinct mana sources.
+        if (conditionalColors.size >= 2) {
+          const optionLetterMap: Record<string, string> = {
+            'white': 'W',
+            'blue': 'U',
+            'black': 'B',
+            'red': 'R',
+            'green': 'G',
+            'colorless': 'C',
+          };
+          const letters = Array.from(conditionalColors).map(c => optionLetterMap[c]).filter(Boolean);
+          if (letters.length >= 2) {
+            const lettersSorted = letters.slice().sort().join('');
+            const markerKey = `choiceColors_${lettersSorted}`;
+            (pool as any)[markerKey] = Number((pool as any)[markerKey] || 0) + 1;
+          }
+        }
       }
     }
   }

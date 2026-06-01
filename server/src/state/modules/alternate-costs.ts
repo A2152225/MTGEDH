@@ -564,9 +564,31 @@ export function hasPayableAlternateCost(
   if (hasConvokeAlternateCost(ctx, playerId, card, excludedHandCardIds)) return true;
   if (hasDelveAlternateCost(ctx, playerId, card)) return true;
   if (hasImproviseAlternateCost(ctx, playerId, card, excludedHandCardIds)) return true;
-  if (hasMutateAlternateCost(ctx, playerId, card)) return true;
-  if (hasSelfWUBRGAlternateCost(card)) return true;
-  if (getExternalWUBRGSource(ctx, playerId)) return true;
+
+  if (hasMutateAlternateCost(ctx, playerId, card)) {
+    const costStr = parseMutateCost(card.oracle_text || "");
+    if (costStr) {
+      const parsedCost = parseManaCost(costStr);
+      if (canPayManaCostWithAvailableSources(ctx.state, playerId, parsedCost, Infinity, excludedHandCardIds?.length ? { excludedHandCardIds } : undefined)) {
+        return true;
+      }
+    }
+  }
+
+  if (hasSelfWUBRGAlternateCost(card)) {
+    const parsedCost = parseManaCost('{W}{U}{B}{R}{G}');
+    if (canPayManaCostWithAvailableSources(ctx.state, playerId, parsedCost, Infinity, excludedHandCardIds?.length ? { excludedHandCardIds } : undefined)) {
+      return true;
+    }
+  }
+
+  if (getExternalWUBRGSource(ctx, playerId)) {
+    const parsedCost = parseManaCost('{W}{U}{B}{R}{G}');
+    if (canPayManaCostWithAvailableSources(ctx.state, playerId, parsedCost, Infinity, excludedHandCardIds?.length ? { excludedHandCardIds } : undefined)) {
+      return true;
+    }
+  }
+
   if (getOmniscienceSource(ctx, playerId)) return true;
   
   return false;

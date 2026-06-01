@@ -133,5 +133,44 @@ export function evaluateSpellValue(
     value += creatureCount > 0 ? BUFF_SPELL_WITH_CREATURES_BONUS : BUFF_SPELL_NO_CREATURES_PENALTY;
   }
 
+  // Check for "Fog" (combat damage prevention) spells
+  // Matches: "Prevent all combat damage that would be dealt this turn."
+  const isFog = (typeLine.includes('instant') || typeLine.includes('sorcery')) &&
+    oracleText.includes('prevent') && oracleText.includes('combat damage');
+
+  if (isFog) {
+    // Are there any creatures attacking the AI player (playerId)?
+    const attackingMe = battlefield.filter(p => {
+      const attackingValue = (p as any).attacking;
+      if (!attackingValue) return false;
+      // In multiplayer, p.attacking might be a playerId (the defending player) or true
+      return p.controller !== playerId && (attackingValue === playerId || attackingValue === true);
+    });
+
+    const anyAttackers = battlefield.filter(p => (p as any).attacking);
+
+    if (attackingMe.length > 0) {
+      // Very desirable to cast if opponents are attacking me with substantial power!
+      let totalPowerAttackingMe = 0;
+      for (const att of attackingMe) {
+        totalPowerAttackingMe += getCreaturePower(att);
+      }
+      
+      if (totalPowerAttackingMe >= 10) {
+        value += 12; // Extremely high priority to save our life
+      } else if (totalPowerAttackingMe >= 4) {
+        value += 8;  // Highly desirable
+      } else {
+        value += 4;  // Moderately desirable
+      }
+    } else if (anyAttackers.length > 0) {
+      // In multiplayer EDH, other players attacking each other could be fogged, but usually we save it for ourself.
+      value -= 2; 
+    } else {
+      // Severe penalty if there are NO attackers or NO combat going on!
+      value -= 15;
+    }
+  }
+
   return value;
 }
