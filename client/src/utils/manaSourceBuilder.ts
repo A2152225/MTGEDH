@@ -333,7 +333,7 @@ function normalizeInlinePaymentAbilityId(ability: InlineSelectedPaymentAbility):
 }
 
 function buildExplicitInlineManaAbilities(card: NonNullable<BattlefieldPermanent['card']> & { id?: string; name: string }): InlineSelectedPaymentAbility[] {
-  const oracleText = String((card as any).oracle_text || '').trim();
+  const oracleText = String((card as any).oracle_text || '').replace(/\([^)]*\)/g, '').trim();
   if (!oracleText) return [];
 
   const activatedAbilityPattern = /^(\{[^}]+\}(?:,?\s*\{[^}]+\})*(?:,?\s*(?:Sacrifice[^:]*|Pay[^:]*|Discard[^:]*|Exile[^:]*|Remove[^:]*|Tap[^:]*|Untap[^:]*))?)\s*:\s*(.+)$/i;

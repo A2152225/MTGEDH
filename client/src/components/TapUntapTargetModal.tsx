@@ -31,6 +31,10 @@ export interface TapUntapTargetModalProps {
   targetFilter: {
     // Types of permanents that can be targeted
     types?: ('creature' | 'land' | 'artifact' | 'enchantment' | 'planeswalker' | 'permanent')[];
+    // Subtypes of permanents
+    subtypes?: string[];
+    // Require all types
+    requireAllTypes?: boolean;
     // Controller requirement
     controller?: 'you' | 'opponent' | 'any';
     // Tap status requirement
@@ -87,13 +91,31 @@ function matchesFilter(
     const typeLine = (card.type_line || '').toLowerCase();
     
     // 'permanent' matches everything
-    if (filter.types.includes('permanent')) return true;
-    
-    const matchesAnyType = filter.types.some(type => {
-      if (type === 'permanent') return true;
-      return typeLine.includes(type.toLowerCase());
-    });
-    if (!matchesAnyType) return false;
+    if (!filter.types.includes('permanent')) {
+      const requireAllTypes = filter.requireAllTypes === true;
+      if (requireAllTypes) {
+        const matchesAll = filter.types.every(type => {
+          if (type === 'permanent') return true;
+          return typeLine.includes(type.toLowerCase());
+        });
+        if (!matchesAll) return false;
+      } else {
+        const matchesAnyType = filter.types.some(type => {
+          if (type === 'permanent') return true;
+          return typeLine.includes(type.toLowerCase());
+        });
+        if (!matchesAnyType) return false;
+      }
+    }
+  }
+
+  // Check subtype filter
+  if (filter.subtypes && filter.subtypes.length > 0) {
+    const typeLine = (card.type_line || '').toLowerCase();
+    const matchesAllSub = filter.subtypes.every(sub => 
+      typeLine.includes(sub.toLowerCase())
+    );
+    if (!matchesAllSub) return false;
   }
   
   return true;

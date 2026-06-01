@@ -1691,6 +1691,8 @@ export function TableLayout(props: {
                               isMainPhase={!!isMainPhase}
                               stackEmpty={stackEmpty}
                               hasThousandYearElixirEffect={hasThousandYearElixirEffect}
+                              playableCards={isYouThis ? playableCards : undefined}
+                              appearanceSettings={appearanceSettings}
                             />
                           </div>
                         )}
@@ -1732,6 +1734,8 @@ export function TableLayout(props: {
                               isMainPhase={!!isMainPhase}
                               stackEmpty={stackEmpty}
                               hasThousandYearElixirEffect={hasThousandYearElixirEffect}
+                              playableCards={isYouThis ? playableCards : undefined}
+                              appearanceSettings={appearanceSettings}
                             />
                           </div>
                         )}

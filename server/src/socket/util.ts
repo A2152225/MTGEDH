@@ -591,7 +591,7 @@ function getPlayableCardIds(game: InMemoryGame, playerId: PlayerID): string[] {
           continue; // Card is on battlefield, don't allow graveyard abilities
         }
         
-        const oracleText = card.oracle_text || "";
+        const oracleText = (card.oracle_text || "").replace(/\([^)]*\)/g, "");
         
         // Look for activated abilities that mention graveyard in the effect
         // Pattern: "{Cost}: [Effect mentions graveyard]"
@@ -624,7 +624,7 @@ function getPlayableCardIds(game: InMemoryGame, playerId: PlayerID): string[] {
     for (const perm of battlefield) {
       if (!perm || perm.controller !== playerId) continue;
       
-      const oracleText = perm.card?.oracle_text || "";
+      const oracleText = (perm.card?.oracle_text || "").replace(/\([^)]*\)/g, "");
       let hasActivatableAbility = false;
       
       // Check for tap abilities
@@ -4038,7 +4038,7 @@ export function calculateManaProduction(
   abilityId?: string | null,
 ): ManaProductionInfo {
   const card = permanent?.card || {};
-  const oracleText = (card.oracle_text || '').toLowerCase();
+  const oracleText = (card.oracle_text || '').replace(/\([^)]*\)/g, '').toLowerCase();
   const selectedAbilityLine = resolveActivatedAbilityLineById(permanent, abilityId);
   const selectedLegacyManaAbility = resolveLegacyManaAbilityById(gameState, permanent, playerId, abilityId);
   const selectedAbilityLineText = String(selectedAbilityLine?.lineText || '').toLowerCase();

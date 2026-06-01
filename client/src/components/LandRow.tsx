@@ -5,6 +5,7 @@ import { showCardPreview, hideCardPreview } from './CardPreviewLayer';
 import { CardContextMenu } from './CardContextMenu';
 import { AbilitySelectionModal } from './AbilitySelectionModal';
 import { parseActivatedAbilities, canActivateTapAbility, getThresholdActivationStatus, type ParsedActivatedAbility, type ActivationContext } from '../utils/activatedAbilityParser';
+import { getPlayableCardHighlight } from '../utils/appearanceSettings';
 
 function canonicalLandKey(typeLine?: string, name?: string) {
   const tl = (typeLine || '').toLowerCase();
@@ -98,6 +99,8 @@ export function LandRow(props: {
   isMainPhase?: boolean;
   stackEmpty?: boolean;
   hasThousandYearElixirEffect?: boolean;
+  playableCards?: string[];
+  appearanceSettings?: any;
 }) {
   const {
     lands,
@@ -118,6 +121,8 @@ export function LandRow(props: {
     isMainPhase = false,
     stackEmpty = true,
     hasThousandYearElixirEffect = false,
+    playableCards = [],
+    appearanceSettings,
   } = props;
 
   const items = useMemo(() => lands.map(p => {
@@ -238,6 +243,7 @@ export function LandRow(props: {
         const isHighlight = highlightTargets?.has(it.id) ?? false;
         const isSelected = selectedTargets?.has(it.id) ?? false;
         const isHovered = hovered === it.id;
+        const isPlayable = playableCards.includes(it.id);
 
         const baseBorder = isSelected ? '#2b6cb0' : isHighlight ? '#38a169' : '#2b2b2b';
         const borderColor = isHovered && isHighlight && !isSelected ? '#2ecc71' : baseBorder;
@@ -245,7 +251,9 @@ export function LandRow(props: {
           ? '0 0 0 2px rgba(43,108,176,0.6)'
           : isHighlight
             ? '0 0 0 2px rgba(56,161,105,0.45)'
-            : 'none';
+            : isPlayable
+              ? getPlayableCardHighlight(appearanceSettings)
+              : 'none';
 
         return (
           <div
@@ -309,6 +317,145 @@ export function LandRow(props: {
                 Tapped
               </div>
             )}
+
+            {/* ETB Choice Badges - Show selected color, creature type, card name, player, or option */}
+            {(() => {
+              const badges = [];
+              const itAny = it as any;
+              
+              if (itAny.chosenColor) {
+                const colorMap: Record<string, { bg: string; name: string }> = {
+                  white: { bg: '#f9fafb', name: 'White' },
+                  blue: { bg: '#3b82f6', name: 'Blue' },
+                  black: { bg: '#1f2937', name: 'Black' },
+                  red: { bg: '#ef4444', name: 'Red' },
+                  green: { bg: '#22c55e', name: 'Green' },
+                };
+                const colorInfo = colorMap[itAny.chosenColor.toLowerCase()] || { bg: '#6b7280', name: itAny.chosenColor };
+                badges.push(
+                  <div
+                    key="color"
+                    style={{
+                      background: colorInfo.bg,
+                      color: itAny.chosenColor === 'white' ? '#000' : '#fff',
+                      fontSize: 9,
+                      padding: '2px 5px',
+                      borderRadius: 4,
+                      fontWeight: 650,
+                      border: '1px solid rgba(255,255,255,0.3)',
+                      whiteSpace: 'nowrap',
+                    }}
+                    title={`Chosen color: ${colorInfo.name}`}
+                  >
+                    ◆ {colorInfo.name}
+                  </div>
+                );
+              }
+              
+              if (itAny.chosenCreatureType) {
+                badges.push(
+                  <div
+                    key="creatureType"
+                    style={{
+                      background: 'rgba(139, 92, 246, 0.85)', // Purple
+                      color: '#fff',
+                      fontSize: 9,
+                      padding: '2px 5px',
+                      borderRadius: 4,
+                      fontWeight: 650,
+                      border: '1px solid rgba(255,255,255,0.3)',
+                      whiteSpace: 'nowrap',
+                    }}
+                    title={`Chosen creature type: ${itAny.chosenCreatureType}`}
+                  >
+                    ⚔ {itAny.chosenCreatureType}
+                  </div>
+                );
+              }
+              
+              if (itAny.chosenCardName) {
+                badges.push(
+                  <div
+                    key="cardName"
+                    style={{
+                      background: 'rgba(234, 88, 12, 0.85)', // Orange
+                      color: '#fff',
+                      fontSize: 9,
+                      padding: '2px 5px',
+                      borderRadius: 4,
+                      fontWeight: 650,
+                      border: '1px solid rgba(255,255,255,0.3)',
+                      maxWidth: '80px',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                    }}
+                    title={`Named card: ${itAny.chosenCardName}`}
+                  >
+                    ✦ {itAny.chosenCardName}
+                  </div>
+                );
+              }
+              
+              if (itAny.chosenPlayer) {
+                badges.push(
+                  <div
+                    key="player"
+                    style={{
+                      background: 'rgba(236, 72, 153, 0.85)', // Pink
+                      color: '#fff',
+                      fontSize: 9,
+                      padding: '2px 5px',
+                      borderRadius: 4,
+                      fontWeight: 650,
+                      border: '1px solid rgba(255,255,255,0.3)',
+                      whiteSpace: 'nowrap',
+                    }}
+                    title={`Chosen player: ${itAny.chosenPlayer}`}
+                  >
+                    👤 {itAny.chosenPlayer}
+                  </div>
+                );
+              }
+              
+              if (itAny.chosenOption) {
+                badges.push(
+                  <div
+                    key="option"
+                    style={{
+                      background: 'rgba(14, 165, 233, 0.85)', // Cyan
+                      color: '#fff',
+                      fontSize: 9,
+                      padding: '2px 5px',
+                      borderRadius: 4,
+                      fontWeight: 655,
+                      border: '1px solid rgba(255,255,255,0.3)',
+                      whiteSpace: 'nowrap',
+                    }}
+                    title={`Chosen option: ${itAny.chosenOption}`}
+                  >
+                    ✓ {itAny.chosenOption}
+                  </div>
+                );
+              }
+              
+              return badges.length > 0 ? (
+                <div
+                  style={{
+                    position: 'absolute',
+                    bottom: 42,
+                    left: 6,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 2,
+                    maxWidth: '90%',
+                    zIndex: 18,
+                  }}
+                >
+                  {badges}
+                </div>
+              ) : null;
+            })()}
 
             {/* P/T overlay for creatures with color-coded delta vs base */}
             {it.isCreature && typeof it.dispP === 'number' && typeof it.dispT === 'number' && (

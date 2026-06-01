@@ -197,12 +197,12 @@ describe('buildAvailableManaSourcesForPlayer', () => {
     expect(sources).toEqual([
       expect.objectContaining({
         sourcePermanentId: 'mountain_1',
-        abilityId: 'mountain_card_1-ability-0',
+        abilityId: 'native_r',
         options: ['R'],
       }),
       expect.objectContaining({
         sourcePermanentId: 'swamp_1',
-        abilityId: 'swamp_card_1-ability-0',
+        abilityId: 'native_b',
         options: ['B'],
       }),
     ]);

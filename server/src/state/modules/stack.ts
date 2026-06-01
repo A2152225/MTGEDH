@@ -9690,6 +9690,23 @@ export function executeTriggerEffect(
   const state = (ctx as any).state;
   if (!state) return;
   const triggerCard = (triggerItem as any)?.card || {};
+  const battlefield = state.battlefield || [];
+
+  // ===== PLANESWALKER LOYALTY COUNTER TRIGGER RESOLUTION =====
+  const addsLoyalty = Number(triggerItem.addsLoyaltyCounters || 0);
+  if (addsLoyalty > 0) {
+    const permId = triggerItem.permanentId || triggerItem.source;
+    const planeswalker = battlefield.find((p: any) => p && String(p.id) === String(permId));
+    if (planeswalker) {
+      planeswalker.counters = planeswalker.counters || {};
+      const currentLoyalty = parseInt(String(planeswalker.counters.loyalty || planeswalker.card?.loyalty || 0), 10) || 0;
+      const newLoyalty = currentLoyalty + addsLoyalty;
+      planeswalker.counters.loyalty = newLoyalty;
+      
+      debug(1, `[executeTriggerEffect] Installed loyalty counter on ${sourceName}: added ${addsLoyalty}, now at ${newLoyalty}`);
+      return;
+    }
+  }
 
   if (/^(?:you\s+)?take\s+an\s+extra\s+turn\s+after\s+this\s+one\.?$/i.test(String(description || '').trim())) {
     addExtraTurn(ctx, String(controller), sourceName || 'Extra turn trigger');
@@ -15378,7 +15395,6 @@ export function executeTriggerEffect(
   // ===== KEYWORD-BASED FALLBACK =====
   // Try to detect and process keyword abilities dynamically using the keyword detection system
   // This handles keywords like prowess, dethrone, evolve, extort, etc.
-  const battlefield = state.battlefield || [];
   const sourceId = (triggerItem as any).source || (triggerItem as any).permanentId;
   const permanent = battlefield.find((p: any) => p.id === sourceId)
     || (triggerItem as any).sourcePermanentSnapshot
@@ -23866,6 +23882,13 @@ export function playLand(ctx: GameContext, playerId: PlayerID, cardOrId: any) {
     }
   } catch (err) {
     debugWarn(1, '[playLand] Failed to check ETB triggers:', err);
+  }
+
+  // Check for and process generic ETB triggers from other permanents (e.g. Altar of the Brood)
+  try {
+    triggerETBEffectsForPermanent(ctx, newPermanent, playerId, false);
+  } catch (err) {
+    debugWarn(1, '[playLand] Failed to run triggerETBEffectsForPermanent for played land:', err);
   }
   
   // ========================================================================

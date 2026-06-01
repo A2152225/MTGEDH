@@ -6692,6 +6692,16 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
             }
           }
 
+          const subtypes = Array.isArray(targetFilter.subtypes) ? targetFilter.subtypes : [];
+          if (subtypes.length > 0) {
+            const typeLine = String(perm.card?.type_line || '').toLowerCase();
+            const matchesAllSub = subtypes.every((sub: any) => typeLine.includes(String(sub).toLowerCase()));
+            if (!matchesAllSub) {
+              socket.emit('error', { code: 'INVALID_TARGET', message: 'Target does not match required subtype' });
+              return;
+            }
+          }
+
           if (minPower !== undefined || maxPower !== undefined) {
             const pwr = getEffectivePower(perm);
             if ((minPower !== undefined && pwr < minPower) || (maxPower !== undefined && pwr > maxPower)) {
@@ -9853,6 +9863,20 @@ async function handleStepResponse(
             });
             return;
             }
+          }
+        }
+
+        // Subtype filter (if present)
+        const subtypes = Array.isArray(targetFilter.subtypes) ? targetFilter.subtypes : [];
+        if (subtypes.length > 0) {
+          const typeLine = String(perm.card?.type_line || '').toLowerCase();
+          const matchesAllSub = subtypes.every((sub: any) => typeLine.includes(String(sub).toLowerCase()));
+          if (!matchesAllSub) {
+            emitToPlayer(io, pid as any, 'error', {
+              code: 'INVALID_TARGET',
+              message: 'Target does not match required subtype',
+            });
+            return;
           }
         }
 

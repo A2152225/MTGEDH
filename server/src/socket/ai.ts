@@ -10786,6 +10786,12 @@ async function handleAIResolutionStep(
               }
             }
 
+            const subtypes = Array.isArray(targetFilter.subtypes) ? targetFilter.subtypes : [];
+            if (subtypes.length > 0) {
+              const typeLine = String(perm.card?.type_line || '').toLowerCase();
+              if (!subtypes.every((sub: any) => typeLine.includes(String(sub).toLowerCase()))) return false;
+            }
+
             if (minPower !== undefined || maxPower !== undefined) {
               const power = getEffectivePower(perm);
               if (minPower !== undefined && power < minPower) return false;

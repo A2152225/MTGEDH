@@ -11,7 +11,7 @@ import type { GameContext } from "../context.js";
 import { parsePT, calculateVariablePT, calculateAllPTBonuses, calculateAllPTBonusesWithSources, type PTBonusSource } from "../utils.js";
 import { debug, debugWarn, debugError } from "../../utils/debug.js";
 import { computeContinuousEffects } from "../../rules-engine/staticEffects.js";
-import { detectDamageReplacementEffects } from "./game-state-effects.js";
+import { detectDamageReplacementEffects, canLookAtTopOfLibrary } from "./game-state-effects.js";
 
 /**
  * Determine if `viewer` can see `owner`'s hidden zones (hand, library top, etc.)
@@ -51,6 +51,45 @@ function canSeeRevealedLibraryTop(
   const revealed = ctx.revealedLibraryTopByOwner?.get(owner);
   if (!revealed || revealed.cardId !== topCardId) return false;
   return revealed.viewers.has(viewer);
+}
+
+function isLibraryTopRevealedToAll(ctx: GameContext, owner: PlayerID): boolean {
+  const battlefield = ctx.state.battlefield || [];
+  for (const perm of battlefield) {
+    if (!perm || !perm.card) continue;
+    const cardName = (perm.card.name || '').toLowerCase();
+    const oracleText = (perm.card.oracle_text || '').toLowerCase();
+    
+    // Check if owner's own card forces reveal
+    if (perm.controller === owner) {
+      if (
+        cardName.includes("oracle of mul daya") ||
+        cardName.includes("courser of kruphix") ||
+        cardName.includes("future sight") ||
+        cardName.includes("magus of the future")
+      ) {
+        return true;
+      }
+      if (oracleText.includes("play with the top card of your library revealed")) {
+        return true;
+      }
+    }
+    
+    // Check global reveals affecting all players
+    if (oracleText.includes("play with the top card of their libraries revealed") ||
+        (oracleText.includes("play with the top card of your library revealed") && oracleText.includes("players play with"))) {
+      return true;
+    }
+  }
+  
+  if ((ctx.state as any).activePlane) {
+    const planeText = String((ctx.state as any).activePlane.oracle_text || '').toLowerCase();
+    if (planeText.includes("revealed") && planeText.includes("top card of")) {
+      return true;
+    }
+  }
+  
+  return false;
 }
 
 export function viewFor(
@@ -238,7 +277,22 @@ export function viewFor(
     let libraryTop: KnownCardRef | undefined;
     const libArr = libraries.get(p.id);
     const top = libArr && libArr.length > 0 ? libArr[0] : undefined;
-    const canSeeLibraryTop = canSee || canSeeRevealedLibraryTop(ctx, viewer, p.id as PlayerID, top?.id);
+    
+    let canSeeLibraryTop = false;
+    if (viewer === "spectator:judge") {
+      canSeeLibraryTop = true;
+    } else {
+      const isRevealedObj = isLibraryTopRevealedToAll(ctx, p.id as PlayerID);
+      const isRevealedForMe = canSeeRevealedLibraryTop(ctx, viewer, p.id as PlayerID, top?.id);
+      
+      if (isRevealedObj || isRevealedForMe) {
+        canSeeLibraryTop = true;
+      } else if (viewer === p.id) {
+        const lookPerm = canLookAtTopOfLibrary(ctx, viewer);
+        canSeeLibraryTop = lookPerm.canLook;
+      }
+    }
+
     if (canSeeLibraryTop && top) {
         libraryTop = {
           id: top.id,

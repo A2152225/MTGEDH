@@ -954,6 +954,145 @@ export function FreeField(props: {
               </div>
             )}
 
+            {/* ETB Choice Badges - Show selected color, creature type, card name, player, or option */}
+            {(() => {
+              const badges = [];
+              const pAny = raw as any;
+              
+              if (pAny.chosenColor) {
+                const colorMap: Record<string, { bg: string; name: string }> = {
+                  white: { bg: '#f9fafb', name: 'White' },
+                  blue: { bg: '#3b82f6', name: 'Blue' },
+                  black: { bg: '#1f2937', name: 'Black' },
+                  red: { bg: '#ef4444', name: 'Red' },
+                  green: { bg: '#22c55e', name: 'Green' },
+                };
+                const colorInfo = colorMap[pAny.chosenColor.toLowerCase()] || { bg: '#6b7280', name: pAny.chosenColor };
+                badges.push(
+                  <div
+                    key="color"
+                    style={{
+                      background: colorInfo.bg,
+                      color: pAny.chosenColor === 'white' ? '#000' : '#fff',
+                      fontSize: Math.round(9 * scale),
+                      padding: `${Math.round(2 * scale)}px ${Math.round(5 * scale)}px`,
+                      borderRadius: Math.round(4 * scale),
+                      fontWeight: 650,
+                      border: '1px solid rgba(255,255,255,0.3)',
+                      whiteSpace: 'nowrap',
+                    }}
+                    title={`Chosen color: ${colorInfo.name}`}
+                  >
+                    ◆ {colorInfo.name}
+                  </div>
+                );
+              }
+              
+              if (pAny.chosenCreatureType) {
+                badges.push(
+                  <div
+                    key="creatureType"
+                    style={{
+                      background: 'rgba(139, 92, 246, 0.85)', // Purple
+                      color: '#fff',
+                      fontSize: Math.round(9 * scale),
+                      padding: `${Math.round(2 * scale)}px ${Math.round(5 * scale)}px`,
+                      borderRadius: Math.round(4 * scale),
+                      fontWeight: 650,
+                      border: '1px solid rgba(255,255,255,0.3)',
+                      whiteSpace: 'nowrap',
+                    }}
+                    title={`Chosen creature type: ${pAny.chosenCreatureType}`}
+                  >
+                    ⚔ {pAny.chosenCreatureType}
+                  </div>
+                );
+              }
+              
+              if (pAny.chosenCardName) {
+                badges.push(
+                  <div
+                    key="cardName"
+                    style={{
+                      background: 'rgba(234, 88, 12, 0.85)', // Orange
+                      color: '#fff',
+                      fontSize: Math.round(9 * scale),
+                      padding: `${Math.round(2 * scale)}px ${Math.round(5 * scale)}px`,
+                      borderRadius: Math.round(4 * scale),
+                      fontWeight: 650,
+                      border: '1px solid rgba(255,255,255,0.3)',
+                      maxWidth: Math.round(80 * scale),
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                    }}
+                    title={`Named card: ${pAny.chosenCardName}`}
+                  >
+                    ✦ {pAny.chosenCardName}
+                  </div>
+                );
+              }
+              
+              if (pAny.chosenPlayer) {
+                badges.push(
+                  <div
+                    key="player"
+                    style={{
+                      background: 'rgba(236, 72, 153, 0.85)', // Pink
+                      color: '#fff',
+                      fontSize: Math.round(9 * scale),
+                      padding: `${Math.round(2 * scale)}px ${Math.round(5 * scale)}px`,
+                      borderRadius: Math.round(4 * scale),
+                      fontWeight: 650,
+                      border: '1px solid rgba(255,255,255,0.3)',
+                      whiteSpace: 'nowrap',
+                    }}
+                    title={`Chosen player: ${pAny.chosenPlayer}`}
+                  >
+                    👤 {pAny.chosenPlayer}
+                  </div>
+                );
+              }
+              
+              if (pAny.chosenOption) {
+                badges.push(
+                  <div
+                    key="option"
+                    style={{
+                      background: 'rgba(14, 165, 233, 0.85)', // Cyan
+                      color: '#fff',
+                      fontSize: Math.round(9 * scale),
+                      padding: `${Math.round(2 * scale)}px ${Math.round(5 * scale)}px`,
+                      borderRadius: Math.round(4 * scale),
+                      fontWeight: 650,
+                      border: '1px solid rgba(255,255,255,0.3)',
+                      whiteSpace: 'nowrap',
+                    }}
+                    title={`Chosen option: ${pAny.chosenOption}`}
+                  >
+                    ✓ {pAny.chosenOption}
+                  </div>
+                );
+              }
+              
+              return badges.length > 0 ? (
+                <div
+                  style={{
+                    position: 'absolute',
+                    bottom: Math.round(42 * scale),
+                    left: Math.round(6 * scale),
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: Math.round(2 * scale),
+                    maxWidth: '90%',
+                    zIndex: 18,
+                  }}
+                >
+                  {badges}
+                </div>
+              ) : null;
+            })()}
+
             {/* Name ribbon */}
             <div style={{
               position: 'absolute', left: 0, right: 0, bottom: 0,

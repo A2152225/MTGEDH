@@ -1239,7 +1239,7 @@ function buildExactManaSources(state: any, playerId: PlayerID): ExactManaSource[
     if (permanent.tapped) continue;
     if (!permanent.card) continue;
 
-    const oracleText = String(permanent.card.oracle_text || '').toLowerCase();
+    const oracleText = String(permanent.card.oracle_text || '').replace(/\([^)]*\)/g, '').toLowerCase();
     const cardName = String(permanent.card.name || '').toLowerCase();
     const typeLine = String(permanent.card.type_line || '').toLowerCase();
     const isCreature = typeLine.includes('creature');
@@ -1430,7 +1430,7 @@ function getOpponentPermanentColors(state: any, playerId: PlayerID, onlyLands: b
     
     const typeLine = (permanent.card.type_line || "").toLowerCase();
     const cardName = (permanent.card.name || "").toLowerCase();
-    const oracleText = (permanent.card.oracle_text || "").toLowerCase();
+    const oracleText = (permanent.card.oracle_text || "").replace(/\([^)]*\)/g, '').toLowerCase();
     const counters = permanent.counters || {};
     
     // Filter to only lands if requested (for cards like Exotic Orchard that say "land")
@@ -1570,7 +1570,7 @@ function getControlledPermanentColors(
 
     const typeLine = (permanent.card.type_line || '').toLowerCase();
     const cardName = (permanent.card.name || '').toLowerCase();
-    const oracleText = (permanent.card.oracle_text || '').toLowerCase();
+    const oracleText = (permanent.card.oracle_text || '').replace(/\([^)]*\)/g, '').toLowerCase();
     const counters = permanent.counters || {};
 
     if (onlyLands && !typeLine.includes('land')) continue;
@@ -1698,7 +1698,7 @@ export function getAvailableMana(state: any, playerId: PlayerID): Record<string,
     if (permanent.tapped) continue;
     if (!permanent.card) continue;
     
-    const oracleText = (permanent.card.oracle_text || "").toLowerCase();
+    const oracleText = (permanent.card.oracle_text || "").replace(/\([^)]*\)/g, '').toLowerCase();
     const cardName = (permanent.card.name || "").toLowerCase();
     const typeLine = (permanent.card.type_line || "").toLowerCase();
     

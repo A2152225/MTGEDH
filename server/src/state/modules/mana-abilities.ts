@@ -1311,6 +1311,30 @@ export function getManaAbilitiesForPermanent(
       }
     }
   }
+
+  // Explicitly add Three Tree City's dynamic activated mana ability
+  if (cardName.includes("three tree city")) {
+    const chosenType = permanent?.chosenCreatureType;
+    let amount = 0;
+    if (chosenType) {
+      const chosenTypeLower = chosenType.toLowerCase();
+      const battlefield = gameState?.battlefield || [];
+      amount = battlefield.filter((p: any) => {
+        if (!p || p.controller !== playerId) return false;
+        const typeLine = (p.card?.type_line || "").toLowerCase();
+        if (!typeLine.includes("creature")) return false;
+        const subTypes = (typeLine.split(/\s*[—–-]\s*/)[1] || "").toLowerCase();
+        return subTypes.includes(chosenTypeLower);
+      }).length;
+    }
+    abilities.push({
+      id: 'native_dynamic',
+      cost: '{2}, {T}',
+      produces: ['W', 'U', 'B', 'R', 'G'],
+      producesAllAtOnce: false,
+      amount: amount,
+    });
+  }
   
   // Apply granted abilities from modifiers
   for (const modifier of modifiers) {
@@ -1593,6 +1617,28 @@ export function getCreatureCountManaAmount(
 ): { color: string; amount: number; activationCost?: string; requiresColorChoice?: boolean; dynamicAmountSource?: 'devotion' } | null {
   const cardName = (permanent?.card?.name || "").toLowerCase();
   const oracleText = (permanent?.card?.oracle_text || "").toLowerCase();
+
+  if (cardName.includes('three tree city')) {
+    const chosenType = permanent?.chosenCreatureType;
+    let amount = 0;
+    if (chosenType) {
+      const chosenTypeLower = chosenType.toLowerCase();
+      const battlefield = gameState?.battlefield || [];
+      amount = battlefield.filter((p: any) => {
+        if (!p || p.controller !== playerId) return false;
+        const typeLine = (p.card?.type_line || "").toLowerCase();
+        if (!typeLine.includes("creature")) return false;
+        const subTypes = (typeLine.split(/\s*[—–-]\s*/)[1] || "").toLowerCase();
+        return subTypes.includes(chosenTypeLower);
+      }).length;
+    }
+    return {
+      color: 'any_combination',
+      amount: Math.max(0, amount),
+      activationCost: '{2}',
+      requiresColorChoice: true,
+    };
+  }
 
   if (
     cardName.includes('nykthos, shrine to nyx') ||

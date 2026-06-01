@@ -9163,40 +9163,21 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
             .filter((w) => w && !ignored.has(w))
             .map((w) => (w.endsWith('s') ? w.slice(0, -1) : w));
 
-          const knownPermanentTypes = new Set(['creature', 'artifact', 'enchantment', 'land', 'planeswalker', 'battle']);
-          const knownHits = words.filter((w) => knownPermanentTypes.has(w));
-
-          let requireAllTypes = false;
           const typesFilter: string[] = [];
+          const subtypesFilter: string[] = [];
 
-          if (knownHits.length > 1) {
-            // Support multi-type keywords like "artifact creature" by requiring ALL types.
-            // Conservative: only allow phrases that are exactly known permanent types.
-            if (!words.every((w) => knownPermanentTypes.has(w))) {
-              socket.emit('error', {
-                code: 'UNSUPPORTED_COST',
-                message: `Cannot activate ${cardName}: tap-other cost with multiple type keywords is not supported yet.`,
-              });
-              return;
-            }
-
-            requireAllTypes = true;
-            for (const w of words) {
-              if (!typesFilter.includes(w)) typesFilter.push(w);
-            }
-          } else {
-            const baseType = knownHits.length === 1 ? knownHits[0] : '';
-            const subtype = baseType ? '' : (words[0] || '');
-            if (baseType) {
-              typesFilter.push(baseType);
-            } else if (subtype) {
-              // Treat as creature subtype (e.g. Soldier) and also require creature.
-              requireAllTypes = true;
-              typesFilter.push('creature', subtype);
+          const knownPermanentTypes = new Set(['creature', 'artifact', 'enchantment', 'land', 'planeswalker', 'battle']);
+          for (const w of words) {
+            if (knownPermanentTypes.has(w)) {
+              typesFilter.push(w);
+            } else {
+              subtypesFilter.push(w);
             }
           }
 
-          if (typesFilter.length < 1) {
+          const requireAllTypes = typesFilter.length > 1;
+
+          if (typesFilter.length < 1 && subtypesFilter.length < 1) {
             socket.emit('error', {
               code: 'UNSUPPORTED_COST',
               message: `Cannot activate ${cardName}: could not parse tap-other cost type.`,
@@ -9210,11 +9191,20 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
             if ((p as any).tapped) return false;
             if (mustBeOther && String(p.id) === String(permanentId)) return false;
             const tl = String(p.card?.type_line || '').toLowerCase();
-            const matchesAny = typesFilter.some((t) => tl.includes(String(t).toLowerCase()));
-            if (!matchesAny) return false;
-            if (requireAllTypes) {
-              const matchesAll = typesFilter.every((t) => tl.includes(String(t).toLowerCase()));
-              return matchesAll;
+            
+            if (typesFilter.length > 0) {
+              if (requireAllTypes) {
+                const matchesAll = typesFilter.every((t) => tl.includes(String(t).toLowerCase()));
+                if (!matchesAll) return false;
+              } else {
+                const matchesAny = typesFilter.some((t) => tl.includes(String(t).toLowerCase()));
+                if (!matchesAny) return false;
+              }
+            }
+
+            if (subtypesFilter.length > 0) {
+              const matchesAllSub = subtypesFilter.every((sub) => tl.includes(String(sub).toLowerCase()));
+              if (!matchesAllSub) return false;
             }
 
             if (minPower !== undefined || maxPower !== undefined) {
@@ -9263,6 +9253,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
                 tapStatus: 'untapped',
                 excludeSource: mustBeOther,
                 types: typesFilter,
+                subtypes: subtypesFilter,
                 requireAllTypes,
                 minPower,
                 maxPower,

@@ -3297,6 +3297,7 @@ export function processSpellCastTriggersForCast(
           effect: trigger.effect,
           mandatory: trigger.mandatory,
           triggeringPlayer: String(casterId),
+          addsLoyaltyCounters: trigger.addsLoyaltyCounters,
           ...(resolvedTriggeringStackItemId ? { triggeringStackItemId: resolvedTriggeringStackItemId } : null),
           ...(normalizedCastSourceZone ? { triggeringSpellCastSourceZone: normalizedCastSourceZone } : null),
           effectData: {
@@ -3344,6 +3345,7 @@ export function processSpellCastTriggersForCast(
             effect: trigger.effect,
             mandatory: trigger.mandatory,
             triggeringPlayer: String(casterId),
+            addsLoyaltyCounters: trigger.addsLoyaltyCounters,
             ...(resolvedTriggeringStackItemId ? { triggeringStackItemId: resolvedTriggeringStackItemId } : null),
             ...(normalizedCastSourceZone ? { triggeringSpellCastSourceZone: normalizedCastSourceZone } : null),
             effectData: stackItem.effectData,

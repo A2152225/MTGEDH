@@ -87,6 +87,12 @@ export function processKeywordTriggers(
   
   // Detect keywords
   const detected = detectKeywords(oracleText, cardName);
+
+  // Filter out creature-only triggers (like prowess) if this is not actually a creature card/token
+  const isCreature = ctx.permanent ? String(ctx.permanent?.card?.type_line || '').toLowerCase().includes('creature') : false;
+  if (!isCreature) {
+    detected.keywords = detected.keywords.filter(k => k.keyword !== 'prowess');
+  }
   
   // Get keywords for this timing
   let relevantKeywords: DetectedKeyword[] = [];

@@ -632,7 +632,7 @@ function appendGrantedActivatedAbilities(
  */
 export function parseActivatedAbilities(card: KnownCardRef, grantedAbilities?: readonly string[]): ParsedActivatedAbility[] {
   const abilities: ParsedActivatedAbility[] = [];
-  const oracleText = card.oracle_text || '';
+  const oracleText = (card.oracle_text || '').replace(/\([^)]*\)/g, '');
   const typeLine = (card.type_line || '').toLowerCase();
   const name = card.name || '';
   const lowerOracle = oracleText.toLowerCase();
