@@ -229,6 +229,14 @@ export function createInitialGameState(gameId: string): InMemoryGame {
 
   // runtime aliases for compatibility with older callers
   (game as any).pendingInitialDraw = ctx.pendingInitialDraw;
+  Object.defineProperty(game, "isReplaying", {
+    get: () => !!(ctx as any).isReplaying,
+    set: (value) => {
+      (ctx as any).isReplaying = !!value;
+    },
+    enumerable: false,
+    configurable: true,
+  });
   Object.defineProperty(game, "seqValue", {
     get: () => game.seq,
     enumerable: false,
