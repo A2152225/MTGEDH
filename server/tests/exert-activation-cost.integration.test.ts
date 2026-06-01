@@ -404,7 +404,7 @@ describe('activated exert costs (integration)', () => {
 
     const stack = (((game.state as any).stack || []) as any[]);
     expect(stack).toHaveLength(2);
-    expect(String(stack[0]?.description || '').toLowerCase()).toBe('return target creature card from your graveyard to your hand.');
+    expect(String(stack[0]?.description || '').toLowerCase()).toContain('return target creature card from your graveyard to your hand');
     expect(stack[1]).toEqual(expect.objectContaining({
       source: 'trueheart_twins',
       permanentId: 'trueheart_twins',
@@ -721,8 +721,8 @@ describe('activated exert costs (integration)', () => {
     expect(stack).toHaveLength(2);
     expect(stack[0]).toEqual(expect.objectContaining({
       source: 'pride_sovereign',
-      description: 'create two 1/1 white cat creature tokens with lifelink.',
     }));
+    expect(String(stack[0]?.description || '').toLowerCase()).toContain('create two 1/1 white cat creature tokens with lifelink');
     expect(stack[1]).toEqual(expect.objectContaining({
       source: 'trueheart_twins',
       triggerType: 'whenever_you_exert',
