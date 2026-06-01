@@ -3266,12 +3266,22 @@ export function processSpellCastTriggersForCast(
       });
       const routesThroughDirectSpellCopy = trigger.copiesSpell === true;
 
+      const effectLowerForShortcut = trigger.effect.toLowerCase();
+      const hasShortcut = (
+        effectLowerForShortcut.includes('draw a card') || effectLowerForShortcut.includes('draw cards') || effectLowerForShortcut.includes('draws a card') ||
+        effectLowerForShortcut.includes('untap') ||
+        trigger.copiesSpell === true ||
+        trigger.cardName.toLowerCase().includes('consuming aberration') || effectLowerForShortcut.includes('until they reveal a land card') ||
+        (trigger.createsToken && trigger.tokenDetails)
+      );
+
       if (
         !routesThroughDirectSpellCopy
         && (
           inferredTargetMetadata.requiresTarget === true
           || String(inferredTargetMetadata.targetZone || '').length > 0
           || String(inferredTargetMetadata.targetAction || '').length > 0
+          || !hasShortcut
         )
       ) {
         const triggerId = uid('trigger');

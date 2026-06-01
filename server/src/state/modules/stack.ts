@@ -11553,6 +11553,35 @@ export function executeTriggerEffect(
     handled = true;
   }
 
+  // Pattern: "put a +1/+1 counter on [Vivi Ornitier] and it deals 1 damage to each opponent"
+  const counterAndDealsOpponentDamageMatch = desc.match(/put a \+1\/\+1 counter on (?:~|vivi ornitier|this creature|this permanent|it).*and (?:it|~)?\s*deals? (\d+) damage to each opponent/i);
+  if (counterAndDealsOpponentDamageMatch) {
+    const damage = parseInt(counterAndDealsOpponentDamageMatch[1], 10);
+    const sourcePermId = triggerItem?.source || triggerItem?.permanentId;
+    const battlefield = state.battlefield || [];
+    const sourcePerm = battlefield.find((p: any) => p.id === sourcePermId);
+    
+    if (sourcePerm) {
+      sourcePerm.counters = sourcePerm.counters || {};
+      sourcePerm.counters['+1/+1'] = (sourcePerm.counters['+1/+1'] || 0) + 1;
+      debug(2, `[executeTriggerEffect] Added +1/+1 counter to ${sourcePerm.card?.name || sourcePerm.id}`);
+    }
+    
+    for (const opp of opponents) {
+      modifyLife(opp.id, -damage);
+      debug(2, `[executeTriggerEffect] ${sourceName} deals ${damage} damage to opponent ${opp.id}`);
+      
+      try {
+        if (sourcePermId) {
+          queueDealsDamageToPlayerTriggersFromPermanent(ctx, sourcePermId, String(opp.id), damage);
+        }
+      } catch {
+        // Defensive
+      }
+    }
+    handled = true;
+  }
+
   const dealEachOpponentAndGainLifeMatch = desc.match(/deals? (\d+) damage to each opponent.*you gain (\d+) life/i);
   if (dealEachOpponentAndGainLifeMatch) {
     const damageAmount = parseInt(dealEachOpponentAndGainLifeMatch[1], 10);
