@@ -4658,6 +4658,8 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
       const requiresBattlefield = new Set<string>([
         'pw_lukka_exile_upgrade',
         'destroy_target_creature_or_planeswalker',
+        'destroy_target_permanent',
+        'exile_target_permanent',
       ]);
       const requiresGraveyard = targetAction === 'exile_graveyard_card'
         || targetAction.startsWith('move_graveyard_card_to_');

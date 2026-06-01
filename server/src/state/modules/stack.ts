@@ -9697,6 +9697,21 @@ export function executeTriggerEffect(
     return;
   }
 
+  // Emrakul, the Promised End: "you gain control of target opponent during that player's next turn. After that turn, that player takes an extra turn."
+  if (String(description || '').toLowerCase().includes('gain control of target opponent')) {
+    const targets = triggerItem.targets || [];
+    if (targets.length > 0) {
+      const targetOpponentId = targets[0];
+      const stateAny = state as any;
+      stateAny.controlledPlayerNextTurn = stateAny.controlledPlayerNextTurn || {};
+      stateAny.controlledPlayerNextTurn[targetOpponentId] = controller;
+      
+      addExtraTurn(ctx, targetOpponentId, sourceName || "Emrakul, the Promised End (drawback)");
+      debug(2, `[executeTriggerEffect] Emrakul, the Promised End cast trigger: player ${controller} will control ${targetOpponentId} next turn`);
+    }
+    return;
+  }
+
   const directGraveyardPermissionEffectsApplied = applyGraveyardPermissionEffectsFromText(ctx, controller, sourceName, description, triggerItem);
   if (directGraveyardPermissionEffectsApplied > 0) {
     return;
@@ -14214,11 +14229,12 @@ export function executeTriggerEffect(
   const simpleExileSentence = splitRulesTextIntoSentences(desc).find((sentence) => /^exile\b/i.test(sentence)) || desc;
   const exileMatch = /\bat\s+the\s+beginning\s+of\s+the\s+next\s+end\s+step\b/i.test(simpleExileSentence)
     ? null
-    : simpleExileSentence.match(/^exile\s+(?:target\s+(?:creature|permanent)|it|that creature)\.?$/i);
+    : (simpleExileSentence.match(/^exile\s+(?:(?:two|three|four|five|\d+)\s+)?target\s+(?:creatures?|permanents?|cards?)\.?$/i) ||
+       simpleExileSentence.match(/^exile\s+(?:target\s+(?:creature|permanent)|it|that creature)\.?$/i));
   if (exileMatch) {
     const targets = triggerItem.targets || [];
-    if (targets.length > 0) {
-      const targetPerm = (state.battlefield || []).find((p: any) => p?.id === targets[0]);
+    for (const targetId of targets) {
+      const targetPerm = (state.battlefield || []).find((p: any) => p?.id === targetId);
       if (targetPerm) {
         // Check if the source card has a linked exile effect
         const sourceCard = triggerItem.card;
@@ -17519,6 +17535,7 @@ export function resolveTopOfStack(ctx: GameContext) {
             targetDescription,
             targetedTriggeredAbility: true,
             triggerItem: item,
+            action: (item as any).action,
             targetedTriggeredAbilitySourceName: sourceName,
             targetedTriggeredAbilityDescription: description,
             targetedTriggeredAbilityController: String(triggerController),

@@ -230,7 +230,7 @@ describe('Mutate merge restore (integration)', () => {
       triggerType: 'triggered_ability',
       mandatory: true,
       requiresTarget: true,
-      targetType: 'artifact',
+      targetType: 'artifact or enchantment',
       needsTargetSelection: true,
     });
     expect(String(triggerStack[0]?.effect || '')).toContain('Whenever this creature mutates');
@@ -254,7 +254,7 @@ describe('Mutate merge restore (integration)', () => {
       triggerType: 'triggered_ability',
       mandatory: true,
       requiresTarget: true,
-      targetType: 'artifact',
+      targetType: 'artifact or enchantment',
       needsTargetSelection: true,
     });
 
@@ -307,7 +307,7 @@ describe('Mutate merge restore (integration)', () => {
       sourceName: 'Gemrazer',
       description: 'destroy target artifact or enchantment.',
       requiresTarget: true,
-      targetType: 'artifact',
+      targetType: 'artifact or enchantment',
     });
   });
 

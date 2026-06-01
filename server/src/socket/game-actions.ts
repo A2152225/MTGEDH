@@ -21,7 +21,7 @@ import { detectETBPlayerSelection, requestPlayerSelection } from "./player-selec
 import { checkAndPromptOpeningHandActions, isOpeningHandBattlefieldCard } from "./opening-hand";
 import { detectSpellCastTriggers, getBeginningOfCombatTriggers, getEndStepTriggers, getLandfallTriggers, detectETBTriggers, detectEldraziEffect, type SpellCastTrigger } from "../state/modules/triggered-abilities";
 import { inferTriggeredAbilityTargetMetadata } from "../state/modules/stack.js";
-import { getOpponentSpellCastTriggers, type OpponentSpellCastTriggerType } from "../state/modules/triggers/index.js";
+import { getOpponentSpellCastTriggers, type OpponentSpellCastTriggerType, inferGenericTriggeredAbilityTargetMetadata } from "../state/modules/triggers/index.js";
 import { orderTriggersByAPNAP } from "../state/modules/triggers/ordering.js";
 import { isInterveningIfSatisfied } from "../state/modules/triggers/intervening-if";
 import { getUpkeepTriggersForPlayer, autoProcessCumulativeUpkeepMana, sacrificePermanent } from "../state/modules/upkeep-triggers";
@@ -11495,53 +11495,67 @@ export function registerGameActions(io: Server, socket: Socket) {
       try {
         const eldraziEffect = detectEldraziEffect(cardInHand, { id: cardId, controller: playerId });
         if (eldraziEffect && eldraziEffect.castTrigger) {
-          debug(2, `[castSpellFromHand] On-cast trigger: ${cardInHand.name} - ${eldraziEffect.castTrigger}`);
+          debug(2, `[castSpellFromHand] On-cast trigger matching: ${cardInHand.name} - ${eldraziEffect.castTrigger}`);
           
           const triggerLower = eldraziEffect.castTrigger.toLowerCase();
+          const description = eldraziEffect.castTrigger;
+          const targetMetadata = inferGenericTriggeredAbilityTargetMetadata(description);
+          const triggerId = uid('trigger');
           
-          // Kozilek, Butcher of Truth: "When you cast this spell, draw four cards"
-          if (triggerLower.includes('draw four cards') || triggerLower.includes('draw 4 cards')) {
-            if (typeof game.drawCards === 'function') {
-              const drawn = game.drawCards(playerId, 4);
-              io.to(gameId).emit("chat", {
-                id: `m_${Date.now()}`,
-                gameId,
-                from: "system",
-                message: `${cardInHand.name}: ${getPlayerName(game, playerId)} draws 4 cards.`,
-                ts: Date.now(),
-              });
-              debug(1, `[castSpellFromHand] ${cardInHand.name} on-cast trigger: ${getPlayerName(game, playerId)} drew 4 cards`);
+          const triggerPayload: any = {
+            id: triggerId,
+            type: 'triggered_ability',
+            controller: playerId,
+            source: cardId,
+            sourceName: cardInHand.name,
+            description,
+            triggerType: 'triggered_ability',
+            effect: description,
+            mandatory: true,
+            card: {
+              ...cardInHand,
+              owner: cardInHand.owner || playerId,
+            },
+          };
+
+          // Overwrite the description for Emrakul Extra Turn to match regex anchor
+          if (triggerLower.includes('extra turn after this one')) {
+            triggerPayload.description = "Take an extra turn after this one.";
+            triggerPayload.effect = "Take an extra turn after this one.";
+          }
+
+          // Attach inferred target metadata if it requires targeting!
+          if (targetMetadata && targetMetadata.requiresTarget) {
+            triggerPayload.requiresTarget = true;
+            triggerPayload.targetType = targetMetadata.targetType;
+            triggerPayload.needsTargetSelection = true;
+            triggerPayload.minTargets = targetMetadata.minTargets ?? 1;
+            triggerPayload.maxTargets = targetMetadata.maxTargets ?? 1;
+            
+            // Map the actions to proper socket selection actions
+            if (triggerLower.includes('destroy target permanent')) {
+              triggerPayload.action = 'destroy_target_permanent';
+            } else if (triggerLower.includes('exile two target permanents')) {
+              triggerPayload.action = 'exile_target_permanent';
+              triggerPayload.minTargets = 0; // up to two targeting can be blank if no targets exist
+              triggerPayload.maxTargets = 2;
+            } else if (triggerLower.includes('gain control of target opponent')) {
+              triggerPayload.action = 'gain_control_target_opponent';
+              triggerPayload.targetType = 'opponent';
             }
           }
-          
-          // Ulamog, the Infinite Gyre: "When you cast this spell, destroy target permanent"
-          // Ulamog, the Ceaseless Hunger: "When you cast this spell, exile two target permanents"
-          // These require targets, which should be handled via resolution queue
-          // For now, just log them
-          if (triggerLower.includes('destroy target permanent') || 
-              triggerLower.includes('exile two target permanents') ||
-              triggerLower.includes('exile target opponent')) {
-            debug(2, `[castSpellFromHand] ${cardInHand.name} has targeting on-cast trigger: ${eldraziEffect.castTrigger}`);
-            // TODO: Add these triggers to the resolution queue for target selection
-          }
-          
-          // Emrakul, the Aeons Torn: "Take an extra turn after this one"
-          if (triggerLower.includes('extra turn')) {
-            // Mark that an extra turn should be taken
-            (game.state as any).pendingExtraTurns = (game.state as any).pendingExtraTurns || [];
-            (game.state as any).pendingExtraTurns.push({
-              playerId: playerId,
-              source: cardInHand.name,
-            });
-            io.to(gameId).emit("chat", {
-              id: `m_${Date.now()}`,
-              gameId,
-              from: "system",
-              message: `${cardInHand.name}: ${getPlayerName(game, playerId)} will take an extra turn after this one.`,
-              ts: Date.now(),
-            });
-            debug(1, `[castSpellFromHand] ${cardInHand.name} on-cast trigger: extra turn queued for ${playerId}`);
-          }
+
+          game.state.stack = game.state.stack || [];
+          game.state.stack.push(triggerPayload);
+          persistTriggeredAbilityPush(triggerPayload, 'eldrazi_on_cast_trigger');
+
+          io.to(gameId).emit("chat", {
+            id: `m_${Date.now()}`,
+            gameId,
+            from: "system",
+            message: `${cardInHand.name}: Cast trigger "${triggerPayload.description}" placed on the stack.`,
+            ts: Date.now(),
+          });
         }
       } catch (err) {
         debugWarn(1, '[castSpellFromHand] Failed to process on-cast triggers:', err);
