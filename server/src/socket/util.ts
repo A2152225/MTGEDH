@@ -1694,6 +1694,11 @@ export function broadcastGame(
       clearScheduledAutomationResume(gameId);
       debug(2, `[broadcastGame] Suppressed AI/auto-pass automation once for ${gameId}`);
     }
+
+    // CRITICAL RUNTIME FIX: AI players should NEVER have their automatic priority responses suppressed.
+    // Suppressing AI results in infinite game deadlocks if the active player is an AI,
+    // because human players have no priority to act and break the silence.
+    checkAndTriggerAI(io, game, gameId);
   } else {
     clearScheduledAutomationResume(gameId);
     // After broadcasting, check if the current priority holder is an AI player

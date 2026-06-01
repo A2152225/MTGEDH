@@ -19,6 +19,7 @@ type CommanderCardSnapshot = {
   loyalty?: string;
   card_faces?: any[];
   layout?: string;
+  color_identity?: string[];
 };
 
 function getFrontFaceValue<T = unknown>(src: any, key: string): T | undefined {
@@ -62,6 +63,7 @@ export function buildCommanderCardSnapshot(src: any, fallbackName?: string): Com
     loyalty: getFrontFaceValue<string>(src, "loyalty"),
     card_faces: cardFaces,
     layout,
+    color_identity: src?.color_identity ?? src?.scryfall?.color_identity,
   };
 }
 
