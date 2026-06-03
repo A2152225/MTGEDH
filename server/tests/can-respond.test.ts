@@ -1277,6 +1277,85 @@ describe('canActivateAnyAbility', () => {
     expect(canActivateAnyAbility(ctx, 'p1' as PlayerID)).toBe(true);
   });
 
+  it('should return false for an UNTAPPED {Q} untap-cost ability (Gilder Bairn cannot pay the untap cost)', () => {
+    const ctx = createTestContext({
+      battlefield: [
+        {
+          id: 'gilder1',
+          controller: 'p1',
+          tapped: false, // untapped -> the {Q} untap cost cannot be paid
+          card: {
+            name: 'Gilder Bairn',
+            type_line: 'Creature — Faerie',
+            oracle_text: '{2}{G/U}, {Q}: For each counter on target permanent, put another counter of that kind on that permanent.',
+          },
+        },
+      ],
+      manaPool: {
+        p1: { white: 0, blue: 2, black: 0, red: 0, green: 2, colorless: 2 },
+      },
+    });
+
+    expect(canActivateAnyAbility(ctx, 'p1' as PlayerID)).toBe(false);
+  });
+
+  it('should return true for a TAPPED {Q} untap-cost ability when the mana portion is payable', () => {
+    const ctx = createTestContext({
+      battlefield: [
+        {
+          id: 'gilder1',
+          controller: 'p1',
+          tapped: true, // tapped -> the {Q} untap cost can be paid
+          summoningSickness: false,
+          card: {
+            name: 'Gilder Bairn',
+            type_line: 'Creature — Faerie',
+            oracle_text: '{2}{G/U}, {Q}: For each counter on target permanent, put another counter of that kind on that permanent.',
+          },
+        },
+      ],
+      manaPool: {
+        p1: { white: 0, blue: 2, black: 0, red: 0, green: 2, colorless: 2 },
+      },
+    });
+
+    expect(canActivateAnyAbility(ctx, 'p1' as PlayerID)).toBe(true);
+  });
+
+  it('should skip an ignored battlefield permanent regardless of whether ignore is keyed by permanent id or card id', () => {
+    const makeCtx = () => createTestContext({
+      battlefield: [
+        {
+          id: 'perm1',
+          controller: 'p1',
+          tapped: false,
+          card: {
+            id: 'cardX',
+            name: 'Merfolk Looter',
+            type_line: 'Creature — Merfolk Rogue',
+            oracle_text: '{T}: Draw a card, then discard a card.',
+          },
+        },
+      ],
+      manaPool: {
+        p1: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+      },
+    });
+
+    // Without ignore: the non-mana tap ability requires priority.
+    expect(canActivateAnyAbility(makeCtx(), 'p1' as PlayerID)).toBe(true);
+
+    // Ignored by permanent id -> skipped.
+    const byPermanent = makeCtx();
+    (byPermanent.state as any).ignoredCardsForAutoPass = { p1: { perm1: { cardId: 'perm1' } } };
+    expect(canActivateAnyAbility(byPermanent, 'p1' as PlayerID)).toBe(false);
+
+    // Ignored by card id -> also skipped (the regression this guards).
+    const byCard = makeCtx();
+    (byCard.state as any).ignoredCardsForAutoPass = { p1: { cardX: { cardId: 'cardX' } } };
+    expect(canActivateAnyAbility(byCard, 'p1' as PlayerID)).toBe(false);
+  });
+
   it('should return false when the only activated ability requires metalcraft and metalcraft is inactive', () => {
     const ctx = createTestContext({
       battlefield: [

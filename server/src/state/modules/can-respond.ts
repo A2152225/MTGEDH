@@ -2199,16 +2199,31 @@ function hasActivatableAbility(
     if (hasActivateOnlyDuringYourTurnRestriction(oracleText) && !((state as any).turnPlayer === playerId)) {
       continue; // Skip - can only be activated during player's turn
     }
-    
+
+    // {Q} untap cost (e.g. Gilder Bairn "{2}{G/U}, {Q}: ..."): the permanent must currently
+    // be TAPPED to pay the untap symbol. parseManaCost ignores {Q}, so without this gate an
+    // untapped permanent would be treated as activatable based on the mana portion alone.
+    if (/\{Q\}/i.test(costPart)) {
+      if (!permanent.tapped) return false; // can't pay the untap cost while untapped
+      // Rule 302.6: a creature's {Q}/{T} ability can't be activated under summoning sickness
+      // unless it has haste. Lands and other non-creatures are exempt.
+      const isCreature = /\bcreature\b/.test(typeLine);
+      const isLand = typeLine.includes("land");
+      if (isCreature && !isLand && (permanent as any).summoningSickness) {
+        if (!creatureHasHaste(permanent, state.battlefield || [], playerId)) return false;
+      }
+      // Fall through to the mana-payability check below; parseManaCost(costPart) ignores {Q}.
+    }
+
     // Parse the cost
     const parsedCost = parseManaCost(costPart);
-    
+
     // Check if we can pay it
     if (canPayManaCostWithAvailableSources(state, playerId, parsedCost)) {
       return true;
     }
   }
-  
+
   return false;
 }
 
@@ -2334,8 +2349,11 @@ export function canActivateAnyAbility(ctx: GameContext, playerId: PlayerID): boo
     
     // Check each permanent on battlefield
     for (const permanent of battlefield) {
-      // Skip ignored permanents - they shouldn't trigger auto-pass prompts
-      if (ignoredCards[permanent.id]) {
+      // Skip ignored permanents - they shouldn't trigger auto-pass prompts.
+      // The ignore map is keyed by `cardId || permanentId` (see socket/priority.ts), and the
+      // two client affordances send different keys (table panel -> permanentId, card menu ->
+      // cardId), so match BOTH the permanent id and the underlying card id.
+      if (ignoredCards[permanent.id] || (permanent.card?.id && ignoredCards[permanent.card.id])) {
         debug(2, `[canActivateAnyAbility] Skipping ignored card: ${permanent.card?.name || permanent.id}`);
         continue;
       }

@@ -22,7 +22,7 @@ import { canRespond, canAct, getCastableCommanderCandidates, getCastableSpellCan
 import { getGrantedCastFromGraveyardKeywordInfo, getGrantedEmbalmInfo, getGrantedFlashbackInfo, getGrantedUnearthInfo, getPrintedUnearthInfo } from "../state/modules/graveyard-permissions.js";
 import { parseManaCost as parseManaFromString, canPayManaCostWithAvailableSources, getManaPoolFromState, getAvailableMana, getTotalManaFromPool } from "../state/modules/mana-check.js";
 import { hasPayableAlternateCost } from "../state/modules/alternate-costs.js";
-import { calculateCostReduction, runPostResolutionPermanentPromptChecks } from "./game-actions.js";
+import { calculateCostReduction, creatureHasHaste, runPostResolutionPermanentPromptChecks } from "./game-actions.js";
 import { checkSpellTimingRestriction } from "../../../rules-engine/src/castingRestrictions.js";
 import { hasValidTargetsForSpell } from "../rules-engine/target-availability.js";
 import { applyStaticAbilitiesToBattlefield } from "../../../rules-engine/src/staticAbilities.js";
@@ -684,6 +684,18 @@ function getPlayableCardIds(game: InMemoryGame, playerId: PlayerID): string[] {
           continue;
         }
         
+        // {Q} untap cost (e.g. Gilder Bairn): the permanent must be tapped to pay the untap
+        // symbol. parseManaFromString ignores {Q}, so gate on tapped state here too.
+        if (/\{Q\}/i.test(costPart)) {
+          if (!perm.tapped) continue;
+          const permTypeLine = (perm.card?.type_line || "").toLowerCase();
+          const isCreature = /\bcreature\b/.test(permTypeLine);
+          const isLand = permTypeLine.includes("land");
+          if (isCreature && !isLand && (perm as any).summoningSickness) {
+            if (!creatureHasHaste(perm, battlefield, playerId)) continue;
+          }
+        }
+
         // Instant-speed abilities - check if we can pay the cost
         const parsedCost = parseManaFromString(costPart);
         if (canPayManaCostWithAvailableSources(state, playerId, parsedCost)) {

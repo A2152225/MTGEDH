@@ -23,7 +23,7 @@ import {
   getCreatureCountManaAmount,
   detectManaModifiers
 } from "../state/modules/mana-abilities";
-import { canPayManaCost, getAvailableMana } from "../state/modules/mana-check.js";
+import { canPayManaCost, canPayManaCostWithAvailableSources, getAvailableMana } from "../state/modules/mana-check.js";
 import { cardManaValue, exchangePermanentOracleText, parsePT, parseWordNumber } from "../state/utils";
 import { buildEmbalmOrEternalizeTokenPermanent } from "../state/modules/graveyard-tokens.js";
 import { ResolutionQueueManager, ResolutionStepType, createResolutionStep } from "../state/resolution/index.js";
@@ -1832,6 +1832,12 @@ export function finalizeGraveyardSpellCast(params: {
   exiledCardIdsFromGraveyardForCost?: string[];
   xValue?: number;
   stackId?: string;
+  // Mana payment evidence (present when the mana cost was paid by tapping/sacrificing sources
+  // rather than from floating mana). Recorded on the event so replay can reconstruct the taps
+  // and the net pool change instead of consuming from a pool that was never credited.
+  tappedPermanentsForManaCost?: string[];
+  sacrificedPermanentsForManaCost?: string[];
+  paymentManaDelta?: Record<string, number>;
   emitError: (payload: { code: string; message: string }) => void;
 }): 'cast' | 'error' {
   const zones = (params.game.state as any)?.zones?.[params.playerId];
@@ -1913,6 +1919,15 @@ export function finalizeGraveyardSpellCast(params: {
         : undefined,
       xValue: Number.isFinite(Number(params.xValue)) ? Math.max(0, Math.floor(Number(params.xValue))) : undefined,
       targets: normalizedTargets.length > 0 ? normalizedTargets.slice() : undefined,
+      tappedPermanents: Array.isArray(params.tappedPermanentsForManaCost) && params.tappedPermanentsForManaCost.length > 0
+        ? params.tappedPermanentsForManaCost.slice()
+        : undefined,
+      sacrificedPermanents: Array.isArray(params.sacrificedPermanentsForManaCost) && params.sacrificedPermanentsForManaCost.length > 0
+        ? params.sacrificedPermanentsForManaCost.slice()
+        : undefined,
+      paymentManaDelta: params.paymentManaDelta && typeof params.paymentManaDelta === 'object' && Object.keys(params.paymentManaDelta).length > 0
+        ? { ...params.paymentManaDelta }
+        : undefined,
     });
   } catch (err) {
     debugWarn(1, 'appendEvent(activateGraveyardAbility) failed:', err);
@@ -1959,6 +1974,13 @@ export function continueCastFromGraveyardAbility(params: {
   exiledCardIdsFromGraveyardForCost?: string[];
   sacrificedPermanentIdsForCost?: string[];
   xValue?: number;
+  // Set when re-entering after a queued mana-payment step has already paid the mana cost by
+  // tapping/sacrificing sources. The mana block is then skipped and the payment evidence is
+  // forwarded to finalizeGraveyardSpellCast for replay.
+  manaCostAlreadyPaid?: boolean;
+  tappedPermanentsForManaCost?: string[];
+  sacrificedPermanentsForManaCost?: string[];
+  paymentManaDelta?: Record<string, number>;
   emitError: (payload: { code: string; message: string }) => void;
 }): 'queued' | 'cast' | 'error' {
   const zones = (params.game.state as any)?.zones?.[params.playerId];
@@ -2237,16 +2259,49 @@ export function continueCastFromGraveyardAbility(params: {
     }
   }
 
-  if (recordedManaCost) {
+  if (recordedManaCost && !params.manaCostAlreadyPaid) {
     const parsedCost = parseManaCost(recordedManaCost);
     const pool = getOrInitManaPool(params.game.state, params.playerId);
     const totalAvailable = calculateTotalAvailableMana(pool, []);
-    const validationError = validateManaPayment(totalAvailable, parsedCost.colors, parsedCost.generic);
-    if (validationError) {
-      params.emitError({ code: 'INSUFFICIENT_MANA', message: `Cannot pay ${recordedManaCost}: ${validationError}` });
+    const floatingError = validateManaPayment(totalAvailable, parsedCost.colors, parsedCost.generic);
+    if (!floatingError) {
+      // Floating mana already covers the cost — consume it directly (preserves the prior behavior
+      // for players who float mana before casting).
+      consumeManaFromPool(pool, parsedCost.colors, parsedCost.generic, `[activateGraveyardAbility:${cardName}]`);
+    } else if (canPayManaCostWithAvailableSources(params.game.state, params.playerId, parsedCost)) {
+      // Floating mana is insufficient but the player can pay by tapping untapped sources (lands,
+      // etc.). Queue a mana-payment step so the player/AI taps sources, then resume the cast.
+      // Flashback (and other graveyard casts) must not be restricted to floating mana only.
+      ResolutionQueueManager.addStep(params.gameId, {
+        type: ResolutionStepType.MANA_PAYMENT_CHOICE,
+        playerId: params.playerId as PlayerID,
+        sourceId: params.cardId,
+        sourceName: cardName,
+        sourceImage: (card as any)?.image_uris?.small || (card as any)?.image_uris?.normal,
+        description: `Pay ${recordedManaCost} to cast ${cardName} using ${params.abilityId}.`,
+        mandatory: true,
+        // spellPaymentRequired drives the client payment modal and the AI payment assembly;
+        // graveyardSpellCastManaPayment routes completion back through this function.
+        spellPaymentRequired: true,
+        graveyardSpellCastManaPayment: true,
+        cardId: params.cardId,
+        cardName,
+        manaCost: recordedManaCost,
+        fromZone: 'graveyard',
+        abilityId: params.abilityId,
+        targetsForCast: normalizedTargets.length > 0 ? normalizedTargets : undefined,
+        lifeToPayForCost: recordedLifeCost > 0 ? recordedLifeCost : undefined,
+        discardedCardIdsForCost: Array.isArray(params.discardedCardIds) && params.discardedCardIds.length > 0 ? params.discardedCardIds.slice() : undefined,
+        exiledCardIdsFromHandForCost: Array.isArray(params.exiledCardIdsFromHandForCost) && params.exiledCardIdsFromHandForCost.length > 0 ? params.exiledCardIdsFromHandForCost.slice() : undefined,
+        exiledCardIdsFromGraveyardForCost: Array.isArray(params.exiledCardIdsFromGraveyardForCost) && params.exiledCardIdsFromGraveyardForCost.length > 0 ? params.exiledCardIdsFromGraveyardForCost.slice() : undefined,
+        sacrificedPermanentIdsForCost: Array.isArray(params.sacrificedPermanentIdsForCost) && params.sacrificedPermanentIdsForCost.length > 0 ? params.sacrificedPermanentIdsForCost.slice() : undefined,
+        xValue: Number.isFinite(Number(params.xValue)) ? Math.max(0, Math.floor(Number(params.xValue))) : undefined,
+      } as any);
+      return 'queued';
+    } else {
+      params.emitError({ code: 'INSUFFICIENT_MANA', message: `Cannot pay ${recordedManaCost}: ${floatingError}` });
       return 'error';
     }
-    consumeManaFromPool(pool, parsedCost.colors, parsedCost.generic, `[activateGraveyardAbility:${cardName}]`);
   }
 
   if (recordedLifeCost > 0) {

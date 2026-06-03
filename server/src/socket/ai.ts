@@ -5051,24 +5051,58 @@ async function enumerateAIActionCandidates(
   return candidates;
 }
 
+type AICastControlFlowSnapshot = {
+  stackLength: number;
+  pendingSteps: boolean;
+  pendingCastCount: number;
+};
+
+/**
+ * Capture the control-flow-relevant state immediately BEFORE an AI cast attempt so that
+ * didAICastAttemptChangeControlFlow can compare deltas rather than absolute values.
+ */
+function captureAICastControlFlowSnapshot(
+  gameId: string,
+  game: any,
+  playerId: PlayerID,
+): AICastControlFlowSnapshot {
+  return {
+    stackLength: Array.isArray(game.state?.stack) ? game.state.stack.length : 0,
+    pendingSteps: ResolutionQueueManager.playerHasPendingSteps(gameId, playerId),
+    pendingCastCount: getAIPendingSpellCastStatus(gameId, game, playerId).effectIds.length,
+  };
+}
+
 function didAICastAttemptChangeControlFlow(
   gameId: string,
   game: any,
   playerId: PlayerID,
   candidate: AICastAttemptDescriptor,
+  before: AICastControlFlowSnapshot,
 ): boolean {
   const pendingCastStatus = getAIPendingSpellCastStatus(gameId, game, playerId);
   const stackNow = Array.isArray(game.state?.stack) ? game.state.stack.length : 0;
   const aiHasPendingSteps = ResolutionQueueManager.playerHasPendingSteps(gameId, playerId);
   const priorityStillHeld = game.state.priority === playerId;
 
-  if (!priorityStillHeld || stackNow > 0 || aiHasPendingSteps || pendingCastStatus.effectIds.length > 0) {
+  // Compare against the pre-attempt snapshot. A failed cast (e.g. INSUFFICIENT_MANA) that
+  // increases nothing did NOT progress, and the AI must fall through to passing priority.
+  // Using absolute values here (e.g. `stackNow > 0`) falsely reports progress whenever the
+  // stack was already non-empty before the attempt — for instance when responding while our
+  // own counterspell and a trigger already sit on the stack — which caused the AI to stop
+  // without passing priority and deadlocked the game.
+  const stackGrew = stackNow > before.stackLength;
+  const gainedPendingSteps = aiHasPendingSteps && !before.pendingSteps;
+  const gainedPendingCast = pendingCastStatus.effectIds.length > before.pendingCastCount;
+
+  if (!priorityStillHeld || stackGrew || gainedPendingSteps || gainedPendingCast) {
     debug(1, '[AI] Cast attempt changed control flow; stopping additional cast attempts', {
       gameId,
       playerId,
       cardName: candidate.castCard?.name || candidate.card?.name,
       sourceZone: candidate.sourceZone,
       priority: game.state.priority,
+      stackBefore: before.stackLength,
       stackNow,
       aiHasPendingSteps,
       pendingCastIds: pendingCastStatus.effectIds,
@@ -5115,18 +5149,20 @@ async function tryAIResponseActions(
         priority: candidateSpell.priority,
       });
 
+      const beforeCast = captureAICastControlFlowSnapshot(gameId, game, playerId);
       const castProgressed = await executeAICastSpell(io, gameId, playerId, candidateSpell);
       if (castProgressed) {
         return true;
       }
 
-      if (didAICastAttemptChangeControlFlow(gameId, game, playerId, candidateSpell)) {
+      if (didAICastAttemptChangeControlFlow(gameId, game, playerId, candidateSpell, beforeCast)) {
         return true;
       }
     }
 
     if (candidate.kind === 'cast_commander') {
       debug(1, '[AI] Taking response-window commander action:', candidate.commander.card.name);
+      const beforeCast = captureAICastControlFlowSnapshot(gameId, game, playerId);
       const castProgressed = await executeAICastCommander(io, gameId, playerId, candidate.commander);
       if (castProgressed) {
         return true;
@@ -5135,7 +5171,7 @@ async function tryAIResponseActions(
       if (didAICastAttemptChangeControlFlow(gameId, game, playerId, {
         card: candidate.commander.card,
         sourceZone: 'command',
-      })) {
+      }, beforeCast)) {
         return true;
       }
     }
@@ -8683,6 +8719,7 @@ export async function handleAIPriority(
 
         if (candidate.kind === 'cast_commander') {
           debug(1, '[AI] Casting commander from command zone:', candidate.commander.card.name);
+          const beforeCast = captureAICastControlFlowSnapshot(gameId, game, playerId);
           const castProgressed = await executeAICastCommander(io, gameId, playerId, candidate.commander);
           if (castProgressed) {
             scheduleAIPriority(io, gameId, playerId, AI_THINK_TIME_MS);
@@ -8692,7 +8729,7 @@ export async function handleAIPriority(
           if (didAICastAttemptChangeControlFlow(gameId, game, playerId, {
             card: candidate.commander.card,
             sourceZone: 'command',
-          })) {
+          }, beforeCast)) {
             return;
           }
         }
@@ -8709,13 +8746,14 @@ export async function handleAIPriority(
             });
           }
 
+          const beforeCast = captureAICastControlFlowSnapshot(gameId, game, playerId);
           const castProgressed = await executeAICastSpell(io, gameId, playerId, candidateSpell);
           if (castProgressed) {
             scheduleAIPriority(io, gameId, playerId, AI_THINK_TIME_MS);
             return;
           }
 
-          if (didAICastAttemptChangeControlFlow(gameId, game, playerId, candidateSpell)) {
+          if (didAICastAttemptChangeControlFlow(gameId, game, playerId, candidateSpell, beforeCast)) {
             return;
           }
         }
