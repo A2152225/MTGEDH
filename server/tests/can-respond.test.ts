@@ -2656,6 +2656,99 @@ describe('canRespond', () => {
     expect(canRespond(ctx, 'p1' as PlayerID)).toBe(false);
   });
 
+  it('should return true when player has flashback instant with no floating mana but untapped lands that cover the cost', () => {
+    // This is the core canAct/canRespond detection regression: available mana sources
+    // (untapped lands) must be considered, not just floating mana.
+    const ctx = createTestContext({
+      zones: {
+        p1: {
+          hand: [],
+          graveyard: [
+            {
+              id: 'card1',
+              name: 'Desperate Ravings',
+              type_line: 'Instant',
+              mana_cost: '{1}{R}',
+              oracle_text: 'Draw two cards, then discard a card at random.\nFlashback {2}{U}',
+            },
+          ],
+        },
+      },
+      battlefield: [
+        {
+          id: 'island_1',
+          controller: 'p1',
+          tapped: false,
+          card: { name: 'Island', type_line: 'Basic Land — Island', oracle_text: '{T}: Add {U}.' },
+        },
+        {
+          id: 'plains_1',
+          controller: 'p1',
+          tapped: false,
+          card: { name: 'Plains', type_line: 'Basic Land — Plains', oracle_text: '{T}: Add {W}.' },
+        },
+        {
+          id: 'plains_2',
+          controller: 'p1',
+          tapped: false,
+          card: { name: 'Plains', type_line: 'Basic Land — Plains', oracle_text: '{T}: Add {W}.' },
+        },
+      ],
+      manaPool: {
+        p1: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+      },
+    });
+
+    // Player can pay {2}{U} by tapping Island ({U}) + 2 Plains ({W}{W} as generic).
+    expect(canRespond(ctx, 'p1' as PlayerID)).toBe(true);
+  });
+
+  it('should return false when player has flashback instant with untapped lands that cannot provide the required color', () => {
+    // Player has untapped forests but the cost needs {U}; no blue source available.
+    const ctx = createTestContext({
+      zones: {
+        p1: {
+          hand: [],
+          graveyard: [
+            {
+              id: 'card1',
+              name: 'Think Twice',
+              type_line: 'Instant',
+              mana_cost: '{1}{U}',
+              oracle_text: 'Draw a card.\nFlashback {2}{U}',
+            },
+          ],
+        },
+      },
+      battlefield: [
+        {
+          id: 'forest_1',
+          controller: 'p1',
+          tapped: false,
+          card: { name: 'Forest', type_line: 'Basic Land — Forest', oracle_text: '{T}: Add {G}.' },
+        },
+        {
+          id: 'forest_2',
+          controller: 'p1',
+          tapped: false,
+          card: { name: 'Forest', type_line: 'Basic Land — Forest', oracle_text: '{T}: Add {G}.' },
+        },
+        {
+          id: 'forest_3',
+          controller: 'p1',
+          tapped: false,
+          card: { name: 'Forest', type_line: 'Basic Land — Forest', oracle_text: '{T}: Add {G}.' },
+        },
+      ],
+      manaPool: {
+        p1: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+      },
+    });
+
+    // {2}{U} requires blue mana which forests cannot provide.
+    expect(canRespond(ctx, 'p1' as PlayerID)).toBe(false);
+  });
+
   it('should return true when player has foretell instant in exile with mana', () => {
     const ctx = createTestContext({
       zones: {

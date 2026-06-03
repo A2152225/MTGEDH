@@ -11777,6 +11777,52 @@ async function handleStepResponse(
           ? String(selections.harmonizeTappedCreatureId)
           : undefined;
 
+
+        // Graveyard spell cast payment (flashback, jump-start, etc.) queued by
+        // continueCastFromGraveyardAbility when floating mana was insufficient but available
+        // sources (untapped lands) could cover the cost. The regular completeCastSpell path
+        // does NOT apply here because there is no pendingSpellCasts entry for graveyard casts.
+        if (stepData.graveyardSpellCastManaPayment === true) {
+          const manaCostText = String(stepData.manaCost || '').trim();
+          const applied = applySelectedManaPaymentForResolutionCost(game, String(pid), manaCostText, payment);
+          if (!applied.ok) {
+            const appliedError = applied as { ok: false; code: string; message: string };
+            emitToPlayer(io, pid as any, 'error', { code: appliedError.code, message: appliedError.message });
+            break;
+          }
+          const result = continueCastFromGraveyardAbility({
+            gameId,
+            game,
+            io,
+            playerId: String(pid),
+            cardId: String(stepData.cardId || stepData.sourceId || '').trim(),
+            abilityId: String(stepData.abilityId || '').trim(),
+            targets: Array.isArray(stepData.targetsForCast) ? stepData.targetsForCast : undefined,
+            discardedCardIds: Array.isArray(stepData.discardedCardIdsForCost)
+              ? stepData.discardedCardIdsForCost.map((id: any) => String(id)).filter(Boolean)
+              : undefined,
+            exiledCardIdsFromHandForCost: Array.isArray(stepData.exiledCardIdsFromHandForCost)
+              ? stepData.exiledCardIdsFromHandForCost.map((id: any) => String(id)).filter(Boolean)
+              : undefined,
+            exiledCardIdsFromGraveyardForCost: Array.isArray(stepData.exiledCardIdsFromGraveyardForCost)
+              ? stepData.exiledCardIdsFromGraveyardForCost.map((id: any) => String(id)).filter(Boolean)
+              : undefined,
+            sacrificedPermanentIdsForCost: Array.isArray(stepData.sacrificedPermanentIdsForCost)
+              ? stepData.sacrificedPermanentIdsForCost.map((id: any) => String(id)).filter(Boolean)
+              : undefined,
+            xValue: Number.isFinite(Number(stepData.xValue)) ? Math.max(0, Math.floor(Number(stepData.xValue))) : undefined,
+            manaCostAlreadyPaid: true,
+            tappedPermanentsForManaCost: applied.tappedPermanents.length > 0 ? applied.tappedPermanents : undefined,
+            sacrificedPermanentsForManaCost: applied.sacrificedPermanents.length > 0 ? applied.sacrificedPermanents : undefined,
+            paymentManaDelta: applied.paymentManaDelta && Object.keys(applied.paymentManaDelta).length > 0 ? applied.paymentManaDelta : undefined,
+            emitError: (payload) => emitToPlayer(io, pid as any, 'error', payload),
+          });
+          debug(2, `[Resolution] Graveyard spell payment complete for ${cardName}; resumed cast (result='${result}')`);
+          if (result !== 'error') {
+            broadcastGame(io, game, gameId);
+          }
+          break;
+        }
         await resumePlayerSpellCastAfterPayment(io, gameId, String(pid), {
           cardId,
           effectId,
