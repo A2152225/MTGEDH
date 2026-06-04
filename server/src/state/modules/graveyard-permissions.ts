@@ -687,6 +687,43 @@ function getPlayerGraveyardCollections(state: any, playerId: PlayerID): any[][] 
   return collections;
 }
 
+function ensureCardSnapshotInPlayerGraveyard(
+  state: any,
+  playerId: PlayerID,
+  snapshot: any,
+): any | undefined {
+  const cardId = getCardId(snapshot);
+  if (!state || !playerId || !cardId) return undefined;
+
+  const existing = findCardInPlayerGraveyard(state, playerId, { cardId, cardName: String(snapshot?.name || '') });
+  if (existing) return existing;
+
+  const graveyardCard = {
+    ...(snapshot as any),
+    id: cardId,
+    zone: 'graveyard',
+  };
+
+  state.zones = state.zones || {};
+  state.zones[playerId] = state.zones[playerId] || {};
+  const playerZones = state.zones[playerId];
+  playerZones.graveyard = Array.isArray(playerZones.graveyard) ? playerZones.graveyard : [];
+  playerZones.graveyard.push(graveyardCard);
+  playerZones.graveyardCount = playerZones.graveyard.length;
+
+  const playerEntry = Array.isArray(state.players)
+    ? state.players.find((entry: any) => String(entry?.id || '') === String(playerId || ''))
+    : undefined;
+  if (playerEntry) {
+    playerEntry.graveyard = Array.isArray(playerEntry.graveyard) ? playerEntry.graveyard : [];
+    if (!playerEntry.graveyard.some((entry: any) => getCardId(entry) === cardId)) {
+      playerEntry.graveyard.push({ ...graveyardCard });
+    }
+  }
+
+  return graveyardCard;
+}
+
 function findCardInPlayerGraveyard(
   state: any,
   playerId: PlayerID,

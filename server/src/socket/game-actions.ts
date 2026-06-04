@@ -9734,6 +9734,27 @@ export function registerGameActions(io: Server, socket: Socket) {
           });
           return;
         }
+
+        if (explicitPaymentSelected) {
+          const pool = getOrInitManaPool(game.state, playerId) as any;
+          const projectedPaymentTotals = { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 };
+          for (const key of CAST_SPELL_PAYMENT_MANA_KEYS) {
+            projectedPaymentTotals[key] = Number(totalAvailable[key] || 0);
+          }
+          const preTapConsumeCheck = consumeExplicitSelectedCastSpellMana(
+            snapshotCastSpellManaPool(pool),
+            projectedPaymentTotals,
+            totalColored,
+            totalGeneric,
+          );
+          if ('error' in preTapConsumeCheck) {
+            socket.emit('error', {
+              code: 'INSUFFICIENT_MANA',
+              message: `Insufficient mana to cast this spell. ${preTapConsumeCheck.error}`,
+            });
+            return;
+          }
+        }
       }
 
       // ======================================================================
