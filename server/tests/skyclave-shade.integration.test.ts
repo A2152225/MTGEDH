@@ -291,6 +291,61 @@ describe('Skyclave Shade', () => {
     expect(persistedEvents.some((event: any) => event.type === 'optionalTriggeredAbilityChoice')).toBe(true);
 
     game.reset!(true);
+    {
+      const shade = {
+        id: 'shade_1',
+        name: 'Skyclave Shade',
+        mana_cost: '{1}{B}',
+        manaCost: '{1}{B}',
+        type_line: 'Creature — Shade',
+        zone: 'graveyard',
+      };
+      const swamp = {
+        id: 'swamp_1',
+        name: 'Swamp',
+        type_line: 'Basic Land — Swamp',
+        zone: 'hand',
+      };
+      Object.assign(game.state as any, {
+        turnNumber: 11,
+        turn: 11,
+        turnPlayer: playerId,
+        activePlayer: playerId,
+        priority: playerId,
+        step: 'MAIN1',
+        phase: 'precombatMain',
+        stack: [],
+        battlefield: [],
+        landsPlayedThisTurn: { p1: 0, p2: 0 },
+        manaPool: {
+          p1: { white: 0, blue: 0, black: 1, red: 0, green: 0, colorless: 1 },
+          p2: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+        },
+        zones: {
+          p1: {
+            hand: [swamp],
+            handCount: 1,
+            library: [],
+            libraryCount: 0,
+            graveyard: [shade],
+            graveyardCount: 1,
+            exile: [],
+            exileCount: 0,
+          },
+          p2: {
+            hand: [],
+            handCount: 0,
+            library: [],
+            libraryCount: 0,
+            graveyard: [],
+            graveyardCount: 0,
+            exile: [],
+            exileCount: 0,
+          },
+        },
+      });
+      (game as any).libraries = new Map<string, any[]>([['p1', []], ['p2', []]]);
+    }
     game.replay!(transformDbEventsForReplay(getEvents(gameId) as any));
 
     expect((game.state as any).playableFromGraveyard?.[playerId]?.shade_1).toBe(11);
