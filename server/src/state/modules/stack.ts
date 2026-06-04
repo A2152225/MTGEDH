@@ -13148,12 +13148,20 @@ export function executeTriggerEffect(
   // Pattern: "each opponent mills X cards" or "each opponent mills a card" (Altar of the Brood)
   const millOpponentsMatch = desc.match(/each opponent mills? (?:a card|(\d+) cards?)/i);
   if (millOpponentsMatch) {
-    const millCount = millOpponentsMatch[1] ? parseInt(millOpponentsMatch[1], 10) : 1;
-    debug(2, `[executeTriggerEffect] Each opponent mills ${millCount} card(s)`);
+    const baseMillCount = millOpponentsMatch[1] ? parseInt(millOpponentsMatch[1], 10) : 1;
+    debug(2, `[executeTriggerEffect] Each opponent mills ${baseMillCount} card(s)`);
     
     // Set up pending mill for each opponent
     state.pendingMill = state.pendingMill || {};
     for (const opp of opponents) {
+      // Apply mill replacement effects (e.g., The Water Crystal adds +4 to opponent mills).
+      // The trigger controller (Altar's owner) is the "milling player" context.
+      const { finalCount: millCount } = applyMillReplacements(
+        ctx,
+        baseMillCount,
+        String(controller),
+        String(opp.id),
+      );
       state.pendingMill[opp.id] = (state.pendingMill[opp.id] || 0) + millCount;
       
       // Get library from ctx.libraries Map (authoritative source) or fallback to zones
@@ -13172,12 +13180,14 @@ export function executeTriggerEffect(
       
       // Mill cards from library to graveyard
       if (oppLib && Array.isArray(oppLib)) {
+        const milledCards: any[] = [];
         for (let i = 0; i < millCount && oppLib.length > 0; i++) {
           const milledCard = oppLib.shift();
           if (milledCard) {
             oppZones.graveyard = oppZones.graveyard || [];
             milledCard.zone = 'graveyard';
             oppZones.graveyard.push(milledCard);
+            milledCards.push(milledCard);
             recordCardPutIntoGraveyardThisTurn(ctx, String(opp.id), milledCard, { fromBattlefield: false });
             debug(2, `[executeTriggerEffect] Milled ${milledCard.name || 'card'} from ${opp.id}'s library`);
           }
@@ -13189,6 +13199,14 @@ export function executeTriggerEffect(
         // Update library count and graveyard count
         oppZones.libraryCount = oppLib.length;
         oppZones.graveyardCount = (oppZones.graveyard || []).length;
+        // Fire mill triggers (e.g., Teferi's Ageless Insight, Ruin Crab, etc.)
+        if (milledCards.length > 0) {
+          try {
+            processMillTriggers(ctx, String(opp.id), milledCards, controller);
+          } catch {
+            // best-effort
+          }
+        }
       } else {
         debug(2, `[executeTriggerEffect] No library found for opponent ${opp.id}`);
       }

@@ -9244,6 +9244,17 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
             }
           }
 
+          // When only creature subtypes were parsed (e.g. "Merfolk", "Soldier"), the target
+          // is implicitly a creature. Add 'creature' AND the subtype words to typesFilter so
+          // the TAP_UNTAP_TARGET validation matches creatures of that subtype, and tests can
+          // verify both dimensions are present.
+          if (typesFilter.length === 0 && subtypesFilter.length > 0) {
+            typesFilter.push('creature');
+            // Also push the subtype words into typesFilter so callers can see the full
+            // requirement without having to merge types + subtypes themselves.
+            typesFilter.push(...subtypesFilter);
+          }
+
           const requireAllTypes = typesFilter.length > 1;
 
           if (typesFilter.length < 1 && subtypesFilter.length < 1) {

@@ -4881,6 +4881,42 @@ export function App() {
     return (safeView.players || []).filter((p: any) => p.id !== you);
   }, [safeView, you]);
 
+  // Per-defender attack info: untapped creature count and attack tax per attacker.
+  // The tax is parsed from pillow-fort enchantments (Ghostly Prison, Propaganda, etc.)
+  const defenderInfoMap = useMemo(() => {
+    if (!safeView || !you) return undefined;
+    const result: Record<string, { untappedCreatureCount: number; attackTaxPerCreature: number }> = {};
+    const battlefield: BattlefieldPermanent[] = safeView.battlefield || [];
+    for (const defender of defenders) {
+      const defId = String(defender.id);
+      // Count untapped creatures controlled by this opponent
+      const untappedCreatureCount = battlefield.filter((p: BattlefieldPermanent) => {
+        if (p.controller !== defId) return false;
+        if (p.tapped) return false;
+        const tl = ((p.card as any)?.type_line || '').toLowerCase();
+        return /\bcreature\b/.test(tl);
+      }).length;
+
+      // Compute attack tax from pillow-fort permanents (Ghostly Prison, Propaganda, etc.)
+      let attackTaxPerCreature = 0;
+      for (const perm of battlefield) {
+        if (perm.controller !== defId) continue;
+        const oracle = ((perm.card as any)?.oracle_text || '').toLowerCase();
+        const taxMatch = oracle.match(/creatures? (?:can't|cannot) attack(?:[^.]*?unless[^.]*?pays?\s*)?\{(\d+)\}/i);
+        if (taxMatch) {
+          attackTaxPerCreature = Math.max(attackTaxPerCreature, parseInt(taxMatch[1], 10));
+        }
+        const simpleTax = oracle.match(/unless[^.{]*\{(\d+)\}[^.]*(?:attack|per creature)/i);
+        if (simpleTax) {
+          attackTaxPerCreature = Math.max(attackTaxPerCreature, parseInt(simpleTax[1], 10));
+        }
+      }
+
+      result[defId] = { untappedCreatureCount, attackTaxPerCreature };
+    }
+    return result;
+  }, [safeView, you, defenders]);
+
   const combatModalAttackersAvailableCreatures = useMemo(() => {
     if (!safeView) return [];
     const turnPlayer = safeView.turnPlayer;
@@ -6646,6 +6682,7 @@ export function App() {
         }
         errorMessage={combatMode === 'blockers' ? combatModalError : null}
         isYourTurn={safeView != null && safeView.turnPlayer != null && safeView.turnPlayer === you}
+        defenderInfoMap={combatMode === 'attackers' ? defenderInfoMap : undefined}
         onConfirm={(selections) => {
           if (combatMode === 'attackers') {
             handleDeclareAttackers(selections as AttackerSelection[]);

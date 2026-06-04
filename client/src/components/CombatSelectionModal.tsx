@@ -784,40 +784,20 @@ export function CombatSelectionModal({
                   ? '⚔️ Declare Attackers'
                   : '🛡️ Declare Blockers'}
           </h2>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            {!readOnly && (
-              <button
-                onClick={() => setMinimized(true)}
-                title="Minimize to pan/inspect the board"
-                style={{
-                  padding: '4px 10px',
-                  backgroundColor: '#374151',
-                  color: '#d1d5db',
-                  border: '1px solid #4b5563',
-                  borderRadius: 4,
-                  cursor: 'pointer',
-                  fontSize: 11,
-                  fontWeight: 500,
-                }}
-              >
-                👁 Inspect Board
-              </button>
-            )}
-            {onCancel && (
-              <button
-                onClick={onCancel}
-                style={{
-                  background: 'none',
-                  border: 'none',
-                  color: '#888',
-                  fontSize: 24,
-                  cursor: 'pointer',
-                }}
-              >
-                ×
-              </button>
-            )}
-          </div>
+          {onCancel && (
+            <button
+              onClick={onCancel}
+              style={{
+                background: 'none',
+                border: 'none',
+                color: '#888',
+                fontSize: 24,
+                cursor: 'pointer',
+              }}
+            >
+              ×
+            </button>
+          )}
         </div>
 
         <div style={{ fontSize: 13, color: '#aaa', marginBottom: 16 }}>
@@ -868,8 +848,37 @@ export function CombatSelectionModal({
               }}>
                 <span style={{ fontWeight: 600, fontSize: 13, marginRight: 8 }}>Quick Attack:</span>
                 
+                {/* Defender info pills */}
+                {defenderInfoMap && defenders.length > 0 && (
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 6 }}>
+                    {defenders.map(d => {
+                      const info = defenderInfoMap[d.id];
+                      if (!info) return null;
+                      return (
+                        <div key={`info-${d.id}`} style={{
+                          fontSize: 11, color: '#94a3b8',
+                          background: 'rgba(0,0,0,0.3)', borderRadius: 4,
+                          padding: '2px 8px', border: '1px solid #334155',
+                        }}>
+                          <strong style={{ color: '#f1f5f9' }}>{d.name}</strong>:
+                          {' '}{info.untappedCreatureCount} untapped creature{info.untappedCreatureCount !== 1 ? 's' : ''}
+                          {info.attackTaxPerCreature > 0 && (
+                            <span style={{ color: '#fbbf24', marginLeft: 4 }}>
+                              • {`{${info.attackTaxPerCreature}}`}/attacker tax
+                            </span>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
                 {/* Attack All buttons - one per defender */}
-                {defenders.map(d => (
+                {defenders.map(d => {
+                  const attackTax = defenderInfoMap?.[d.id]?.attackTaxPerCreature ?? 0;
+                  const selectedCount = selectedAttackers.size;
+                  const totalTax = attackTax * selectedCount;
+                  return (
                   <button
                     key={`attack-all-${d.id}`}
                     onClick={() => handleAttackAll(d.id)}
@@ -886,8 +895,14 @@ export function CombatSelectionModal({
                     }}
                   >
                     Attack All → {d.name} ({unselectedCount})
+                    {attackTax > 0 && totalTax > 0 && (
+                      <span style={{ color: '#fde68a', marginLeft: 4 }}>
+                        costs {`{${totalTax}}`}
+                      </span>
+                    )}
                   </button>
-                ))}
+                  );
+                })}
                 
                 {/* Bulk count selector */}
                 <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginLeft: 8 }}>

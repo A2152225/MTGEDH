@@ -2155,6 +2155,34 @@ function hasActivatableAbility(
     return true;
   }
   
+  // Check for "Tap N untapped [type] you control" style activation costs
+  // (e.g., Lullmage Mentor: "Tap seven untapped Merfolk you control: Counter target spell.")
+  // These abilities have NO {symbol} cost prefix, so they are invisible to the generic
+  // activatedAbilityPattern below.  We detect them with a separate regex and verify that
+  // enough matching untapped permanents exist on the battlefield.
+  {
+    const tapNOtherRegex = /(?:^|\n)(?:\{[^}]+\}\s*[,]?\s*)*[Tt]ap\s+(?:another\s+|other\s+)?(?:(a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+)?untapped\s+([a-zA-Z][\w\s]*?)\s+you\s+control\s*[,:]/gm;
+    for (const tapNMatch of oracleText.matchAll(tapNOtherRegex)) {
+      const rawCount = String(tapNMatch[1] || 'a').toLowerCase().trim();
+      const rawType = String(tapNMatch[2] || '').toLowerCase().trim();
+      const requiredCount = parseWordNumberForGraveyardCost(rawCount || 'a') || 1;
+      // Normalize type: strip trailing 's' for subtype matching (e.g., "merfolks" → "merfolk")
+      const normalizedType = rawType.replace(/s$/i, '').trim();
+      if (!normalizedType) continue;
+      const battlefield = state.battlefield || [];
+      const matchingCount = battlefield.filter((p: any) => {
+        if (!p || String(p.controller) !== String(playerId)) return false;
+        if (p.tapped) return false;
+        if (p.id === permanent.id) return false; // can't tap self as part of another cost
+        const tl = String(p.card?.type_line || '').toLowerCase();
+        return tl.includes(normalizedType);
+      }).length;
+      if (matchingCount >= requiredCount) {
+        return true;
+      }
+    }
+  }
+
   // Check for other activated abilities: "{Cost}: Effect"
   // Pattern: Mana symbols or other costs followed by colon
   const activatedAbilityPattern = /(\{[^}]+\}(?:\s*,\s*\{[^}]+\})*)\s*:\s*(.+)/gi;
