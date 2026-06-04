@@ -137,6 +137,7 @@ function getPlayerLibraryCards(game: any, playerId: string): any[] {
 
 function getTopLibraryCard(game: any, playerId: string): any | null {
   const library = getPlayerLibraryCards(game, playerId);
+  return library[0] ?? null;
 }
 
 export interface StaticCostTaxMetadata {
@@ -14470,6 +14471,13 @@ export function registerGameActions(io: Server, socket: Socket) {
         return;
       }
       game.reset(true);
+      // Explicitly clear manaPool after restart (reset preserves it for replay scenarios,
+      // but restart should always start with no floating mana).
+      try {
+        (game.state as any).manaPool = undefined;
+      } catch {
+        /* best effort */
+      }
       // Make restarted games start in PRE_GAME to be consistent
       try {
         game.state = (game.state || {}) as any;

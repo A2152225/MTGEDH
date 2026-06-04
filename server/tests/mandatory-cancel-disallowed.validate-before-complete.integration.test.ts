@@ -89,6 +89,8 @@ describe('submitResolutionResponse disallows cancelling mandatory steps (integra
       mandatory: true,
       permanentId,
       cardName: 'Test Permanent',
+      // Provide candidateNames so the validation succeeds without a local oracle DB.
+      candidateNames: ['Black Lotus', 'Lightning Bolt', 'Sol Ring'],
     } as any);
 
     const emitted: Array<{ room?: string; event: string; payload: any }> = [];

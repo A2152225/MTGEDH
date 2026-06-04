@@ -63,7 +63,11 @@ describe('Conditional Mana Sources', () => {
       };
 
       const aggregateMana = getAvailableMana(state, 'player1');
-      expect(canPayManaCost(aggregateMana, parseManaCost('{1}{R}'))).toBe(true);
+      // canPayManaCost now uses precise de-inflation for anyColor sources: a single any-color
+      // source can only produce 1 mana, so {1}{R} (which needs 2) is correctly false.
+      expect(canPayManaCost(aggregateMana, parseManaCost('{1}{R}'))).toBe(false);
+      // Paying {R} alone (1 mana from the any-color source) is correctly true.
+      expect(canPayManaCost(aggregateMana, parseManaCost('{R}'))).toBe(true);
 
       expect(canPayManaCostWithAvailableSources(state, 'player1', parseManaCost('{R}'))).toBe(true);
       expect(canPayManaCostWithAvailableSources(state, 'player1', parseManaCost('{1}{R}'))).toBe(false);

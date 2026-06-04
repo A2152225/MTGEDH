@@ -11996,16 +11996,12 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         return;
       }
 
-      // Include single-target battlefield abilities (maxTargets >= 1) that weren't handled by
-      // a specific handler earlier. This allows abilities like Gilder Bairn's {Q} counter
-      // effect ("For each counter on target permanent, put another counter of that kind…")
-      // to queue a target selection step before going on the stack.
       const hasParsedMultiTargetSelection = parsedGraveyardTargetReqs.needsTargets
         && Array.isArray(parsedGraveyardTargetReqs.targetTypes)
         && parsedGraveyardTargetReqs.targetTypes.length > 0
         && !hasParsedGraveyardTargets
         && (
-          Number(parsedGraveyardTargetReqs.maxTargets ?? parsedGraveyardTargetReqs.minTargets ?? 0) >= 1
+          Number(parsedGraveyardTargetReqs.maxTargets ?? parsedGraveyardTargetReqs.minTargets ?? 0) > 1
           || selectionRequiresSharedCardType(parsedGraveyardTargetReqs.targetDescription, resolvedAbilityText)
         );
 

@@ -93,7 +93,7 @@ describe('Nykthos devotion color choice (integration)', () => {
           id: 'nykthos_card',
           name: 'Nykthos, Shrine to Nyx',
           type_line: 'Legendary Land',
-          oracle_text: '{T}: Add {C}. {2}, {T}: Choose a color. Add an amount of mana of that color equal to your devotion to that color.',
+          oracle_text: '{T}: Add {C}.\n{2}, {T}: Choose a color. Add an amount of mana of that color equal to your devotion to that color.',
         },
       },
       {
