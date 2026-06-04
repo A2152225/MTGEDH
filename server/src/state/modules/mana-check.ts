@@ -41,6 +41,14 @@ export interface NormalizedManaPaymentModel {
 }
 
 /**
+ * Strip reminder parentheticals from oracle text without removing mana abilities
+ * wrapped in parentheses (e.g. shock lands: "({T}: Add {U} or {B}.)").
+ */
+export function stripReminderTextFromOracle(oracleText: string): string {
+  return String(oracleText || '').replace(/\(([^(){}]+)\)/g, '');
+}
+
+/**
  * Parse mana cost from a string into components
  */
 export function parseManaCost(manaCost?: string): ParsedManaCost {
@@ -1239,7 +1247,7 @@ function buildExactManaSources(state: any, playerId: PlayerID): ExactManaSource[
     if (permanent.tapped) continue;
     if (!permanent.card) continue;
 
-    const oracleText = String(permanent.card.oracle_text || '').replace(/\([^)]*\)/g, '').toLowerCase();
+    const oracleText = stripReminderTextFromOracle(permanent.card.oracle_text || '').toLowerCase();
     const cardName = String(permanent.card.name || '').toLowerCase();
     const typeLine = String(permanent.card.type_line || '').toLowerCase();
     const isCreature = typeLine.includes('creature');
@@ -1430,7 +1438,7 @@ function getOpponentPermanentColors(state: any, playerId: PlayerID, onlyLands: b
     
     const typeLine = (permanent.card.type_line || "").toLowerCase();
     const cardName = (permanent.card.name || "").toLowerCase();
-    const oracleText = (permanent.card.oracle_text || "").replace(/\([^)]*\)/g, '').toLowerCase();
+    const oracleText = stripReminderTextFromOracle(permanent.card.oracle_text || '').toLowerCase();
     const counters = permanent.counters || {};
     
     // Filter to only lands if requested (for cards like Exotic Orchard that say "land")
@@ -1570,7 +1578,7 @@ function getControlledPermanentColors(
 
     const typeLine = (permanent.card.type_line || '').toLowerCase();
     const cardName = (permanent.card.name || '').toLowerCase();
-    const oracleText = (permanent.card.oracle_text || '').replace(/\([^)]*\)/g, '').toLowerCase();
+    const oracleText = stripReminderTextFromOracle(permanent.card.oracle_text || '').toLowerCase();
     const counters = permanent.counters || {};
 
     if (onlyLands && !typeLine.includes('land')) continue;
@@ -1698,7 +1706,7 @@ export function getAvailableMana(state: any, playerId: PlayerID): Record<string,
     if (permanent.tapped) continue;
     if (!permanent.card) continue;
     
-    const oracleText = (permanent.card.oracle_text || "").replace(/\([^)]*\)/g, '').toLowerCase();
+    const oracleText = stripReminderTextFromOracle(permanent.card.oracle_text || '').toLowerCase();
     const cardName = (permanent.card.name || "").toLowerCase();
     const typeLine = (permanent.card.type_line || "").toLowerCase();
     

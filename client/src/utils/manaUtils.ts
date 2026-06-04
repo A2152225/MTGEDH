@@ -414,6 +414,7 @@ export function calculateSuggestedPayment(
   
   // Track which sources we've used
   const usedSources = new Set<string>();
+  const usedPermanentIds = new Set<string>();
   const remainingSourceCapacity = new Map<string, number>();
   for (const source of sources) {
     remainingSourceCapacity.set(source.id, getSourceManaCapacity(source));
@@ -442,6 +443,9 @@ export function calculateSuggestedPayment(
   // Uses getTotalManaProduction which correctly handles choice sources vs multi-mana sources
   const getManaAmount = (source: ManaPaymentSource) => getSourceManaCapacity(source);
 
+  const getPaymentSourcePermanentId = (source: ManaPaymentSource): string =>
+    String(source.sourcePermanentId || source.id || '').trim();
+
   const assignFromSource = (
     source: ManaPaymentSource,
     color: Color,
@@ -449,6 +453,11 @@ export function calculateSuggestedPayment(
   ): number => {
     const available = remainingSourceCapacity.get(source.id) || 0;
     if (available <= 0 || requestedAmount <= 0) return 0;
+
+    const sourcePermanentId = getPaymentSourcePermanentId(source);
+    if (sourcePermanentId && usedPermanentIds.has(sourcePermanentId)) {
+      return 0;
+    }
 
     const assigned = Math.min(available, requestedAmount);
     const existing = suggestions.get(source.id);
@@ -458,6 +467,10 @@ export function calculateSuggestedPayment(
     } else {
       suggestions.set(source.id, { color, count: assigned });
       usedSources.add(source.id);
+    }
+
+    if (sourcePermanentId && assigned > 0) {
+      usedPermanentIds.add(sourcePermanentId);
     }
 
     remainingSourceCapacity.set(source.id, available - assigned);

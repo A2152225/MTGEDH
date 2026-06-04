@@ -1,15 +1,22 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { socket } from '../socket';
+import {
+  createAiOpponentFromPreset,
+  deleteSavedAIOpponentPreset,
+  loadSavedAIOpponentPresets,
+  presetInputFromAiOpponent,
+  upsertSavedAIOpponentPreset,
+  type SavedAIOpponentPreset,
+} from '../utils/aiOpponentPresets';
+
+import type { AIStrategy } from '../utils/aiOpponentPresets';
+
+export type { AIStrategy } from '../utils/aiOpponentPresets';
 
 /**
  * Game formats supported by the application
  */
 export type GameFormat = 'commander' | 'standard' | 'modern' | 'legacy' | 'vintage' | 'pauper';
-
-/**
- * AI Strategy options matching the rules-engine AIStrategy enum
- */
-export type AIStrategy = 'random' | 'basic' | 'aggressive' | 'defensive' | 'control' | 'combo';
 
 /**
  * Saved deck summary for selection
@@ -170,7 +177,12 @@ export function CreateGameModal({ open, onClose, onCreateGame, savedDecks = [], 
     deckText: string;
     deckName: string;
     expanded: boolean;
+    saveAsPreset: boolean;
+    presetLabel: string;
   }>>([]);
+
+  const [savedAiPresets, setSavedAiPresets] = useState<SavedAIOpponentPreset[]>([]);
+  const [selectedPresetId, setSelectedPresetId] = useState('');
   
   // Deck filter for AI deck selection
   const [aiDeckFilter, setAiDeckFilter] = useState('');
@@ -212,7 +224,24 @@ export function CreateGameModal({ open, onClose, onCreateGame, savedDecks = [], 
       deckText: '',
       deckName: '',
       expanded: true, // Start expanded for new opponents
+      saveAsPreset: false,
+      presetLabel: '',
     }]);
+  };
+
+  const addAiOpponentFromPreset = (presetId: string) => {
+    if (aiOpponents.length >= MAX_AI_OPPONENTS) return;
+    const preset = savedAiPresets.find((p) => p.id === presetId);
+    if (!preset) return;
+    setAiOpponents([...aiOpponents, createAiOpponentFromPreset(preset)]);
+  };
+
+  const handleDeleteSelectedPreset = () => {
+    if (!selectedPresetId) return;
+    if (!window.confirm('Delete this saved AI opponent preset?')) return;
+    deleteSavedAIOpponentPreset(selectedPresetId);
+    setSavedAiPresets(loadSavedAIOpponentPresets());
+    setSelectedPresetId('');
   };
 
   /**
@@ -243,6 +272,8 @@ export function CreateGameModal({ open, onClose, onCreateGame, savedDecks = [], 
       setSeedInput('');
       // Reset save message when modal opens
       setSaveMessage(null);
+      setSavedAiPresets(loadSavedAIOpponentPresets());
+      setSelectedPresetId('');
     }
   }, [open]);
 
@@ -381,6 +412,19 @@ export function CreateGameModal({ open, onClose, onCreateGame, savedDecks = [], 
       localStorage.setItem('mtgedh:playerName', finalPlayerName);
     } catch {
       // Ignore storage errors
+    }
+
+    const presetsToSave = aiOpponents.filter((ai) => ai.saveAsPreset);
+    if (presetsToSave.length > 0) {
+      const existingPresets = loadSavedAIOpponentPresets();
+      for (const ai of presetsToSave) {
+        const input = presetInputFromAiOpponent(ai);
+        const existing = existingPresets.find(
+          (p) => p.label.toLowerCase() === input.label.toLowerCase()
+        );
+        upsertSavedAIOpponentPreset({ ...input, id: existing?.id });
+      }
+      setSavedAiPresets(loadSavedAIOpponentPresets());
     }
 
     // Build house rules config (only include enabled rules)
@@ -662,9 +706,88 @@ export function CreateGameModal({ open, onClose, onCreateGame, savedDecks = [], 
               </button>
             </div>
 
+            {savedAiPresets.length > 0 && (
+              <div
+                style={{
+                  marginTop: aiOpponents.length > 0 ? 0 : 8,
+                  marginBottom: 12,
+                  padding: 10,
+                  backgroundColor: '#fff',
+                  borderRadius: 6,
+                  border: '1px solid #dbeafe',
+                }}
+              >
+                <div style={{ fontSize: 12, fontWeight: 500, color: '#444', marginBottom: 6 }}>
+                  Saved AI Presets
+                </div>
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                  <select
+                    value={selectedPresetId}
+                    onChange={(e) => setSelectedPresetId(e.target.value)}
+                    style={{
+                      flex: '1 1 180px',
+                      minWidth: 140,
+                      padding: '6px 10px',
+                      borderRadius: 4,
+                      border: '1px solid #ddd',
+                      fontSize: 12,
+                      backgroundColor: '#fff',
+                    }}
+                  >
+                    <option value="">-- Select a saved preset --</option>
+                    {savedAiPresets.map((preset) => (
+                      <option key={preset.id} value={preset.id}>
+                        {preset.label} ({AI_STRATEGY_INFO[preset.strategy].name})
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    onClick={() => addAiOpponentFromPreset(selectedPresetId)}
+                    disabled={!selectedPresetId || isAtMaxAiCapacity}
+                    style={{
+                      padding: '6px 12px',
+                      borderRadius: 4,
+                      border: 'none',
+                      backgroundColor: (!selectedPresetId || isAtMaxAiCapacity) ? '#9ca3af' : '#10b981',
+                      color: '#fff',
+                      cursor: (!selectedPresetId || isAtMaxAiCapacity) ? 'not-allowed' : 'pointer',
+                      fontSize: 12,
+                      fontWeight: 500,
+                    }}
+                  >
+                    Add from Preset
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleDeleteSelectedPreset}
+                    disabled={!selectedPresetId}
+                    title="Delete selected preset"
+                    style={{
+                      padding: '6px 10px',
+                      borderRadius: 4,
+                      border: '1px solid #fca5a5',
+                      backgroundColor: '#fff',
+                      color: '#b91c1c',
+                      cursor: !selectedPresetId ? 'not-allowed' : 'pointer',
+                      fontSize: 12,
+                    }}
+                  >
+                    Delete
+                  </button>
+                </div>
+                <div style={{ marginTop: 4, fontSize: 11, color: '#666' }}>
+                  Quickly add opponents with saved name, deck, difficulty, and strategy.
+                </div>
+              </div>
+            )}
+
             {aiOpponents.length === 0 && (
               <div style={{ fontSize: 12, color: '#666', marginTop: 8 }}>
                 Click "Add AI Opponent" to add AI players to your game. You can add up to {MAX_AI_OPPONENTS} AI opponents for a {MAX_TOTAL_SEATS}-seat table including you.
+                {savedAiPresets.length === 0 && (
+                  <> Check &quot;Save as preset&quot; on an opponent when creating a game to reuse settings later.</>
+                )}
               </div>
             )}
 
@@ -739,7 +862,15 @@ export function CreateGameModal({ open, onClose, onCreateGame, savedDecks = [], 
                       <input
                         type="text"
                         value={ai.name}
-                        onChange={(e) => updateAiOpponent(ai.id, { name: e.target.value })}
+                        onChange={(e) => {
+                          const name = e.target.value;
+                          updateAiOpponent(ai.id, {
+                            name,
+                            presetLabel: ai.saveAsPreset && !ai.presetLabel.trim()
+                              ? name
+                              : ai.presetLabel,
+                          });
+                        }}
                         placeholder={`AI Opponent ${index + 1}`}
                         style={{
                           width: '100%',
@@ -934,6 +1065,55 @@ export function CreateGameModal({ open, onClose, onCreateGame, savedDecks = [], 
                               </span>
                             )}
                           </div>
+                        </div>
+                      )}
+                    </div>
+
+                    <div style={{ marginTop: 12, paddingTop: 10, borderTop: '1px solid #e5e7eb' }}>
+                      <label
+                        style={{
+                          display: 'flex',
+                          alignItems: 'flex-start',
+                          gap: 8,
+                          cursor: 'pointer',
+                          fontSize: 12,
+                        }}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={ai.saveAsPreset}
+                          onChange={(e) => {
+                            const saveAsPreset = e.target.checked;
+                            updateAiOpponent(ai.id, {
+                              saveAsPreset,
+                              presetLabel: saveAsPreset
+                                ? (ai.presetLabel.trim() || ai.name.trim() || `AI Opponent ${index + 1}`)
+                                : ai.presetLabel,
+                            });
+                          }}
+                          style={{ width: 16, height: 16, marginTop: 2 }}
+                        />
+                        <span>Save as preset when creating this game</span>
+                      </label>
+                      {ai.saveAsPreset && (
+                        <div style={{ marginTop: 8, marginLeft: 24 }}>
+                          <label style={{ display: 'block', marginBottom: 4, fontSize: 11, color: '#666' }}>
+                            Preset name (shown in the preset list)
+                          </label>
+                          <input
+                            type="text"
+                            value={ai.presetLabel}
+                            onChange={(e) => updateAiOpponent(ai.id, { presetLabel: e.target.value })}
+                            placeholder={ai.name.trim() || `AI Opponent ${index + 1}`}
+                            style={{
+                              width: '100%',
+                              padding: '6px 10px',
+                              borderRadius: 4,
+                              border: '1px solid #ddd',
+                              fontSize: 12,
+                              boxSizing: 'border-box',
+                            }}
+                          />
                         </div>
                       )}
                     </div>

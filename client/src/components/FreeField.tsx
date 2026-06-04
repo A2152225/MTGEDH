@@ -196,7 +196,9 @@ export function FreeField(props: {
   const [hoverId, setHoverId] = useState<string | null>(null);
   const [contextMenu, setContextMenu] = useState<{ permanent: BattlefieldPermanent; x: number; y: number } | null>(null);
   const drag = useRef<{ id: string; startX: number; startY: number; baseX: number; baseY: number; z?: number } | null>(null);
-  
+  /** Stable grid slots for permanents without server-persisted positions (survives re-renders/reorders). */
+  const autoPositionCache = useRef(new Map<string, { x: number; y: number }>());
+
   // State for ability selection modal (shown on double-click when multiple abilities exist)
   const [abilitySelectionModal, setAbilitySelectionModal] = useState<{
     permanent: BattlefieldPermanent;
@@ -446,7 +448,19 @@ export function FreeField(props: {
                 ...(typeof p.posZ === 'number' ? { z: p.posZ } : {}),
               }
             : null;
-      const pos = existing ? { ...existing } : nextAuto();
+      let pos: { x: number; y: number; z?: number };
+      if (existing) {
+        pos = { ...existing };
+      } else {
+        const cached = autoPositionCache.current.get(p.id);
+        if (cached) {
+          pos = { ...cached };
+        } else {
+          const auto = nextAuto();
+          pos = { ...auto };
+          autoPositionCache.current.set(p.id, { x: auto.x, y: auto.y });
+        }
+      }
       placed.push({
         id: p.id,
         name,

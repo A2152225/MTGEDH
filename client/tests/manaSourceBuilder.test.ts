@@ -1,266 +1,94 @@
 import { describe, expect, it } from 'vitest';
 
-import type { BattlefieldPermanent } from '../../shared/src';
-import {
-  buildAvailableManaSourcesForPlayer,
-  createPaymentItemFromSource,
-  createSuggestedPaymentItem,
-} from '../src/utils/manaSourceBuilder';
+import { buildSuggestedPaymentItems } from '../src/utils/manaSourceBuilder';
 
-function createPermanent(permanent: Partial<BattlefieldPermanent> & { id: string; controller: string; owner: string; card: any }): BattlefieldPermanent {
-  return {
-    tapped: false,
-    counters: {},
-    ...permanent,
-  } as BattlefieldPermanent;
-}
-
-describe('buildAvailableManaSourcesForPlayer', () => {
-  it('creates per-line inline payment sources for supported multi-line mana permanents', () => {
-    const battlefield = [
-      createPermanent({
-        id: 'azure_dynamo_1',
-        controller: 'p1',
-        owner: 'p1',
-        card: {
-          id: 'azure_dynamo_card_1',
-          name: 'Azure Dynamo',
-          type_line: 'Artifact',
-          oracle_text: 'Sacrifice this artifact: Add {U}.\n{T}: Add {U}{U}.',
-        },
-      }),
-    ];
-
-    const sources = buildAvailableManaSourcesForPlayer('p1', battlefield);
-
-    expect(sources).toHaveLength(2);
-    expect(sources).toEqual([
-      expect.objectContaining({
-        sourcePermanentId: 'azure_dynamo_1',
-        abilityId: 'azure_dynamo_card_1-ability-0',
-        options: ['U'],
-        consumable: true,
-      }),
-      expect.objectContaining({
-        sourcePermanentId: 'azure_dynamo_1',
-        abilityId: 'azure_dynamo_card_1-ability-1',
-        options: ['U', 'U'],
-        amount: 2,
-      }),
-    ]);
-  });
-
-  it('keeps supported named self-sacrifice mana lines available for inline payment', () => {
-    const battlefield = [
-      createPermanent({
-        id: 'generator_servant_1',
-        controller: 'p1',
-        owner: 'p1',
-        summoningSickness: false,
-        card: {
-          id: 'generator_servant_card_1',
-          name: 'Generator Servant',
-          type_line: 'Creature - Elemental',
-          oracle_text: '{T}, Sacrifice Generator Servant: Add {C}{C}. If that mana is spent on a creature spell, it gains haste until end of turn.',
-        },
-      }),
-    ];
-
-    const sources = buildAvailableManaSourcesForPlayer('p1', battlefield);
-
-    expect(sources).toHaveLength(1);
-    expect(sources[0]).toEqual(expect.objectContaining({
-      sourcePermanentId: 'generator_servant_1',
-      abilityId: 'generator_servant_card_1-ability-0',
-      options: ['C', 'C'],
-      consumable: true,
-      amount: 2,
-    }));
-  });
-
-  it('includes fixed mixed-color bundles when their output stays exact', () => {
-    const battlefield = [
-      createPermanent({
-        id: 'priced_dynamo_1',
-        controller: 'p1',
-        owner: 'p1',
-        card: {
-          id: 'priced_dynamo_card_1',
-          name: 'Priced Dynamo',
-          type_line: 'Artifact',
-          oracle_text: '{1}, {T}: Add {U}{U}.',
-        },
-      }),
-      createPermanent({
-        id: 'izzet_signet_1',
-        controller: 'p1',
-        owner: 'p1',
-        card: {
-          id: 'izzet_signet_card_1',
-          name: 'Izzet Signet',
-          type_line: 'Artifact',
-          oracle_text: '{1}, {T}: Add {U}{R}.',
-        },
-      }),
-    ];
-
-    const sources = buildAvailableManaSourcesForPlayer('p1', battlefield);
-
-    expect(sources).toEqual([
-      expect.objectContaining({
-        sourcePermanentId: 'priced_dynamo_1',
-        abilityId: 'priced_dynamo_card_1-ability-0',
-        options: ['U', 'U'],
-        producedColors: ['U', 'U'],
-        amount: 2,
-      }),
-      expect.objectContaining({
-        sourcePermanentId: 'izzet_signet_1',
-        abilityId: 'izzet_signet_card_1-ability-0',
-        options: ['U', 'R'],
-        producedColors: ['U', 'R'],
-        amount: 2,
-      }),
-    ]);
-  });
-
-  it('omits inline mana lines whose activation costs are not supported by selected payment', () => {
-    const battlefield = [
-      createPermanent({
-        id: 'pain_cache_1',
-        controller: 'p1',
-        owner: 'p1',
-        card: {
-          id: 'pain_cache_card_1',
-          name: 'Pain Cache',
-          type_line: 'Artifact',
-          oracle_text: 'Pay 1 life: Add {U}.\n{T}: Add {C}.',
-        },
-      }),
-      createPermanent({
-        id: 'arena_of_glory_1',
-        controller: 'p1',
-        owner: 'p1',
-        card: {
-          id: 'arena_of_glory_card_1',
-          name: 'Arena of Glory',
-          type_line: 'Land',
-          oracle_text: '{T}: Add {C}.\n{T}, Exert Arena of Glory: Add {R}{R}. If that mana is spent on a creature spell, it gains haste until end of turn.',
-        },
-      }),
-    ];
-
-    const sources = buildAvailableManaSourcesForPlayer('p1', battlefield);
-
-    expect(sources).toEqual([
-      expect.objectContaining({
-        sourcePermanentId: 'pain_cache_1',
-        abilityId: 'pain_cache_card_1-ability-1',
-        options: ['C'],
-      }),
-      expect.objectContaining({
-        sourcePermanentId: 'arena_of_glory_1',
-        abilityId: 'arena_of_glory_card_1-ability-0',
-        options: ['C'],
-      }),
-    ]);
-  });
-
-  it('keeps parenthesized basic land reminder mana text available for spell payment', () => {
-    const battlefield = [
-      createPermanent({
-        id: 'mountain_1',
-        controller: 'p1',
-        owner: 'p1',
-        card: {
-          id: 'mountain_card_1',
-          name: 'Mountain',
-          type_line: 'Basic Land — Mountain',
-          oracle_text: '({T}: Add {R}.)',
-        },
-      }),
-      createPermanent({
-        id: 'swamp_1',
-        controller: 'p1',
-        owner: 'p1',
-        card: {
-          id: 'swamp_card_1',
-          name: 'Swamp',
-          type_line: 'Basic Land — Swamp',
-          oracle_text: '({T}: Add {B}.)',
-        },
-      }),
-    ];
-
-    const sources = buildAvailableManaSourcesForPlayer('p1', battlefield);
-
-    expect(sources).toEqual([
-      expect.objectContaining({
-        sourcePermanentId: 'mountain_1',
-        abilityId: 'native_r',
-        options: ['R'],
-      }),
-      expect.objectContaining({
-        sourcePermanentId: 'swamp_1',
-        abilityId: 'native_b',
-        options: ['B'],
-      }),
-    ]);
-  });
-});
-
-describe('createPaymentItemFromSource', () => {
-  it('preserves abilityId and paymentSourceId for split client payment sources', () => {
-    const payment = createPaymentItemFromSource(
+describe('buildSuggestedPaymentItems', () => {
+  it('uses floating pool mana before tapping lands when explicit pool items are enabled', () => {
+    const items = buildSuggestedPaymentItems(
       {
-        id: 'azure_dynamo_1::azure_dynamo_card_1-ability-1',
-        sourcePermanentId: 'azure_dynamo_1',
-        abilityId: 'azure_dynamo_card_1-ability-1',
-        name: 'Azure Dynamo',
-        label: 'Add {U}{U}',
-        options: ['U', 'U'],
-        amount: 2,
+        colors: { W: 0, U: 1, B: 0, R: 0, G: 0, C: 0 },
+        generic: 1,
+        hybrids: [],
       },
-      'U',
+      [
+        { id: 'reflecting_pool', name: 'Reflecting Pool', options: ['W', 'U', 'B', 'R', 'G'] },
+        { id: 'forest_1', name: 'Forest', options: ['G'] },
+      ],
+      new Set(),
+      { blue: 1, green: 1, white: 0, black: 0, red: 0, colorless: 0 },
+      { includeExplicitPoolItems: true },
     );
 
-    expect(payment).toEqual({
-      permanentId: 'azure_dynamo_1',
-      paymentSourceId: 'azure_dynamo_1::azure_dynamo_card_1-ability-1',
-      abilityId: 'azure_dynamo_card_1-ability-1',
-      mana: 'U',
-      count: 2,
-    });
+    expect(items).toEqual([
+      { permanentId: '__pool__:blue:0', mana: 'U', count: 1 },
+      { permanentId: '__pool__:green:0', mana: 'G', count: 1 },
+    ]);
   });
-});
 
-describe('createSuggestedPaymentItem', () => {
-  it('converts composite suggested source ids into structured payment items', () => {
-    const sourceId = 'fire_nation_palace_1::fire_nation_palace_card_1-ability-0';
-    const payment = createSuggestedPaymentItem(
-      sourceId,
-      { color: 'R', count: 1 },
-      new Map([
-        [
-          sourceId,
-          {
-            id: sourceId,
-            sourcePermanentId: 'fire_nation_palace_1',
-            abilityId: 'fire_nation_palace_card_1-ability-0',
-            name: 'Fire Nation Palace',
-            label: 'Add {R}',
-            options: ['R'],
-          },
-        ],
-      ]),
+  it('does not tap lands for generic-only costs when the pool already has enough mana', () => {
+    const items = buildSuggestedPaymentItems(
+      {
+        colors: { W: 0, U: 0, B: 0, R: 0, G: 0, C: 0 },
+        generic: 2,
+        hybrids: [],
+      },
+      [{ id: 'reflecting_pool', name: 'Reflecting Pool', options: ['W', 'U', 'B', 'R', 'G'] }],
+      new Set(),
+      { blue: 1, green: 1, white: 0, black: 0, red: 0, colorless: 0 },
+      { includeExplicitPoolItems: true },
     );
 
-    expect(payment).toEqual({
-      permanentId: 'fire_nation_palace_1',
-      paymentSourceId: 'fire_nation_palace_1::fire_nation_palace_card_1-ability-0',
-      abilityId: 'fire_nation_palace_card_1-ability-0',
-      mana: 'R',
-      count: 1,
-    });
+    expect(items).toEqual([
+      { permanentId: '__pool__:blue:0', mana: 'U', count: 1 },
+      { permanentId: '__pool__:green:0', mana: 'G', count: 1 },
+    ]);
+  });
+
+  it('taps each permanent at most once when dual lands expose multiple ability sources', () => {
+    const items = buildSuggestedPaymentItems(
+      {
+        colors: { W: 0, U: 1, B: 0, R: 0, G: 1, C: 0 },
+        generic: 2,
+        hybrids: [],
+      },
+      [
+        {
+          id: 'perm_tg::native_g',
+          sourcePermanentId: 'perm_tg',
+          abilityId: 'native_g',
+          name: 'Temple Garden',
+          options: ['G', 'W'],
+          producedColors: ['G'],
+        },
+        {
+          id: 'perm_tg::native_w',
+          sourcePermanentId: 'perm_tg',
+          abilityId: 'native_w',
+          name: 'Temple Garden',
+          options: ['G', 'W'],
+          producedColors: ['W'],
+        },
+        {
+          id: 'perm_wg::native_u',
+          sourcePermanentId: 'perm_wg',
+          abilityId: 'native_u',
+          name: 'Watery Grave',
+          options: ['U', 'B'],
+          producedColors: ['U'],
+        },
+        {
+          id: 'perm_rp::native_c',
+          sourcePermanentId: 'perm_rp',
+          abilityId: 'native_c',
+          name: 'Reflecting Pool',
+          options: ['C'],
+        },
+      ],
+      new Set(),
+    );
+
+    const templeGardenUses = items.filter((item) => item.permanentId === 'perm_tg');
+    expect(templeGardenUses).toHaveLength(1);
+    expect(items.some((item) => item.permanentId === 'perm_wg')).toBe(true);
   });
 });

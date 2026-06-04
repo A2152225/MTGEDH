@@ -6,14 +6,12 @@ import {
   Color,
   parseManaCost,
   computeColorsNeededByOtherCards,
-  calculateSuggestedPayment,
   calculateRemainingCostAfterFloatingMana,
-  getTotalManaProduction,
   type ManaPaymentSource,
   type OtherCardInfo,
   type ManaPool,
 } from '../utils/manaUtils';
-import { createSuggestedPaymentItem } from '../utils/manaSourceBuilder';
+import { buildSuggestedPaymentItems } from '../utils/manaSourceBuilder';
 
 /**
  * Represents an alternate casting cost option
@@ -645,22 +643,16 @@ export function CastSpellModal({
     [availableSources, floatingPaymentSources, manualFloatingManaSelection]
   );
 
-  // Calculate suggested payment for auto-fill (considers floating mana)
-  // IMPORTANT: Use the reduced cost (effectiveManaCost) when calculating suggestions
-  const suggestedPayment = useMemo(() => {
+  const spellCostForPayment = useMemo(() => {
     const costToUse = effectiveManaCost || currentCost?.manaCost || manaCost;
     const parsed = parseManaCost(costToUse);
-    // For XX costs, multiply xValue by the number of X's (xCount)
     const xMultiplier = parsed.xCount || 1;
-    const cost = { colors: parsed.colors, generic: parsed.generic + Math.max(0, xValue * xMultiplier), hybrids: parsed.hybrids };
-    const colorsToPreserve = computeColorsNeededByOtherCards(otherCardsInHand);
-    return calculateSuggestedPayment(
-      cost,
-      effectiveSuggestedSources,
-      colorsToPreserve,
-      manualFloatingManaSelection ? undefined : floatingMana
-    );
-  }, [currentCost, effectiveManaCost, manaCost, xValue, effectiveSuggestedSources, otherCardsInHand, floatingMana, manualFloatingManaSelection]);
+    return {
+      colors: parsed.colors,
+      generic: parsed.generic + Math.max(0, xValue * xMultiplier),
+      hybrids: parsed.hybrids,
+    };
+  }, [currentCost, effectiveManaCost, manaCost, xValue]);
 
   // Calculate how much floating mana will be used
   const floatingManaUsage = useMemo(() => {
@@ -690,24 +682,22 @@ export function CastSpellModal({
     return totalCost > 0;
   }, [currentCost, effectiveManaCost, isForceAltCostSelected, manaCost, manualFloatingManaSelection, xValue]);
 
-  // Helper to get mana count for a source
-  // Uses getTotalManaProduction which correctly handles choice sources vs multi-mana sources:
-  // - Sol Ring ['C','C'] = 2 mana (duplicates = multi-mana)
-  // - Command Tower ['W','U','B','R','G'] = 1 mana (all unique = choice)
-  const getManaCountForSource = (permanentId: string): number => {
-    const source = effectiveSuggestedSources.find(s => s.id === permanentId);
-    if (!source) return 1;
-    if (source.amount && source.amount > 0) return source.amount;
-    return getTotalManaProduction(source.options);
-  };
-
   const suggestedPaymentItems = useMemo(() => {
-    const sourceById = new Map(effectiveSuggestedSources.map((source) => [source.id, source]));
-
-    return Array.from(suggestedPayment.entries()).map(([sourceId, selection]) =>
-      createSuggestedPaymentItem(sourceId, selection, sourceById)
+    const colorsToPreserve = computeColorsNeededByOtherCards(otherCardsInHand);
+    return buildSuggestedPaymentItems(
+      spellCostForPayment,
+      effectiveSuggestedSources.filter((source) => !source.sacrificeCost),
+      colorsToPreserve,
+      floatingMana,
+      { includeExplicitPoolItems: manualFloatingManaSelection },
     );
-  }, [effectiveSuggestedSources, suggestedPayment]);
+  }, [
+    spellCostForPayment,
+    effectiveSuggestedSources,
+    otherCardsInHand,
+    floatingMana,
+    manualFloatingManaSelection,
+  ]);
 
   useEffect(() => {
     if (!open) return;
@@ -1011,6 +1001,7 @@ export function CastSpellModal({
             otherCardsInHand={otherCardsInHand}
             floatingMana={floatingMana}
             manualFloatingManaSelection={manualFloatingManaSelection}
+            autoSelectedPayment={suggestedPaymentItems}
           />
         )}
 

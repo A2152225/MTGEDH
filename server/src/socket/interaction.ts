@@ -1,7 +1,7 @@
 import type { Server, Socket } from "socket.io";
 import type { PlayerID, BattlefieldPermanent } from "../../../shared/src/index.js";
 import crypto from "crypto";
-import { ensureGame, appendGameEvent, broadcastGame, getPlayerName, emitToPlayer, broadcastManaPoolUpdate, getEffectivePower, getEffectiveToughness, parseManaCost, getOrInitManaPool, calculateTotalAvailableMana, validateManaPayment, consumeManaFromPool, calculateManaProduction, recordTreasureManaProduced, recordCreatureSpellHasteManaProduced, validateAndConsumeManaCostFromPool, clearHumanAutoPassPauseOnAction } from "./util";
+import { ensureGame, appendGameEvent, broadcastGame, getPlayerName, emitToPlayer, broadcastManaPoolUpdate, getEffectivePower, getEffectiveToughness, parseManaCost, getOrInitManaPool, calculateTotalAvailableMana, validateManaPayment, consumeManaFromPool, calculateManaProduction, recordTreasureManaProduced, recordCreatureSpellHasteManaProduced, validateAndConsumeManaCostFromPool, clearHumanAutoPassPauseOnAction, resolveClientStyleManaAbilityById } from "./util";
 import { appendEvent } from "../db";
 import { games } from "./socket.js";
 import { 
@@ -2956,13 +2956,16 @@ function parseExplicitSelectedManaProduction(text: string): {
   const effectText = rawText.includes(':') ? rawText.split(':').slice(1).join(':') : rawText;
   const directSymbolsMatch = effectText.match(/\badd\s+((?:\{[wubrgc]\}){1,})/i);
   if (directSymbolsMatch) {
-    const manaSymbols = directSymbolsMatch[1].match(/\{([wubrgc])\}/gi) || [];
+    const matchedSegment = String(directSymbolsMatch[1] || '');
+    const manaSymbols = matchedSegment.match(/\{([wubrgc])\}/gi) || [];
     const produces = [...new Set(manaSymbols.map((symbol) => symbol.replace(/[{}]/g, '').toUpperCase()))];
     if (produces.length > 0) {
+      const isChoicePattern = /\bor\b|,/.test(matchedSegment.toLowerCase());
+      const baseAmount = isChoicePattern ? 1 : manaSymbols.length;
       return {
         produces,
-        baseAmount: manaSymbols.length,
-        producesAllAtOnce: manaSymbols.length > 1,
+        baseAmount,
+        producesAllAtOnce: !isChoicePattern && manaSymbols.length > 1,
       };
     }
   }
@@ -3149,6 +3152,16 @@ export function resolveManaAbilityActivationShape(
   baseAmount: number;
   producesAllAtOnce: boolean;
 } {
+  const clientStyleAbility = resolveClientStyleManaAbilityById(abilityIdRaw);
+  if (clientStyleAbility) {
+    return {
+      ability: clientStyleAbility,
+      produces: clientStyleAbility.produces,
+      baseAmount: clientStyleAbility.amount,
+      producesAllAtOnce: clientStyleAbility.producesAllAtOnce,
+    };
+  }
+
   const manaAbilities = getManaAbilitiesForPermanent(gameState, permanent, playerId);
   const ability = selectManaAbilityForActivation(
     manaAbilities,

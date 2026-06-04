@@ -2,7 +2,13 @@ import type { BattlefieldPermanent, ManaColor, PaymentItem } from '../../../shar
 import { parseSacrificeCost } from '../../../shared/src/textUtils';
 import { parseActivatedAbilities, type ParsedActivatedAbility } from './activatedAbilityParser';
 import { canCreatureUseTapAbilityNow } from './creatureUtils';
-import { getTotalManaProduction, type ManaPaymentSource } from './manaUtils';
+import {
+  calculateRemainingCostAfterFloatingMana,
+  calculateSuggestedPayment,
+  getTotalManaProduction,
+  type ManaPool,
+  type ManaPaymentSource,
+} from './manaUtils';
 
 type InlineSelectedPaymentAbility = {
   id: string;
@@ -546,4 +552,72 @@ export function createSuggestedPaymentItem(
   }
 
   return createPaymentItemFromSource(source, selection.color);
+}
+
+const POOL_KEY_TO_MANA_COLOR: Record<string, ManaColor> = {
+  white: 'W',
+  blue: 'U',
+  black: 'B',
+  red: 'R',
+  green: 'G',
+  colorless: 'C',
+};
+
+/**
+ * Build explicit payment items for spell/ability payment UI.
+ * Applies floating mana first, then taps only for the remainder.
+ * When includeExplicitPoolItems is true, emits __pool__ payment rows for mana spent from the pool.
+ */
+export function buildSuggestedPaymentItems(
+  cost: { colors: Record<ManaColor, number>; generic: number; hybrids: ManaColor[][] },
+  sources: ManaPaymentSource[],
+  colorsToPreserve: Set<ManaColor>,
+  floatingMana?: ManaPool,
+  options?: { includeExplicitPoolItems?: boolean },
+): PaymentItem[] {
+  const { colors, generic, hybrids, usedFromPool } = calculateRemainingCostAfterFloatingMana(cost, floatingMana);
+  const suggested = calculateSuggestedPayment(
+    { colors, generic, hybrids },
+    sources,
+    colorsToPreserve,
+    undefined,
+  );
+
+  const sourceById = new Map(sources.map((source) => [source.id, source]));
+  const items: PaymentItem[] = [];
+
+  if (options?.includeExplicitPoolItems) {
+    for (const [poolKey, amount] of Object.entries(usedFromPool)) {
+      const mana = POOL_KEY_TO_MANA_COLOR[poolKey];
+      if (!mana || amount <= 0) continue;
+      for (let index = 0; index < amount; index++) {
+        items.push({
+          permanentId: `__pool__:${poolKey}:${index}`,
+          mana,
+          count: 1,
+        });
+      }
+    }
+  }
+
+  for (const [sourceId, selection] of suggested.entries()) {
+    items.push(createSuggestedPaymentItem(sourceId, selection, sourceById));
+  }
+
+  const dedupedItems: PaymentItem[] = [];
+  const seenTapPermanentIds = new Set<string>();
+  for (const item of items) {
+    const permanentId = String(item.permanentId || '');
+    if (permanentId.startsWith('__pool__')) {
+      dedupedItems.push(item);
+      continue;
+    }
+    if (seenTapPermanentIds.has(permanentId)) {
+      continue;
+    }
+    seenTapPermanentIds.add(permanentId);
+    dedupedItems.push(item);
+  }
+
+  return dedupedItems;
 }

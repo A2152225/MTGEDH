@@ -15,7 +15,7 @@ import {
   type OtherCardInfo,
   type ManaPool,
 } from '../utils/manaUtils';
-import { createPaymentItemFromSource, getSourcePermanentId } from '../utils/manaSourceBuilder';
+import { buildSuggestedPaymentItems, createPaymentItemFromSource, getSourcePermanentId } from '../utils/manaSourceBuilder';
 import { SacrificeSelectionModal } from './SacrificeSelectionModal';
 
 function canPayEnhanced(cost: { colors: Record<Color, number>; generic: number; hybrids: Color[][] }, pool: Record<Color, number>): boolean {
@@ -106,6 +106,8 @@ export interface PaymentPickerProps {
   // Floating mana usage state
   onClearFloatingMana?: () => void;
   manualFloatingManaSelection?: boolean;
+  /** Pre-filled auto-pay selections; highlighted with a green border even when chosen. */
+  autoSelectedPayment?: PaymentItem[];
 }
 
 export function PaymentPicker(props: PaymentPickerProps) {
@@ -126,6 +128,7 @@ export function PaymentPicker(props: PaymentPickerProps) {
     onConvokeChange,
     onClearFloatingMana,
     manualFloatingManaSelection = false,
+    autoSelectedPayment = [],
   } = props;
 
   const parsed = useMemo(() => parseManaCost(manaCost), [manaCost]);
@@ -197,6 +200,10 @@ export function PaymentPicker(props: PaymentPickerProps) {
 
   const getPaymentItemKey = (item: PaymentItem) => String(item.paymentSourceId || item.permanentId || '');
   const chosenById = useMemo(() => new Set(chosen.map(getPaymentItemKey)), [chosen]);
+  const autoSelectedById = useMemo(
+    () => new Set(autoSelectedPayment.map(getPaymentItemKey)),
+    [autoSelectedPayment],
+  );
 
   const [pendingSacrificeSelection, setPendingSacrificeSelection] = React.useState<{
     source: ManaPaymentSource;
@@ -213,7 +220,19 @@ export function PaymentPicker(props: PaymentPickerProps) {
   // Calculate suggested payment when no sources have been chosen yet (considers floating mana)
   const suggestedPayment = useMemo(() => {
     if (chosen.length > 0) return new Map<string, SuggestedPaymentSelection>();
-    return calculateSuggestedPayment(cost, sourcesEligibleForSuggestion, colorsToPreserve, manualFloatingManaSelection ? undefined : floatingMana);
+    const costForSuggestion = manualFloatingManaSelection
+      ? calculateRemainingCostAfterFloatingMana(cost, floatingMana)
+      : { colors: cost.colors, generic: cost.generic, hybrids: cost.hybrids };
+    return calculateSuggestedPayment(
+      {
+        colors: costForSuggestion.colors,
+        generic: costForSuggestion.generic,
+        hybrids: costForSuggestion.hybrids,
+      },
+      sourcesEligibleForSuggestion,
+      colorsToPreserve,
+      manualFloatingManaSelection ? undefined : floatingMana,
+    );
   }, [cost, sourcesEligibleForSuggestion, colorsToPreserve, chosen.length, floatingMana, manualFloatingManaSelection]);
 
   const sourceById = useMemo(() => new Map(effectiveSources.map((source) => [source.id, source])), [effectiveSources]);
@@ -309,24 +328,11 @@ export function PaymentPicker(props: PaymentPickerProps) {
   };
 
   const doAutoSelect = () => {
-    // Use the suggested payment to auto-fill (considers floating mana)
-    if (suggestedPayment.size === 0) {
-      // Recalculate if already chosen some
-      const newSuggested = calculateSuggestedPayment(cost, sourcesEligibleForSuggestion, colorsToPreserve, manualFloatingManaSelection ? undefined : floatingMana);
-      const newPayment: PaymentItem[] = [];
-      for (const [permanentId, selection] of newSuggested.entries()) {
-        const source = sourceById.get(permanentId);
-        newPayment.push(source ? createPaymentItem(source, selection.color) : { permanentId, mana: selection.color, count: selection.count });
-      }
-      onChange(newPayment);
-    } else {
-      const newPayment: PaymentItem[] = [];
-      for (const [permanentId, selection] of suggestedPayment.entries()) {
-        const source = sourceById.get(permanentId);
-        newPayment.push(source ? createPaymentItem(source, selection.color) : { permanentId, mana: selection.color, count: selection.count });
-      }
-      onChange(newPayment);
-    }
+    onChange(
+      buildSuggestedPaymentItems(cost, sourcesEligibleForSuggestion, colorsToPreserve, floatingMana, {
+        includeExplicitPoolItems: manualFloatingManaSelection,
+      }),
+    );
   };
 
   return (
@@ -413,14 +419,16 @@ export function PaymentPicker(props: PaymentPickerProps) {
         <button onClick={doAutoSelect} disabled={sources.length === 0 || satisfied} title="Auto-select mana (considers other cards in hand)">
           Auto-select
         </button>
-        <span style={{ fontSize: 12, opacity: 0.7 }}>Tip: Green border = suggested source</span>
+        <span style={{ fontSize: 12, opacity: 0.7 }}>Tip: Green border = auto-selected source</span>
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 8, maxHeight: 220, overflow: 'auto', paddingRight: 2 }}>
         {effectiveSources.map(s => {
           const used = chosenById.has(s.id);
           const suggested = suggestedPayment.get(s.id);
-          const isSuggested = suggested !== undefined && !used;
+          const isAutoSelected = autoSelectedById.has(s.id);
+          const isSuggested = suggested !== undefined && !used && chosen.length === 0;
+          const showGreenHighlight = isAutoSelected || isSuggested;
           const hasAmount = s.amount && s.amount > 1;
           const isFloatingSource = s.id.startsWith('__pool__:');
           
@@ -428,12 +436,12 @@ export function PaymentPicker(props: PaymentPickerProps) {
             <div 
               key={s.id} 
               style={{ 
-                border: isSuggested ? '2px solid #4caf50' : '1px solid #ddd', 
+                border: showGreenHighlight ? '2px solid #4caf50' : '1px solid #ddd', 
                 borderRadius: 8, 
                 padding: 8, 
-                background: used ? '#f6f6f6' : isSuggested ? 'rgba(76, 175, 80, 0.08)' : '#fff', 
+                background: used ? '#f6f6f6' : showGreenHighlight ? 'rgba(76, 175, 80, 0.08)' : '#fff', 
                 color: '#222',
-                boxShadow: isSuggested ? '0 0 8px rgba(76, 175, 80, 0.3)' : 'none'
+                boxShadow: showGreenHighlight ? '0 0 8px rgba(76, 175, 80, 0.3)' : 'none'
               }}
             >
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
@@ -447,8 +455,8 @@ export function PaymentPicker(props: PaymentPickerProps) {
                 </div>
                 {used ? (
                   <button onClick={() => remove(s.id)} style={{ fontSize: 11 }} title="Remove this payment">Remove</button>
-                ) : isSuggested ? (
-                  <span style={{ fontSize: 11, color: '#4caf50', fontWeight: 600 }}>suggested</span>
+                ) : showGreenHighlight ? (
+                  <span style={{ fontSize: 11, color: '#4caf50', fontWeight: 600 }}>{isAutoSelected ? 'auto-selected' : 'suggested'}</span>
                 ) : (
                   <span style={{ fontSize: 11, opacity: 0.7 }}>{isFloatingSource ? 'floating' : 'untapped'}</span>
                 )}

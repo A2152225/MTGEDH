@@ -943,6 +943,74 @@ function consumeExplicitSelectedCastSpellMana(
   return { consumed: manaConsumption.consumed };
 }
 
+function restorePlayerCastSpellPaymentCheckpoint(
+  game: any,
+  playerId: string,
+  checkpoint: {
+    pool: Record<string, number>;
+    tappedPermanentIds: Iterable<string>;
+    harmonizePermanentId?: string;
+  },
+): void {
+  const pool = getOrInitManaPool(game.state, playerId) as any;
+  for (const key of CAST_SPELL_PAYMENT_MANA_KEYS) {
+    pool[key] = Number((checkpoint.pool as any)?.[key] || 0);
+  }
+
+  const battlefield = Array.isArray(game.state?.battlefield) ? game.state.battlefield : [];
+  for (const permanentId of checkpoint.tappedPermanentIds) {
+    const permanent = battlefield.find((entry: any) => entry?.id === permanentId);
+    if (permanent) {
+      (permanent as any).tapped = false;
+    }
+  }
+
+  if (checkpoint.harmonizePermanentId) {
+    const harmonizePermanent = battlefield.find((entry: any) => entry?.id === checkpoint.harmonizePermanentId);
+    if (harmonizePermanent) {
+      (harmonizePermanent as any).tapped = false;
+    }
+  }
+}
+
+function validateCastSpellPaymentPermanentUsage(
+  state: any,
+  playerId: string,
+  payment: Array<{ permanentId?: string; mana?: string; abilityId?: string }>,
+): string | null {
+  const battlefield = Array.isArray(state?.battlefield) ? state.battlefield : [];
+  const tapPermanentIds = new Set<string>();
+
+  for (const item of payment) {
+    const floatingPoolKey = getFloatingPaymentPoolKey(String(item?.permanentId || ''), String(item?.mana || ''));
+    if (floatingPoolKey) continue;
+
+    const permanentId = String(item?.permanentId || '').trim();
+    if (!permanentId) continue;
+
+    const permanent = battlefield.find((entry: any) => entry?.id === permanentId && entry?.controller === playerId);
+    if (!permanent) {
+      return `Payment source ${permanentId} is not on the battlefield.`;
+    }
+
+    const activationCostInfo = getPaymentActivationCostInfo(
+      permanent,
+      resolvePaymentManaAbilityActivationCost(permanent, String(item?.mana || ''), item?.abilityId),
+    );
+
+    if (!activationCostInfo.taps) continue;
+
+    if (tapPermanentIds.has(permanentId)) {
+      const cardName = String((permanent as any)?.card?.name || 'Permanent');
+      return `${cardName} cannot be tapped more than once to pay for this spell.`;
+    }
+
+    tapPermanentIds.add(permanentId);
+  }
+
+  return null;
+}
+
 function calculateCastSpellPaymentManaDelta(before: any, after: any): Record<string, number> | undefined {
   const baseline = snapshotCastSpellManaPool(before);
   const current = snapshotCastSpellManaPool(after);
@@ -9661,6 +9729,7 @@ export function registerGameActions(io: Server, socket: Socket) {
       
       // Add mana from payment sources, using calculateManaProduction for accurate amounts
       if (payment && payment.length > 0) {
+        const projectedTapPermanentIds = new Set<string>();
         for (const { permanentId, mana, count, abilityId, producedColors } of payment) {
           const floatingPoolKey = getFloatingPaymentPoolKey(String(permanentId || ''), String(mana || ''));
           if (floatingPoolKey) {
@@ -9676,8 +9745,23 @@ export function registerGameActions(io: Server, socket: Socket) {
               permanent,
               resolvePaymentManaAbilityActivationCost(permanent, String(mana || ''), abilityId)
             );
+            if (activationCostInfo.taps) {
+              const tapPermanentId = String(permanentId || '');
+              if (projectedTapPermanentIds.has(tapPermanentId)) {
+                socket.emit('error', {
+                  code: 'DUPLICATE_PAYMENT_SOURCE',
+                  message: `${(permanent as any).card?.name || 'Permanent'} cannot be tapped more than once to pay for this spell.`,
+                });
+                return;
+              }
+              projectedTapPermanentIds.add(tapPermanentId);
+            }
             if ((permanent as any).tapped && activationCostInfo.taps) {
-              continue;
+              socket.emit('error', {
+                code: 'PAYMENT_SOURCE_TAPPED',
+                message: `${(permanent as any).card?.name || 'Permanent'} is already tapped.`,
+              });
+              return;
             }
 
             // Calculate actual mana production with effects
@@ -9737,32 +9821,50 @@ export function registerGameActions(io: Server, socket: Socket) {
         }
 
         if (explicitPaymentSelected) {
-          const pool = getOrInitManaPool(game.state, playerId) as any;
           const projectedPaymentTotals = { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 };
           for (const key of CAST_SPELL_PAYMENT_MANA_KEYS) {
             projectedPaymentTotals[key] = Number(totalAvailable[key] || 0);
           }
-          const preTapConsumeCheck = consumeExplicitSelectedCastSpellMana(
-            snapshotCastSpellManaPool(pool),
-            projectedPaymentTotals,
+          const preTapValidationError = validateManaPayment(
+            snapshotCastSpellManaPool(projectedPaymentTotals),
             totalColored,
             totalGeneric,
           );
-          if ('error' in preTapConsumeCheck) {
+          if (preTapValidationError) {
             socket.emit('error', {
               code: 'INSUFFICIENT_MANA',
-              message: `Insufficient mana to cast this spell. ${preTapConsumeCheck.error}`,
+              message: `Insufficient mana to cast this spell. ${preTapValidationError}`,
             });
             return;
           }
         }
       }
 
+      const poolBeforePayment = { ...getOrInitManaPool(game.state, playerId) } as any;
+      const castSpellPaymentCheckpoint = {
+        pool: poolBeforePayment,
+        tappedPermanentIds: new Set<string>(),
+        harmonizePermanentId: undefined as string | undefined,
+      };
+      const abortCastSpellPayment = (payload: { code: string; message: string }): void => {
+        restorePlayerCastSpellPaymentCheckpoint(game, playerId, {
+          pool: castSpellPaymentCheckpoint.pool,
+          tappedPermanentIds: castSpellPaymentCheckpoint.tappedPermanentIds,
+          harmonizePermanentId: castSpellPaymentCheckpoint.harmonizePermanentId,
+        });
+        socket.emit('error', payload);
+      };
+
       // ======================================================================
       // HARMONIZE: Tap one creature to reduce only the generic portion of the cost
       // ======================================================================
       if (selectedHarmonizeCreature) {
         (selectedHarmonizeCreature as any).tapped = true;
+        const harmonizePermanentId = String((selectedHarmonizeCreature as any).id || '');
+        if (harmonizePermanentId) {
+          castSpellPaymentCheckpoint.harmonizePermanentId = harmonizePermanentId;
+          castSpellPaymentCheckpoint.tappedPermanentIds.add(harmonizePermanentId);
+        }
       }
 
       // ======================================================================
@@ -9817,6 +9919,7 @@ export function registerGameActions(io: Server, socket: Socket) {
           
           // Tap the creature
           (creature as any).tapped = true;
+          castSpellPaymentCheckpoint.tappedPermanentIds.add(String(creatureId));
           
           // Add mana to pool based on creature's colors
           // Each creature pays for {1} or one mana of its color
@@ -9866,7 +9969,6 @@ export function registerGameActions(io: Server, socket: Socket) {
       // ======================================================================
       // Handle mana payment: tap permanents to generate mana (adds to pool)
       // ======================================================================
-      const poolBeforePayment = { ...getOrInitManaPool(game.state, playerId) } as any;
       const creatureSpellHasteLowerBoundBeforePayment = snapshotCreatureSpellHasteManaLowerBound(game.state, playerId);
       const producedNonSnowByColor: Record<string, number> = { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 };
       const producedSnowByColor: Record<string, number> = { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 };
@@ -9879,6 +9981,12 @@ export function registerGameActions(io: Server, socket: Socket) {
 
       if (!isForceAltCostPaid && payment && payment.length > 0) {
         debug(2, `[castSpellFromHand] Processing payment for ${cardInHand.name}:`, payment);
+
+        const duplicatePaymentError = validateCastSpellPaymentPermanentUsage(game.state, playerId, payment);
+        if (duplicatePaymentError) {
+          abortCastSpellPayment({ code: 'DUPLICATE_PAYMENT_SOURCE', message: duplicatePaymentError });
+          return;
+        }
         
         // Get global battlefield (not zones.battlefield which may not exist)
         const globalBattlefield = game.state?.battlefield || [];
@@ -9898,8 +10006,8 @@ export function registerGameActions(io: Server, socket: Socket) {
           const permanent = globalBattlefield.find((p: any) => p?.id === permanentId && p?.controller === playerId);
           
           if (!permanent) {
-            socket.emit("error", {
-              code: "PAYMENT_SOURCE_NOT_FOUND",
+            abortCastSpellPayment({
+              code: 'PAYMENT_SOURCE_NOT_FOUND',
               message: `Permanent ${permanentId} not found on battlefield`,
             });
             return;
@@ -9920,16 +10028,27 @@ export function registerGameActions(io: Server, socket: Socket) {
           const manaGrantsCreatureSpellHasteUntilEndOfTurn = paymentManaAbilityGrantsCreatureSpellHasteUntilEndOfTurn(permanent, abilityId);
 
           if (paymentActivationCostHasUnsupportedAdditionalCosts(activationCostText)) {
-            socket.emit('error', {
+            abortCastSpellPayment({
               code: 'UNSUPPORTED_PAYMENT_SOURCE_COST',
               message: `${permCard.name || 'Permanent'} requires an unsupported additional activation cost for spell payment.`,
             });
             return;
           }
 
+          if (activationCostInfo.taps) {
+            const tapPermanentId = String(permanentId || '');
+            if (tappedPaymentPermanents.has(tapPermanentId)) {
+              abortCastSpellPayment({
+                code: 'DUPLICATE_PAYMENT_SOURCE',
+                message: `${permCard.name || 'Permanent'} cannot be tapped more than once to pay for this spell.`,
+              });
+              return;
+            }
+          }
+
           if (activationCostInfo.taps && (permanent as any).tapped) {
-            socket.emit("error", {
-              code: "PAYMENT_SOURCE_TAPPED",
+            abortCastSpellPayment({
+              code: 'PAYMENT_SOURCE_TAPPED',
               message: `${(permanent as any).card?.name || 'Permanent'} is already tapped`,
             });
             return;
@@ -9938,8 +10057,8 @@ export function registerGameActions(io: Server, socket: Socket) {
           if (activationCostInfo.taps) {
             const hasHaste = creatureHasHaste(permanent, globalBattlefield, playerId);
             if (permIsCreature && (permanent as any).summoningSickness && !hasHaste) {
-              socket.emit("error", {
-                code: "SUMMONING_SICKNESS",
+              abortCastSpellPayment({
+                code: 'SUMMONING_SICKNESS',
                 message: `${permCard.name || 'Creature'} has summoning sickness and cannot use tap abilities this turn`,
               });
               return;
@@ -9953,7 +10072,7 @@ export function registerGameActions(io: Server, socket: Socket) {
           if (activationCostInfo.sacrificeRequirement && activationCostInfo.selfSacrifices !== true) {
             const requiredCount = Math.max(1, Number(activationCostInfo.sacrificeRequirement.sacrificeCount || 1));
             if (selectedSacrifices.length !== requiredCount) {
-              socket.emit('error', {
+              abortCastSpellPayment({
                 code: 'INVALID_PAYMENT_SACRIFICE_SELECTION',
                 message: `${permCard.name || 'Permanent'} requires sacrificing ${requiredCount} permanent(s) to produce mana.`,
               });
@@ -9963,14 +10082,14 @@ export function registerGameActions(io: Server, socket: Socket) {
             for (const sacrificedId of selectedSacrifices) {
               const sacrificeCandidate = globalBattlefield.find((entry: any) => entry?.id === sacrificedId && entry?.controller === playerId);
               if (!sacrificeCandidate || !paymentSacrificeCandidateMatches(sacrificeCandidate, String(permanentId), playerId, activationCostInfo.sacrificeRequirement)) {
-                socket.emit('error', {
+                abortCastSpellPayment({
                   code: 'INVALID_PAYMENT_SACRIFICE_TARGET',
                   message: `${permCard.name || 'Permanent'} cannot sacrifice the selected permanent for mana.`,
                 });
                 return;
               }
               if (sacrificedPaymentPermanents.has(String(sacrificedId))) {
-                socket.emit('error', {
+                abortCastSpellPayment({
                   code: 'DUPLICATE_PAYMENT_SACRIFICE',
                   message: 'A permanent cannot be sacrificed more than once to pay for this spell.',
                 });
@@ -9986,7 +10105,7 @@ export function registerGameActions(io: Server, socket: Socket) {
                 activationManaCost.generic,
               );
               if (activationValidationError) {
-                socket.emit('error', {
+                abortCastSpellPayment({
                   code: 'INSUFFICIENT_MANA',
                   message: `${permCard.name || 'Permanent'} requires additional mana to activate. ${activationValidationError}`,
                 });
@@ -10004,12 +10123,13 @@ export function registerGameActions(io: Server, socket: Socket) {
             if (activationCostInfo.taps) {
               (permanent as any).tapped = true;
               tappedPaymentPermanents.add(String(permanentId));
+              castSpellPaymentCheckpoint.tappedPermanentIds.add(String(permanentId));
             }
 
             for (const sacrificedId of selectedSacrifices) {
               const sacrificedName = sacrificePermanent(game as any, sacrificedId, playerId);
               if (!sacrificedName) {
-                socket.emit('error', {
+                abortCastSpellPayment({
                   code: 'PAYMENT_SACRIFICE_FAILED',
                   message: 'Failed to sacrifice a selected permanent for mana payment.',
                 });
@@ -10026,7 +10146,7 @@ export function registerGameActions(io: Server, socket: Socket) {
                 activationManaCost.generic,
               );
               if (activationValidationError) {
-                socket.emit('error', {
+                abortCastSpellPayment({
                   code: 'INSUFFICIENT_MANA',
                   message: `${permCard.name || 'Permanent'} requires additional mana to activate. ${activationValidationError}`,
                 });
@@ -10044,13 +10164,14 @@ export function registerGameActions(io: Server, socket: Socket) {
             if (activationCostInfo.taps) {
               (permanent as any).tapped = true;
               tappedPaymentPermanents.add(String(permanentId));
+              castSpellPaymentCheckpoint.tappedPermanentIds.add(String(permanentId));
             }
           }
 
           if (activationCostInfo.selfSacrifices) {
             const sacrificedName = sacrificePermanent(game as any, String(permanentId), playerId);
             if (!sacrificedName) {
-              socket.emit('error', {
+              abortCastSpellPayment({
                 code: 'PAYMENT_SOURCE_SACRIFICE_FAILED',
                 message: `Failed to sacrifice ${(permanent as any).card?.name || 'payment source'} for mana payment.`,
               });
@@ -10093,7 +10214,7 @@ export function registerGameActions(io: Server, socket: Socket) {
             );
 
             if (explicitProducedAmount <= 0) {
-              socket.emit('error', {
+              abortCastSpellPayment({
                 code: 'INVALID_PAYMENT_SOURCE_OUTPUT',
                 message: `${permCard.name || 'Permanent'} did not produce any usable mana for spell payment.`,
               });
@@ -10186,7 +10307,7 @@ export function registerGameActions(io: Server, socket: Socket) {
                 totalGeneric,
               );
               if ('error' in selectedConsumption) {
-                socket.emit('error', {
+                abortCastSpellPayment({
                   code: 'INSUFFICIENT_MANA',
                   message: selectedConsumption.error,
                 });
@@ -10894,8 +11015,8 @@ export function registerGameActions(io: Server, socket: Socket) {
             if (stackLengthAfter <= stackLengthBefore) {
               // The spell wasn't added to the stack - something went wrong
               debugError(1, `[castSpellFromHand] applyEvent did not add spell to stack. Stack: ${stackLengthBefore} -> ${stackLengthAfter}`);
-              socket.emit("error", {
-                code: "CAST_FAILED",
+              abortCastSpellPayment({
+                code: 'CAST_FAILED',
                 message: `Failed to cast ${cardInHand.name}. The card may have been removed or an internal error occurred.`,
               });
               return;

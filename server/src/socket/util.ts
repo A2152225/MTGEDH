@@ -20,7 +20,7 @@ import { getActualPowerToughness, uid, cardManaValue } from "../state/utils.js";
 import { getDevotionManaAmount, getCreatureCountManaAmount, getManaAbilitiesForPermanent, getMoxAmberAvailableColors, isMoxAmberConditionalManaSource } from "../state/modules/mana-abilities.js";
 import { canRespond, canAct, getCastableCommanderCandidates, getCastableSpellCandidates, getCostAdjustmentInfo, getHandCastEvaluationCards, getPlayableLandCandidates, isTransformBackFace, type SharedSpellCastCandidate } from "../state/modules/can-respond.js";
 import { getGrantedCastFromGraveyardKeywordInfo, getGrantedEmbalmInfo, getGrantedFlashbackInfo, getGrantedUnearthInfo, getPrintedUnearthInfo } from "../state/modules/graveyard-permissions.js";
-import { parseManaCost as parseManaFromString, canPayManaCostWithAvailableSources, getManaPoolFromState, getAvailableMana, getTotalManaFromPool } from "../state/modules/mana-check.js";
+import { parseManaCost as parseManaFromString, canPayManaCostWithAvailableSources, getManaPoolFromState, getAvailableMana, getTotalManaFromPool, stripReminderTextFromOracle } from "../state/modules/mana-check.js";
 import { hasPayableAlternateCost } from "../state/modules/alternate-costs.js";
 import { calculateCostReduction, creatureHasHaste, runPostResolutionPermanentPromptChecks } from "./game-actions.js";
 import { checkSpellTimingRestriction } from "../../../rules-engine/src/castingRestrictions.js";
@@ -31,6 +31,7 @@ import { movePermanentToGraveyard } from "../state/modules/counters_tokens.js";
 import { debug, debugWarn, debugError, debugEnv } from "../utils/debug.js";
 import { BOOT_ID } from "../utils/bootId.js";
 import { ResolutionQueueManager } from "../state/resolution/ResolutionQueueManager.js";
+import { pruneObsoleteResolutionQueueAfterReplay } from "../state/resolution/replayCleanup.js";
 import { isSpellCastingProhibitedByChosenName } from "../state/modules/chosen-name-restrictions.js";
 import { getTopTriggeredAbilityAutoPassReason } from "./trigger-shortcuts.js";
 import { flushPendingDamageTriggersAfterStepAdvance } from "./step-advance.js";
@@ -636,7 +637,7 @@ function getPlayableCardIds(game: InMemoryGame, playerId: PlayerID): string[] {
     for (const perm of battlefield) {
       if (!perm || perm.controller !== playerId) continue;
       
-      const oracleText = (perm.card?.oracle_text || "").replace(/\([^)]*\)/g, "");
+      const oracleText = stripReminderTextFromOracle(perm.card?.oracle_text || "");
       let hasActivatableAbility = false;
       
       // Check for tap abilities
@@ -1511,6 +1512,12 @@ export function ensureGame(gameId: string, options?: EnsureGameOptions): InMemor
       ensureStateZonesForPlayers(game);
     } catch {
       /* ignore */
+    }
+
+    try {
+      pruneObsoleteResolutionQueueAfterReplay(gameId, game.state);
+    } catch (err) {
+      debugWarn(1, 'ensureGame: prune replayed resolution prompts failed:', { bootId: BOOT_ID, gameId }, err);
     }
 
     // Re-register AI players after replay (done asynchronously to keep function synchronous)
@@ -4020,6 +4027,33 @@ export function resolveActivatedAbilityLineById(permanent: any, abilityId?: stri
   return undefined;
 }
 
+/**
+ * Client battlefield UI uses ids like "{cardId}-mana-g-1" for intrinsic basic-land mana.
+ * Server legacy mana abilities use ids like "native_g" / "native_choice_2".
+ */
+export function resolveClientStyleManaAbilityById(
+  abilityId?: string | null,
+): { id: string; cost: string; produces: string[]; amount: number; producesAllAtOnce: boolean } | undefined {
+  const normalizedAbilityId = String(abilityId || '').trim();
+  const match = normalizedAbilityId.match(/-mana-([wubrgc])-(\d+)$/i);
+  if (!match) {
+    return undefined;
+  }
+
+  const color = String(match[1] || '').toUpperCase();
+  if (!['W', 'U', 'B', 'R', 'G', 'C'].includes(color)) {
+    return undefined;
+  }
+
+  return {
+    id: normalizedAbilityId,
+    cost: '{T}',
+    produces: [color],
+    amount: 1,
+    producesAllAtOnce: false,
+  };
+}
+
 function resolveLegacyManaAbilityById(
   gameState: any,
   permanent: any,
@@ -4029,6 +4063,11 @@ function resolveLegacyManaAbilityById(
   const normalizedAbilityId = String(abilityId || '').trim();
   if (!normalizedAbilityId || /-ability-\d+$/i.test(normalizedAbilityId)) {
     return undefined;
+  }
+
+  const clientStyleAbility = resolveClientStyleManaAbilityById(normalizedAbilityId);
+  if (clientStyleAbility) {
+    return clientStyleAbility;
   }
 
   try {
