@@ -784,20 +784,40 @@ export function CombatSelectionModal({
                   ? '⚔️ Declare Attackers'
                   : '🛡️ Declare Blockers'}
           </h2>
-          {onCancel && (
-            <button
-              onClick={onCancel}
-              style={{
-                background: 'none',
-                border: 'none',
-                color: '#888',
-                fontSize: 24,
-                cursor: 'pointer',
-              }}
-            >
-              ×
-            </button>
-          )}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            {!readOnly && (
+              <button
+                onClick={() => setMinimized(true)}
+                title="Minimize to pan/inspect the board"
+                style={{
+                  padding: '4px 10px',
+                  backgroundColor: '#374151',
+                  color: '#d1d5db',
+                  border: '1px solid #4b5563',
+                  borderRadius: 4,
+                  cursor: 'pointer',
+                  fontSize: 11,
+                  fontWeight: 500,
+                }}
+              >
+                👁 Inspect Board
+              </button>
+            )}
+            {onCancel && (
+              <button
+                onClick={onCancel}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: '#888',
+                  fontSize: 24,
+                  cursor: 'pointer',
+                }}
+              >
+                ×
+              </button>
+            )}
+          </div>
         </div>
 
         <div style={{ fontSize: 13, color: '#aaa', marginBottom: 16 }}>

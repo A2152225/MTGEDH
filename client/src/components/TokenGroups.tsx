@@ -147,8 +147,11 @@ export function TokenGroups(props: {
       if (groupMode.includes('pt')) key += `|pt:${pt}`;
       if (groupMode.includes('counters')) key += `|c:${countersSig}`;
       if (groupMode.includes('attach')) key += `|attach:${attached ? 'y' : 'n'}`;
-      // Also group by tapped status for visual clarity
+      // Always include tapped and summoning sickness in the key so that tokens in
+      // different combat/speed states are never merged into the same visual group.
+      // This matches the server-side grouping key which uses `tap:` and `sick:`.
       key += `|tapped:${tapped ? 'y' : 'n'}`;
+      key += `|sick:${summoningSick ? 'y' : 'n'}`;
 
       // Handle server-side grouped tokens (optimization for games with many tokens)
       // If this is a grouped token, expand its IDs into the group
