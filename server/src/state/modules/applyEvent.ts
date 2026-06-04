@@ -1583,6 +1583,7 @@ export function reset(ctx: any, preservePlayers = false): void {
     const preservedFormat = (currentState as any).format;
     const preservedStartingLife = Number((currentState as any).startingLife);
     const preservedTurnDirection = Number((currentState as any).turnDirection);
+
     const preservedZonesRef = (currentState as any).zones && typeof (currentState as any).zones === 'object'
       ? (currentState as any).zones
       : {};
@@ -1595,6 +1596,17 @@ export function reset(ctx: any, preservePlayers = false): void {
     const preservedLandsPlayedThisTurnRef = (currentState as any).landsPlayedThisTurn && typeof (currentState as any).landsPlayedThisTurn === 'object'
       ? (currentState as any).landsPlayedThisTurn
       : {};
+    // Snapshot mana pool (object values, not reference) to survive the reset for
+    // replay scenarios that depend on the initial mana state.
+    const preservedManaPool: Record<string, any> = {};
+    if (preservePlayers && (currentState as any).manaPool && typeof (currentState as any).manaPool === 'object') {
+      for (const [pid, pool] of Object.entries((currentState as any).manaPool)) {
+        if (pool && typeof pool === 'object') {
+          preservedManaPool[pid] = { ...(pool as any) };
+        }
+      }
+    }
+    const preservedGraveyards: Record<string, any[]> = {};
     const preservedPlayers = preservePlayers && Array.isArray((currentState as any).players)
       ? ((currentState as any).players as any[]).map((player: any) => ({ ...player }))
       : [];
@@ -1647,6 +1659,7 @@ export function reset(ctx: any, preservePlayers = false): void {
       (ctx.state as any).turnDirection = preservedTurnDirection;
     }
 
+
     ctx.libraries = new Map<string, any[]>();
     ctx.life = (ctx.state as any).life || {};
     ctx.poison = {};
@@ -1657,6 +1670,13 @@ export function reset(ctx: any, preservePlayers = false): void {
     ctx.revealedLibraryTopByOwner = new Map();
     ctx.inactive = new Set<string>();
     ctx.landsPlayedThisTurn = (ctx.state as any).landsPlayedThisTurn || {};
+    if (Object.keys(preservedManaPool).length > 0) {
+      (ctx.state as any).manaPool = (ctx.state as any).manaPool || {};
+      for (const [pid, pool] of Object.entries(preservedManaPool)) {
+        (ctx.state as any).manaPool[pid] = pool;
+      }
+      ctx.manaPool = (ctx.state as any).manaPool;
+    }
     ctx.maxLandsPerTurn = {};
     ctx.additionalDrawsPerTurn = {};
     ctx.manaPool = {};
@@ -3532,6 +3552,20 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
             || ''
           ).trim();
           const controllerId = String((deferredTriggeredAbilityItem as any)?.controller || (e as any)?.playerId || '').trim();
+          // Temporarily restore the stored turn number so the graveyard permission
+          // marker is set to the correct turn (important for replay-from-scratch).
+          const eventTurnNumber = Number((e as any).turnNumber || 0);
+          const prevTurnNumber = Number((ctx.state as any).turnNumber ?? (ctx.state as any).turn ?? 0) || 0;
+          const prevTurnPlayer = String((ctx.state as any).turnPlayer || '').trim();
+          // Temporarily restore turn context so graveyard permission checks (e.g. "it's your turn")
+          // see the correct values from when the event was originally applied.
+          if (eventTurnNumber > 0 && eventTurnNumber !== prevTurnNumber) {
+            (ctx.state as any).turnNumber = eventTurnNumber;
+            (ctx.state as any).turn = eventTurnNumber;
+          }
+          if (controllerId && (!prevTurnPlayer || prevTurnPlayer !== controllerId)) {
+            (ctx.state as any).turnPlayer = controllerId;
+          }
           if (
             controllerId &&
             applyGraveyardPermissionEffectsFromText(
@@ -3542,8 +3576,23 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
               deferredTriggeredAbilityItem,
             ) > 0
           ) {
+            // Restore original turn context after setting the permission
+            if (eventTurnNumber > 0 && eventTurnNumber !== prevTurnNumber) {
+              (ctx.state as any).turnNumber = prevTurnNumber || undefined;
+              (ctx.state as any).turn = prevTurnNumber || undefined;
+            }
+            if (controllerId && (!prevTurnPlayer || prevTurnPlayer !== controllerId)) {
+              (ctx.state as any).turnPlayer = prevTurnPlayer || '';
+            }
             ctx.bumpSeq();
             break;
+          }
+          if (eventTurnNumber > 0 && eventTurnNumber !== prevTurnNumber) {
+            (ctx.state as any).turnNumber = prevTurnNumber || undefined;
+            (ctx.state as any).turn = prevTurnNumber || undefined;
+          }
+          if (controllerId && (!prevTurnPlayer || prevTurnPlayer !== controllerId)) {
+            (ctx.state as any).turnPlayer = prevTurnPlayer || '';
           }
 
           ctx.state.stack = Array.isArray(ctx.state.stack) ? ctx.state.stack : [];

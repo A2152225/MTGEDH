@@ -148,6 +148,7 @@ const REPLAY_GUARDED_EVENT_TYPES = new Set([
   'spellBottomRevealUntilNonlandResolve',
   'surveilResolve',
   'tapPermanent',
+  'permanent_tapped',
   'temptingOfferComplete',
   'temptingOfferResponse',
   'targetSelectionWardPrompt',

@@ -1522,7 +1522,28 @@ function applyWardManaPaymentSelection(
 
     if (sacrificedPermanents.length > 0) {
       for (const sacrificedPermanentId of sacrificedPermanents) {
+        // Before sacrificing, snapshot the card data so we can track it in graveyard
+        // for payment-evidence purposes (replay, ward-payment events, blackblade equip).
+        // This is the mana-payment context: the permanent was self-sacrificed to pay mana,
+        // so it briefly passes through the graveyard for tracking even if it's a token.
+        const battlefieldBeforeSac = Array.isArray(game.state?.battlefield) ? game.state.battlefield : [];
+        const sacrificedPerm = battlefieldBeforeSac.find((p: any) => p?.id === sacrificedPermanentId);
+        const sacrificedCard = sacrificedPerm ? ((sacrificedPerm as any).card || sacrificedPerm) : null;
+        const sacrificedOwner = String((sacrificedPerm as any)?.owner || (sacrificedPerm as any)?.controller || playerId).trim();
+        const isToken = !!(sacrificedPerm as any)?.isToken;
         sacrificePermanent(game as any, sacrificedPermanentId, playerId);
+        // For tokens used as mana payment (Treasure, etc.): add them to graveyard briefly
+        // for payment-evidence tracking even though tokens normally cease to exist.
+        if (isToken && sacrificedCard && sacrificedOwner) {
+          const zones = (game.state as any).zones = (game.state as any).zones || {};
+          const pz = zones[sacrificedOwner] = zones[sacrificedOwner] || { graveyard: [], graveyardCount: 0 };
+          pz.graveyard = Array.isArray(pz.graveyard) ? pz.graveyard : [];
+          const cardData = typeof sacrificedCard === 'object' && sacrificedCard !== null ? sacrificedCard : null;
+          if (cardData && !pz.graveyard.some((c: any) => String(c?.id || '') === sacrificedPermanentId)) {
+            pz.graveyard.push({ ...(cardData as any), id: sacrificedPermanentId, zone: 'graveyard', isToken: true });
+            pz.graveyardCount = pz.graveyard.length;
+          }
+        }
       }
     }
 
@@ -1840,7 +1861,22 @@ function applySelectedManaPaymentForResolutionCost(
 
     if (sacrificedPermanents.length > 0) {
       for (const sacrificedPermanentId of sacrificedPermanents) {
+        const bfBeforeSac2 = Array.isArray(game.state?.battlefield) ? game.state.battlefield : [];
+        const sacPerm2 = bfBeforeSac2.find((p: any) => p?.id === sacrificedPermanentId);
+        const sacCard2 = sacPerm2 ? ((sacPerm2 as any).card || sacPerm2) : null;
+        const sacOwner2 = String((sacPerm2 as any)?.owner || (sacPerm2 as any)?.controller || playerId).trim();
+        const isToken2 = !!(sacPerm2 as any)?.isToken;
         sacrificePermanent(game as any, sacrificedPermanentId, playerId);
+        if (isToken2 && sacCard2 && sacOwner2) {
+          const zones2 = (game.state as any).zones = (game.state as any).zones || {};
+          const pz2 = zones2[sacOwner2] = zones2[sacOwner2] || { graveyard: [], graveyardCount: 0 };
+          pz2.graveyard = Array.isArray(pz2.graveyard) ? pz2.graveyard : [];
+          const cardData2 = typeof sacCard2 === 'object' && sacCard2 !== null ? sacCard2 : null;
+          if (cardData2 && !pz2.graveyard.some((c: any) => String(c?.id || '') === sacrificedPermanentId)) {
+            pz2.graveyard.push({ ...(cardData2 as any), id: sacrificedPermanentId, zone: 'graveyard', isToken: true });
+            pz2.graveyardCount = pz2.graveyard.length;
+          }
+        }
       }
     }
 
@@ -34406,6 +34442,7 @@ async function handleOptionalTriggeredAbilityChoiceResponse(
   const effectProgramMetadata = readEffectProgramQueueMetadata(step);
 
   try {
+    const choiceTurnNumber = Number((game.state as any)?.turnNumber ?? (game.state as any)?.turn ?? 0) || 0;
     await appendEvent(gameId, (game as any).seq ?? 0, 'optionalTriggeredAbilityChoice', {
       playerId,
       sourceId: String(stepData?.sourceId || step.sourceId || '').trim(),
@@ -34421,6 +34458,7 @@ async function handleOptionalTriggeredAbilityChoiceResponse(
           }
         : {}),
       choice: shouldResolve ? 'yes' : 'no',
+      ...(choiceTurnNumber > 0 ? { turnNumber: choiceTurnNumber } : {}),
       deferredTriggeredAbilityItem: deferredTriggeredAbilityItem && typeof deferredTriggeredAbilityItem === 'object'
         ? {
             ...(deferredTriggeredAbilityItem as any),

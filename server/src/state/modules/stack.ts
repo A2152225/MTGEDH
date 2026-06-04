@@ -559,6 +559,7 @@ function queueOptionalTriggeredAbilityEffectProgram(
       const bindingKey = String((step.command as any)?.choiceBindingKey || choiceBindingKey);
       const choiceResponse = runtime.bindings[bindingKey] as ChoiceResponse | undefined;
       const choice = normalizeOptionalTriggeredAbilityChoice(choiceResponse);
+      const turnNumberForEvent = Number((ctx as any).state?.turnNumber ?? (ctx as any).state?.turn ?? 0) || 0;
       appendOptionalTriggeredAbilityDecisionEvent(ctx, gameId, {
         playerId: triggerController,
         sourceId: resolvedSourceId,
@@ -569,6 +570,7 @@ function queueOptionalTriggeredAbilityEffectProgram(
         choiceResponse,
         choice,
         deferredTriggeredAbilityItem,
+        turnNumber: turnNumberForEvent > 0 ? turnNumberForEvent : undefined,
       });
 
       if (choice !== 'yes') {
@@ -644,6 +646,7 @@ function appendOptionalTriggeredAbilityDecisionEvent(
     readonly choiceResponse?: ChoiceResponse;
     readonly choice: 'yes' | 'no';
     readonly deferredTriggeredAbilityItem: any;
+    readonly turnNumber?: number;
   },
 ): void {
   if (!gameId || gameId === 'unknown' || (ctx as any).isReplaying) {
@@ -667,6 +670,7 @@ function appendOptionalTriggeredAbilityDecisionEvent(
       response: payload.choiceResponse,
     },
     choice: payload.choice,
+    ...(payload.turnNumber && payload.turnNumber > 0 ? { turnNumber: payload.turnNumber } : {}),
     deferredTriggeredAbilityItem: payload.deferredTriggeredAbilityItem,
   })).catch((err) => {
     debugWarn(1, '[resolveTopOfStack] appendEvent(optionalTriggeredAbilityChoice) failed:', err);

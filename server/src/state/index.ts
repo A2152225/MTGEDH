@@ -237,6 +237,14 @@ export function createInitialGameState(gameId: string): InMemoryGame {
     enumerable: false,
     configurable: true,
   });
+  Object.defineProperty(game, "_replayNextEventType", {
+    get: () => (ctx as any)._replayNextEventType,
+    set: (value) => {
+      (ctx as any)._replayNextEventType = value;
+    },
+    enumerable: false,
+    configurable: true,
+  });
   Object.defineProperty(game, "seqValue", {
     get: () => game.seq,
     enumerable: false,

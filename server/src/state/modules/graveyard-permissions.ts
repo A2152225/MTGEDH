@@ -1340,10 +1340,32 @@ export function applyPlayableFromGraveyardPermissionFromText(
     };
 
     if (grantsCastPermission || grantsPlayPermission) {
-      const sourceCard = findCardInPlayerGraveyard(state, playerId, {
+      // During replay the graveyard may be empty if the initial state wasn't
+      // re-seeded before replay (reset + replay pattern). Fall back to the
+      // snapshot embedded in the trigger item so the permission is still applied.
+      const snapshotCard = (triggerItem?.interveningIfSubjectSnapshot && sourceCardId
+        ? triggerItem.interveningIfSubjectSnapshot
+        : undefined)
+        || (triggerItem?.card && sourceCardId ? triggerItem.card : undefined)
+        || (triggerItem?.sourceCard && sourceCardId ? triggerItem.sourceCard : undefined);
+      let sourceCard = findCardInPlayerGraveyard(state, playerId, {
         cardId: sourceCardId,
         cardName: sourceCardName,
       });
+      if (!sourceCard && snapshotCard) {
+        // Re-seed the card into the graveyard so getCastableSpellCandidates can find it.
+        // This handles the reset+replay pattern where the graveyard was cleared by reset()
+        // but the card's existence in graveyard is implied by the replayed trigger event.
+        const playerId2 = String(playerId);
+        const zones = state.zones = state.zones || {};
+        const pz = zones[playerId2] = zones[playerId2] || { graveyard: [], graveyardCount: 0 };
+        pz.graveyard = Array.isArray(pz.graveyard) ? pz.graveyard : [];
+        if (!pz.graveyard.some((c: any) => String(c?.id || '') === String(snapshotCard?.id || ''))) {
+          pz.graveyard.push({ ...snapshotCard, zone: 'graveyard' });
+          pz.graveyardCount = pz.graveyard.length;
+        }
+        sourceCard = snapshotCard;
+      }
       if (!sourceCard) return 0;
 
       return markSourceCardPlayableFromGraveyardThisTurn(
