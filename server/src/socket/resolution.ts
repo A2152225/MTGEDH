@@ -775,6 +775,32 @@ function applyCancelledResolutionStepSideEffects(
     }
   }
 
+  // Battlefield ability target selection cancelled: untap any permanents that were tapped as
+  // activation costs and emit a cancel chat message.  Mana costs are not refunded (MTG rules:
+  // once costs are paid they cannot be taken back), but the ability becomes immediately
+  // re-activatable since no stack item was pushed.
+  if (cancelledStep.type === ResolutionStepType.TARGET_SELECTION &&
+      Boolean((cancelledStep as any)?.battlefieldAbilityTargetSelection)) {
+    const tappedForCost = Array.isArray((cancelledStep as any)?.tappedPermanentsForCost)
+      ? (cancelledStep as any).tappedPermanentsForCost as string[]
+      : [];
+    const battlefield = Array.isArray(game.state?.battlefield) ? game.state.battlefield : [];
+    for (const permId of tappedForCost) {
+      const perm = battlefield.find((p: any) => p?.id === permId);
+      if (perm && (perm as any).tapped) {
+        (perm as any).tapped = false;
+      }
+    }
+    const cardName = String((cancelledStep as any)?.cardName || cancelledStep.sourceName || 'ability');
+    io.to(gameId).emit('chat', {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: 'system',
+      message: `${getPlayerName(game, playerId)} cancelled ${cardName} activation (target selection).`,
+      ts: Date.now(),
+    });
+  }
+
   if ((cancelledStep as any)?.keywordBlight === true && String((cancelledStep as any)?.keywordBlightStage || '') === 'ward_payment') {
     const stackId = String((cancelledStep as any)?.keywordBlightTriggeredBy || (cancelledStep as any)?.sourceId || '');
     if (stackId) {
@@ -4562,6 +4588,8 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
     const isCancellableMandatoryStep =
       (step.type === ResolutionStepType.TARGET_SELECTION &&
         Boolean((step as any)?.spellCastContext?.effectId)) ||
+      (step.type === ResolutionStepType.TARGET_SELECTION &&
+        Boolean((step as any)?.battlefieldAbilityTargetSelection)) ||
       (step.type === ResolutionStepType.MANA_PAYMENT_CHOICE && (
         (step as any)?.spellPaymentRequired === true ||
         (step as any)?.activationPaymentChoice === true ||
@@ -8135,6 +8163,12 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
     const isCancellableMandatoryStep =
       (step.type === ResolutionStepType.TARGET_SELECTION &&
         Boolean((step as any)?.spellCastContext?.effectId)) ||
+      // Activated-ability target selection — player initiated the activation and should be able
+      // to back out before committing to a target.  Any activation costs already paid are
+      // refunded (tap cost untapped; mana is forfeit per MTG rules but the ability itself is
+      // available for re-activation immediately after cancel).
+      (step.type === ResolutionStepType.TARGET_SELECTION &&
+        Boolean((step as any)?.battlefieldAbilityTargetSelection)) ||
       step.type === ResolutionStepType.STATION_CREATURE_SELECTION;
 
     if (step.mandatory && !isCancellableMandatoryStep) {

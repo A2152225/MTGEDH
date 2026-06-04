@@ -482,6 +482,13 @@ export function FreeField(props: {
         isToken,
       });
     }
+    // Evict stale auto-positions for permanents that are no longer on the battlefield.
+    const currentIds = new Set(perms.map(p => p.id));
+    for (const key of autoPositionCache.current.keys()) {
+      if (!currentIds.has(key)) {
+        autoPositionCache.current.delete(key);
+      }
+    }
     return placed;
   }, [perms, allBattlefieldPerms, imagePref, tileWidth, tileH, widthPx, heightPx]);
 
