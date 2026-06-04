@@ -172,11 +172,23 @@ export function clearHumanAutoPassPauseOnAction(
   game: InMemoryGame,
   playerId?: PlayerID | string | null,
   reason = 'action',
+  // When true, also clears the "auto-pass rest of turn" flag. Set this for genuinely
+  // voluntary player-initiated actions (ability activation, spell casting, land play) so
+  // that the auto-pass preference is reset after the player re-engages with the game.
+  clearAutoPassForTurn = false,
 ): boolean {
   try {
     const stateAny = (game.state as any) || {};
-    const pausedPlayerId = String(stateAny._pauseHumanAutoPassUntilActionFor || '').trim();
     const actingPlayerId = String(playerId || '').trim();
+
+    // Clear autoPassForTurn when a player takes a voluntary action.
+    // If the player actively chose to do something, they are no longer in "auto-pass rest of turn" mode.
+    if (clearAutoPassForTurn && actingPlayerId && stateAny.autoPassForTurn?.[actingPlayerId]) {
+      delete stateAny.autoPassForTurn[actingPlayerId];
+      debug(2, `${ts()} [auto-pass] Cleared autoPassForTurn for ${actingPlayerId} after voluntary ${reason}`);
+    }
+
+    const pausedPlayerId = String(stateAny._pauseHumanAutoPassUntilActionFor || '').trim();
     if (!pausedPlayerId || !actingPlayerId || pausedPlayerId !== actingPlayerId) {
       return false;
     }

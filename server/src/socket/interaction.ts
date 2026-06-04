@@ -5272,7 +5272,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     const cardName = card?.name || "Unknown";
     const oracleText = (card?.oracle_text || "").toLowerCase();
     const typeLine = (card?.type_line || "").toLowerCase();
-    clearHumanAutoPassPauseOnAction(game as any, pid, 'activateBattlefieldAbility');
+    clearHumanAutoPassPauseOnAction(game as any, pid, 'activateBattlefieldAbility', true);
     const scopedActivatedAbility = getActivatedAbilityScopeText(oracleText, abilityId);
     const scopedAbilityText = String(scopedActivatedAbility.abilityText || '').trim();
     const scopedAbilityFullText = String(scopedActivatedAbility.fullAbilityText || scopedAbilityText || oracleText || '').trim();
@@ -8776,6 +8776,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     // Extract ability text by parsing oracle text for activated abilities
     let abilityText = "";
     let requiresTap = false;
+    let requiresUntap = false; // {Q} untap symbol in the activation cost
     let manaCost = "";
     let requiresSelfExert = false;
     let sacrificeType: 'creature' | 'artifact' | 'enchantment' | 'land' | 'permanent' | 'nonland_permanent' | 'self' | 'artifact_or_creature' | null = null;
@@ -8800,6 +8801,9 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       // Only treat the ability as requiring the SOURCE to tap when the cost includes an explicit tap symbol
       // (or the old-style "Tap:" shorthand). Do NOT match "Tap an untapped creature you control" etc.
       requiresTap = /\{t\}/i.test(normalizedCost) || /^\s*tap\s*:/i.test(normalizedCost);
+      // {Q} is the untap symbol: paying this cost untaps the source. The permanent must be
+      // tapped before the ability can be activated (you can only untap something that is tapped).
+      requiresUntap = /\{Q\}/i.test(normalizedCost);
       manaCost = normalizedCost;
       requiresSelfExert = costRequiresSelfExert(normalizedCost);
       requiredChargeCounters = thresholdRestrictedAbility?.threshold ?? null;
@@ -8921,11 +8925,21 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       }
     }
     
-    // Validate: if ability requires tap, permanent must not be tapped
+    // Validate: if ability requires tap ({T}), permanent must not be tapped
     if (requiresTap && (permanent as any).tapped) {
       socket.emit("error", {
         code: "ALREADY_TAPPED",
         message: `${cardName} is already tapped`,
+      });
+      return;
+    }
+
+    // Validate: if ability requires untap ({Q}), permanent must currently be tapped
+    // (the {Q} symbol pays the cost by untapping the source)
+    if (requiresUntap && !(permanent as any).tapped) {
+      socket.emit("error", {
+        code: "NOT_TAPPED",
+        message: `${cardName} is not tapped — the {Q} untap cost requires it to be tapped first.`,
       });
       return;
     }
@@ -11629,6 +11643,11 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         tappedPermanentsForCost.push(String(permanentId));
       }
 
+      // Pay {Q} untap cost: the source must be tapped and is untapped as part of paying.
+      if (requiresUntap && (permanent as any).tapped) {
+        (permanent as any).tapped = false;
+      }
+
       // Exile the source as part of the activation cost (e.g., "Exile this creature").
       // Conservative: only support self-exile costs that don't include additional non-mana components.
       {
@@ -11966,12 +11985,16 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         return;
       }
 
+      // Include single-target battlefield abilities (maxTargets >= 1) that weren't handled by
+      // a specific handler earlier. This allows abilities like Gilder Bairn's {Q} counter
+      // effect ("For each counter on target permanent, put another counter of that kind…")
+      // to queue a target selection step before going on the stack.
       const hasParsedMultiTargetSelection = parsedGraveyardTargetReqs.needsTargets
         && Array.isArray(parsedGraveyardTargetReqs.targetTypes)
         && parsedGraveyardTargetReqs.targetTypes.length > 0
         && !hasParsedGraveyardTargets
         && (
-          Number(parsedGraveyardTargetReqs.maxTargets ?? parsedGraveyardTargetReqs.minTargets ?? 0) > 1
+          Number(parsedGraveyardTargetReqs.maxTargets ?? parsedGraveyardTargetReqs.minTargets ?? 0) >= 1
           || selectionRequiresSharedCardType(parsedGraveyardTargetReqs.targetDescription, resolvedAbilityText)
         );
 

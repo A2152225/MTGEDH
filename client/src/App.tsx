@@ -4818,10 +4818,28 @@ export function App() {
     return canCreatureAttackNow(perm, safeView?.battlefield || []);
   };
 
+  // Expand server-grouped tokens (broadcast optimization) into individual permanent entries
+  // so the combat modal can show and select each token independently. Each entry uses
+  // its real permanent ID from groupedTokenIds so server-side validation succeeds.
+  const expandGroupedTokens = (permanents: BattlefieldPermanent[]): BattlefieldPermanent[] => {
+    const expanded: BattlefieldPermanent[] = [];
+    for (const perm of permanents) {
+      const groupedIds = (perm as any).groupedTokenIds as string[] | undefined;
+      if ((perm as any).isGroupedTokens && Array.isArray(groupedIds) && groupedIds.length > 0) {
+        for (const tokenId of groupedIds) {
+          expanded.push({ ...perm, id: tokenId, isGroupedTokens: false, tokenCount: 1 } as BattlefieldPermanent);
+        }
+      } else {
+        expanded.push(perm);
+      }
+    }
+    return expanded;
+  };
+
   // Get creatures for combat modal - filter to only those that can attack
   const myCreatures = useMemo(() => {
     if (!safeView || !you) return [];
-    return (safeView.battlefield || []).filter((p: BattlefieldPermanent) => {
+    const filtered = (safeView.battlefield || []).filter((p: BattlefieldPermanent) => {
       if (p.controller !== you) return false;
       // Check if it's currently a creature (handles reconfigure/bestow)
       if (!isCurrentlyCreature(p)) return false;
@@ -4829,6 +4847,7 @@ export function App() {
       // Filter out creatures that cannot attack (summoning sickness without haste, or defender)
       return canCreatureAttack(p);
     });
+    return expandGroupedTokens(filtered);
   }, [safeView, you]);
 
   // Get creatures that can block - different rules than attacking
@@ -4837,7 +4856,7 @@ export function App() {
   // Only tapped creatures cannot block
   const myBlockerCreatures = useMemo(() => {
     if (!safeView || !you) return [];
-    return (safeView.battlefield || []).filter((p: BattlefieldPermanent) => {
+    const filtered = (safeView.battlefield || []).filter((p: BattlefieldPermanent) => {
       if (p.controller !== you) return false;
       // Check if it's currently a creature (handles reconfigure/bestow)
       if (!isCurrentlyCreature(p)) return false;
@@ -4846,6 +4865,7 @@ export function App() {
       // All untapped creatures can block (even with summoning sickness or defender)
       return true;
     });
+    return expandGroupedTokens(filtered);
   }, [safeView, you]);
 
   const attackingCreatures = useMemo(() => {

@@ -146,18 +146,31 @@ export function TapUntapTargetModal({
     }
   }, [open, action]);
 
-  // Filter permanents to only valid targets
+  // Filter permanents to only valid targets.
+  // Grouped tokens (server optimization for many identical tokens) are expanded into
+  // individual entries so the player can select any subset of them independently.
   const validTargets = useMemo(() => {
-    return availablePermanents.filter(perm => 
-      matchesFilter(
-        perm,
-        targetFilter,
-        source.id,
-        playerId,
-        action === 'both' ? chosenAction : action,
-        enforceActionAvailability,
-      )
-    );
+    const expanded: BattlefieldPermanent[] = [];
+    const requiredAction = action === 'both' ? chosenAction : action;
+    for (const perm of availablePermanents) {
+      const groupedIds = (perm as any).groupedTokenIds as string[] | undefined;
+      if ((perm as any).isGroupedTokens && Array.isArray(groupedIds) && groupedIds.length > 0) {
+        // Expand each individual token from the group using its real permanent ID.
+        // The server's battlefield holds real entries under these IDs, so submissions
+        // with individual IDs will pass validation correctly.
+        for (const tokenId of groupedIds) {
+          const individual = { ...perm, id: tokenId, isGroupedTokens: false, tokenCount: 1 } as BattlefieldPermanent;
+          if (matchesFilter(individual, targetFilter, source.id, playerId, requiredAction, enforceActionAvailability)) {
+            expanded.push(individual);
+          }
+        }
+      } else {
+        if (matchesFilter(perm, targetFilter, source.id, playerId, requiredAction, enforceActionAvailability)) {
+          expanded.push(perm);
+        }
+      }
+    }
+    return expanded;
   }, [availablePermanents, targetFilter, source.id, playerId, action, chosenAction, enforceActionAvailability]);
 
   const toggleSelect = useCallback((permanentId: string) => {
