@@ -2538,6 +2538,51 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
     } as OracleEffectStep];
   }
 
+  const ownerCreatesQuestToken = raw.match(
+    /^its owner creates (?:a )?tapped (.+?) creature token for each quest counter on it\.?$/i,
+  );
+  if (ownerCreatesQuestToken) {
+    return [{
+      kind: 'create_token',
+      who: { kind: 'owner_of_source' },
+      amount: { kind: 'x' },
+      token: String(ownerCreatesQuestToken[1] || '').trim(),
+      entersTapped: true,
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  const opportunisticDragonControl = raw.match(
+    /^for as long as this creature remains on the battlefield, gain control of that permanent, it loses all abilities, and it can(?:'|\u2019)?t attack or block\.?$/i,
+  );
+  if (opportunisticDragonControl) {
+    return [
+      {
+        kind: 'gain_control',
+        what: parseObjectSelector('that permanent'),
+        newController: { kind: 'you' },
+        duration: 'static',
+        raw,
+        ...sequence,
+      } as OracleEffectStep,
+      {
+        kind: 'cant_attack',
+        target: parseObjectSelector('that permanent'),
+        duration: 'static',
+        raw: "that permanent can't attack",
+        ...sequence,
+      } as OracleEffectStep,
+      {
+        kind: 'cant_block',
+        target: parseObjectSelector('that permanent'),
+        duration: 'static',
+        raw: "that permanent can't block",
+        ...sequence,
+      } as OracleEffectStep,
+    ];
+  }
+
   const halfLifeRoundedDown = raw.match(
     /^(that player|target player|target opponent)\s+loses\s+half\s+their\s+life,?\s*rounded\s+down\.?$/i,
   );
@@ -3807,6 +3852,33 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
 
   if (/^otherwise,\s+you\s+may\s+put\s+it\s+into\s+your\s+graveyard$/i.test(raw)) {
     return [{ kind: 'move_zone', what: parseObjectSelector('it'), to: 'graveyard', toRaw: 'your graveyard', optional: true, raw, ...sequence } as OracleEffectStep];
+  }
+
+  if (/^otherwise,\s+put\s+it\s+into\s+your\s+graveyard$/i.test(raw)) {
+    return [{ kind: 'move_zone', what: parseObjectSelector('it'), to: 'graveyard', toRaw: 'your graveyard', raw, ...sequence } as OracleEffectStep];
+  }
+
+  if (/^(?:then\s+)?puts?\s+those\s+cards\s+into\s+their\s+graveyard$/i.test(raw)) {
+    return [{
+      kind: 'move_zone',
+      what: parseObjectSelector('those cards'),
+      to: 'graveyard',
+      toRaw: 'their graveyard',
+      raw,
+      sequence: 'then',
+    } as OracleEffectStep];
+  }
+
+  if (/^(?:then\s+)?return\s+those\s+cards\s+to\s+the\s+battlefield\s+under\s+their\s+owners?'?\s+control$/i.test(raw)) {
+    return [{
+      kind: 'move_zone',
+      what: parseObjectSelector('those cards'),
+      to: 'battlefield',
+      toRaw: "the battlefield under their owner's control",
+      battlefieldController: { kind: 'owner_of_moved_cards' },
+      raw,
+      sequence: 'then',
+    } as OracleEffectStep];
   }
 
   if (/^if\s+you\s+don(?:'|’)?t,\s+it\s+enters\s+tapped$/i.test(raw)) {
@@ -9662,6 +9734,61 @@ export function expandSimpleConditionalUnknownAbilities(
   });
 }
 
+function parseYouMayTransformIfYouDoUnknownSteps(
+  step: Extract<OracleEffectStep, { kind: 'unknown' }>
+): OracleEffectStep[] | null {
+  const normalized = normalizeOracleText(String(step.raw || '')).trim();
+  const match = normalized.match(/^you may transform (.+?)\.\s*if you do,\s*(.+)$/i);
+  if (!match) return null;
+
+  const transformTarget = String(match[1] || '').trim();
+  const body = String(match[2] || '').trim();
+  if (!transformTarget || !body) return null;
+
+  const parsedBodySteps = parseDeterministicUnknownBodySteps(step, body);
+  if (!parsedBodySteps || parsedBodySteps.length === 0) return null;
+
+  const sequence = step.sequence ? { sequence: step.sequence } : {};
+  return [
+    {
+      kind: 'grant_static_ability',
+      target: parseObjectSelector('this permanent'),
+      effectText: [`you may transform ${transformTarget}`],
+      duration: 'static',
+      raw: `you may transform ${transformTarget}`,
+      ...sequence,
+    } as OracleEffectStep,
+    {
+      kind: 'conditional',
+      condition: { kind: 'if', raw: 'you do' },
+      steps: parsedBodySteps,
+      ...sequence,
+      raw: `if you do, ${body}`,
+    } as OracleEffectStep,
+  ];
+}
+
+export function expandYouMayTransformIfYouDoAbilities(
+  abilities: readonly OracleIRAbility[]
+): OracleIRAbility[] {
+  return abilities.map((ability) => {
+    if (ability.type === AbilityType.STATIC || ability.type === AbilityType.REPLACEMENT) {
+      return ability;
+    }
+
+    let changed = false;
+    const expandedSteps = ability.steps.flatMap((step) => {
+      if (step.kind !== 'unknown') return [step];
+      const expanded = parseYouMayTransformIfYouDoUnknownSteps(step);
+      if (!expanded) return [step];
+      changed = true;
+      return expanded;
+    });
+
+    return changed ? { ...ability, steps: expandedSteps } : ability;
+  });
+}
+
 export function expandOtherwiseConditionalUnknownAbilities(
   abilities: readonly OracleIRAbility[]
 ): OracleIRAbility[] {
@@ -15202,6 +15329,19 @@ export function pruneDuplicateGraveyardReminderAbilities(
   });
 }
 
+function isEquipmentBleedDiscardStep(step: OracleEffectStep): boolean {
+  if (step.kind !== 'discard') return false;
+  const normalizedRaw = normalizeOracleText(String(step.raw || '')).trim().toLowerCase();
+  return /\bequip\s*\{/.test(normalizedRaw);
+}
+
+export function pruneEquipmentBleedSteps(abilities: readonly OracleIRAbility[]): OracleIRAbility[] {
+  return abilities.map((ability) => {
+    const filteredSteps = ability.steps.filter((step) => !isEquipmentBleedDiscardStep(step));
+    return filteredSteps.length === ability.steps.length ? ability : { ...ability, steps: filteredSteps };
+  });
+}
+
 function isReminderGenericGraveyardGrant(step: OracleEffectStep): boolean {
   if (step.kind !== 'grant_graveyard_permission') return false;
   const normalizedRaw = normalizeOracleText(String(step.raw || '')).trim();
@@ -15373,6 +15513,30 @@ function trySplitBattlefieldAndOtherZoneCompoundStep(step: OracleEffectStep): re
         to: 'graveyard',
         toRaw: 'your graveyard',
         raw: 'put all other cards revealed this way into your graveyard',
+        ...sharedMeta,
+      } as OracleEffectStep,
+    ];
+  }
+
+  if (
+    /^put that card onto the battlefield and shuffle all other cards revealed this way into your library$/i.test(raw) ||
+    /^that card onto the battlefield and shuffle all other cards revealed this way into your library$/i.test(whatText)
+  ) {
+    return [
+      {
+        kind: 'move_zone',
+        what: parseObjectSelector('that card'),
+        to: 'battlefield',
+        toRaw: 'the battlefield',
+        raw: 'put that card onto the battlefield',
+        ...sharedMeta,
+      } as OracleEffectStep,
+      {
+        kind: 'move_zone',
+        what: parseObjectSelector('all other cards revealed this way'),
+        to: 'library',
+        toRaw: 'your library',
+        raw: 'shuffle all other cards revealed this way into your library',
         ...sharedMeta,
       } as OracleEffectStep,
     ];

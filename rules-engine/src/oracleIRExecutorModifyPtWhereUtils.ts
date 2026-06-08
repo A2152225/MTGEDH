@@ -113,7 +113,7 @@ export function normalizeModifyPtWhereRaw(whereRaw: string): string {
   raw = raw.replace(/[,\s]+(?:as|when)\s+.{3,80}?\b(?:resolves?|begins?\s+to\s+apply)\s*$/i, '');
   raw = raw.replace(/\s+as\s+you\s+(?:cast|activate)\s+(?:this\b.*|that\b.*)$/i, '');
   raw = raw.replace(/\s+and\s+y\s+is\b.*$/i, '');
-  raw = raw.replace(/,\s+(?:then|and)\s+.+$/i, '');
+  raw = raw.replace(/,\s+then\s+.+$/i, '');
   raw = MODIFY_PT_WHERE_ALIASES[raw] || raw;
   raw = raw.replace(/\bfive\b/g, '5');
   raw = raw.replace(/\bsix\b/g, '6');

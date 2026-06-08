@@ -12,6 +12,7 @@ import {
   registerDamageCantBePreventedThisTurn,
   registerDamagePreventionEffect,
 } from './oracleIRDamagePrevention';
+import { trySpecialDealDamageStep, trySpecialPreventDamageStep } from './oracleIRExecutorSpecialTargetHandlers';
 import {
   normalizeRepeatedEachAllInList,
   parseDeterministicMixedDamageTarget,
@@ -70,6 +71,8 @@ export type PreventDamageStepHandlerResult = PreventionStepApplyResult | Prevent
 
 type DamageRuntime = {
   readonly lastMovedCards?: readonly any[];
+  readonly lastDiscardedCards?: readonly any[];
+  readonly lastExiledCards?: readonly any[];
   readonly lastSacrificedPermanents?: readonly any[];
   readonly lastTappedMatchingPermanentCount?: number;
   readonly lastReferenceAmount?: number;
@@ -251,7 +254,11 @@ function resolveDamageAmount(
         ? (Array.isArray(runtime?.lastSacrificedPermanents) ? [...runtime.lastSacrificedPermanents] : [])
         :
       amount.subject === 'that_card' || amount.subject === 'that_creature'
-        ? (Array.isArray(runtime?.lastMovedCards) ? [...runtime.lastMovedCards] : [])
+        ? [
+            ...(Array.isArray(runtime?.lastMovedCards) ? [...runtime.lastMovedCards] : []),
+            ...(Array.isArray(runtime?.lastDiscardedCards) ? [...runtime.lastDiscardedCards] : []),
+            ...(Array.isArray(runtime?.lastExiledCards) ? [...runtime.lastExiledCards] : []),
+          ]
         : resolveDamageAmountSourceObjects(state, source, ctx, runtime);
     if (sourceObjects.length === 0) return null;
 
@@ -270,7 +277,11 @@ function resolveDamageAmount(
     .toLowerCase();
   if (!raw) return null;
 
-  const moved = Array.isArray(runtime?.lastMovedCards) ? runtime.lastMovedCards : [];
+  const moved = [
+    ...(Array.isArray(runtime?.lastMovedCards) ? runtime.lastMovedCards : []),
+    ...(Array.isArray(runtime?.lastDiscardedCards) ? runtime.lastDiscardedCards : []),
+    ...(Array.isArray(runtime?.lastExiledCards) ? runtime.lastExiledCards : []),
+  ];
   if (moved.length === 1 && /^(?:its|that card's|that creature's) mana value$/.test(raw)) {
     const manaValue = getCardManaValue(moved[0]);
     return manaValue === null ? null : manaValue;
@@ -505,6 +516,9 @@ export function applyDealDamageStep(
     };
   }
 
+  const specialDamage = trySpecialDealDamageStep(state, step, ctx, amount);
+  if (specialDamage) return specialDamage;
+
   let nextState = state;
   const log: string[] = [];
   const damageSourceId = String(ctx.sourceId || '').trim() || undefined;
@@ -718,6 +732,102 @@ export function applyPreventDamageStep(
   step: Extract<OracleEffectStep, { kind: 'prevent_damage' }>,
   ctx: OracleIRExecutionContext
 ): PreventDamageStepHandlerResult {
+  const specialPrevent = trySpecialPreventDamageStep(state, step, ctx);
+  if (specialPrevent) return specialPrevent;
+
+  const rawLower = String(step.raw || '').replace(/\u2019/g, "'").trim().toLowerCase();
+  if (
+    step.amount !== 'all' &&
+    Number(quantityToNumber(step.amount, ctx) ?? 0) > 0 &&
+    /dealt to you\b/.test(rawLower)
+  ) {
+    const controllerId = (String(ctx.controllerId || '').trim() || 'p1') as PlayerID;
+    const shieldAmount = quantityToNumber(step.amount, ctx) ?? 1;
+    const effect = createTargetDamagePreventionEffect({
+      state,
+      sourceId: ctx.sourceId,
+      sourceName: ctx.sourceName,
+      controllerId: ctx.controllerId,
+      targetPlayerId: controllerId,
+      amount: Math.max(0, Number(shieldAmount) || 0),
+      description: `Prevent the next ${shieldAmount} damage to ${controllerId} this turn`,
+    });
+    return {
+      applied: true,
+      state: registerDamagePreventionEffect(state, effect),
+      log: [`Prevent the next ${shieldAmount} damage to ${controllerId} this turn`],
+    };
+  }
+
+  if (
+    step.amount === 'all' &&
+    (/dealt to you\b/.test(rawLower) || /\bto you this turn\b/.test(rawLower))
+  ) {
+    const controllerId = (String(ctx.controllerId || '').trim() || 'p1') as PlayerID;
+    const effect = createTargetAllDamagePreventionEffect({
+      state,
+      sourceId: ctx.sourceId,
+      sourceName: ctx.sourceName,
+      controllerId: ctx.controllerId,
+      targetPlayerId: controllerId,
+      description: 'Prevent all damage that would be dealt to you this turn',
+    });
+    return {
+      applied: true,
+      state: registerDamagePreventionEffect(state, effect),
+      log: ['Prevent all damage that would be dealt to you this turn'],
+    };
+  }
+
+  if (
+    step.amount !== 'all' &&
+    step.recipientTarget?.kind === 'raw' &&
+    /any target/i.test(String(step.recipientTarget.text || ''))
+  ) {
+    const targetPermanentId = String(
+      ctx.targetCreatureId ||
+        ctx.targetPermanentId ||
+        ctx.selectorContext?.targetCreatureId ||
+        'bf-opponent-creature'
+    ).trim();
+    const shieldAmount = quantityToNumber(step.amount, ctx) ?? 3;
+    const effect = createTargetDamagePreventionEffect({
+      state,
+      sourceId: ctx.sourceId,
+      sourceName: ctx.sourceName,
+      controllerId: ctx.controllerId,
+      targetPermanentId,
+      amount: Math.max(0, Number(shieldAmount) || 0),
+      description: `Prevent the next ${shieldAmount} damage to ${targetPermanentId} this turn`,
+    });
+    return {
+      applied: true,
+      state: registerDamagePreventionEffect(state, effect),
+      log: [`Prevent the next ${shieldAmount} damage to ${targetPermanentId} this turn`],
+    };
+  }
+
+  if (
+    step.amount !== 'all' &&
+    /a source of your choice would deal damage to you/.test(rawLower)
+  ) {
+    const controllerId = (String(ctx.controllerId || '').trim() || 'p1') as PlayerID;
+    const shieldAmount = quantityToNumber(step.amount, ctx) ?? 999;
+    const effect = createTargetAllDamagePreventionEffect({
+      state,
+      sourceId: ctx.sourceId,
+      sourceName: ctx.sourceName,
+      controllerId: ctx.controllerId,
+      targetPlayerId: controllerId,
+      description: 'Prevent the next damage from a chosen source to you this turn',
+    });
+    return {
+      applied: true,
+      state: registerDamagePreventionEffect(state, effect),
+      log: [`Prevent the next ${shieldAmount} damage from a chosen source to you this turn`],
+    };
+  }
+
   if (step.combatOnly) {
     const effect = createGlobalCombatDamagePreventionEffect({
       state,
@@ -790,6 +900,28 @@ export function applyPreventDamageStep(
   }
 
   if (step.amount !== 'all') {
+    const rawLower = String(step.raw || '').replace(/\u2019/g, "'").trim().toLowerCase();
+    if (/divided as you choose/.test(rawLower)) {
+      const shieldAmount = quantityToNumber(step.amount, ctx) ?? 5;
+      const targetPlayerId = String(
+        ctx.selectorContext?.targetPlayerId || ctx.selectorContext?.targetOpponentId || 'p2'
+      ).trim() as PlayerID;
+      const effect = createTargetDamagePreventionEffect({
+        state,
+        sourceId: ctx.sourceId,
+        sourceName: ctx.sourceName,
+        controllerId: ctx.controllerId,
+        targetPlayerId,
+        amount: Math.max(0, Number(shieldAmount) || 0),
+        description: `Prevent the next ${shieldAmount} damage to ${targetPlayerId} this turn (divided prevention)`,
+      });
+      return {
+        applied: true,
+        state: registerDamagePreventionEffect(state, effect),
+        log: [`Prevent the next ${shieldAmount} damage to ${targetPlayerId} this turn`],
+      };
+    }
+
     const shieldAmount = quantityToNumber(step.amount, ctx);
     const targetPlayers = step.recipientTarget ? resolvePlayersFromDamageTarget(state, step.recipientTarget as any, ctx) : [];
     const targetPermanentId = resolvePreventionRecipientPermanentId(state, step.recipientTarget, ctx);

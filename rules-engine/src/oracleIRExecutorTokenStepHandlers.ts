@@ -142,15 +142,27 @@ function evaluateTokenAmountExpression(
     .trim();
   if (!rawExpression) return null;
 
+  const counterOnItMatch = rawExpression.match(/^([a-z/+.-]+) counters? on it$/i);
+  if (counterOnItMatch) {
+    const counterName = String(counterOnItMatch[1] || '').trim();
+    const evaluatedCounter = evaluateModifyPtWhereX(
+      state,
+      controllerId,
+      `X is the number of ${counterName} counters on it`,
+      String(ctx.sourceId || ctx.targetPermanentId || '').trim() || undefined,
+      ctx,
+      runtime as any
+    );
+    if (evaluatedCounter !== null) return Math.max(0, Math.floor(evaluatedCounter));
+  }
+
   const evaluated = evaluateModifyPtWhereX(
     state,
     controllerId,
     /^x\s+is\b/i.test(rawExpression) ? rawExpression : `X is ${rawExpression}`,
     undefined,
     ctx,
-    {
-      lastMovedCards: Array.isArray(runtime?.lastMovedCards) ? runtime.lastMovedCards : [],
-    } as any
+    runtime as any
   );
   return evaluated === null ? null : Math.max(0, Math.floor(evaluated));
 }
@@ -337,6 +349,18 @@ function resolveTokenAmount(
   const raw = String(step.raw || '').trim();
   const twiceXMultiplier = /\bcreate(?:s)?\s+twice\s+x\b/i.test(raw) ? 2 : 1;
 
+  const suffixForEachMatch = raw.match(/\bfor each\s+(.+?)\.?$/i);
+  if (suffixForEachMatch) {
+    const count = evaluateTokenAmountExpression(
+      state,
+      controllerId,
+      String(suffixForEachMatch[1] || '').trim(),
+      ctx,
+      runtime
+    );
+    if (count !== null) return count;
+  }
+
   const forEachAmount = resolveForEachTokenAmount(state, controllerId, raw, ctx, runtime);
   if (forEachAmount !== null) return forEachAmount;
 
@@ -350,15 +374,20 @@ function resolveTokenAmount(
   }
 
   const whereRaw = `X is ${String(whereMatch[1] || '').trim()}`;
+  const targetCreatureId = String(
+    ctx.targetCreatureId ||
+      ctx.targetPermanentId ||
+      ctx.selectorContext?.targetCreatureId ||
+      ctx.selectorContext?.targetPermanentId ||
+      ''
+  ).trim() || undefined;
   const evaluated = evaluateModifyPtWhereX(
     state,
     controllerId,
     whereRaw,
-    undefined,
+    targetCreatureId,
     ctx,
-    {
-      lastMovedCards: Array.isArray(runtime?.lastMovedCards) ? runtime.lastMovedCards : [],
-    } as any
+    runtime as any
   );
   if (evaluated !== null) return evaluated * twiceXMultiplier;
 
@@ -408,26 +437,35 @@ function getChosenObjectIds(ctx: OracleIRExecutionContext): readonly string[] {
   return out;
 }
 
+function normalizeCopyReferenceBody(body: string): string {
+  let reference = String(body || '').trim();
+  reference = reference.replace(/\s+and\s+that(?:'|\u2019)?s?\s+(?:tapped(?:\s+and\s+attacking)?|attacking|are\s+tapped(?:\s+and\s+attacking)?).*$/i, '');
+  reference = reference.replace(/,\s*where\s+x\s+is\b.*$/i, '');
+  reference = reference.replace(/\.\s*exile\b.*$/i, '');
+  reference = reference.replace(/\.\s*at\s+the\s+beginning\b.*$/i, '');
+  return reference.replace(/[.\s]+$/g, '').trim();
+}
+
 function splitCopyTokenReference(tokenHint: string): {
   readonly referenceText: string;
   readonly exceptionText: string;
 } | null {
   const raw = String(tokenHint || '').trim();
-  if (!/^copy of\b/i.test(raw)) return null;
+  if (!/\bcopies?\s+of\b/i.test(raw)) return null;
 
-  const body = raw.replace(/^copy of\s+/i, '').trim();
+  const body = normalizeCopyReferenceBody(raw.replace(/^.*?\bcopies?\s+of\s+/i, '').trim());
   if (!body) return null;
 
   const exceptMatch = body.match(/^(.*?),\s*except\s+(.+)$/i);
   if (!exceptMatch) {
     return {
-      referenceText: body.replace(/[.\s]+$/g, '').trim(),
+      referenceText: body,
       exceptionText: '',
     };
   }
 
   return {
-    referenceText: String(exceptMatch[1] || '').replace(/[.\s]+$/g, '').trim(),
+    referenceText: normalizeCopyReferenceBody(String(exceptMatch[1] || '')),
     exceptionText: String(exceptMatch[2] || '').replace(/[.\s]+$/g, '').trim(),
   };
 }
@@ -897,6 +935,42 @@ function resolveTargetCopySource(
   return { kind: 'unavailable' };
 }
 
+function resolveStackSpellCopySource(state: GameState, ctx: OracleIRExecutionContext): any | null {
+  const spellId = String(ctx.targetSpellId || ctx.selectorContext?.targetSpellId || '').trim();
+  if (!spellId) return null;
+  const stackItem = (state.stack || []).find((item: any) => String(item?.id || '').trim() === spellId) as any;
+  if (!stackItem) return null;
+  return stackItem?.card || stackItem;
+}
+
+function resolveAttachedAuraOnBattlefield(
+  state: GameState,
+  ctx: OracleIRExecutionContext,
+  hostIds?: readonly string[]
+): any | null {
+  const hosts = new Set(
+    (hostIds && hostIds.length > 0
+      ? hostIds
+      : [
+          String(ctx.targetPermanentId || ctx.targetCreatureId || '').trim(),
+          String(ctx.sourceId || '').trim(),
+          ...getChosenObjectIds(ctx),
+        ]
+    )
+      .map(id => String(id || '').trim())
+      .filter(Boolean)
+  );
+  if (hosts.size === 0) return null;
+
+  const auras = (state.battlefield || []).filter((perm: any) => {
+    const attachedTo = String(perm?.attachedTo || '').trim();
+    if (!attachedTo || !hosts.has(attachedTo)) return false;
+    return typeLineHasWord(perm, 'enchantment');
+  });
+  if (auras.length === 1) return auras[0];
+  return null;
+}
+
 function resolveCopyTokenSource(
   state: GameState,
   tokenHint: string,
@@ -941,8 +1015,96 @@ function resolveCopyTokenSource(
   }
 
   if (
+    referenceText === 'this creature' ||
+    referenceText === 'this permanent' ||
+    referenceText === 'this artifact' ||
+    referenceText === 'this equipment' ||
+    referenceText === 'this enchantment' ||
+    referenceText === 'this vehicle' ||
+    referenceText === 'this token'
+  ) {
+    const sourceFallback = findSourceObjectByIdAcrossState(state, String(ctx.sourceId || '').trim());
+    return sourceFallback ? { kind: 'resolved', sourceObject: sourceFallback } : { kind: 'unavailable' };
+  }
+
+  if (referenceText === 'that artifact or creature' || referenceText === 'that creature or artifact') {
+    const stackSource = resolveStackSpellCopySource(state, ctx);
+    if (stackSource) return { kind: 'resolved', sourceObject: stackSource };
+    const explicitIds = [
+      ctx.targetPermanentId,
+      ctx.targetCreatureId,
+      ctx.selectorContext?.targetPermanentId,
+      ctx.selectorContext?.targetCreatureId,
+      ...getChosenObjectIds(ctx),
+    ]
+      .map(id => String(id || '').trim())
+      .filter(Boolean);
+    for (const id of explicitIds) {
+      const object = findBattlefieldObjectById(state, id) || findSourceObjectByIdAcrossState(state, id);
+      if (object && (typeLineHasWord(object, 'artifact') || typeLineHasWord(object, 'creature'))) {
+        return { kind: 'resolved', sourceObject: object };
+      }
+    }
+    return { kind: 'unavailable' };
+  }
+
+  if (/^that aura(?: attached to (?:that|the) creature)?$/i.test(referenceText)) {
+    const aura = resolveAttachedAuraOnBattlefield(state, ctx);
+    if (aura) return { kind: 'resolved', sourceObject: aura };
+    const sourceFallback = findSourceObjectByIdAcrossState(state, String(ctx.sourceId || '').trim());
+    if (sourceFallback && typeLineHasWord(sourceFallback, 'enchantment')) {
+      return { kind: 'resolved', sourceObject: sourceFallback };
+    }
+    return { kind: 'unavailable' };
+  }
+
+  if (/^one of those creatures$/i.test(referenceText)) {
+    const candidateIds = (() => {
+      const battlefieldIds = Array.isArray(runtime?.lastMovedBattlefieldPermanentIds)
+        ? runtime.lastMovedBattlefieldPermanentIds.map(id => String(id || '').trim()).filter(Boolean)
+        : [];
+      if (chosenObjectIds.length > 0) {
+        return chosenObjectIds.filter(id =>
+          (state.battlefield || []).some((perm: any) => {
+            if (String(perm?.id || '').trim() !== id) return false;
+            return typeLineHasWord(perm, 'creature');
+          })
+        );
+      }
+      return battlefieldIds.filter(id =>
+        (state.battlefield || []).some((perm: any) => {
+          if (String(perm?.id || '').trim() !== id) return false;
+          return typeLineHasWord(perm, 'creature');
+        })
+      );
+    })();
+    if (candidateIds.length === 0) return { kind: 'unavailable' };
+    if (candidateIds.length === 1) {
+      const permanent = (state.battlefield || []).find(perm => String((perm as any)?.id || '').trim() === candidateIds[0]);
+      return permanent ? { kind: 'resolved', sourceObject: permanent } : { kind: 'unavailable' };
+    }
+    return { kind: 'player_choice_required', availableIds: candidateIds };
+  }
+
+  if (/^a permanent you control$/i.test(referenceText)) {
+    const controllerId = String(ctx.controllerId || '').trim();
+    const permanents = (state.battlefield || []).filter(
+      (perm: any) => String(perm?.controller || '').trim() === controllerId
+    );
+    if (permanents.length === 1) return { kind: 'resolved', sourceObject: permanents[0] };
+    if (permanents.length > 1) {
+      return {
+        kind: 'player_choice_required',
+        availableIds: permanents.map((perm: any) => String(perm?.id || '').trim()).filter(Boolean),
+      };
+    }
+    return { kind: 'unavailable' };
+  }
+
+  if (
     referenceText === 'that creature' ||
-    referenceText === 'that permanent'
+    referenceText === 'that permanent' ||
+    referenceText === 'that artifact'
   ) {
     const battlefieldIds = Array.isArray(runtime?.lastMovedBattlefieldPermanentIds)
       ? runtime.lastMovedBattlefieldPermanentIds.map(id => String(id || '').trim()).filter(Boolean)
@@ -968,6 +1130,91 @@ function resolveCopyTokenSource(
     if (!attachedTo) return { kind: 'unavailable' };
     const equippedCreature = (state.battlefield || []).find(perm => String((perm as any)?.id || '').trim() === attachedTo);
     return equippedCreature ? { kind: 'resolved', sourceObject: equippedCreature } : { kind: 'unavailable' };
+  }
+
+  if (referenceText === 'enchanted creature' || referenceText === 'blighted creature') {
+    const sourceId = String(ctx.sourceId || '').trim();
+    const sourcePermanent = (state.battlefield || []).find(perm => String((perm as any)?.id || '').trim() === sourceId) as any;
+    const attachedTo = String(sourcePermanent?.attachedTo || '').trim();
+    if (!attachedTo) return { kind: 'unavailable' };
+    const enchantedCreature = (state.battlefield || []).find(perm => String((perm as any)?.id || '').trim() === attachedTo);
+    return enchantedCreature ? { kind: 'resolved', sourceObject: enchantedCreature } : { kind: 'unavailable' };
+  }
+
+  if (referenceText === 'enchanted artifact') {
+    const sourceId = String(ctx.sourceId || '').trim();
+    const sourcePermanent = (state.battlefield || []).find(perm => String((perm as any)?.id || '').trim() === sourceId) as any;
+    const attachedTo = String(sourcePermanent?.attachedTo || '').trim();
+    if (!attachedTo) return { kind: 'unavailable' };
+    const enchantedArtifact = (state.battlefield || []).find(perm => String((perm as any)?.id || '').trim() === attachedTo);
+    return enchantedArtifact ? { kind: 'resolved', sourceObject: enchantedArtifact } : { kind: 'unavailable' };
+  }
+
+  if (referenceText === 'that wizard') {
+    const candidateIds = chosenObjectIds.length > 0
+      ? chosenObjectIds
+      : [String(ctx.targetPermanentId || ctx.targetCreatureId || '').trim()].filter(Boolean);
+    const wizards = (state.battlefield || []).filter((perm: any) => {
+      const id = String(perm?.id || '').trim();
+      if (candidateIds.length > 0 && !candidateIds.includes(id)) return false;
+      const typeLine = String(perm?.card?.type_line || perm?.type_line || '').toLowerCase();
+      return /\bwizard\b/.test(typeLine);
+    });
+    if (wizards.length === 1) return { kind: 'resolved', sourceObject: wizards[0] };
+    if (wizards.length > 1) {
+      return {
+        kind: 'player_choice_required',
+        availableIds: wizards.map((perm: any) => String(perm?.id || '').trim()).filter(Boolean),
+      };
+    }
+    return { kind: 'unavailable' };
+  }
+
+  if (/^a non-?saga token you control$/i.test(referenceText)) {
+    const tokens = (state.battlefield || []).filter((perm: any) => {
+      if (String(perm?.controller || '').trim() !== String(ctx.controllerId || '').trim()) return false;
+      if (!perm?.isToken) return false;
+      const typeLine = String(perm?.card?.type_line || perm?.type_line || '').toLowerCase();
+      return !/\bsaga\b/.test(typeLine);
+    });
+    if (tokens.length === 1) return { kind: 'resolved', sourceObject: tokens[0] };
+    if (tokens.length > 1) {
+      return {
+        kind: 'player_choice_required',
+        availableIds: tokens.map((perm: any) => String(perm?.id || '').trim()).filter(Boolean),
+      };
+    }
+    return { kind: 'unavailable' };
+  }
+
+  if (/^a nonlegendary enchantment you control$/i.test(referenceText)) {
+    const enchantments = (state.battlefield || []).filter((perm: any) => {
+      if (String(perm?.controller || '').trim() !== String(ctx.controllerId || '').trim()) return false;
+      const typeLine = String(perm?.card?.type_line || perm?.type_line || '').toLowerCase();
+      return /\benchantment\b/.test(typeLine) && !/\blegendary\b/.test(typeLine);
+    });
+    if (enchantments.length === 1) return { kind: 'resolved', sourceObject: enchantments[0] };
+    if (enchantments.length > 1) {
+      return {
+        kind: 'player_choice_required',
+        availableIds: enchantments.map((perm: any) => String(perm?.id || '').trim()).filter(Boolean),
+      };
+    }
+    return { kind: 'unavailable' };
+  }
+
+  if (/^one of (?:them|those permanents)$/i.test(referenceText)) {
+    const candidateIds = chosenObjectIds.length > 0
+      ? chosenObjectIds
+      : Array.isArray(runtime?.lastMovedBattlefieldPermanentIds)
+        ? runtime.lastMovedBattlefieldPermanentIds.map(id => String(id || '').trim()).filter(Boolean)
+        : [];
+    if (candidateIds.length === 0) return { kind: 'unavailable' };
+    if (candidateIds.length === 1) {
+      const permanent = (state.battlefield || []).find(perm => String((perm as any)?.id || '').trim() === candidateIds[0]);
+      return permanent ? { kind: 'resolved', sourceObject: permanent } : { kind: 'unavailable' };
+    }
+    return { kind: 'player_choice_required', availableIds: candidateIds };
   }
 
   if (/\bexiled with this\b/i.test(parsed.referenceText)) {
@@ -1389,10 +1636,16 @@ export function applyCreateTokenStep(
           ? runtime.lastMovedBattlefieldPermanentIds.map(id => String(id || '').trim()).filter(Boolean)
           : [];
         const attachmentTargetId =
-          attachmentTargetText === 'that creature' || attachmentTargetText === 'it'
-            ? priorMovedIds.length === 1
-              ? priorMovedIds[0]
-              : ''
+          attachmentTargetText === 'that creature' ||
+          attachmentTargetText === 'it' ||
+          attachmentTargetText === 'enchanted creature' ||
+          attachmentTargetText === 'enchanted permanent'
+            ? String(
+                ctx.targetPermanentId ||
+                  ctx.targetCreatureId ||
+                  (priorMovedIds.length === 1 ? priorMovedIds[0] : '') ||
+                  ''
+              ).trim()
             : '';
 
         if (!attachmentTargetId) {

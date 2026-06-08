@@ -42,6 +42,8 @@ export interface OracleIRSelectorContext {
   readonly chosenBasicLandType?: string;
   /** Bound chosen card name for clauses like "choose a card name." */
   readonly chosenCardName?: string;
+  /** Bound chosen letter for clauses like "choose a letter." */
+  readonly chosenLetter?: string;
   /** Bound pay/decline choice for unless-pays-life wrappers when already known. */
   readonly unlessPaysLifeChoice?: 'pay' | 'decline';
   /** Bound pay/decline choice for unless-pays-mana wrappers when already known. */
@@ -75,6 +77,8 @@ export interface OracleIRExecutionEventHint {
   readonly chosenBasicLandType?: string;
   /** Explicit card-name choice when already known. */
   readonly chosenCardName?: string;
+  /** Explicit letter choice when already known. */
+  readonly chosenLetter?: string;
   /** Explicit pay/decline choice for unless-pays-life wrappers when already known. */
   readonly unlessPaysLifeChoice?: 'pay' | 'decline';
   /** Explicit pay/decline choice for unless-pays-mana wrappers when already known. */

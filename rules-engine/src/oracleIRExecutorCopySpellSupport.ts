@@ -20,6 +20,55 @@ function normalizeCopyTargetText(target: OracleObjectSelector | undefined): stri
     : '';
 }
 
+function isAbilityCopyTarget(target: OracleObjectSelector | undefined): boolean {
+  const normalizedTarget = normalizeCopyTargetText(target);
+  return normalizedTarget.includes('ability');
+}
+
+function getStackObjectCardLike(stackItem: any): any {
+  return (stackItem as any)?.card || stackItem;
+}
+
+function getStackObjectOracleText(stackItem: any): string {
+  const cardLike = getStackObjectCardLike(stackItem);
+  return String(
+    stackItem?.abilityText ||
+      stackItem?.abilityEffect ||
+      stackItem?.effect ||
+      cardLike?.oracle_text ||
+      cardLike?.oracleText ||
+      cardLike?.rulesText ||
+      ''
+  )
+    .replace(/\u2019/g, "'")
+    .trim();
+}
+
+function getStackObjectDisplayName(stackItem: any): string {
+  const cardLike = getStackObjectCardLike(stackItem);
+  return String(
+    stackItem?.name ||
+      cardLike?.name ||
+      stackItem?.sourceName ||
+      'Copied Object'
+  ).trim() || 'Copied Object';
+}
+
+function parseReplayStepsFromOracleText(oracleText: string, sourceName: string): readonly OracleEffectStep[] {
+  const normalizedText = String(oracleText || '').trim();
+  if (!normalizedText) return [];
+
+  const copiedIr = parseOracleTextToIR(normalizedText, sourceName);
+  return copiedIr.abilities
+    .flatMap((ability) => ability.steps)
+    .filter(
+      (candidate): candidate is OracleEffectStep =>
+        candidate.kind !== 'unknown' &&
+        candidate.kind !== 'copy_chapter_ability' &&
+        !(candidate.kind === 'copy_spell' && candidate.subject === 'this_spell')
+    );
+}
+
 function getStackSpellTypeLine(stackItem: any): string {
   return String(
     stackItem?.card?.type_line ||
@@ -197,16 +246,74 @@ function parseSupportedManaCostString(rawMana: string): ManaCost | null {
 }
 
 export function getCopiedSpellReplaySteps(card: any): readonly OracleEffectStep[] {
-  const copiedSpellText = String(card?.oracle_text || card?.card?.oracle_text || '').trim();
+  const copiedSpellText = getStackObjectOracleText(card);
   if (!copiedSpellText) return [];
-
-  const copiedSpellIr = parseOracleTextToIR(
+  return parseReplayStepsFromOracleText(
     copiedSpellText,
     String(card?.name || card?.card?.name || 'Copied Spell')
   );
-  return copiedSpellIr.abilities
-    .flatMap((ability) => ability.steps)
-    .filter((candidate): candidate is OracleEffectStep => candidate.kind !== 'copy_spell' && candidate.kind !== 'unknown');
+}
+
+export function getCopiedStackObjectReplaySteps(
+  stackItem: any,
+  step?: Extract<OracleEffectStep, { kind: 'copy_spell' }>
+): readonly OracleEffectStep[] {
+  if (!stackItem) return [];
+
+  if (isAbilityCopyTarget(step?.target) || String(stackItem?.type || '').trim() === 'ability') {
+    const abilityText = getStackObjectOracleText(stackItem);
+    if (!abilityText) return [];
+    return parseReplayStepsFromOracleText(abilityText, getStackObjectDisplayName(stackItem));
+  }
+
+  return getCopiedSpellReplaySteps(getStackObjectCardLike(stackItem));
+}
+
+function isReplayableForThisSpellCopy(step: OracleEffectStep): boolean {
+  if (step.kind !== 'copy_spell') return true;
+  return step.subject !== 'this_spell';
+}
+
+export function resolveThisSpellCopyReplaySteps(params: {
+  readonly steps: readonly OracleEffectStep[];
+  readonly stepIndex: number;
+  readonly state: GameState;
+  readonly ctx: OracleIRExecutionContext;
+  readonly sourceCard?: any;
+}): readonly OracleEffectStep[] {
+  const { steps, stepIndex, state, ctx, sourceCard } = params;
+
+  if (Array.isArray(ctx.copyReplaySteps) && ctx.copyReplaySteps.length > 0) {
+    const replayable = ctx.copyReplaySteps.filter(
+      (candidate): candidate is OracleEffectStep => isReplayableForThisSpellCopy(candidate)
+    );
+    if (replayable.length > 0) return replayable;
+  }
+
+  if (stepIndex > 0) {
+    const preceding = steps
+      .slice(0, stepIndex)
+      .filter((candidate): candidate is OracleEffectStep => isReplayableForThisSpellCopy(candidate));
+    if (preceding.length > 0) return preceding;
+  }
+
+  const followingCopySteps = steps
+    .slice(stepIndex + 1)
+    .filter(
+      (candidate): candidate is Extract<OracleEffectStep, { kind: 'copy_spell' }> =>
+        candidate.kind === 'copy_spell' && candidate.subject !== 'this_spell'
+    );
+  if (followingCopySteps.length > 0) return followingCopySteps;
+
+  const fromStack = getThisSpellReplayStepsFromState(state, ctx.sourceId);
+  if (fromStack.length > 0) return fromStack;
+
+  if (sourceCard) {
+    const fromCard = getCopiedSpellReplaySteps(sourceCard);
+    if (fromCard.length > 0) return fromCard;
+  }
+
+  return [];
 }
 
 export function getThisSpellReplayStepsFromState(state: GameState, sourceId?: string): readonly OracleEffectStep[] {
@@ -236,7 +343,24 @@ export function getThisSpellReplayStepsFromState(state: GameState, sourceId?: st
   const copiedSpellIr = parseOracleTextToIR(oracleText, sourceName);
   return copiedSpellIr.abilities
     .flatMap((ability) => ability.steps)
-    .filter((candidate): candidate is OracleEffectStep => candidate.kind !== 'copy_spell' && candidate.kind !== 'unknown');
+    .filter(
+      (candidate): candidate is OracleEffectStep =>
+        candidate.kind !== 'unknown' &&
+        candidate.kind !== 'copy_chapter_ability' &&
+        !(candidate.kind === 'copy_spell' && candidate.subject === 'this_spell')
+    );
+}
+
+function stackObjectMatchesCopyTarget(
+  stackItem: any,
+  target: OracleObjectSelector | undefined,
+  controllerId: PlayerID
+): boolean {
+  const itemType = String(stackItem?.type || '').trim();
+  if (isAbilityCopyTarget(target)) {
+    return itemType === 'ability' || itemType === 'spell';
+  }
+  return itemType === 'spell' && stackSpellMatchesCopyTarget(stackItem, target, controllerId);
 }
 
 export function resolveCopiedTargetSpellStackItem(params: {
@@ -250,31 +374,38 @@ export function resolveCopiedTargetSpellStackItem(params: {
 } {
   const { state, step, ctx } = params;
   const directTargetId = String(ctx.targetSpellId || ctx.selectorContext?.targetSpellId || '').trim();
-  const candidateSpells = getStackItems((state as any)?.stack).filter((item: any) => {
+  const candidateStackObjects = getStackItems((state as any)?.stack).filter((item: any) => {
     const itemId = String(item?.id || '').trim();
-    return String(item?.type || '').trim() === 'spell' && itemId && stackSpellMatchesCopyTarget(item, step.target, ctx.controllerId);
+    return itemId && stackObjectMatchesCopyTarget(item, step.target, ctx.controllerId);
   });
 
   let targetSpell = directTargetId
-    ? candidateSpells.find((item: any) => String(item?.id || '').trim() === directTargetId)
+    ? candidateStackObjects.find((item: any) => String(item?.id || '').trim() === directTargetId)
     : undefined;
 
   if (!targetSpell && directTargetId) {
-    return {
-      reason: 'invalid_source',
-      metadata: { targetSpellId: directTargetId },
-    };
+    const fallback = getStackItems((state as any)?.stack).find(
+      (item: any) => String(item?.id || '').trim() === directTargetId
+    );
+    if (fallback && stackObjectMatchesCopyTarget(fallback, step.target, ctx.controllerId)) {
+      targetSpell = fallback;
+    } else {
+      return {
+        reason: 'invalid_source',
+        metadata: { targetSpellId: directTargetId },
+      };
+    }
   }
 
   if (!targetSpell) {
-    if (candidateSpells.length === 1) {
-      targetSpell = candidateSpells[0];
-    } else if (candidateSpells.length > 1) {
+    if (candidateStackObjects.length === 1) {
+      targetSpell = candidateStackObjects[0];
+    } else if (candidateStackObjects.length > 1) {
       return {
         reason: 'player_choice_required',
         metadata: {
-          stackSpellCount: candidateSpells.length,
-          candidateSpellIds: candidateSpells.map((item: any) => String(item?.id || '').trim()).filter(Boolean),
+          stackSpellCount: candidateStackObjects.length,
+          candidateSpellIds: candidateStackObjects.map((item: any) => String(item?.id || '').trim()).filter(Boolean),
         },
       };
     } else {
@@ -366,6 +497,14 @@ export function resolveCopySpellCount(
     const totalCastThisTurn = Number((stateAny?.spellsCastThisTurn || {})?.[controllerId] || 0);
     return Math.max(0, totalCastThisTurn - 1);
   }
+  if (step.copies.kind === 'reference_amount') {
+    const raw = String(step.copies.raw || '').trim().toLowerCase();
+    if (/commander.*command zone.*this game/.test(raw)) {
+      const count = Number((state as any)?.commanderCastsFromCommandZoneThisGame?.[controllerId]);
+      return Math.max(0, Number.isFinite(count) ? count : 0);
+    }
+    return 1;
+  }
   return 0;
 }
 
@@ -430,18 +569,40 @@ export function resolveCopiedSpellSourceCards(params: {
   const { state, step, ctx, lastMovedCards } = params;
 
   if (step.subject === 'last_moved_card') {
-    return lastMovedCards.length === 1
-      ? { cards: [lastMovedCards[0]] }
-      : { reason: 'invalid_source' };
+    if (lastMovedCards.length === 1) {
+      return { cards: [lastMovedCards[0]] };
+    }
+    const ctxMoved = Array.isArray((params.ctx as any)?.lastMovedCards) ? (params.ctx as any).lastMovedCards : [];
+    if (ctxMoved.length === 1) {
+      return { cards: [ctxMoved[0]] };
+    }
+    return { reason: 'invalid_source' };
   }
 
   if (step.subject === 'linked_exiled_cards') {
     const sourceId = String(ctx.sourceId || '').trim();
     if (!sourceId) return { reason: 'invalid_source' };
     const matches = findCardsExiledWithSource(state, sourceId, { cardType: 'any' });
-    return matches.length > 0
-      ? { cards: matches.map(match => match.card) }
-      : { reason: 'invalid_source' };
+    if (matches.length === 0) return { reason: 'invalid_source' };
+
+    const replayableCards = matches
+      .map((match) => match.card)
+      .filter((card) => getCopiedSpellReplaySteps(card).length > 0);
+    if (replayableCards.length > 0) {
+      return { cards: replayableCards };
+    }
+
+    const instantOrSorceryCards = matches
+      .map((match) => match.card)
+      .filter((card) => {
+        const typeLine = String(card?.type_line || card?.card?.type_line || '').trim().toLowerCase();
+        return typeLine.includes('instant') || typeLine.includes('sorcery');
+      });
+    if (instantOrSorceryCards.length > 0) {
+      return { cards: instantOrSorceryCards };
+    }
+
+    return { cards: matches.map((match) => match.card) };
   }
 
   return { reason: 'invalid_source' };

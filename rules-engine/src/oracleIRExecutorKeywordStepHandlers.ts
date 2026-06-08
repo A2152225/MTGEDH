@@ -6,6 +6,7 @@ import { executePopulate, getPopulateTargets } from './keywordActions/populate';
 import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
 import { isExecutorCreature } from './oracleIRExecutorPermanentUtils';
 import { quantityToNumber, resolvePlayers } from './oracleIRExecutorPlayerUtils';
+import { resolveOracleQuantity } from './oracleIRExecutorResolveQuantity';
 import { createTokensByName } from './tokenCreation';
 
 type StepApplyResult = {
@@ -59,15 +60,37 @@ export function applyInvestigateStep(
   step: Extract<OracleEffectStep, { kind: 'investigate' }>,
   ctx: OracleIRExecutionContext
 ): KeywordStepHandlerResult {
-  const amount = quantityToNumber(step.amount, ctx);
+  const whereX = (step as { whereX?: { kind: 'where'; raw: string } }).whereX;
+  const amount = resolveOracleQuantity(state, ctx.controllerId, step.amount, ctx, {
+    whereX,
+  });
   if (amount === null) {
-    return {
-      applied: false,
-      message: `Skipped investigate (unsupported amount): ${step.raw}`,
-      reason: 'failed_to_apply',
-    };
+    const inferredWhereRaw = String(step.raw || '').match(/\bwhere x is (.+?)(?:[.,]|$)/i)?.[1]?.trim();
+    const inferredAmount =
+      inferredWhereRaw && step.amount.kind === 'x'
+        ? resolveOracleQuantity(state, ctx.controllerId, step.amount, ctx, {
+            whereX: { kind: 'where', raw: inferredWhereRaw },
+          })
+        : null;
+    if (inferredAmount === null) {
+      return {
+        applied: false,
+        message: `Skipped investigate (unsupported amount): ${step.raw}`,
+        reason: 'failed_to_apply',
+      };
+    }
+    return applyInvestigateWithAmount(state, step, ctx, inferredAmount);
   }
 
+  return applyInvestigateWithAmount(state, step, ctx, amount);
+}
+
+function applyInvestigateWithAmount(
+  state: GameState,
+  step: Extract<OracleEffectStep, { kind: 'investigate' }>,
+  ctx: OracleIRExecutionContext,
+  amount: number
+): KeywordStepHandlerResult {
   const players = resolvePlayers(state, step.who, ctx);
   if (players.length === 0) {
     return {

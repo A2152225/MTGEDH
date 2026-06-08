@@ -7,6 +7,15 @@ import {
 import { getExecutorTypeLineLower } from './oracleIRExecutorPermanentUtils';
 import { normalizeOracleText } from './oracleIRExecutorPlayerUtils';
 
+function countCreaturesControlledByOpponent(battlefield: readonly any[], opponentId: string): number {
+  const normalizedOpponentId = String(opponentId || '').trim();
+  return battlefield.filter(permanent => {
+    if (String((permanent as any)?.controller || '').trim() !== normalizedOpponentId) return false;
+    const typeLine = getExecutorTypeLineLower(permanent);
+    return typeLine.includes('creature');
+  }).length;
+}
+
 function parseSmallNumberWord(raw: string): number | null {
   const text = String(raw || '').trim().toLowerCase();
   if (!text) return null;
@@ -79,6 +88,15 @@ export function evaluateModifyPtCondition(
     const klass = normalizeClass(String(mAny[1] || ''));
     if (!klass) return null;
     return countByClass(klass) > 0;
+  }
+
+  if (raw === 'that opponent controls no other creatures') {
+    const opponentId = String(
+      (state as any)?.targetOpponentId ||
+        (state as any)?.selectorContext?.targetOpponentId ||
+        'p2'
+    ).trim();
+    return countCreaturesControlledByOpponent(battlefield, opponentId) <= 1;
   }
 
   const mGraveyardCount = raw.match(/^there are ([a-z0-9]+) or more (.+) cards? in your graveyard$/i);

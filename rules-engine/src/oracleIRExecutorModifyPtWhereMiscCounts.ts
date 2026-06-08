@@ -262,5 +262,33 @@ export function tryEvaluateModifyPtWhereMiscCounts(args: {
     }
   }
 
+  {
+    const m = raw.match(/^x is the number of opponents who investigated this way$/i);
+    if (m) {
+      return (state.players || []).filter((player: any) => {
+        const playerId = String(player?.id || '').trim();
+        if (!playerId || playerId === String(controllerId || '').trim()) return false;
+        return Boolean(player?.investigatedThisWay);
+      }).length;
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the number of card types among cards in all graveyards$/i);
+    if (m) {
+      const seen = new Set<string>();
+      for (const player of state.players || []) {
+        const graveyard = Array.isArray((player as any)?.graveyard) ? (player as any).graveyard : [];
+        for (const card of graveyard) {
+          const typeLine = String((card as any)?.type_line || (card as any)?.typeLine || '').toLowerCase();
+          for (const cardType of ['artifact', 'creature', 'enchantment', 'instant', 'land', 'planeswalker', 'sorcery', 'battle']) {
+            if (new RegExp(`\\b${cardType}\\b`).test(typeLine)) seen.add(cardType);
+          }
+        }
+      }
+      return seen.size;
+    }
+  }
+
   return null;
 }

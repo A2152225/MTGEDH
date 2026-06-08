@@ -3773,7 +3773,17 @@ export function tryParseSimpleActionClause(args: {
   }
 
   {
-    const cantAttack = clause.match(/^(.+?)\s+can't\s+attack(?:\s+this\s+turn)?$/i);
+    const losesAbilitiesCantAttack = clause.match(/^(.+?)\s+loses all abilities and can(?:'|\u2019)?t attack(?:\s+this\s+turn)?$/i);
+    if (losesAbilitiesCantAttack) {
+      return withMeta({
+        kind: 'cant_attack',
+        target: parseObjectSelector(String(losesAbilitiesCantAttack[1] || '').trim()),
+        duration: /\bthis\s+turn$/i.test(clause) ? 'end_of_turn' : 'static',
+        raw: rawClause,
+      });
+    }
+
+    const cantAttack = clause.match(/^(.+?)\s+can(?:'|\u2019)?t attack(?:\s+this\s+turn)?$/i);
     if (cantAttack) {
       return withMeta({
         kind: 'cant_attack',
@@ -3785,7 +3795,17 @@ export function tryParseSimpleActionClause(args: {
   }
 
   {
-    const cantBlock = clause.match(/^(.+?)\s+can't\s+block(?:\s+this\s+turn)?$/i);
+    const losesAbilitiesCantBlock = clause.match(/^(.+?)\s+loses all abilities and can(?:'|\u2019)?t block(?:\s+this\s+turn)?$/i);
+    if (losesAbilitiesCantBlock) {
+      return withMeta({
+        kind: 'cant_block',
+        target: parseObjectSelector(String(losesAbilitiesCantBlock[1] || '').trim()),
+        duration: /\bthis\s+turn$/i.test(clause) ? 'end_of_turn' : 'static',
+        raw: rawClause,
+      });
+    }
+
+    const cantBlock = clause.match(/^(.+?)\s+can(?:'|\u2019)?t block(?:\s+this\s+turn)?$/i);
     if (cantBlock) {
       return withMeta({
         kind: 'cant_block',
@@ -3797,6 +3817,18 @@ export function tryParseSimpleActionClause(args: {
   }
 
   {
+    const compoundCantActivateUntap = clause.match(
+      /^(.+?)\s+does(?:n't|\s+not)\s+untap\s+during\s+its\s+controller(?:'|\u2019)?s\s+untap\s+step\s+and\s+its\s+activated\s+abilities\s+can(?:'|\u2019)?t\s+be\s+activated$/i
+    );
+    if (compoundCantActivateUntap) {
+      return withMeta({
+        kind: 'cant_activate_abilities',
+        target: parseObjectSelector(normalizePossessiveObjectReference(compoundCantActivateUntap[1])),
+        duration: 'static',
+        raw: rawClause,
+      });
+    }
+
     const cantActivateAbilities = clause.match(/^(.+?)\s+activated abilities\s+can't\s+be\s+activated(?:\s+this\s+turn)?$/i);
     if (cantActivateAbilities) {
       return withMeta({

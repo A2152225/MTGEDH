@@ -238,7 +238,7 @@ export function parseQuantity(raw: string | undefined): OracleQuantity {
   if (/^the greatest power among creatures you control$/i.test(trimmed)) return { kind: 'greatest_power_among_creatures_you_control' };
   if (/^the greatest toughness among (?:other )?creatures you control$/i.test(trimmed)) return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
   if (/^the\s+high\s+bid$/i.test(trimmed)) return { kind: 'reference_amount', raw: 'the high bid' };
-  if (/^that\s+spell'?s\s+mana\s+value$/i.test(trimmed)) return { kind: 'object_stat', subject: 'that_card', stat: 'mana_value' };
+  if (/^that\s+spell'?s\s+mana\s+value$/i.test(trimmed)) return { kind: 'reference_amount', raw: "that spell's mana value" };
   if (/^that\s+card(?:'|’)?s\s+mana\s+value$/i.test(trimmed)) return { kind: 'object_stat', subject: 'that_card', stat: 'mana_value' };
   if (/^that\s+card(?:'|’)?s\s+mana\s+value\s+if\s+this\s+creature\s+isn(?:'|’)?t\s+saddled$/i.test(trimmed)) return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
   if (/^that\s+card(?:'|’)?s\s+toughness,\s+lose\s+life\s+equal\s+to\s+its\s+power$/i.test(trimmed)) return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
@@ -504,7 +504,7 @@ export function parsePlayerSelector(raw: string | undefined): OraclePlayerSelect
   if (s === 'enchanted player') return { kind: 'enchanted_player' };
   if (/^enchanted\s+[a-z0-9 -]+(?:'s)?\s+controller$/.test(s)) return { kind: 'target_player' };
   if (s === 'its controller') return { kind: 'target_player' };
-  if (s === 'its owner') return { kind: 'target_player' };
+  if (s === 'its owner') return { kind: 'owner_of_source' };
   if (isThatOwnerOrControllerSelector(s)) return { kind: 'target_player' };
 
   return { kind: 'unknown', raw: raw ?? '' };

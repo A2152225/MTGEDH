@@ -413,7 +413,11 @@ export function getCardManaValue(card: any): number | null {
       card?.card?.manaCost ??
       ''
   ).trim();
-  if (!manaCost) return null;
+  if (!manaCost) {
+    const typeLine = getCardTypeLineLower(card);
+    if (typeLine.includes('land')) return 0;
+    return null;
+  }
 
   const symbols = parseManaSymbols(manaCost);
   if (symbols.length === 0) return null;
@@ -573,7 +577,7 @@ export function resolveUnknownMillUntilAmountForPlayer(
 
   for (let i = 0; i < library.length; i++) {
     const typeLine = getCardTypeLineLower(library[i]);
-    if (!typeLine) return null;
+    if (!typeLine) continue;
     if (typeLine.includes('land')) return i + 1;
   }
 
@@ -703,6 +707,38 @@ export function resolvePlayers(
       }
       return [];
     }
+    case 'owner_of_moved_cards':
+      return [];
+    case 'owner_of_source': {
+      const sourceId = String(ctx.sourceId || '').trim();
+      if (sourceId) {
+        for (const player of state.players || []) {
+          const playerId = normalizeId((player as any)?.id);
+          if (!playerId) continue;
+          for (const zone of ['battlefield', 'graveyard', 'hand', 'exile', 'library'] as const) {
+            if (zone === 'battlefield') {
+              const permanent = (state.battlefield || []).find(
+                (entry: any) => String(entry?.id || '').trim() === sourceId
+              ) as any;
+              if (permanent) {
+                const ownerId = normalizeId(permanent?.owner || permanent?.controller);
+                if (ownerId && allPlayerIds.has(ownerId)) return [ownerId];
+              }
+              continue;
+            }
+            const cards = zone === 'library'
+              ? (Array.isArray((player as any)?.library) ? (player as any).library : [])
+              : Array.isArray((player as any)?.[zone])
+                ? (player as any)[zone]
+                : [];
+            if (cards.some((card: any) => String(card?.id || '').trim() === sourceId)) {
+              return [playerId];
+            }
+          }
+        }
+      }
+      return hasValidController ? [controllerId] : [];
+    }
     case 'unknown':
     default:
       return [];
@@ -753,7 +789,10 @@ export function resolvePlayersFromDamageTarget(
     t === 'its controller' ||
     t === 'its owner' ||
     isThatOwnerOrControllerSelector(t)
-  ) return resolvePlayers(state, { kind: 'target_player' }, ctx);
+  ) {
+    if (t === 'its owner') return resolvePlayers(state, { kind: 'owner_of_source' }, ctx);
+    return resolvePlayers(state, { kind: 'target_player' }, ctx);
+  }
   if (t === 'defending player' || t === 'the defending player') {
     return resolvePlayers(state, { kind: 'target_opponent' }, ctx);
   }

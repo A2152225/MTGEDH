@@ -16,6 +16,8 @@ import {
   buildAuditFixtureState,
   collectAutoSelectedModeIds,
   collectStepsFromIrText,
+  enrichAuditStateAndContextForCopySteps,
+  enrichAuditStateAndContextForTargets,
 } from './executor-coverage-audit.ts';
 import {
   getCombinedOracleText,
@@ -63,8 +65,17 @@ for (const card of cards) {
     if (hasUnknownIRSteps(effect, card.name).length > 0) continue;
 
     const steps = collectStepsFromIrText(effect, card.name);
-    const state = buildAuditFixtureState(card.name, card.type_line);
-    const ctx = buildAuditExecutionContext(card.name);
+    let state = buildAuditFixtureState(card.name, card.type_line);
+    let ctx = buildAuditExecutionContext(card.name);
+    const enriched = enrichAuditStateAndContextForCopySteps(
+      { name: card.name, type_line: card.type_line, oracle_text: oracle },
+      steps,
+      state,
+      ctx
+    );
+    const targetEnriched = enrichAuditStateAndContextForTargets(steps, enriched.state, enriched.ctx);
+    state = targetEnriched.state;
+    ctx = targetEnriched.ctx;
     const selectedModeIds = collectAutoSelectedModeIds(steps);
     const result = applyOracleIRStepsToGameState(state, steps, ctx, {
       allowOptional: true,

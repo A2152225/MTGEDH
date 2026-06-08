@@ -101,6 +101,17 @@ function resolveBattlefieldPermanentBySelector(
     return String(ctx.targetCreatureId || ctx.targetPermanentId || '').trim();
   }
 
+  if (/^target land you control$/.test(normalized) || /^target land$/.test(normalized)) {
+    const matches = battlefield.filter(
+      perm => (perm as any)?.controller === controllerId && hasExecutorClass(perm as any, 'land')
+    );
+    const preferred = matches.filter(perm => chosenObjectIds.includes(String((perm as any)?.id || '').trim()));
+    if (preferred.length >= 1) return String((preferred[0] as any)?.id || '').trim();
+    if (matches.length === 1) return String((matches[0] as any)?.id || '').trim();
+    if (matches.length > 1) return 'player_choice_required';
+    return '';
+  }
+
   if (/^target non-human creature you control$/.test(normalized)) {
     const matches = battlefield.filter(
       perm =>
@@ -118,6 +129,7 @@ function resolveBattlefieldPermanentBySelector(
   const targetSubtypeYouControl = normalized.match(/^target ([a-z][a-z -]+) you control$/);
   if (targetSubtypeYouControl) {
     const subtype = String(targetSubtypeYouControl[1] || '').trim().toLowerCase();
+    if (subtype === 'land') return '';
     const matches = battlefield.filter(
       perm =>
         (perm as any)?.controller === controllerId &&
@@ -165,9 +177,9 @@ function resolveBattlefieldPermanentBySelector(
     return '';
   }
 
-  if (/^target land you control$/.test(normalized) || /^target land$/.test(normalized)) {
+  if (/^up to one target creature you control$/.test(normalized)) {
     const matches = battlefield.filter(
-      perm => (perm as any)?.controller === controllerId && hasExecutorClass(perm as any, 'land')
+      perm => (perm as any)?.controller === controllerId && hasExecutorClass(perm as any, 'creature')
     );
     const preferred = matches.filter(perm => chosenObjectIds.includes(String((perm as any)?.id || '').trim()));
     if (preferred.length === 1) return String((preferred[0] as any)?.id || '').trim();
@@ -176,10 +188,48 @@ function resolveBattlefieldPermanentBySelector(
     return '';
   }
 
-  if (/^up to one target creature you control$/.test(normalized)) {
-    const matches = battlefield.filter(
-      perm => (perm as any)?.controller === controllerId && hasExecutorClass(perm as any, 'creature')
+  if (/^target attacking creature$/.test(normalized)) {
+    const attackersByPlayer = ((state as any)?.attackersDeclaredThisCombatByPlayer || {}) as Record<string, string[]>;
+    const attackerIds = new Set(
+      (Array.isArray(attackersByPlayer[controllerId]) ? attackersByPlayer[controllerId] : [])
+        .map(id => String(id || '').trim())
+        .filter(Boolean)
     );
+    const matches = battlefield.filter(perm => {
+      const permId = String((perm as any)?.id || '').trim();
+      return attackerIds.has(permId) || (perm as any)?.isAttacking === true;
+    });
+    const preferred = matches.filter(perm => chosenObjectIds.includes(String((perm as any)?.id || '').trim()));
+    if (preferred.length === 1) return String((preferred[0] as any)?.id || '').trim();
+    if (matches.length === 1) return String((matches[0] as any)?.id || '').trim();
+    if (matches.length > 0) return String((matches[0] as any)?.id || '').trim();
+    const fallback = String(ctx.targetCreatureId || ctx.targetPermanentId || '').trim();
+    return fallback || '';
+  }
+
+  if (/^another creature$/.test(normalized)) {
+    const sourceId = String(ctx.sourceId || '').trim();
+    const matches = battlefield.filter(
+      perm =>
+        hasExecutorClass(perm as any, 'creature') &&
+        String((perm as any)?.id || '').trim() !== sourceId
+    );
+    const preferred = matches.filter(perm => chosenObjectIds.includes(String((perm as any)?.id || '').trim()));
+    if (preferred.length === 1) return String((preferred[0] as any)?.id || '').trim();
+    if (matches.length === 1) return String((matches[0] as any)?.id || '').trim();
+    if (matches.length > 1) return 'player_choice_required';
+    return String(ctx.targetCreatureId || '').trim();
+  }
+
+  if (/^another permanent with the same controller$/.test(normalized)) {
+    const anchorId = String(ctx.targetPermanentId || ctx.targetCreatureId || '').trim();
+    const anchor = battlefield.find(perm => String((perm as any)?.id || '').trim() === anchorId) as any;
+    const anchorController = String(anchor?.controller || controllerId).trim();
+    const matches = battlefield.filter(perm => {
+      const permId = String((perm as any)?.id || '').trim();
+      if (!permId || permId === anchorId) return false;
+      return String((perm as any)?.controller || '').trim() === anchorController;
+    });
     const preferred = matches.filter(perm => chosenObjectIds.includes(String((perm as any)?.id || '').trim()));
     if (preferred.length === 1) return String((preferred[0] as any)?.id || '').trim();
     if (matches.length === 1) return String((matches[0] as any)?.id || '').trim();
@@ -272,6 +322,65 @@ function resolveAttachmentPermanentIds(
     sourceId
   ) {
     return [sourceId];
+  }
+
+  if (/^that equipment$/.test(normalized)) {
+    const movedIds = lastMovedBattlefieldPermanentIds.map(id => String(id || '').trim()).filter(Boolean);
+    const equipmentFromMoved = movedIds.filter(id => {
+      const perm = battlefield.find(entry => String((entry as any)?.id || '').trim() === id) as any;
+      return perm && hasExecutorClass(perm, 'equipment');
+    });
+    if (equipmentFromMoved.length === 1) return equipmentFromMoved;
+    const equipment = battlefield.filter(
+      perm => (perm as any)?.controller === controllerId && hasExecutorClass(perm as any, 'equipment')
+    );
+    const preferred = equipment.filter(perm => chosenObjectIds.includes(String((perm as any)?.id || '').trim()));
+    if (preferred.length === 1) return [String((preferred[0] as any)?.id || '').trim()];
+    if (equipment.length === 1) return [String((equipment[0] as any)?.id || '').trim()];
+    if (sourceId && equipment.some(perm => String((perm as any)?.id || '').trim() === sourceId)) {
+      return [sourceId];
+    }
+    return equipment.length > 0 ? [String((equipment[0] as any)?.id || '').trim()] : '';
+  }
+
+  if (/^target aura attached to a creature$/.test(normalized)) {
+    const auraIds = battlefield
+      .filter(perm => {
+        if (!hasExecutorClass(perm as any, 'aura')) return false;
+        const attachedToId = String((perm as any)?.attachedTo || '').trim();
+        if (!attachedToId) return false;
+        const attached = battlefield.find(entry => String((entry as any)?.id || '').trim() === attachedToId);
+        return Boolean(attached && hasExecutorClass(attached as any, 'creature'));
+      })
+      .map(perm => String((perm as any)?.id || '').trim())
+      .filter(Boolean);
+    const preferred = auraIds.filter(id => chosenObjectIds.includes(id));
+    if (preferred.length === 1) return preferred;
+    if (auraIds.length === 1) return auraIds;
+    if (auraIds.length > 1) return 'player_choice_required';
+    return '';
+  }
+
+  if (/^all auras enchanting target permanent$/.test(normalized)) {
+    const anchorId = String(ctx.targetPermanentId || ctx.targetCreatureId || '').trim();
+    if (!anchorId) return '';
+    const auraIds = battlefield
+      .filter(
+        perm =>
+          hasExecutorClass(perm as any, 'aura') &&
+          String((perm as any)?.attachedTo || '').trim() === anchorId
+      )
+      .map(perm => String((perm as any)?.id || '').trim())
+      .filter(Boolean);
+    return auraIds.length > 0 ? auraIds : '';
+  }
+
+  if (/^all equipment on the battlefield$/.test(normalized)) {
+    const equipmentIds = battlefield
+      .filter(perm => hasExecutorClass(perm as any, 'equipment'))
+      .map(perm => String((perm as any)?.id || '').trim())
+      .filter(Boolean);
+    return equipmentIds.length > 0 ? equipmentIds : '';
   }
 
   if (/^any number of auras on the battlefield and aura cards from your graveyard and\/or hand$/.test(normalized)) {

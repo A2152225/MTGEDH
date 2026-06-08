@@ -115,6 +115,20 @@ export function tryEvaluateModifyPtWhereReferenceStats(args: {
   {
     const m = raw.match(/^x is that spell'?s mana value$/i);
     if (m) {
+      const referenceMv = Number(ctx?.referenceSpellManaValue);
+      if (Number.isFinite(referenceMv)) return Math.max(0, referenceMv);
+
+      const spellId = String(
+        ctx?.targetSpellId || ctx?.selectorContext?.targetSpellId || ''
+      ).trim();
+      if (spellId) {
+        const spellRef = findObjectById(spellId);
+        if (spellRef) {
+          const mv = getCardManaValue((spellRef as any)?.spell || (spellRef as any)?.card || spellRef);
+          if (mv !== null) return mv;
+        }
+      }
+
       const ref = getSourceRef();
       if (!ref) return null;
       const mv = getCardManaValue((ref as any)?.spell || (ref as any)?.card || ref);

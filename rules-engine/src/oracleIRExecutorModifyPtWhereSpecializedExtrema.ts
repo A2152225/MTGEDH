@@ -154,5 +154,31 @@ export function tryEvaluateModifyPtWhereSpecializedExtrema(args: {
     }
   }
 
+  {
+    const m = raw.match(/^x is the greatest power among other dragons you control and dragon(?: cards)? in your graveyard$/i);
+    if (m) {
+      const excludedId = getExcludedId();
+      const dragonsControlled = (controlled as any[]).filter((permanent) => {
+        if (!hasExecutorClass(permanent, 'creature')) return false;
+        return getCreatureSubtypeKeys(permanent).some((subtype) => /^dragons?$/i.test(String(subtype || '')));
+      }) as BattlefieldPermanent[];
+      const controlledPower = greatestStatAmongCreatures(dragonsControlled, 'power', {
+        excludedId: excludedId || undefined,
+      });
+
+      let graveyardPower = 0;
+      const player = (state.players || []).find((entry: any) => String(entry?.id || '').trim() === controllerId);
+      const graveyard = Array.isArray((player as any)?.graveyard) ? (player as any).graveyard : [];
+      for (const card of graveyard as any[]) {
+        const typeLine = typeLineLower(card);
+        if (!typeLine.includes('creature') || !/\bdragon(s)?\b/.test(typeLine)) continue;
+        const power = Number(card?.power ?? card?.card?.power);
+        if (Number.isFinite(power)) graveyardPower = Math.max(graveyardPower, power);
+      }
+
+      return Math.max(controlledPower, graveyardPower);
+    }
+  }
+
   return null;
 }

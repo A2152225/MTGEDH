@@ -15,7 +15,21 @@ export type OracleQuantity =
   | { readonly kind: 'replicate_count' }
   | { readonly kind: 'spells_cast_before_this_turn' }
   | { readonly kind: 'votes_for_choice'; readonly choice: string; readonly multiplier?: number }
-  | { readonly kind: 'object_stat'; readonly subject: 'it' | 'that_card' | 'that_creature' | 'the_sacrificed_creature' | 'source'; readonly stat: 'power' | 'toughness' | 'mana_value'; readonly multiplier?: number }
+  | {
+      readonly kind: 'object_stat';
+      readonly subject:
+        | 'it'
+        | 'that_card'
+        | 'that_creature'
+        | 'the_sacrificed_creature'
+        | 'the_sacrificed_permanent'
+        | 'this_creature'
+        | 'this_permanent'
+        | 'target_creature_you_control'
+        | 'source';
+      readonly stat: 'power' | 'toughness' | 'mana_value';
+      readonly multiplier?: number;
+    }
   | { readonly kind: 'unknown'; readonly raw?: string };
 
 export type OraclePlayerSelector =
@@ -39,6 +53,8 @@ export type OraclePlayerSelector =
   | { readonly kind: 'enchanted_player' }
   /** Special-case selector used by move_zone battlefield control overrides. */
   | { readonly kind: 'owner_of_moved_cards' }
+  /** Owner of the ability's source permanent/card. */
+  | { readonly kind: 'owner_of_source' }
   | { readonly kind: 'unknown'; readonly raw: string };
 
 export type OracleObjectSelector =
@@ -725,6 +741,15 @@ export type OracleEffectStep =
       readonly destination: 'hand' | 'exile';
       readonly reveal?: boolean;
       readonly restOrder?: 'any';
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
+      readonly kind: 'put_on_bottom';
+      readonly who: OraclePlayerSelector;
+      readonly what: OracleObjectSelector;
+      readonly order?: 'random' | 'any';
       readonly optional?: boolean;
       readonly sequence?: 'then';
       readonly raw: string;

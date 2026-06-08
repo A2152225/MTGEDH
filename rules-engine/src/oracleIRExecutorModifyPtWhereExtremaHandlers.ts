@@ -327,6 +327,18 @@ export function tryEvaluateModifyPtWhereExtrema(
   }
 
   {
+    const m = raw.match(
+      /^x is the (?:greatest|highest) power and\/or toughness among other creatures you control$/i
+    );
+    if (m) {
+      const excludedId = getExcludedId();
+      const power = greatestStatAmongCreatures(controlled, 'power', { excludedId: excludedId || undefined });
+      const toughness = greatestStatAmongCreatures(controlled, 'toughness', { excludedId: excludedId || undefined });
+      return Math.max(power, toughness);
+    }
+  }
+
+  {
     const m = raw.match(/^x is the (?:greatest|highest) (power|toughness) among other creatures (?:your opponents control|an opponent controls|you don['’]?t control|you do not control)$/i);
     if (m) {
       const which = String(m[1] || '').toLowerCase() as 'power' | 'toughness';

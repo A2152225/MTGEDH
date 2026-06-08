@@ -242,4 +242,195 @@ describe('oracleIRExecutorConditionalStepSupport', () => {
     });
     expect(youDont).toBe(true);
   });
+
+  it('evaluates hand-size, graveyard replacement, experience, and dice-doubles checks', () => {
+    const handState = {
+      players: [
+        { id: 'p1', hand: [], library: [], graveyard: [], exile: [], life: 40 },
+        { id: 'p2', hand: [{ id: 'h1' }, { id: 'h2' }], library: [], graveyard: [], exile: [], life: 40 },
+      ],
+      battlefield: [],
+      experienceCounters: { p1: 6 },
+    } as any;
+
+    expect(
+      evaluateConditionalWrapperCondition({
+        condition: { kind: 'if', raw: 'you have no cards in hand' } as any,
+        nextState: handState,
+        controllerId: 'p1' as any,
+        ctx: { controllerId: 'p1' } as any,
+        lastActionOutcome: null,
+      })
+    ).toBe(true);
+
+    expect(
+      evaluateConditionalWrapperCondition({
+        condition: { kind: 'if', raw: 'an opponent has more cards in hand than you' } as any,
+        nextState: handState,
+        controllerId: 'p1' as any,
+        ctx: { controllerId: 'p1' } as any,
+        lastActionOutcome: null,
+      })
+    ).toBe(true);
+
+    expect(
+      evaluateConditionalWrapperCondition({
+        condition: { kind: 'if', raw: 'a card or token would be put into a graveyard from anywhere' } as any,
+        nextState: handState,
+        controllerId: 'p1' as any,
+        ctx: { controllerId: 'p1' } as any,
+        lastActionOutcome: null,
+      })
+    ).toBe(true);
+
+    expect(
+      evaluateConditionalWrapperCondition({
+        condition: { kind: 'if', raw: "that card's mana value is less than or equal to the number of experience counters you have" } as any,
+        nextState: {
+          ...handState,
+          players: [
+            {
+              id: 'p1',
+              hand: [],
+              library: [],
+              graveyard: [{ id: 'gy-creature-1', type_line: 'Creature', cmc: 3 }],
+              exile: [],
+              life: 40,
+            },
+            handState.players[1],
+          ],
+        },
+        controllerId: 'p1' as any,
+        ctx: { controllerId: 'p1', targetCreatureId: 'gy-creature-1' } as any,
+        lastActionOutcome: { kind: 'applied', stepKind: 'choose_target_creature' },
+      })
+    ).toBe(true);
+
+    expect(
+      evaluateConditionalWrapperCondition({
+        condition: { kind: 'if', raw: 'you rolled doubles' } as any,
+        nextState: {
+          lastDieRollByPlayer: {
+            p1: { sides: 6, count: 2, result: 8, results: [4, 4] },
+          },
+        } as any,
+        controllerId: 'p1' as any,
+        ctx: { controllerId: 'p1' } as any,
+        lastActionOutcome: { kind: 'applied', stepKind: 'roll_die' },
+      })
+    ).toBe(true);
+  });
+
+  it('treats missing you-do antecedent as false', () => {
+    const result = evaluateConditionalWrapperCondition({
+      condition: { kind: 'if', raw: 'you do' } as any,
+      nextState: { players: [], battlefield: [] } as any,
+      controllerId: 'p1' as any,
+      ctx: { controllerId: 'p1' } as any,
+      lastActionOutcome: null,
+      lastStepOutcome: null,
+    });
+    expect(result).toBe(false);
+  });
+
+  it('evaluates batch-29 timing, antecedent, and power-threshold checks', () => {
+    const state = {
+      players: [{ id: 'p1', hand: [{ id: 'h1' }], library: [], graveyard: [], exile: [], life: 40 }],
+      battlefield: [
+        { id: 'c1', controller: 'p1', type_line: 'Creature', power: 8, attackedLastTurn: true },
+        { id: 'c2', controller: 'p1', type_line: 'Creature', power: 4 },
+      ],
+      handAtBeginningOfTurn: { p1: 1 },
+      combatPhasesThisTurn: { p1: 1 },
+      creaturesDiedThisTurnByController: { p1: 1, p2: 2 },
+      lastDieRollByPlayer: { p1: { result: 2, results: [2] } },
+    } as any;
+
+    expect(
+      evaluateConditionalWrapperCondition({
+        condition: { kind: 'if', raw: "it's the first combat phase of your turn" } as any,
+        nextState: state,
+        controllerId: 'p1' as any,
+        ctx: { controllerId: 'p1', targetPermanentId: 'c1' } as any,
+        lastActionOutcome: null,
+      })
+    ).toBe(true);
+
+    expect(
+      evaluateConditionalWrapperCondition({
+        condition: { kind: 'if', raw: "it attacked during its controller's last turn" } as any,
+        nextState: state,
+        controllerId: 'p1' as any,
+        ctx: { controllerId: 'p1', targetPermanentId: 'c1' } as any,
+        lastActionOutcome: null,
+      })
+    ).toBe(true);
+
+    expect(
+      evaluateConditionalWrapperCondition({
+        condition: { kind: 'if', raw: 'you control a creature with power 7 or greater' } as any,
+        nextState: state,
+        controllerId: 'p1' as any,
+        ctx: { controllerId: 'p1' } as any,
+        lastActionOutcome: null,
+      })
+    ).toBe(true);
+
+    expect(
+      evaluateConditionalWrapperCondition({
+        condition: { kind: 'if', raw: 'that creature has power 4 or greater' } as any,
+        nextState: state,
+        controllerId: 'p1' as any,
+        ctx: { controllerId: 'p1', targetPermanentId: 'c2' } as any,
+        lastActionOutcome: null,
+      })
+    ).toBe(true);
+
+    expect(
+      evaluateConditionalWrapperCondition({
+        condition: { kind: 'if', raw: 'the result is 3 or less' } as any,
+        nextState: state,
+        controllerId: 'p1' as any,
+        ctx: { controllerId: 'p1' } as any,
+        lastActionOutcome: { kind: 'applied', stepKind: 'roll_die' },
+      })
+    ).toBe(true);
+  });
+
+  it('does not split threshold comparisons on "or greater"', () => {
+    const state = {
+      id: 'game1',
+      format: 'commander',
+      players: [{ id: 'p1', name: 'P1', seat: 0, life: 40, library: [], hand: [], graveyard: [], exile: [] }],
+      startingLife: 40,
+      life: {},
+      turnPlayer: 'p1',
+      priority: 'p1',
+      stack: [],
+      battlefield: [],
+      commandZone: {},
+      phase: 'main1',
+      active: true,
+    } as any;
+
+    expect(
+      evaluateConditionalWrapperCondition({
+        condition: { kind: 'if', raw: "that spell's power is 4 or greater" } as any,
+        nextState: state,
+        controllerId: 'p1' as any,
+        ctx: { controllerId: 'p1' } as any,
+        lastActionOutcome: null,
+      })
+    ).toBe(false);
+
+    expect(
+      evaluateConditionalWrapperCondition({
+        condition: { kind: 'if', raw: 'evidence was collected' } as any,
+        nextState: state,
+        controllerId: 'p1' as any,
+        ctx: { controllerId: 'p1' } as any,
+        lastActionOutcome: null,
+      })
+    ).toBe(false);
+  });
 });

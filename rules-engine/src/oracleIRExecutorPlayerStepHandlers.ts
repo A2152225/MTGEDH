@@ -387,10 +387,12 @@ function resolveStepAmountForPlayer(
 function resolveDynamicDrawAmount(
   state: GameState,
   step: Extract<OracleEffectStep, { kind: 'draw' }>,
-  ctx: OracleIRExecutionContext
+  ctx: OracleIRExecutionContext,
+  runtime?: ModifyPtRuntime
 ): number | null {
   const fromShared = resolveOracleQuantity(state, ctx.controllerId, step.amount, ctx, {
     whereX: step.whereX,
+    runtime,
   });
   if (fromShared !== null) return fromShared;
 
@@ -1903,8 +1905,10 @@ function resolveExilePermissionTargets(
   return { cards: matches };
 }
 
-function parseSupportedManaCostString(rawMana: string): ManaCost | null {
-  const symbols = parseManaSymbols(rawMana);
+function parseSupportedManaCostString(rawMana: string, xValue?: number): ManaCost | null {
+  const symbols = parseManaSymbols(rawMana).filter(
+    (symbol) => String(symbol || '').trim().toUpperCase() !== '{E}'
+  );
   if (symbols.length === 0) return null;
 
   let generic = 0;
@@ -1918,8 +1922,20 @@ function parseSupportedManaCostString(rawMana: string): ManaCost | null {
   for (const symbol of symbols) {
     const upper = String(symbol || '').trim().toUpperCase();
     if (!upper) return null;
+    if (upper === '{E}') continue;
+    if (upper === '{X}') {
+      const xAmount = Number(xValue);
+      if (!Number.isFinite(xAmount)) return null;
+      generic += Math.max(0, Math.floor(xAmount));
+      continue;
+    }
     if (/^\{\d+\}$/.test(upper)) {
       generic += parseInt(upper.slice(1, -1), 10);
+      continue;
+    }
+
+    if (upper.includes('/')) {
+      generic += 1;
       continue;
     }
 
@@ -1948,6 +1964,10 @@ function parseSupportedManaCostString(rawMana: string): ManaCost | null {
   }
 
   return { generic, white, blue, black, red, green, colorless };
+}
+
+function parseEnergyCostAmount(rawMana: string): number {
+  return parseManaSymbols(rawMana).reduce((count, symbol) => count + (String(symbol || '').trim().toUpperCase() === '{E}' ? 1 : 0), 0);
 }
 
 export function applyCreateEmblemStep(
@@ -2405,8 +2425,9 @@ export function applyPayManaStep(
     };
   }
 
-  const manaCost = parseSupportedManaCostString(step.mana);
-  if (!manaCost) {
+  const energyCost = parseEnergyCostAmount(step.mana);
+  const manaCost = parseSupportedManaCostString(step.mana, Number(ctx.xValue));
+  if (energyCost <= 0 && !manaCost) {
     return {
       applied: false,
       message: `Skipped pay mana (unsupported mana cost): ${step.raw}`,
@@ -2418,24 +2439,61 @@ export function applyPayManaStep(
   let nextState = state;
   const log: string[] = [];
   for (const playerId of players) {
-    const manaPoolRecord: Record<PlayerID, any> = { ...((((nextState as any).manaPool || {}) as any) || {}) };
-    const currentPool = manaPoolRecord[playerId] || createEmptyManaPool();
-    const payment = payManaCost(currentPool, manaCost);
-    if (!payment.success || !payment.remainingPool) {
-      return {
-        applied: false,
-        message: `Skipped pay mana (cannot pay ${step.mana}): ${step.raw}`,
-        reason: 'failed_to_apply',
-        options: {
-          classification: 'invalid_input',
-          persist: false,
-        },
-      };
+    if (energyCost > 0) {
+      const player = (nextState.players || []).find((entry) => entry?.id === playerId) as any;
+      const currentEnergy = Math.max(
+        0,
+        Number(player?.energyCounters ?? player?.energy ?? player?.counters?.energy ?? 0) || 0
+      );
+      if (currentEnergy < energyCost) {
+        return {
+          applied: false,
+          message: `Skipped pay mana (cannot pay ${step.mana}): ${step.raw}`,
+          reason: 'failed_to_apply',
+          options: {
+            classification: 'invalid_input',
+            persist: false,
+          },
+        };
+      }
+      const energyResult = adjustPlayerCounter(nextState, playerId, 'energy', -energyCost);
+      if (!energyResult.applied) {
+        return {
+          applied: false,
+          message: `Skipped pay mana (cannot pay ${step.mana}): ${step.raw}`,
+          reason: 'failed_to_apply',
+          options: {
+            classification: 'invalid_input',
+            persist: false,
+          },
+        };
+      }
+      nextState = energyResult.state;
+      log.push(...energyResult.log);
     }
 
-    manaPoolRecord[playerId] = payment.remainingPool;
-    nextState = { ...(nextState as any), manaPool: manaPoolRecord } as any;
-    log.push(`${playerId} pays ${step.mana}`);
+    if (manaCost) {
+      const manaPoolRecord: Record<PlayerID, any> = { ...((((nextState as any).manaPool || {}) as any) || {}) };
+      const currentPool = manaPoolRecord[playerId] || createEmptyManaPool();
+      const payment = payManaCost(currentPool, manaCost);
+      if (!payment.success || !payment.remainingPool) {
+        return {
+          applied: false,
+          message: `Skipped pay mana (cannot pay ${step.mana}): ${step.raw}`,
+          reason: 'failed_to_apply',
+          options: {
+            classification: 'invalid_input',
+            persist: false,
+          },
+        };
+      }
+
+      manaPoolRecord[playerId] = payment.remainingPool;
+      nextState = { ...(nextState as any), manaPool: manaPoolRecord } as any;
+      log.push(`${playerId} pays ${step.mana}`);
+    } else if (energyCost > 0) {
+      log.push(`${playerId} pays ${step.mana}`);
+    }
   }
 
   return {
@@ -3379,11 +3437,15 @@ export function applyRevealTopStep(
 
   const log: string[] = [];
   let totalRevealed = 0;
+  const revealedCards: any[] = [];
   for (const playerId of players) {
     const player = state.players.find(entry => entry.id === playerId) as any;
     const library = Array.isArray(player?.library) ? player.library : [];
     const revealedCount = Math.max(0, Math.min(library.length, amount | 0));
     totalRevealed += revealedCount;
+    if (revealedCount > 0) {
+      revealedCards.push(...library.slice(0, revealedCount));
+    }
     const revealedNames = library
       .slice(0, revealedCount)
       .map((card: any) => String(card?.name || 'unknown card').trim() || 'unknown card');
@@ -3399,16 +3461,44 @@ export function applyRevealTopStep(
     state,
     log,
     lastRevealedCardCount: totalRevealed,
+    ...(revealedCards.length > 0 ? { lastMovedCards: revealedCards } : {}),
     ...(players.length === 1 ? { lastTopLibraryOwnerId: players[0] } : {}),
   };
+}
+
+function resolveLookChooseAmount(
+  state: GameState,
+  step: Extract<OracleEffectStep, { kind: 'look_choose_from_top' }>,
+  ctx: OracleIRExecutionContext,
+  runtime?: ModifyPtRuntime
+): number | null {
+  const resolved = resolveOracleQuantity(state, ctx.controllerId, step.amount, ctx, { runtime });
+  if (resolved !== null) return resolved;
+
+  if (step.amount.kind !== 'x') return null;
+
+  const raw = String(step.raw || '').trim();
+  const whereMatch = raw.match(/\bwhere\s+x\s+is\s+(.+?)(?:\.\s|$)/i);
+  if (!whereMatch) return null;
+
+  const evaluated = evaluateModifyPtWhereX(
+    state,
+    ctx.controllerId,
+    `X is ${String(whereMatch[1] || '').trim()}`,
+    undefined,
+    ctx,
+    runtime
+  );
+  return evaluated === null ? null : Math.max(0, evaluated);
 }
 
 export function applyLookChooseFromTopStep(
   state: GameState,
   step: Extract<OracleEffectStep, { kind: 'look_choose_from_top' }>,
-  ctx: OracleIRExecutionContext
+  ctx: OracleIRExecutionContext,
+  runtime?: ModifyPtRuntime
 ): PlayerStepHandlerResult {
-  const amount = quantityToNumber(step.amount, ctx);
+  const amount = resolveLookChooseAmount(state, step, ctx, runtime);
   if (amount === null) {
     return {
       applied: false,
@@ -3483,6 +3573,81 @@ export function applyLookChooseFromTopStep(
     state: nextState,
     log,
     ...(movedCards.length > 0 ? { lastMovedCards: movedCards } : {}),
+  };
+}
+
+export function applyPutOnBottomStep(
+  state: GameState,
+  step: Extract<OracleEffectStep, { kind: 'put_on_bottom' }>,
+  ctx: OracleIRExecutionContext
+): PlayerStepHandlerResult {
+  const players = resolvePlayers(state, step.who, ctx);
+  if (players.length === 0) {
+    return {
+      applied: false,
+      message: `Skipped put-on-bottom (unsupported player selector): ${step.raw}`,
+      reason: 'unsupported_player_selector',
+    };
+  }
+
+  const whatText = step.what.kind === 'raw' ? String(step.what.text || '').trim().toLowerCase() : '';
+  let nextState = state;
+  const log: string[] = [];
+
+  for (const playerId of players) {
+    const player = nextState.players.find(entry => entry.id === playerId) as any;
+    if (!player) {
+      return {
+        applied: false,
+        message: `Skipped put-on-bottom (player not found): ${step.raw}`,
+        reason: 'failed_to_apply',
+      };
+    }
+
+    const library = Array.isArray(player.library) ? [...player.library] : [];
+    const handIds = new Set(
+      (Array.isArray(player.hand) ? player.hand : [])
+        .map((card: any) => String(card?.id || '').trim())
+        .filter(Boolean)
+    );
+    let restCards: any[] = [];
+
+    if (whatText === 'the rest' || whatText === 'the rest of the cards') {
+      const movedCards = Array.isArray(ctx.lastMovedCards) ? ctx.lastMovedCards : [];
+      const movedIds = new Set(movedCards.map((card: any) => String(card?.id || '').trim()).filter(Boolean));
+      if (movedIds.size > 0) {
+        restCards = library.filter((card: any) => {
+          const cardId = String(card?.id || '').trim();
+          return movedIds.has(cardId) && !handIds.has(cardId);
+        });
+      } else {
+        restCards = library.slice(0, Math.max(0, library.length - handIds.size));
+      }
+    } else {
+      return {
+        applied: false,
+        message: `Skipped put-on-bottom (unsupported object selector): ${step.raw}`,
+        reason: 'unsupported_object_selector',
+      };
+    }
+
+    const remainingLibrary = library.filter((card: any) => !restCards.includes(card));
+    const orderedRest = step.order === 'random' ? shuffleArray(restCards) : restCards;
+    const updatedPlayers = nextState.players.map(entry => {
+      if (entry.id !== playerId) return entry;
+      return {
+        ...(entry as any),
+        library: [...remainingLibrary, ...orderedRest],
+      } as any;
+    });
+    nextState = { ...nextState, players: updatedPlayers as any };
+    log.push(`${playerId} put ${orderedRest.length} card(s) on the bottom of their library`);
+  }
+
+  return {
+    applied: true,
+    state: nextState,
+    log,
   };
 }
 
@@ -3992,9 +4157,34 @@ export function applyManifestDreadStep(
 export function applyConniveStep(
   state: GameState,
   step: Extract<OracleEffectStep, { kind: 'connive' }>,
-  ctx: OracleIRExecutionContext
+  ctx: OracleIRExecutionContext,
+  runtime?: ModifyPtRuntime
 ): PlayerStepHandlerResult {
-  const amount = quantityToNumber(step.amount);
+  const targetId = resolveSingleCreatureTargetId(state, step.target, ctx);
+  const controllerId = (String(ctx.controllerId || 'p1').trim() || 'p1') as PlayerID;
+
+  let amount =
+    resolveOracleQuantity(state, controllerId, step.amount, ctx, {
+      targetCreatureId: targetId,
+      whereX: step.whereX,
+      runtime,
+    }) ?? quantityToNumber(step.amount, ctx);
+
+  if (amount === null) {
+    const raw = String(step.amount?.kind === 'reference_amount' ? step.amount.raw : step.raw || '');
+    const whereMatch = raw.match(/where x is (.+)$/i);
+    if (whereMatch) {
+      amount = evaluateModifyPtWhereX(
+        state,
+        controllerId,
+        `X is ${String(whereMatch[1] || '').trim()}`,
+        targetId,
+        ctx,
+        runtime
+      );
+    }
+  }
+
   if (amount === null || amount <= 0) {
     return {
       applied: false,
@@ -4004,7 +4194,6 @@ export function applyConniveStep(
     };
   }
 
-  const targetId = resolveSingleCreatureTargetId(state, step.target, ctx);
   if (!targetId) {
     return {
       applied: false,
@@ -4026,8 +4215,8 @@ export function applyConniveStep(
   }
 
   const target = battlefield[targetIndex] as any;
-  const controllerId = String(target?.controller || ctx.controllerId || '').trim();
-  const player = state.players.find((p: any) => String(p?.id || '').trim() === controllerId) as any;
+  const targetControllerId = String(target?.controller || ctx.controllerId || '').trim();
+  const player = state.players.find((p: any) => String(p?.id || '').trim() === targetControllerId) as any;
   if (!player) {
     return {
       applied: false,
@@ -4049,8 +4238,8 @@ export function applyConniveStep(
     };
   }
 
-  const drawResult = drawCardsForPlayer(state, controllerId as PlayerID, amount);
-  const discardResult = discardCardsForPlayer(drawResult.state, controllerId as PlayerID, amount);
+  const drawResult = drawCardsForPlayer(state, targetControllerId as PlayerID, amount);
+  const discardResult = discardCardsForPlayer(drawResult.state, targetControllerId as PlayerID, amount);
   const discardedNonlands = discardResult.discardedCards.filter((card: any) => !getCardTypeLineLower(card).includes('land')).length;
   const log = [...drawResult.log, ...discardResult.log];
 
@@ -4301,7 +4490,8 @@ export function applyDoublePlayerCountersStep(
 export function applyDrawStep(
   state: GameState,
   step: Extract<OracleEffectStep, { kind: 'draw' }>,
-  ctx: OracleIRExecutionContext
+  ctx: OracleIRExecutionContext,
+  runtime?: ModifyPtRuntime
 ): PlayerStepHandlerResult {
   const players = resolvePlayers(state, step.who, ctx);
   if (players.length === 0) {
@@ -4319,10 +4509,11 @@ export function applyDrawStep(
     const amount =
       resolveStepAmountForPlayer(state, ctx.controllerId, step.amount, ctx, playerId, {
         whereX: step.whereX,
+        runtime,
       }) ?? resolveDynamicDrawAmount(state, step, {
         ...ctx,
         selectorContext: { ...(ctx.selectorContext || {}), targetPlayerId: playerId },
-      });
+      }, runtime);
     if (amount === null) {
       return {
         applied: false,
@@ -4539,6 +4730,12 @@ export function applyAddManaStep(
       }
 
       if (requiresCombinationChoice) {
+        if (chosenSymbols.length === 1 && (requestedSymbolCount ?? 0) > 1) {
+          return {
+            kind: 'resolved' as const,
+            mana: Array.from({ length: requestedSymbolCount ?? symbolCount }, () => chosenSymbols[0]).join(''),
+          };
+        }
         if (chosenSymbols.length !== requestedSymbolCount) {
           return {
             kind: 'skip' as const,

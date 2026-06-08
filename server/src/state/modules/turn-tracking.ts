@@ -35,6 +35,10 @@ export function recordCardPutIntoGraveyardThisTurn(
     ) {
       stateAny.descendedThisTurn = stateAny.descendedThisTurn || {};
       stateAny.descendedThisTurn[owner] = true;
+      stateAny.permanentCardsPutIntoYourGraveyardThisTurn =
+        stateAny.permanentCardsPutIntoYourGraveyardThisTurn || {};
+      stateAny.permanentCardsPutIntoYourGraveyardThisTurn[owner] =
+        (stateAny.permanentCardsPutIntoYourGraveyardThisTurn[owner] || 0) + 1;
     }
 
     // Revolt-style tracking: a permanent left the battlefield under a controller's control.

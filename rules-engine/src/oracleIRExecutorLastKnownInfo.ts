@@ -91,5 +91,6 @@ export function lastKnownSnapshotHasClass(
   klass: 'creature' | 'artifact' | 'permanent'
 ): boolean {
   if (klass === 'permanent') return true;
-  return snapshot.typeLine.includes(klass);
+  const typeLine = String(snapshot?.typeLine || (snapshot as any)?.type_line || '').toLowerCase();
+  return typeLine.includes(klass);
 }

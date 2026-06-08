@@ -47,8 +47,38 @@ export function tryEvaluateModifyPtWhereControlledCounts(args: {
   }
 
   {
+    const m = raw.match(/^x is the number of opponents who control more lands than you$/i);
+    if (m) {
+      const controllerLandCount = countByClasses(controlled, ['land']);
+      const opponentIds = (state.players || [])
+        .map((p: any) => String((p as any)?.id || '').trim())
+        .filter((pid) => pid.length > 0 && pid !== controllerId);
+      let opponentCount = 0;
+      for (const opponentId of opponentIds) {
+        const oppPermanents = battlefield.filter((p: any) => String((p as any)?.controller || '').trim() === opponentId);
+        if (countByClasses(oppPermanents, ['land']) > controllerLandCount) opponentCount += 1;
+      }
+      return opponentCount;
+    }
+  }
+
+  {
     const m = raw.match(/^x is the number of opponents who control (?:(?:an?|the)\s+)?(.+)$/i);
     if (m) {
+      const tail = String(m[1] || '').trim().toLowerCase();
+      if (tail === 'more lands than you') {
+        const controllerLandCount = countByClasses(controlled, ['land']);
+        const opponentIds = (state.players || [])
+          .map((p: any) => String((p as any)?.id || '').trim())
+          .filter((pid) => pid.length > 0 && pid !== controllerId);
+        let opponentCount = 0;
+        for (const opponentId of opponentIds) {
+          const oppPermanents = battlefield.filter((p: any) => String((p as any)?.controller || '').trim() === opponentId);
+          if (countByClasses(oppPermanents, ['land']) > controllerLandCount) opponentCount += 1;
+        }
+        return opponentCount;
+      }
+
       const spec = parseColorQualifiedClassSpec(String(m[1] || ''));
       if (!spec) return null;
 
@@ -145,9 +175,101 @@ export function tryEvaluateModifyPtWhereControlledCounts(args: {
   }
 
   {
+    const m = raw.match(/^x is the number of historic permanents you control$/i);
+    if (m) {
+      return controlled.filter((permanent: any) => {
+        const typeLine = String(permanent?.card?.type_line || permanent?.type_line || '').toLowerCase();
+        return /\bartifact\b/.test(typeLine) || /\blegendary\b/.test(typeLine) || /\bsaga\b/.test(typeLine);
+      }).length;
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the number of equipped creatures you control$/i);
+    if (m) {
+      return controlled.filter((creature: any) => {
+        if (!String(creature?.type_line || creature?.card?.type_line || '').toLowerCase().includes('creature')) {
+          return false;
+        }
+        const creatureId = String(creature?.id || '').trim();
+        if (!creatureId) return false;
+        return controlled.some((perm: any) => {
+          const typeLine = String(perm?.type_line || perm?.card?.type_line || '').toLowerCase();
+          if (!/\bequipment\b/.test(typeLine)) return false;
+          return String(perm?.attachedTo || '').trim() === creatureId;
+        });
+      }).length;
+    }
+  }
+
+  {
+    const m = raw.match(/^x is twice the number of blood tokens you control$/i);
+    if (m) {
+      const bloodTokens = controlled.filter((permanent: any) => {
+        const typeLine = String(permanent?.card?.type_line || permanent?.type_line || '').toLowerCase();
+        return Boolean(permanent?.isToken) && /\bblood\b/.test(typeLine);
+      }).length;
+      return bloodTokens * 2;
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the number of blood tokens you control$/i);
+    if (m) {
+      return controlled.filter((permanent: any) => {
+        const typeLine = String(permanent?.card?.type_line || permanent?.type_line || '').toLowerCase();
+        return Boolean(permanent?.isToken) && /\bblood\b/.test(typeLine);
+      }).length;
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the number of different kinds of counters among permanents you control$/i);
+    if (m) {
+      const kinds = new Set<string>();
+      for (const permanent of controlled as any[]) {
+        const counters = (permanent as any)?.counters || {};
+        for (const [counterName, amount] of Object.entries(counters)) {
+          if (Math.max(0, Number(amount) || 0) > 0) kinds.add(String(counterName || '').trim().toLowerCase());
+        }
+      }
+      return kinds.size;
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the number of times this creature has mutated$/i);
+    if (m) {
+      const sourceObj = ctx?.sourceId
+        ? (controlled as any[]).find((permanent: any) => String(permanent?.id || '').trim() === String(ctx?.sourceId || '').trim())
+        : null;
+      if (!sourceObj) return null;
+      const explicit = Number((sourceObj as any)?.mutatedTimes);
+      if (Number.isFinite(explicit) && explicit >= 0) return explicit;
+      return Math.max(0, Number(((sourceObj as any)?.counters || {})?.mutagen) || 0);
+    }
+  }
+
+  {
     const m = raw.match(/^x is the number of opponents you have$/i);
     if (m) {
       return Math.max(0, (state.players || []).filter(p => p.id !== controllerId).length);
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the number of your opponents with four or more cards in hand$/i);
+    if (m) {
+      const opponentIds = (state.players || [])
+        .map((p: any) => String((p as any)?.id || '').trim())
+        .filter((pid) => pid.length > 0 && pid !== controllerId);
+      let opponentCount = 0;
+      for (const opponentId of opponentIds) {
+        const player = (state.players || []).find((entry: any) => String(entry?.id || '').trim() === opponentId);
+        const hand = Array.isArray((player as any)?.hand) ? (player as any).hand : [];
+        if (hand.length >= 4) opponentCount += 1;
+      }
+      return opponentCount;
     }
   }
 

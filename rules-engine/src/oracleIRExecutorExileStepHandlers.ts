@@ -17,6 +17,8 @@ import {
   isCardExiledWithSource,
 } from './oracleIRExecutorPlayerUtils';
 import { cardMatchesExileSelectorText } from './oracleIRExecutorZoneOps';
+import { evaluateModifyPtWhereX } from './oracleIRExecutorModifyPtWhereEvaluator';
+import type { ModifyPtRuntime } from './oracleIRExecutorModifyPtStepHandlers';
 
 type StepApplyResult = {
   readonly applied: true;
@@ -63,10 +65,35 @@ function resolveExileCounts(
   state: GameState,
   players: readonly PlayerID[],
   amount: any,
-  ctx: OracleIRExecutionContext
+  ctx: OracleIRExecutionContext,
+  options?: { readonly rawHint?: string; readonly runtime?: ModifyPtRuntime }
 ): Map<PlayerID, number> | null {
   const exileCountByPlayer = new Map<PlayerID, number>();
   for (const playerId of players) {
+    if (amount?.kind === 'x') {
+      const xFromCtx = Number(ctx.xValue);
+      if (Number.isFinite(xFromCtx)) {
+        exileCountByPlayer.set(playerId, Math.max(0, Math.floor(xFromCtx)));
+        continue;
+      }
+      const whereMatch = String(options?.rawHint || '').match(/\bwhere\s+x\s+is\s+(.+)$/i);
+      if (whereMatch) {
+        const evaluated = evaluateModifyPtWhereX(
+          state,
+          playerId,
+          `X is ${String(whereMatch[1] || '').trim()}`,
+          undefined,
+          ctx,
+          options?.runtime
+        );
+        if (evaluated !== null) {
+          exileCountByPlayer.set(playerId, evaluated);
+          continue;
+        }
+      }
+      return null;
+    }
+
     if (amount?.kind === 'until_nonland_mana_value_lte') {
       const player = state.players.find(p => p.id === playerId) as any;
       if (!player) return null;
@@ -78,7 +105,10 @@ function resolveExileCounts(
         if (!typeLine) return null;
         if (typeLine.includes('land')) continue;
         const manaValue = getCardManaValue(library[index]);
-        if (manaValue === null) return null;
+        if (manaValue === null) {
+          resolvedCount = index + 1;
+          break;
+        }
         if (manaValue <= threshold) {
           resolvedCount = index + 1;
           break;
@@ -100,7 +130,8 @@ function resolveExileCounts(
 export function applyExileTopStep(
   state: GameState,
   step: Extract<OracleEffectStep, { kind: 'exile_top' }>,
-  ctx: OracleIRExecutionContext
+  ctx: OracleIRExecutionContext,
+  runtime?: ModifyPtRuntime
 ): ExileTopStepHandlerResult {
   const players = resolvePlayers(state, step.who, ctx);
   if (players.length === 0) {
@@ -111,7 +142,7 @@ export function applyExileTopStep(
     };
   }
 
-  const exileCountByPlayer = resolveExileCounts(state, players, step.amount, ctx);
+  const exileCountByPlayer = resolveExileCounts(state, players, step.amount, ctx, { rawHint: step.raw, runtime });
   if (!exileCountByPlayer) {
     return {
       applied: false,
@@ -147,7 +178,8 @@ export function applyExileTopStep(
 export function applyImpulseExileTopStep(
   state: GameState,
   step: Extract<OracleEffectStep, { kind: 'impulse_exile_top' }>,
-  ctx: OracleIRExecutionContext
+  ctx: OracleIRExecutionContext,
+  runtime?: ModifyPtRuntime
 ): ExileTopStepHandlerResult {
   const players = resolvePlayers(state, step.who, ctx);
   if (players.length === 0) {
@@ -158,7 +190,7 @@ export function applyImpulseExileTopStep(
     };
   }
 
-  const exileCountByPlayer = resolveExileCounts(state, players, step.amount, ctx);
+  const exileCountByPlayer = resolveExileCounts(state, players, step.amount, ctx, { rawHint: step.raw, runtime });
   if (!exileCountByPlayer) {
     return {
       applied: false,

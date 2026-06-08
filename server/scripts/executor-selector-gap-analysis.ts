@@ -16,6 +16,8 @@ import {
   buildAuditFixtureState,
   collectAutoSelectedModeIds,
   collectStepsFromIrText,
+  enrichAuditStateAndContextForCopySteps,
+  enrichAuditStateAndContextForTargets,
 } from './executor-coverage-audit.ts';
 import {
   getCombinedOracleText,
@@ -51,11 +53,19 @@ type GapRow = {
 
 function dryRunWithGaps(
   steps: ReturnType<typeof collectStepsFromIrText>,
-  cardName: string,
-  typeLine?: string
+  card: OracleCard
 ) {
-  const state = buildAuditFixtureState(cardName, typeLine);
-  const ctx = buildAuditExecutionContext(cardName);
+  let state = buildAuditFixtureState(card.name, card.type_line);
+  let ctx = buildAuditExecutionContext(card.name);
+  const enriched = enrichAuditStateAndContextForCopySteps(
+    { name: card.name, type_line: card.type_line, oracle_text: getCombinedOracleText(card) },
+    steps,
+    state,
+    ctx
+  );
+  const targetEnriched = enrichAuditStateAndContextForTargets(steps, enriched.state, enriched.ctx);
+  state = targetEnriched.state;
+  ctx = targetEnriched.ctx;
   const selectedModeIds = collectAutoSelectedModeIds(steps);
   return applyOracleIRStepsToGameState(state, steps, ctx, {
     allowOptional: true,
@@ -90,7 +100,7 @@ for (const card of cards) {
     if (hasUnknownIRSteps(effect, card.name).length > 0) continue;
 
     const steps = collectStepsFromIrText(effect, card.name);
-    const result = dryRunWithGaps(steps, card.name, card.type_line);
+    const result = dryRunWithGaps(steps, card);
     const selectorGaps = (result.automationGaps || []).filter(
       gap => gap.reasonCode === 'unsupported_selector'
     );

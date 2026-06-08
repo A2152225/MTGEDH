@@ -4124,6 +4124,7 @@ export function nextTurn(ctx: GameContext) {
       stateAny.cardsPutIntoYourGraveyardThisTurn = {};
       stateAny.cardsPutIntoYourGraveyardFromNonBattlefieldThisTurn = {};
       stateAny.creatureCardPutIntoYourGraveyardThisTurn = {};
+      stateAny.permanentCardsPutIntoYourGraveyardThisTurn = {};
 
       // Battlefield-only typed variants.
       stateAny.landYouControlledPutIntoGraveyardFromBattlefieldThisTurn = {};
@@ -4135,6 +4136,7 @@ export function nextTurn(ctx: GameContext) {
         stateAny.cardsPutIntoYourGraveyardThisTurn[String(pid)] = 0;
         stateAny.cardsPutIntoYourGraveyardFromNonBattlefieldThisTurn[String(pid)] = 0;
         stateAny.creatureCardPutIntoYourGraveyardThisTurn[String(pid)] = false;
+        stateAny.permanentCardsPutIntoYourGraveyardThisTurn[String(pid)] = 0;
 
         stateAny.landYouControlledPutIntoGraveyardFromBattlefieldThisTurn[String(pid)] = false;
         stateAny.enchantmentPutIntoYourGraveyardFromBattlefieldThisTurn[String(pid)] = false;

@@ -206,6 +206,17 @@ export function tryEvaluateModifyPtWhereTurnStats(args: {
   }
 
   {
+    const m = raw.match(/^x is the number of times you descended this turn$/i);
+    if (m) {
+      return firstNonNull([
+        readControllerValue(stateAny.permanentCardsPutIntoYourGraveyardThisTurn, controllerId, true),
+        readControllerValue(stateAny.turnStats?.permanentCardsPutIntoYourGraveyard, controllerId, true),
+        stateAny.descendedThisTurn?.[controllerId] ? 1 : 0,
+      ]);
+    }
+  }
+
+  {
     const m = raw.match(/^x is the number of cards? revealed this way$/i);
     if (m) {
       const revealed = Number(runtime?.lastRevealedCardCount ?? 0);
@@ -343,6 +354,37 @@ export function tryEvaluateModifyPtWhereTurnStats(args: {
     const m = raw.match(/^x is the number of permanents your opponents have sacrificed(?: this turn)?$|^x is the number of permanents your opponents sacrificed(?: this turn)?$/i);
     if (m) {
       return sumOpponentsValue(stateAny.permanentsSacrificedThisTurn, state, controllerId);
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the number of tokens you created this turn$/i);
+    if (m) {
+      return readControllerValue(stateAny.tokensCreatedThisTurn, controllerId, true);
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the number of creatures that were exiled under your opponents' control this turn$/i);
+    if (m) {
+      return sumOpponentsValue(stateAny.creaturesExiledUnderOpponentsControlThisTurn, state, controllerId);
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the number of mounts and\/or vehicles that entered the battlefield under your control this turn$/i);
+    if (m) {
+      return readControllerValue(stateAny.mountsAndVehiclesEnteredBattlefieldThisTurn, controllerId, true);
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the number of instant and sorcery spells you've cast this turn$/i);
+    if (m) {
+      return firstNonNull([
+        readControllerValue(stateAny.instantAndSorcerySpellsCastThisTurn, controllerId, true),
+        readControllerValue(stateAny.noncreatureSpellsCastThisTurn, controllerId, true),
+      ]);
     }
   }
 

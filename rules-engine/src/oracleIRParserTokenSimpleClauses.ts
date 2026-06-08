@@ -83,6 +83,20 @@ export function tryParseSimpleCreateTokenClause(args: {
     .replace(/[.]+$/g, '')
     .trim();
 
+  const ownerCreatesQuestToken = clause.match(
+    /^its owner creates (?:a )?tapped (.+?) creature token for each quest counter on it$/i
+  );
+  if (ownerCreatesQuestToken) {
+    return withMeta({
+      kind: 'create_token',
+      who: { kind: 'owner_of_source' },
+      amount: { kind: 'x' },
+      token: String(ownerCreatesQuestToken[1] || '').trim(),
+      entersTapped: true,
+      raw: rawClause,
+    });
+  }
+
   if (/^it\s+creates\s+twice\s+that\s+many\s+of\s+those\s+tokens$/i.test(clause)) {
     return withMeta({
       kind: 'grant_static_ability',

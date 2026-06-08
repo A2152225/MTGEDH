@@ -161,6 +161,7 @@ import {
   expandPayManaUnknownAbilities,
   expandBlightPrefixAbilities,
   expandSimpleConditionalUnknownAbilities,
+  expandYouMayTransformIfYouDoAbilities,
   expandTapMatchingPermanentCountAbilities,
   expandUnlessSacrificeAbilities,
   upgradeConditionalIfYouDoImpulseAbilities,
@@ -189,6 +190,7 @@ import {
   mergeLookSelectTopFollowupAbilities,
   pruneRedundantImpulseCleanupUnknownAbilities,
   pruneDuplicateGraveyardReminderAbilities,
+  pruneEquipmentBleedSteps,
   convertReminderSelfExilePermissionAbilities,
   mergeRevealFollowupAbilities,
   mergeSagaChapterCopyFollowupAbilities,
@@ -1515,6 +1517,7 @@ export function parseOracleTextToIR(oracleText: string, cardName?: string): Orac
   abilities = expandPreventDamageUnknownAbilities(abilities);
   abilities = expandWinLossUnknownAbilities(abilities);
   abilities = expandTapMatchingPermanentCountAbilities(abilities);
+  abilities = expandYouMayTransformIfYouDoAbilities(abilities);
   abilities = expandSimpleConditionalUnknownAbilities(abilities);
   abilities = mergeKinshipRevealConditionalAbilities(abilities);
   abilities = expandCopySpellUnknownAbilities(abilities);
@@ -1590,6 +1593,7 @@ export function parseOracleTextToIR(oracleText: string, cardName?: string): Orac
   abilities = expandEmbalmKeywordAbilities(abilities);
   abilities = expandEternalizeKeywordAbilities(abilities);
   abilities = pruneDuplicateGraveyardReminderAbilities(abilities);
+  abilities = pruneEquipmentBleedSteps(abilities);
   abilities = convertReminderSelfExilePermissionAbilities(abilities);
   abilities = mergeConditionalGraveyardReminderFollowupAbilities(abilities);
   abilities = mergeExilePermissionCastCounterFollowupAbilities(abilities);

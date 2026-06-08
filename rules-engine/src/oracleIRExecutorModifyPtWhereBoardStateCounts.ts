@@ -182,6 +182,44 @@ export function tryEvaluateModifyPtWhereBoardStateCounts(args: {
     const m = raw.match(/^x is the number of (.+) counters? on it$/i);
     if (m) {
       const counterName = String(m[1] || '');
+      const sourceObj = getSourceRef();
+      const targetObj = getTargetRef();
+      const objectToRead = sourceObj || targetObj;
+      if (!objectToRead) return null;
+      return getCounterCountOnObject(objectToRead, counterName);
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the number of quest counters on it$/i);
+    if (m) {
+      const sourceObj = getSourceRef();
+      const targetObj = getTargetRef();
+      const objectToRead = sourceObj || targetObj;
+      if (!objectToRead) return null;
+      return getCounterCountOnObject(objectToRead, 'quest');
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the number of counters on this permanent$/i);
+    if (m) {
+      const sourceObj = getSourceRef();
+      const targetObj = getTargetRef();
+      const objectToRead = sourceObj || targetObj;
+      if (!objectToRead) return null;
+      const counters = (objectToRead as any)?.counters || {};
+      return Object.values(counters).reduce<number>(
+        (sum, value) => sum + Math.max(0, Number(value) || 0),
+        0
+      );
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the number of (.+) counters? on it$/i);
+    if (m) {
+      const counterName = String(m[1] || '');
       const targetObj = getTargetRef();
       const sourceObj = getSourceRef();
       const obj = targetObj || sourceObj;
@@ -255,6 +293,98 @@ export function tryEvaluateModifyPtWhereBoardStateCounts(args: {
         if (!hasExecutorClass(p, 'land')) return false;
         return (p as any)?.tapped !== true && (p as any)?.isTapped !== true;
       }).length;
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the number of counters it had on it$/i);
+    if (m) {
+      const source = getSourceRef() as any;
+      if (!source || typeof source !== 'object') return 0;
+      const counters = (source as any)?.counters;
+      if (!counters || typeof counters !== 'object') return 0;
+      return Object.values(counters as Record<string, unknown>).reduce<number>((sum, value) => {
+        const n = Number(value);
+        return sum + (Number.isFinite(n) ? Math.max(0, n) : 0);
+      }, 0);
+    }
+  }
+
+  {
+    const m = raw.match(
+      /^x is the number of abilities from among flying, first strike, double strike, deathtouch, haste, hexproof, indestructible, lifelink, menace, reach, trample, and vigilance found among creatures you control$/i
+    );
+    if (m) {
+      const keywords = [
+        'flying',
+        'first strike',
+        'double strike',
+        'deathtouch',
+        'haste',
+        'hexproof',
+        'indestructible',
+        'lifelink',
+        'menace',
+        'reach',
+        'trample',
+        'vigilance',
+      ];
+      const found = new Set<string>();
+      for (const permanent of controlled as any[]) {
+        if (!hasExecutorClass(permanent, 'creature')) continue;
+        const abilityText = normalizeOracleText(
+          String(
+            (permanent as any)?.oracle_text ||
+              (permanent as any)?.card?.oracle_text ||
+              (permanent as any)?.keywords ||
+              ''
+          )
+        ).toLowerCase();
+        for (const keyword of keywords) {
+          if (abilityText.includes(keyword)) found.add(keyword);
+        }
+      }
+      return found.size;
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the power of the creature tapped this way$/i);
+    if (m) {
+      const readPower = (obj: any): number => {
+        for (const value of [obj?.effectivePower, obj?.basePower, obj?.power, obj?.card?.power]) {
+          const parsed = Number(value);
+          if (Number.isFinite(parsed)) return parsed;
+        }
+        return 0;
+      };
+      const chosenIds = Array.isArray(ctx?.selectorContext?.chosenObjectIds)
+        ? ctx.selectorContext.chosenObjectIds.map((id) => String(id || '').trim()).filter(Boolean)
+        : [];
+      for (const id of chosenIds) {
+        const perm = (battlefield as any[]).find((entry) => String(entry?.id || '').trim() === id);
+        if (perm && hasExecutorClass(perm, 'creature')) return readPower(perm);
+      }
+      return null;
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the number of supertypes, card types, and subtypes it has$/i);
+    if (m) {
+      const source = getSourceRef() as any;
+      const typeLine = String(source?.type_line || source?.card?.type_line || '').trim();
+      if (!typeLine) return null;
+      const [mainPart, subPart] = typeLine.split(/\s+[—–-]\s+/);
+      const mainTokens = String(mainPart || '')
+        .split(/\s+/)
+        .map((token) => token.trim().toLowerCase())
+        .filter(Boolean);
+      const subTokens = String(subPart || '')
+        .split(/\s+/)
+        .map((token) => token.trim().toLowerCase())
+        .filter(Boolean);
+      return new Set([...mainTokens, ...subTokens]).size;
     }
   }
 

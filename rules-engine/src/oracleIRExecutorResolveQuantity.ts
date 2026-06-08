@@ -7,6 +7,7 @@ import {
   getCardManaValue,
   normalizeOracleText,
   quantityToNumber,
+  resolveUnknownMillUntilAmountForPlayer,
 } from './oracleIRExecutorPlayerUtils';
 import {
   getControlledPermanents,
@@ -41,14 +42,56 @@ export function resolveOracleQuantityForPlayer(
   return resolveOracleQuantity(state, controllerId, qty, ctxForPlayer, options);
 }
 
+function readFiniteStat(value: unknown): number | null {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : null;
+}
+
 function readObjectStat(
   entry: any,
   stat: 'power' | 'toughness' | 'mana_value'
 ): number | null {
   if (stat === 'mana_value') return getCardManaValue(entry);
   return stat === 'power'
-    ? Number(entry?.effectivePower ?? entry?.power ?? entry?.basePower ?? entry?.card?.power)
-    : Number(entry?.effectiveToughness ?? entry?.toughness ?? entry?.baseToughness ?? entry?.card?.toughness);
+    ? readFiniteStat(entry?.effectivePower ?? entry?.power ?? entry?.basePower ?? entry?.card?.power)
+    : readFiniteStat(entry?.effectiveToughness ?? entry?.toughness ?? entry?.baseToughness ?? entry?.card?.toughness);
+}
+
+function readSacrificedPermanents(
+  runtime: ModifyPtRuntime | undefined,
+  ctx: OracleIRExecutionContext
+): readonly any[] {
+  if (Array.isArray(runtime?.lastSacrificedPermanents) && runtime.lastSacrificedPermanents.length > 0) {
+    return runtime.lastSacrificedPermanents;
+  }
+  if (Array.isArray((ctx as any).lastSacrificedPermanents) && (ctx as any).lastSacrificedPermanents.length > 0) {
+    return (ctx as any).lastSacrificedPermanents;
+  }
+  return [];
+}
+
+function resolveTargetCreatureYouControl(
+  state: GameState,
+  controllerId: PlayerID,
+  ctx: OracleIRExecutionContext
+): any | null {
+  const targetId = String(
+    ctx.selectorContext?.targetCreatureId ||
+      ctx.targetCreatureId ||
+      ctx.selectorContext?.targetPermanentId ||
+      ctx.targetPermanentId ||
+      ''
+  ).trim();
+  if (!targetId) return null;
+
+  const permanent = ((state.battlefield || []) as any[]).find(
+    (entry) => String(entry?.id || '').trim() === targetId
+  );
+  if (!permanent) return null;
+  if (String(permanent?.controller || permanent?.controllerId || '').trim() !== String(controllerId || '').trim()) {
+    return null;
+  }
+  return permanent;
 }
 
 /**
@@ -91,9 +134,27 @@ export function resolveOracleQuantity(
 
   if (qty.kind === 'source_power') {
     const sourcePermanent = getSourceBattlefieldPermanent(state, ctx);
-    if (!sourcePermanent) return null;
-    const power = readPermanentPower(sourcePermanent);
-    return power === null ? null : Math.max(0, power);
+    if (sourcePermanent) {
+      const power = readPermanentPower(sourcePermanent);
+      if (power !== null) return Math.max(0, power);
+    }
+
+    const sacrificed = readSacrificedPermanents(runtime, ctx);
+    if (sacrificed.length === 1) {
+      const power = readFiniteStat((sacrificed[0] as any)?.power);
+      if (power !== null) return power;
+    }
+
+    const moved = [
+      ...(Array.isArray(runtime?.lastMovedCards) ? runtime.lastMovedCards : []),
+      ...(Array.isArray(ctx.lastMovedCards) ? ctx.lastMovedCards : []),
+    ];
+    if (moved.length === 1) {
+      const power = readFiniteStat((moved[0] as any)?.power ?? (moved[0] as any)?.card?.power);
+      if (power !== null) return power;
+    }
+
+    return null;
   }
 
   if (qty.kind === 'reference_amount') {
@@ -135,6 +196,31 @@ export function resolveOracleQuantity(
       return Number.isFinite(xValue) ? Math.max(0, Math.floor(xValue) + 1) : null;
     }
 
+    if (/^that spell(?:'|\u2019)?s mana value$/i.test(normalized)) {
+      const spellMv = Number((ctx as any).lastCastSpellManaValue ?? (ctx as any).targetSpellManaValue);
+      if (Number.isFinite(spellMv)) return Math.max(0, spellMv);
+      const spellId = String(ctx.selectorContext?.targetSpellId || '').trim();
+      if (spellId) {
+        const stackSpell = ((state as any).stack || []).find(
+          (entry: any) => String(entry?.id || '').trim() === spellId
+        );
+        const mv = getCardManaValue(stackSpell);
+        if (mv !== null) return mv;
+      }
+    }
+
+    if (/^cards equal to its power$/i.test(normalized)) {
+      const sourcePermanent = getSourceBattlefieldPermanent(state, ctx);
+      if (sourcePermanent) {
+        const power = readPermanentPower(sourcePermanent);
+        if (power !== null) return Math.max(0, power);
+      }
+    }
+
+    if (/^equal to that card(?:'|\u2019)?s (?:mana value|power|toughness)$/i.test(normalized)) {
+      return evaluateWhereExpr(normalized.replace(/^equal to /i, ''));
+    }
+
     const evaluated = evaluateWhereExpr(normalized);
     if (evaluated !== null) return evaluated;
 
@@ -143,19 +229,83 @@ export function resolveOracleQuantity(
   }
 
   if (qty.kind === 'object_stat') {
-    const sacrificed = Array.isArray(runtime?.lastSacrificedPermanents) ? runtime.lastSacrificedPermanents : [];
-    if (sacrificed.length === 1 && (qty.subject === 'that_creature' || qty.subject === 'the_sacrificed_creature')) {
-      const sacrificedAmount = readObjectStat(sacrificed[0], qty.stat);
-      if (sacrificedAmount !== null && Number.isFinite(sacrificedAmount)) {
-        return Math.max(0, sacrificedAmount);
+    const multiplier = Number.isFinite(Number((qty as any).multiplier)) ? Math.max(0, Number((qty as any).multiplier)) : 1;
+    const readStat = (entry: any): number | null => {
+      const value = readObjectStat(entry, qty.stat);
+      return value === null ? null : Math.max(0, value * multiplier);
+    };
+
+    const contextualCards = [
+      ...(Array.isArray(runtime?.lastMovedCards) ? runtime.lastMovedCards : []),
+      ...(Array.isArray(runtime?.lastExiledCards) ? runtime.lastExiledCards : []),
+      ...(Array.isArray(runtime?.lastDiscardedCards) ? runtime.lastDiscardedCards : []),
+      ...(Array.isArray(ctx.lastMovedCards) ? ctx.lastMovedCards : []),
+      ...(Array.isArray(ctx.lastExiledCards) ? ctx.lastExiledCards : []),
+      ...(Array.isArray((ctx as any).lastDiscardedCards) ? (ctx as any).lastDiscardedCards : []),
+    ];
+    if (
+      contextualCards.length > 0 &&
+      (qty.subject === 'it' || qty.subject === 'that_card' || qty.subject === 'that_creature')
+    ) {
+      const contextualAmount = readStat(contextualCards[0]);
+      if (contextualAmount !== null) return contextualAmount;
+    }
+
+    if (qty.stat === 'mana_value') {
+      const spellMv = Number((ctx as any).lastCastSpellManaValue ?? (ctx as any).targetSpellManaValue);
+      if (Number.isFinite(spellMv)) return Math.max(0, spellMv);
+    }
+
+    const sacrificed = readSacrificedPermanents(runtime, ctx);
+    if (
+      sacrificed.length === 1 &&
+      (qty.subject === 'that_creature' ||
+        qty.subject === 'the_sacrificed_creature' ||
+        qty.subject === 'the_sacrificed_permanent')
+    ) {
+      const sacrificedAmount = readStat(sacrificed[0]);
+      if (sacrificedAmount !== null) return sacrificedAmount;
+    }
+
+    if (qty.subject === 'this_creature' || qty.subject === 'this_permanent') {
+      const sourcePermanent = getSourceBattlefieldPermanent(state, ctx);
+      if (sourcePermanent) {
+        const statAmount = readStat(sourcePermanent);
+        if (statAmount !== null) return statAmount;
+      }
+    }
+
+    if (qty.subject === 'target_creature_you_control') {
+      const targetCreature = resolveTargetCreatureYouControl(state, controllerId, ctx);
+      if (targetCreature) {
+        const targetAmount = readStat(targetCreature);
+        if (targetAmount !== null) return targetAmount;
       }
     }
 
     if (qty.subject === 'it' || qty.subject === 'that_creature' || qty.subject === 'source') {
       const sourcePermanent = getSourceBattlefieldPermanent(state, ctx);
       if (sourcePermanent) {
-        const statAmount = readObjectStat(sourcePermanent, qty.stat);
-        if (statAmount !== null && Number.isFinite(statAmount)) return Math.max(0, statAmount);
+        const statAmount = readStat(sourcePermanent);
+        if (statAmount !== null) return statAmount;
+      }
+
+      const triggeredId = String(
+        ctx.targetCreatureId ||
+          ctx.targetPermanentId ||
+          ctx.selectorContext?.targetCreatureId ||
+          ctx.selectorContext?.targetPermanentId ||
+          ''
+      ).trim();
+      const sourceId = String(ctx.sourceId || '').trim();
+      if (triggeredId && triggeredId !== sourceId) {
+        const triggered = ((state.battlefield || []) as any[]).find(
+          (entry) => String(entry?.id || '').trim() === triggeredId
+        );
+        if (triggered) {
+          const triggeredAmount = readStat(triggered);
+          if (triggeredAmount !== null) return triggeredAmount;
+        }
       }
     }
     return null;
@@ -169,6 +319,21 @@ export function resolveOracleQuantity(
       .map(readPermanentPower)
       .filter((value): value is number => value !== null);
     return powers.length > 0 ? Math.max(0, ...powers) : 0;
+  }
+
+  if (qty.kind === 'reveal_until_land') {
+    const targetPlayerId = (ctx.selectorContext?.targetPlayerId ||
+      ctx.selectorContext?.targetOpponentId) as PlayerID | undefined;
+    if (targetPlayerId) {
+      return resolveUnknownMillUntilAmountForPlayer(state, targetPlayerId, qty);
+    }
+    for (const player of state.players || []) {
+      const playerId = String((player as any)?.id || '').trim() as PlayerID;
+      if (!playerId) continue;
+      const resolved = resolveUnknownMillUntilAmountForPlayer(state, playerId, qty);
+      if (resolved !== null) return resolved;
+    }
+    return null;
   }
 
   if (qty.kind === 'unknown') {
